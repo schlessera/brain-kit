@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PrincipalSummary } from "../../lib/api-client.js";
-import { useBrainApi } from "../../root-context.js";
+import { useBrainApi, useBrainUiRoot } from "../../root-context.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 import { PrincipalList } from "./principal-list.js";
@@ -20,6 +20,7 @@ function displayLabel(label: string): string {
  */
 export function DevicesAgentsTab({ active }: { active: boolean }) {
   const api = useBrainApi();
+  const root = useBrainUiRoot();
   const lifetime = useRef(0);
   const request = useRef(0);
   const [principals, setPrincipals] = useState<PrincipalSummary[]>([]);
@@ -104,7 +105,12 @@ export function DevicesAgentsTab({ active }: { active: boolean }) {
       await api.principalRevoke(principal.id);
       if (generation !== lifetime.current) return;
       setPrincipals((rows) => rows.filter((row) => row.id !== principal.id));
-      if (principal.is_own) window.location.reload();
+      if (principal.is_own) {
+        // This device's principal is gone: its queued answers must not
+        // replay under whoever signs in next (#910).
+        await root.answers.logout();
+        window.location.reload();
+      }
     } catch (err) {
       if (generation !== lifetime.current) return;
       setError(err instanceof Error ? err.message : "Could not revoke access");

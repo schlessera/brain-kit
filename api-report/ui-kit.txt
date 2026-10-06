@@ -350,6 +350,8 @@ signatures (every public export and the types it is made of)
         state?: AskUserState;
         multi?: boolean;
         prompt?: string;
+        recordHead?: string;
+        recordIcon?: IconName;
         question?: string;
         tag?: string;
         tone?: "teal" | "amber" | "purple";
@@ -376,6 +378,8 @@ signatures (every public export and the types it is made of)
         id?: string;
         state?: "pending" | "answered" | "dismissed";
         prompt?: string;
+        recordHead?: string;
+        recordIcon?: IconName;
         question: string;
         nodes: FormNode[];
         answers?: FormAnswers;
@@ -399,6 +403,8 @@ signatures (every public export and the types it is made of)
         questions: AskUserGroupQuestion[];
         state?: "pending" | "answered" | "dismissed";
         prompt?: string;
+        recordHead?: string;
+        recordIcon?: IconName;
         answerMeta?: string;
         lapsedNote?: string;
         onSubmit?: (answers: Record<string, string>, annotations?: Record<string, {
@@ -429,6 +435,8 @@ signatures (every public export and the types it is made of)
     export interface AskUserListCardProps {
         state?: AskUserListState;
         prompt?: string;
+        recordHead?: string;
+        recordIcon?: IconName;
         question: string;
         scale: AskUserListOption[];
         items: AskUserListItem[];
@@ -482,6 +490,8 @@ signatures (every public export and the types it is made of)
         id?: string;
         state?: "pending" | "answered" | "dismissed";
         prompt?: string;
+        recordHead?: string;
+        recordIcon?: IconName;
         question: string;
         items: AskUserListItem[];
         cutoff?: number;

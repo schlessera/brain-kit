@@ -225,6 +225,37 @@ export interface PendingAskUserForm {
   reject: (err: Error) => void;
 }
 
+/** The four ask kinds, which share one request-id space. */
+export type AskKind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
+
+/**
+ * What became of an ask request that is no longer pending (#910). Kept so a
+ * repeated or late answer, or a status query after a lost receipt, gets the
+ * host's actual outcome instead of silence.
+ */
+export interface AskOutcome {
+  requestId: string;
+  sessionId: string | null;
+  turnId: string;
+  state: "accepted" | "closed";
+  /** On `closed`: the turn ended, or the question was dismissed. */
+  reason?: "ended" | "cancelled";
+  /** On `accepted`: the submission that settled it, and who sent it. */
+  submissionId?: string;
+  principalId?: string;
+  at: number;
+}
+
+/**
+ * How long, and how many, ask outcomes the host remembers. 24 hours is the
+ * client's maximum replay age (Queue A), so any answer a client may still
+ * replay finds its outcome. The count bound keeps a host that asks a great
+ * deal from growing this without limit; the oldest outcome goes first, and a
+ * forgotten request answers `not_recognized`, which stops replay just the same.
+ */
+export const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
+export const ASK_OUTCOME_MAX = 1024;
+
 export interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
@@ -281,9 +312,62 @@ export class TurnCoordinator {
   readonly handoffs = new Map<string, { sessionId?: string }>();
   /** Running handoff preparation summaries, by handoff key (#61). */
   readonly handoffPreparations = new Map<string, { abort: AbortController; owner: unknown }>();
+  /** Settled and closed ask requests, by request id (see AskOutcome). */
+  readonly askOutcomes = new Map<string, AskOutcome>();
 
   /** Every authorization context with at least one live owner or async lease. */
   readonly authorizationRegistry = new Map<AuthorizationContext, number>();
+
+  /** Remember what became of an ask request, within the TTL/count bounds. */
+  recordAskOutcome(outcome: AskOutcome): void {
+    const cutoff = outcome.at - ASK_OUTCOME_TTL_MS;
+    for (const [id, existing] of this.askOutcomes) {
+      if (existing.at > cutoff && this.askOutcomes.size < ASK_OUTCOME_MAX) break;
+      this.askOutcomes.delete(id);
+    }
+    // Re-inserting moves the entry to the end, so map order stays age order.
+    this.askOutcomes.delete(outcome.requestId);
+    this.askOutcomes.set(outcome.requestId, outcome);
+  }
+
+  /** The outcome for a request id, unless it has aged out. */
+  askOutcome(requestId: string, now = Date.now()): AskOutcome | undefined {
+    const outcome = this.askOutcomes.get(requestId);
+    if (!outcome) return undefined;
+    if (outcome.at <= now - ASK_OUTCOME_TTL_MS) {
+      this.askOutcomes.delete(requestId);
+      return undefined;
+    }
+    return outcome;
+  }
+
+  private closeAsk(p: { turn: RunningTurn; turnId: string; requestId: string }, reason: "ended" | "cancelled"): void {
+    this.recordAskOutcome({
+      requestId: p.requestId,
+      sessionId: p.turn.sessionId,
+      turnId: p.turnId,
+      state: "closed",
+      reason,
+      at: Date.now(),
+    });
+  }
+
+  /**
+   * Remove a pending ask of any kind and record why. Used by dismissal; a
+   * turn ending goes through drainPendingForTurn.
+   */
+  cancelAsk(requestId: string): void {
+    const p =
+      this.pendingAskUser.get(requestId) ??
+      this.pendingAskUserList.get(requestId) ??
+      this.pendingAskUserRank.get(requestId) ??
+      this.pendingAskUserForm.get(requestId);
+    this.pendingAskUser.delete(requestId);
+    this.pendingAskUserList.delete(requestId);
+    this.pendingAskUserRank.delete(requestId);
+    this.pendingAskUserForm.delete(requestId);
+    if (p) this.closeAsk(p, "cancelled");
+  }
 
   private locationCounter = 0;
   private maskCounter = 0;
@@ -439,21 +523,25 @@ export class TurnCoordinator {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.pendingAskUser.delete(id);
+      this.closeAsk(p, "ended");
     }
     for (const [id, p] of this.pendingAskUserList) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.pendingAskUserList.delete(id);
+      this.closeAsk(p, "ended");
     }
     for (const [id, p] of this.pendingAskUserRank) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.pendingAskUserRank.delete(id);
+      this.closeAsk(p, "ended");
     }
     for (const [id, p] of this.pendingAskUserForm) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.pendingAskUserForm.delete(id);
+      this.closeAsk(p, "ended");
     }
     this.drainClientBoundForTurn(turn, reason);
   }
@@ -527,6 +615,7 @@ export class TurnCoordinator {
     this.pendingAskUserList.clear();
     this.pendingAskUserRank.clear();
     this.pendingAskUserForm.clear();
+    this.askOutcomes.clear();
     this.pendingLocation.clear();
     for (const preparation of this.handoffPreparations.values()) preparation.abort.abort();
     this.handoffPreparations.clear();

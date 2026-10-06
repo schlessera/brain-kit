@@ -81,6 +81,7 @@ const ANSWERS: Record<AskKind, { frame: AskAnswer; result: unknown }> = {
     frame: {
       type: "ask_user_response",
       requestId: "same",
+      submissionId: "sub-14",
       answers: { "Which?": "A" },
     },
     result: { answers: { "Which?": "A" }, annotations: undefined },
@@ -89,6 +90,7 @@ const ANSWERS: Record<AskKind, { frame: AskAnswer; result: unknown }> = {
     frame: {
       type: "ask_user_list_response",
       requestId: "same",
+      submissionId: "sub-15",
       answers: { a: "A" },
     },
     result: { answers: { a: "A" } },
@@ -97,6 +99,7 @@ const ANSWERS: Record<AskKind, { frame: AskAnswer; result: unknown }> = {
     frame: {
       type: "ask_user_rank_response",
       requestId: "same",
+      submissionId: "sub-16",
       order: ["b", "a"],
       unchanged: false,
     },
@@ -106,6 +109,7 @@ const ANSWERS: Record<AskKind, { frame: AskAnswer; result: unknown }> = {
     frame: {
       type: "ask_user_form_response",
       requestId: "same",
+      submissionId: "sub-17",
       answers: { choice: { value: "A" } },
     },
     result: { answers: { choice: { value: "A" } } },

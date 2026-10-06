@@ -139,6 +139,8 @@ const SAMPLES: ServerMessage[] = [
     delivery: "pending", recognized: "count the oxen", submitted: "Count the oxen",
   },
   { type: "conversation_permission", conversationId: "c1", epoch: 1, sessionId: "s1", turnId: "turn-1", toolUseId: "t1", toolName: "Write", announce: false },
+  { type: "ask_answer_receipt", sessionId: "s1", turnId: "t1", requestId: "toolu_1", submissionId: "sub-1", state: "closed", reason: "ended" },
+  { type: "pong", probeId: "probe-1" },
 ];
 
 describe("coverage", () => {

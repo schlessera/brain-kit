@@ -438,7 +438,7 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
     mcpServers: {
       // A SECOND named divergence, and it is material to a tool-search claim:
       // production's `createBridgeMcpServer` registers up to five tools on
-      // this server (`ask-user-tool.ts:95-108`) and this registers one. They
+      // this server (`ask-user-tool.ts:97-110`) and this registers one. They
       // are deferred together, so a real deployment's `ToolSearch` returns a
       // roster this one never shows, and a model weighing whether to spend
       // the round-trip is weighing a different payoff. It cannot move the

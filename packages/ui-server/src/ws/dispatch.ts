@@ -10,6 +10,8 @@ import { sendSessionHistory } from "./history.js";
 import { validateAttachments } from "./attachments.js";
 import { handleChatMessage } from "./run-session.js";
 import { cancelHandoffPreparation, handoffStatus, prepareHandoff, startHandoff } from "./handoff.js";
+import { handleAskAnswer, handleAskAnswerStatus } from "./ask-answers.js";
+import { resendPendingAsks } from "./resend.js";
 import type { WsHost } from "./host.js";
 
 /** Per-connection negotiation state, owned by the socket handler. */
@@ -259,52 +261,24 @@ export async function handleClientMessage(
       return;
     }
 
-    case "ask_user_response": {
-      const pending = coordinator.pendingAskUser.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingAskUser.delete(msg.requestId);
-        pending.turn.recorder?.recordAskUserResponse(
-          connection.authorization.principalId
-        );
-        pending.resolve({ answers: msg.answers, annotations: msg.annotations });
-      }
-      break;
-    }
-
-    case "ask_user_list_response": {
-      const pending = coordinator.pendingAskUserList.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingAskUserList.delete(msg.requestId);
-        pending.turn.recorder?.recordAskUserResponse(
-          connection.authorization.principalId
-        );
-        pending.resolve({ answers: msg.answers, ...(msg.notes ? { notes: msg.notes } : {}) });
-      }
-      break;
-    }
-
-    case "ask_user_rank_response": {
-      const pending = coordinator.pendingAskUserRank.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingAskUserRank.delete(msg.requestId);
-        pending.turn.recorder?.recordAskUserResponse(
-          connection.authorization.principalId
-        );
-        pending.resolve({ order: msg.order, unchanged: msg.unchanged });
-      }
-      break;
-    }
-
+    case "ask_user_response":
+    case "ask_user_list_response":
+    case "ask_user_rank_response":
     case "ask_user_form_response": {
-      const pending = coordinator.pendingAskUserForm.get(msg.requestId);
-      if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingAskUserForm.delete(msg.requestId);
-        pending.turn.recorder?.recordAskUserResponse(
-          connection.authorization.principalId
-        );
-        pending.resolve({ answers: msg.answers });
-      }
+      handleAskAnswer(host, ws, msg, connection.authorization.principalId);
       break;
+    }
+
+    case "ask_answer_status": {
+      handleAskAnswerStatus(host, ws, msg, connection.authorization.principalId);
+      return;
+    }
+
+    case "ping": {
+      // Liveness (rev 5): answered at once, to this socket only. Anything the
+      // client receives proves the path is open; the pong correlates it.
+      host.sendMessage(ws, { type: "pong", probeId: msg.probeId });
+      return;
     }
 
     case "ask_user_cancel": {
@@ -315,10 +289,9 @@ export async function handleClientMessage(
         coordinator.pendingAskUserRank.get(msg.requestId) ??
         coordinator.pendingAskUserForm.get(msg.requestId);
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
-        coordinator.pendingAskUser.delete(msg.requestId);
-        coordinator.pendingAskUserList.delete(msg.requestId);
-        coordinator.pendingAskUserRank.delete(msg.requestId);
-        coordinator.pendingAskUserForm.delete(msg.requestId);
+        // Recorded as `cancelled`, so a queued answer arriving later is told
+        // the question was dismissed instead of meeting silence.
+        coordinator.cancelAsk(msg.requestId);
         pending.turn.recorder?.recordCancellation(
           connection.authorization.principalId,
           "ask_user"
@@ -622,6 +595,12 @@ export async function handleClientMessage(
         await host.failureReplay.wait(msg.sessionId);
         if (!connection.authorization.valid) return;
         sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
+        // The history just REPLACED this client's transcript, and with it any
+        // live card for a question still waiting in this session. Hand those
+        // questions over again, after the history, as a reconnect would
+        // (#910). The client keys cards by request id, so a card the history
+        // already rebuilt is updated rather than drawn twice.
+        resendPendingAsks(host, ws, msg.sessionId);
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming
         // message mid-turn. Mirror the snapshot-on-connect status instead.

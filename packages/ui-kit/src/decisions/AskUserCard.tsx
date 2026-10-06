@@ -92,6 +92,14 @@ export interface AskUserCardProps {
   multi?: boolean;
   /** The uppercase mono line above the question. Defaults per state. */
   prompt?: string;
+  /**
+   * The answered (or typed) head, replaced. For an answer that is recorded on
+   * the card but not yet confirmed by its host, which must not read
+   * "Answered" (#910).
+   */
+  recordHead?: string;
+  /** The answered head's icon, replaced alongside `recordHead`. */
+  recordIcon?: IconName;
   question?: string;
   /** A soft caps chip between the prompt and the question. */
   tag?: string;
@@ -192,7 +200,7 @@ export function AskUserCard(p: AskUserCardProps) {
       : multi
         ? `you chose ${answers.length} · 2m ago`
         : "you chose this · 2m ago");
-  const prompt = p.prompt ?? (answered && multi ? `Answered · ${answers.length} chosen` : PROMPTS[state]);
+  const prompt = (answered || typed) && p.recordHead ? p.recordHead : p.prompt ?? (answered && multi ? `Answered · ${answers.length} chosen` : PROMPTS[state]);
   const lapsedNote = lapsed ? (p.lapsedNote ?? "the run ended before you answered · nothing was filed") : null;
   // The field stands IN PLACE OF the Submit row (the README's ruling; the
   // DC's renderVals draws both, the ruling wins): Enter is the submit.
@@ -264,7 +272,7 @@ export function AskUserCard(p: AskUserCardProps) {
   return (
     <div style={box}>
       <div style={head}>
-        <Icon icon={HEAD_ICONS[state]} size={13} color={hue} />
+        <Icon icon={(answered || typed) && p.recordIcon ? p.recordIcon : HEAD_ICONS[state]} size={13} color={hue} />
         {prompt}
       </div>
       {p.tag ? (

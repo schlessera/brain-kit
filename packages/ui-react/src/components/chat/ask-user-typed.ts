@@ -3,15 +3,17 @@
  * pending is the answer to that question, not a new message.
  *
  * The exchange is submitted through the same path the card's Submit uses —
- * the store records the answers and the socket carries `ask_user_response` —
- * with one difference: the exchange is marked `typed`, so the card quotes the
- * text it took instead of showing a chosen option. Dropping the card would
+ * the answer queue (#910), which records the answer and carries it to the
+ * host — with one difference: the answer is marked `typed`, so the card
+ * quotes the text it took instead of showing a chosen option. Dropping the card would
  * leave the transcript claiming the question was never answered; leaving it
  * pending would ask twice.
  */
 
-import type { AskUserQuestion, ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import type { AskUserExchange, ChatKey, ChatState } from "../../stores/chat-state.js";
+import type { SubmitAnswer } from "../../lib/answer-delivery/manager.js";
+import { isRefusedAdmission } from "../../lib/answer-delivery/types.js";
 
 /** A request the user has neither answered nor dismissed. */
 export function isPendingExchange(
@@ -38,25 +40,31 @@ export function questionForTypedAnswer(exchange: AskUserExchange): AskUserQuesti
  * send it as a chat message — and `false` when nothing was pending.
  */
 export function takeComposerTextAsAnswer(
-  chat: Pick<ChatState, "submitAskUserAnswers"> & {
-    buffers: ChatState["buffers"];
-    draft: ChatState["draft"];
-  },
+  chat: Pick<ChatState, "buffers" | "draft" | "deliveries">,
   key: ChatKey,
   text: string,
-  send: (message: ClientMessage) => void
+  submit: (answer: SubmitAnswer) => void
 ): boolean {
   const buffer = key === null ? chat.draft : chat.buffers[key];
   const exchange = buffer?.askUser;
   if (!isPendingExchange(exchange)) return false;
+  // Already submitted and on its way (still being saved, say): this text is
+  // not a second answer to it.
+  const delivery = chat.deliveries[exchange.requestId];
+  if (delivery && !isRefusedAdmission(delivery.state)) return false;
   const question = questionForTypedAnswer(exchange);
   if (!question) return false;
   const answer = text.trim();
   if (!answer) return false;
 
-  const answers = { [question.question]: answer };
-  chat.submitAskUserAnswers(key, exchange.requestId, answers, undefined, true);
-  send({ type: "ask_user_response", requestId: exchange.requestId, answers });
+  submit({
+    requestId: exchange.requestId,
+    sessionId: key,
+    ...(exchange.turnId ? { turnId: exchange.turnId } : {}),
+    payload: { kind: "ask_user", answers: { [question.question]: answer }, typed: true },
+    // The writer is in the composer and stays there.
+    focus: false,
+  });
   return true;
 }
 

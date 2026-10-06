@@ -19,6 +19,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../components/chat/stats/compose-stats.js";
 import type { ProviderState } from "./provider-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
+import type { AnswerDelivery } from "../lib/answer-delivery/types.js";
 
 export type { MessagePart };
 
@@ -147,6 +148,11 @@ export interface ToolCall {
 
 export interface AskUserExchange {
   requestId: string;
+  /**
+   * The host turn that raised the request, from the request frame. A card
+   * rebuilt from history has none until the host re-delivers the request.
+   */
+  turnId?: string;
   /** The `ask_user` questions; empty for an `ask_user_list` exchange. */
   questions: AskUserQuestion[];
   /**
@@ -184,16 +190,51 @@ export interface AskUserExchange {
   answeredAt?: number;
 }
 
+/** The exchange has an outcome: answered (in any of the four shapes) or dismissed. */
+export function isSettledExchange(exchange: AskUserExchange): boolean {
+  return !!(exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled);
+}
+
 /**
  * Open an ask exchange: attached to the streaming assistant message, where the
  * transcript draws it, and held as the session's pending exchange. `ask_user`
  * and `ask_user_list` share the slot, so the composer, the suggestions row and
  * the tool-result cleanup treat either the same way.
+ *
+ * One request is one card (#910). The host re-delivers a pending request on
+ * every reconnect and after `session_resume`, and history may already have
+ * rebuilt it under the same id, so a request already in the buffer is
+ * UPDATED, never appended again:
+ *
+ * - a settled card stays settled: a late or replayed request frame cannot
+ *   revive an answered or dismissed question;
+ * - a pending card keeps its payload and whatever the user is drafting in it,
+ *   and learns its turn if it did not know it;
+ * - a request claiming a different turn than the card already holds is a
+ *   contradiction, not an update, and is ignored. The host's receipt is what
+ *   decides which binding is real.
  */
 function addExchange(
   chat: SessionChat,
   exchange: AskUserExchange
-): Pick<SessionChat, "messages" | "askUser"> {
+): Partial<Pick<SessionChat, "messages" | "askUser">> {
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const message = chat.messages[i]!;
+    const index = message.askUserExchanges?.findIndex((e) => e.requestId === exchange.requestId) ?? -1;
+    if (index === -1) continue;
+    const existing = message.askUserExchanges![index]!;
+    if (isSettledExchange(existing)) return {};
+    if (existing.turnId && exchange.turnId && existing.turnId !== exchange.turnId) return {};
+    const merged: AskUserExchange =
+      existing.turnId || !exchange.turnId ? existing : { ...existing, turnId: exchange.turnId };
+    const msgs = [...chat.messages];
+    const exchanges = [...message.askUserExchanges!];
+    exchanges[index] = merged;
+    msgs[i] = { ...message, askUserExchanges: exchanges };
+    const slot = chat.askUser;
+    const askUser = !slot || slot.requestId === merged.requestId || isSettledExchange(slot) ? merged : slot;
+    return { messages: msgs, askUser };
+  }
   const msgs = [...chat.messages];
   const lastIdx = msgs.length - 1;
   const last = msgs[lastIdx];
@@ -339,11 +380,11 @@ export interface ChatState {
   ) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
-  setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[]) => void;
+  setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
-  setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec) => void;
-  setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec) => void;
-  setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec) => void;
+  setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
+  setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec, turnId?: string) => void;
+  setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec, turnId?: string) => void;
   submitAskUserFormAnswers: (key: ChatKey, requestId: string, formAnswers: AskUserFormAnswers, visibleNodes: string[]) => void;
   submitAskUserRankOrder: (key: ChatKey, requestId: string, order: string[], unchanged: boolean) => void;
   submitAskUserListAnswers: (
@@ -361,7 +402,20 @@ export interface ChatState {
     typed?: boolean
   ) => void;
   cancelAskUser: (key: ChatKey, requestId: string) => void;
+  /**
+   * Make a submitted exchange editable again: its answer is cleared and it is
+   * the buffer's pending exchange once more. Only for an answer the host has
+   * confirmed it did not take (#910).
+   */
+  reopenAskExchange: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
+  /**
+   * Delivery state of submitted ask answers, by request id (#910). Held
+   * outside the transcript buffers: an answer queued in one session must
+   * keep its state while another is in view, and survive a history replace.
+   */
+  deliveries: Record<string, AnswerDelivery>;
+  setDelivery: (requestId: string, delivery: AnswerDelivery | null) => void;
   finishAssistantMessage: (key: ChatKey) => void;
   /**
    * End a turn on `failure` (#575): the turn's assistant message — the one
@@ -427,6 +481,27 @@ export interface ChatState {
   requestComposerInsert: (text: string) => void;
   /** Clear the request the composer has applied; a newer one is kept. */
   clearComposerInsert: (seq: number) => void;
+}
+
+/**
+ * History rebuilds an exchange from its tool call, which names no turn. When
+ * the buffer it replaces had already learned the turn from the live request,
+ * keep it: the answer must be sent with that binding.
+ */
+function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessage[] {
+  const turns = new Map<string, string>();
+  for (const m of previous) for (const e of m.askUserExchanges ?? []) if (e.turnId) turns.set(e.requestId, e.turnId);
+  if (turns.size === 0) return next;
+  return next.map((m) =>
+    m.askUserExchanges?.some((e) => !e.turnId && turns.has(e.requestId))
+      ? {
+          ...m,
+          askUserExchanges: m.askUserExchanges.map((e) =>
+            !e.turnId && turns.has(e.requestId) ? { ...e, turnId: turns.get(e.requestId)! } : e
+          ),
+        }
+      : m
+  );
 }
 
 function emptyChat(): SessionChat {
@@ -890,14 +965,14 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           ),
         })),
 
-      setAskUserRequest: (key, requestId, questions) =>
-        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions })),
+      setAskUserRequest: (key, requestId, questions, turnId) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions, ...(turnId ? { turnId } : {}) })),
 
-      setAskUserListRequest: (key, requestId, list) =>
-        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], list })),
+      setAskUserListRequest: (key, requestId, list, turnId) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], list, ...(turnId ? { turnId } : {}) })),
 
-      setAskUserRankRequest: (key, requestId, rank) =>
-        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], rank })),
+      setAskUserRankRequest: (key, requestId, rank, turnId) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], rank, ...(turnId ? { turnId } : {}) })),
 
       submitAskUserRankOrder: (key, requestId, order, unchanged) =>
         mutateBuffer(key, (chat) => {
@@ -916,8 +991,8 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           return { messages: msgs, askUser };
         }),
 
-      setAskUserFormRequest: (key, requestId, form) =>
-        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], form })),
+      setAskUserFormRequest: (key, requestId, form, turnId) =>
+        mutateBuffer(key, (chat) => addExchange(chat, { requestId, questions: [], form, ...(turnId ? { turnId } : {}) })),
 
       submitAskUserFormAnswers: (key, requestId, formAnswers, visibleNodes) =>
         mutateBuffer(key, (chat) => {
@@ -982,6 +1057,37 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           const askUser =
             chat.askUser?.requestId === requestId ? update(chat.askUser) : chat.askUser;
           return { messages: msgs, askUser };
+        }),
+
+      reopenAskExchange: (key, requestId) =>
+        mutateBuffer(key, (chat) => {
+          let reopened: AskUserExchange | null = null;
+          const msgs = chat.messages.map((m) => {
+            if (!m.askUserExchanges?.some((e) => e.requestId === requestId)) return m;
+            return {
+              ...m,
+              askUserExchanges: m.askUserExchanges.map((e) => {
+                if (e.requestId !== requestId) return e;
+                const {
+                  answers: _a, annotations: _n, notes: _o, order: _r, unchanged: _u,
+                  formAnswers: _f, visibleNodes: _v, typed: _t, answeredAt: _w, cancelled: _c,
+                  ...rest
+                } = e;
+                reopened = rest;
+                return rest;
+              }),
+            };
+          });
+          return reopened ? { messages: msgs, askUser: reopened } : {};
+        }),
+
+      deliveries: {},
+      setDelivery: (requestId, delivery) =>
+        set((state) => {
+          const deliveries = { ...state.deliveries };
+          if (delivery) deliveries[requestId] = delivery;
+          else delete deliveries[requestId];
+          return { deliveries };
         }),
 
       clearAskUser: (key) => mutateBuffer(key, () => ({ askUser: null })),
@@ -1097,7 +1203,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           if (existing) revokeAttachmentUrls(existing.messages);
           const buffers = {
             ...state.buffers,
-            [key]: { ...emptyChat(), messages },
+            [key]: { ...emptyChat(), messages: existing ? withKnownTurns(messages, existing.messages) : messages },
           };
           return { buffers: evictStale(buffers, state.activeSessionId) };
         }),

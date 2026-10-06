@@ -326,7 +326,13 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     if (
       text &&
       !hasAttachments &&
-      takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, send)
+      takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
+        // An answer the queue could not admit lived only in the composer:
+        // put it back there rather than let it vanish with the draft.
+        void root.answers.submit(answer).then((result) => {
+          if (result === "refused") root.stores.chat.getState().requestComposerInsert(text);
+        })
+      )
     ) {
       setInput("");
       clearReview();

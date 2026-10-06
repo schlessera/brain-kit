@@ -1,73 +1,13 @@
+import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
-import { approvalRequestFrame, withTurnScope } from "./frames.js";
-import type { WSContext as WSContextType } from "./clients.js";
+import { withTurnScope } from "./frames.js";
+import { resendPendingInteractive } from "./resend.js";
 import type { Principal } from "../db/principals.js";
 import type { AppEnv } from "../app-env.js";
 
-/**
- * Re-send every pending approval and ask-user card to a client that just
- * connected. These survive disconnects (see drainClientBoundForTurn) precisely
- * so this re-delivery can happen: a phone that dropped its socket at screen
- * lock reconnects and finds the card waiting instead of a dead turn. The
- * frames carry their original turn scope, so answering them resolves the
- * correct turn's promise through the normal dispatch path.
- */
-function resendPendingInteractive(host: WsHost, ws: WSContextType): void {
-  const { coordinator } = host;
-  for (const p of coordinator.pendingApprovals.values()) {
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        approvalRequestFrame(p.request, host.toolPermissions !== null),
-        p.turn,
-        p.turnId
-      )
-    );
-  }
-  for (const p of coordinator.pendingAskUser.values()) {
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        { type: "ask_user_request", requestId: p.requestId, questions: p.questions },
-        p.turn,
-        p.turnId
-      )
-    );
-  }
-  for (const p of coordinator.pendingAskUserList.values()) {
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        { type: "ask_user_list_request", requestId: p.requestId, ...p.request },
-        p.turn,
-        p.turnId
-      )
-    );
-  }
-  for (const p of coordinator.pendingAskUserRank.values()) {
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        { type: "ask_user_rank_request", requestId: p.requestId, ...p.request },
-        p.turn,
-        p.turnId
-      )
-    );
-  }
-  for (const p of coordinator.pendingAskUserForm.values()) {
-    host.sendMessage(
-      ws,
-      withTurnScope(
-        { type: "ask_user_form_request", requestId: p.requestId, ...p.request },
-        p.turn,
-        p.turnId
-      )
-    );
-  }
-}
 import { sendSessionHistory } from "./history.js";
 import { handleClientMessage, type ConnectionState } from "./dispatch.js";
 import { abortHandoffPreparations } from "./handoff.js";
@@ -75,6 +15,17 @@ import type { WsHost } from "./host.js";
 import type { WSContext } from "./clients.js";
 
 export { websocket };
+
+/**
+ * The opaque per-principal key a client files queued ask answers under
+ * (#910). A client must not replay an answer that one principal submitted
+ * over a connection another principal holds, and it cannot read its own
+ * principal from an httpOnly cookie. A one-way digest says "same principal or
+ * not" without handing the id itself to every page.
+ */
+export function answerQueueKey(principalId: string): string {
+  return createHash("sha256").update(`brain-ui-answer-queue\u0000${principalId}`).digest("base64url").slice(0, 22);
+}
 
 const CONNECTION_LIMIT_CLOSE_CODE = 4008;
 const CONNECTION_LIMIT_CLOSE_REASON = "Connection limit reached";
@@ -134,12 +85,17 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       host.sendMessage(ws, {
         type: "server_hello",
         protocolRev: PROTOCOL_REV,
+        principalKey: answerQueueKey(principal.id),
         capabilities: {
           multiSession: true,
           askUser: true,
           askUserList: true,
           askUserRank: true,
           askUserForm: true,
+          // Rev 5 (#910): ask answers need a submissionId and get a receipt;
+          // ping is answered with pong.
+          [ASK_RECEIPTS_CAPABILITY]: true,
+          [LIVENESS_CAPABILITY]: true,
           chatRequestAck: true,
           location: true,
           // Advertised only when this host records activity — a client on an

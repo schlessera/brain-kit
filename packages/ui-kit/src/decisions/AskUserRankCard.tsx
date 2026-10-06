@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type Key
 import type { AskUserListItem } from "./AskUserListCard.js";
 import { DecisionRowText } from "./DecisionRow.js";
 import { Button } from "../primitives/Button.js";
-import { Icon } from "../primitives/Icon.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
 import { InlineToast } from "../conversation/InlineToast.js";
 import { accent, color, font, token } from "../tokens.js";
 
@@ -11,6 +11,13 @@ export interface AskUserRankCardProps {
   id?: string;
   state?: "pending" | "answered" | "dismissed";
   prompt?: string;
+  /**
+   * The answered head, replaced. For an answer that is recorded on the card
+   * but not yet confirmed by its host, which must not read "Answered" (#910).
+   */
+  recordHead?: string;
+  /** The answered head's icon, replaced alongside `recordHead`. */
+  recordIcon?: IconName;
   question: string;
   items: AskUserListItem[];
   cutoff?: number;
@@ -231,8 +238,8 @@ export function RankList(p: RankListProps) {
       onPointerMove={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current.y = event.clientY; }}
       onPointerUp={(event) => { if (drag.current?.pointerId === event.pointerId) { drag.current.y = event.clientY; updateDrag(); drop(); } }}
       onPointerCancel={cancel} onLostPointerCapture={() => { if (drag.current) cancel(); }}>
-      {!embedded ? <div style={head} data-rank-head=""><Icon icon={state === "answered" ? "resolved" : state === "dismissed" ? "later" : "ask"} size={13} />
-        {state === "answered" ? `Answered · ${p.unchanged ? "Kept brain’s order" : p.cutoff ? `Top ${p.cutoff} chosen` : `Ranked ${p.items.length}`}` : p.prompt ?? (state === "dismissed" ? "Unanswered — the turn ended" : "Brain needs your input")}
+      {!embedded ? <div style={head} data-rank-head=""><Icon icon={state === "answered" ? p.recordIcon ?? "resolved" : state === "dismissed" ? "later" : "ask"} size={13} />
+        {state === "answered" ? p.recordHead ?? `Answered · ${p.unchanged ? "Kept brain’s order" : p.cutoff ? `Top ${p.cutoff} chosen` : `Ranked ${p.items.length}`}` : p.prompt ?? (state === "dismissed" ? "Unanswered — the turn ended" : "Brain needs your input")}
       </div> : null}
       {!embedded ? <p id={`${id}-question`} style={{ margin: "10px 0", font: `500 13px/1.5 ${font.body}`, color: color.ink, overflowWrap: "anywhere" }}>{p.question}</p> : null}
       {state === "dismissed" ? (

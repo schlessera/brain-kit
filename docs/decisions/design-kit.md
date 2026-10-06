@@ -4386,7 +4386,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:222`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:267`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4857,7 +4857,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:54-60`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:69-75`).
 There is no global key.
 
 ```ts
@@ -4901,7 +4901,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1169-1190`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1205-1226`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -4924,7 +4924,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:159-163`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:160-164`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5146,12 +5146,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:397-406`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:418-427`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:326-338`)
+  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:347-359`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears

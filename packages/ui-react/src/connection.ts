@@ -5,6 +5,7 @@ import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
+import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
 
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
@@ -12,6 +13,29 @@ export function createWebSocketClient(root: BrainUiServices) {
   let generation = 0;
   let owners = 0;
   let removeListeners: (() => void) | undefined;
+  /**
+   * The current connection's hello is known (received, or absent because the
+   * host predates it), so the answer queue can tell what this host supports.
+   */
+  let answersReady = false;
+
+  const answers = createAnswerDelivery({
+    chat: root.stores.chat,
+    storage: root.answerStorage,
+    tabs: root.answerTabs,
+    transport: {
+      send: (message) => sendClientMessage(message),
+      ready: () => answersReady && root.stores.connection.getState().wsStatus === "connected",
+      supportsReceipts: () => wsClient?.supportsAskReceipts ?? false,
+      principalKey: () => wsClient?.principalKey ?? null,
+      checkLiveness: () => wsClient?.checkLiveness(),
+    },
+    onCorruptRecord: () =>
+      root.stores.connection
+        .getState()
+        .reportError("ANSWER_QUEUE_CORRUPT", "A saved answer on this device could not be read and was discarded."),
+  });
+  void answers.start();
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -182,6 +206,17 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
+    handleFrame(msg);
+    // The first frame of a connection settles what its host supports: a hello,
+    // or anything else from a host too old to send one. Only then can queued
+    // answers be revalidated and replayed.
+    if (!answersReady && wsClient && wsClient.hello !== "pending") {
+      answersReady = true;
+      answers.connected();
+    }
+  }
+
+  function handleFrame(msg: ServerMessage) {
     // Every frame that is not itself a delta must see the transcript fully
     // applied: the demux below reads buffer state, and the store records parts in
     // arrival order, so a tool call landing ahead of buffered text would reorder
@@ -189,6 +224,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (msg.type !== "text_delta" && msg.type !== "thinking_delta") flushDeltas();
 
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
+    if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
@@ -415,6 +451,10 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleStatusChange(status: "connecting" | "connected" | "disconnected") {
     root.stores.connection.getState().setWsStatus(status);
+    if (status !== "connected" && answersReady) {
+      answersReady = false;
+      answers.disconnected();
+    }
 
     if (status === "connected") {
       root.stores.connection.getState().noteSocketOpen();
@@ -499,13 +539,38 @@ export function createWebSocketClient(root: BrainUiServices) {
       });
       wsClient = client;
       client.connect();
-      const reconnectNow = () => { if (current()) client.reconnectNow(); };
-      const onVisible = () => { if (document.visibilityState === "visible") reconnectNow(); };
-      if (typeof window !== "undefined") window.addEventListener("online", reconnectNow);
-      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
+      // Liveness B (#910): back in view, resumed, shown again or online means
+      // check now. A socket that reads OPEN after the page was hidden or
+      // frozen may be half-open; checkLiveness probes it, and reconnects one
+      // that is plainly gone. Periodic probes run only in the foreground.
+      const check = () => { if (current()) client.checkLiveness(); };
+      const foreground = () => typeof document === "undefined" || document.visibilityState === "visible";
+      const onVisibility = () => {
+        if (!current()) return;
+        client.setForeground(foreground());
+        if (foreground()) client.checkLiveness();
+      };
+      const onFreeze = () => { if (current()) client.setForeground(false); };
+      client.setForeground(foreground());
+      if (typeof window !== "undefined") {
+        window.addEventListener("online", check);
+        window.addEventListener("pageshow", check);
+      }
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", onVisibility);
+        document.addEventListener("resume", onVisibility);
+        document.addEventListener("freeze", onFreeze);
+      }
       removeListeners = () => {
-        if (typeof window !== "undefined") window.removeEventListener("online", reconnectNow);
-        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
+        if (typeof window !== "undefined") {
+          window.removeEventListener("online", check);
+          window.removeEventListener("pageshow", check);
+        }
+        if (typeof document !== "undefined") {
+          document.removeEventListener("visibilitychange", onVisibility);
+          document.removeEventListener("resume", onVisibility);
+          document.removeEventListener("freeze", onFreeze);
+        }
       };
     }
     let released = false;
@@ -535,6 +600,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     checkRetryDelivery,
     reconnectNow: reconnectWebSocketNow,
     handleServerMessage,
+    answers,
     flushChatDeltas,
     dispose() {
       if (disposed) return;
@@ -542,6 +608,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       for (const timer of retryTimers.values()) clearTimeout(timer);
       retryTimers.clear();
       disconnect();
+      answers.dispose();
       resyncSessionId = null;
       coldResumedSessionId = null;
     },

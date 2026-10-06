@@ -28,6 +28,7 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 import { DISMISSED_NOTE } from "./ask-user-card.js";
+import type { RecordHead } from "./answer-text.js";
 
 /** "you answered 7 · 3m ago", or without the time when none is known. */
 export function listAnsweredMeta(count: number, total: number, answeredAt: number | undefined): string {
@@ -56,6 +57,7 @@ export function listReaskMessage(
 }
 
 export function AskUserListExchangeCard({
+  record,
   requestId,
   list,
   answered,
@@ -66,6 +68,8 @@ export function AskUserListExchangeCard({
   onCancel,
   onReask,
 }: {
+  /** The record's head while its answer is unconfirmed (#910). */
+  record?: RecordHead;
   requestId: string;
   list: AskUserListSpec;
   answered?: Record<string, string>;
@@ -95,6 +99,8 @@ export function AskUserListExchangeCard({
       <KitAskUserListCard
         {...base}
         state="answered"
+        recordHead={record?.head}
+        recordIcon={record?.icon}
         answers={answered}
         itemNotes={notes}
         answerMeta={listAnsweredMeta(count, list.items.length, answeredAt)}
@@ -129,8 +135,8 @@ export function AskUserListExchangeCard({
             setReopened(false);
             return;
           }
-          // D37 §6: after a Submit the reader continues in the composer.
-          document.querySelector<HTMLElement>("textarea[data-composer]")?.focus();
+          // Focus moves to the answer's delivery status (#910, design §6),
+          // which supersedes D37 §6's move to the composer for an answer.
           onSubmit(requestId, answers, Object.keys(kept).length ? kept : undefined);
         }}
         // A reopened card's Dismiss closes it again locally: there is no

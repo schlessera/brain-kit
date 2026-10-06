@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEv
 import { edgeFor } from "../internal/roving.js";
 import { DecisionRowText } from "./DecisionRow.js";
 import { Button } from "../primitives/Button.js";
-import { Icon } from "../primitives/Icon.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
 import { InlineToast } from "../conversation/InlineToast.js";
 import { accent, color, font, token } from "../tokens.js";
 
@@ -81,6 +81,13 @@ export interface AskUserListCardProps {
   state?: AskUserListState;
   /** The uppercase line above the question. Defaults per state. */
   prompt?: string;
+  /**
+   * The answered head, replaced. For an answer that is recorded on the card
+   * but not yet confirmed by its host, which must not read "Answered" (#910).
+   */
+  recordHead?: string;
+  /** The answered head's icon, replaced alongside `recordHead`. */
+  recordIcon?: IconName;
   question: string;
   scale: AskUserListOption[];
   items: AskUserListItem[];
@@ -706,8 +713,8 @@ function Answered(p: AskUserListCardProps) {
   return (
     <div style={{ ...box(token("ask-border-teal")), padding: "13px 13px 12px" }} data-state="answered">
       <div style={headStyle(accent.teal.ink)}>
-        <Icon icon="resolved" size={13} color={accent.teal.ink} />
-        {p.prompt ?? `Answered · ${rated} of ${p.items.length}`}
+        <Icon icon={p.recordIcon ?? "resolved"} size={13} color={accent.teal.ink} />
+        {p.recordHead ?? p.prompt ?? `Answered · ${rated} of ${p.items.length}`}
       </div>
       <p style={{ ...questionStyle, marginTop: 10 }}>{p.question}</p>
       {collapse ? (

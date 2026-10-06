@@ -110,6 +110,8 @@ export function PasskeyTab({ active }: { active: boolean }) {
     const signal = lifetime.current.signal;
     try {
       await api.logout();
+      // No other principal may replay what this one submitted (#910).
+      await root.answers.logout();
     } finally {
       if (!signal.aborted) window.location.reload();
     }

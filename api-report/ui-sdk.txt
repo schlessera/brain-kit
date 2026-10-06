@@ -5,6 +5,8 @@
 
 export "." (./src/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_ANSWER_UPDATE_REQUIRED
+  ASK_RECEIPTS_CAPABILITY
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -24,6 +26,7 @@ export "." (./src/index.ts)
   type ActivitySpanOutcome
   type ActivityView
   type ApprovalChannel
+  type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
   type AskUserFormAnswers
@@ -56,6 +59,7 @@ export "." (./src/index.ts)
   type ChatSession
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
+  type ClientAskAnswerStatus
   type ClientAskUserCancel
   type ClientAskUserFormResponse
   type ClientAskUserListResponse
@@ -84,6 +88,7 @@ export "." (./src/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
   type ClientSessionResume
@@ -141,6 +146,7 @@ export "." (./src/index.ts)
   type InboxView
   type InboxWorkPayload
   type Keyterm
+  LIVENESS_CAPABILITY
   LOCAL_ANSWER_CLOSE
   type LocalAnswer
   type LocalExchange
@@ -162,6 +168,7 @@ export "." (./src/index.ts)
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
   PROTOCOL_REV
+  PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PricingRoute
@@ -191,6 +198,7 @@ export "." (./src/index.ts)
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskAnswerReceipt
   type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
@@ -210,6 +218,7 @@ export "." (./src/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
   type ServerSessionHistory
@@ -266,6 +275,8 @@ export "." (./src/index.ts)
 
 export "./client" (./src/client/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_ANSWER_UPDATE_REQUIRED
+  ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_FORM_CONTRACT
@@ -306,6 +317,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOutcome
   type ActivityView
   type ApprovalChannel
+  type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
   type AskUserFormAnswers
@@ -356,6 +368,7 @@ export "./client" (./src/client/index.ts)
   type ChatSession
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
+  type ClientAskAnswerStatus
   type ClientAskUserCancel
   type ClientAskUserFormResponse
   type ClientAskUserListResponse
@@ -384,6 +397,7 @@ export "./client" (./src/client/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
   type ClientSessionResume
@@ -430,6 +444,7 @@ export "./client" (./src/client/index.ts)
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
+  type HelloState
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
   type InboxActionItem
@@ -448,8 +463,12 @@ export "./client" (./src/client/index.ts)
   type InboxView
   type InboxWorkPayload
   type Keyterm
+  LIVENESS_CAPABILITY
+  LIVENESS_IDLE_MS
+  LIVENESS_RESPONSE_MS
   LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
+  type LivenessEvent
   type LocalAnswer
   type LocalExchange
   type LocationPayload
@@ -466,6 +485,7 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogResponse
   type ModelUsage
   PROTOCOL_REV
+  PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PlaceFrame
@@ -514,10 +534,12 @@ export "./client" (./src/client/index.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STALE_SOCKET_CLOSE_CODE
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskAnswerReceipt
   type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
@@ -538,6 +560,7 @@ export "./client" (./src/client/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
   type ServerSessionHistory
@@ -671,6 +694,8 @@ export "./package.json" (./package.json) [asset]
 
 export "./protocol" (./src/protocol.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_ANSWER_UPDATE_REQUIRED
+  ASK_RECEIPTS_CAPABILITY
   type ActionDigestEntry
   type ActionDigestState
   type ActionDigestSummary
@@ -690,6 +715,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOutcome
   type ActivityView
   type ApprovalChannel
+  type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
   type AskUserFormAnswers
@@ -722,6 +748,7 @@ export "./protocol" (./src/protocol.ts)
   type ChatSession
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
+  type ClientAskAnswerStatus
   type ClientAskUserCancel
   type ClientAskUserFormResponse
   type ClientAskUserListResponse
@@ -750,6 +777,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
   type ClientSessionResume
@@ -806,6 +834,7 @@ export "./protocol" (./src/protocol.ts)
   type InboxView
   type InboxWorkPayload
   type Keyterm
+  LIVENESS_CAPABILITY
   LOCAL_ANSWER_CLOSE
   type LocalAnswer
   type LocalExchange
@@ -822,6 +851,7 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogResponse
   type ModelUsage
   PROTOCOL_REV
+  PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PricingRoute
@@ -851,6 +881,7 @@ export "./protocol" (./src/protocol.ts)
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskAnswerReceipt
   type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
@@ -870,6 +901,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
   type ServerSessionHistory
@@ -936,6 +968,7 @@ export "./schemas" (./src/schemas.ts)
   type ParseFrameResult
   clientActivitySubscribeSchema
   clientActivityUnsubscribeSchema
+  clientAskAnswerStatusSchema
   clientAskUserCancelSchema
   clientAskUserFormResponseSchema
   clientAskUserListResponseSchema
@@ -964,6 +997,7 @@ export "./schemas" (./src/schemas.ts)
   clientMaskErrorSchema
   clientMaskResponseSchema
   clientMessageSchema
+  clientPingSchema
   clientRetryStatusSchema
   clientRetryTurnSchema
   clientSessionResumeSchema
@@ -1004,6 +1038,7 @@ export "./schemas" (./src/schemas.ts)
   resolutionEffectSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
+  serverAskAnswerReceiptSchema
   serverAskUserFormRequestSchema
   serverAskUserListRequestSchema
   serverAskUserRankRequestSchema
@@ -1023,6 +1058,7 @@ export "./schemas" (./src/schemas.ts)
   serverMaskRequestSchema
   serverMessageBlocksSchema
   serverMessageSchema
+  serverPongSchema
   serverResultSchema
   serverRetryReceiptSchema
   serverSessionHistorySchema
@@ -1042,6 +1078,8 @@ export "./schemas" (./src/schemas.ts)
 
 export "./server" (./src/server/index.ts)
   ALLOWED_IMAGE_MEDIA_TYPES
+  ASK_ANSWER_UPDATE_REQUIRED
+  ASK_RECEIPTS_CAPABILITY
   ASK_USER_CONTRACT
   ASK_USER_DESCRIPTION
   ASK_USER_FORM_CONTRACT
@@ -1085,6 +1123,7 @@ export "./server" (./src/server/index.ts)
   type ActivityView
   type AgentBackend
   type ApprovalChannel
+  type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
   type AskUserFormAnswers
@@ -1157,6 +1196,7 @@ export "./server" (./src/server/index.ts)
   type ChatSession
   type ClientActivitySubscribe
   type ClientActivityUnsubscribe
+  type ClientAskAnswerStatus
   type ClientAskUserCancel
   type ClientAskUserFormResponse
   type ClientAskUserListResponse
@@ -1185,6 +1225,7 @@ export "./server" (./src/server/index.ts)
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
+  type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
   type ClientSessionResume
@@ -1272,6 +1313,7 @@ export "./server" (./src/server/index.ts)
   type KeyedLockAcquireOptions
   type Keyterm
   type KillableProcess
+  LIVENESS_CAPABILITY
   LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
@@ -1301,6 +1343,7 @@ export "./server" (./src/server/index.ts)
   type ModelUsage
   OSM_ATTRIBUTION
   PROTOCOL_REV
+  PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PermissionDecision
@@ -1351,6 +1394,7 @@ export "./server" (./src/server/index.ts)
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type ServerActivityDelta
   type ServerActivitySnapshot
+  type ServerAskAnswerReceipt
   type ServerAskUserFormRequest
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
@@ -1370,6 +1414,7 @@ export "./server" (./src/server/index.ts)
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
+  type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
   type ServerSessionHistory
@@ -1637,6 +1682,10 @@ signatures (every public export and the types it is made of)
     const ALLOWED_IMAGE_MEDIA_TYPES: readonly ["image/jpeg", "image/png", "image/webp", "image/gif"];
   API_FAILURE_DETAIL (packages/ui-sdk/src/testing/index.ts)
     const API_FAILURE_DETAIL: "model not supported by this runtime";
+  ASK_ANSWER_UPDATE_REQUIRED (packages/ui-sdk/src/protocol.ts)
+    const ASK_ANSWER_UPDATE_REQUIRED: "ASK_ANSWER_UPDATE_REQUIRED";
+  ASK_RECEIPTS_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const ASK_RECEIPTS_CAPABILITY: "askReceipts";
   ASK_USER_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const ASK_USER_CONTRACT: import("./contract.js").ToolComponentContract<"ask_user", z.ZodObject<{
         questions: z.ZodArray<z.ZodObject<{
@@ -2326,6 +2375,11 @@ signatures (every public export and the types it is made of)
     }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
+  AskAnswerBinding (packages/ui-sdk/src/protocol.ts)
+    export interface AskAnswerBinding {
+        submissionId?: string;
+        sessionId?: string;
+    }
   AskUserAnnotation (packages/ui-sdk/src/protocol.ts)
     export interface AskUserAnnotation {
         preview?: string;
@@ -3820,14 +3874,19 @@ signatures (every public export and the types it is made of)
     }
   BrainUiClient (packages/ui-sdk/src/client/ws-client.ts)
     export class BrainUiClient {
+        hello: HelloState;
         protocolRev: number | null;
         capabilities: Record<string, boolean>;
+        principalKey: string | null;
         constructor(private readonly options: BrainUiClientOptions);
         get isConnected(): boolean;
+        get supportsAskReceipts(): boolean;
         connect(): void;
         send(msg: ClientMessage): boolean;
         close(): void;
         reconnectNow(): void;
+        setForeground(foreground: boolean): void;
+        checkLiveness(): void;
     }
   BrainUiClientOptions (packages/ui-sdk/src/client/ws-client.ts)
     export interface BrainUiClientOptions {
@@ -3839,8 +3898,15 @@ signatures (every public export and the types it is made of)
         onHello?: (hello: {
             protocolRev: number;
             capabilities: Record<string, boolean>;
+            principalKey?: string;
         }) => void;
         socketFactory?: (url: string) => WebSocket;
+        liveness?: {
+            idleMs?: number;
+            responseMs?: number;
+            connectMs?: number;
+        };
+        onLiveness?: (event: LivenessEvent) => void;
     }
   BridgeToolName (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export type BridgeToolName = (typeof BRIDGE_TOOL_CONTRACTS)[number]["name"];
@@ -3922,6 +3988,13 @@ signatures (every public export and the types it is made of)
         sessionId?: string;
         runId?: string;
     }
+  ClientAskAnswerStatus (packages/ui-sdk/src/protocol.ts)
+    export interface ClientAskAnswerStatus {
+        type: "ask_answer_status";
+        requestId: string;
+        submissionId: string;
+        sessionId?: string;
+    }
   ClientAskUserCancel (packages/ui-sdk/src/protocol.ts)
     export interface ClientAskUserCancel {
         type: "ask_user_cancel";
@@ -3930,14 +4003,14 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientAskUserFormResponse (packages/ui-sdk/src/protocol.ts)
-    export interface ClientAskUserFormResponse {
+    export interface ClientAskUserFormResponse extends AskAnswerBinding {
         type: "ask_user_form_response";
         requestId: string;
         answers: import("./tool-contracts/form.js").AskUserFormAnswers;
         turnId?: string;
     }
   ClientAskUserListResponse (packages/ui-sdk/src/protocol.ts)
-    export interface ClientAskUserListResponse {
+    export interface ClientAskUserListResponse extends AskAnswerBinding {
         type: "ask_user_list_response";
         requestId: string;
         answers: Record<string, string>;
@@ -3945,7 +4018,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientAskUserRankResponse (packages/ui-sdk/src/protocol.ts)
-    export interface ClientAskUserRankResponse {
+    export interface ClientAskUserRankResponse extends AskAnswerBinding {
         type: "ask_user_rank_response";
         requestId: string;
         order: string[];
@@ -3953,7 +4026,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientAskUserResponse (packages/ui-sdk/src/protocol.ts)
-    export interface ClientAskUserResponse {
+    export interface ClientAskUserResponse extends AskAnswerBinding {
         type: "ask_user_response";
         requestId: string;
         answers: Record<string, string>;
@@ -4129,7 +4202,12 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+  ClientPing (packages/ui-sdk/src/protocol.ts)
+    export interface ClientPing {
+        type: "ping";
+        probeId: string;
+    }
   ClientRetryStatus (packages/ui-sdk/src/protocol.ts)
     export interface ClientRetryStatus {
         type: "retry_status";
@@ -4545,6 +4623,8 @@ signatures (every public export and the types it is made of)
         sourceSessionId: string;
         references: string[];
     }
+  HelloState (packages/ui-sdk/src/client/ws-client.ts)
+    export type HelloState = "pending" | "received" | "absent";
   IMAGE_MASK_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const IMAGE_MASK_PAYLOAD_SCHEMA: z.ZodObject<{
         bytes: z.ZodNumber;
@@ -4711,6 +4791,12 @@ signatures (every public export and the types it is made of)
         readonly pid: number;
         kill(signal?: number | NodeJS.Signals): void;
     }
+  LIVENESS_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const LIVENESS_CAPABILITY: "liveness";
+  LIVENESS_IDLE_MS (packages/ui-sdk/src/client/ws-client.ts)
+    const LIVENESS_IDLE_MS: 15000;
+  LIVENESS_RESPONSE_MS (packages/ui-sdk/src/client/ws-client.ts)
+    const LIVENESS_RESPONSE_MS: 5000;
   LOCAL_ANSWER_CLOSE (packages/ui-sdk/src/protocol.ts)
     const LOCAL_ANSWER_CLOSE: "</local-answer>";
   LOCATION_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
@@ -4801,6 +4887,19 @@ signatures (every public export and the types it is made of)
             remote: "acknowledged" | "unknown";
         }>;
     }
+  LivenessEvent (packages/ui-sdk/src/client/ws-client.ts)
+    export type LivenessEvent = {
+        type: "probe";
+        probeId: string;
+        reason: "idle" | "check";
+    } | {
+        type: "pong";
+        probeId: string;
+        latencyMs: number;
+    } | {
+        type: "stale";
+        probeId: string;
+    };
   LocalAnswer (packages/ui-sdk/src/protocol.ts)
     export interface LocalAnswer {
         exchangeId: string;
@@ -5024,7 +5123,9 @@ signatures (every public export and the types it is made of)
     }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   PROTOCOL_REV (packages/ui-sdk/src/protocol.ts)
-    const PROTOCOL_REV: 4;
+    const PROTOCOL_REV: 5;
+  PROTOCOL_REV_ASK_RECEIPTS (packages/ui-sdk/src/protocol.ts)
+    const PROTOCOL_REV_ASK_RECEIPTS: 5;
   PROTOCOL_REV_CLIENT_ECHO (packages/ui-sdk/src/protocol.ts)
     const PROTOCOL_REV_CLIENT_ECHO: 3;
   ParseFrameResult (packages/ui-sdk/src/schemas.ts)
@@ -6529,6 +6630,8 @@ signatures (every public export and the types it is made of)
     const SPAN_OP_INVOKE_AGENT: "invoke_agent";
   SPAN_TOOL_NAME_PREFIX (packages/ui-sdk/src/protocol.ts)
     const SPAN_TOOL_NAME_PREFIX: "execute_tool ";
+  STALE_SOCKET_CLOSE_CODE (packages/ui-sdk/src/client/ws-client.ts)
+    const STALE_SOCKET_CLOSE_CODE: 4000;
   SUBSCRIPTION_AUTH_INSTRUCTIONS (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>>;
   SUBSCRIPTION_RELOGIN_PROCEDURE (packages/ui-sdk/src/protocol.ts)
@@ -6551,6 +6654,14 @@ signatures (every public export and the types it is made of)
         events: ActivitySpanEvent[];
         highWaterSeq: Record<string, number>;
         append?: boolean;
+    }
+  ServerAskAnswerReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAskAnswerReceipt extends SessionScoped {
+        type: "ask_answer_receipt";
+        requestId: string;
+        submissionId: string;
+        state: "accepted" | "pending" | "closed";
+        reason?: "ended" | "cancelled" | "answered_elsewhere" | "not_recognized" | "refused";
     }
   ServerAskUserFormRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerAskUserFormRequest extends SessionScoped, AskUserFormSpec {
@@ -6660,6 +6771,7 @@ signatures (every public export and the types it is made of)
     export interface ServerHello {
         type: "server_hello";
         protocolRev: number;
+        principalKey?: string;
         capabilities?: Record<string, boolean>;
     }
   ServerLocalExchangeResult (packages/ui-sdk/src/protocol.ts)
@@ -6684,12 +6796,17 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
         sessionId: string;
         blocks: MessageBlock[];
+    }
+  ServerPong (packages/ui-sdk/src/protocol.ts)
+    export interface ServerPong {
+        type: "pong";
+        probeId: string;
     }
   ServerResultMessage (packages/ui-sdk/src/protocol.ts)
     export interface ServerResultMessage {
@@ -7271,6 +7388,13 @@ signatures (every public export and the types it is made of)
             session: "session";
         }>;
     }, z.core.$loose>;
+  clientAskAnswerStatusSchema (packages/ui-sdk/src/schemas.ts)
+    const clientAskAnswerStatusSchema: z.ZodObject<{
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodString;
+        type: z.ZodLiteral<"ask_answer_status">;
+    }, z.core.$loose>;
   clientAskUserCancelSchema (packages/ui-sdk/src/schemas.ts)
     const clientAskUserCancelSchema: z.ZodObject<{
         reason: z.ZodOptional<z.ZodString>;
@@ -7282,6 +7406,8 @@ signatures (every public export and the types it is made of)
     const clientAskUserFormResponseSchema: z.ZodObject<{
         answers: z.ZodCustom<AskUserFormAnswers, AskUserFormAnswers>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_form_response">;
     }, z.core.$loose>;
@@ -7290,6 +7416,8 @@ signatures (every public export and the types it is made of)
         answers: z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>;
         notes: z.ZodOptional<z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_list_response">;
     }, z.core.$loose>;
@@ -7297,6 +7425,8 @@ signatures (every public export and the types it is made of)
     const clientAskUserRankResponseSchema: z.ZodObject<{
         order: z.ZodArray<z.ZodString>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_rank_response">;
         unchanged: z.ZodBoolean;
@@ -7309,6 +7439,8 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>>>;
         answers: z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_response">;
     }, z.core.$loose>;
@@ -7660,6 +7792,8 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>>>;
         answers: z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_response">;
     }, z.core.$loose>, z.ZodObject<{
@@ -7671,19 +7805,33 @@ signatures (every public export and the types it is made of)
         answers: z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>;
         notes: z.ZodOptional<z.ZodPipe<z.ZodCustom<Record<string, unknown>, Record<string, unknown>>, z.ZodRecord<z.ZodString, z.ZodString>>>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_list_response">;
     }, z.core.$loose>, z.ZodObject<{
         order: z.ZodArray<z.ZodString>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_rank_response">;
         unchanged: z.ZodBoolean;
     }, z.core.$loose>, z.ZodObject<{
         answers: z.ZodCustom<AskUserFormAnswers, AskUserFormAnswers>;
         requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_form_response">;
+    }, z.core.$loose>, z.ZodObject<{
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        submissionId: z.ZodString;
+        type: z.ZodLiteral<"ask_answer_status">;
+    }, z.core.$loose>, z.ZodObject<{
+        probeId: z.ZodString;
+        type: z.ZodLiteral<"ping">;
     }, z.core.$loose>, z.ZodObject<{
         coords: z.ZodObject<{
             accuracy: z.ZodNumber;
@@ -7826,6 +7974,11 @@ signatures (every public export and the types it is made of)
         conversationId: z.ZodString;
         type: z.ZodLiteral<"conversation_stop">;
     }, z.core.$loose>], "type">;
+  clientPingSchema (packages/ui-sdk/src/schemas.ts)
+    const clientPingSchema: z.ZodObject<{
+        probeId: z.ZodString;
+        type: z.ZodLiteral<"ping">;
+    }, z.core.$loose>;
   clientRetryStatusSchema (packages/ui-sdk/src/schemas.ts)
     const clientRetryStatusSchema: z.ZodObject<{
         requestId: z.ZodString;
@@ -9745,6 +9898,26 @@ signatures (every public export and the types it is made of)
             session: "session";
         }>;
     }, z.core.$loose>;
+  serverAskAnswerReceiptSchema (packages/ui-sdk/src/schemas.ts)
+    const serverAskAnswerReceiptSchema: z.ZodObject<{
+        reason: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            answered_elsewhere: "answered_elsewhere";
+            cancelled: "cancelled";
+            ended: "ended";
+            not_recognized: "not_recognized";
+            refused: "refused";
+        }>>>;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        state: z.ZodEnum<{
+            accepted: "accepted";
+            closed: "closed";
+            pending: "pending";
+        }>;
+        submissionId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"ask_answer_receipt">;
+    }, z.core.$loose>;
   serverAskUserFormRequestSchema (packages/ui-sdk/src/schemas.ts)
     const serverAskUserFormRequestSchema: z.ZodObject<{
         nodes: z.ZodCustom<({
@@ -10218,6 +10391,7 @@ signatures (every public export and the types it is made of)
   serverHelloSchema (packages/ui-sdk/src/schemas.ts)
     const serverHelloSchema: z.ZodObject<{
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
+        principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         type: z.ZodLiteral<"server_hello">;
     }, z.core.$loose>;
@@ -10568,6 +10742,7 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"retry_receipt">;
     }, z.core.$loose>, z.ZodObject<{
         capabilities: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
+        principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         type: z.ZodLiteral<"server_hello">;
     }, z.core.$loose>, z.ZodObject<{
@@ -11269,6 +11444,27 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_form_request">;
+    }, z.core.$loose>, z.ZodObject<{
+        reason: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
+            answered_elsewhere: "answered_elsewhere";
+            cancelled: "cancelled";
+            ended: "ended";
+            not_recognized: "not_recognized";
+            refused: "refused";
+        }>>>;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        state: z.ZodEnum<{
+            accepted: "accepted";
+            closed: "closed";
+            pending: "pending";
+        }>;
+        submissionId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"ask_answer_receipt">;
+    }, z.core.$loose>, z.ZodObject<{
+        probeId: z.ZodString;
+        type: z.ZodLiteral<"pong">;
     }, z.core.$loose>, z.ZodObject<{
         options: z.ZodOptional<z.ZodObject<{
             enableHighAccuracy: z.ZodOptional<z.ZodBoolean>;
@@ -12351,6 +12547,11 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodString;
         type: z.ZodLiteral<"conversation_permission">;
     }, z.core.$loose>], "type">;
+  serverPongSchema (packages/ui-sdk/src/schemas.ts)
+    const serverPongSchema: z.ZodObject<{
+        probeId: z.ZodString;
+        type: z.ZodLiteral<"pong">;
+    }, z.core.$loose>;
   serverResultSchema (packages/ui-sdk/src/schemas.ts)
     const serverResultSchema: z.ZodObject<{
         costUsd: z.ZodOptional<z.ZodNumber>;

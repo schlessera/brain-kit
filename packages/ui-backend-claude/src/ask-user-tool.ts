@@ -21,6 +21,7 @@ import { createMaskTool, type MaskHandler } from "./mask-tool.js";
 import { createShowBlockTool } from "./show-block-tool.js";
 import { createAskUserListTool, type AskUserListHandler } from "./ask-user-list-tool.js";
 import { createAskUserRankTool, type AskUserRankHandler } from "./ask-user-rank-tool.js";
+import { askRequestId } from "./tool-use-id.js";
 
 /**
  * Bridge for the built-in `AskUserQuestion` tool.
@@ -51,10 +52,10 @@ export function createAskUserTool(handler: AskUserHandler) {
     SHARED_TOOL_NAME,
     ASK_USER_DESCRIPTION,
     ASK_USER_INPUT_SCHEMA.shape,
-    async (input) => {
-      // The request id is minted here and handed to the bridge so the host can
-      // correlate the eventual client response.
-      const requestId = crypto.randomUUID();
+    async (input, extra) => {
+      // The request id is the model's tool_use id, so the live card and the
+      // card rebuilt from history are the same request (#910).
+      const requestId = askRequestId(extra);
       try {
         const parsed = ASK_USER_INPUT_SCHEMA.parse(input);
         const payload = await handleAskUser(

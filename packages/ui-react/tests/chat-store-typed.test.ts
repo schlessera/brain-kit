@@ -1,7 +1,8 @@
 // The typed answer (D38 §1): composer text while a question is pending is the
-// answer, marked `typed` on the exchange and sent as `ask_user_response`.
+// answer, marked `typed`, and handed to the answer queue (#910).
+import type { SubmitAnswer } from "../src/lib/answer-delivery/manager";
 import { describe, test, expect, beforeEach } from "bun:test";
-import type { AskUserQuestion, ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore } from "../src/stores/chat-store";
 import {
   isPendingExchange,
@@ -60,7 +61,7 @@ describe("submitAskUserAnswers · typed", () => {
 
 describe("takeComposerTextAsAnswer", () => {
   test("nothing pending: the text stays a message", () => {
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     expect(takeComposerTextAsAnswer(store, null, "hello", (m) => sent.push(m))).toBe(false);
@@ -68,7 +69,7 @@ describe("takeComposerTextAsAnswer", () => {
   });
 
   test("a pending question takes the text as its answer and nothing goes out as chat", () => {
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     store.setAskUserRequest(null, "req-3", Q);
@@ -76,9 +77,18 @@ describe("takeComposerTextAsAnswer", () => {
 
     const taken = takeComposerTextAsAnswer(useChatStore.getState(), null, "  neither, do both  ", (m) => sent.push(m));
     expect(taken).toBe(true);
+    // The answer goes to the queue (#910), typed, bound to the session, and
+    // leaves the composer focused.
     expect(sent).toEqual([
-      { type: "ask_user_response", requestId: "req-3", answers: { "Which approach?": "neither, do both" } },
+      {
+        requestId: "req-3",
+        sessionId: null,
+        payload: { kind: "ask_user", answers: { "Which approach?": "neither, do both" }, typed: true },
+        focus: false,
+      },
     ]);
+    // What the queue does once the answer is saved on this device.
+    useChatStore.getState().submitAskUserAnswers(null, "req-3", sent[0]!.payload.kind === "ask_user" ? sent[0]!.payload.answers : {}, undefined, true);
     const ex = draft().messages.at(-1)!.askUserExchanges![0];
     expect(ex.answers).toEqual({ "Which approach?": "neither, do both" });
     expect(ex.typed).toBe(true);
@@ -91,7 +101,7 @@ describe("takeComposerTextAsAnswer", () => {
   });
 
   test("a dismissed question takes nothing", () => {
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     store.setAskUserRequest(null, "req-4", Q);
@@ -113,7 +123,7 @@ describe("takeComposerTextAsAnswer", () => {
     // The server resolves the whole request on the first response, so a
     // typed reply bound to question one would leave the others blank and
     // unanswerable. The cards' own Submit gathers all of them instead.
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     store.setAskUserRequest(null, "req-6", Q2);
@@ -126,7 +136,7 @@ describe("takeComposerTextAsAnswer", () => {
     const store = useChatStore.getState();
     store.startAssistantMessage(null);
     store.setAskUserRankRequest(null, "rank-1", { prompt: "Which first?", items: [{ id: "a", label: "A" }, { id: "b", label: "B" }] });
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     expect(draft().askUser?.rank?.items).toHaveLength(2);
     expect(takeComposerTextAsAnswer(useChatStore.getState(), null, "B first", (message) => sent.push(message))).toBe(false);
     expect(sent).toEqual([]);
@@ -145,12 +155,14 @@ describe("takeComposerTextAsAnswer", () => {
   });
 
   test("works on a bound session buffer, not only the draft", () => {
-    const sent: ClientMessage[] = [];
+    const sent: SubmitAnswer[] = [];
     const store = useChatStore.getState();
     store.setMessages("s1", []);
     store.startAssistantMessage("s1");
     store.setAskUserRequest("s1", "req-7", Q);
     expect(takeComposerTextAsAnswer(useChatStore.getState(), "s1", "modal", (m) => sent.push(m))).toBe(true);
-    expect(useChatStore.getState().buffers["s1"].askUser?.typed).toBe(true);
+    expect(sent).toEqual([
+      { requestId: "req-7", sessionId: "s1", payload: { kind: "ask_user", answers: { "Which approach?": "modal" }, typed: true }, focus: false },
+    ]);
   });
 });

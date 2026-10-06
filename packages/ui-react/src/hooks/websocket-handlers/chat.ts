@@ -29,6 +29,8 @@ type ChatFrame =
   | "ask_user_form_request"
   | "result"
   | "retry_receipt"
+  | "ask_answer_receipt"
+  | "pong"
   | "message_blocks"
   | "local_exchange_result"
   | "session_history"
@@ -250,7 +252,9 @@ function reconstructFormExchange(tc: SessionHistoryMessage["toolCalls"][number])
       const result = askUserFormPayload(exchange.form, JSON.parse(tc.output));
       exchange.formAnswers = result.answers;
       exchange.visibleNodes = result.visibleNodes;
-    } else exchange.cancelled = true;
+    } else if (tc.isError) exchange.cancelled = true;
+    // No output yet: the question is still open, as for the other three
+    // kinds, so the host's re-delivery can bind to this card (#910).
   } catch { exchange.cancelled = true; }
   return exchange;
 }
@@ -338,8 +342,9 @@ export const chatFrameHandlers = {
       context.state.clearAskUser(context.key);
     }
   },
+  // The request frame's turn is the binding the answer must carry (#910).
   ask_user_request: (msg, context) => {
-    context.state.setAskUserRequest(context.key, msg.requestId, msg.questions);
+    context.state.setAskUserRequest(context.key, msg.requestId, msg.questions, context.frameTurnId);
   },
   ask_user_list_request: (msg, context) => {
     const { prompt, scale, items, allowSkip, notes } = msg;
@@ -349,14 +354,14 @@ export const chatFrameHandlers = {
       items,
       allowSkip,
       notes,
-    });
+    }, context.frameTurnId);
   },
   ask_user_rank_request: (msg, context) => {
     const { prompt, items, cutoff } = msg;
-    context.state.setAskUserRankRequest(context.key, msg.requestId, { prompt, items, ...(cutoff !== undefined ? { cutoff } : {}) });
+    context.state.setAskUserRankRequest(context.key, msg.requestId, { prompt, items, ...(cutoff !== undefined ? { cutoff } : {}) }, context.frameTurnId);
   },
   ask_user_form_request: (msg, context) => {
-    context.state.setAskUserFormRequest(context.key, msg.requestId, formSpecFromInput({ prompt: msg.prompt, nodes: msg.nodes }));
+    context.state.setAskUserFormRequest(context.key, msg.requestId, formSpecFromInput({ prompt: msg.prompt, nodes: msg.nodes }), context.frameTurnId);
   },
   result: (msg, context) => {
     context.state.finishAssistantMessage(context.key);
@@ -378,6 +383,9 @@ export const chatFrameHandlers = {
   },
   // Receipts are consumed by the connection before transcript demultiplexing.
   retry_receipt: () => {},
+  ask_answer_receipt: () => {},
+  // The SDK client answers its own probes; a pong never reaches a consumer.
+  pong: () => {},
   message_blocks: (msg, context) => {
     // Arrives after `result`, for the turn's own assistant message. An
     // answer never waits on it: the markdown is already on screen, and this

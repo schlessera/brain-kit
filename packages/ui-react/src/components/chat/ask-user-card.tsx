@@ -19,6 +19,7 @@ import type {
 import { BrainMarkdown } from "./brain-markdown.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
 import { reaskMessage } from "./ask-user-typed.js";
+import type { RecordHead } from "./answer-text.js";
 
 const OTHER_LABEL = "Other";
 
@@ -97,6 +98,7 @@ export function quoted(text: string): string {
 export const DISMISSED_NOTE = "dismissed · the agent got no answer";
 
 export function AskUserCard({
+  record,
   requestId,
   questions,
   answered,
@@ -107,6 +109,8 @@ export function AskUserCard({
   onCancel,
   onReask,
 }: {
+  /** The record's head while its answer is unconfirmed (#910). */
+  record?: RecordHead;
   requestId: string;
   questions: AskUserQuestion[];
   answered?: Record<string, string>;
@@ -258,6 +262,8 @@ export function AskUserCard({
         id={requestId}
         state={answered ? "answered" : dismissed ? "dismissed" : "pending"}
         prompt={prompt}
+        recordHead={record?.head}
+        recordIcon={record?.icon}
         questions={questions.map((q, qi) => {
           const s = state[qi] ?? defaultState();
           const preview = previewFor(q, s);
@@ -309,6 +315,8 @@ export function AskUserCard({
               key={id}
               id={id}
               state={typed ? "typed" : "answered"}
+              recordHead={record?.head}
+              recordIcon={record?.icon}
               multi={q.multiSelect}
               tag={q.header}
               question={q.question}

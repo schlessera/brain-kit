@@ -131,7 +131,7 @@ Two findings that are true today, independent of this plan:
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
   (`Revision negotiation`, `docs/integration-contract.md:1816-1830`;
-  `Activity stream`, `:2058-2072`), so how attribution reaches a client is a
+  `Activity stream`, `:2063-2077`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -184,7 +184,7 @@ server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
 principals' queued work with it — `drop its queued follow-ups`,
-`ws/turns.ts:401`). The revocation itself is recorded in the activity record.
+`ws/turns.ts:485`). The revocation itself is recorded in the activity record.
 
 > **2026-09-30 — Implementation context (decision 5's missing re-check).** The
 > [old dispatch](https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162-L220)

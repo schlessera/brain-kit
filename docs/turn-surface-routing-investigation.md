@@ -47,7 +47,7 @@ skill descriptions and defaults are unchanged.
 The assembly entry is `createClaudeSdkTurn`
 (`packages/ui-backend-claude/src/sdk-options.ts:55-215`); eager bridge
 registration is `createBrainUiMcpServer`
-(`packages/ui-backend-claude/src/ask-user-tool.ts:91-138`). Skill discovery
+(`packages/ui-backend-claude/src/ask-user-tool.ts:93-140`). Skill discovery
 is `discoverSkills` (`packages/core/src/lib/skills/discover.ts:43-81`), and
 project emission is `claudeEmitter`
 (`packages/core/src/lib/skills/emitters/claude.ts:16-52`).

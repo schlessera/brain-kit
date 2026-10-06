@@ -157,6 +157,7 @@ describe("ask_user_form over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_form_response",
       requestId: "form-1",
+      submissionId: "sub-8",
       answers: { choice: { value: "B" } },
       turnId: frame.turnId,
     });
@@ -191,6 +192,7 @@ describe("ask_user_form over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_form_response",
       requestId: "form-1",
+      submissionId: "sub-9",
       answers: { choice: { value: "B" } },
       turnId: requests[0]!.turnId,
     });
@@ -212,6 +214,7 @@ describe("ask_user_form over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_form_response",
       requestId: "form-1",
+      submissionId: "sub-10",
       answers: { choice: { value: "B" } },
       turnId: "different-turn",
     });
@@ -226,6 +229,7 @@ describe("ask_user_form over the socket", () => {
     await handleClientMessage(c.ws, {
       type: "ask_user_form_response",
       requestId: "form-1",
+      submissionId: "sub-11",
       answers: { choice: { value: "B" } },
       turnId: frame.turnId,
     });
@@ -282,6 +286,7 @@ describe("ask_user_form over the socket", () => {
     await handleClientMessage(c2.ws, {
       type: "ask_user_form_response",
       requestId: "form-1",
+      submissionId: "sub-12",
       answers: { choice: { value: "A" } },
       turnId: card!.turnId,
     });
@@ -354,6 +359,7 @@ test("environment overrides admit a deeper, larger form through the real host an
           {
             type: "ask_user_form_response",
             requestId: "form-1",
+            submissionId: "sub-13",
             answers: { n0: { value: "1" } },
             turnId: frame!.turnId,
           },

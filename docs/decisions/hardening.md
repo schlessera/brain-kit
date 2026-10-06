@@ -146,7 +146,7 @@ instead, and treat 8 as the question it was answering.
     production (`adapter.adapt(msg)`,
     `packages/ui-backend-claude/src/turn-runner.ts:448`) and U33 changes frame
     consumption
-    (`handleServerMessage`, `packages/ui-react/src/connection.ts:183`), the
+    (`handleServerMessage`, `packages/ui-react/src/connection.ts:207`), the
     same symptom could come from either, so they are **0.34.0** (seam) and **0.34.1** (splits), each its own
     image. For the same reason the cron bin and emitters (U13/U14) ship as
     **0.33.0** with the denylist unchanged and the allowlist (U21) as

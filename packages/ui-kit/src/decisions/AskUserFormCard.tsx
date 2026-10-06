@@ -2,7 +2,7 @@ import { useId, useRef, useState } from "react";
 import { ChoiceOption } from "../rows/ChoiceOption.js";
 import { useRoving } from "../internal/roving.js";
 import { Button } from "../primitives/Button.js";
-import { Icon } from "../primitives/Icon.js";
+import { Icon, type IconName } from "../primitives/Icon.js";
 import { InlineToast } from "../conversation/InlineToast.js";
 import {
   ScaleList,
@@ -56,6 +56,13 @@ export interface AskUserFormCardProps {
   id?: string;
   state?: "pending" | "answered" | "dismissed";
   prompt?: string;
+  /**
+   * The answered head, replaced. For an answer that is recorded on the card
+   * but not yet confirmed by its host, which must not read "Answered" (#910).
+   */
+  recordHead?: string;
+  /** The answered head's icon, replaced alongside `recordHead`. */
+  recordIcon?: IconName;
   question: string;
   nodes: FormNode[];
   answers?: FormAnswers;
@@ -587,7 +594,7 @@ export function AskUserFormCard(p: AskUserFormCardProps) {
           <Icon
             icon={
               state === "answered"
-                ? "resolved"
+                ? p.recordIcon ?? "resolved"
                 : state === "dismissed"
                   ? "later"
                   : "ask"
@@ -597,7 +604,7 @@ export function AskUserFormCard(p: AskUserFormCardProps) {
           {state === "pending"
             ? (p.prompt ?? "Brain needs your input")
             : state === "answered"
-              ? "Answered"
+              ? p.recordHead ?? "Answered"
               : "Unanswered — the turn ended"}
         </div>
         <div className="bk-form-title">
