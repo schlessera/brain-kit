@@ -361,9 +361,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:271-284`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:260-273`).
 
-- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:365-372`).
+- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:354-361`).
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:618-634`).
 

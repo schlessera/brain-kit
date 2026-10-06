@@ -21,6 +21,7 @@ import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
 import { ChatComposerRow } from "./composer-row.js";
+import { sendReask } from "./reask-send.js";
 import { HandoffSheet } from "./handoff-sheet.js";
 import { HandoffMarker } from "./handoff-links.js";
 import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js";
@@ -250,21 +251,9 @@ export function ChatPage() {
     [send, sessionId, root]
   );
 
-  /**
-   * A dismissed question asked again (seventh drop, ruling 7). The request
-   * was resolved server-side when the turn ended, so the answer goes out as
-   * an ordinary message — the same path the composer's send takes, minus
-   * attachments and provider (a resumed session is pinned to its own).
-   */
+  /** A dismissed question asked again (seventh drop, ruling 7). */
   const handleAskUserReask = useCallback(
-    (text: string) => {
-      const chat = root.stores.chat.getState();
-      chat.addUserMessage(sessionId, text, "typed");
-      if (!(sessionId === null ? chat.draft : chat.buffers[sessionId])?.isStreaming) {
-        chat.startAssistantMessage(sessionId);
-      }
-      send({ type: "chat_message", text, sessionId: sessionId ?? undefined, source: "typed" });
-    },
+    (text: string) => sendReask(root.stores, sessionId, text, send),
     [send, sessionId, root]
   );
 

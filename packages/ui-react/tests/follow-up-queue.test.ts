@@ -5,6 +5,7 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
+import { sendReask } from "../src/components/chat/reask-send.js";
 
 class Socket {
   static instances: Socket[] = [];
@@ -128,6 +129,24 @@ test("a message drawn as an ordinary send that the host queued moves out of the 
   // In the order the agent received them, each once.
   expect(users(root)).toEqual(["Chart the way home", winds.text, bag.text]);
   expect(pending(root)).toEqual([]);
+});
+
+test("a re-asked answer sent behind a queued follow-up moves to the stack, then enters the chat once, in order", () => {
+  const { root, socket } = busy();
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds] });
+  const sent: Array<{ requestId?: string; text: string }> = [];
+  sendReask(root.stores, S, "Yes: keep the bag shut", (msg) => { sent.push(msg as never); });
+  const requestId = sent[0]!.requestId!;
+  expect(requestId, "correlated like a composer send").toBeTruthy();
+  socket.deliver({ type: "status", sessionId: S, status: "queued", requestId });
+  const answer = { id: "fu-answer", requestId, text: "Yes: keep the bag shut", queuedAt: 5 };
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, answer] });
+  expect(users(root)).toEqual(["Chart the way home"]);
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [answer], started: { ...winds, turnId: "turn-2" } });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], started: { ...answer, turnId: "turn-3" } });
+  expect(users(root)).toEqual(["Chart the way home", winds.text, "Yes: keep the bag shut"]);
 });
 
 test("a refused follow-up was never pending", () => {
