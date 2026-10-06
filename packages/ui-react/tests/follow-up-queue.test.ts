@@ -6,6 +6,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import { sendReask } from "../src/components/chat/reask-send.js";
+import { pendingView } from "../src/components/chat/composer-row.js";
 
 class Socket {
   static instances: Socket[] = [];
@@ -56,6 +57,23 @@ test("the host's report is the pending stack, and none of it is in the chat", ()
   expect(pending(root).map((f) => f.text)).toEqual([winds.text, bag.text]);
   expect(pending(root).every((f) => f.confirmed)).toBe(true);
   expect(users(root)).toEqual(["Chart the way home"]);
+});
+
+test("the host's label reaches the pill once it arrives, and the start of the text stands in until then (#1004)", () => {
+  const { root, socket } = busy();
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, bag] });
+  expect(pending(root).map(pendingView)).toEqual([
+    { id: winds.id, text: winds.text },
+    { id: bag.id, text: bag.text },
+  ]);
+  // The label arrives as a change to the queue, with no announcement.
+  const announced = root.stores.followUp.getState().announcement;
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [{ ...winds, label: "West wind" }, bag] });
+  expect(pending(root).map(pendingView)).toEqual([
+    { id: winds.id, text: winds.text, label: "West wind" },
+    { id: bag.id, text: bag.text },
+  ]);
+  expect(root.stores.followUp.getState().announcement).toBe(announced);
 });
 
 test("a started follow-up leaves the stack and enters the chat once, after the turn it waited for", () => {

@@ -368,7 +368,7 @@ further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
 (`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:328` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:672-706`),
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:675-709`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is
@@ -405,7 +405,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:410-416`, and the lookup computing
-`remembered`, `ws/bridge.ts:173-193`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:182-202`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -462,7 +462,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:406-421`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:202-217`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:211-226`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -591,7 +591,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:173-193`,
+  `packages/ui-server/src/ws/bridge.ts:182-202`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:410-416`).
   The evaluation happens

@@ -20,7 +20,7 @@ export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
-import { CONVERSATION_LIMITS, isThinkingLevel, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -1674,6 +1674,8 @@ export const queuedFollowUpViewSchema = z.looseObject({
   fileCount: z.number().int().min(0).optional(),
   source: optionalMessageSource,
   queuedAt: z.number(),
+  // A label is decoration: a bad one is dropped, never the report.
+  label: z.string().min(1).max(PILL_LABEL_MAX_CHARS).optional().catch(undefined),
 }) satisfies z.ZodType<QueuedFollowUpView>;
 
 /** Bounds a frame, not a policy: the host's own queue holds at most 50. */

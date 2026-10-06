@@ -15,7 +15,7 @@ import {
   parseServerMessage,
   serverMessageSchema,
 } from "../src/schemas.js";
-import { CONVERSATION_LIMITS, type ServerMessage } from "../src/protocol.js";
+import { CONVERSATION_LIMITS, PILL_LABEL_MAX_CHARS, type ServerMessage } from "../src/protocol.js";
 
 import { actionItem, thread } from "./inbox-fixtures.js";
 
@@ -124,7 +124,7 @@ const SAMPLES: ServerMessage[] = [
   {
     type: "session_queue",
     sessionId: "s1",
-    followUps: [{ id: "fu-2", requestId: "r2", text: "Keep the bag of winds shut", textTruncated: true, attachmentCount: 1, queuedAt: 1783854000000 }],
+    followUps: [{ id: "fu-2", requestId: "r2", text: "Keep the bag of winds shut", textTruncated: true, attachmentCount: 1, queuedAt: 1783854000000, label: "Bag of winds" }],
     started: { id: "fu-1", requestId: "r1", text: "Ask Aeolus about the winds", source: "voice-dictate", queuedAt: 1783853990000, turnId: "turn-2" },
     dropped: [{ id: "fu-0", requestId: "r0", reason: "Cancelled by user" }],
   },
@@ -192,6 +192,27 @@ describe("the additive contract", () => {
     // The caller's contract is "drop and report", so this must be an ordinary
     // value, never an exception.
     if (!result.ok) expect(typeof result.error).toBe("string");
+  });
+
+  test("a pill label that breaks its bounds is dropped, never the queue report (#1004)", () => {
+    for (const label of ["", "x".repeat(PILL_LABEL_MAX_CHARS + 1), 42]) {
+      const result = parse({
+        type: "session_queue",
+        sessionId: "s1",
+        followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label }],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok && result.message.type === "session_queue") {
+        expect(result.message.followUps).toHaveLength(1);
+        expect(result.message.followUps[0]!.label).toBeUndefined();
+      }
+    }
+    const kept = parse({
+      type: "session_queue",
+      sessionId: "s1",
+      followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label: "x".repeat(PILL_LABEL_MAX_CHARS) }],
+    });
+    expect(kept.ok && kept.message.type === "session_queue" && kept.message.followUps[0]!.label).toBe("x".repeat(PILL_LABEL_MAX_CHARS));
   });
 
   test("turnId is accepted but never required", () => {

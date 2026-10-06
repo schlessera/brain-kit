@@ -181,6 +181,7 @@ export "." (./src/index.ts)
   type ModuleSettingsMigrationPreview
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
+  PILL_LABEL_MAX_CHARS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -526,6 +527,7 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  PILL_LABEL_MAX_CHARS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -920,6 +922,7 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogEntry
   type ModelCatalogResponse
   type ModelUsage
+  PILL_LABEL_MAX_CHARS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -1451,6 +1454,7 @@ export "./server" (./src/server/index.ts)
   type ModelCatalogResponse
   type ModelUsage
   OSM_ATTRIBUTION
+  PILL_LABEL_MAX_CHARS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -4144,6 +4148,7 @@ signatures (every public export and the types it is made of)
             backendId?: string;
             afterTurns?: number;
         };
+        label?: string;
     }
   ClientActivitySubscribe (packages/ui-sdk/src/protocol.ts)
     export interface ClientActivitySubscribe {
@@ -5393,6 +5398,8 @@ signatures (every public export and the types it is made of)
         commit?: string | null;
     }
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  PILL_LABEL_MAX_CHARS (packages/ui-sdk/src/protocol.ts)
+    const PILL_LABEL_MAX_CHARS: 32;
   PROTOCOL_REV (packages/ui-sdk/src/protocol.ts)
     const PROTOCOL_REV: 5;
   PROTOCOL_REV_ASK_RECEIPTS (packages/ui-sdk/src/protocol.ts)
@@ -5619,6 +5626,7 @@ signatures (every public export and the types it is made of)
         fileCount?: number;
         source?: MessageSource;
         queuedAt: number;
+        label?: string;
     }
   REQUEST_IMAGE_MASK_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_CONTRACT: import("./contract.js").ToolComponentContract<"request_image_mask", z.ZodObject<{
@@ -10209,6 +10217,7 @@ signatures (every public export and the types it is made of)
         attachmentCount: z.ZodOptional<z.ZodNumber>;
         fileCount: z.ZodOptional<z.ZodNumber>;
         id: z.ZodString;
+        label: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         queuedAt: z.ZodNumber;
         requestId: z.ZodOptional<z.ZodString>;
         source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
@@ -12941,6 +12950,7 @@ signatures (every public export and the types it is made of)
             attachmentCount: z.ZodOptional<z.ZodNumber>;
             fileCount: z.ZodOptional<z.ZodNumber>;
             id: z.ZodString;
+            label: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
@@ -12957,6 +12967,7 @@ signatures (every public export and the types it is made of)
             attachmentCount: z.ZodOptional<z.ZodNumber>;
             fileCount: z.ZodOptional<z.ZodNumber>;
             id: z.ZodString;
+            label: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
@@ -13621,6 +13632,7 @@ signatures (every public export and the types it is made of)
             attachmentCount: z.ZodOptional<z.ZodNumber>;
             fileCount: z.ZodOptional<z.ZodNumber>;
             id: z.ZodString;
+            label: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{
@@ -13637,6 +13649,7 @@ signatures (every public export and the types it is made of)
             attachmentCount: z.ZodOptional<z.ZodNumber>;
             fileCount: z.ZodOptional<z.ZodNumber>;
             id: z.ZodString;
+            label: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             queuedAt: z.ZodNumber;
             requestId: z.ZodOptional<z.ZodString>;
             source: z.ZodCatch<z.ZodOptional<z.ZodEnum<{

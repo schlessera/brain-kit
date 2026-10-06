@@ -6,6 +6,11 @@ import type { BackendRegistry } from "../agent/backend.js";
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  /**
+   * Whether this host labels pills (#1004). Off, stored labels from an
+   * earlier run are not listed: nothing would refresh them.
+   */
+  labels?: boolean;
 }): Hono {
   const { registry, db } = deps;
   const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
@@ -51,8 +56,8 @@ export function createSessionRoutes(deps: {
       const accounting = new Map(
         (
           db
-            .query("SELECT id, title, total_cost_usd AS cost, num_turns AS turns, handoff_from AS handoffFrom, handoff_from_turns AS handoffFromTurns, backend_id AS backendId FROM sessions")
-            .all() as Array<{ id: string; title: string | null; cost: number | null; turns: number | null; handoffFrom: string | null; handoffFromTurns: number | null; backendId: string | null }>
+            .query("SELECT id, title, total_cost_usd AS cost, num_turns AS turns, handoff_from AS handoffFrom, handoff_from_turns AS handoffFromTurns, backend_id AS backendId, label FROM sessions")
+            .all() as Array<{ id: string; title: string | null; cost: number | null; turns: number | null; handoffFrom: string | null; handoffFromTurns: number | null; backendId: string | null; label: string | null }>
         ).map((r) => [r.id, r])
       );
       const results = await Promise.allSettled(
@@ -67,6 +72,8 @@ export function createSessionRoutes(deps: {
               ...(stored?.turns && session.numTurns === 0
                 ? { numTurns: stored.turns }
                 : {}),
+              // The host's pill label (#1004); a backend never supplies one.
+              ...(deps.labels && stored?.label ? { label: stored.label } : {}),
               backendId: backend.id,
             };
           })

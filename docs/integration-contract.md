@@ -3053,6 +3053,45 @@ not declare it receives exactly the frames it received before.
 The queue stays in memory: a host restart drops it, as it always has. The SDK
 client (`BrainUiClient`) declares the flag.
 
+### Pill labels (additive, #1004)
+
+```
+PILL_LABEL_MAX_CHARS = 32
+QueuedFollowUpView.label?: string
+ChatSession.label?: string                         // GET /api/sessions
+CreateAppOptions.labeller?: { provider: LabelCompletionProvider; timeoutMs? }
+LabelCompletionProvider = { id, complete({ system?, prompt, maxTokens? }): Promise<string> }
+```
+
+A label is a few plain words saying what a pill is about: at most
+`PILL_LABEL_MAX_CHARS` characters, no quotes, no trailing punctuation. It
+never replaces a session's `title` and never renames anything; a client
+without one prints what it printed before (the title, or the start of the
+prompt).
+
+- **Off by default.** Without `CreateAppOptions.labeller` the host sends no
+  `label` and makes no call. The provider is any value of core's
+  `CompletionProvider` shape, chosen by the host and separate from every
+  session's chat model. **When it is set, the text of every queued follow-up
+  and every turn's request goes to that provider**, which may be a different
+  vendor from the session's backend.
+- **A queued follow-up** is reported at once without a label. When the label
+  arrives, the session's `session_queue` is sent again with no `started` or
+  `dropped`; every later report carries it.
+- **A session** is labelled from its latest request when a turn starts. The
+  label is stored with the session and listed by `GET /api/sessions`, and it
+  stays until the next request is labelled. A request already labelled is not
+  sent again: a follow-up that becomes the session's turn hands its pill's
+  label to the session.
+- **Failure** (an error, an unusable answer, no answer within `timeoutMs`,
+  10 s by default) leaves the fallback in place and is logged once per item.
+  The SDK drops a `label` outside its bounds and keeps the rest of the frame.
+- **Cost.** `CompletionProvider` reports no usage, so the provider calls are
+  counted by outcome in the `brain.labeller.calls` metric and their cost is
+  unknown. Asks that kept their fallback without an answer (timed out, or
+  skipped while busy) are counted apart, in `brain.labeller.fallbacks`. The
+  calls do not appear in Activity, and no amount is recorded as zero.
+
 ## File-layer contracts
 
 - Markdown files: YAML frontmatter per `CONTRACT.md` (shipped in the package);

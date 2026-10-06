@@ -1489,7 +1489,19 @@ export interface ChatSession {
    * unknown.
    */
   handoffFrom?: { sessionId: string; title: string | null; backendId?: string; afterTurns?: number };
+  /**
+   * A few words saying what the session's latest request is about (additive,
+   * #1004), written by the host's label model when a turn starts and kept
+   * until the next request is labelled. Absent until then, or when the host
+   * labels nothing: a working-session pill prints `title` instead. Plain text,
+   * at most {@link PILL_LABEL_MAX_CHARS} characters. Not a title: it never
+   * renames the session.
+   */
+  label?: string;
 }
+
+/** The longest pill label a host sends (#1004). */
+export const PILL_LABEL_MAX_CHARS = 32;
 
 export interface BrainSearchResult {
   path: string;
@@ -1992,6 +2004,14 @@ export interface QueuedFollowUpView {
   source?: MessageSource;
   /** Host clock when the entry was queued. */
   queuedAt: number;
+  /**
+   * A few words saying what the message is about (additive, #1004), from the
+   * host's label model. Absent until it arrives, which is reported as a
+   * change to the queue, or when the host labels nothing: the pill prints
+   * the start of `text` instead. Plain text, at most
+   * {@link PILL_LABEL_MAX_CHARS} characters.
+   */
+  label?: string;
 }
 
 /**

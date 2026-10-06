@@ -432,7 +432,9 @@ async function runRetainedSession(
               recordDraftExchanges(host, sid, drafted);
               initial.handoffHooks?.onNamed(sid);
             },
-        failureRecording.observe
+        failureRecording.observe,
+        // A follow-up's pill label is its turn's request label (#1004).
+        () => current.label
       );
       const startedAt = Date.now();
       // Handed to the backend now: recovery reads this request as running.
@@ -658,6 +660,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
     withSessionId({ type: "status", status: "queued", ...(entry.requestId ? { requestId: entry.requestId } : {}), ...(detail ? { detail } : {}) }, sessionId)
   );
   host.coordinator.queueChanged(sessionId);
+  host.labels?.followUpQueued(sessionId, entry);
   // Queued is accepted: the sent revision of its draft is consumed now.
   acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
 }

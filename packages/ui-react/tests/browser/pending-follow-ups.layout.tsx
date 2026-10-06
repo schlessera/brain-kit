@@ -152,6 +152,17 @@ for (const [width, height] of [[320, 640], [1280, 800]] as const) {
       expect(pills()).toHaveLength(2);
       expect(transcript().textContent).not.toContain("Ask Aeolus");
 
+      // The host's few-word label (#1004) arrives as a change to the queue
+      // and replaces the start of the text in that pill alone.
+      socket.deliver({ type: "session_queue", sessionId: S, followUps: [{ ...winds, label: "West wind" }, bag] });
+      await nextFrame();
+      expect(pills().map((p) => p.getAttribute("aria-label"))).toEqual([
+        "Pending follow-up 1 of 2: West wind. Not yet received by the agent.",
+        "Pending follow-up 2 of 2: Keep the bag of winds…. Not yet received by the agent.",
+      ]);
+      expect(pills()[0]!.textContent).toContain("West wind");
+      expect(pills()[0]!.getBoundingClientRect().height).toBe(44);
+
       // Hovering a pill shows its full text above it, inside the right half.
       await userEvent.hover(pills()[1]!);
       const full = host!.querySelector<HTMLElement>("[data-follow-up-text]:not([hidden])")!;
