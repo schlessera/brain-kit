@@ -1,7 +1,7 @@
 import { SESSION_RECOVERY_CAPABILITY, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { isSettledExchange, pendingApprovals, type ChatState } from "../stores/chat-state.js";
-import { isWork, trackerEventsForFrame } from "./trackers.js";
+import { applySnapshot, evidenceFromRecord, isWork, trackerEventsForFrame } from "./trackers.js";
 import { answeredByResult, closureFromEnvelope, openRestoredCards, type RestoredApprovalClosure } from "./restored-approvals.js";
 
 /**
@@ -146,6 +146,11 @@ export function createTrackerClient(root: BrainUiServices) {
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
       const current = trackers.getState().epoch === epoch;
+      // Whether the evidence accepts the envelope itself, judged before the
+      // frames held behind it are replayed: live proof clears a rollback
+      // mark, but it does not make the rejected snapshot's pending list true.
+      const before = trackers.getState().evidence[sessionId] ?? evidenceFromRecord(trackers.getState().records[sessionId]);
+      const rejected = result.ok && applySnapshot(before, result.recovery).rolledBack;
       const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
       // After the envelope and the frames held behind it are applied: a
       // closure then settles whatever they listed for the card.
@@ -159,7 +164,7 @@ export function createTrackerClient(root: BrainUiServices) {
           // at one revision) proves nothing, its pending list included: the
           // cards stop taking a decision, with no reason, until a read the
           // evidence accepts.
-          if (trackers.getState().evidence[sessionId]?.rolledBack === true) {
+          if (rejected) {
             closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "unlisted" as const })));
           } else {
             const closures = still.map((card) => ({ toolUseId: card.toolUseId, closure: closureFromEnvelope(card, result.recovery) }));

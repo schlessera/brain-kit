@@ -231,6 +231,25 @@ describe("a closed card and the evidence around it", () => {
     expect(awaiting(r)).toEqual(["tool-wax"]);
   });
 
+  test("a rolled-back envelope stays rejected though a frame held behind it is live proof", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const running = { requestId: "req-2", turnId: "turn-2", state: "running" as const, startedAt: 5 };
+    const responses: Respond[] = [
+      envelope(A, running, [listed("tool-wax")], 5),
+      async () => { await gate; return envelope(A, running, [], 3)(); },
+    ];
+    const r = root({ [A]: () => responses.shift()!() });
+    hello(r);
+    restore(r, A);
+    await settle();
+    hello(r);
+    frame(r, { type: "status", sessionId: A, turnId: "turn-2", status: "thinking" });
+    release();
+    await settle();
+    expect(card(r, A).readOnly).toBe("unlisted");
+  });
+
   test("a late duplicate of a closed card's request starts no tracker", async () => {
     const r = root({ [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 5, endedAt: 9 }, []) });
     hello(r);
