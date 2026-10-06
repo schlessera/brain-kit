@@ -165,7 +165,7 @@ for (const theme of ["dark", "light"] as const) {
     await expect.poll(() => host!.querySelector('[role="dialog"][aria-label="Command palette"]'), { message: "opens when short" }).not.toBeNull();
   });
 
-  for (const width of [480, 900, 1440]) {
+  for (const width of [480, 900, 1280, 1440]) {
     const expanded = width >= 900;
     test(`rail destinations, acts and All commands: ${theme}, ${width}`, async () => {
       const mode = pointerScene();
