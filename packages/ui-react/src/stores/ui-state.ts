@@ -26,6 +26,27 @@ export type SettingsTab = "appearance" | "models" | "skills" | "security" | "dev
 /** Full-screen surface currently shown inside the AppShell. */
 export type ActiveView = "chat" | "graph" | "activity";
 
+/** The panels a destination opens rather than a view it switches to. */
+export type DestinationPanel = "sessions" | "files" | "settings";
+
+/**
+ * Which views mount each destination panel. Chat mounts all three; Graph
+ * mounts its own Files and Settings; Actions mounts only Settings. A panel
+ * opened from a view that does not mount it lands in Chat, so the panel is
+ * actually drawn rather than a flag set behind the view (D52 §2).
+ */
+const PANEL_VIEWS: Record<DestinationPanel, readonly ActiveView[]> = {
+  sessions: ["chat"],
+  files: ["chat", "graph"],
+  settings: ["chat", "graph", "activity"],
+};
+
+const PANEL_FLAG = {
+  sessions: "sessionPanelOpen",
+  files: "filePanelOpen",
+  settings: "settingsPanelOpen",
+} as const satisfies Record<DestinationPanel, keyof typeof CLOSED>;
+
 export interface UIState {
   activeView: ActiveView;
   /**
@@ -64,6 +85,13 @@ export interface UIState {
   setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
   /** Switch the full-screen view; closes any open panel so the new view starts clean. */
   setActiveView: (view: ActiveView) => void;
+  /**
+   * Go to a destination that is a panel (D52 §2, N1 and N3). It replaces any
+   * other open panel with no separate close step, lands in Chat when the
+   * current view does not mount it, and never toggles: pressing the
+   * destination that is already open leaves it open.
+   */
+  openPanel: (panel: DestinationPanel) => void;
   toggleSessionPanel: () => void;
   toggleSyncPanel: () => void;
   toggleWhatsupPanel: () => void;
@@ -115,7 +143,7 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
   const storedSingleKey = env?.storage()?.getItem(singleKeyKey);
   let navigationGuard: ((leave: () => void) => void) | null = null;
   const leaveSettings = (change: () => void) => navigationGuard ? navigationGuard(change) : change();
-  return createStore<UIState>((set) => ({
+  return createStore<UIState>((set, get) => ({
     ...CLOSED,
     activeView: "chat",
     settingsTab: "models",
@@ -139,6 +167,18 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
       set((s) => ({ subagentStack: [...s.subagentStack, spanId] })),
     popSubagentView: () => set((s) => ({ subagentStack: s.subagentStack.slice(0, -1) })),
     setActiveView: (view) => leaveSettings(() => set({ ...CLOSED, activeView: view })),
+    openPanel: (panel) => {
+      const flag = PANEL_FLAG[panel];
+      const change = () => set((s) => ({
+        ...CLOSED,
+        [flag]: true,
+        activeView: PANEL_VIEWS[panel].includes(s.activeView) ? s.activeView : "chat",
+      }));
+      // Settings already open stays put without asking its leave guard:
+      // nothing is being left.
+      if (panel === "settings" && get().settingsPanelOpen) return;
+      leaveSettings(change);
+    },
     toggleSessionPanel: () =>
       leaveSettings(() => set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen }))),
     toggleSyncPanel: () =>

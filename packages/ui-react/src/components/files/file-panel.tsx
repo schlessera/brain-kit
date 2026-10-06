@@ -9,6 +9,7 @@ import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
+import { ABOVE_PHONE_BAR } from "../layout/slide-panel.js";
 import { formatSize } from "./file-viewer-frame.js";
 import { DisabledToggleRow } from "../graph/graph-form.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
@@ -81,16 +82,20 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20"
+          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", ABOVE_PHONE_BAR)}
           onClick={onClose}
         />
       )}
 
+      {/* Files is a bar destination: on a phone it stops above the bar. */}
       <div
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)] md:w-[560px]",
+          "max-tablet:h-auto",
+          ABOVE_PHONE_BAR,
           "transform transition-transform duration-300 ease-out",
-          open ? "translate-x-0" : "translate-x-full"
+          // A closed drawer takes no taps while it slides out, as SlidePanel.
+          open ? "translate-x-0" : "translate-x-full pointer-events-none"
         )}
       >
         {/* Header */}

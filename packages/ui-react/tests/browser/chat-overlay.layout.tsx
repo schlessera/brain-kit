@@ -144,6 +144,15 @@ for (const size of sizes) {
     const { target, scrollDisc } = await mount(size);
     expect(intersects(target.getBoundingClientRect(), scrollDisc.getBoundingClientRect()),
       "New chat clears the visible scroll disc").toBe(false);
+    // Below 480 the phone Search disc joins the row (#947); it shares the
+    // top band and must clear both, and the resting first message.
+    const search = host!.querySelector<HTMLButtonElement>('button[aria-label="Search the brain"]');
+    expect(search !== null, "Search disc exactly below 480").toBe(size.width < 480);
+    if (search) {
+      expect(intersects(search.getBoundingClientRect(), target.getBoundingClientRect()), "Search clears New chat").toBe(false);
+      expect(intersects(search.getBoundingClientRect(), scrollDisc.getBoundingClientRect()), "Search clears the scroll disc").toBe(false);
+      expect(search.getBoundingClientRect().top, "one vertical range").toBe(target.getBoundingClientRect().top);
+    }
   });
 
   test(`${label(size)}: the scroller uses all available message height`, async () => {

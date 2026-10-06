@@ -111,7 +111,7 @@ export function SettingsPanel({
   const stripTab: StripTab = tab === "appearance" ? "models" : tab;
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy}>
+    <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy} destination>
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: TabIcon }) => (

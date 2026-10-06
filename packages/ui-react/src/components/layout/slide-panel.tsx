@@ -29,6 +29,14 @@ export type SlidePanelMode = "drawer" | "pane";
  */
 export type SlidePanelClosedBy = "any" | "closerequest" | "none";
 
+/**
+ * Below `tablet:`, a destination's drawer and its backdrop stop at the top of
+ * the phone bar (60px plus the safe area, `MobileTabBar`), so every slot stays
+ * one tap away while it is open (D52 §2, N1: a panel is not a place). A
+ * literal class, so Tailwind's scan finds it.
+ */
+export const ABOVE_PHONE_BAR = "max-tablet:bottom-[calc(60px+env(safe-area-inset-bottom))]";
+
 export function SlidePanel({
   open,
   onClose,
@@ -36,6 +44,7 @@ export function SlidePanel({
   wide,
   mode = "drawer",
   closedBy = "any",
+  destination = false,
   children,
 }: {
   open: boolean;
@@ -44,6 +53,11 @@ export function SlidePanel({
   wide?: boolean;
   mode?: SlidePanelMode;
   closedBy?: SlidePanelClosedBy;
+  /**
+   * A bar destination (Sessions, Settings): the phone bar stays uncovered
+   * and operable. An act's panel (Search, a running Sync) keeps covering it.
+   */
+  destination?: boolean;
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -80,7 +94,7 @@ export function SlidePanel({
       {/* Backdrop: a click on it dismisses only a light-dismiss drawer. */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20"
+          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", destination && ABOVE_PHONE_BAR)}
           onClick={closedBy === "any" ? onClose : undefined}
         />
       )}
@@ -89,6 +103,7 @@ export function SlidePanel({
       <div
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)]",
+          destination && ["max-tablet:h-auto", ABOVE_PHONE_BAR],
           "transform transition-[transform,box-shadow] duration-300 ease-out",
           // A closed drawer sits just past the right edge, and its 48px shadow
           // would still bleed into the viewport: the shadow fades with the

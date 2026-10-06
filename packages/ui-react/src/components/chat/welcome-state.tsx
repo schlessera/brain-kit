@@ -7,11 +7,21 @@ import { motion } from "framer-motion";
  * starting points as `SuggestionChips`, "follow-ups phrased as prompts the
  * user could have typed". Already props-only; the chat page routes the
  * action.
+ *
+ * The chips are the empty chat's acts (D52 §1): the Daily briefing, which
+ * prints `spends` at rest, Search, and Add a note. Add replaced the
+ * statistics chip; statistics is occasional and lives in More and the
+ * palette. Opening Search or Add opens a form and writes nothing. When the
+ * briefing cannot run, `briefingWhy` is its printed reason and the chip
+ * stays, disabled, with its cost (D52 §2).
  */
 export function WelcomeState({
   onAction,
+  briefingWhy,
 }: {
   onAction: (action: string) => void;
+  /** Why the briefing cannot run now (`needs the host`); absent when it can. */
+  briefingWhy?: string;
 }) {
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-8">
@@ -35,9 +45,13 @@ export function WelcomeState({
           <SuggestionChips
             label="Start with"
             items={[
-              { label: "What's new?", icon: "digest", tone: "amber", onClick: () => onAction("whatsup") },
+              {
+                label: "What's new?", icon: "digest", tone: "amber", cost: "spends",
+                disabled: briefingWhy !== undefined, why: briefingWhy,
+                onClick: () => onAction("whatsup"),
+              },
               { label: "Search…", icon: "search", onClick: () => onAction("search") },
-              { label: "Brain stats", icon: "health", tone: "teal", onClick: () => onAction("stats") },
+              { label: "Add a note…", icon: "add", tone: "teal", onClick: () => onAction("add") },
             ]}
           />
         </div>
