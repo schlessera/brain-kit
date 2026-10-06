@@ -20,6 +20,7 @@ import {
   type TrackerSet,
   type TrackerView,
 } from "../lib/trackers.js";
+import type { TrackerAnnouncement } from "../lib/tracker-announcer.js";
 
 export interface TrackerSeenObservation {
   sessionId: string;
@@ -119,7 +120,19 @@ export interface TrackerStoreState {
   revoke(): void;
   /** A hello arrived: the connection is authorized, so tracking resumes. */
   resume(): void;
+  /**
+   * The newest changes to announce (D52 §3), oldest first, each with a
+   * sequence number so the same words twice are two announcements. Several
+   * can arrive in one burst of frames, so the last few are kept rather than
+   * the latest alone. Written by the tracker client's announcer; the
+   * Working group's live region reads it.
+   */
+  announcements: Array<TrackerAnnouncement & { seq: number }>;
+  announce(announcement: TrackerAnnouncement): void;
 }
+
+/** Announcements kept for the live region: more than one burst of frames makes. */
+const ANNOUNCEMENTS_KEPT = 8;
 
 /** Every tracker with its state, in display order, cleared ones included. */
 export function trackerViews(
@@ -338,6 +351,13 @@ export function createTrackerStore(env: StoreEnvironment) {
       reading: {},
       epoch: 0,
       suspended: false,
+      announcements: [],
+
+      announce(announcement) {
+        const kept = get().announcements;
+        const seq = (kept.at(-1)?.seq ?? 0) + 1;
+        set({ announcements: [...kept, { ...announcement, seq }].slice(-ANNOUNCEMENTS_KEPT) });
+      },
 
       track(sessionId, options = {}) {
         const state = get();

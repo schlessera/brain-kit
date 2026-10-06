@@ -1,0 +1,7 @@
+---
+"@schlessera/brain-ui-react": minor
+---
+
+Show work left running in other sessions where you can reach it. Below 1280px the sessions you left busy, or whose work started while you were elsewhere, appear as pills in the left half of the row above the composer, most urgent first: `needs you`, `failed`, `running · 2m`, `done · 4m` and the other tracker states, labelled with the host's few-word label or the session title. Three or more show the most urgent and a summary that opens the `Working` sheet. From 1280px Chat has a 280px Sessions pane beside the transcript instead: `New conversation` is its one primary action (there is no New chat disc at that width, and in an empty chat the button is `aria-disabled` with `already a new chat`), and a `Working` group lists the trackers above the date groups. Pressing Sessions there stays in Chat and moves focus into the pane. In the drawer and the pane, Working replaces the single `Session running…` row, a tracked session is not listed again in its date group, and the list is one roving tab stop.
+
+Opening a tracker reattaches its session without starting a turn, shows its latest turn and moves focus to a waiting approval or question, a failed turn's primary action, or the composer (nowhere on a phone, so the keyboard stays down). It clears only once that latest turn is on screen. A latest turn the host cannot link offers `Mark as seen`. A change to `needs you`, `failed` or `done` is announced once in a polite live region; a reload, repeated frames and ticking ages announce nothing.

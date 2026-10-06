@@ -52,7 +52,9 @@ afterEach(async () => {
 const sizes = [
   { width: 320, height: 640 },
   { width: 768, height: 1024 },
-  { width: 1280, height: 800 },
+  // The widest Chat with the New chat disc: from 1280 the Sessions pane's
+  // New conversation is New chat instead (D52 §1), checked below.
+  { width: 1279, height: 800 },
   { width: 320, height: 640, short: true },
   // Check the container-query threshold itself, not just a wide desktop.
   { width: 879, height: 800 },
@@ -198,5 +200,35 @@ for (const size of sizes.filter(size => size.width >= 888)) {
     expect(columnRect.width, "the maximum reading-column width is preserved").toBe(768);
     expect(intersects(column.getBoundingClientRect(), target.getBoundingClientRect()),
       `reading column clears target: column=${JSON.stringify(column.getBoundingClientRect().toJSON())}; target=${JSON.stringify(target.getBoundingClientRect().toJSON())}`).toBe(false);
+  });
+}
+
+// From 1280 there is no New chat disc: the Sessions pane beside the
+// transcript carries New conversation (D52 §1, §8). The scroll disc stays.
+for (const width of [1280, 1440]) {
+  test(`${width}×800: no New chat disc beside the Sessions pane; the scroll disc stays`, async () => {
+    frameBefore = { width: window.innerWidth, height: window.innerHeight };
+    outerBefore = await commands.formViewport(width, 800);
+    await page.viewport(width, 800);
+    style = document.createElement("style");
+    style.textContent = await commands.formConsumerStyles();
+    document.head.append(style);
+    host = document.createElement("div");
+    host.style.cssText = `position:fixed;inset:0;display:flex;flex-direction:column;width:${width}px;height:800px`;
+    document.body.append(host);
+    ui = createBrainUiRoot({ storage: null });
+    for (let i = 0; i < 30; i++) ui.stores.chat.getState().addUserMessage(null, `Odysseus's voyage note ${i + 1}.`, "typed");
+    renderer = createRoot(host);
+    flushSync(() => renderer!.render(<BrainUiProvider root={ui}><ChatPage /></BrainUiProvider>));
+    await nextFrame();
+    const scroller = host.querySelector<HTMLElement>(`[${READING_COLUMN_ATTR}]`)!.parentElement!;
+    scroller.scrollTop = 0;
+    flushSync(() => scroller.dispatchEvent(new Event("scroll")));
+    await nextFrame();
+    expect(host.querySelector('section[aria-label="Sessions"]'), "the pane is drawn").not.toBeNull();
+    expect(host.querySelector('button[aria-label="New chat"]'), "no New chat disc").toBeNull();
+    expect(host.querySelector('button[aria-label="Scroll to latest"]'), "the scroll disc is drawn").not.toBeNull();
+    const start = [...host.querySelectorAll<HTMLElement>("[data-bk-button]")].find((b) => b.textContent?.includes("New conversation"));
+    expect(start, "New conversation is the pane's primary action").toBeDefined();
   });
 }

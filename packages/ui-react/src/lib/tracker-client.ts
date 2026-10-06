@@ -3,6 +3,8 @@ import type { BrainUiServices } from "../root.js";
 import { isSettledExchange, pendingApprovals, type ChatState } from "../stores/chat-state.js";
 import { applySnapshot, evidenceFromRecord, isWork, trackerEventsForFrame } from "./trackers.js";
 import { answeredByResult, closureFromEnvelope, openRestoredCards, type RestoredApprovalClosure } from "./restored-approvals.js";
+import { trackerViews } from "../stores/tracker-state.js";
+import { createTrackerAnnouncer } from "./tracker-announcer.js";
 
 /**
  * Keeps one root's trackers (D52 §4, #948) in step with its chat state and
@@ -233,10 +235,16 @@ export function createTrackerClient(root: BrainUiServices) {
   };
   const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
   // Trackers taken in from another tab's write, when this tab wrote: read them.
+  // And every change is a chance for an announcement (D52 §3): only a
+  // settled change into needs you, failed or done is one.
+  const announcer = createTrackerAnnouncer();
   const unsubscribeReads = trackers.subscribe((state, prev) => {
     // A revocation: no restored card is this principal's to answer (#1072).
     if (state.suspended && !prev.suspended && state.recoverySupported === true) chat.getState().revokeRestoredApprovals();
     if (state.pendingReads.length > 0) for (const sessionId of trackers.getState().takePendingReads()) refresh(sessionId);
+    // Writing an announcement re-enters here with nothing new to say.
+    const now = trackers.getState();
+    for (const a of announcer.observe(trackerViews(now, chat.getState().queueNotes))) now.announce(a);
   });
 
   // Another tab of this root stored its trackers: take them in.
@@ -294,6 +302,7 @@ export function createTrackerClient(root: BrainUiServices) {
         && (typeof document === "undefined" || document.visibilityState === "visible");
       if (!tracked && !watched) {
         if (!isWork(events)) return;
+        announcer.background(sessionId);
         store.track(sessionId);
       }
       // A turn starting while the latest work is unknown: only the host can

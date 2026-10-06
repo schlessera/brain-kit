@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { useBrainUiRoot } from "../../root-context.js";
+import { useEffect, useMemo, useRef } from "react";
+import { describeWorkingSession } from "@schlessera/brain-ui-kit";
+import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
-import { SessionList } from "./session-list.js";
+import { SessionList, type SessionListProps, type WorkingRowData } from "./session-list.js";
 import { formatRelativeTime } from "./tool-views.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
@@ -10,97 +11,52 @@ import { handoffWhy } from "../../hooks/use-handoff-entry.js";
 import { mintHandoffId } from "../../lib/handoff.js";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
-
-interface SessionInfo {
-  id: string;
-  title: string | null;
-  createdAt: number;
-  lastActiveAt: number;
-  totalCostUsd?: number;
-  numTurns?: number;
-  backendId?: string;
-  handoffFrom?: { sessionId: string; title: string | null };
-}
+import { useNow } from "../../hooks/use-now.js";
+import { useWorkingSessions } from "../../hooks/use-working-sessions.js";
+import type { ListedSession } from "../../stores/session-list-state.js";
 
 interface GroupedSessions {
   label: string;
-  sessions: SessionInfo[];
+  sessions: ListedSession[];
 }
 
+/** How often the Working rows' ages (`running · 2m`) are redrawn. */
+const AGE_TICK_MS = 30_000;
+
 /**
- * The container (S7): the sessions request, the retry counter and the
- * chat-store reads live here; `SessionList` draws the rows.
+ * The props both Sessions containers hand `SessionList`: the root's session
+ * list, its trackers as Working rows, and the chat-store reads (which
+ * session is in view, which are running or queued). `visible` asks the host
+ * for the list again each time the surface comes into view.
  */
-export function SessionDrawer({
-  open,
-  onClose,
-  onResume,
-}: {
-  open: boolean;
-  onClose: () => void;
+export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave }: {
+  visible: boolean;
   onResume: (sessionId: string) => void;
-}) {
+  onOpenTracker: (sessionId: string) => void;
+  /** After a row, New conversation or a handoff has acted: the drawer closes. */
+  onLeave?: () => void;
+}): SessionListProps {
   const root = useBrainUiRoot();
-  const api = root.api;
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
+  const sessions = useRootStore("sessions", (s) => s.sessions);
+  const loading = useRootStore("sessions", (s) => s.loading);
+  const warning = useRootStore("sessions", (s) => s.warning);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const currentSessionId = useChatStore((s) => s.activeSessionId);
   const runStates = useChatStore((s) => s.runStates);
   const queueNotes = useChatStore((s) => s.queueNotes);
   const providers = useProviderStore((s) => s.available);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
-  // A running/queued session other than the one in view is reattachable. Derive
-  // it from the live per-session run-state (kept current by the frame demux)
-  // rather than the deprecated status.activeSessionId, which multi-session
-  // servers no longer send.
-  const backgroundSessionId =
-    Object.keys(runStates).find((id) => id !== currentSessionId) ?? null;
-
-  useEffect(() => { setSessions([]); setWarning(null); }, [root]);
-
-  // Pressing Sessions while it is open (D52 N3): the drawer body and the list
-  // go to the top, and focus goes to the first Working row. Until #950's
-  // Working group exists that is the reattachable running session; then the
-  // session in view, the first row, and the heading of an empty list.
-  const panelRef = useRef<HTMLElement>(null);
-  useDestinationPress("sessions", ({ keyboard }) => {
-    const panel = panelRef.current;
-    if (!open || !panel) return;
-    scrollToStart(panel);
-    const row = (sel: string) => panel.querySelector<HTMLElement>(sel);
-    focusFirst([
-      row('[data-session-running] [role="button"]'),
-      row('[data-session-row] [role="button"][aria-current="true"]'),
-      row('[data-session-row] [role="button"]'),
-      row("[data-destination-heading]"),
-    ], keyboard);
-  });
+  const tracked = useWorkingSessions();
+  const now = useNow(AGE_TICK_MS);
 
   useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setLoading(true);
-    setWarning(null);
-    api.sessions()
-      .then((data) => {
-        if (!active) return;
-        setSessions(data.sessions);
-        // The list is where handoff links live (#61): index them for the
-        // destination's card and the source's forward marker.
-        root.stores.handoff.getState().setLinks(data.sessions);
-        setWarning(data.unavailableBackends?.length
-          ? "Some session histories are unavailable. Showing available sessions."
-          : null);
-      })
-      .catch(() => {
-        if (active) setWarning("Could not refresh sessions. Please retry.");
-      })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [open, retry, root, api]);
+    if (visible) void root.stores.sessions.getState().refresh();
+  }, [visible, root]);
+
+  const working: WorkingRowData[] = useMemo(() => tracked.shown.map((s) => {
+    const view = describeWorkingSession({ ...s, onOpen: () => {} }, now);
+    return { id: s.id, label: s.label, word: view.word, tone: view.tone, icon: view.icon, name: view.name };
+  }), [tracked, now]);
 
   const groups = groupSessionsByDate(sessions).map((group) => ({
     label: group.label,
@@ -113,6 +69,7 @@ export function SessionDrawer({
         cost: session.totalCostUsd != null && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(2)}` : null,
         run: state === "streaming" || state === "queued" ? state : null,
         note: queueNotes[session.id],
+        ...(tracked.overflow.has(session.id) ? { unseen: true } : {}),
         ...(session.handoffFrom ? { from: session.handoffFrom.title || "an earlier chat" } : {}),
         // A stored session with a settled turn can continue elsewhere.
         ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected) } } : {}),
@@ -120,37 +77,80 @@ export function SessionDrawer({
     }),
   }));
 
+  return {
+    working,
+    groups,
+    loading,
+    warning,
+    currentSessionId,
+    onNew: () => {
+      clearMessages();
+      onLeave?.();
+    },
+    onResume: (id) => {
+      onResume(id);
+      onLeave?.();
+    },
+    onOpenTracker: (id) => {
+      onLeave?.();
+      onOpenTracker(id);
+    },
+    onRetry: () => void root.stores.sessions.getState().refresh(),
+    onHandoff: (id) => {
+      const backendId = sessions.find((session) => session.id === id)?.backendId;
+      if (backendId) root.stores.chat.getState().setSessionBackend(id, backendId);
+      onResume(id);
+      onLeave?.();
+      // The resume above replays fresh history; the review waits for it.
+      root.stores.handoff.getState().open(id, mintHandoffId(), { awaitHistory: true });
+    },
+  };
+}
+
+/**
+ * Sessions below 1280: the existing drawer (S7). The container reads the
+ * stores through `useSessionListProps`; `SessionList` draws the rows. At
+ * ≥1280 Sessions is the pane beside the transcript instead (`SessionsPane`).
+ */
+export function SessionDrawer({
+  open,
+  onClose,
+  onResume,
+  onOpenTracker,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onResume: (sessionId: string) => void;
+  /** Open a tracked session from its Working row; defaults to `onResume`. */
+  onOpenTracker?: (sessionId: string) => void;
+}) {
+  const props = useSessionListProps({ visible: open, onResume, onOpenTracker: onOpenTracker ?? onResume, onLeave: onClose });
+
+  // Pressing Sessions while it is open (D52 N3): the drawer body and the list
+  // go to the top, and focus goes to the first Working row; then the session
+  // in view, the first row, and the heading of an empty list.
+  const panelRef = useRef<HTMLElement>(null);
+  useDestinationPress("sessions", ({ keyboard }) => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    scrollToStart(panel);
+    const row = (sel: string) => panel.querySelector<HTMLElement>(sel);
+    focusFirst([
+      row('[data-working-row] [role="button"]'),
+      row('[data-session-row] [role="button"][aria-current="true"]'),
+      row('[data-session-row] [role="button"]'),
+      row("[data-destination-heading]"),
+    ], keyboard);
+  });
+
   return (
     <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination panelRef={panelRef}>
-      <SessionList
-        groups={groups}
-        loading={loading}
-        warning={warning}
-        currentSessionId={currentSessionId}
-        backgroundSessionId={backgroundSessionId}
-        onNew={() => {
-          clearMessages();
-          onClose();
-        }}
-        onResume={(id) => {
-          onResume(id);
-          onClose();
-        }}
-        onRetry={() => setRetry((value) => value + 1)}
-        onHandoff={(id) => {
-          const backendId = sessions.find((session) => session.id === id)?.backendId;
-          if (backendId) root.stores.chat.getState().setSessionBackend(id, backendId);
-          onResume(id);
-          onClose();
-          // The resume above replays fresh history; the review waits for it.
-          root.stores.handoff.getState().open(id, mintHandoffId(), { awaitHistory: true });
-        }}
-      />
+      <SessionList {...props} />
     </SlidePanel>
   );
 }
 
-function groupSessionsByDate(sessions: SessionInfo[]): GroupedSessions[] {
+function groupSessionsByDate(sessions: readonly ListedSession[]): GroupedSessions[] {
   const dayMs = 86400000;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -158,7 +158,7 @@ function groupSessionsByDate(sessions: SessionInfo[]): GroupedSessions[] {
   const yesterdayMs = todayMs - dayMs;
   const weekAgoMs = todayMs - 7 * dayMs;
 
-  const groups: Record<string, SessionInfo[]> = {
+  const groups: Record<string, ListedSession[]> = {
     Today: [],
     Yesterday: [],
     "This week": [],

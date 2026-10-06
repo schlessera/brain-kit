@@ -181,6 +181,22 @@ function shown(title: string) {
   });
 }
 
+/** The ≥1280 Sessions pane, when it is drawn. */
+function pane() {
+  return host!.querySelector<HTMLElement>("section[data-sessions-pane]");
+}
+
+/**
+ * Where a destination lands at `width` (D52 §1–2): its own store flag and
+ * amber row, except Sessions from 1280, which is the pane in Chat. There the
+ * drawer's flag stays down, Chat stays amber and focus moves into the pane.
+ */
+function lands(title: string, width: number) {
+  return title === "Sessions" && width >= 1280
+    ? { flag: false, amber: 0 }
+    : { flag: true, amber: DESTINATIONS.indexOf(title) };
+}
+
 /** Whether a real press at the tab's centre would land on it, rather than on
  * a panel or backdrop drawn over the rail. */
 function reachable(tab: HTMLElement) {
@@ -192,7 +208,9 @@ function reachable(tab: HTMLElement) {
  * pane, or a view with no panel over it whose own surface takes a press. */
 function drawn(name: string) {
   if (PANELS.some(([t]) => t === name)) return shown(name);
-  if (PANELS.some(([t]) => shown(t))) return false;
+  // From 1280 Sessions is the pane beside the transcript (D52 §8): Chat is
+  // still what the screen shows while it is drawn.
+  if (PANELS.some(([t]) => shown(t) && !(t === "Sessions" && pane()))) return false;
   const surface = host!.querySelector<HTMLElement>(name === "Chat" ? "textarea" : '[aria-label="Actions queue"]');
   if (!surface) return false;
   const r = surface.getBoundingClientRect();
@@ -364,12 +382,13 @@ for (const theme of ["dark", "light"] as const) {
       const state = () => ui.stores.ui.getState() as unknown as Record<string, unknown>;
       let railPresses = 0;
       for (const [title, n, flag] of PANELS) {
+        const to = lands(title, width);
         document.body.focus();
         await userEvent.keyboard(`{Meta>}${n}{/Meta}`);
         await expect.poll(() => shown(title), { message: `⌘${n} draws ${title}` }).toBe(true);
         // The same chord again, on the panel already open.
         await userEvent.keyboard(`{Meta>}${n}{/Meta}`);
-        expect(state()[flag], `⌘${n} again: ${title} stays open`).toBe(true);
+        expect(state()[flag], `⌘${n} again: ${title} stays open`).toBe(to.flag);
         await expect.poll(() => shown(title), { message: `⌘${n} again: ${title} still drawn` }).toBe(true);
         // The rail row. Every panel, drawer or pane, stops beside the rail
         // (#1075), so it is pressable at every rail width.
@@ -378,9 +397,14 @@ for (const theme of ["dark", "light"] as const) {
         expect(reachable(tab), `rail ${title} beside its panel`).toBe(true);
         railPresses++;
         await press(tab, mode);
-        expect(state()[flag], `rail ${title} again: ${title} stays open`).toBe(true);
+        expect(state()[flag], `rail ${title} again: ${title} stays open`).toBe(to.flag);
         await expect.poll(() => shown(title), { message: `rail ${title} again: still drawn` }).toBe(true);
-        expect(tab.getAttribute("aria-selected"), `rail ${title} stays amber`).toBe("true");
+        expect(parts(rail).tabs[to.amber]!.getAttribute("aria-selected"), `rail ${title} again: the amber row`).toBe("true");
+        if (!to.flag) {
+          // The pane is Sessions here: focus moved into it, and Chat stays the destination.
+          await expect.poll(() => pane()?.contains(document.activeElement) ?? false, { message: "focus is in the Sessions pane" }).toBe(true);
+          expect(state().activeView).toBe("chat");
+        }
       }
       expect(railPresses, "rail presses exercised").toBe(PANELS.length);
     });
@@ -399,7 +423,7 @@ for (const theme of ["dark", "light"] as const) {
           reach(parts(rail).tabs, mode !== "fine");
           await press(parts(rail).tabs[i]!, mode);
           await expect.poll(() => drawn(target), { message: `${target} drawn after one press with ${title} open` }).toBe(true);
-          expect(parts(rail).tabs[i]!.getAttribute("aria-selected"), `${target} is amber`).toBe("true");
+          expect(parts(rail).tabs[lands(target, width).amber]!.getAttribute("aria-selected"), `${target}: the amber row`).toBe("true");
         }
       });
     }
@@ -413,9 +437,12 @@ for (const theme of ["dark", "light"] as const) {
         const tab = parts(rail).tabs[n - 1]!;
         expect(reachable(tab), `rail ${title} reachable from ${start}`).toBe(true);
         await press(tab, mode);
-        expect((ui.stores.ui.getState() as unknown as Record<string, unknown>)[flag], `${title} flag from ${start}`).toBe(true);
+        const to = lands(title, width);
+        expect((ui.stores.ui.getState() as unknown as Record<string, unknown>)[flag], `${title} flag from ${start}`).toBe(to.flag);
         await expect.poll(() => shown(title), { message: `${title} visible from ${start}` }).toBe(true);
-        expect(parts(rail).tabs[n - 1]!.getAttribute("aria-selected"), `${title} is amber`).toBe("true");
+        expect(parts(rail).tabs[to.amber]!.getAttribute("aria-selected"), `${title}: the amber row`).toBe("true");
+        // From 1280: Chat opens with the pane focused (D52 §2).
+        if (!to.flag) await expect.poll(() => pane()?.contains(document.activeElement) ?? false, { message: "focus is in the Sessions pane" }).toBe(true);
       });
     }
 
