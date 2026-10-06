@@ -12,7 +12,7 @@
  * three things: every container it scrolled is back at its start (the
  * latest turn, for Chat), `document.activeElement` is the adopted target,
  * and nothing the press must not touch has moved: the view and panels, the
- * Settings section, the session in view, the run states the trackers read,
+ * Settings section, the session in view, the run states and the trackers,
  * the open file and its tree, the selected run and the composer's draft.
  *
  * The targets are found by the semantics that existed before #1078 (roles,
@@ -168,7 +168,7 @@ const moving = () => document.getAnimations().some((a) => a.playState === "runni
 /** The start states a cell can begin in. */
 type Start =
   | "chat" | "chat-empty" | "chat-approval"
-  | "sessions" | "sessions-running"
+  | "sessions" | "sessions-working"
   | "actions" | "actions-selected"
   | "files" | "files-tree"
   | "settings";
@@ -214,7 +214,13 @@ async function mount(ctx: TestContext, start: Start, width: number, height: numb
     chat.requestToolApproval(null, "tool-ogygia", "Write", { file_path: "journeys/ogygia.md", content: "Raft lashings checked." });
   }
   if (start.startsWith("sessions")) chat.setActiveSession(CURRENT.id);
-  if (start === "sessions-running") chat.setRunState(RUNNING.id, "streaming");
+  // Work left running in another session: its tracker is the Working row (#950).
+  if (start === "sessions-working") {
+    chat.setRunState(RUNNING.id, "streaming");
+    const trackers = ui.stores.trackers.getState();
+    trackers.track(RUNNING.id);
+    trackers.live(RUNNING.id, [{ kind: "running", turnId: "turn-aeaea", requestId: "request-aeaea", dispatch: true }]);
+  }
   if (start === "actions-selected") history.replaceState(null, "", `#/activity/${SELECTED_RUN.runId}`);
   if (start.startsWith("files")) {
     await ui.stores.file.getState().openFile(OPEN_FILE);
@@ -288,11 +294,13 @@ const SPECS: Record<Start, Spec> = {
     ready: (s) => sessionRow(s, CURRENT.title) !== null,
     target: (s) => sessionRow(s, CURRENT.title),
   },
-  "sessions-running": {
+  "sessions-working": {
     index: 1,
     root: (s) => panel(s, "Sessions"),
-    ready: (s) => sessionRow(s, CURRENT.title) !== null && sessionRow(s, "Session running…") !== null,
-    target: (s) => sessionRow(s, "Session running…"),
+    ready: (s) => sessionRow(s, CURRENT.title) !== null && workingRow(s, RUNNING.title) !== null,
+    // The first Working row (D52 N3). From 1280 Sessions is the pane, not the
+    // current destination, and keeps the 1280 row: the selected row.
+    target: (s) => s.width >= 1280 ? sessionRow(s, CURRENT.title) : workingRow(s, RUNNING.title),
   },
   actions: {
     index: 2,
@@ -338,6 +346,10 @@ function sessionRow(s: Scene, title: string) {
   const root = panel(s, "Sessions");
   return [...(root?.querySelectorAll<HTMLElement>('[role="button"]') ?? [])].find((r) => textOf(r).startsWith(title)) ?? null;
 }
+function workingRow(s: Scene, title: string) {
+  const root = panel(s, "Sessions");
+  return [...(root?.querySelectorAll<HTMLElement>('[data-working-row] [role="button"]') ?? [])].find((r) => textOf(r).startsWith(title)) ?? null;
+}
 function runRow(s: Scene, name: string) {
   const list = s.host.querySelector<HTMLElement>('[aria-label="Actions queue"]');
   return [...(list?.querySelectorAll<HTMLElement>('[role="button"], button') ?? [])].find((r) => textOf(r).startsWith(name)) ?? null;
@@ -374,6 +386,7 @@ function untouched(s: Scene) {
     settingsTab: u.settingsTab,
     session: chat.activeSessionId,
     runStates: { ...chat.runStates },
+    trackers: Object.keys(s.ui.stores.trackers.getState().records),
     messages: activeChat(chat).messages.length,
     file: file.currentPath,
     tree: file.treeExpanded,
@@ -450,13 +463,15 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
       await press(s, spec, how, mode);
       await settle(s);
 
+      const target = spec.target(s, isPhone(s), isWide(s));
+      expect(target, `${start}: the adopted target is drawn`).not.toBeNull();
+      await expect.poll(() => document.activeElement, { message: `${start}: focus is on the adopted target` }).toBe(target);
+      // After focus: revealing a wrong target scrolls its list, which would
+      // otherwise fail here first and hide which target was taken.
       for (const el of moved) {
         if (chat) expect(el.scrollHeight - el.clientHeight - el.scrollTop, "Chat is at its latest turn").toBeLessThanOrEqual(2);
         else expect(el.scrollTop, `${start}: a scroll container is at its start`).toBe(0);
       }
-      const target = spec.target(s, isPhone(s), isWide(s));
-      expect(target, `${start}: the adopted target is drawn`).not.toBeNull();
-      await expect.poll(() => document.activeElement, { message: `${start}: focus is on the adopted target` }).toBe(target);
       if (target instanceof HTMLTextAreaElement) {
         expect(target.selectionStart, "the caret is at the end of the draft").toBe(target.value.length);
       }

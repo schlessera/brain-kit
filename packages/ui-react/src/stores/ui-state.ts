@@ -130,6 +130,21 @@ export interface UIState {
   pressDestination: (destination: Destination, how?: DestinationPressHow) => void;
   /** @internal The last press of the destination already shown; see `pressDestination`. */
   destinationPress: DestinationPress | null;
+  /**
+   * @internal How the panel now open was pressed open, when a press opened
+   * it, so a surface that answers the panel elsewhere keeps the press's ring.
+   */
+  panelPress: { panel: DestinationPanel; keyboard: boolean } | null;
+  /**
+   * @internal At ≥1280 Sessions is the pane beside the transcript, not a
+   * drawer (D52 §1–2): pressing it lands in Chat with focus moved into the
+   * pane, and Chat stays the destination. Chat answers an open Sessions
+   * drawer at that width with `focusSessionsPane`, which closes it and asks
+   * the pane for focus; the pane takes the request with `takeSessionsPaneFocus`.
+   */
+  sessionsPaneFocus: { n: number; keyboard: boolean } | null;
+  focusSessionsPane: () => void;
+  takeSessionsPaneFocus: () => { n: number; keyboard: boolean } | null;
   toggleSessionPanel: () => void;
   toggleSyncPanel: () => void;
   toggleWhatsupPanel: () => void;
@@ -237,7 +252,22 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
         return;
       }
       if (destination === "chat" || destination === "activity") s.setActiveView(destination);
-      else s.openPanel(destination);
+      else {
+        s.openPanel(destination);
+        if (get()[PANEL_FLAG[destination]]) set({ panelPress: { panel: destination, keyboard: how?.keyboard === true } });
+      }
+    },
+    panelPress: null,
+    sessionsPaneFocus: null,
+    focusSessionsPane: () => {
+      const s = get();
+      const keyboard = s.panelPress?.panel === "sessions" && s.panelPress.keyboard;
+      set({ sessionPanelOpen: false, panelPress: null, sessionsPaneFocus: { n: (s.sessionsPaneFocus?.n ?? 0) + 1, keyboard } });
+    },
+    takeSessionsPaneFocus: () => {
+      const request = get().sessionsPaneFocus;
+      if (request) set({ sessionsPaneFocus: null });
+      return request;
     },
     toggleSessionPanel: () =>
       leaveSettings(() => set((s) => ({ ...CLOSED, sessionPanelOpen: !s.sessionPanelOpen }))),

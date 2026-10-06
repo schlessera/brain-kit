@@ -4935,7 +4935,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:175-179`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:226-230`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5014,6 +5014,38 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   duplicate of its request does not reopen it.
 > - The shell's header time is `latest.startedAt` when `latest.turnId` is the
 >   shell's turn. Otherwise, and without the capability, no time is printed.
+
+> **2026-10-06 — Implemented by #950 (the strip, the pane and the
+> announcements).** The pills are `components/chat/composer-row.tsx`; the
+> Working group is `SessionList`'s, drawn by the drawer below 1280 and by
+> `components/chat/sessions-pane.tsx` from 1280; the root's session list,
+> which names every tracker, is `stores/session-list-state.ts`; and which
+> changes are announced is `lib/tracker-announcer.ts`. Five readings of the
+> text above and of §3:
+>
+> - Working lists the trackers the pills show. A `done` or `cancelled` past
+>   the cap of 24 leaves both, and stays on its date row with `unseen`.
+> - `Mark as seen` is offered at the end of the transcript of the session in
+>   view when its tracker has settled, nothing is in flight, the state is
+>   `done`, `failed`, `cancelled`, `unknown` or `can't check`, and no
+>   message carries the latest turn's id. Those are the cases no observation
+>   can clear.
+> - The words for the other two announced states follow `needs you`'s:
+>   `{label} failed.` (`was interrupted.`, `timed out.`) and
+>   `{label} is done.` A tracker's first settled view is what was already
+>   the case, not a change: one restored on load, taken in from another tab,
+>   or made by leaving the session in view announces nothing then. Work that
+>   starts in a session nobody is watching announces its first settled view.
+>   Changes that arrive together are each announced.
+> - Opening a tracker moves focus once the session's replayed history is
+>   complete (a chunk has come and none has followed it for 150ms) and, for
+>   `needs you`, its card is drawn: 5 seconds at most, then with what is
+>   drawn. Going elsewhere first, or opening anything over Chat (a panel,
+>   the palette, a subagent view, the mask editor, the handoff sheet),
+>   cancels it.
+> - From 1280 a Sessions drawer opened by any route, or open when the window
+>   widens past 1280, closes and moves focus into the pane, at the selected
+>   row.
 
 ### 5. Per-session drafts, stored on the host (storage C)
 
@@ -5217,12 +5249,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:458-466`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:615-623`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:390-397`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:543-550`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
@@ -5514,9 +5546,15 @@ makes its own keys live as a Tab to it would.
 
 **Where it lives.** The store records a press of the destination already
 shown, with no DOM (`pressDestination`,
-`packages/ui-react/src/stores/ui-state.ts:233-241`). The mounted destination
+`packages/ui-react/src/stores/ui-state.ts:248-259`). The mounted destination
 answers it (`useDestinationPress`,
 `packages/ui-react/src/hooks/use-destination-press.ts:18-33`) with the shared
 reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:46-58`).
 The cells are `packages/ui-react/tests/browser/destination-press.pointer.tsx`,
 run in the kit's `rail-fine`, `rail-coarse` and `rail-mixed` projects.
+
+> **2026-10-06 — #950's Working group exists.** Below 1280 the Sessions row
+> of the table now starts at the first Working row, then the session in
+> view, the first row and the heading; the single reattachable row is gone.
+> From 1280 the press keeps the 1280 row: Chat stays the destination and
+> focus moves into the pane at the selected row.

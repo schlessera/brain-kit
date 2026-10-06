@@ -48,7 +48,7 @@ beforeAll(async () => {
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/tracker-runtime-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
   if (bundleCode !== 0) throw new Error(`Tracker client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
-  await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
+  await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
     await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
@@ -93,8 +93,13 @@ type Fixture = {
   records(): Record<string, { seen: { turnId: string; basis: string } | null }>;
   lastTurnId(): string | null;
   setSessionPanel(open: boolean): void;
+  setFilePanel(open: boolean): void;
+  announced(): string;
   resume(sessionId: string): void;
 };
+
+/** From 1280 Sessions is the pane beside the transcript and the pills are not drawn (D52 §8). */
+const wide = (run: { options: BrowserContextOptions }) => (run.options.viewport?.width ?? 0) >= 1280;
 const fixture = <T,>(page: Page, fn: (f: Fixture) => T) =>
   page.evaluate(`(${fn.toString()})(window.__trackers)`) as Promise<T>;
 
@@ -142,8 +147,9 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         // Watching it: nothing is tracked.
         expect(await fixture(page, (f) => f.views().length)).toBe(0);
 
-        // New chat while it runs: one tracker, running.
-        await page.getByRole("button", { name: "New chat", exact: true }).click();
+        // New chat while it runs: one tracker, running. From 1280 New chat
+        // is the Sessions pane's New conversation (D52 §1).
+        await page.getByRole("button", { name: wide(run) ? "New conversation" : "New chat", exact: true }).click();
         await until(page, "f.views().length === 1");
         expect(await fixture(page, (f) => f.views().map((v) => [v.sessionId, v.state, v.cleared]))).toEqual([[sessionId, "running", false]]);
         expect(await fixture(page, (f) => f.activeSessionId())).toBeNull();
@@ -162,8 +168,10 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         expect(await fixture(page, (f) => f.views().map((v) => [v.sessionId, v.state, v.cleared]))).toEqual([[sessionId, "done", false]]);
 
         // Opened behind the session panel: selected, its answer replayed
-        // with the host-proven turn, and still not seen.
-        await fixture(page, (f) => f.setSessionPanel(true));
+        // with the host-proven turn, and still not seen. From 1280 Sessions
+        // is a pane beside Chat, so Files is the panel that covers it.
+        if (wide(run)) await fixture(page, (f) => f.setFilePanel(true));
+        else await fixture(page, (f) => f.setSessionPanel(true));
         await fixture(page, (f) => f.resume(f.views()[0]!.sessionId));
         await until(page, `f.lastTurnId() === f.views()[0]?.turnId`);
         await page.getByText("Day 60: the wax held, and the crew rowed on.").waitFor({ state: "attached" });
@@ -175,7 +183,8 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
           column.scrollTop = 0;
           column.dispatchEvent(new Event("scroll"));
         });
-        await fixture(page, (f) => f.setSessionPanel(false));
+        if (wide(run)) await fixture(page, (f) => f.setFilePanel(false));
+        else await fixture(page, (f) => f.setSessionPanel(false));
         const disc = page.getByRole("button", { name: "Scroll to latest", exact: true });
         await disc.waitFor();
         await page.waitForTimeout(150);
@@ -198,6 +207,101 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         await context.close();
         // A run that failed mid-way must not leave its turn running into the
         // next one, where the host would announce it as unwatched work.
+        gates.get(prompt)?.();
+        gates.delete(prompt);
+      }
+    }, 90_000);
+
+    // #950: the same tracker, drawn where D52 puts it and opened from there
+    // with a real click or tap: the left half of the row above the composer
+    // below 1280, the Sessions pane's Working group from 1280. Opening it
+    // reattaches without a turn, shows the latest turn, moves focus as §4
+    // rules, and that is what clears it. `done` is announced once, while it
+    // happens; the reload's cold hydration announces nothing.
+    test(`${run.name}: drawn in the strip or the pane, announced once, opened and cleared from there`, async () => {
+      const context = await browser!.newContext(run.options);
+      await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+      await context.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+        if (theme === "dark") document.documentElement.classList.add("dark");
+      }, run.theme);
+      const page = await context.newPage();
+      const prompt = `Bind the crew to the mast (${run.name})`;
+      const strip = page.locator('[data-row-half="left"] [data-session-strip] [data-pill][role="button"]');
+      const pane = page.locator('section[data-sessions-pane] [data-working-row] [role="button"]');
+      const tracker = wide(run) ? pane : strip;
+      try {
+        await page.goto(origin);
+        await until(page, "f?.connected()");
+        const composer = page.locator("textarea.bk-composer");
+        await composer.fill(prompt);
+        await composer.press("Enter");
+        await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
+        const sessionId = (await fixture(page, (f) => f.activeSessionId()))!;
+        const started = turnsStarted.filter((id) => id === sessionId).length;
+        await page.getByRole("button", { name: wide(run) ? "New conversation" : "New chat", exact: true }).click();
+        await until(page, "f.views().length === 1");
+
+        // Drawn once, where the width puts it, named for the host's title.
+        await tracker.first().waitFor();
+        expect(await tracker.count(), "one tracker drawn").toBe(1);
+        expect(await (wide(run) ? strip : pane).count(), "and not in the other place").toBe(0);
+        await page.waitForFunction((sel) => (document.querySelector(sel)?.getAttribute("aria-label") ?? "").startsWith("The voyage home, running"), wide(run) ? 'section[data-sessions-pane] [data-working-row] [role="button"]' : '[data-row-half="left"] [data-pill][role="button"]', { timeout: 15_000 });
+        if (wide(run)) {
+          // Listed once: in Working, not again in its date group.
+          expect(await page.locator(`section[data-sessions-pane] [data-session="${sessionId}"]`).count()).toBe(1);
+        }
+
+        // Finishing unwatched is announced, once.
+        await page.evaluate(() => {
+          const live = document.querySelector("[data-working-live]")!;
+          (window as unknown as { __spoken: string[] }).__spoken = [];
+          new MutationObserver(() => (window as unknown as { __spoken: string[] }).__spoken.push(live.textContent ?? "")).observe(live, { childList: true, subtree: true, characterData: true });
+        });
+        await release(prompt);
+        await until(page, "f.views()[0]?.state === 'done'");
+        await until(page, "f.announced() === 'The voyage home is done.'");
+        await page.waitForTimeout(300);
+        expect((await page.evaluate("window.__spoken")) as string[], "spoken once").toEqual(["The voyage home is done."]);
+
+        // Cold hydration says nothing.
+        await page.reload();
+        await until(page, "f?.connected()");
+        await until(page, "f.views()[0]?.state === 'done' && f.views()[0]?.endedAt !== null");
+        await tracker.first().waitFor();
+        await page.waitForTimeout(300);
+        expect(await fixture(page, (f) => f.announced()), "a reload announces nothing").toBe("");
+
+        // Opened from where it is drawn, by a real click or tap.
+        const box = (await tracker.first().boundingBox())!;
+        expect(box.height, "a 44px target").toBeGreaterThanOrEqual(44);
+        if (run.options.hasTouch) await tracker.first().tap();
+        else await tracker.first().click();
+        await until(page, `f.activeSessionId() === ${JSON.stringify(sessionId)}`);
+        await page.getByText("Day 60: the wax held, and the crew rowed on.").waitFor({ state: "attached" });
+        // The latest turn is on screen, so the observer clears it, by proof.
+        try { await until(page, "f.views()[0]?.cleared === true", 10_000); }
+        catch (error) {
+          console.error("tracker state", JSON.stringify(await page.evaluate("window.__trackers.debug()")));
+          throw error;
+        }
+        expect(await fixture(page, (f) => Object.values(f.records())[0]!.seen)).toMatchObject({ basis: "proof" });
+        const bottom = await page.evaluate(() => {
+          const el = document.querySelector("[data-reading-column]")!.parentElement!;
+          return el.scrollHeight - el.scrollTop - el.clientHeight;
+        });
+        expect(bottom, "at the latest turn").toBeLessThan(20);
+        // Focus: the composer from 480 up; nowhere on a phone, so no keyboard.
+        // Focus moves once the replay has gone quiet.
+        await page.waitForTimeout(300);
+        const focused = await page.evaluate(() => document.activeElement?.matches("textarea[data-composer]") ?? false);
+        expect(focused, "focus").toBe((run.options.viewport?.width ?? 0) >= 480);
+        expect(await tracker.count(), "the cleared tracker is no longer drawn").toBe(0);
+        // Reattaching started no turn, and opening announced nothing.
+        expect(turnsStarted.filter((id) => id === sessionId)).toHaveLength(started);
+        expect(await fixture(page, (f) => f.announced())).toBe("");
+      } finally {
+        await context.close();
         gates.get(prompt)?.();
         gates.delete(prompt);
       }

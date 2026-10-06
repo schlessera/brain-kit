@@ -75,7 +75,8 @@ try {
           })
         );
         await navigate("Sessions");
-        await p.getByRole("button", { name: /Session running/ }).click();
+        // #950 replaced the single `Session running…` row with the Working group.
+        await p.locator('[data-working-row] [role="button"]').first().click();
       }
       if (["files", "settings", "actions", "graph"].includes(path)) {
         await navigate(

@@ -5176,35 +5176,56 @@ describe("activity views", () => {
 /* ── S7 (chat): the session list and the welcome state render from props ── */
 
 describe("chat views", () => {
-  test("the session list is card rows: selection, run state, the reattach row, warning with retry, empty", () => {
+  test("the session list is card rows: Working first and listed once, selection, run state, warning with retry, empty", () => {
     const onNew = mock(() => {}); const onResume = mock((_id: string) => {}); const onRetry = mock(() => {});
+    const onOpenTracker = mock((_id: string) => {});
     const groups = [{ label: "Today", sessions: [
       { id: "a", title: "Lisbon venues", when: "2h ago", cost: "$0.12", run: "streaming" as const },
       { id: "b", title: null, when: "3h ago", cost: null, run: "queued" as const, note: "queue is heavy" },
+      { id: "z", title: "Raft timber tally", when: "1h ago", cost: null, run: null },
+      { id: "y", title: "Rename voyage photos", when: "5h ago", cost: null, run: null, unseen: true },
     ] }];
-    const view = render(<SessionList groups={groups} loading={false} warning={null} currentSessionId="a" backgroundSessionId="z" onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    const working = [{ id: "z", label: "Raft timber tally", word: "running · 2m", tone: "amber" as const, icon: "working" as const, name: "Raft timber tally, running, 2m. Open session." }];
+    const view = render(<SessionList working={working} groups={groups} loading={false} warning={null} currentSessionId="a" onNew={onNew} onResume={onResume} onOpenTracker={onOpenTracker} onRetry={onRetry} />);
     expect(view.getByText("Today")).toBeTruthy();
     const current = view.getByRole("button", { name: /Lisbon venues/ });
     expect(current.getAttribute("aria-current")).toBe("true");
     expect(view.getByText("2h ago · $0.12")).toBeTruthy();
     expect(view.getByText("running")).toBeTruthy();
     expect(view.getByText("queued")).toBeTruthy();
+    // A tracked session is in Working, not again in its date group (D52 §8);
+    // one past the pill cap keeps `unseen` on its date row (D52 §4).
+    const tracked = view.getAllByRole("button").filter((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").includes("Raft timber tally"));
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]!.closest("[data-working-group]")).not.toBeNull();
+    expect(view.getByRole("button", { name: /Rename voyage photos/ }).textContent).toContain("unseen");
+    fireEvent.click(tracked[0]!);
+    expect(onOpenTracker).toHaveBeenLastCalledWith("z");
     fireEvent.click(view.getByRole("button", { name: /Untitled/ }));
     expect(onResume).toHaveBeenLastCalledWith("b");
-    fireEvent.click(view.getByRole("button", { name: /Tap to reattach/ }));
-    expect(onResume).toHaveBeenLastCalledWith("z");
+    // One tab stop across the list: the session in view.
+    expect(view.getAllByRole("button").filter((b) => b.getAttribute("tabindex") === "0" && b.closest("[data-session-item]")).map((b) => b.textContent)).toEqual([current.textContent]);
     fireEvent.click(view.getByRole("button", { name: "New conversation" }));
     expect(onNew).toHaveBeenCalledTimes(1);
     view.unmount();
 
-    const warned = render(<SessionList groups={[]} loading={false} warning="Could not refresh sessions. Please retry." currentSessionId={null} backgroundSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    // At ≥1280 in an empty chat: aria-disabled, its reason printed at rest.
+    const fresh = render(<SessionList groups={groups} loading={false} warning={null} currentSessionId={null} newWhy="already a new chat" onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    const start = fresh.getByRole("button", { name: /New conversation/ });
+    expect(start.getAttribute("aria-disabled")).toBe("true");
+    expect(start.textContent).toContain("already a new chat");
+    fireEvent.click(start);
+    expect(onNew).toHaveBeenCalledTimes(1);
+    fresh.unmount();
+
+    const warned = render(<SessionList groups={[]} loading={false} warning="Could not refresh sessions. Please retry." currentSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
     expect(warned.getByRole("status").textContent).toContain("Could not refresh");
     fireEvent.click(warned.getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(warned.getByText("No sessions available")).toBeTruthy();
     warned.unmount();
 
-    const loading = render(<SessionList groups={[]} loading warning={null} currentSessionId={null} backgroundSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
+    const loading = render(<SessionList groups={[]} loading warning={null} currentSessionId={null} onNew={onNew} onResume={onResume} onRetry={onRetry} />);
     expect(loading.queryByText("No sessions yet")).toBeNull();
     loading.unmount();
   });
