@@ -4550,3 +4550,19 @@ final Copy action; opening Report transmits the reviewed URL payload to
 GitHub before issue submission, which the sheet states explicitly. A long
 URL is refused with a copy-and-paste fallback, never silently shortened.
 There is no promise that heuristic redaction catches all private content.
+
+**Activity failures (2026-10-05, #598).** The same review serves failed
+Activity runs, under the [approved proposal](https://github.com/schlessera/brain-kit/issues/598#issuecomment-5974850029)
+and its [corrections](https://github.com/schlessera/brain-kit/issues/598#issuecomment-5981210012).
+`DiagnosticReview` moved to `components/report/` and gained an editable title,
+explicit inclusions and a URL-length meter; the chat card keeps its copy.
+`Send bug report` appears only where `isFailureOutcome` holds: as a 44px
+sibling of a history row, reading `Report` below 480px, and under the receipt
+in run detail. Its accessible name always names the run, outcome and time.
+The default facts are protocol, client release, server release and commit when
+`/api/status` was read, origin, outcome, duration, record state, built-in
+failed-step tool names and billing. Failure text and job name are explicit,
+redacted and capped inclusions. Names, IDs, paths, payloads and traces are never
+generated. A pruned, missing or unread record says so in words. Opening the
+review from a row reads only that run's record from this server, without
+payloads, and changes nothing.

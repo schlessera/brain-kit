@@ -186,7 +186,7 @@ existing pronunciation overrides only as disclosed text correction, retaining
 the distinction between recognized words and submitted text. The present
 `AsrEvent` carries partial/final text and `endsTurn`, not confidence, overlap
 evidence or an output transcript (`AsrEvent`,
-`packages/ui-sdk/src/protocol.ts:1166`). #317 must resolve those gaps rather
+`packages/ui-sdk/src/protocol.ts:1295`). #317 must resolve those gaps rather
 than pretending that dictation supplies them.
 
 Assistant text remains the generated answer; playback progress is a separate

@@ -1,7 +1,7 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Activity as ActivityIcon, AlertTriangle, RefreshCw } from "lucide-react";
-import type { ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivitySpan, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type {
   ActivityIntent,
@@ -22,6 +22,7 @@ import { IntentCard } from "./activity-views.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { PushToggle } from "./push-toggle.js";
+import { ActivityReportSheet, type ActivityReportRequest } from "./activity-report.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
 
 /**
@@ -62,6 +63,9 @@ export function ActivityPage() {
   const [error, setError] = useState<string | null>(null);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
   const [pricingStale, setPricingStale] = useState(false);
+  /** `/api/status`'s software identity for bug reports; null until loaded or when refused. */
+  const [software, setSoftware] = useState<SystemStatus["software"] | null>(null);
+  const [report, setReport] = useState<ActivityReportRequest | null>(null);
 
   const inbox = useActivityStore((s) => s.inbox);
   // Derived from the buffer references, not selected as a fresh array: a
@@ -116,6 +120,15 @@ export function ActivityPage() {
     api.pricingState()
       .then((s) => { if (current()) setPricingStale(Boolean(s.stale && s.error)); })
       .catch(() => { if (current()) setPricingStale(false); });
+    // Read here, never when a report opens: a report names the server's
+    // release and commit only when this authorized read already succeeded.
+    api.status()
+      .then((s) => {
+        if (!current()) return;
+        const sw = s.software;
+        setSoftware(sw && typeof sw.release === "string" && typeof sw.sourceCommit === "string" ? sw : null);
+      })
+      .catch(() => { if (current()) setSoftware(null); });
     void loadInbox();
   }, [api, loadInbox]);
 
@@ -124,6 +137,10 @@ export function ActivityPage() {
     setRollups(null);
     setError(null);
     setPricingStale(false);
+    setSoftware(null);
+    setReport(null);
+    seenLive.current.clear();
+    promoted.current.clear();
     setDetailRunId(null);
   }, [root]);
 
@@ -173,9 +190,46 @@ export function ActivityPage() {
     return roots.sort((a, b) => b.startedAt - a.startedAt);
   }, [liveSpans]);
 
+  // A run seen running on this page that has since ended moves to history
+  // with its streamed outcome, so a failure offers Send bug report without a
+  // reload. Older terminal runs the mirror holds for other views are not
+  // promoted: only the ones this page watched end.
+  const seenLive = useRef(new Set<string>());
+  for (const r of liveRoots) seenLive.current.add(r.runId);
+  for (const r of runs?.live ?? []) seenLive.current.add(r.runId);
+  // Kept apart from the bounded mirror, which may evict a finished run's
+  // spans before the next REST refresh lists it.
+  const promoted = useRef(new Map<string, ActivityRunSummary>());
+  // Once REST history lists a run it owns the row; the run is forgotten
+  // here, so it cannot reappear after leaving the REST window.
+  for (const r of runs?.history ?? []) {
+    seenLive.current.delete(r.runId);
+    promoted.current.delete(r.runId);
+  }
+  for (const runId of seenLive.current) {
+    const root = Object.values(liveSpans[runId] ?? {}).find((s) => !s.parentSpanId);
+    if (root && root.outcome !== undefined && root.outcome !== null) {
+      promoted.current.set(runId, settledSummary(root, runs?.live.find((r) => r.runId === runId)));
+    }
+  }
+  // Bounded like the mirror: only the newest pending promotions are kept.
+  if (promoted.current.size > MAX_PROMOTED) {
+    const oldest = [...promoted.current.values()].sort((x, y) => x.startedAt - y.startedAt);
+    for (const row of oldest.slice(0, promoted.current.size - MAX_PROMOTED)) {
+      promoted.current.delete(row.runId);
+      seenLive.current.delete(row.runId);
+    }
+  }
+  const settled = promoted.current;
+
   const liveRunIds = new Set(liveRoots.map((r) => r.runId));
-  const restLive = (runs?.live ?? []).filter((r) => !liveRunIds.has(r.runId));
-  const history = (runs?.history ?? []).filter((r) => !liveRunIds.has(r.runId));
+  const restLive = (runs?.live ?? []).filter((r) => !liveRunIds.has(r.runId) && !settled.has(r.runId));
+  const restHistory = (runs?.history ?? []).filter((r) => !liveRunIds.has(r.runId));
+  const known = new Set([...restHistory.map((r) => r.runId)]);
+  const ended = [...settled.values()].filter((row) => !known.has(row.runId) && !liveRunIds.has(row.runId));
+  // Newest first, as the API orders history; a promoted run that started
+  // before rows already listed takes its place among them, not the top.
+  const history = [...ended, ...restHistory].sort((a, b) => b.startedAt - a.startedAt);
 
   function openRun(row: {
     runId: string;
@@ -410,7 +464,7 @@ export function ActivityPage() {
             <>
               {rollups && <RollupCards rollups={rollups} />}
               <section>
-                <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-history-heading="">
                   History
                 </h2>
                 {history.length === 0 ? (
@@ -418,7 +472,7 @@ export function ActivityPage() {
                 ) : (
                   <div className="space-y-1">
                     {history.map((run) => (
-                      <RunRow key={run.runId} run={run} onOpen={openRun} />
+                      <RunRow key={run.runId} run={run} onOpen={openRun} onReport={(row) => setReport({ runId: row.runId, run: row, from: "row" })} />
                     ))}
                   </div>
                 )}
@@ -442,7 +496,7 @@ export function ActivityPage() {
           selected run or the prompt to pick one. */}
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", detailRunId ? "flex" : "hidden laptop:flex")}>
         {detailRunId ? (
-          <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded />
+          <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded onReport={setReport} />
         ) : (
           <div className="flex h-full items-center justify-center overflow-y-auto p-4">
             <EmptyState
@@ -455,6 +509,8 @@ export function ActivityPage() {
           </div>
         )}
       </div>
+
+      {report && <ActivityReportSheet request={report} server={software} onClose={() => setReport(null)} />}
 
       {/* The evidence rail, `wide:` only: the run's trace as a record, and
           the receipt for the last decision made on this page. */}
@@ -477,4 +533,30 @@ export function ActivityPage() {
       )}
     </div>
   );
+}
+
+/** How many watched-and-ended runs wait for a REST refresh at most. */
+const MAX_PROMOTED = 50;
+
+/** A run this page watched end, as a history row until the next REST refresh. */
+function settledSummary(root: ActivitySpan, rest: ActivityRunSummary | undefined): ActivityRunSummary {
+  const endedAt = root.endedAt ?? null;
+  return {
+    ...(rest ?? {
+      name: root.name,
+      sessionId: root.sessionId ?? null,
+      jobName: root.jobName ?? null,
+      costUsd: null,
+      failureReason: null,
+      detailPruned: false,
+    }),
+    runId: root.runId,
+    origin: root.origin,
+    startedAt: rest?.startedAt ?? root.startedAt,
+    endedAt,
+    outcome: root.outcome ?? null,
+    running: false,
+    durationMs: endedAt !== null ? endedAt - root.startedAt : null,
+    failureReason: rest?.failureReason ?? root.outcomeReason ?? null,
+  };
 }

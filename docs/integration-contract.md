@@ -1488,6 +1488,18 @@ Disconnect does not establish cancellation: the server continues draining and
 reserves the canonical repository until its child exits, as specified in
 [the HTTP sync contract](http-api.md#corpus-queries-capture-and-sync).
 
+### Typed status software identity (additive, #598)
+
+`SystemStatus` in `@schlessera/brain-ui-sdk/protocol` declares
+`software: { release: string; sourceCommit: string }`, the object authenticated
+`GET /api/status` already returns ([HTTP reference](http-api.md)). `release` is
+the installed `@schlessera/brain-ui-server` package version and `sourceCommit`
+the configured source commit, equal to `version`. `version` stays the source
+commit: it is never a release and clients must not parse it as one. The served
+response is unchanged; this only types it. The Activity bug report prints
+`server: {release}` and `server commit: {sourceCommit}` only when this read
+succeeded, and no server line otherwise.
+
 ### Internal Queue poke (additive)
 
 The supported `POST /api/internal/inbox/poke` operation uses an independent
