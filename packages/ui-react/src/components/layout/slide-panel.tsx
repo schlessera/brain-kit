@@ -37,6 +37,16 @@ export type SlidePanelClosedBy = "any" | "closerequest" | "none";
  */
 export const ABOVE_PHONE_BAR = "max-tablet:bottom-[calc(60px+env(safe-area-inset-bottom))]";
 
+/**
+ * From `tablet:` up, the same rule for the rail: a destination's backdrop
+ * starts beside it (60px collapsed, 208px expanded from `laptop:`, as
+ * `SideRail`) and the drawer never grows over it, so every rail tab stays
+ * one press away while the drawer is open (D52 §2, "Panel open: 1"; #1075).
+ * Literal classes, so Tailwind's scan finds them.
+ */
+export const BESIDE_RAIL_BACKDROP = "tablet:left-[60px] laptop:left-[208px]";
+export const BESIDE_RAIL_DRAWER = "tablet:max-w-[calc(100%-60px)] laptop:max-w-[calc(100%-208px)]";
+
 export function SlidePanel({
   open,
   onClose,
@@ -54,8 +64,9 @@ export function SlidePanel({
   mode?: SlidePanelMode;
   closedBy?: SlidePanelClosedBy;
   /**
-   * A bar destination (Sessions, Settings): the phone bar stays uncovered
-   * and operable. An act's panel (Search, a running Sync) keeps covering it.
+   * A bar or rail destination (Sessions, Settings): the phone bar and the
+   * rail stay uncovered and operable. An act's panel (Search, a running
+   * Sync) keeps covering them.
    */
   destination?: boolean;
   children: ReactNode;
@@ -94,7 +105,7 @@ export function SlidePanel({
       {/* Backdrop: a click on it dismisses only a light-dismiss drawer. */}
       {open && (
         <div
-          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", destination && ABOVE_PHONE_BAR)}
+          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", destination && [ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP])}
           onClick={closedBy === "any" ? onClose : undefined}
         />
       )}
@@ -103,7 +114,7 @@ export function SlidePanel({
       <div
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)]",
-          destination && ["max-tablet:h-auto", ABOVE_PHONE_BAR],
+          destination && ["max-tablet:h-auto", ABOVE_PHONE_BAR, BESIDE_RAIL_DRAWER],
           "transform transition-[transform,box-shadow] duration-300 ease-out",
           // A closed drawer sits just past the right edge, and its 48px shadow
           // would still bleed into the viewport: the shadow fades with the

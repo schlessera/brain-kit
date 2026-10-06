@@ -9,7 +9,7 @@ import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
-import { ABOVE_PHONE_BAR } from "../layout/slide-panel.js";
+import { ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP, BESIDE_RAIL_DRAWER } from "../layout/slide-panel.js";
 import { formatSize } from "./file-viewer-frame.js";
 import { DisabledToggleRow } from "../graph/graph-form.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
@@ -82,17 +82,19 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     <>
       {open && (
         <div
-          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", ABOVE_PHONE_BAR)}
+          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP)}
           onClick={onClose}
         />
       )}
 
-      {/* Files is a bar destination: on a phone it stops above the bar. */}
+      {/* Files is a bar and rail destination: on a phone it stops above the
+          bar, and from 480 it stops beside the rail. */}
       <div
         className={cn(
           "fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)] md:w-[560px]",
           "max-tablet:h-auto",
           ABOVE_PHONE_BAR,
+          BESIDE_RAIL_DRAWER,
           "transform transition-transform duration-300 ease-out",
           // A closed drawer casts no shadow and takes no taps, as SlidePanel.
           open ? "translate-x-0" : "translate-x-full shadow-none pointer-events-none"

@@ -21,6 +21,7 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
+import type { DestinationPanel } from "../../src/stores/ui-state.js";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -185,6 +186,24 @@ function shown(title: string) {
 function reachable(tab: HTMLElement) {
   const r = tab.getBoundingClientRect();
   return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('[role="tab"]') === tab;
+}
+
+/** Whether destination `name` is what the screen shows: a panel's drawer or
+ * pane, or a view with no panel over it whose own surface takes a press. */
+function drawn(name: string) {
+  if (PANELS.some(([t]) => t === name)) return shown(name);
+  if (PANELS.some(([t]) => shown(t))) return false;
+  const surface = host!.querySelector<HTMLElement>(name === "Chat" ? "textarea" : '[aria-label="Actions queue"]');
+  if (!surface) return false;
+  const r = surface.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return false;
+  return surface.contains(document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 16)));
+}
+
+/** Waits out every running entrance or exit, so a press cannot land on a
+ * drawer still sliding in (#992). */
+async function settled() {
+  await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
 }
 
 for (const theme of ["dark", "light"] as const) {
@@ -352,20 +371,38 @@ for (const theme of ["dark", "light"] as const) {
         await userEvent.keyboard(`{Meta>}${n}{/Meta}`);
         expect(state()[flag], `⌘${n} again: ${title} stays open`).toBe(true);
         await expect.poll(() => shown(title), { message: `⌘${n} again: ${title} still drawn` }).toBe(true);
-        // The rail row, where it is not under the panel. Files and Settings
-        // are panes from 900 up, beside the rail, so there it must be pressable.
+        // The rail row. Every panel, drawer or pane, stops beside the rail
+        // (#1075), so it is pressable at every rail width.
+        await settled();
         const tab = parts(rail).tabs[n - 1]!;
-        if (width >= 900 && title !== "Sessions") expect(reachable(tab), `rail ${title} beside its pane`).toBe(true);
-        if (reachable(tab)) {
-          railPresses++;
-          await press(tab, mode);
-          expect(state()[flag], `rail ${title} again: ${title} stays open`).toBe(true);
-          await expect.poll(() => shown(title), { message: `rail ${title} again: still drawn` }).toBe(true);
-          expect(tab.getAttribute("aria-selected"), `rail ${title} stays amber`).toBe("true");
-        }
+        expect(reachable(tab), `rail ${title} beside its panel`).toBe(true);
+        railPresses++;
+        await press(tab, mode);
+        expect(state()[flag], `rail ${title} again: ${title} stays open`).toBe(true);
+        await expect.poll(() => shown(title), { message: `rail ${title} again: still drawn` }).toBe(true);
+        expect(tab.getAttribute("aria-selected"), `rail ${title} stays amber`).toBe("true");
       }
-      expect(railPresses, "rail presses exercised").toBe(width >= 900 ? 2 : 0);
+      expect(railPresses, "rail presses exercised").toBe(PANELS.length);
     });
+
+    for (const [title] of PANELS) {
+      test(`with ${title} open, every destination is one rail press (D52 §2, #1075): ${theme}, ${width}`, async () => {
+        const mode = pointerScene();
+        const { rail, ui } = await mount(width, 720, theme, false, true);
+        for (const [i, target] of DESTINATIONS.entries()) {
+          ui.stores.ui.getState().setActiveView("chat");
+          ui.stores.ui.getState().openPanel(title.toLowerCase() as DestinationPanel);
+          await expect.poll(() => shown(title), { message: `${title} drawn before ${target}` }).toBe(true);
+          await settled();
+          // Every rail tab, not only the target: a backdrop or drawer over
+          // the rail fails here, before any press is spent.
+          reach(parts(rail).tabs, mode !== "fine");
+          await press(parts(rail).tabs[i]!, mode);
+          await expect.poll(() => drawn(target), { message: `${target} drawn after one press with ${title} open` }).toBe(true);
+          expect(parts(rail).tabs[i]!.getAttribute("aria-selected"), `${target} is amber`).toBe("true");
+        }
+      });
+    }
 
     for (const start of ["activity", "graph"] as const) for (const [title, n, flag] of PANELS) {
       test(`one rail ${title} activation from ${start} draws it (D52 N1): ${theme}, ${width}`, async () => {
