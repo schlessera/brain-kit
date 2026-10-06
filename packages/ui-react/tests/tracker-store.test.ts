@@ -295,6 +295,24 @@ describe("creating a tracker", () => {
     expect(ids(r)).toEqual([]);
   });
 
+  test("the composer's optimistic bubble is not accepted work, even across a second leave", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Open the bag of winds", "typed", undefined, { requestId: "req-winds" });
+    // What the composer does at send, before the host has answered.
+    r.stores.chat.getState().startAssistantMessage(A, undefined, "req-winds");
+    r.stores.chat.getState().setActiveSession(B);
+    r.stores.chat.getState().setActiveSession(A);
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("unconfirmed");
+    frame(r, { type: "error", sessionId: A, code: "SESSION_LIMIT", message: "Too many concurrent sessions (max 2).", requestId: "req-winds" });
+    expect(ids(r)).toEqual([]);
+  });
+
   test("a refusal keeps a tracker that also has accepted work", () => {
     const r = root();
     hello(r, false);

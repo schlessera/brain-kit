@@ -49,13 +49,17 @@ export function createTrackerClient(root: BrainUiServices) {
     if (run === "streaming" || run === "queued") return true;
     const buffer = state.buffers[sessionId];
     if (buffer) {
-      if (buffer.isStreaming) return true;
+      // The composer opens the answer's bubble before the host has accepted
+      // anything; only a bubble a host frame has named a turn for is work.
+      if (buffer.isStreaming && buffer.messages.some((m) => m.role === "assistant" && m.isStreaming && m.turnId)) return true;
       if (pendingApprovals({ buffers: { [sessionId]: buffer }, draft: null }).length > 0) return true;
       if (buffer.askUser && !isSettledExchange(buffer.askUser)) return true;
     }
     const evidence = trackers.getState().evidence[sessionId];
     if (evidence && (evidence.pending.length > 0 || evidence.latest?.state === "running" || evidence.latest?.state === "queued")) return true;
-    return (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0;
+    // A follow-up the host reports holding; a local entry it has not
+    // reported is an unconfirmed send, not accepted work.
+    return root.stores.followUp.getState().pending[sessionId]?.some((p) => p.confirmed) ?? false;
   }
 
   /** The reader left `sessionId`: by New chat, by selecting another session, or by leaving the page. */

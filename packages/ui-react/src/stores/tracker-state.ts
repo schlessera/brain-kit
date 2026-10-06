@@ -340,7 +340,10 @@ export function createTrackerStore(env: StoreEnvironment) {
         };
         if (options.unconfirmedRequestId) patch.unconfirmed = { ...state.unconfirmed, [sessionId]: options.unconfirmedRequestId };
         const createdFor = { ...state.createdFor };
-        if (options.onlyUnconfirmed && options.unconfirmedRequestId && !existing) createdFor[sessionId] = options.unconfirmedRequestId;
+        // Created for an unconfirmed send alone, by this call or by an earlier
+        // one for the same send that nothing has accepted since.
+        const sameSend = !existing || state.createdFor[sessionId] === options.unconfirmedRequestId;
+        if (options.onlyUnconfirmed && options.unconfirmedRequestId && sameSend) createdFor[sessionId] = options.unconfirmedRequestId;
         else delete createdFor[sessionId];
         patch.createdFor = createdFor;
         commit(patch);
