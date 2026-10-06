@@ -78,7 +78,7 @@ export const trackerLongest: TrackerEvent = {
 
 /** A tracker whose host is longer than a phone's column. */
 export const trackerLongHost: TrackerEvent = {
-  url: "https://issues.records.harbour-master.ithaca.gov.example/browse/HALL-12",
+  url: "https://issues.records.harbour-master.palace-of-odysseus.ithaca.gov.example/browse/HALL-12",
   action: "opened",
   title: "Record the suitors' gifts",
 };

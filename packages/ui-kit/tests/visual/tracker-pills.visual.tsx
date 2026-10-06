@@ -165,11 +165,21 @@ for (const theme of THEMES) {
       test("4. a host longer than the column wraps only after a dot and is never ellipsised", () => {
         const el = mount([trackerLongHost], width, theme);
         const hostEl = el.querySelector<HTMLElement>("[data-tracker-host]")!;
-        expect(hostEl.textContent).toBe("issues.records.harbour-master.ithaca.gov.example");
+        expect(hostEl.textContent).toBe("issues.records.harbour-master.palace-of-odysseus.ithaca.gov.example");
         const labels = [...hostEl.children] as HTMLElement[];
         for (const label of labels) expect(lineCount(label), label.textContent!).toBe(1);
         labels.slice(0, -1).forEach((label) => expect(label.textContent).toMatch(/\.$/));
-        if (width < 358) expect(lineCount(hostEl)).toBeGreaterThan(1);
+        // Whether it has to wrap is the font's call (the CI image's mono is
+        // narrower than JetBrains Mono), so it is measured: laid out on one
+        // line, the host is wider than the column at 288px with either face.
+        const probe = hostEl.cloneNode(true) as HTMLElement;
+        probe.style.cssText = "position:absolute;white-space:nowrap;width:max-content";
+        hostEl.parentElement!.append(probe);
+        const natural = probe.getBoundingClientRect().width;
+        probe.remove();
+        if (width === 288) expect(natural).toBeGreaterThan(width);
+        if (natural > width) expect(lineCount(hostEl)).toBeGreaterThan(1);
+        else expect(lineCount(hostEl)).toBe(1);
         for (const node of [hostEl, ...hostEl.querySelectorAll("*")]) {
           expect(getComputedStyle(node).textOverflow).not.toBe("ellipsis");
         }
@@ -276,14 +286,15 @@ for (const theme of THEMES) {
 }
 
 describe("tracker pills below the narrowest supported column", () => {
-  // 240px: past what a 320px phone gives the list. The widest fixed part,
+  // 224px: past what a 320px phone gives the list, and narrow enough that
+  // the CI image's narrower mono face overflows too. The widest fixed part,
   // `reopened` with a cut 16-character qualifier and `PR 1234`, no longer
   // fits beside even an empty title, so the qualifier gives way after the
   // title does, and the action, the number and the open glyph stay whole
   // and inside the pill.
   for (const theme of THEMES) {
     test(`the qualifier gives way after the title, and nothing leaves the pill (${theme})`, () => {
-      const el = mount([trackerLongest], 240, theme);
+      const el = mount([trackerLongest], 224, theme);
       const pill = pills(el)[0]!;
       const title = pill.querySelector<HTMLElement>("[data-tracker-title]")!;
       const qualifier = pill.querySelector<HTMLElement>("[data-tracker-qualifier]")!;

@@ -126,7 +126,7 @@ export const LongHost = meta.story({
   args: { events: [trackerLongHost] },
   play: async ({ canvasElement }) => {
     const host = canvasElement.querySelector<HTMLElement>("[data-tracker-host]")!;
-    await expect(host.textContent).toBe("issues.records.harbour-master.ithaca.gov.example");
+    await expect(host.textContent).toBe("issues.records.harbour-master.palace-of-odysseus.ithaca.gov.example");
     await expect(overflowing(canvasElement)).toEqual([]);
   },
 });
