@@ -12,6 +12,7 @@ import { createShareStore } from "./share-state.js";
 import { createHandoffStore } from "./handoff-state.js";
 import { createFollowUpStore } from "./follow-up-state.js";
 import { createVoiceStore } from "../voice/voice-state.js";
+import { createTrackerStore } from "./tracker-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
 export function createBrainStores(env: StoreEnvironment) {
@@ -31,6 +32,7 @@ export function createBrainStores(env: StoreEnvironment) {
     handoff: createHandoffStore(env),
     followUp: createFollowUpStore(),
     voice: createVoiceStore(),
+    trackers: createTrackerStore(env),
   };
 }
 
