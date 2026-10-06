@@ -786,7 +786,11 @@ export async function handleChatMessage(
       // turn whose system prompt was already built and cannot be revised.
       host.catalog.clearRetryRequest?.(sessionId);
       runningTurn.retryRequest = undefined;
-      const recorder = runningTurn.recorder;
+      // Recorded at the hand-off, not when followUp() settles: a backend may
+      // settle after its turn has ended and the recorder has finished. One the
+      // backend refuses keeps this event, since its sender did write during
+      // this turn, and then runs as its own turn below.
+      runningTurn.recorder?.recordFollowUp(authorization.principalId);
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
@@ -796,9 +800,6 @@ export async function handleChatMessage(
         const releaseFollowUp = authorization.retain();
         try {
           await backend.followUp!({ sessionId, prompt, attachments });
-          // Only one that joined is the turn's follow-up; a refused one
-          // becomes its own turn.
-          recorder?.recordFollowUp(authorization.principalId);
         } catch (err) {
           // The backend's turn can end before the host learns it has, for
           // example when its input closes while it holds a result. The
