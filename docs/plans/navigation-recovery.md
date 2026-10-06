@@ -361,9 +361,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:262-275`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:267-280`).
 
-- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:385-392`).
+- New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:390-397`).
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:619-635`).
 
@@ -375,9 +375,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:161-176`).
 
-- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:55-66`).
+- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:59-70`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:378-424`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:388-434`).
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:403-413`).
 
