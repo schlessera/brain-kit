@@ -315,6 +315,17 @@ export function SessionStrip(p: SessionStripProps) {
     group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
   }, [keyboard, sheet]);
 
+  // Live updates replace drawn items: a more urgent session takes the pill,
+  // or the summary goes when the count drops to two. A focused item that is
+  // removed takes focus to <body>, so while focus was in the group, the
+  // group's stop takes it back.
+  const inGroup = useRef(false);
+  const drawn = `${mode}:${(mode === "pills" ? sorted : sorted.slice(0, 1)).map((s) => s.id).join("\n")}`;
+  useEffect(() => {
+    if (!inGroup.current || sheet || document.activeElement !== document.body) return;
+    group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
+  }, [drawn, sheet]);
+
   if (mode === "none") return null;
 
   function item(e: KeyboardEvent<HTMLDivElement>) {
@@ -456,6 +467,18 @@ export function SessionStrip(p: SessionStripProps) {
         className="bk-pill-group"
         data-session-strip=""
         onKeyDown={item}
+        onFocus={() => {
+          inGroup.current = true;
+        }}
+        onBlur={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          // A removed item can blur on its way out; that is the case the
+          // effect above repairs, so it does not count as focus leaving.
+          const from = e.target;
+          queueMicrotask(() => {
+            if (from.isConnected) inGroup.current = false;
+          });
+        }}
       >
         {items}
       </div>

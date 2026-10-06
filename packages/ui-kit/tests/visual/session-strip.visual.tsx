@@ -470,3 +470,28 @@ for (const theme of ["dark", "light"]) {
     expect([composer.selectionStart, composer.selectionEnd], "with the caret restored").toEqual([3, 3]);
   });
 }
+
+for (const theme of ["dark", "light"]) {
+  test(`live updates that replace the focused item keep focus in the strip: ${theme}`, async () => {
+    pointerScene();
+    const m = await mount({ width: 390, theme, sessions: five });
+    const inStrip = () => host!.querySelector("[data-session-strip]")!.contains(document.activeElement);
+    // A more urgent session takes the focused pill's place.
+    items()[0]!.focus();
+    m.render([workingSessions[1]!, ...five.filter((s) => s.state !== "needs-you")]);
+    expect(host!.querySelector<HTMLElement>("[data-session]")!.dataset.state, "the new most urgent pill is drawn").toBe("failed");
+    await expect.poll(inStrip, { message: "focus stays in the strip when its pill is replaced" }).toBe(true);
+    // The focused summary goes when the count drops to two.
+    items()[1]!.focus();
+    expect(document.activeElement!.getAttribute("data-strip-summary")).toBe("overflow");
+    m.render(five.slice(0, 2));
+    expect(host!.querySelector("[data-strip-summary]"), "the summary is gone").toBeNull();
+    await expect.poll(inStrip, { message: "focus stays in the strip when its summary goes" }).toBe(true);
+    await userEvent.keyboard("{Enter}");
+    expect(m.opens.filter((open) => open.mock.calls.length === 1), "Enter still opens a session").toHaveLength(1);
+    // Focus that has left the strip is not pulled back by an update.
+    m.composer.focus();
+    m.render(five);
+    expect(document.activeElement, "an update never takes focus from elsewhere").toBe(m.composer);
+  });
+}
