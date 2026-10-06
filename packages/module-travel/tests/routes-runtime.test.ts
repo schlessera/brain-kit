@@ -209,10 +209,10 @@ describe("real route CLI", () => {
     }
   });
 
-  test("Outdooractive gives its permission action without attempting the disallowed API", async () => {
+  test("Outdooractive names the user-exported GPX path without attempting the disallowed API", async () => {
     const result = await replayCli(brain(), "https://www.outdooractive.com/en/route/fixture/42/", {});
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("written site permission");
+    expect(result.stderr).toContain("Export the GPX from the route page while signed in");
     expect(result.requests).toHaveLength(0);
   });
 

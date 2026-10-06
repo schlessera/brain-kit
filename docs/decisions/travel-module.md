@@ -173,9 +173,13 @@ Outdooractive has a readable public route page, but GPX export requires
 login and its geometry API is covered by its `/api/*` robots disallow.
 The [scraping-politeness decision](scraping-politeness.md) requires written
 site permission before fetching a disallowed path; observing normal browser
-subrequests does not authorize importing through them. Its source criterion
-therefore remains open in #568 with the exact human permission prerequisite.
-The independently usable GPX/Komoot slice does not complete that criterion.
+subrequests does not authorize importing through them. The maintainer ruled
+on 2026-10-06 (#568) that Outdooractive is supported through a user-exported
+GPX imported as a local file; an Outdooractive URL is refused with that
+instruction. The `Content-Signal: ai-input=yes` line in the same robots.txt
+group states how permitted content may be used and does not lift the
+`/api/*` or GPX download disallows. An adapter needs written site permission
+and a new ruling.
 
 ## Descriptive output names — 2026-10-04
 

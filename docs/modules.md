@@ -462,8 +462,8 @@ for canonical formats and the complete upgrade path.
   `brain travel photo <files> --to <dir>` and
   `brain travel route <url|file> --to <dir>`; all have documented `--json`
   envelopes. Route import supports local/direct GPX and public Komoot pages,
-  with optional distance trimming. Outdooractive requires site permission
-  under #568.
+  with optional distance trimming. Outdooractive routes are imported from a
+  GPX the user exports while signed in.
 - **Migration:** install/enable travel; preview/apply the source-only command
   when neither speaking nor travel has saved settings, otherwise use the
   README's reviewed manual upgrade. Travel has no shared settings migration

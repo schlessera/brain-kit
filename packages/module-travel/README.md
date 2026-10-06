@@ -410,14 +410,15 @@ structure with invented Odysseus geometry. Komoot documents that its official
 The [GPX schema](https://www.topografix.com/gpx/1/1/) specifies WGS84 positions,
 metric elevations and continuous track segments.
 
-Outdooractive import remains an unmet requirement of
-[#568](https://github.com/schlessera/brain-kit/issues/568). Its public page
-offers a login-gated GPX export; [robots.txt](https://www.outdooractive.com/robots.txt)
+Outdooractive routes are imported from a GPX the user exports themselves
+(maintainer ruling on [#568](https://github.com/schlessera/brain-kit/issues/568),
+2026-10-06). Its public page offers a login-gated GPX export; [robots.txt](https://www.outdooractive.com/robots.txt)
 disallows GPX download paths and `/api/*`, including the geometry API its
 public map uses. Its documented [Data API](https://developers.outdooractive.com/API-Reference/Data-API.html)
 requires a project/API key. The [robots-wins decision](../../docs/decisions/scraping-politeness.md)
 requires written site permission before using a disallowed path. Rendering
 the public map to observe its response shape grants no importing permission.
-Outdooractive URLs therefore give an actionable refusal. A user-exported
-local GPX can be processed, but that does not complete the Outdooractive
-criterion. #568 records the exact permission and completion evidence needed.
+Outdooractive URLs therefore give an actionable refusal that names the
+supported path: export the GPX from the route page while signed in, then run
+`brain travel route <exported.gpx> --to <dir>`. No Outdooractive adapter is
+planned without written site permission.
