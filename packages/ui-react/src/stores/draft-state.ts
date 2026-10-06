@@ -254,6 +254,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         return { drafts, fresh, sends, orphans };
       });
       consumed.delete(d.draftId);
+      // A session handed the old id must not be handed it again: it is a tombstone now.
+      if (d.sessionId !== null && minted.get(d.sessionId) === d.draftId) minted.delete(d.sessionId);
       return next.draftId;
     }
 
@@ -264,8 +266,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       return Object.fromEntries(Object.entries(sends).filter(([id]) => !drop.has(id)));
     }
 
-    /** Put a snapshot's content back into its draft, ahead of anything typed since. */
-    function giveBack(send: DraftSend) {
+    /**
+     * Put a snapshot's content back into its draft, ahead of anything typed
+     * since. `owned`: no transcript row shows its images any more, so the
+     * draft owns their previews again and removing one may revoke it.
+     */
+    function giveBack(send: DraftSend, owned: boolean) {
+      if (owned) for (const a of send.attachments) transferred.delete(a.previewUrl);
       const state = get();
       const d = state.drafts[send.draftId]
         ?? (send.sessionId ? state.drafts[state.idFor(send.sessionId)] : undefined)
@@ -347,7 +354,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           delete sends[requestId];
           return { sends };
         });
-        giveBack(send);
+        giveBack(send, true);
       },
 
       accepted(requestId, sessionId) {
@@ -386,7 +393,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const send = get().sends[requestId];
         if (!send || send.state === "accepted" || send.state === "refused") return;
         set((s) => ({ sends: { ...s.sends, [requestId]: { ...send, state: "refused" } } }));
-        giveBack(send);
+        // The refused message stays in the transcript, its images with it.
+        giveBack(send, false);
       },
 
       unconfirmed(reason) {
@@ -408,7 +416,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           delete sends[requestId];
           return { sends };
         });
-        giveBack(send);
+        giveBack(send, true);
       },
 
       resend(requestId, nextRequestId) {

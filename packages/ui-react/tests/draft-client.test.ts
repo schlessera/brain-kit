@@ -230,6 +230,17 @@ describe("saving, continued", () => {
   });
 });
 
+describe("orphans", () => {
+  test("a delete that gets no answer is retried with backoff, not at once", async () => {
+    const host = fakeHost();
+    const { ui } = boot(host);
+    host.setDown(true);
+    ui.stores.drafts.setState((s) => ({ orphans: [...s.orphans, { draftId: "d-gone", revision: 3 }] }));
+    await wait(300);
+    expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone").length).toBeLessThanOrEqual(1);
+  });
+});
+
 describe("restoring", () => {
   test("a hello lists the host's drafts and restores them; a dirty one is never overwritten", async () => {
     const host = fakeHost();

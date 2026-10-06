@@ -196,14 +196,26 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     failed(d.draftId, result);
   }
 
+  /** Orphans whose delete got no answer, waiting for their next try. */
+  const orphanRetries = new Map<string, { orphan: { draftId: string; revision: number }; tries: number; timer: ReturnType<typeof setTimeout> }>();
+
+  function removeOrphan(orphan: { draftId: string; revision: number }, tries = 0) {
+    void api.remove(orphan.draftId, orphan.revision).then((result) => {
+      if (disposed) return;
+      orphanRetries.delete(orphan.draftId);
+      // No answer: try again later, backing off as saves do. A conflict means
+      // another device changed it since: it is theirs, and the next list shows it.
+      if (!result.ok && result.status === 0) {
+        const timer = setTimeout(() => removeOrphan(orphan, tries + 1), RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]);
+        orphanRetries.set(orphan.draftId, { orphan, tries: tries + 1, timer });
+      } else if (result.ok) retryFull();
+    });
+  }
+
   function flushOrphans() {
     if (!live()) return;
     for (const orphan of drafts.getState().takeOrphans()) {
-      void api.remove(orphan.draftId, orphan.revision).then((result) => {
-        // A conflict means another device changed it since: it is theirs, and the next list shows it.
-        if (!result.ok && result.status === 0 && !disposed) drafts.setState((s) => ({ orphans: [...s.orphans, orphan] }));
-        else if (result.ok && !disposed) retryFull();
-      });
+      if (!orphanRetries.has(orphan.draftId)) removeOrphan(orphan);
     }
   }
 
@@ -407,6 +419,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       disposed = true;
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
+      for (const retry of orphanRetries.values()) clearTimeout(retry.timer);
+      orphanRetries.clear();
       unsubscribeDrafts();
       unsubscribeConnection();
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);

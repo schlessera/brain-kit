@@ -252,6 +252,27 @@ describe("the host's versions", () => {
     expect(unboundDrafts(state().drafts).map((d) => d.text)).toEqual(["Raft, and more"]);
   });
 
+  test("a session whose draft was deleted elsewhere is never handed the tombstoned id again", () => {
+    const { state } = store();
+    const id = state().idFor(RAFT);
+    state().edit(id, RAFT, { text: "Raft" });
+    state().saved(id, { revision: 1, edit: state().drafts[id]!.edit, sessionId: RAFT, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().edit(id, RAFT, { text: "Raft, and more" });
+    state().hostGone(id);
+    expect(state().idFor(RAFT)).not.toBe(id);
+  });
+
+  test("an image given back by a failed send is the draft's again, so removing it releases it", () => {
+    const { state, revoked } = store();
+    const id = state().idFor(RAFT);
+    const sail = image("sail.png");
+    state().edit(id, RAFT, { text: "Lash", attachments: [sail] });
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: RAFT, text: "Lash", attachments: [sail], message: message("Lash") }, "Lash");
+    state().sendFailed("req-1");
+    state().edit(id, RAFT, { attachments: [] });
+    expect(revoked).toEqual([sail.previewUrl]);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);
