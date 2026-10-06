@@ -2847,6 +2847,22 @@ signatures (every public export and the types it is made of)
         title: z.ZodOptional<z.ZodString>;
         url: z.ZodString;
     }, z.core.$strip>, z.ZodObject<{
+        events: z.ZodArray<z.ZodObject<{
+            action: z.ZodEnum<{
+                closed: "closed";
+                commented: "commented";
+                labeled: "labeled";
+                merged: "merged";
+                opened: "opened";
+                reopened: "reopened";
+                reviewed: "reviewed";
+            }>;
+            qualifier: z.ZodOptional<z.ZodString>;
+            title: z.ZodString;
+            url: z.ZodString;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"tracker">;
+    }, z.core.$strip>, z.ZodObject<{
         items: z.ZodArray<z.ZodObject<{
             icon: z.ZodOptional<z.ZodString>;
             label: z.ZodString;
@@ -3319,6 +3335,22 @@ signatures (every public export and the types it is made of)
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
         }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
+        }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
                 label: z.ZodString;
@@ -3600,6 +3632,22 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"link">;
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
         }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
@@ -5762,6 +5810,22 @@ signatures (every public export and the types it is made of)
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
         }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
+        }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
                 label: z.ZodString;
@@ -6043,6 +6107,22 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"link">;
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
         }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
@@ -6330,6 +6410,22 @@ signatures (every public export and the types it is made of)
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
         }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
+        }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
                 label: z.ZodString;
@@ -6613,6 +6709,22 @@ signatures (every public export and the types it is made of)
             kind: z.ZodLiteral<"link">;
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
         }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
@@ -9640,6 +9752,22 @@ signatures (every public export and the types it is made of)
             title: z.ZodOptional<z.ZodString>;
             url: z.ZodString;
         }, z.core.$strip>, z.ZodObject<{
+            events: z.ZodArray<z.ZodObject<{
+                action: z.ZodEnum<{
+                    closed: "closed";
+                    commented: "commented";
+                    labeled: "labeled";
+                    merged: "merged";
+                    opened: "opened";
+                    reopened: "reopened";
+                    reviewed: "reviewed";
+                }>;
+                qualifier: z.ZodOptional<z.ZodString>;
+                title: z.ZodString;
+                url: z.ZodString;
+            }, z.core.$strict>>;
+            kind: z.ZodLiteral<"tracker">;
+        }, z.core.$strip>, z.ZodObject<{
             items: z.ZodArray<z.ZodObject<{
                 icon: z.ZodOptional<z.ZodString>;
                 label: z.ZodString;
@@ -10702,6 +10830,22 @@ signatures (every public export and the types it is made of)
                 title: z.ZodOptional<z.ZodString>;
                 url: z.ZodString;
             }, z.core.$strip>, z.ZodObject<{
+                events: z.ZodArray<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        closed: "closed";
+                        commented: "commented";
+                        labeled: "labeled";
+                        merged: "merged";
+                        opened: "opened";
+                        reopened: "reopened";
+                        reviewed: "reviewed";
+                    }>;
+                    qualifier: z.ZodOptional<z.ZodString>;
+                    title: z.ZodString;
+                    url: z.ZodString;
+                }, z.core.$strict>>;
+                kind: z.ZodLiteral<"tracker">;
+            }, z.core.$strip>, z.ZodObject<{
                 items: z.ZodArray<z.ZodObject<{
                     icon: z.ZodOptional<z.ZodString>;
                     label: z.ZodString;
@@ -11166,6 +11310,22 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"link">;
                     title: z.ZodOptional<z.ZodString>;
                     url: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    events: z.ZodArray<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            closed: "closed";
+                            commented: "commented";
+                            labeled: "labeled";
+                            merged: "merged";
+                            opened: "opened";
+                            reopened: "reopened";
+                            reviewed: "reviewed";
+                        }>;
+                        qualifier: z.ZodOptional<z.ZodString>;
+                        title: z.ZodString;
+                        url: z.ZodString;
+                    }, z.core.$strict>>;
+                    kind: z.ZodLiteral<"tracker">;
                 }, z.core.$strip>, z.ZodObject<{
                     items: z.ZodArray<z.ZodObject<{
                         icon: z.ZodOptional<z.ZodString>;
@@ -11884,6 +12044,22 @@ signatures (every public export and the types it is made of)
                 kind: z.ZodLiteral<"link">;
                 title: z.ZodOptional<z.ZodString>;
                 url: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                events: z.ZodArray<z.ZodObject<{
+                    action: z.ZodEnum<{
+                        closed: "closed";
+                        commented: "commented";
+                        labeled: "labeled";
+                        merged: "merged";
+                        opened: "opened";
+                        reopened: "reopened";
+                        reviewed: "reviewed";
+                    }>;
+                    qualifier: z.ZodOptional<z.ZodString>;
+                    title: z.ZodString;
+                    url: z.ZodString;
+                }, z.core.$strict>>;
+                kind: z.ZodLiteral<"tracker">;
             }, z.core.$strip>, z.ZodObject<{
                 items: z.ZodArray<z.ZodObject<{
                     icon: z.ZodOptional<z.ZodString>;
@@ -12896,6 +13072,22 @@ signatures (every public export and the types it is made of)
                     kind: z.ZodLiteral<"link">;
                     title: z.ZodOptional<z.ZodString>;
                     url: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    events: z.ZodArray<z.ZodObject<{
+                        action: z.ZodEnum<{
+                            closed: "closed";
+                            commented: "commented";
+                            labeled: "labeled";
+                            merged: "merged";
+                            opened: "opened";
+                            reopened: "reopened";
+                            reviewed: "reviewed";
+                        }>;
+                        qualifier: z.ZodOptional<z.ZodString>;
+                        title: z.ZodString;
+                        url: z.ZodString;
+                    }, z.core.$strict>>;
+                    kind: z.ZodLiteral<"tracker">;
                 }, z.core.$strip>, z.ZodObject<{
                     items: z.ZodArray<z.ZodObject<{
                         icon: z.ZodOptional<z.ZodString>;

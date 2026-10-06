@@ -234,6 +234,10 @@ export "." (./src/index.ts)
   type TraceStepsProps
   TrackMap
   type TrackMapProps
+  type TrackerAction
+  type TrackerEvent
+  TrackerPillList
+  type TrackerPillListProps
   TrendChart
   type TrendChartProps
   type TurnErrorAction
@@ -2176,6 +2180,24 @@ signatures (every public export and the types it is made of)
             elevation?: string;
             time?: string;
         }[];
+    }
+  TrackerAction (packages/ui-kit/src/blocks/TrackerPillList.tsx)
+    export type TrackerAction = "opened" | "closed" | "reopened" | "merged" | "labeled" | "commented" | "reviewed";
+  TrackerEvent (packages/ui-kit/src/blocks/TrackerPillList.tsx)
+    export interface TrackerEvent {
+        url: string;
+        action: TrackerAction;
+        qualifier?: string;
+        title: string;
+    }
+  TrackerPillList (packages/ui-kit/src/blocks/TrackerPillList.tsx)
+    export function TrackerPillList(p: TrackerPillListProps): import("react").JSX.Element;
+  TrackerPillListProps (packages/ui-kit/src/blocks/TrackerPillList.tsx)
+    export interface TrackerPillListProps {
+        events: readonly TrackerEvent[];
+        expanded?: boolean;
+        onExpandedChange?: (expanded: boolean) => void;
+        isStatic?: boolean;
     }
   TrendChart (packages/ui-kit/src/blocks/TrendChart.tsx)
     export function TrendChart(p: TrendChartProps): import("react").JSX.Element;
