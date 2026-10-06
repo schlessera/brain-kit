@@ -86,20 +86,33 @@ export interface QueuedFollowUp {
 }
 
 /**
- * UTF-8 bytes of one follow-up's text a report carries (#1002). A full queue
- * (`MAX_SESSION_QUEUE`, 50) then stays near 400 KB, under the 512 KB frame
- * bound, so the frame shrinker never clips the list itself: every pending
- * follow-up is always reported, and only a very long prompt is shortened.
+ * Serialized bytes of one follow-up's text a report carries (#1002): its
+ * JSON string on the wire, escapes included, since a control character
+ * costs six bytes there. A full queue (`MAX_SESSION_QUEUE`, 50) then stays
+ * near 400 KB, under the 512 KB frame bound, so the frame shrinker never
+ * clips the list itself: every pending follow-up is always reported, and
+ * only a very long prompt is shortened.
  */
 export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
 
-/** Head of `text` within `bytes` UTF-8 bytes, with an elision note when cut. */
+const wireBytes = (text: string) => Buffer.byteLength(JSON.stringify(text), "utf8");
+
+/** Head of `text` within `bytes` serialized bytes, with an elision note when cut. */
 export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
-  const encoded = Buffer.from(text, "utf8");
-  if (encoded.length <= bytes) return text;
-  const reserve = 64;
-  // A cut inside a multi-byte character decodes to U+FFFD; drop it.
-  const head = encoded.subarray(0, Math.max(0, bytes - reserve)).toString("utf8").replace(/�+$/, "");
+  if (wireBytes(text) <= bytes) return text;
+  const budget = Math.max(0, bytes - 64);
+  // The longest head that fits: wire size grows with length, so bisect.
+  let low = 0;
+  let high = Math.min(text.length, budget);
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (wireBytes(text.slice(0, mid)) <= budget) low = mid;
+    else high = mid - 1;
+  }
+  let head = text.slice(0, low);
+  // Never end on half of a surrogate pair.
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
   return `${head}\n…[${text.length - head.length} chars elided]`;
 }
 

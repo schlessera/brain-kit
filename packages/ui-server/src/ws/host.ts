@@ -434,10 +434,14 @@ export class WsHost {
 
   /** A session's pending follow-ups, whole, with what just changed (#1002). */
   followUpQueueFrame(sessionId: string, change: FollowUpQueueChange = {}): ServerSessionQueue {
+    // A reason can be a backend's routing error; the SDK refuses the whole
+    // frame over one longer than 500 characters.
+    const why = change.dropped?.reason ?? "";
+    const reason = why.length > 500 ? `${why.slice(0, 499)}…` : why;
     const dropped = change.dropped?.entries.map((entry) => ({
       id: entry.followUpId ?? "",
       ...(entry.requestId ? { requestId: entry.requestId } : {}),
-      reason: change.dropped!.reason,
+      reason,
     })).filter((entry) => entry.id);
     return {
       type: "session_queue",

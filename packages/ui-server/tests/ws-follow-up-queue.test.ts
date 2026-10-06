@@ -6,6 +6,7 @@
  * when an entry is handed to the agent or dropped.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
@@ -218,23 +219,42 @@ describe("session_queue", () => {
     expect(frame.dropped[0].reason).toBe("Its sender was signed out.");
   });
 
-  test("a full queue of the longest prompts is reported whole, within one frame", async () => {
+  // Fifty is the host's queue depth and 200,000 characters a message's cap.
+  // Both alphabets are expensive on the wire: three UTF-8 bytes a character,
+  // or six once a control character is escaped. Left to the frame shrinker
+  // alone, the list itself would be clipped to fit.
+  for (const [alphabet, filler] of [["three-byte characters", "\u2026"], ["escaped control characters", "\u0001"]] as const) {
+    test(`a full queue of the longest prompts is reported whole, within one frame: ${alphabet}`, async () => {
+      const s = setup();
+      const client = await s.connect({ followUpQueue: true });
+      await s.busy(client);
+      for (let i = 0; i < 50; i++) {
+        client.send({ type: "chat_message", text: `${i}: Ithaca ${filler.repeat(199_980)}`, sessionId: SESSION, requestId: `req-${i}` });
+      }
+      await until(() => client.frames("session_queue").length === 50, 5000);
+      const raw = client.all().filter((f) => f.type === "session_queue").at(-1);
+      expect(raw.followUps).toHaveLength(50);
+      expect(raw.followUps.map((f: any) => f.requestId)).toEqual(Array.from({ length: 50 }, (_, i) => `req-${i}`));
+      expect(Buffer.byteLength(JSON.stringify(raw), "utf8"), "under the 512 KB frame bound").toBeLessThanOrEqual(512_000);
+      expect(raw.followUps[0].text.startsWith(`0: Ithaca ${filler}${filler}`)).toBe(true);
+      expect(raw.followUps[0].text).toMatch(/\u2026\[\d+ chars elided\]$/);
+    });
+  }
+
+  test("a long drop reason is shortened, so the SDK still accepts the report", async () => {
     const s = setup();
     const client = await s.connect({ followUpQueue: true });
     await s.busy(client);
-    // Fifty is the host's queue depth and 200,000 characters a message's cap.
-    // Three-byte characters: left to the frame shrinker alone, the list
-    // itself would be clipped to fit.
-    for (let i = 0; i < 50; i++) {
-      client.send({ type: "chat_message", text: `${i}: Ithaca ${"…".repeat(199_980)}`, sessionId: SESSION, requestId: `req-${i}` });
+    client.send({ type: "chat_message", text: "Ask Aeolus about the winds", sessionId: SESSION, requestId: "req-winds" });
+    await until(() => client.frames("session_queue").length === 1);
+    s.host.coordinator.cancelTurn(s.host.coordinator.bySession.get(SESSION)!, `The route failed: ${"the west wind is contrary ".repeat(80)}`);
+    await until(() => client.frames("session_queue").length === 2);
+    const report = client.frames("session_queue")[1];
+    expect(report.dropped[0].reason.length).toBeLessThanOrEqual(500);
+    expect(report.dropped[0].reason.startsWith("The route failed: the west wind")).toBe(true);
+    for (const frame of client.frames("session_queue")) {
+      expect(parseServerMessage(JSON.stringify(frame)).ok, "every report passes the SDK's schema").toBe(true);
     }
-    await until(() => client.frames("session_queue").length === 50, 5000);
-    const raw = client.all().filter((f) => f.type === "session_queue").at(-1);
-    expect(raw.followUps).toHaveLength(50);
-    expect(raw.followUps.map((f: any) => f.requestId)).toEqual(Array.from({ length: 50 }, (_, i) => `req-${i}`));
-    expect(Buffer.byteLength(JSON.stringify(raw), "utf8"), "under the 512 KB frame bound").toBeLessThanOrEqual(512_000);
-    expect(raw.followUps[0].text.startsWith("0: Ithaca ………")).toBe(true);
-    expect(raw.followUps[0].text).toMatch(/…\[\d+ chars elided\]$/);
   });
 
   test("an entry being handed over is still pending until its turn reaches the backend", () => {
