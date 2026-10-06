@@ -244,6 +244,43 @@ export function createWebSocketClient(root: BrainUiServices) {
     chat.startAssistantMessage(started.sessionId, started.turnId, started.requestId);
   }
 
+  /**
+   * A message this client drew in the chat as an ordinary send, but that the
+   * host queued instead (#1002): it went out between a turn's `result` and
+   * the host handing over its next queued turn, while the transcript had
+   * stopped streaming. The host's report is the proof it is waiting, so it
+   * leaves the transcript, with the empty reply opened for it, and becomes a
+   * pending follow-up that enters the chat when its turn starts.
+   */
+  function adoptQueuedMessages(report: Extract<ServerMessage, { type: "session_queue" }>): void {
+    const chat = root.stores.chat.getState();
+    const buffer = chat.buffers[report.sessionId];
+    const queued = new Set(report.followUps.map((entry) => entry.requestId).filter((id): id is string => Boolean(id)));
+    if (!buffer || queued.size === 0) return;
+    const drawn = buffer.messages.filter((m) => m.role === "user" && m.requestId && queued.has(m.requestId));
+    if (drawn.length === 0) return;
+    const opened = (m: (typeof buffer.messages)[number]) =>
+      m.role === "assistant" && !m.turnId && !m.content && !m.thinking && m.toolCalls.length === 0 && Boolean(m.requestId && queued.has(m.requestId));
+    const messages = buffer.messages.filter((m) => !drawn.includes(m) && !opened(m));
+    root.stores.chat.setState({
+      buffers: {
+        ...chat.buffers,
+        [report.sessionId]: { ...buffer, messages, isStreaming: messages.at(-1)?.isStreaming === true },
+      },
+    });
+    for (const m of drawn) {
+      root.stores.followUp.getState().addLocal(report.sessionId, {
+        requestId: m.requestId!,
+        text: m.content,
+        source: m.source ?? "typed",
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+        ...(m.files?.length ? { files: m.files } : {}),
+        ...(m.thinkingLevel !== undefined ? { thinkingLevel: m.thinkingLevel } : {}),
+        queuedAt: m.timestamp,
+      });
+    }
+  }
+
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
     handleFrame(msg);
@@ -266,6 +303,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
     if (msg.type === "session_queue") {
+      adoptQueuedMessages(msg);
       const started = root.stores.followUp.getState().applyReport(msg);
       if (started) placeStartedFollowUp(started);
       return;

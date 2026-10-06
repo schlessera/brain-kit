@@ -103,6 +103,33 @@ test("a message sent while busy shows at once, then becomes the host's entry wit
   expect(users(root)).toEqual(["Chart the way home"]);
 });
 
+test("a message drawn as an ordinary send that the host queued moves out of the chat, and back in when it starts", () => {
+  const { root, socket } = busy();
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds] });
+  // The turn's result arrives, so the transcript stops streaming, but the
+  // host still holds `winds` and has not handed it over yet.
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  const chat = root.stores.chat.getState();
+  expect(chat.buffers[S]!.isStreaming).toBe(false);
+  // The composer's ordinary path: the message and an empty reply for it.
+  chat.addUserMessage(S, bag.text, "typed", undefined, { requestId: "req-bag" });
+  chat.startAssistantMessage(S, undefined, "req-bag");
+  socket.deliver({ type: "status", sessionId: S, status: "queued", requestId: "req-bag" });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, bag] });
+
+  expect(users(root)).toEqual(["Chart the way home"]);
+  expect(messages(root).map((m) => m.role)).toEqual(["user", "assistant"]);
+  expect(root.stores.chat.getState().buffers[S]!.isStreaming).toBe(false);
+  expect(pending(root).map((f) => f.id)).toEqual(["fu-winds", "fu-bag"]);
+
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag], started: { ...winds, turnId: "turn-2" } });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], started: { ...bag, turnId: "turn-3" } });
+  // In the order the agent received them, each once.
+  expect(users(root)).toEqual(["Chart the way home", winds.text, bag.text]);
+  expect(pending(root)).toEqual([]);
+});
+
 test("a refused follow-up was never pending", () => {
   const { root, socket } = busy();
   root.stores.followUp.getState().addLocal(S, { requestId: "req-bag", text: bag.text, source: "typed", queuedAt: 3 });
