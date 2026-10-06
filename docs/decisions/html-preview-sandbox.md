@@ -37,6 +37,10 @@ sandboxed document may navigate itself.
 - The tab shows untrusted content under the app's host, so a page could
   imitate an app screen.
 
+The same data can also leave through channels that Chrome does not let a CSP
+govern, such as WebRTC ICE candidates and DNS prefetch. They reach no app
+route and can carry only what the accepted navigation risk already can.
+
 `packages/ui-react/tests/html-preview-runtime.test.ts` asserts both as
 documented behaviour, so a change to either is a reviewed diff. The response
 sends `Referrer-Policy: no-referrer`, so such a navigation does not also

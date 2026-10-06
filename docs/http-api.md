@@ -869,7 +869,9 @@ submission, downloads and navigation of the embedding app are not granted.
 
 Accepted residual risks (maintainer ruling on #1084): a document may navigate
 itself to any URL, carrying what it can read (its own file and anything typed
-into it), and a tab shows the untrusted content under the app's host. The
+into it), and a tab shows the untrusted content under the app's host. Channels
+Chrome does not let a CSP govern, such as WebRTC and DNS prefetch, can carry the
+same data. The
 real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
 asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
