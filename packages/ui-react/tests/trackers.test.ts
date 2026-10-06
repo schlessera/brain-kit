@@ -118,9 +118,13 @@ describe("live frames (rules 3 and 4)", () => {
     let e = applySnapshot(emptyEvidence(), envelope(6, { requestId: "req-6", state: "unknown" }));
     e = live(e, { type: "session_info", sessionId: SID, isNew: false, turnId: "turn-5" } as ServerMessage, frames.delta("turn-5"), frames.result("turn-5"));
     expect(view(e).state).toBe("unknown");
-    // A turn that names a request is new work.
+    // Nor is a turn naming another request: it may be an older queued one
+    // starting after the latest was dropped. A read decides.
     e = live(e, frames.info("turn-7", "req-7"));
-    expect(e.latest).toMatchObject({ requestId: "req-7", state: "running" });
+    expect(e.latest).toMatchObject({ requestId: "req-6", state: "unknown" });
+    // The latest request's own dispatch is.
+    e = live(e, frames.info("turn-6", "req-6"));
+    expect(e.latest).toMatchObject({ requestId: "req-6", turnId: "turn-6", state: "running" });
   });
 
   test("progress of the running turn answers a failed read", () => {

@@ -1058,6 +1058,20 @@ describe("recovery (Recovery A)", () => {
     expect(reads).toBe(3);
   });
 
+  test("a turn starting while the latest work is unknown asks the host which work it is", async () => {
+    let reads = 0;
+    const host: Host = { envelopes: new Map([[A, () => { reads++; return reads === 1 ? envelope(A, 6, { requestId: "req-6", state: "unknown" }) : envelope(A, 7, { requestId: "req-7", turnId: "turn-7", state: "running", startedAt: 3 }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-6" });
+    await settle();
+    expect(state(r, A)).toBe("unknown");
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-7", requestId: "req-7" });
+    await settle();
+    expect(reads).toBe(2);
+    expect(r.stores.trackers.getState().evidence[A]!.latest).toMatchObject({ requestId: "req-7", turnId: "turn-7", state: "running" });
+  });
+
   test("a read is bounded: a failed request frees the session's live frames", async () => {
     let signal: AbortSignal | undefined;
     const r = createBrainUiRoot({

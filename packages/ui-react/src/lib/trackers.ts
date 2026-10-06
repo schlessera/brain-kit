@@ -217,10 +217,12 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
       // A late frame of a turn already superseded.
       if (turnId !== null && turnId !== latest?.turnId && evidence.past.includes(turnId)) return evidence;
       if (!latest) return proven(evidence, { ...fresh(requestId, turnId, "running") }, true, null);
-      if (latest.state === "unknown" && latest.turnId === null && latest.requestId !== null && requestId === null) {
+      if (latest.state === "unknown" && latest.turnId === null && latest.requestId !== null && requestId !== latest.requestId) {
         // The latest request's fate is unknown. A frame naming no request
         // may be an earlier turn still running (a reconnect announces it
-        // that way), and must not stand in for it.
+        // that way), and one naming another request may be an older queued
+        // one starting after the latest was dropped. Neither stands in for
+        // it; only a read can say (the client asks for one).
         return evidence;
       }
       if (latest.state === "queued" && latest.turnId === null) {

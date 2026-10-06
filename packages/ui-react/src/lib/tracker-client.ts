@@ -189,7 +189,11 @@ export function createTrackerClient(root: BrainUiServices) {
         if (!isWork(events)) return;
         store.track(sessionId);
       }
+      // A turn starting while the latest work is unknown: only the host can
+      // say whether it is that work, older work or newer.
+      const unknownBefore = store.evidence[sessionId]?.latest?.state === "unknown";
       store.live(sessionId, events);
+      if (unknownBefore && events.some((e) => e.kind === "running" && e.dispatch) && trackers.getState().evidence[sessionId]?.latest?.state === "unknown") refresh(sessionId);
       // The end of a turn is when the host has times and an outcome to give.
       // A turn-scoped `error` may be the only frame a failed start sends,
       // with no result after it: it changes no state here, but the host's
