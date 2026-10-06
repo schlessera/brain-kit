@@ -279,11 +279,74 @@ test("a crash after a possible effect, before its receipt, is unknown: never rep
   expect(reopened).toMatchObject({ ok: true, changed: true, task: { state: "active", blockedReason: null } });
   expect(await h.service.reopen(f.owner, task.id, { key: "effect-reopen", decision: "reopen" }))
     .toMatchObject({ changed: false, task: { state: "active" } });
+  // Instants that passed while it was outstanding were busy and stay consumed.
+  expect(await h.admission.admit()).toEqual([]);
   // The next fresh instant runs; the unknown one is history, not a backlog.
+  f.clock.now += 5 * MINUTE;
   const [next] = await h.admission.admit();
+  expect(next).toEqual(expect.stringMatching(/^occ_/));
   expect(next).not.toBe(id);
   expect((await h.runtime.tick()).claimed).toBe(1);
   expect(occurrences(f).map((o) => o.state)).toEqual(["unknown", "completed"]);
+});
+
+const limited = (at: number, maxOperations: number) =>
+  ({ ...atDefinition(isoInstant(at)), limits: { attemptTimeoutMs: 600_000, maxOperations } });
+
+test("a reclaim after a pre-acquisition crash keeps the occurrence's last allowed operation", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-last-retry", limited(at, 2));
+  f.clock.now = at;
+  const h = harness(f, succeed("Checked on the last allowed operation."));
+  await h.admission.admit();
+  await crash(f, "crash-after-start");
+  // The Queue's own lease recovery returns the item; the next tick reclaims
+  // it before admission has looked at the dead attempt.
+  f.clock.now += 11 * MINUTE;
+  await h.runtime.tick();
+  f.clock.now += 2 * MINUTE;
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(h.calls).toHaveLength(1);
+  expect(occurrences(f)[0]).toMatchObject({ state: "completed", operations_used: 2, max_operations: 2 });
+});
+
+test("an occurrence whose claims were all lost before starting is failed, not left outstanding", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  const task = await create(f, "ithaca-lost-claims", limited(at, 1));
+  f.clock.now = at;
+  const h = harness(f, succeed("Should not run."));
+  const [id] = await h.admission.admit();
+  await crash(f, "crash-after-claim");
+  f.clock.now += 11 * MINUTE;
+  await h.runtime.tick(); // lease recovery: the only attempt is spent, the item dead-letters
+  expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "failed", attempts: 1, maxAttempts: 1 });
+  await h.admission.admit();
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id, state: "failed", operations_used: 0 })]);
+  expect((await h.service.list(f.owner, { id: task.id })).tasks[0]).toMatchObject({ state: "failed" });
+  expect(h.calls).toHaveLength(0);
+});
+
+test("instants that pass while an occurrence runs are busy even when it finishes between passes", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-busy", cronDefinition("* * * * *"));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const h = harness(f, async (request, n) => { await gate; await succeed("Slow minute.")(request, n); });
+  f.clock.now = at;
+  await h.admission.admit();
+  const pass = h.runtime.tick();
+  while (h.calls.length === 0) await Bun.sleep(1);
+  f.clock.now = at + 2 * MINUTE + 1000; // two more instants arrive while it runs
+  release();
+  await pass;
+  expect(occurrences(f)).toEqual([expect.objectContaining({ due_at: at, state: "completed" })]);
+  expect(await h.admission.admit()).toEqual([]);
+  f.clock.now = at + 3 * MINUTE;
+  expect(await h.admission.admit()).toHaveLength(1);
+  expect(occurrences(f).at(-1)).toMatchObject({ due_at: at + 3 * MINUTE });
 });
 
 test("cancel versus start: a cancellation that commits first leaves nothing to start", async () => {

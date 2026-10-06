@@ -19,7 +19,7 @@ import { inboxRunIsLive } from "../inbox/lifetime.js";
 import { runAutonomousTurn, type AutonomousTurnDeps } from "../inbox/autonomous-turn.js";
 import type { StoredDefinition } from "./definition.js";
 import { dropUnstartedItems } from "./queue-items.js";
-import { occurrenceId, type ExecutionPolicy, type OccurrenceRow, type ScheduleService, type TaskRow } from "./service.js";
+import { occurrenceId, OUTSTANDING_STATES, type ExecutionPolicy, type OccurrenceRow, type ScheduleService, type TaskRow } from "./service.js";
 import { SCHEDULE_FRESHNESS_MS } from "./time.js";
 
 /** Result text kept on the occurrence: bounded, inert, never authority. */
@@ -78,10 +78,15 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
   const operationsAdmitted = (occurrence: string) => (db.query(`SELECT COUNT(*) AS n FROM inbox_budget_reservations r
     JOIN schedule_occurrence_items l ON l.item_id = r.item_id WHERE l.occurrence_id = ?`).get(occurrence) as { n: number }).n;
 
-  function setOccurrence(id: string, state: OccurrenceRow["state"], at: number, extra: { result?: string } = {}): void {
+  function setOccurrence(id: string, state: OccurrenceRow["state"], at: number, extra: { result?: string; busyUntil?: number } = {}): void {
     db.query(`UPDATE schedule_occurrences SET state = ?, updated_at = ?,
       result_state = CASE WHEN ? IS NULL THEN result_state ELSE 'available' END, result_text = COALESCE(?, result_text)
       WHERE id = ?`).run(state, at, extra.result ?? null, extra.result ?? null, id);
+    // Instants that arrived while this occurrence was outstanding were busy:
+    // consume them now, so the next admission pass never replays one.
+    if (!OUTSTANDING_STATES.includes(state))
+      db.query(`UPDATE schedule_tasks SET evaluated_through = MAX(evaluated_through, ?)
+        WHERE id = (SELECT task_id FROM schedule_occurrences WHERE id = ?)`).run(extra.busyUntil ?? at, id);
   }
 
   /** Past its freshness bound or its task's approved end: no new attempt may start. */
@@ -141,9 +146,13 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         }
         // The item may still hold the dead claim, or the Queue's own lease
         // recovery may already have returned it, or even reclaimed it.
-        const alive = item !== null && ["scheduled", "ready", "claimed"].includes(item.status);
-        const retry = alive && operationsAdmitted(occurrence.id) < occurrence.max_operations &&
-          !over(occurrence, task, at) && task.state === "active";
+        // A claim by a newer run is an operation already admitted (and
+        // counted); otherwise the item must still have an attempt left. Its
+        // maxAttempts was capped by the occurrence's remaining operations.
+        const reclaimed = item?.status === "claimed" && item.runId !== attempt.run_id;
+        const alive = item !== null && (reclaimed ||
+          (["scheduled", "ready", "claimed"].includes(item.status) && item.attempts < item.maxAttempts));
+        const retry = alive && !over(occurrence, task, at) && task.state === "active";
         if (retry) {
           setOccurrence(occurrence.id, "retrying", at);
           if (item!.status === "claimed" && item!.runId === attempt.run_id) failInboxWork(db, item!.id, item!.version, at);
@@ -153,6 +162,20 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
           settleTask(task, final, at);
           dropClaim(attempt.item_id);
         }
+      }
+      // Unstarted occurrences whose Queue work is gone (claims exhausted
+      // before any attempt started, or dropped) would otherwise stay
+      // outstanding with nothing to run until their 24-hour expiry.
+      const stranded = db.query(`SELECT o.* FROM schedule_occurrences o WHERE o.state IN ('queued', 'retrying')
+        AND NOT EXISTS (SELECT 1 FROM schedule_occurrence_items l JOIN inbox_items i ON i.id = l.item_id
+          WHERE l.occurrence_id = o.id AND i.deleted_at IS NULL AND i.status IN ('scheduled', 'ready', 'claimed', 'blocked'))
+        AND NOT EXISTS (SELECT 1 FROM schedule_attempts a WHERE a.occurrence_id = o.id AND a.outcome IS NULL)`).all() as OccurrenceRow[];
+      for (const occurrence of stranded) {
+        const task = internal.taskRow(occurrence.task_id)!;
+        const final = over(occurrence, task, at) ? "expired" : task.state === "cancelled" ? "cancelled" : "failed";
+        setOccurrence(occurrence.id, final, at);
+        settleTask(task, final, at);
+        count++;
       }
       return count;
     }).immediate();
@@ -170,7 +193,8 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         WHERE state IN ('queued', 'retrying', 'waiting_for_action')`).all() as OccurrenceRow[];
       const stale = unstarted.filter((occurrence) => over(occurrence, internal.taskRow(occurrence.task_id)!, at));
       for (const occurrence of stale) {
-        setOccurrence(occurrence.id, "expired", at);
+        // It stopped being outstanding at its expiry, even if noticed later.
+        setOccurrence(occurrence.id, "expired", at, { busyUntil: Math.min(at, occurrence.expires_at - 1) });
         const task = internal.taskRow(occurrence.task_id)!;
         dropUnstartedItems(db, task.id, at);
         settleTask(task, "expired", at);
