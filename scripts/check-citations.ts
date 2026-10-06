@@ -455,6 +455,8 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/provider-store.ts#L8",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10",
+      // D52's "today" key map, before #946 moved the destinations into desktop-routes.ts.
+      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104",
       "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/2efd725e233abefca36c25693cd362cf69a0b1bd/docs/decisions/design-kit.md#L2522",
       "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",

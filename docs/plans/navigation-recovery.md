@@ -349,9 +349,9 @@ is selected by the later ruling.
 The ranges below describe the measured package snapshot, not an inferred future
 implementation. Any PR moving these lines owns their citation repairs.
 
-- Palette commands: (`const jumpTo: PaletteItem[] = [`, `packages/ui-react/src/components/layout/desktop-palette.tsx:84-117`).
+- Palette commands: [`const jumpTo: PaletteItem[] = [`](https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84-L117), before #946 moved the destinations into `desktop-routes.ts`.
 
-- Palette opening: (`function onKey(e: KeyboardEvent) {`, `packages/ui-react/src/components/layout/desktop-palette.tsx:52-59`).
+- Palette opening: [`function onKey(e: KeyboardEvent) {`](https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L52-L59), before #946 moved the open state into the root's UI store.
 
 - Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:58-102`).
 

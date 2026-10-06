@@ -4623,9 +4623,15 @@ build it, and #964 and #979 add the host contracts in §6.
   a destination: it is reached through phone More and the palette's Jump to,
   with no key. Graph's contents are unchanged.
 - **The key remap is explicit.** Today the keys are ⌘1 Chat, ⌘2 Actions,
-  ⌘3 Files, ⌘4 Graph, ⌘5 Settings (`const jumpTo`, `packages/ui-react/src/components/layout/desktop-palette.tsx:84-89`).
+  ⌘3 Files, ⌘4 Graph, ⌘5 Settings ([`const jumpTo`](https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84-L89)).
   After: ⌘1 Chat, ⌘2 **Sessions**, ⌘3 **Actions**, ⌘4 **Files**, ⌘5 Settings.
   Graph loses ⌘4 and gets no key.
+
+  > **2026-10-06 — Implementation context (the key remap above).** "Today"
+  > is the code before #946, at the pinned link. #946 made the remap: the
+  > destinations and their keys are now `const destinations` in
+  > `packages/ui-react/src/components/layout/desktop-routes.ts`, shared by
+  > the rail and the palette. The ruling still binds.
 - **Rail acts** sit under the destinations: Search, Add a note and Daily
   briefing (printing `spends`) when expanded; Search and Add when collapsed,
   where the briefing is reached through All commands. The act section holds
