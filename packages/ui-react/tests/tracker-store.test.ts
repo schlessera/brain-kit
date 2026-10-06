@@ -275,6 +275,20 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("running");
   });
 
+  test("a queue report for a session not in view is work: it is tracked and read", async () => {
+    const host: Host = { envelopes: new Map([[A, () => envelope(A, 4, { requestId: "req-4", state: "queued" }, [])]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "session_queue", sessionId: A, followUps: [{ id: "q-4", requestId: "req-4", text: "Who keeps watch?", queuedAt: 1 }] });
+    expect(state(r, A)).toBe("queued");
+    await settle();
+    expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
+    // An empty report is not work.
+    frame(r, { type: "session_queue", sessionId: "odysseus-aeolus", followUps: [] });
+    expect(ids(r)).toEqual([A]);
+  });
+
   test("a refused answer leaves the question waiting", () => {
     const r = root();
     hello(r, false);

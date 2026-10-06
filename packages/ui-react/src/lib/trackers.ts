@@ -147,6 +147,16 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
         : [{ kind: "running", turnId, requestId: null }];
     case "tool_result":
       return [{ kind: "settled", requestId: msg.toolUseId }];
+    case "session_queue": {
+      // The host's report of what it holds (#1002), re-sent on reconnect:
+      // a follow-up handed to the agent is its turn running, and the
+      // newest one still waiting is the session's latest accepted work.
+      const events: TrackerLiveEvent[] = [];
+      if (msg.started) events.push({ kind: "running", turnId: msg.started.turnId, requestId: msg.started.requestId ?? null });
+      const newest = msg.followUps.at(-1);
+      if (newest) events.push({ kind: "queued", requestId: newest.requestId ?? null });
+      return events;
+    }
     case "ask_answer_receipt":
       // Accepted or closed, the question is no longer waiting on anyone;
       // a refused submission leaves it waiting for a valid answer.
