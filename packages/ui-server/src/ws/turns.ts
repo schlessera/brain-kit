@@ -247,6 +247,12 @@ export interface RunningTurn {
    */
   lastResult: "success" | "error" | "cancelled" | null;
   /**
+   * Live follow-ups handed to the backend whose delivery has not settled. A
+   * refused one rejoins the queue (#1063), so the slot lets them settle
+   * before it starts the next queued turn.
+   */
+  deliveries?: Set<Promise<void>>;
+  /**
    * Correlation id the client minted for this NEW conversation, echoed back on
    * `session_info` so the client can tell its own turn's identity from a
    * background turn's. Null on a resumed session or a client that sent none.

@@ -538,6 +538,11 @@ async function runRetainedSession(
       resumeId = turn.sessionId ?? resumeId;
       profileId = turn.providerId ?? profileId;
 
+      // A live follow-up still being delivered may yet be refused and rejoin
+      // the queue ahead of the messages sent after it: let it settle before
+      // the next of those starts (#1063). With nothing queued the slot ends
+      // as before; a delivery may outlive its turn.
+      if (!turn.cancelled && turn.queue.length > 0) await settleDeliveries(turn);
       if (!turn.cancelled) next = dequeue();
     }
   } finally {
@@ -601,6 +606,24 @@ function formatMb(bytes: number): string {
 /** Receipt order of chat messages, for `QueuedFollowUp.sendOrder` (#1063). */
 let nextSendOrder = 0;
 
+/**
+ * How long a slot waits for its live follow-ups' deliveries before it starts
+ * the next queued turn anyway. A backend settles a delivery as it takes the
+ * message, so this only bounds one that never settles.
+ */
+export const FOLLOW_UP_SETTLE_MS = 5_000;
+
+async function settleDeliveries(turn: RunningTurn): Promise<void> {
+  if (!turn.deliveries?.size) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<void>((resolve) => { timer = setTimeout(resolve, FOLLOW_UP_SETTLE_MS); });
+  try {
+    await Promise.race([Promise.allSettled([...turn.deliveries]), bound]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Apply the same queue budgets during routing and during a running turn. */
 function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp): void {
   const parked = queuedBytes(slot);
@@ -639,16 +662,20 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   // Queue it as the session's next turn; report queued immediately.
   try { host.catalog.clearRetryRequest?.(sessionId); }
   catch (err) { entry.releaseAuthorization(); throw err; }
-  // Accepted: it takes the session's next revision before it joins the queue.
-  const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
-  if (revision !== undefined) entry.revision = revision;
-  entry.followUpId = crypto.randomUUID();
-  entry.queuedAt = Date.now();
   // In the order the host received them: only a refused live follow-up
   // rejoins behind messages sent after it, and it goes back ahead of them.
   const later = entry.sendOrder === undefined
     ? -1
     : slot.queue.findIndex((queued) => queued.sendOrder !== undefined && queued.sendOrder > entry.sendOrder!);
+  // Accepted: it takes the session's next revision before it joins the
+  // queue. One that rejoins ahead of later messages takes none: the latest
+  // acceptance is theirs, and recovery must keep answering for it (#964).
+  if (later === -1) {
+    const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
+    if (revision !== undefined) entry.revision = revision;
+  }
+  entry.followUpId = crypto.randomUUID();
+  entry.queuedAt = Date.now();
   if (later === -1) slot.queue.push(entry);
   else slot.queue.splice(later, 0, entry);
   const total = parked + incoming;
@@ -808,7 +835,8 @@ export async function handleChatMessage(
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
       const exchanges = host.catalog.takePendingLocalExchanges?.(sessionId) ?? [];
       const prompt = withLocalContext(withTrackFiles(text, files), exchanges);
-      void (async () => {
+      const deliveries = (runningTurn.deliveries ??= new Set());
+      const delivery: Promise<void> = (async () => {
         const releaseFollowUp = authorization.retain();
         try {
           await backend.followUp!({ sessionId, prompt, attachments });
@@ -836,6 +864,8 @@ export async function handleChatMessage(
           releaseFollowUp();
         }
       })();
+      deliveries.add(delivery);
+      void delivery.finally(() => deliveries.delete(delivery));
     } else {
       queueFollowUp(host, ws, sessionId, runningTurn, followUpEntry());
     }

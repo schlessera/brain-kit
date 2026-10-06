@@ -302,6 +302,63 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
     await waitFor(() => !isTurnActive());
   });
 
+  test("a later follow-up refused first still waits for the earlier one's answer", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws, sent } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail for the Laestrygonians", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Moor outside the harbour", sessionId: "s-ithaca" });
+    await handleClientMessage(ws, { type: "chat_message", text: "Then send scouts", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 2);
+    // The later one is refused first, and the turn ends before the earlier
+    // one's answer: the slot must not start the later one yet.
+    const [earlier, later] = fake.pendingRefusals.splice(0);
+    later!();
+    await waitFor(() => queued(sent, "s-ithaca").length === 1);
+    fake.live.get("s-ithaca")!.finish();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.prompts).toHaveLength(1);
+    earlier!();
+
+    await waitFor(() => fake.prompts.length === 2);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 3);
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual([
+      "Sail for the Laestrygonians",
+      "Moor outside the harbour",
+      "Then send scouts",
+    ]);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
+  test("a refused follow-up rejoining ahead does not take over a later request's recovery record", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail for Aeaea", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Count the crew", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 1);
+    await handleClientMessage(ws, { type: "chat_message", text: "Ask Circe for the way", sessionId: "s-ithaca", requestId: "req-circe" });
+    fake.pendingRefusals.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // The latest accepted request is still the one sent last.
+    expect(testHost().catalog.latestWork?.("s-ithaca")?.requestId).toBe("req-circe");
+
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 2);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 3);
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail for Aeaea", "Count the crew", "Ask Circe for the way"]);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
   test("a follow-up refused after its turn was cancelled does not run in the next one", async () => {
     const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
     setBackendForTests(fake.backend);
