@@ -1,5 +1,5 @@
 import type { Logger } from "@opentelemetry/api-logs";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { Hono } from "hono";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import {
@@ -7,6 +7,7 @@ import {
   readFileContent,
   resolveAncestors,
   resolveForRaw,
+  classifyKind,
   buildWikilinkMap,
   NotFoundError,
   PathEscapeError,
@@ -14,6 +15,30 @@ import {
 } from "../files/walker.js";
 
 const WIKILINK_TTL_MS = 30_000;
+
+/** Where the interactive HTML preview is served (#1084). */
+export const HTML_PREVIEW_PATH = "/api/files/html";
+
+/**
+ * The interactive HTML preview's policy (#1084). The `sandbox` directive gives
+ * the document an opaque origin, whether it is framed or opened as a tab, so
+ * its script can read neither the app's DOM nor its cookies or storage.
+ * `connect-src 'none'` stops every fetch, XHR, WebSocket and EventSource,
+ * whatever the auth mode. `form-action 'none'` and the missing `allow-forms`
+ * stop form submission. The missing `allow-popups`, `allow-downloads` and
+ * `allow-top-navigation` stop window.open, downloads and navigation of the
+ * app's own window.
+ *
+ * The maintainer ruling accepts two residual risks: no directive restricts a
+ * document navigating *itself*, so the page can carry what it can read (its own
+ * file and anything typed into it) to any URL; and a tab shows that content
+ * under the app's host. `tests/html-preview-runtime.test.ts` in ui-react
+ * asserts both, so a change to either is a reviewed diff.
+ */
+export const HTML_PREVIEW_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'";
+
+const HTML_REQUEST = /\.html?$/i;
 
 function errorResponse(err: unknown, log?: Logger): { body: { error: string; size?: number }; status: 400 | 404 | 413 | 500 } {
   if (err instanceof PathEscapeError) {
@@ -148,6 +173,35 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
       }
       const result = await readFileContent(path, brainRoot);
       return c.json({ path, ...result });
+    } catch (err) {
+      const { body, status } = errorResponse(err, log);
+      return c.json(body, status);
+    }
+  })
+
+  // The interactive preview (#1084): the same path, auth and size rules as
+  // `?raw=1`, restricted to HTML, served under HTML_PREVIEW_CSP. The app's
+  // frame middleware gives this response alone X-Frame-Options: SAMEORIGIN.
+  .get("/files/html", async (c) => {
+    const path = c.req.query("path");
+    if (!path) return c.json({ error: "missing_path" }, 400);
+    if (!HTML_REQUEST.test(path)) return c.json({ error: "not_html" }, 400);
+    try {
+      const { abs, size } = await resolveForRaw(path, brainRoot);
+      // A symlink named .html may resolve to a file that is not.
+      if (classifyKind(await realpath(abs)) !== "html") return c.json({ error: "not_html" }, 400);
+      return new Response(Bun.file(abs), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Length": String(size),
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": HTML_PREVIEW_CSP,
+          // A self-navigation the ruling accepts must not also carry the path.
+          "Referrer-Policy": "no-referrer",
+          "Cache-Control": "private, max-age=0, must-revalidate",
+        },
+      });
     } catch (err) {
       const { body, status } = errorResponse(err, log);
       return c.json(body, status);

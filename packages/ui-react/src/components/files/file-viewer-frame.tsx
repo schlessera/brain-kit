@@ -1,5 +1,5 @@
 import { Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
-import { Check, Copy, FolderOpen } from "lucide-react";
+import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
@@ -12,7 +12,8 @@ import type { ReactNode } from "react";
  * The Preview / Raw switch is the kit's `FilterRow`: two pills, one
  * selected, activation following focus, which is what a mode switch is.
  * The reveal and copy controls stay native icon buttons (titled; the kit
- * has no icon-only button) and the share menu arrives rendered.
+ * has no icon-only button), as does the HTML "Open in new tab" link, and the
+ * share menu arrives rendered.
  */
 export type ViewMode = "preview" | "raw";
 
@@ -26,6 +27,11 @@ export interface ViewerToolbarProps {
   copied: boolean;
   /** The share menu, already built by the container; null when nothing shares. */
   share: ReactNode;
+  /**
+   * The sandboxed preview URL of an HTML file, opened full-screen in a new
+   * tab (#1084). Absent for every other kind.
+   */
+  openInTab?: string;
   onMode: (mode: ViewMode) => void;
   onCopyPath: () => void;
   onReveal: () => void;
@@ -61,6 +67,18 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
       >
         {p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </button>
+      {p.openInTab && (
+        <a
+          href={p.openInTab}
+          target="_blank"
+          rel="noopener"
+          title="Open in new tab"
+          aria-label="Open in new tab"
+          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
       {p.share}
       {p.previewAvailable && (
         <div className="w-auto shrink-0">

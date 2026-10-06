@@ -255,9 +255,16 @@ export function registerDefaultRoutes<
   // it can read `?share=` and hold the share until the network returns. The
   // offline page is a dead end that cannot do either, so it is the last resort
   // rather than the first.
+  //
+  // An /api navigation is never answered from the shell. The NetworkOnly route
+  // above already wins by registration order; the explicit exclusion keeps it
+  // that way if the order ever changes. A tab opened on the interactive HTML
+  // preview (/api/files/html, #1084) must get the server's sandboxing CSP,
+  // not the app shell at the app's own origin.
   const shellHandler = createHandlerBoundToURL("/index.html");
   registerRoute(
-    ({ request }) => request.mode === "navigate",
+    ({ request, url }) =>
+      request.mode === "navigate" && !url.pathname.startsWith("/api"),
     async (options) => {
       try {
         return await scope.fetch(options.request);

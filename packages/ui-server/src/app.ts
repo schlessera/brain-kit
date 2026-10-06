@@ -15,7 +15,7 @@ import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createVoiceRoutes } from "./routes/voice.js";
-import { createFilesRoutes } from "./routes/files.js";
+import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
 import { createScheduleRoutes } from "./routes/schedules.js";
@@ -466,11 +466,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // its browser authentication happens inside the route handler below. A plain
   // HTTP request to /ws is not exempt. Every HTTP response is denied framing,
   // while a route-specific CSP (the raw file response) is preserved and
-  // supplies its own frame-ancestors directive.
+  // supplies its own frame-ancestors directive. The one exception is a
+  // successful interactive HTML preview (#1084): it carries the sandboxing
+  // CSP with `frame-ancestors 'self'`, so the file viewer may frame it.
   app.use("*", async (c, next) => {
     if (c.req.path === "/ws" && isWebSocketUpgradeAttempt(c.req.raw)) return next();
     await next();
-    c.header("X-Frame-Options", "DENY");
+    const sandboxedPreview =
+      c.req.path === HTML_PREVIEW_PATH &&
+      c.res.headers.get("Content-Security-Policy") === HTML_PREVIEW_CSP;
+    c.header("X-Frame-Options", sandboxedPreview ? "SAMEORIGIN" : "DENY");
     if (!c.res.headers.has("Content-Security-Policy")) {
       c.header("Content-Security-Policy", "frame-ancestors 'none'");
     }

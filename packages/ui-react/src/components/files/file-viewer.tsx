@@ -63,6 +63,7 @@ export function FileViewer() {
 }
 
 function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["currentContent"]>; viewMode: "preview" | "raw" }) {
+  const root = useBrainUiRoot();
   if (content.kind === "binary") {
     return <FileViewerBinary content={content} />;
   }
@@ -80,7 +81,12 @@ function ViewerBody({ content, viewMode }: { content: NonNullable<FileState["cur
   if (content.kind === "markdown") {
     return <FileViewerMarkdown content={content.content ?? ""} />;
   }
-  return <FileViewerHtml content={content.content ?? ""} />;
+  return <FileViewerHtml key={`${content.path}@${content.mtime}`} src={htmlPreviewUrl(root, content.path)} />;
+}
+
+/** The sandboxed, script-running HTML route (#1084), for the iframe and a new tab. */
+export function htmlPreviewUrl(root: BrainUiRoot, path: string): string {
+  return `${root.apiBase()}/files/html?path=${encodeURIComponent(path)}`;
 }
 
 function Toolbar({
@@ -114,6 +120,7 @@ function Toolbar({
       previewAvailable={previewAvailable}
       copied={copied}
       share={shareOptions.length > 0 ? <ShareMenu options={shareOptions} title="Share" /> : null}
+      openInTab={content?.kind === "html" ? htmlPreviewUrl(root, content.path) : undefined}
       onMode={setViewMode}
       onCopyPath={() => {
         navigator.clipboard.writeText(fullPath);
