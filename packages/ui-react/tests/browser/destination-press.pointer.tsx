@@ -484,6 +484,8 @@ for (const width of [320, 900] as const) {
     await expect.poll(() => (frame = panel(s, "Files")?.querySelector<HTMLIFrameElement>('iframe[title="HTML preview"]') ?? null) !== null,
       { message: "the HTML preview is drawn" }).toBe(true);
     await expect.poll(() => moving(), { interval: 16, message: "entrances have settled" }).toBe(false);
+    const src = frame!.getAttribute("src");
+    expect(src, "the preview loads the sandboxed route").toContain("/files/html?path=");
     let loads = 0;
     frame!.addEventListener("load", () => { loads++; });
     await settle(s, 6);
@@ -492,6 +494,9 @@ for (const width of [320, 900] as const) {
     await expect.poll(() => loads, { message: "the press loads the preview again" }).toBeGreaterThan(before);
     expect(s.ui.stores.file.getState().currentPath, "the file stays open").toBe(HTML_FILE);
     expect(panel(s, "Files")?.querySelector('iframe[title="HTML preview"]'), "the same frame, not a remount").toBe(frame);
+    // Reloaded from the same route: an empty srcdoc would win over src and blank the file.
+    expect(frame!.getAttribute("srcdoc"), "no srcdoc replaces the file").toBeNull();
+    expect(frame!.getAttribute("src"), "the same file again").toBe(src);
   });
 }
 
