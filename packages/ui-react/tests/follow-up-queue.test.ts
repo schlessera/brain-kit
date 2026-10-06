@@ -219,6 +219,29 @@ test("the history refresh waits until nothing else is queued in the session", ()
   expect(resumes()).toEqual([{ type: "session_resume", sessionId: S }]);
 });
 
+test("a deferred refresh runs when the last pending entry is dropped instead of run", () => {
+  const { socket } = busy();
+  const resumes = () => socket.sent.map((raw) => JSON.parse(raw)).filter((f) => f.type === "session_resume");
+  const files = { id: "fu-log", requestId: "req-log", text: "", fileCount: 1, queuedAt: 3 };
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag], started: { ...files, turnId: "turn-2" } });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  expect(resumes()).toEqual([]);
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], dropped: [{ id: "fu-bag", requestId: "req-bag", reason: "Its sender was signed out." }] });
+  expect(resumes()).toEqual([{ type: "session_resume", sessionId: S }]);
+});
+
+test("a long text this client sent shows whole, though the host reports only its head", () => {
+  const { root, socket } = busy();
+  const whole = `Sing of the raft: ${"the timber, the sail, the stars. ".repeat(400)}`;
+  root.stores.followUp.getState().addLocal(S, { requestId: "req-song", text: whole, source: "typed", queuedAt: 3 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [
+    { id: "fu-song", requestId: "req-song", text: `${whole.slice(0, 7_900)}\n…[${whole.length - 7_900} chars elided]`, textTruncated: true, queuedAt: 3 },
+  ] });
+  expect(pending(root)).toEqual([expect.objectContaining({ id: "fu-song", text: whole, confirmed: true })]);
+  expect(pending(root)[0]!).not.toHaveProperty("textTruncated");
+});
+
 test("each session whose started follow-up arrived incomplete reads its own history again", () => {
   const { root, socket } = busy();
   const S2 = "sess-scheria";

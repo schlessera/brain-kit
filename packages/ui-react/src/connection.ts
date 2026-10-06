@@ -310,6 +310,9 @@ export function createWebSocketClient(root: BrainUiServices) {
       adoptQueuedMessages(msg);
       const started = root.stores.followUp.getState().applyReport(msg);
       if (started) placeStartedFollowUp(started);
+      // The queue emptied with no turn running, as when its last entry is
+      // dropped: a history refresh deferred until now has no turn end to wait for.
+      else if (msg.followUps.length === 0 && !root.stores.chat.getState().buffers[msg.sessionId]?.isStreaming) refreshFollowUpHistory(msg.sessionId);
       return;
     }
     const state = root.stores.chat.getState();
@@ -524,16 +527,22 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
   }
 
+  /**
+   * Read a session's history again for a started follow-up that arrived
+   * incomplete (#1002), but only once nothing else is waiting in it: a replay
+   * that lands after the next queued turn has started would replace its live
+   * frames, so the last turn's end takes the refresh instead.
+   */
+  function refreshFollowUpHistory(sessionId: string | null): boolean {
+    if (!sessionId || (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0) return false;
+    if (!followUpRefresh.delete(sessionId)) return false;
+    if (resyncSessionId === sessionId) resyncSessionId = null;
+    wsClient?.send({ type: "session_resume", sessionId });
+    return true;
+  }
+
   function resyncIfNeeded(sessionId: string | null) {
-    // Only once nothing else is waiting in the session: a replay that lands
-    // after the next queued turn has started would replace its live frames.
-    // The last turn's end takes the refresh instead.
-    const draining = sessionId !== null && (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0;
-    if (sessionId && !draining && followUpRefresh.delete(sessionId)) {
-      if (resyncSessionId === sessionId) resyncSessionId = null;
-      wsClient?.send({ type: "session_resume", sessionId });
-      return;
-    }
+    if (refreshFollowUpHistory(sessionId)) return;
     if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
     resyncSessionId = null;
     wsClient?.send({ type: "session_resume", sessionId });

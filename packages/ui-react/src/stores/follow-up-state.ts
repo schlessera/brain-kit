@@ -98,8 +98,16 @@ export interface FollowUpState {
 
 function merge(reported: QueuedFollowUpView[] = [], local: LocalFollowUp[] = []): PendingFollowUp[] {
   const known = new Set(reported.map((entry) => entry.requestId).filter(Boolean));
+  // The host may report only the head of a long text; this client still has
+  // the whole of what it sent.
+  const sent = new Map(local.map((entry) => [entry.requestId, entry.text]));
   return [
-    ...reported.map((entry) => ({ ...entry, confirmed: true })),
+    ...reported.map((entry) => {
+      const whole = entry.requestId ? sent.get(entry.requestId) : undefined;
+      if (whole === undefined) return { ...entry, confirmed: true };
+      const { textTruncated: _shortened, ...rest } = entry;
+      return { ...rest, text: whole, confirmed: true };
+    }),
     ...local
       .filter((entry) => !known.has(entry.requestId))
       .map((entry) => ({
