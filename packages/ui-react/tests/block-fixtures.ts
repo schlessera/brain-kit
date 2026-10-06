@@ -124,6 +124,14 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     title: "Harbour tide tables, week 39",
     description: "High water before dawn all week; the pass is safest Tuesday.",
   },
+  tracker: {
+    kind: "tracker",
+    events: [
+      { url: "https://github.com/ithaca/hall/issues/12", action: "opened", title: "Suitors overstay in the great hall" },
+      { url: "https://github.com/ithaca/hall/pull/21", action: "merged", title: "Restore the bow to the great hall" },
+      { url: "https://github.com/ithaca/hall/issues/9", action: "closed", qualifier: "not planned", title: "Weave a second shroud" },
+    ],
+  },
 };
 
 /** The follow-ups the model offers under its answer (#40), drawn in the closing row. */

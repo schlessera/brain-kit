@@ -19,6 +19,10 @@ import {
  * the reason, so the model can fix it and an echoed payload is always one the
  * policy accepts (the ruling on #43). The card still classifies on its own and
  * draws a withheld card for anything that reaches it anyway.
+ *
+ * A `tracker` block's events get the same check, each `url` on its own, and
+ * the rejection names the event by its position so the model can fix that
+ * one (#1001). The pill list draws a refused one that reaches it as withheld.
  */
 export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload {
   const payload = SHOW_BLOCK_INPUT_SCHEMA.parse(input);
@@ -30,6 +34,17 @@ export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload {
           "Use an absolute http(s) address with no user:password@, or leave the link out."
       );
     }
+  }
+  if (payload.block.kind === "tracker") {
+    payload.block.events.forEach((event, i) => {
+      const verdict = classifyLink(event.url);
+      if (!verdict.ok) {
+        throw new Error(
+          `show_block refused tracker event ${i + 1}: ${verdict.reason} (${refusalSentence(verdict)}). ` +
+            "Use the item's absolute https address with no user:password@, or leave the event out."
+        );
+      }
+    });
   }
   return payload;
 }
