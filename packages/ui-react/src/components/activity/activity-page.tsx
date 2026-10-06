@@ -478,7 +478,8 @@ export function ActivityPage() {
   function closeAction() {
     const id = detailActionId;
     setDetailActionId(null);
-    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-decision-list] [data-decision-id="${CSS.escape(id)}"]`)?.focus());
+    // The list's card, open or snoozed in Later; never the closing detail's.
+    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[aria-label="Actions queue"] [data-decision-id="${CSS.escape(id)}"]`)?.focus());
   }
   /** A blocked Queue row's link: back to the decision it waits on, focused. */
   function queueToAction(id: string) {
@@ -524,13 +525,16 @@ export function ActivityPage() {
     if (!page) return;
     scrollToStart(page);
     const el = (sel: string) => page.querySelector<HTMLElement>(sel);
+    // Every match, so a copy that is not drawn (a closed Later) is skipped.
+    const all = (sel: string) => [...page.querySelectorAll<HTMLElement>(sel)];
     const list = '[aria-label="Actions queue"]';
     const heading = el(`${list} [data-destination-heading]`);
     if (window.matchMedia("(min-width: 900px)").matches) {
       focusFirst([
-        el(`${list} [aria-current="true"]`),
-        detailActionId ? el(`${list} [data-decision-list] [data-decision-id="${CSS.escape(detailActionId)}"]`) : null,
-        queueReceiptId ? el(`${list} [data-queue-row="${CSS.escape(queueReceiptId)}"] [role="button"]`) : null,
+        ...all(`${list} [aria-current="true"]`),
+        // Open decisions and snoozed ones in Later alike.
+        ...(detailActionId ? all(`${list} [data-decision-id="${CSS.escape(detailActionId)}"]`) : []),
+        ...(queueReceiptId ? all(`${list} [data-queue-row="${CSS.escape(queueReceiptId)}"] [role="button"]`) : []),
         heading,
       ], keyboard);
     } else {
