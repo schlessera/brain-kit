@@ -94,8 +94,8 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
           "max-tablet:h-auto",
           ABOVE_PHONE_BAR,
           "transform transition-transform duration-300 ease-out",
-          // A closed drawer takes no taps while it slides out, as SlidePanel.
-          open ? "translate-x-0" : "translate-x-full pointer-events-none"
+          // A closed drawer casts no shadow and takes no taps, as SlidePanel.
+          open ? "translate-x-0" : "translate-x-full shadow-none pointer-events-none"
         )}
       >
         {/* Header */}

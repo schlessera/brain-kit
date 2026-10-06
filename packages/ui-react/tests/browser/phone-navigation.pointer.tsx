@@ -124,6 +124,8 @@ async function mount(start: Start, opts: { width?: number; height?: number; them
   host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px`;
   document.body.append(host);
   ui = createBrainUiRoot({ storage: null, request });
+  // AppShell writes the store theme to the document, so the scene sets it there.
+  ui.stores.ui.getState().setTheme(opts.theme === "light" ? "light" : "dark");
   ui.stores.connection.setState({ wsStatus: opts.connected === false ? "disconnected" : "connected" } as never);
   if (start !== "empty") {
     const chat = ui.stores.chat.getState();
@@ -262,8 +264,6 @@ for (const width of [320, 390]) {
         ui!.dispose(); host!.remove(); renderer = undefined; ui = undefined; host = undefined;
       }
       const allowed = Object.fromEntries(Object.entries(ALLOWED).map(([name, row]) => [name, row[start]]));
-      // The record, for the PR: what a pointer actually took.
-      console.info(`[matrix ${width} ${mode}] ${start}: ${JSON.stringify(counts)}`);
       expect(counts, `activation counts from ${start}`).toEqual(allowed);
     });
   }
