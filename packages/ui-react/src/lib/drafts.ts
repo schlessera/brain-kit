@@ -64,8 +64,9 @@ export function draftSaveView(
   store: Pick<DraftStoreState, "supported" | "limits">,
   now: number,
 ): DraftSaveView {
+  // A conflict is shown even over an emptied composer: the other version still waits.
+  if (d?.conflict) return { state: "conflict", copy: "draft changed on another device", word: "changed on another device" };
   if (!d || (d.text.length === 0 && d.attachments.length === 0)) return { state: "none" };
-  if (d.conflict) return { state: "conflict", copy: "draft changed on another device", word: "changed on another device" };
   if (store.supported === false) return { state: "unavailable", copy: "draft · this host doesn't keep drafts · kept on this device", word: "kept on this device" };
   if (d.host && d.host.edit === d.edit) return { state: "saved", copy: "draft · saved", word: "saved" };
   if (d.failure?.kind === "too_large") {

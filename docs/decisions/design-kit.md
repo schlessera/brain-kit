@@ -4935,7 +4935,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:226-230`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:227-231`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5163,7 +5163,12 @@ question-answer rules are independent.
 >   `no session yet`. Send again sends the same snapshot under a new request
 >   id, naming the revision only while the host still holds it.
 > - Track files are uploads staged for a message, not draft content: they
->   stay with their draft on this page and are not saved to the host.
+>   stay with their session (or new chat) on this page, in the field until
+>   the host accepts the message that carries them, and are not saved to
+>   the host.
+> - A new chat's unconfirmed first message has no session to be found in,
+>   so its review block is held in the new-chat view whichever new chat is
+>   open; its Edit reopens that message's own draft there.
 > - In empty Chat the pane's `New conversation` stays `aria-disabled` (§2);
 >   a nonempty new-chat draft reaches a fresh one through the palette row.
 
@@ -5289,12 +5294,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:615-623`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:619-627`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:543-550`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears

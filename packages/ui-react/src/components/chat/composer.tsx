@@ -22,11 +22,10 @@ import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
-import { createTrackUploads, trackPending, trackReady } from "../../lib/track-uploads.js";
-import { apiBaseFor } from "../../lib/backend.js";
+import { trackPending, trackReady } from "../../lib/track-uploads.js";
+import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
-import type { BrainUiRoot } from "../../root.js";
 import { DraftSaveLine } from "./draft-save-line.js";
 
 /**
@@ -59,24 +58,6 @@ type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: Thin
 type PendingSend = { requestId: string; key: string | null; effort: DraftEffort };
 
 const NO_ATTACHMENTS: PendingAttachment[] = [];
-
-/**
- * Track files staged per draft, per root: a session's tracks stay with its
- * draft across remounts, and never show in another session's composer.
- * They are uploads staged on the host for the message, not draft content.
- */
-const trackRegistries = new WeakMap<BrainUiRoot, Map<string, { uploads: ReturnType<typeof createTrackUploads>; listeners: Set<() => void> }>>();
-function tracksFor(root: BrainUiRoot, draftId: string) {
-  let registry = trackRegistries.get(root);
-  if (!registry) { registry = new Map(); trackRegistries.set(root, registry); }
-  let entry = registry.get(draftId);
-  if (!entry) {
-    const listeners = new Set<() => void>();
-    entry = { uploads: createTrackUploads(root.request, apiBaseFor(root.config), () => { for (const l of listeners) l(); }), listeners };
-    registry.set(draftId, entry);
-  }
-  return entry;
-}
 
 /**
  * What the chat page may ask of the composer without reaching into its DOM:
@@ -131,7 +112,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
   const [, updateTrackView] = useReducer((n: number) => n + 1, 0);
-  const trackEntry = tracksFor(root, draftId);
+  const trackEntry = tracksFor(root, trackKey(sessionId, draftId));
   const trackUploads = trackEntry.uploads;
   useEffect(() => {
     trackEntry.listeners.add(updateTrackView);
@@ -445,6 +426,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       const draftRef = drafts.beginSend({
         requestId, draftId, sessionId, text, attachments: [...attachments],
         ...(readyFiles.length ? { files: readyFiles } : {}),
+        // Staged tracks stay in the field until the host accepts the message.
+        ...(currentTracks.length ? { tracks: { key: trackKey(sessionId, draftId), ids: currentTracks.map((t) => t.id) } } : {}),
         message: snapshot,
       }, input);
       if (draftRef) message.draftRef = draftRef;
@@ -462,7 +445,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         return;
       }
       clearReview();
-      for (const track of currentTracks) trackUploads.remove(track.id);
       setAttachErrors([]);
       return;
     }

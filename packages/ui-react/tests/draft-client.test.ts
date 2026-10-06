@@ -16,6 +16,8 @@ function fakeHost() {
   const images = new Map<string, { draftId: string; mime: string; bytes: string; name: string | null }>();
   const calls: string[] = [];
   let down = false;
+  let full = false;
+  let slow: Promise<void> | null = null;
   let seq = 0;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   async function request(url: string, init: RequestInit = {}): Promise<Response> {
@@ -46,7 +48,9 @@ function fakeHost() {
       return new Response(null, { status: 204 });
     }
     if (method === "PUT") {
+      if (slow) await slow;
       const body = JSON.parse(String(init.body)) as { sessionId: string | null; text: string; attachmentIds: string[] };
+      if (full && !row) return json({ error: "DRAFT_CAPACITY", message: "full", limit: 100, bound: "drafts" }, 507);
       if (row?.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
       if (row && ifMatch !== row.revision) return conflict(row);
       if (!row && ifMatch !== 0) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
@@ -59,7 +63,13 @@ function fakeHost() {
     }
     return json({ error: "DRAFT_INVALID", message: "" }, 400);
   }
-  return { rows, calls, request, setDown: (value: boolean) => { down = value; } };
+  return {
+    rows, calls, request,
+    setDown: (value: boolean) => { down = value; },
+    setFull: (value: boolean) => { full = value; },
+    /** Hold every save until the returned release is called. */
+    hold: () => { let release!: () => void; slow = new Promise<void>((r) => { release = r; }); return () => { slow = null; release(); }; },
+  };
 }
 
 class FixtureSocket {
@@ -184,6 +194,37 @@ describe("saving", () => {
     drafts().edit(id, ITHACA, { text: "" });
     await until(() => host.rows.get(id)?.deleted === true);
     expect(drafts().drafts[id]).toBeUndefined();
+  });
+});
+
+describe("saving, continued", () => {
+  test("a draft emptied while its first save is out is deleted once the host acknowledges it", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    const release = host.hold();
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => host.calls.includes(`PUT /drafts/${id}`));
+    drafts().edit(id, ITHACA, { text: "" });
+    release();
+    await until(() => host.rows.get(id)?.deleted === true);
+    expect(drafts().drafts[id]).toBeUndefined();
+  });
+
+  test("a draft refused for capacity saves once deleting another makes room", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    const older = drafts().idFor("odysseus-raft");
+    drafts().edit(older, "odysseus-raft", { text: "Lash the beams" });
+    await until(() => host.rows.get(older)?.revision === 1);
+    host.setFull(true);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => drafts().drafts[id]?.failure?.kind === "full");
+    host.setFull(false);
+    drafts().edit(older, "odysseus-raft", { text: "" });
+    await until(() => host.rows.get(older)?.deleted === true);
+    await until(() => host.rows.get(id)?.revision === 1, 4_000);
   });
 });
 

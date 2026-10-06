@@ -166,7 +166,9 @@ export function SessionList(p: SessionListProps) {
           size="md"
           center
           ariaDisabled={p.newWhy !== undefined}
-          {...(coarse ? { style: { minHeight: 44 } } : {})}
+          // 44px under a coarse pointer, taken from the row's own padding, so
+          // the list below keeps its height.
+          {...(coarse ? { style: { minHeight: 44, marginBlock: -4 } } : {})}
           subtitle={p.newWhy}
           onClick={() => { if (p.newWhy === undefined) p.onNew(); }}
         />

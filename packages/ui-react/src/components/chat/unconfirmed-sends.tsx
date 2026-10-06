@@ -21,11 +21,12 @@ import type { DraftSend } from "../../stores/draft-state.js";
  */
 export function UnconfirmedSends() {
   const sessionId = useChatStore((s) => s.activeSessionId);
-  const fresh = useRootStore("drafts", (s) => s.fresh);
   const sends = useRootStore("drafts", (s) => s.sends);
   const held = useMemo(() => Object.values(sends)
-    .filter((s) => s.state === "unconfirmed" && s.sessionId === sessionId && (sessionId !== null || s.draftId === fresh))
-    .sort((a, b) => a.sentAt - b.sentAt), [sends, sessionId, fresh]);
+    // Every new chat's unconfirmed first message is held in the new-chat
+    // view, whichever new chat is open: it has no session to be found in.
+    .filter((s) => s.state === "unconfirmed" && s.sessionId === sessionId)
+    .sort((a, b) => a.sentAt - b.sentAt), [sends, sessionId]);
   if (held.length === 0) return null;
   return (
     <div className="flex flex-col gap-3 py-3" data-unconfirmed-sends="">

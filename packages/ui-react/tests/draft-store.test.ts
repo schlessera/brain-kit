@@ -131,6 +131,19 @@ describe("sends are snapshots", () => {
     expect(state().idFor(ITHACA)).toBe(first);
   });
 
+  test("Edit on a new chat's held first message opens that draft in the new-chat view", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Which harbour?" });
+    state().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: message("Which harbour?") }, "Which harbour?");
+    state().unconfirmed("disconnected");
+    state().newChat();
+    expect(state().fresh).not.toBe(first);
+    state().editSend("req-1");
+    expect(state().fresh).toBe(first);
+    expect(state().drafts[first]?.text).toBe("Which harbour?");
+  });
+
   test("a refused or unsent send gives its text and images back, ahead of newer edits", () => {
     const { state } = store();
     const id = state().idFor(RAFT);
@@ -178,6 +191,14 @@ describe("the host's versions", () => {
     expect(state().drafts["d-1"]?.text).toBe("Ask Eumaeus, and the dog");
     expect(state().drafts["d-1"]?.conflict?.other.text).toBe("Ask Eumaeus at dawn");
     expect(draftSaveView(state().drafts["d-1"], { supported: true, limits: state().limits }, 0)).toMatchObject({ state: "conflict", copy: "draft changed on another device" });
+  });
+
+  test("a conflict is shown over an emptied composer", () => {
+    const { state } = store();
+    state().restore(hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 1, text: "Ask about the swineherd" }));
+    state().edit("d-1", ITHACA, { text: "" });
+    state().conflictWith("d-1", hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 2, text: "Theirs" }), true);
+    expect(draftSaveView(state().drafts["d-1"], { supported: true, limits: state().limits }, 0).state).toBe("conflict");
   });
 
   test("Keep both turns the other version into an unbound Draft entry", () => {

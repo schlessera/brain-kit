@@ -84,6 +84,8 @@ export interface DraftSend {
   attachments: PendingAttachment[];
   /** Track files the message referenced, as the transcript draws them. */
   files?: SharedFileMeta[];
+  /** The staged track entries it carried, removed only once the host accepts it. */
+  tracks?: { key: string; ids: string[] };
   /** The saved revision the message names, when it was sent from one. */
   draftRef: DraftRef | null;
   /** The frame as sent, for Send again (which gives it a new `requestId`). */
@@ -235,7 +237,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     /** Forget a draft that holds nothing, unless the host or a send still needs it. */
     function settle(draftId: string) {
       const d = get().drafts[draftId];
-      if (d && !hasContent(d) && d.host === null && d.conflict === null && !held(draftId)) drop(draftId);
+      // A save still out may yet be acknowledged: then the host has a revision to delete.
+      if (d && !hasContent(d) && d.host === null && d.conflict === null && d.savingSince === null && !held(draftId)) drop(draftId);
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
@@ -398,6 +401,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       editSend(requestId) {
         const send = get().sends[requestId];
         if (!send || send.state !== "unconfirmed") return;
+        // A new chat's first message goes back to its own draft, which the new-chat view then shows.
+        if (send.sessionId === null) set({ fresh: send.draftId });
         set((s) => {
           const sends = { ...s.sends };
           delete sends[requestId];
@@ -449,6 +454,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       saving(draftId, since) {
         const d = get().drafts[draftId];
         if (d && d.savingSince !== since) put({ ...d, savingSince: since });
+        if (since === null) settle(draftId);
       },
 
       saved(draftId, copy, uploads) {
@@ -523,6 +529,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         if (local.host && local.host.revision >= draft.revision) return;
         if (local.conflict?.sameId && local.conflict.other.revision >= draft.revision) return;
+        // The host holds exactly what is here (a save whose answer was lost):
+        // that is an acknowledgement, not another device's version.
+        if (local.text === draft.text && local.attachments.length === draft.attachments.length
+          && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)) {
+          put({ ...local, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null });
+          return;
+        }
         // A host refresh never overwrites dirty visible content (D52 §5).
         if ((local.host && !isClean(local)) || (!local.host && hasContent(local))) {
           get().conflictWith(local.draftId, draft, true);

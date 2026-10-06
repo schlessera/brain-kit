@@ -3,6 +3,10 @@ import type { BrainUiServices } from "../root.js";
 import { createDraftApi, type DraftApi, type DraftCallResult } from "./draft-api.js";
 import { hasContent, type ComposerDraft, type DraftSend } from "../stores/draft-state.js";
 import type { PendingAttachment } from "./image-attachments.js";
+import { moveTracks, removeTracks, trackKey } from "./draft-tracks.js";
+
+/** How long a Check again may wait for the host before it counts as unreachable. */
+const CHECK_TIMEOUT_MS = 10_000;
 
 /**
  * Keeps one root's drafts (D52 §5, #951) in step with the host and with the
@@ -138,7 +142,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (!hasContent(d)) {
       if (!d.host) return;
       const result = await api.remove(d.draftId, d.host.revision);
-      if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); return; }
+      if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
       failed(d.draftId, result);
       return;
@@ -198,6 +202,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       void api.remove(orphan.draftId, orphan.revision).then((result) => {
         // A conflict means another device changed it since: it is theirs, and the next list shows it.
         if (!result.ok && result.status === 0 && !disposed) drafts.setState((s) => ({ orphans: [...s.orphans, orphan] }));
+        else if (result.ok && !disposed) retryFull();
       });
     }
   }
@@ -236,6 +241,21 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   function withdraw(send: DraftSend) {
     chat.getState().withdrawSend(send.sessionId, send.requestId);
     root.stores.followUp.getState().dropLocal(send.requestId);
+  }
+
+  /** The host accepted a send: its staged tracks are the message's, and a new chat's become its session's. */
+  function acceptedTracks(send: DraftSend, sessionId: string | undefined) {
+    if (send.tracks) removeTracks(root, send.tracks.key, send.tracks.ids);
+    if (send.sessionId === null && sessionId) moveTracks(root, trackKey(null, send.draftId), trackKey(sessionId, send.draftId));
+  }
+
+  /** A save was refused for capacity: another draft's deletion may have made room. */
+  function retryFull() {
+    for (const d of Object.values(drafts.getState().drafts)) {
+      if (d.failure?.kind !== "full") continue;
+      drafts.getState().saveFailed(d.draftId, { kind: "unsaved" });
+      schedule(d.draftId, 0);
+    }
   }
 
   /** A send's rows in its transcript, as the composer drew them when it was sent. */
@@ -292,6 +312,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       drafts.getState().setSupport(supported, supported ? (msg.sessionDraftLimits as SessionDraftLimits | undefined) : undefined);
       if (!supported) return;
       failures.clear();
+      // A new connection is new evidence: what was full may have room now.
+      retryFull();
       void refresh();
       for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
     },
@@ -302,6 +324,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!send) return false;
       if (state === "accepted") {
         drafts.getState().accepted(requestId, sessionId);
+        acceptedTracks(send, sessionId);
         // Accepted after all: its rows come back before the turn's frames do.
         if (send.state === "unconfirmed") restoreRows(send, sessionId ?? send.sessionId);
       } else drafts.getState().refused(requestId);
@@ -338,7 +361,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         return;
       }
       drafts.getState().setChecked(requestId, "checking");
-      const result = await root.api.sessionRecovery(sessionId);
+      const result = await root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
       if (disposed) return;
       const current = drafts.getState().sends[requestId];
       if (!current || current.state !== "unconfirmed") return;
@@ -349,6 +372,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       }
       if (result.recovery.latest.requestId === requestId) {
         drafts.getState().accepted(requestId, sessionId);
+        acceptedTracks(current, sessionId);
         root.stores.trackers.getState().accepted([requestId]);
         // It is a normal turn: the transcript reads it from the host.
         options.send({ type: "session_resume", sessionId });
