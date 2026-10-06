@@ -16,9 +16,16 @@
  *   delays, or the results' `api_error_status`; the values below for those
  *   are placeholders, and the no-credential result's status is null because
  *   no request was sent.
- * - `unsupportedModel` carries the text #191 reports for a model the runtime
- *   could not run. Its class and status are the runtime's for a rejected 400
- *   request (`invalid_request`, `api_error_status: 400`).
+ * - `unsupportedModel` is the sequence recorded on 2026-10-06 with Agent SDK
+ *   0.3.270 (Claude Code 2.1.270) asked for `claude-opus-5-5` on a
+ *   subscription (#191): `init`, a `status` of `requesting`, the API-error
+ *   `assistant` message (`error: "invalid_request"`,
+ *   `api_error: "claude_code_version_too_old"`), then a `result` with
+ *   `subtype: "success"`, `is_error: true`, `api_error_status: 400` and
+ *   `terminal_reason: "api_error"`. The SDK then threw
+ *   "Claude Code returned an error result" from its message iterator. Ids,
+ *   the request id and timings are placeholders; the fields kept are the ones
+ *   the adapter could read.
  * - `overloadedMidAnswer` is the runtime's own wording for exhausted 529
  *   retries (the `H7` constant in the 2.1.x CLI), after a partial answer.
  *
@@ -42,8 +49,17 @@ const ZERO_USAGE = {
 const init = (): SDKMessage =>
   ({ type: "system", subtype: "init", session_id: SESSION }) as unknown as SDKMessage;
 
+const requesting = (): SDKMessage =>
+  ({
+    type: "system",
+    subtype: "status",
+    status: "requesting",
+    session_id: SESSION,
+    uuid: "00000000-0000-4000-8000-00000000c001",
+  }) as unknown as SDKMessage;
+
 /** The runtime's API-error message: text only, never streamed as deltas. */
-function apiErrorMessage(error: string, text: string): SDKMessage {
+function apiErrorMessage(error: string, text: string, extra: Record<string, unknown> = {}): SDKMessage {
   return {
     type: "assistant",
     session_id: SESSION,
@@ -60,6 +76,7 @@ function apiErrorMessage(error: string, text: string): SDKMessage {
       stop_sequence: "",
       usage: ZERO_USAGE,
     },
+    ...extra,
   } as unknown as SDKMessage;
 }
 
@@ -117,11 +134,21 @@ export const OVERLOADED_TEXT =
   "API Error: Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.";
 export const PARTIAL_ANSWER = "Here is what I found so far: ";
 
+export const unsupportedModelError: SDKMessage = apiErrorMessage("invalid_request", UNSUPPORTED_MODEL_TEXT, {
+  request_id: "req_00000000000000000000191",
+  is_api_error_message: true,
+  api_error: "claude_code_version_too_old",
+});
+
 export const unsupportedModel: SDKMessage[] = [
   init(),
-  apiErrorMessage("invalid_request", UNSUPPORTED_MODEL_TEXT),
-  errorResult(UNSUPPORTED_MODEL_TEXT, 400),
+  requesting(),
+  unsupportedModelError,
+  errorResult(UNSUPPORTED_MODEL_TEXT, 400, { duration_api_ms: 0, terminal_reason: "api_error" }),
 ];
+
+/** What the recorded SDK's iterator threw after delivering that result. */
+export const ERROR_RESULT_THROW = "Claude Code returned an error result: " + UNSUPPORTED_MODEL_TEXT;
 
 export const invalidOAuthToken: SDKMessage[] = [
   init(),

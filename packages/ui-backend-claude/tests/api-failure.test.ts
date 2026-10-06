@@ -20,6 +20,7 @@ import {
   NOT_LOGGED_IN_TEXT,
   OVERLOADED_TEXT,
   PARTIAL_ANSWER,
+  ERROR_RESULT_THROW,
   SESSION,
   UNSUPPORTED_MODEL_TEXT,
   answered,
@@ -28,6 +29,7 @@ import {
   notLoggedIn,
   overloadedMidAnswer,
   unsupportedModel,
+  unsupportedModelError,
 } from "./fixtures/api-failures";
 
 /** A placeholder key the keyed profile reads; the replayed runtime never sends it. */
@@ -39,19 +41,20 @@ afterEach(() => {
   while (temps.length) rmSync(temps.pop()!, { recursive: true, force: true });
 });
 
-function replay(sequence: SDKMessage[]): typeof query {
+function replay(sequence: SDKMessage[], thenThrow?: string): typeof query {
   return ((_params: { options?: Options }) =>
     (async function* () {
       yield* sequence;
+      if (thenThrow) throw new Error(thenThrow);
     })()) as unknown as typeof query;
 }
 
-async function runTurn(sequence: SDKMessage[], billing?: "api"): Promise<ServerMessage[]> {
+async function runTurn(sequence: SDKMessage[], billing?: "api", thenThrow?: string): Promise<ServerMessage[]> {
   const brainPath = mkdtempSync(join(tmpdir(), "api-failure-"));
   temps.push(brainPath);
   const backend = createClaudeBackend({
     brainPath,
-    queryFn: replay(sequence),
+    queryFn: replay(sequence, thenThrow),
     ...(billing
       ? { profiles: defineProfiles([{ id: "keyed", label: "Keyed", model: "claude-opus-5-5", apiKeyEnv: KEY_ENV }]) }
       : {}),
@@ -89,6 +92,14 @@ describe("a failed model call ends the turn as a failure", () => {
     expect(failureFrames(frames)).toHaveLength(1);
     // The runtime's error text is the failure, not something the model said.
     expect(frames.filter((frame) => frame.type === "text_delta")).toHaveLength(0);
+  });
+
+  test("the SDK throwing after its error result, as recorded, adds no frame", async () => {
+    const frames = await runTurn(unsupportedModel, undefined, ERROR_RESULT_THROW);
+    const result = terminal(frames);
+    expect(result.failure).toEqual({ errorClass: "invalid_request", status: 400, message: UNSUPPORTED_MODEL_TEXT });
+    expect(frames.filter((frame) => frame.type === "error")).toHaveLength(0);
+    expect(failureFrames(frames)).toHaveLength(1);
   });
 
   test("an auth failure after retries: retries shown live, then the subscription's instruction", async () => {
@@ -231,7 +242,7 @@ describe("StreamAdapter failure detection", () => {
 
   test("an error subtype after an API error carries that failure", () => {
     const adapter = new StreamAdapter();
-    adapter.adapt(unsupportedModel[1]!);
+    adapter.adapt(unsupportedModelError);
     const out = adapter.adapt(result({ subtype: "error_during_execution", is_error: true, errors: [] }));
     const frame = out.find((f) => f.type === "result");
     expect(frame?.type === "result" && frame.failure).toEqual({
@@ -252,7 +263,7 @@ describe("StreamAdapter failure detection", () => {
   test("an account failure gets check_account, never a new token", () => {
     const adapter = new StreamAdapter(undefined, { subscriptionAuth: true });
     adapter.adapt({
-      ...(unsupportedModel[1] as object),
+      ...(unsupportedModelError as object),
       error: "billing_error",
     } as unknown as SDKMessage);
     const out = adapter.adapt(result({ subtype: "success", is_error: true, result: "x", api_error_status: 402, total_cost_usd: 0 }));
@@ -263,7 +274,7 @@ describe("StreamAdapter failure detection", () => {
 
   test("a subagent's API error is the parent's to handle", () => {
     const adapter = new StreamAdapter();
-    adapter.adapt({ ...(unsupportedModel[1] as object), parent_tool_use_id: "agent-1" } as unknown as SDKMessage);
+    adapter.adapt({ ...(unsupportedModelError as object), parent_tool_use_id: "agent-1" } as unknown as SDKMessage);
     expect(adapter.pendingFailure()).toBeNull();
   });
 
