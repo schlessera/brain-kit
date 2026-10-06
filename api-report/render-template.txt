@@ -12,14 +12,14 @@ export "." (./src/index.ts)
   type DocumentWarning
   type ExportLinkPolicy
   type RenderContentType
-  applyExportLinkPolicy
   buildHtmlDocument
   lintDocument
-  protectExportLinkDestinations
 
 export "./internal" (./src/internal.ts)
+  applyExportLinkPolicy
   documentTitle
   isFullDocument
+  protectExportLinkDestinations
 
 export "./kinds" (./src/kinds.ts)
   DOCUMENT_KINDS
@@ -124,8 +124,6 @@ signatures (every public export and the types it is made of)
     } | LinkRefusal;
   RenderContentType (packages/render-template/src/template.ts)
     export type RenderContentType = "markdown" | "html";
-  applyExportLinkPolicy (packages/render-template/src/link-policy.ts)
-    export function applyExportLinkPolicy(html: string): string;
   buildHtmlDocument (packages/render-template/src/template.ts)
     export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string;
   classifyLink (packages/render-template/src/links.ts)
@@ -138,8 +136,6 @@ signatures (every public export and the types it is made of)
     export function highlyRestrictive(label: string): boolean;
   lintDocument (packages/render-template/src/lint.ts)
     export function lintDocument(html: string): DocumentWarning[];
-  protectExportLinkDestinations (packages/render-template/src/link-policy.ts)
-    export function protectExportLinkDestinations(maxCaptureHeight?: number): Promise<void>;
   readSkeleton (packages/render-template/src/kinds.ts)
     export function readSkeleton(kind: DocumentKind): string;
   refusalSentence (packages/render-template/src/links.ts)

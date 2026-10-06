@@ -1,11 +1,12 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { describeRetry } from "@schlessera/brain-ui-sdk/internal";
 import type {
   BackendActivityEvent,
   ServerMessage,
   TurnFailure,
   TurnRetry,
 } from "@schlessera/brain-ui-sdk/server";
-import { describeRetry, subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
+import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult } from "./usage.js";
 

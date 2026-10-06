@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { canonicalModelId } from "@schlessera/brain-ui-sdk/protocol";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
 import { createModelPricing, pricingCachePath } from "../src/pricing/model-pricing";
 import { resolveServerConfig } from "../src/config/env";
 

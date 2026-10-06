@@ -377,21 +377,21 @@ mode and POI radius/filter inputs are explicit; repeatable pins/stops retain all
 values. Results preserve the shared status/source/unknown/method/attribution fields,
 with operation-specific typed wrappers documented in the integration contract.
 Track/file reads use canonical containment and preserve original bytes
-(`readTrack`, `packages/core/src/cli/commands/geo.ts:98-107`).
+(`readTrack`, `packages/core/src/cli/commands/geo.ts:99-108`).
 Canonical root resolution keeps source/artifact paths relative through a root alias.
 
 Map output is an explicit chosen PNG path. The command resolves requested routing
 before rasterization and then repeats destination containment after those awaits.
 Scratch retains its existing ignored/genuine-directory policy. A local initialized-
 brain guard covers option-prefixed and bare-terminator forms as well as normal bin
-routing (`runMap`, `packages/core/src/cli/commands/geo.ts:207-258`).
+routing (`runMap`, `packages/core/src/cli/commands/geo.ts:208-259`).
 Source omissions count toward the aggregate map budget: many recovered inputs with
 little retained geometry must not bypass the metadata/text allocation bound.
 The full legend stays complete; exceeding the bound refuses rather than truncates.
 
 Immediate bin exit exposed truncated large JSON with synchronous console emission.
 The new geo command awaits the Writable completion callback before returning
-(`emitGeo`, `packages/core/src/cli/commands/geo.ts:135-138`).
+(`emitGeo`, `packages/core/src/cli/commands/geo.ts:136-139`).
 This keeps one complete document on stdout, including large source geometry, and
 also completes human output. It changes no earlier command's envelope or bin policy;
 the independently reproduced legacy-output occurrence is recorded in

@@ -293,16 +293,13 @@ export "." (./src/index.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
-  canonicalModelId
   composeHandoffText
-  describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
-  resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
 
@@ -682,14 +679,11 @@ export "./client" (./src/client/index.ts)
   type WebSocketClose
   type WikilinkMapResponse
   bridgeContractForToolName
-  canonicalModelId
   composeHandoffText
   createAsrClient
   createAsrClientRegistry
-  createToolRendererRegistry
   defineToolComponentContract
   defineToolContract
-  describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
@@ -700,7 +694,6 @@ export "./client" (./src/client/index.ts)
   planPlaces
   registerAsrClient
   registerToolRenderers
-  resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
   toolBriefLines
@@ -718,6 +711,8 @@ export "./internal" (./src/internal.ts)
   EXEC_KILLER_ENV
   EXEC_WRAPPER_ENV
   GIT_LOCK_KEY
+  type ImageMaskHandlerOptions
+  type LocationHandlerOptions
   type QuestionObservation
   SUBPROCESS_ENV
   type SubprocessEnvAudience
@@ -730,9 +725,20 @@ export "./internal" (./src/internal.ts)
   assertLoadedSdk
   bashCommand
   bashLockKey
+  canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
+  describeRetry
+  execWrapperSpawnOptions
   filterSubprocessEnv
+  handleAskUser
+  handleAskUserForm
+  handleAskUserList
+  handleAskUserRank
+  handleGetCurrentLocation
+  handleQueryActivity
+  handleRequestImageMask
+  handleShowBlock
   hasWebSearchCredential
   loadedSdkIdentity
   observeClassification
@@ -742,18 +748,28 @@ export "./internal" (./src/internal.ts)
   planClassification
   readWebSearchOverride
   readWebSearchRouting
+  resolveThinkingLevel
   resolveWebSearchConfigPath
   rtkRewriteCommand
   validateExecWrapper
   webSearchBrief
   webSearchProvider
+  wrapCommand
 
 export "./internal/client" (./src/internal-client.ts)
+  type ShareTargetError
   askUserFormPayload
   askUserFormSpec
+  canonicalModelId
+  createToolRendererRegistry
   defaultAsrClientRegistry
   defaultToolRendererRegistry
+  describeRetry
+  handleShareTargetRequest
+  isShareTargetRequest
+  pruneStoredShares
   resolveAskUserFormLimits
+  resolveThinkingLevel
   speechUiHints
 
 export "./package.json" (./package.json) [asset]
@@ -1042,16 +1058,13 @@ export "./protocol" (./src/protocol.ts)
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
-  canonicalModelId
   composeHandoffText
-  describeRetry
   isBillingMode
   isFailureOutcome
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
-  resolveThinkingLevel
   subscriptionAuthAction
   sumModelUsage
 
@@ -1416,7 +1429,6 @@ export "./server" (./src/server/index.ts)
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
   IMAGE_MASK_PAYLOAD_SCHEMA
-  type ImageMaskHandlerOptions
   type ImageMaskPayload
   type InboxActionItem
   type InboxActionStatus
@@ -1449,7 +1461,6 @@ export "./server" (./src/server/index.ts)
   type LocalAnswer
   type LocalExchange
   type LocationFix
-  type LocationHandlerOptions
   type LocationPayload
   LockBusyError
   MAX_IMAGES_PER_MESSAGE
@@ -1627,7 +1638,6 @@ export "./server" (./src/server/index.ts)
   assertVersionRequirements
   bridgeContractForToolName
   buildSystemPromptAppend
-  canonicalModelId
   checkEditedApproval
   clipLine
   closeAgainstViewport
@@ -1644,19 +1654,9 @@ export "./server" (./src/server/index.ts)
   defineSpeechProvider
   defineToolComponentContract
   defineToolContract
-  describeRetry
   detailFor
-  execWrapperSpawnOptions
   fetchCoastline
   geoConfigSchema
-  handleAskUser
-  handleAskUserForm
-  handleAskUserList
-  handleAskUserRank
-  handleGetCurrentLocation
-  handleQueryActivity
-  handleRequestImageMask
-  handleShowBlock
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
@@ -1671,7 +1671,6 @@ export "./server" (./src/server/index.ts)
   prepareLand
   probeVersionCommand
   requestToolPermission
-  resolveThinkingLevel
   reverseGeocode
   signedArea
   simplify
@@ -1683,7 +1682,6 @@ export "./server" (./src/server/index.ts)
   toolInputJsonSchema
   validateVersionMinimum
   visibleToolName
-  wrapCommand
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH
@@ -1691,14 +1689,10 @@ export "./share-target" (./src/client/share-target.ts)
   SHARE_QUERY_PARAM
   type ShareFetchEvent
   type ShareStore
-  type ShareTargetError
   type ShareTargetOptions
   type ShareTargetScope
   type StoredShare
   getShareStore
-  handleShareTargetRequest
-  isShareTargetRequest
-  pruneStoredShares
   readShareLaunchParams
   registerShareTarget
 
@@ -4628,7 +4622,7 @@ signatures (every public export and the types it is made of)
         lastDurationMs: number | null;
         lastError: string | null;
     }
-  DEFAULT_SHARE_TARGET_PATH (packages/ui-sdk/src/client/share-target.ts)
+  DEFAULT_SHARE_TARGET_PATH (packages/ui-sdk/src/client/share-target-handler.ts)
     const DEFAULT_SHARE_TARGET_PATH: "/share-target";
   DOWNSCALE_MAX_EDGE (packages/ui-sdk/src/protocol.ts)
     const DOWNSCALE_MAX_EDGE: 1568;
@@ -4926,12 +4920,6 @@ signatures (every public export and the types it is made of)
         maskPath: z.ZodString;
         note: z.ZodString;
     }, z.core.$loose>;
-  ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
-    export interface ImageMaskHandlerOptions {
-        brainPath: string;
-        maskFilename(submittedImagePath: string, canonicalImagePath: string): string;
-        reportMaskPath(brainPath: string, maskPath: string, absoluteMaskPath: string, canonicalMaskPath: string): string;
-    }
   ImageMaskPayload (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export interface ImageMaskPayload {
         maskPath: string;
@@ -5212,11 +5200,6 @@ signatures (every public export and the types it is made of)
     export interface LocationFix {
         coords: GeoCoords;
         timestamp: number;
-    }
-  LocationHandlerOptions (packages/ui-sdk/src/server/bridge-tools/location.ts)
-    export interface LocationHandlerOptions {
-        reverseGeocodeConfig: ReverseGeocodeConfig;
-        reverseGeocode?: typeof reverseGeocode;
     }
   LocationPayload (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export interface LocationPayload {
@@ -5782,7 +5765,7 @@ signatures (every public export and the types it is made of)
     const SESSION_RECOVERY_CAPABILITY: "sessionRecovery";
   SESSION_RECOVERY_FAILED (packages/ui-sdk/src/protocol.ts)
     const SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED";
-  SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target.ts)
+  SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target-handler.ts)
     const SHARE_ERROR_PARAM: "share_error";
   SHARE_MAX_CONCURRENT_INTAKE (packages/ui-sdk/src/protocol.ts)
     const SHARE_MAX_CONCURRENT_INTAKE: 3;
@@ -5798,7 +5781,7 @@ signatures (every public export and the types it is made of)
     const SHARE_MAX_TEXT_BYTES: 200000;
   SHARE_MAX_TOTAL_BYTES (packages/ui-sdk/src/protocol.ts)
     const SHARE_MAX_TOTAL_BYTES: 50000000;
-  SHARE_QUERY_PARAM (packages/ui-sdk/src/client/share-target.ts)
+  SHARE_QUERY_PARAM (packages/ui-sdk/src/client/share-target-handler.ts)
     const SHARE_QUERY_PARAM: "share";
   SHARE_STAGING_DIR (packages/ui-sdk/src/protocol.ts)
     const SHARE_STAGING_DIR: ".brain-ui/inbox";
@@ -7428,7 +7411,7 @@ signatures (every public export and the types it is made of)
     export interface SetThinkingOverridesRequest {
         thinking: Record<string, ThinkingLevel>;
     }
-  ShareFetchEvent (packages/ui-sdk/src/client/share-target.ts)
+  ShareFetchEvent (packages/ui-sdk/src/client/share-target-handler.ts)
     export interface ShareFetchEvent {
         request: Request;
         respondWith(response: Response | Promise<Response>): void;
@@ -7456,15 +7439,13 @@ signatures (every public export and the types it is made of)
         list(): Promise<StoredShare[]>;
         delete(id: string): Promise<void>;
     }
-  ShareTargetError (packages/ui-sdk/src/client/share-target.ts)
-    export type ShareTargetError = "parse" | "empty" | "too_large" | "store";
-  ShareTargetOptions (packages/ui-sdk/src/client/share-target.ts)
+  ShareTargetOptions (packages/ui-sdk/src/client/share-target-handler.ts)
     export interface ShareTargetOptions {
         path?: string;
         landingPath?: string;
         store?: ShareStore;
     }
-  ShareTargetScope (packages/ui-sdk/src/client/share-target.ts)
+  ShareTargetScope (packages/ui-sdk/src/client/share-target-handler.ts)
     export interface ShareTargetScope {
         addEventListener(type: "fetch", listener: (event: ShareFetchEvent) => void): void;
     }
@@ -7819,8 +7800,6 @@ signatures (every public export and the types it is made of)
         execution?: ExecutionBrief;
         webSearch?: WebSearchBrief;
     }): string;
-  canonicalModelId (packages/ui-sdk/src/protocol.ts)
-    export function canonicalModelId(id: string): string;
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;
   classifySessionRecoveryResponse (packages/ui-sdk/src/schemas.ts)
@@ -8680,8 +8659,6 @@ signatures (every public export and the types it is made of)
     }): KeyedLock;
   createToolPermissionRequest (packages/ui-sdk/src/server/permission-gate.ts)
     export function createToolPermissionRequest(options: CreateToolPermissionRequestInput): PermissionRequest;
-  createToolRendererRegistry (packages/ui-sdk/src/client/renderers.ts)
-    export function createToolRendererRegistry(): ToolRendererRegistry;
   createTranscriptStore (packages/ui-sdk/src/server/transcript-store.ts)
     export function createTranscriptStore(dir: string): TranscriptStore;
   createWriteLock (packages/ui-sdk/src/server/write-lock.ts)
@@ -8698,8 +8675,6 @@ signatures (every public export and the types it is made of)
     export function defineToolComponentContract<Name extends string, Input extends z.ZodObject, Payload extends z.ZodType>(contract: ToolComponentContract<Name, Input, Payload>): ToolComponentContract<Name, Input, Payload>;
   defineToolContract (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function defineToolContract<Name extends string, Input extends z.ZodObject>(contract: ToolContract<Name, Input>): ToolContract<Name, Input>;
-  describeRetry (packages/ui-sdk/src/protocol.ts)
-    export function describeRetry(retry: TurnRetry): string;
   detailFor (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   draftAttachmentSchema (packages/ui-sdk/src/schemas.ts)
     const draftAttachmentSchema: z.ZodObject<{
@@ -8762,32 +8737,10 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodNullable<z.ZodString>;
         updatedAt: z.ZodNumber;
     }, z.core.$loose>;
-  execWrapperSpawnOptions (packages/ui-sdk/src/server/exec-wrapper.ts)
-    export function execWrapperSpawnOptions(wrapper?: string): {
-        detached?: true;
-    };
   fetchCoastline (packages/geo/src/server/coastline.ts) recorded in api-report/geo.txt
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
-  handleAskUser (packages/ui-sdk/src/server/bridge-tools/ask-user.ts)
-    export function handleAskUser(input: AskUserInput, bridge: BackendBridge, requestId?: string): Promise<AskUserPayload>;
-  handleAskUserForm (packages/ui-sdk/src/server/bridge-tools/ask-user-form.ts)
-    export function handleAskUserForm(input: AskUserFormInput, bridge: BackendBridge, requestId?: string): Promise<AskUserFormPayload>;
-  handleAskUserList (packages/ui-sdk/src/server/bridge-tools/ask-user-list.ts)
-    export function handleAskUserList(input: AskUserListInput, bridge: BackendBridge, requestId?: string): Promise<AskUserListPayload>;
-  handleAskUserRank (packages/ui-sdk/src/server/bridge-tools/ask-user-rank.ts)
-    export function handleAskUserRank(input: AskUserRankInput, bridge: BackendBridge, requestId?: string): Promise<AskUserRankPayload>;
-  handleGetCurrentLocation (packages/ui-sdk/src/server/bridge-tools/location.ts)
-    export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
-  handleQueryActivity (packages/ui-sdk/src/server/bridge-tools/activity.ts)
-    export function handleQueryActivity(input: QueryActivityInput, bridge: BackendBridge): Promise<string>;
-  handleRequestImageMask (packages/ui-sdk/src/server/bridge-tools/mask.ts)
-    export function handleRequestImageMask(input: RequestImageMaskInput, bridge: BackendBridge, options: ImageMaskHandlerOptions): Promise<ImageMaskPayload>;
-  handleShareTargetRequest (packages/ui-sdk/src/client/share-target.ts)
-    export function handleShareTargetRequest(request: Request, options?: ShareTargetOptions): Promise<Response>;
-  handleShowBlock (packages/ui-sdk/src/server/bridge-tools/show-block.ts)
-    export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload;
   handoffRequestSchema (packages/ui-sdk/src/schemas.ts)
     const handoffRequestSchema: z.ZodObject<{
         handoffId: z.ZodString;
@@ -9880,8 +9833,6 @@ signatures (every public export and the types it is made of)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
     export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason;
-  isShareTargetRequest (packages/ui-sdk/src/client/share-target.ts)
-    export function isShareTargetRequest(request: Request, path?: string): boolean;
   isThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export function isThinkingLevel(v: unknown): v is ThinkingLevel;
   killWrapped (packages/ui-sdk/src/server/exec-wrapper.ts)
@@ -10230,8 +10181,6 @@ signatures (every public export and the types it is made of)
   prepareLand (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   probeVersionCommand (packages/ui-sdk/src/server/version-probe.ts)
     export function probeVersionCommand(argv: readonly string[], options: VersionProbeOptions): Promise<VersionProbeResult>;
-  pruneStoredShares (packages/ui-sdk/src/client/share-store.ts)
-    export function pruneStoredShares(store: ShareStore, ttlMs: number, now?: number): Promise<number>;
   purgeLegacyApiCaches (packages/ui-sdk/src/client/sw-policy.ts)
     export function purgeLegacyApiCaches({ caches, CacheExpiration, }: PurgeLegacyApiCachesDeps): Promise<void>;
   queueAddRequestSchema (packages/ui-sdk/src/schemas.ts)
@@ -10318,8 +10267,6 @@ signatures (every public export and the types it is made of)
             prompt: z.ZodString;
         }, z.core.$strict>;
     }, z.core.$strict>], "kind">;
-  resolveThinkingLevel (packages/ui-sdk/src/protocol.ts)
-    export function resolveThinkingLevel(requested: ThinkingLevel, supported: readonly ThinkingLevel[]): ThinkingLevel | undefined;
   reverseGeocode (packages/ui-sdk/src/server/reverse-geocode.ts)
     export function reverseGeocode(coords: GeoCoords, config: ReverseGeocodeConfig): Promise<ReverseGeocodeResult | null>;
   runAsrClientContract (packages/ui-sdk/src/testing/speech-contract.ts)
@@ -13897,5 +13844,3 @@ signatures (every public export and the types it is made of)
     export function validateVersionMinimum(value: unknown, owner: string, identity: string): string;
   visibleToolName (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function visibleToolName(name: string, adapter: ToolAdapter): string;
-  wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)
-    export function wrapCommand(argv: readonly string[], wrapper?: string): string[];

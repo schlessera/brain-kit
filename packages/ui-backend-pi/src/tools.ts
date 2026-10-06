@@ -31,16 +31,14 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import {
-  execWrapperSpawnOptions,
-  killWrapped,
-  wrapCommand,
-} from "@schlessera/brain-ui-sdk/server";
+import { killWrapped } from "@schlessera/brain-ui-sdk/server";
 import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
   BRAIN_LOCK_KEY,
   rtkRewriteCommand,
+  execWrapperSpawnOptions,
+  wrapCommand,
 } from "@schlessera/brain-ui-sdk/internal";
 
 import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain/internal";

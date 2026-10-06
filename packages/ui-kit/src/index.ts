@@ -24,11 +24,9 @@
 
 /* Tokens and shared unions. */
 export { color, font } from "./tokens.js";
-// The token tables and the canvas palettes, for a consumer that draws outside
-// the DOM — a WebGL graph, a diagram theme — and has to READ a token rather
-// than reference it: the stylesheet's declaration first, these as the value
-// where there is no document. Never a rendered value inside the kit itself.
-export { LIGHT_TOKENS, TOKENS, canvas, type TokenName } from "./tokens.js";
+// The token tables, their `TokenName` keys and the canvas palettes are
+// first-party only, in `./internal` (#1053): ui-react reads them where there
+// is no document. A consumer references the `--bk-*` custom properties.
 export type {
   ActionEmphasis,
   ActionKind,

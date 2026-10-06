@@ -9,11 +9,13 @@ import {
   SHARE_MAX_TEXT_BYTES,
 } from "../src/protocol";
 import {
+  handleShareTargetRequest,
+  isShareTargetRequest,
+} from "../src/client/share-target-handler";
+import {
   DEFAULT_SHARE_TARGET_PATH,
   SHARE_ERROR_PARAM,
   SHARE_QUERY_PARAM,
-  handleShareTargetRequest,
-  isShareTargetRequest,
   readShareLaunchParams,
   registerShareTarget,
   type ShareFetchEvent,

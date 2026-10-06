@@ -49,11 +49,7 @@ export type {
 export { BackendProfileConfigError, defineBackendModule } from "./backend-module.js";
 
 export type { ExecWrapperConfig, KillableProcess, WrappedKillOptions } from "./exec-wrapper.js";
-export {
-  execWrapperSpawnOptions,
-  killWrapped,
-  wrapCommand,
-} from "./exec-wrapper.js";
+export { killWrapped } from "./exec-wrapper.js";
 
 export { probeVersionCommand } from "./version-probe.js";
 export type { VersionProbeOptions, VersionProbeResult } from "./version-probe.js";
@@ -141,20 +137,6 @@ export { reverseGeocode } from "./reverse-geocode.js";
 export { geoConfigSchema } from "@schlessera/brain-geo";
 export type { GeoConfig, GeoConfigInput } from "@schlessera/brain-geo";
 
-export {
-  handleAskUser,
-  handleAskUserForm,
-  handleAskUserList,
-  handleAskUserRank,
-  handleGetCurrentLocation,
-  handleQueryActivity,
-  handleRequestImageMask,
-  handleShowBlock,
-} from "./bridge-tools/index.js";
-export type {
-  ImageMaskHandlerOptions,
-  LocationHandlerOptions,
-} from "./bridge-tools/index.js";
 
 // The declarative half of the same tools — names, descriptions, input and
 // payload schemas, prompt briefs. Server-side importers get both halves from

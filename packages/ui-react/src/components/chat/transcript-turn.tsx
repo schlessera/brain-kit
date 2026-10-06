@@ -1,7 +1,7 @@
 import { Chip, Disclosure, Icon, MessageBubble, StatusDot } from "@schlessera/brain-ui-kit";
 import type { ReactNode } from "react";
+import { describeRetry } from "@schlessera/brain-ui-sdk/internal/client";
 import type { TurnRetry } from "@schlessera/brain-ui-sdk/protocol";
-import { describeRetry } from "@schlessera/brain-ui-sdk/protocol";
 import { cn } from "../../lib/utils.js";
 
 /**

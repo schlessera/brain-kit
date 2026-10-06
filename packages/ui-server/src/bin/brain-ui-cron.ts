@@ -5,10 +5,7 @@ import { statSync } from "fs";
 import { join } from "path";
 
 import { execConfig, resolveCronConfig } from "../config/env.js";
-import {
-  execWrapperSpawnOptions,
-  wrapCommand,
-} from "@schlessera/brain-ui-sdk/server";
+import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import { runDigest } from "../cron/digest.js";
 import {
   emitCrontab,

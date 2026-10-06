@@ -34,7 +34,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { canonicalModelId, type PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
+import { type PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 
 const LITELLM_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";

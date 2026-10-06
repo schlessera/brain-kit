@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sizeSvgForExport } from "../src/lib/mermaid.js";
-import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit";
+import { LIGHT_TOKENS, TOKENS } from "@schlessera/brain-ui-kit/internal";
 import { mermaidThemeVariables } from "../src/lib/mermaid-theme.js";
 
 describe("sizeSvgForExport", () => {

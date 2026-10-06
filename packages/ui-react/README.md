@@ -210,13 +210,42 @@ in their own buffers while another session is in view. `activeChat(state)`
 selects the buffer in view; `anyStreaming(state)` is the "something is
 running" signal (used e.g. to defer service-worker update reloads).
 
+## Store hooks
+
+The exported store hooks are what a shell reads and calls, typed against a
+minimal view of each store rather than its full state:
+
+| Hook | View | Fields |
+| --- | --- | --- |
+| `useChatStore` | `ChatShellState` | `buffers`, `draft`, `activeSessionId` (what `activeChat` and `anyStreaming` read) |
+| `useVoiceStore` | `VoiceShellState` | `mode`, `connecting`, `draining`, `reviewText` |
+| `useShareStore` | `ShareShellState` | `queue`, `busy` (what `hasPendingShare` reads) |
+| `useUIStore` | `UIShellState` | `activeView`, `setActiveView`, `setFilePanelOpen` |
+| `useFileStore` | `FileShellState` | `openFile`, `openDir` |
+
+Each hook is a `ShellStoreHook<View>`: call it with a selector inside React,
+or use its `getState()` and `subscribe()` statics outside React, for example
+in a service-worker reload guard:
+
+```ts
+const isBusy = () => {
+  const voice = useVoiceStore.getState();
+  return anyStreaming(useChatStore.getState())
+    || voice.mode !== "idle" || voice.connecting || voice.draining
+    || hasPendingShare(useShareStore.getState())
+    || hasUnsentText();
+};
+```
+
+The full store state shapes are internal and may change in any release.
+
 ## UI roots
 
 `createBrainUiRoot({ config, storagePrefix, storage, request, api })` constructs
 independent stores, API access, renderer/ASR registries and a connection without
 opening a socket. Pass it to `<BrainUiProvider root={root}>`. Store selector
-hooks resolve the nearest provider; imperative code uses `root.stores` and
-`root.connection`. `useBrainApi()` and `useBrainConfig()` expose its services.
+hooks resolve the nearest provider; imperative code uses `root.connection`.
+`root.stores` carries the full store state and is internal. `useBrainApi()` and `useBrainConfig()` expose its services.
 
 A provider without a `root` owns a new root and disposes it on unmount. An
 explicit root belongs to the caller, which must call `root.dispose()` when

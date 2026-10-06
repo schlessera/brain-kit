@@ -1,7 +1,7 @@
 import { SaxesParser } from "saxes";
 import { z } from "zod";
+import { MAX_ROUTE_BYTES } from "./limits.js";
 
-export const MAX_ROUTE_BYTES = 20 * 1024 * 1024;
 const MAX_POINTS = 200_000;
 export const EARTH_RADIUS_M = 6_371_008.8;
 const radians = Math.PI / 180;

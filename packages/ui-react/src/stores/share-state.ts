@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
+import type { ShareShellState } from "./shell-stores.js";
 
 /**
  * Shares waiting for the user to confirm them.
@@ -55,6 +56,6 @@ export function createShareStore() {
 }
 
 /** Whether a share is pending — the shell reads this to defer a reload. */
-export function hasPendingShare(state: ShareIntakeState): boolean {
+export function hasPendingShare(state: ShareShellState): boolean {
   return state.queue.length > 0 || state.busy;
 }

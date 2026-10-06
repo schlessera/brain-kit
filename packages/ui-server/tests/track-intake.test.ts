@@ -80,7 +80,7 @@ test("staged references cannot supply geometry or escape containment and agent e
 });
 
 import { readdir } from "node:fs/promises";
-import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo";
+import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 
 test("a cancelled composer stage leaves neither a committed original nor a partial directory", async () => {

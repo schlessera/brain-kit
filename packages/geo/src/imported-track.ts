@@ -1,6 +1,7 @@
 import { SaxesParser } from "saxes";
+import { MAX_ROUTE_BYTES } from "./limits.js";
 import {
-  MAX_ROUTE_BYTES, normalizeTrack, parseTrackGpx, routePoint,
+  normalizeTrack, parseTrackGpx, routePoint,
   type NormalizedTrackPoint, type ParsedTrack, type RoutePoint, type TrackOmission,
 } from "./track.js";
 

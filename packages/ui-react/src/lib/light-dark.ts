@@ -14,7 +14,7 @@
  * Pure functions here; `hooks/use-color-scheme.ts` decides which half.
  */
 
-import { LIGHT_TOKENS, TOKENS, type TokenName } from "@schlessera/brain-ui-kit";
+import { LIGHT_TOKENS, TOKENS, type TokenName } from "@schlessera/brain-ui-kit/internal";
 
 export type ColorScheme = "light" | "dark";
 

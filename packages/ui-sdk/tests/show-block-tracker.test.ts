@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SHOW_BLOCK_CONTRACT, parseToolPayload } from "../src/client/index.js";
-import { handleShowBlock } from "../src/server/index.js";
+import { handleShowBlock } from "../src/server/bridge-tools/index.js";
 import {
   BLOCK_SCHEMA,
   SHOW_BLOCK_DESCRIPTION,

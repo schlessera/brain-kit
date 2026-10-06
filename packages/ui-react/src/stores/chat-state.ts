@@ -19,6 +19,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../components/chat/stats/compose-stats.js";
 import type { ProviderState } from "./provider-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
+import type { ChatShellState } from "./shell-stores.js";
 import type { AnswerDelivery } from "../lib/answer-delivery/types.js";
 
 export type { MessagePart };
@@ -525,7 +526,7 @@ const EMPTY_CHAT: SessionChat = Object.freeze({
 });
 
 /** The buffer currently in view (draft when no session is bound). */
-export function activeChat(state: ChatState): SessionChat {
+export function activeChat(state: ChatShellState): SessionChat {
   if (state.activeSessionId) return state.buffers[state.activeSessionId] ?? EMPTY_CHAT;
   return state.draft ?? EMPTY_CHAT;
 }
@@ -551,7 +552,7 @@ export function localExchangesForDraft(state: ChatState): LocalExchange[] {
 }
 
 /** True when ANY buffer is streaming (service-worker busy check, etc.). */
-export function anyStreaming(state: ChatState): boolean {
+export function anyStreaming(state: ChatShellState): boolean {
   if (state.draft?.isStreaming) return true;
   return Object.values(state.buffers).some((b) => b.isStreaming);
 }

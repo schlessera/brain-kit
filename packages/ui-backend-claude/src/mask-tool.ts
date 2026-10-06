@@ -3,13 +3,13 @@ import {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME as SHARED_TOOL_NAME,
-  handleRequestImageMask,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
 import {
   BRIDGE_TOOL_POSTURE,
   claudeMaskFilename,
   claudeReportedMaskPath,
+  handleRequestImageMask,
 } from "@schlessera/brain-ui-sdk/internal";
 
 /** Bridges the tool to the host's mask provider (`BackendBridge.requestMask`). */

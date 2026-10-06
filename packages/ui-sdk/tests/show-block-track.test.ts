@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleShowBlock } from "../src/server/index.js";
+import { handleShowBlock } from "../src/server/bridge-tools/index.js";
 import { BLOCK_SCHEMA, showBlockInputSchema, type ShowBlockInput } from "../src/tool-contracts/blocks.js";
 
 const input: ShowBlockInput = { block: { kind: "track", source: { path: ".brain-ui/inbox/00000000-0000-0000-0000-000000000000/ithaca-loop.gpx" }, title: "Ithaca loop" } };

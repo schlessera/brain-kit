@@ -17,16 +17,21 @@ export "." (./src/index.ts)
   type ChatKey
   type ChatMessage
   ChatPage
+  type ChatShellState
   ConnectionGate
+  type FileShellState
   type GraphMode
   GraphPage
   type MaskRequest
   type MessageAttachment
   type SessionChat
   ShareHarness
-  type ShareIntakeState
+  type ShareShellState
+  type ShellStoreHook
   type ToolCall
+  type UIShellState
   type UseServiceWorkerUpdatesOptions
+  type VoiceShellState
   activeChat
   anyStreaming
   apiBase
@@ -58,28 +63,6 @@ signatures (every public export and the types it is made of)
     export type ActiveView = "chat" | "graph" | "activity";
   ActivityPage (packages/ui-react/src/lazy-pages.tsx)
     export function ActivityPage(): import("react").JSX.Element;
-  ActivityState (packages/ui-react/src/stores/activity-store-types.ts)
-    export interface ActivityState {
-        supported: boolean;
-        subscribed: Record<string, true>;
-        connectionEpoch: number;
-        spans: Record<string, Record<string, ActivitySpan>>;
-        events: Record<string, ActivitySpanEvent[]>;
-        highWater: Record<string, number>;
-        deltaSeq: Record<string, number>;
-        spanRun: Record<string, string>;
-        inbox: ActivityIntent[];
-        loadInbox: () => Promise<void>;
-        acknowledgeIntent: (id: number) => Promise<void>;
-        acknowledgeAllIntents: () => Promise<void>;
-        setSupported: (supported: boolean) => void;
-        resetSubscriptions: () => void;
-        bumpConnectionEpoch: () => void;
-        markSubscribed: (sessionId: string) => void;
-        applySnapshot: (msg: ServerActivitySnapshot) => void;
-        applyDelta: (msg: ServerActivityDelta) => void;
-        clear: () => void;
-    }
   AnswerDelivery (packages/ui-react/src/lib/answer-delivery/types.ts)
     export interface AnswerDelivery {
         requestId: string;
@@ -180,8 +163,6 @@ signatures (every public export and the types it is made of)
         results: BrainSearchHit[];
         warnings: string[];
     }
-  BrainStores (packages/ui-react/src/stores/create-stores.ts)
-    export type BrainStores = ReturnType<typeof createBrainStores>;
   BrainUiConfig (packages/ui-react/src/config.ts)
     export interface BrainUiConfig {
         appName: string;
@@ -217,7 +198,6 @@ signatures (every public export and the types it is made of)
         config: BrainUiConfig;
         api: BrainApi;
         request: (url: string, init?: RequestInit) => Promise<Response>;
-        stores: BrainStores;
         renderers: ToolRendererRegistry;
         asr: AsrClientRegistry;
         apiBase: () => string;
@@ -259,84 +239,14 @@ signatures (every public export and the types it is made of)
     }
   ChatPage (packages/ui-react/src/components/chat/chat-page.tsx)
     export function ChatPage(): import("react").JSX.Element;
-  ChatState (packages/ui-react/src/stores/chat-state.ts)
-    export interface ChatState {
-        chatReceipts: Record<string, {
-            state: "accepted" | "refused";
-            sessionId?: string;
-        }>;
-        setChatReceipt(requestId: string, state: "accepted" | "refused", sessionId?: string): void;
-        clearChatReceipt(requestId: string): void;
-        setMessageEffort(key: ChatKey, requestId: string, thinkingLevel: ThinkingLevel, effectiveThinkingLevel?: ThinkingLevel): void;
-        turnRetries: Record<string, PendingTurnRetry>;
-        setTurnRetry(sessionId: string, retry: PendingTurnRetry | null): void;
-        setRetryHandle(key: ChatKey, retryOfTurnId: string | undefined): void;
-        buffers: Record<string, SessionChat>;
-        historyLoads: Record<string, number>;
-        noteHistoryLoaded: (sessionId: string) => void;
-        draft: SessionChat | null;
-        pendingDraftId: string | null;
-        activeSessionId: string | null;
-        runStates: Record<string, "streaming" | "queued" | "idle">;
-        backendIds: Record<string, string>;
-        queueNotes: Record<string, string>;
-        addUserMessage: (key: ChatKey, text: string, source?: MessageSource, attachments?: MessageAttachment[], effort?: {
-            requestId: string;
-            thinkingLevel?: ThinkingLevel;
-        }, files?: SharedFileMeta[]) => void;
-        startAssistantMessage: (key: ChatKey, turnId?: string, requestId?: string) => void;
-        appendText: (key: ChatKey, text: string) => void;
-        appendThinking: (key: ChatKey, text: string) => void;
-        setStatsAnswer: (key: ChatKey, sections: StatsSection[]) => void;
-        setLocalExchange: (key: ChatKey, exchange: LocalExchangeState) => void;
-        markLocalExchange: (exchangeId: string, saved: LocalExchangeState["saved"], reason?: string) => void;
-        startToolCall: (key: ChatKey, toolUseId: string, toolName: string) => void;
-        appendToolInput: (key: ChatKey, partialJson: string) => void;
-        completeToolCall: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>) => void;
-        requestToolApproval: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>, description?: string, kind?: "tool" | "command", rememberable?: boolean, turnId?: string) => void;
-        resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
-        setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
-        setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
-        setAskUserListRequest: (key: ChatKey, requestId: string, list: AskUserListSpec, turnId?: string) => void;
-        setAskUserRankRequest: (key: ChatKey, requestId: string, rank: AskUserRankSpec, turnId?: string) => void;
-        setAskUserFormRequest: (key: ChatKey, requestId: string, form: AskUserFormSpec, turnId?: string) => void;
-        submitAskUserFormAnswers: (key: ChatKey, requestId: string, formAnswers: AskUserFormAnswers, visibleNodes: string[]) => void;
-        submitAskUserRankOrder: (key: ChatKey, requestId: string, order: string[], unchanged: boolean) => void;
-        submitAskUserListAnswers: (key: ChatKey, requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
-        submitAskUserAnswers: (key: ChatKey, requestId: string, answers: Record<string, string>, annotations?: Record<string, AskUserAnnotation>, typed?: boolean) => void;
-        cancelAskUser: (key: ChatKey, requestId: string) => void;
-        reopenAskExchange: (key: ChatKey, requestId: string) => void;
-        clearAskUser: (key: ChatKey) => void;
-        deliveries: Record<string, AnswerDelivery>;
-        setDelivery: (requestId: string, delivery: AnswerDelivery | null) => void;
-        finishAssistantMessage: (key: ChatKey) => void;
-        failAssistantMessage: (key: ChatKey, failure: TurnFailure, turnId?: string, replace?: boolean) => void;
-        setRetry: (key: ChatKey, retry: TurnRetry | null) => void;
-        setMessageBlocks: (key: ChatKey, blocks: MessageBlock[], turnId?: string) => void;
-        stampTurn: (key: ChatKey, turnId: string) => void;
-        setStreaming: (key: ChatKey, streaming: boolean) => void;
-        setMessages: (key: ChatKey, messages: ChatMessage[]) => void;
-        appendMessages: (key: ChatKey, messages: ChatMessage[]) => void;
-        bindDraftSession: (sessionId: string) => void;
-        startDraftTurn: () => string;
-        setActiveSession: (sessionId: string | null) => void;
-        clearMessages: () => void;
-        setRunState: (sessionId: string, state: "streaming" | "queued" | "idle", note?: string) => void;
-        setSessionBackend: (sessionId: string, backendId: string) => void;
-        composerInsert: {
-            seq: number;
-            text: string;
-        } | null;
-        requestComposerInsert: (text: string) => void;
-        clearComposerInsert: (seq: number) => void;
+  ChatShellState (packages/ui-react/src/stores/shell-stores.ts)
+    export interface ChatShellState {
+        readonly buffers: Readonly<Record<string, SessionChat>>;
+        readonly draft: SessionChat | null;
+        readonly activeSessionId: string | null;
     }
   ClosedReason (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type ClosedReason = NonNullable<ServerAskAnswerReceipt["reason"]>;
-  ClustersParams (packages/ui-react/src/stores/graph-state.ts)
-    export interface ClustersParams {
-        community: number | null;
-        isolates: boolean;
-    }
   CoastlineGeometry (packages/ui-react/src/lib/api-client.ts)
     export interface CoastlineGeometry {
         coastline: [
@@ -360,35 +270,10 @@ signatures (every public export and the types it is made of)
         toleranceM: number;
         attribution: string;
     }
-  ConnectionError (packages/ui-react/src/stores/connection-state.ts)
-    export interface ConnectionError {
-        code: string;
-        message: string;
-        at: number;
-    }
   ConnectionGate (packages/ui-react/src/components/connectivity/connection-gate.tsx)
     export function ConnectionGate({ children }: {
         children: ReactNode;
     }): import("react").JSX.Element;
-  ConnectionState (packages/ui-react/src/stores/connection-state.ts)
-    export interface ConnectionState {
-        wsStatus: WsStatus;
-        chatRequestAck: boolean;
-        setChatRequestAck(supported: boolean): void;
-        followUpQueue: boolean;
-        setFollowUpQueue(supported: boolean): void;
-        vpnStatus: VpnStatus;
-        handshakeFailures: number;
-        lastCloseCode: number | null;
-        socketOpens: number;
-        lastError: ConnectionError | null;
-        setWsStatus: (status: WsStatus) => void;
-        setVpnStatus: (status: VpnStatus) => void;
-        recordWsClose: (opened: boolean, code: number) => void;
-        noteSocketOpen: () => void;
-        reportError: (code: string, message: string) => void;
-        clearError: () => void;
-    }
   CorpusStats (packages/ui-react/src/lib/api-client.ts)
     export interface CorpusStats {
         trends?: CorpusStatsTrends;
@@ -476,21 +361,8 @@ signatures (every public export and the types it is made of)
         countMedian: number | null;
         versions: string[];
     }
-  DecisionKind (packages/ui-react/src/stores/inbox-state.ts)
-    export type DecisionKind = "commit" | "later" | "dismiss";
   DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
-  DestinationPanel (packages/ui-react/src/stores/ui-state.ts)
-    export type DestinationPanel = "sessions" | "files" | "settings";
-  DiscoveryColorBy (packages/ui-react/src/stores/graph-state.ts)
-    export type DiscoveryColorBy = "topic" | "distance" | "folder" | "entity";
-  DiscoveryParams (packages/ui-react/src/stores/graph-state.ts)
-    export interface DiscoveryParams {
-        root: string | null;
-        maxDepth: number;
-    }
-  FetchState (packages/ui-react/src/stores/graph-state.ts)
-    type FetchState = "idle" | "loading" | "done" | "error";
   Fetched (packages/ui-react/src/components/chat/stats/compose-stats.ts)
     export type Fetched<T> = {
         ok: true;
@@ -499,230 +371,15 @@ signatures (every public export and the types it is made of)
         ok: false;
         error: string;
     };
-  FileState (packages/ui-react/src/stores/file-state.ts)
-    export interface FileState {
-        dirCache: Record<string, FileEntry[]>;
-        loadingDirs: Set<string>;
-        dirErrors: Record<string, string>;
-        expandedDirs: Set<string>;
-        currentPath: string | null;
-        currentContent: FileContentResponse | null;
-        contentLoading: boolean;
-        contentError: string | null;
-        viewMode: ViewMode;
-        treeExpanded: boolean;
-        frontmatterCollapsed: boolean;
-        highlightedDir: string | null;
-        wikilinkMap: Record<string, string>;
-        wikilinkLoaded: boolean;
-        wikilinkLoading: boolean;
-        loadDir: (path: string) => Promise<void>;
-        toggleDir: (path: string) => Promise<void>;
-        setExpanded: (path: string, expanded: boolean) => void;
-        openFile: (path: string) => Promise<void>;
-        openDir: (path: string) => Promise<void>;
-        closeFile: () => void;
-        setViewMode: (mode: ViewMode) => void;
-        setTreeExpanded: (expanded: boolean) => void;
-        toggleFrontmatter: () => void;
-        setHighlightedDir: (path: string | null) => void;
-        ensureWikilinks: () => Promise<void>;
-        reset: () => void;
+  FileShellState (packages/ui-react/src/stores/shell-stores.ts)
+    export interface FileShellState {
+        openFile(path: string): Promise<void>;
+        openDir(path: string): Promise<void>;
     }
-  FollowUpAnnouncement (packages/ui-react/src/stores/follow-up-state.ts)
-    export interface FollowUpAnnouncement {
-        sessionId: string;
-        text: string;
-        seq: number;
-    }
-  FollowUpState (packages/ui-react/src/stores/follow-up-state.ts)
-    export interface FollowUpState {
-        reported: Record<string, QueuedFollowUpView[]>;
-        local: Record<string, LocalFollowUp[]>;
-        pending: Record<string, PendingFollowUp[]>;
-        announcement: FollowUpAnnouncement | null;
-        addLocal(sessionId: string, entry: LocalFollowUp): void;
-        applyReport(frame: ServerSessionQueue): StartedFollowUp | null;
-        takeLocal(requestId: string): StartedFollowUp | null;
-        dropLocal(requestId: string): void;
-        reset(): void;
-    }
-  GraphError (packages/ui-react/src/stores/graph-state.ts)
-    interface GraphError {
-        kind: GraphErrorKind;
-        reason?: "schema" | "not_computed";
-        message: string;
-    }
-  GraphErrorKind (packages/ui-react/src/stores/graph-state.ts)
-    export type GraphErrorKind = "unavailable" | "unsupported" | "network";
   GraphMode (packages/ui-react/src/stores/graph-state.ts)
     export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
   GraphPage (packages/ui-react/src/lazy-pages.tsx)
     export function GraphPage(): import("react").JSX.Element;
-  GraphState (packages/ui-react/src/stores/graph-state.ts)
-    export interface GraphState {
-        mode: GraphMode;
-        meta: GraphMetaResponse | null;
-        metaState: FetchState;
-        local: LocalParams;
-        discovery: DiscoveryParams;
-        clusters: ClustersParams;
-        maintenance: MaintenanceParams;
-        subgraph: GraphSubgraphResponse | null;
-        findings: GraphMaintenanceResponse | null;
-        dataState: FetchState;
-        error: GraphError | null;
-        sceneQuery: string;
-        clustersSizeBy: SizeBy;
-        discoveryColorBy: DiscoveryColorBy;
-        maintenanceFilters: MaintenanceFilters;
-        selectedId: number | null;
-        hoveredId: number | null;
-        setMode: (mode: GraphMode) => void;
-        setLocalParams: (params: Partial<LocalParams>) => void;
-        setDiscoveryParams: (params: Partial<DiscoveryParams>) => void;
-        setClustersParams: (params: Partial<ClustersParams>) => void;
-        setMaintenanceParams: (params: Partial<MaintenanceParams>) => void;
-        setClustersSizeBy: (sizeBy: SizeBy) => void;
-        setDiscoveryColorBy: (colorBy: DiscoveryColorBy) => void;
-        setMaintenanceFilters: (filters: Partial<MaintenanceFilters>) => void;
-        setSceneQuery: (q: string) => void;
-        select: (id: number | null) => void;
-        hover: (id: number | null) => void;
-        fetchMeta: (force?: boolean) => Promise<void>;
-        fetchScene: () => Promise<void>;
-        expandNode: (path: string) => Promise<void>;
-        reset: () => void;
-    }
-  HandoffDraftState (packages/ui-react/src/stores/handoff-state.ts)
-    export interface HandoffDraftState {
-        state: "idle" | "running" | "ready" | "failed" | "cancelled";
-        text?: string;
-        message?: string;
-        costUsd?: number;
-        runId?: string;
-    }
-  HandoffLink (packages/ui-react/src/stores/handoff-state.ts)
-    export interface HandoffLink {
-        sessionId: string;
-        title: string | null;
-        backendId?: string;
-        afterTurns?: number;
-    }
-  HandoffPhase (packages/ui-react/src/stores/handoff-state.ts)
-    export type HandoffPhase = {
-        kind: "review";
-    } | {
-        kind: "creating";
-    } | {
-        kind: "checking";
-    } | {
-        kind: "refused";
-        message: string;
-    } | {
-        kind: "uncertain";
-    };
-  HandoffSend (packages/ui-react/src/stores/handoff-state.ts)
-    export interface HandoffSend {
-        handoffId: string;
-        requestId: string;
-        draftId: string;
-        text: string;
-        providerId: string;
-    }
-  HandoffSheetTarget (packages/ui-react/src/stores/handoff-state.ts)
-    export interface HandoffSheetTarget {
-        sourceSessionId: string;
-        handoffId: string;
-        awaitHistory?: boolean;
-    }
-  HandoffState (packages/ui-react/src/stores/handoff-state.ts)
-    export interface HandoffState {
-        sheet: HandoffSheetTarget | null;
-        prepareId: string | null;
-        draft: HandoffDraftState;
-        phase: HandoffPhase;
-        pendingSend: HandoffSend | null;
-        created: {
-            handoffId: string;
-            sessionId: string;
-            live: boolean;
-        } | null;
-        forward: Record<string, HandoffLink[]>;
-        from: Record<string, HandoffLink>;
-        open(sourceSessionId: string, handoffId: string, options?: {
-            awaitHistory?: boolean;
-        }): void;
-        close(): void;
-        startPrepare(prepareId: string): void;
-        setDraft(prepareId: string, draft: HandoffDraftState): void;
-        setPhase(phase: HandoffPhase): void;
-        beginSend(send: HandoffSend): void;
-        noteRefusal(requestId: string, message: string): void;
-        noteReceipt(handoffId: string, state: "created" | "pending" | "none", sessionId?: string): void;
-        noteCreated(handoffId: string, sessionId: string, live: boolean): void;
-        setLinks(sessions: readonly ChatSession[]): void;
-        addLink(sourceSessionId: string, destination: HandoffLink, source: HandoffLink): void;
-    }
-  InFlightDecision (packages/ui-react/src/stores/inbox-state.ts)
-    export interface InFlightDecision {
-        kind: DecisionKind;
-        optionId?: string;
-        label: string;
-        receipt: string;
-        reason?: InboxDismissReason;
-        ambiguous?: boolean;
-        sentVersion: number;
-        state: "applying" | "unconfirmed" | "refused";
-    }
-  InboxChangeNotice (packages/ui-react/src/stores/inbox-state.ts)
-    export interface InboxChangeNotice {
-        fields: string[];
-        before: InboxActionItem;
-        reviewed: boolean;
-    }
-  InboxOutcome (packages/ui-react/src/stores/inbox-state.ts)
-    export type InboxOutcome = {
-        kind: "receipt";
-        status: Extract<InboxActionStatus, "resolved" | "dismissed" | "snoozed">;
-        by: "you" | "elsewhere" | "unknown";
-        afterReconnect?: boolean;
-        waitUntil?: number;
-        reason?: InboxDismissReason;
-        text?: string;
-        lost?: string;
-    } | {
-        kind: "not-received";
-        label: string;
-    } | {
-        kind: "not-applied";
-    } | {
-        kind: "gone";
-        status: "dropped" | "expired" | "removed";
-    };
-  InboxState (packages/ui-react/src/stores/inbox-state.ts)
-    export interface InboxState {
-        supported: boolean;
-        online: boolean;
-        asOf: number | null;
-        views: Record<InboxView, ViewMirror>;
-        threads: Record<string, InboxThread>;
-        items: Record<string, InboxItem>;
-        inFlight: Record<string, InFlightDecision>;
-        outcomes: Record<string, InboxOutcome>;
-        changes: Record<string, InboxChangeNotice>;
-        setSupported: (supported: boolean) => void;
-        connectionLost: () => void;
-        applySnapshot: (msg: InboxSnapshot) => void;
-        applyDelta: (msg: InboxDelta) => void;
-        beginDecision: (itemId: string, decision: Omit<InFlightDecision, "state" | "sentVersion">) => boolean;
-        decisionRefused: (settle?: boolean) => boolean;
-        reviewChanges: (itemId: string) => void;
-        clearReceipts: (exceptItemId?: string) => void;
-        clear: () => void;
-    }
-  LocalDirection (packages/ui-react/src/stores/graph-state.ts)
-    export type LocalDirection = "in" | "out" | "both";
   LocalExchangeState (packages/ui-react/src/stores/chat-state.ts)
     export interface LocalExchangeState {
         id: string;
@@ -733,45 +390,12 @@ signatures (every public export and the types it is made of)
         saved: "draft" | "pending" | "saved" | "unsaved";
         reason?: string;
     }
-  LocalFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
-    export interface LocalFollowUp {
-        requestId: string;
-        text: string;
-        source: MessageSource;
-        attachments?: MessageAttachment[];
-        files?: SharedFileMeta[];
-        thinkingLevel?: ThinkingLevel;
-        queuedAt: number;
-    }
-  LocalParams (packages/ui-react/src/stores/graph-state.ts)
-    export interface LocalParams {
-        center: string | null;
-        depth: 1 | 2 | 3;
-        direction: LocalDirection;
-    }
-  MaintenanceFilters (packages/ui-react/src/stores/graph-state.ts)
-    export interface MaintenanceFilters {
-        orphans: boolean;
-        unreachable: boolean;
-        broken: boolean;
-        stale: boolean;
-    }
-  MaintenanceParams (packages/ui-react/src/stores/graph-state.ts)
-    export interface MaintenanceParams {
-        staleDays: number;
-    }
   MaskRequest (packages/ui-react/src/stores/mask-state.ts)
     export interface MaskRequest {
         requestId: string;
         imagePath: string;
         instruction?: string;
         turnId?: string;
-    }
-  MaskState (packages/ui-react/src/stores/mask-state.ts)
-    export interface MaskState {
-        request: MaskRequest | null;
-        open: (request: MaskRequest) => void;
-        close: () => void;
     }
   MessageAttachment (packages/ui-react/src/stores/chat-state.ts)
     export interface MessageAttachment {
@@ -784,25 +408,6 @@ signatures (every public export and the types it is made of)
         label: string;
         expiresAt: number;
         cookie: string;
-    }
-  PendingFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
-    export interface PendingFollowUp {
-        id: string;
-        requestId?: string;
-        text: string;
-        attachmentCount?: number;
-        fileCount?: number;
-        source?: MessageSource;
-        queuedAt: number;
-        label?: string;
-        confirmed: boolean;
-    }
-  PendingTurnRetry (packages/ui-react/src/stores/chat-state.ts)
-    export interface PendingTurnRetry {
-        requestId: string;
-        failedTurnId: string;
-        state: "waiting" | "unknown" | "refused";
-        message?: string;
     }
   PiAuthProviderStatus (packages/ui-react/src/lib/api-client.ts)
     export interface PiAuthProviderStatus {
@@ -832,14 +437,6 @@ signatures (every public export and the types it is made of)
         source: "remote" | "snapshot";
         error?: string;
     }
-  PrincipalState (packages/ui-react/src/stores/principal-state.ts)
-    export interface PrincipalState {
-        mintPending: boolean;
-        mintError: string | null;
-        oneTimeCredential: MintedAgent | null;
-        mintAgent: (label: string, ttlDays: number) => Promise<void>;
-        acknowledgeAgentCredential: () => void;
-    }
   PrincipalSummary (packages/ui-react/src/lib/api-client.ts)
     export interface PrincipalSummary {
         id: string;
@@ -850,18 +447,6 @@ signatures (every public export and the types it is made of)
         expires_at: number;
         last_seen_at: number | null;
         is_own: boolean;
-    }
-  ProviderState (packages/ui-react/src/stores/provider-state.ts)
-    export interface ProviderState {
-        available: ProviderInfo[];
-        unavailable: UnavailableProfileInfo[];
-        selectedId: string;
-        pinnedId: string | null;
-        backends: Record<string, BackendInfo>;
-        loaded: boolean;
-        loadProviders: () => Promise<void>;
-        setSelected: (id: string) => void;
-        setPinned: (id: string | null) => void;
     }
   QueuedAnswer (packages/ui-react/src/lib/answer-delivery/types.ts)
     export interface QueuedAnswer {
@@ -882,28 +467,21 @@ signatures (every public export and the types it is made of)
         askUser: AskUserExchange | null;
         lastTouched: number;
     }
-  SettingsTab (packages/ui-react/src/stores/ui-state.ts)
-    export type SettingsTab = "appearance" | "models" | "skills" | "security" | "devices" | "modules";
   ShareHarness (packages/ui-react/src/components/dev/share-harness.tsx)
     export function ShareHarness({ path = DEFAULT_SHARE_TARGET_PATH, }: {
         path?: string;
     }): import("react").JSX.Element;
-  ShareIntakeState (packages/ui-react/src/stores/share-state.ts)
-    export interface ShareIntakeState {
-        queue: StoredShare[];
-        busy: boolean;
-        phase: "review" | "uploading" | "parsing" | "paused";
-        error: string | null;
-        notes: string[];
-        enqueue: (record: StoredShare) => void;
-        remove: (id: string) => void;
-        setPhase: (phase: ShareIntakeState["phase"]) => void;
-        setBusy: (busy: boolean) => void;
-        setError: (error: string | null) => void;
-        setNotes: (notes: string[]) => void;
+  ShareShellState (packages/ui-react/src/stores/shell-stores.ts)
+    export interface ShareShellState {
+        readonly queue: readonly StoredShare[];
+        readonly busy: boolean;
     }
-  SizeBy (packages/ui-react/src/stores/graph-state.ts)
-    export type SizeBy = "degree" | "pagerank";
+  ShellStoreHook (packages/ui-react/src/stores/shell-stores.ts)
+    export interface ShellStoreHook<S> {
+        <T>(selector: (state: S) => T): T;
+        getState(): S;
+        subscribe(listener: (state: S, previous: S) => void): () => void;
+    }
   SkillDetail (packages/ui-react/src/lib/api-client.ts)
     export interface SkillDetail extends SkillEntry {
         content: string;
@@ -933,20 +511,6 @@ signatures (every public export and the types it is made of)
     export interface SoftwareInput {
         client: SoftwareIdentity;
         server: Fetched<SoftwareIdentity>;
-    }
-  StartedFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
-    export interface StartedFollowUp {
-        sessionId: string;
-        turnId?: string;
-        requestId?: string;
-        text: string;
-        source?: MessageSource;
-        attachments?: MessageAttachment[];
-        attachmentCount?: number;
-        files?: SharedFileMeta[];
-        fileCount?: number;
-        textTruncated?: boolean;
-        thinkingLevel?: ThinkingLevel;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
     export type StatsSection = {
@@ -981,14 +545,6 @@ signatures (every public export and the types it is made of)
         footnote?: string;
         footTone?: Tone;
     };
-  StoreEnvironment (packages/ui-react/src/stores/store-environment.ts)
-    export interface StoreEnvironment {
-        api: BrainApi;
-        apiBase: () => string;
-        request: (url: string, init?: RequestInit) => Promise<Response>;
-        storage: () => Storage | null;
-        storageKey: (key: string) => string;
-    }
   SubmitAnswer (packages/ui-react/src/lib/answer-delivery/manager.ts)
     export interface SubmitAnswer {
         requestId: string;
@@ -1020,8 +576,6 @@ signatures (every public export and the types it is made of)
     } | {
         type: "cleared";
     };
-  ThemePreference (packages/ui-react/src/stores/ui-state.ts)
-    export type ThemePreference = "system" | "light" | "dark";
   ToolCall (packages/ui-react/src/stores/chat-state.ts)
     export interface ToolCall {
         id: string;
@@ -1038,45 +592,11 @@ signatures (every public export and the types it is made of)
         startedAt?: number;
         endedAt?: number;
     }
-  UIState (packages/ui-react/src/stores/ui-state.ts)
-    export interface UIState {
-        activeView: ActiveView;
-        subagentStack: string[];
-        pushSubagentView: (spanId: string) => void;
-        popSubagentView: () => void;
-        sessionPanelOpen: boolean;
-        syncPanelOpen: boolean;
-        whatsupPanelOpen: boolean;
-        searchPanelOpen: boolean;
-        addPanelOpen: boolean;
-        filePanelOpen: boolean;
-        settingsPanelOpen: boolean;
-        settingsTab: SettingsTab;
-        settingsNavigationProtected: boolean;
-        setSettingsNavigationGuard: (guard: ((leave: () => void) => void) | null) => void;
-        setActiveView: (view: ActiveView) => void;
-        openPanel: (panel: DestinationPanel) => void;
-        toggleSessionPanel: () => void;
-        toggleSyncPanel: () => void;
-        toggleWhatsupPanel: () => void;
-        toggleSearchPanel: () => void;
-        toggleAddPanel: () => void;
-        toggleFilePanel: () => void;
-        toggleSettingsPanel: () => void;
-        closeAllPanels: () => void;
-        setSyncPanelOpen: (open: boolean) => void;
-        setWhatsupPanelOpen: (open: boolean) => void;
-        setSearchPanelOpen: (open: boolean) => void;
-        setAddPanelOpen: (open: boolean) => void;
-        setSessionPanelOpen: (open: boolean) => void;
-        setFilePanelOpen: (open: boolean) => void;
-        setSettingsPanelOpen: (open: boolean) => void;
-        openSettings: (tab: SettingsTab) => void;
-        setSettingsTab: (tab: SettingsTab) => void;
-        theme: ThemePreference;
-        setTheme: (theme: ThemePreference) => void;
-        singleKeyShortcuts: boolean;
-        setSingleKeyShortcuts: (on: boolean) => void;
+  UIShellState (packages/ui-react/src/stores/shell-stores.ts)
+    export interface UIShellState {
+        readonly activeView: ActiveView;
+        setActiveView(view: ActiveView): void;
+        setFilePanelOpen(open: boolean): void;
     }
   UseServiceWorkerUpdatesOptions (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export interface UseServiceWorkerUpdatesOptions {
@@ -1085,38 +605,13 @@ signatures (every public export and the types it is made of)
         enabled?: boolean;
         reload?: () => void;
     }
-  ViewMirror (packages/ui-react/src/stores/inbox-state.ts)
-    interface ViewMirror {
-        ready: boolean;
-        highWaterSeq: Record<string, number>;
+  VoiceShellState (packages/ui-react/src/stores/shell-stores.ts)
+    export interface VoiceShellState {
+        readonly mode: VoiceMode;
+        readonly connecting: boolean;
+        readonly draining: boolean;
+        readonly reviewText: string;
     }
-  ViewMode (packages/ui-react/src/stores/file-state.ts)
-    export type ViewMode = "preview" | "raw";
-  VoiceState (packages/ui-react/src/voice/voice-state.ts)
-    export interface VoiceState {
-        mode: VoiceMode;
-        connecting: boolean;
-        draining: boolean;
-        partial: string;
-        finalText: string;
-        audioLevel: number;
-        reviewText: string;
-        providerId: string | null;
-        error: string | null;
-        setMode: (mode: VoiceMode) => void;
-        setConnecting: (connecting: boolean) => void;
-        setDraining: (draining: boolean) => void;
-        setPartial: (text: string) => void;
-        appendFinal: (text: string) => void;
-        setAudioLevel: (level: number) => void;
-        setReviewText: (text: string) => void;
-        clearReview: () => void;
-        setProviderId: (providerId: string | null) => void;
-        setError: (err: string | null) => void;
-        resetCapture: () => void;
-    }
-  VpnStatus (packages/ui-react/src/stores/connection-state.ts)
-    export type VpnStatus = "connected" | "forbidden" | "unauthorized" | "unreachable" | "checking";
   WebSearchConfig (packages/ui-react/src/lib/api-client.ts)
     export interface WebSearchConfig {
         configured: boolean;
@@ -1137,20 +632,16 @@ signatures (every public export and the types it is made of)
         costNote: string;
         blurb: string;
     }
-  WsStatus (packages/ui-react/src/stores/connection-state.ts)
-    export type WsStatus = "connecting" | "connected" | "disconnected";
   activeChat (packages/ui-react/src/stores/chat-state.ts)
-    export function activeChat(state: ChatState): SessionChat;
+    export function activeChat(state: ChatShellState): SessionChat;
   anyStreaming (packages/ui-react/src/stores/chat-state.ts)
-    export function anyStreaming(state: ChatState): boolean;
+    export function anyStreaming(state: ChatShellState): boolean;
   apiBase (packages/ui-react/src/lib/backend.ts)
     export function apiBase(): string;
   cancel (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function cancel(requestId: string): Promise<void>;
   checkRetryDelivery (packages/ui-react/src/connection.ts)
     function checkRetryDelivery(sessionId: string): boolean;
-  clearGraphSceneCache (packages/ui-react/src/stores/graph-state.ts)
-    function clearGraphSceneCache(): void;
   configureBrainUi (packages/ui-react/src/config.ts)
     export function configureBrainUi(overrides: Partial<BrainUiConfig>): void;
   connect (packages/ui-react/src/connection.ts)
@@ -1418,30 +909,6 @@ signatures (every public export and the types it is made of)
             enabled?: Record<string, boolean>;
         }) => Promise<WebSearchConfig>;
     };
-  createBrainStores (packages/ui-react/src/stores/create-stores.ts)
-    export function createBrainStores(env: StoreEnvironment): {
-        activity: import("zustand").StoreApi<import("./activity-store-types.js").ActivityState> & {
-            dispose(): void;
-            loadSessionActivityHistory: (sessionId: string) => Promise<void>;
-            loadSpanPayloads: (spanId: string) => Promise<void>;
-        };
-        chat: import("zustand").StoreApi<import("./chat-state.js").ChatState>;
-        connection: import("zustand").StoreApi<import("./connection-state.js").ConnectionState>;
-        file: import("zustand").StoreApi<import("./file-state.js").FileState>;
-        followUp: import("zustand").StoreApi<import("./follow-up-state.js").FollowUpState>;
-        graph: import("zustand").StoreApi<import("./graph-state.js").GraphState> & {
-            clearSceneCache: () => void;
-            dispose(): void;
-        };
-        handoff: import("zustand").StoreApi<import("./handoff-state.js").HandoffState>;
-        inbox: import("zustand").StoreApi<import("./inbox-state.js").InboxState>;
-        mask: import("zustand").StoreApi<import("./mask-state.js").MaskState>;
-        principal: import("zustand").StoreApi<import("./principal-state.js").PrincipalState>;
-        provider: import("zustand").StoreApi<import("./provider-state.js").ProviderState>;
-        share: import("zustand").StoreApi<import("./share-state.js").ShareIntakeState>;
-        ui: import("zustand").StoreApi<import("./ui-state.js").UIState>;
-        voice: import("zustand").StoreApi<import("../voice/voice-state.js").VoiceState>;
-    };
   createBrainUiRoot (packages/ui-react/src/root.ts)
     export function createBrainUiRoot(options?: BrainUiRootOptions): BrainUiRoot;
   createWebSocketClient (packages/ui-react/src/connection.ts)
@@ -1491,13 +958,9 @@ signatures (every public export and the types it is made of)
   handleServerMessage (packages/ui-react/src/connection.ts)
     function handleServerMessage(msg: ServerMessage): void;
   hasPendingShare (packages/ui-react/src/stores/share-state.ts)
-    export function hasPendingShare(state: ShareIntakeState): boolean;
+    export function hasPendingShare(state: ShareShellState): boolean;
   hasUnsentText (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function hasUnsentText(): boolean;
-  loadSessionActivityHistory (packages/ui-react/src/stores/activity-state.ts)
-    function loadSessionActivityHistory(sessionId: string): Promise<void>;
-  loadSpanPayloads (packages/ui-react/src/stores/activity-state.ts)
-    function loadSpanPayloads(spanId: string): Promise<void>;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
@@ -1793,20 +1256,20 @@ signatures (every public export and the types it is made of)
     export function useBrainConfig(): import("./config.js").BrainUiConfig;
   useBrainUiRoot (packages/ui-react/src/root-context.tsx)
     export function useBrainUiRoot(): BrainUiRoot;
-  useChatStore (packages/ui-react/src/stores/chat-store.ts)
-    const useChatStore: (<T>(selector: (state: ReturnType<typeof defaultRoot.stores.chat.getState>) => T) => T) & import("zustand").StoreApi<import("./chat-state.js").ChatState>;
-  useFileStore (packages/ui-react/src/stores/file-store.ts)
-    const useFileStore: (<T>(selector: (state: ReturnType<typeof defaultRoot.stores.file.getState>) => T) => T) & import("zustand").StoreApi<import("./file-state.js").FileState>;
+  useChatStore (packages/ui-react/src/stores/shell-stores.ts)
+    const useChatStore: ShellStoreHook<ChatShellState>;
+  useFileStore (packages/ui-react/src/stores/shell-stores.ts)
+    const useFileStore: ShellStoreHook<FileShellState>;
   useHashRoutes (packages/ui-react/src/hooks/use-hash-routes.ts)
     export function useHashRoutes(): void;
   useServiceWorkerUpdates (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function useServiceWorkerUpdates({ isBusy, hasUnsentText: probeUnsentText = hasUnsentText, enabled = true, reload, }: UseServiceWorkerUpdatesOptions): void;
-  useShareStore (packages/ui-react/src/stores/share-store.ts)
-    const useShareStore: (<T>(selector: (state: ReturnType<typeof defaultRoot.stores.share.getState>) => T) => T) & import("zustand").StoreApi<import("./share-state.js").ShareIntakeState>;
-  useUIStore (packages/ui-react/src/stores/ui-store.ts)
-    const useUIStore: (<T>(selector: (state: ReturnType<typeof defaultRoot.stores.ui.getState>) => T) => T) & import("zustand").StoreApi<import("./ui-state.js").UIState>;
-  useVoiceStore (packages/ui-react/src/voice/voice-store.ts)
-    const useVoiceStore: (<T>(selector: (state: ReturnType<typeof defaultRoot.stores.voice.getState>) => T) => T) & import("zustand").StoreApi<import("./voice-state.js").VoiceState>;
+  useShareStore (packages/ui-react/src/stores/shell-stores.ts)
+    const useShareStore: ShellStoreHook<ShareShellState>;
+  useUIStore (packages/ui-react/src/stores/shell-stores.ts)
+    const useUIStore: ShellStoreHook<UIShellState>;
+  useVoiceStore (packages/ui-react/src/stores/shell-stores.ts)
+    const useVoiceStore: ShellStoreHook<VoiceShellState>;
   useWebSocket (packages/ui-react/src/hooks/use-websocket.ts)
     export function useWebSocket(): {
         send: (message: ClientMessage) => boolean;

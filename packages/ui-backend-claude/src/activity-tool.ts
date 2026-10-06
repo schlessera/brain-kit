@@ -3,12 +3,11 @@ import {
   QUERY_ACTIVITY_DESCRIPTION,
   QUERY_ACTIVITY_INPUT_SCHEMA,
   QUERY_ACTIVITY_TOOL_NAME as SHARED_TOOL_NAME,
-  handleQueryActivity,
   type ActivityQuery,
   type ActivityQueryResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleQueryActivity } from "@schlessera/brain-ui-sdk/internal";
 
 export type ActivityQueryHandler = (
   query: ActivityQuery

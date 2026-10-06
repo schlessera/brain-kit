@@ -1,4 +1,5 @@
-import { parseImportedTrack, MAX_ROUTE_BYTES, summarizeTrack, type ImportedTrack } from "@schlessera/brain-geo";
+import { parseImportedTrack, summarizeTrack, type ImportedTrack } from "@schlessera/brain-geo";
+import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
 import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";

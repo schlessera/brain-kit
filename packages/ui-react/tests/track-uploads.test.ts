@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createTrackUploads, TRACK_MAX_BYTES } from "../src/lib/track-uploads.js";
 import { trackView } from "./track-fixtures.js";
-import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo";
+import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => resolve = r); return { promise, resolve }; }
 async function settle(predicate: () => boolean) { for (let i = 0; i < 50; i++) { if (predicate()) return; await Bun.sleep(1); } throw Error("Upload did not settle."); }

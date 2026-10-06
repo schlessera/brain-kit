@@ -1,4 +1,5 @@
-import { createToolRendererRegistry, createAsrClientRegistry, type AsrClientRegistry, type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
+import { createToolRendererRegistry } from "@schlessera/brain-ui-sdk/internal/client";
+import { createAsrClientRegistry, type AsrClientRegistry, type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
 import { createBrainUiConfig, type BrainUiConfig } from "./config.js";
 import { createBrainApi, type BrainApi } from "./lib/api-client.js";
 import { apiBaseFor, getBackendUrlFor, getWsUrlFor } from "./lib/backend.js";
@@ -30,6 +31,7 @@ export interface BrainUiServices {
   config: BrainUiConfig;
   api: BrainApi;
   request: (url: string, init?: RequestInit) => Promise<Response>;
+  /** @internal The full store state; shells use the exported store hooks (#1053). */
   stores: BrainStores;
   renderers: ToolRendererRegistry;
   asr: AsrClientRegistry;

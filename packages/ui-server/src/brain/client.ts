@@ -2,10 +2,9 @@ import { existsSync } from "fs";
 import { join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { execConfig, subprocessEnv } from "../config/env.js";
+import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import {
-  execWrapperSpawnOptions,
   killWrapped,
-  wrapCommand,
   probeVersionCommand,
   assertVersionRequirements,
   validateVersionMinimum,
