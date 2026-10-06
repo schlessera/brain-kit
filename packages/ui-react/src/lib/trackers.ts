@@ -148,8 +148,9 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
     case "tool_result":
       return [{ kind: "settled", requestId: msg.toolUseId }];
     case "ask_answer_receipt":
-      // Accepted or closed, the question is no longer waiting on anyone.
-      return msg.state === "pending" ? [] : [{ kind: "settled", requestId: msg.requestId }];
+      // Accepted or closed, the question is no longer waiting on anyone;
+      // a refused submission leaves it waiting for a valid answer.
+      return msg.state === "pending" || msg.reason === "refused" ? [] : [{ kind: "settled", requestId: msg.requestId }];
     case "result": {
       const outcome: ActivitySpanOutcome =
         msg.outcome ?? (msg.isError ? "error" : "success");
@@ -205,6 +206,12 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
       // A late frame of a turn already superseded.
       if (turnId !== null && turnId !== latest?.turnId && evidence.past.includes(turnId)) return evidence;
       if (!latest) return proven(evidence, { ...fresh(requestId, turnId, "running") }, true, null);
+      if (latest.state === "unknown" && latest.turnId === null && latest.requestId !== null && requestId === null) {
+        // The latest request's fate is unknown. A frame naming no request
+        // may be an earlier turn still running (a reconnect announces it
+        // that way), and must not stand in for it.
+        return evidence;
+      }
       if (latest.state === "queued" && latest.turnId === null) {
         // Only the request's own dispatch starts it: the turn's
         // `session_info` carries its requestId. Any other frame may be an

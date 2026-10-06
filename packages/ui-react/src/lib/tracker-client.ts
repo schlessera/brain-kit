@@ -100,6 +100,9 @@ export function createTrackerClient(root: BrainUiServices) {
     const left = previous;
     previous = state.activeSessionId;
     if (left !== null && left !== state.activeSessionId) leave(left);
+    // Opening a tracked session is a reason to ask again: a read that failed
+    // earlier may succeed now, and the latest turn is what seen needs.
+    if (state.activeSessionId !== null && state.activeSessionId !== left) refresh(state.activeSessionId);
   });
 
   // Leaving the page, or the tab going to the background, leaves the session

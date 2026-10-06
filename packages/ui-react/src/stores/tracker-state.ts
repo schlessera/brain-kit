@@ -175,6 +175,7 @@ export function createTrackerStore(env: StoreEnvironment) {
    */
   function write(
     state: Pick<TrackerStoreState, "records" | "principalKey">,
+    before: Record<string, TrackerRecord>,
     changed: readonly string[],
     removed: readonly string[],
     replace: boolean,
@@ -186,12 +187,24 @@ export function createTrackerStore(env: StoreEnvironment) {
       const current = replace ? null : readStored();
       if (current && (current.principalKey === null || state.principalKey === null || current.principalKey === state.principalKey)) {
         const merged = { ...current.records };
-        for (const sessionId of removed) delete merged[sessionId];
+        // Another tab moved a record when the stored one is no longer the
+        // one this tab changed from. Its record then stands, unless this
+        // tab's is at a newer revision.
+        const movedElsewhere = (sessionId: string) => {
+          const theirs = merged[sessionId];
+          const previous = before[sessionId];
+          return !!theirs && (!previous || !sameIdentity(theirs, previous));
+        };
+        for (const sessionId of removed) if (!movedElsewhere(sessionId)) delete merged[sessionId];
         for (const sessionId of changed) {
           const mine = state.records[sessionId];
           if (!mine) continue;
           const theirs = merged[sessionId];
-          merged[sessionId] = theirs && ahead(theirs, mine) ? { ...theirs, leftAt: Math.max(theirs.leftAt, mine.leftAt) } : mine;
+          if (theirs && (ahead(theirs, mine) || (movedElsewhere(sessionId) && !ahead(mine, theirs)))) {
+            merged[sessionId] = { ...theirs, leftAt: Math.max(theirs.leftAt, mine.leftAt) };
+          } else {
+            merged[sessionId] = mine;
+          }
         }
         records = merged;
       }
@@ -213,7 +226,7 @@ export function createTrackerStore(env: StoreEnvironment) {
       const after = get().records;
       const removed = Object.keys(before).filter((id) => !(id in after));
       const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
-      const records = write(get(), changed, removed, replace);
+      const records = write(get(), before, changed, removed, replace);
       if (records !== after) adopt(records);
     }
 

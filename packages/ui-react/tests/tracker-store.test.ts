@@ -258,6 +258,29 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("running");
   });
 
+  test("a refused answer leaves the question waiting", () => {
+    const r = root();
+    hello(r, false);
+    runningIn(r, A);
+    frame(r, { type: "ask_user_request", sessionId: A, turnId: "turn-1", requestId: "ask-1", questions: [] });
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "ask_answer_receipt", sessionId: A, turnId: "turn-1", requestId: "ask-1", submissionId: "sub-1", state: "closed", reason: "refused" });
+    expect(state(r, A)).toBe("needs_you");
+  });
+
+  test("opening a tracked session reads it again", async () => {
+    const host: Host = { envelopes: new Map([[A, () => envelope(A, 2, { requestId: "req-1", turnId: "turn-1", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 })]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    runningIn(r, A);
+    r.stores.chat.getState().setActiveSession(B);
+    await settle();
+    host.urls.length = 0;
+    r.stores.chat.getState().setActiveSession(A);
+    await settle();
+    expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
+  });
+
   test("a tracker created only for a send the host then refuses goes away", () => {
     const r = root();
     hello(r, false);
@@ -500,6 +523,40 @@ describe("persistence", () => {
     here.stores.trackers.getState().track("odysseus-circe");
     const stored = JSON.parse(storage.data.get(k)!).trackers.find((t: { sessionId: string }) => t.sessionId === A);
     expect(stored).toMatchObject({ revision: 5, turnId: "turn-2" });
+  });
+
+  test("a tab that has not heard of another tab's newer turn cannot overwrite or remove it", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const here = root({ storage, storagePrefix: "ithaca" });
+    hello(here, false);
+    runningIn(here, A, "turn-1");
+    here.stores.chat.getState().setActiveSession(B);
+    frame(here, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    const mine = here.stores.trackers.getState().records[A]!;
+    // Another tab stores turn 2 at the same revision; this tab has not synced.
+    const theirs = { ...mine, requestId: "req-2", turnId: "turn-2", leftAt: mine.leftAt + 1 };
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [theirs] }));
+    const stored = () => JSON.parse(storage.data.get(k) ?? '{"trackers":[]}').trackers.find((t: { sessionId: string }) => t.sessionId === A);
+    // An observation of turn 1 here.
+    expect(here.stores.trackers.getState().observeSeen({ sessionId: A, turnId: "turn-1", revision: 0 })).toBe(true);
+    expect(stored()).toMatchObject({ turnId: "turn-2", seen: null });
+  });
+
+  test("a tab removing a tracker it saw leaves another tab's newer turn stored", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const here = root({ storage, storagePrefix: "ithaca" });
+    hello(here, false);
+    runningIn(here, A, "turn-1");
+    here.stores.chat.getState().setActiveSession(B);
+    frame(here, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    expect(here.stores.trackers.getState().observeSeen({ sessionId: A, turnId: "turn-1", revision: 0 })).toBe(true);
+    const mine = here.stores.trackers.getState().records[A]!;
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ ...mine, requestId: "req-2", turnId: "turn-2", seen: null }] }));
+    here.stores.trackers.getState().leftIdle(A);
+    const stored = JSON.parse(storage.data.get(k) ?? '{"trackers":[]}').trackers;
+    expect(stored).toMatchObject([{ sessionId: A, turnId: "turn-2", seen: null }]);
   });
 
   test("a storage event for another key, or a root that keeps nothing, changes nothing", () => {

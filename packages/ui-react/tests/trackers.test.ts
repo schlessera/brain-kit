@@ -106,6 +106,15 @@ describe("live frames (rules 3 and 4)", () => {
     expect(s.latest).toMatchObject({ turnId: "turn-4", state: "running" });
   });
 
+  test("an unknown latest request is not replaced by an earlier turn a reconnect announces", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(6, { requestId: "req-6", state: "unknown" }));
+    e = live(e, { type: "session_info", sessionId: SID, isNew: false, turnId: "turn-5" } as ServerMessage, frames.delta("turn-5"), frames.result("turn-5"));
+    expect(view(e).state).toBe("unknown");
+    // A turn that names a request is new work.
+    e = live(e, frames.info("turn-7", "req-7"));
+    expect(e.latest).toMatchObject({ requestId: "req-7", state: "running" });
+  });
+
   test("progress of the running turn answers a failed read", () => {
     let e = applySnapshot(emptyEvidence(), envelope(2, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 1 }));
     e = applyUnavailable(e, "host_unreachable");
