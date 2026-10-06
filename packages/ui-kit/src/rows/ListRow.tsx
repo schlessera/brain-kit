@@ -74,6 +74,9 @@ export interface ListRowProps {
   /** The accessible name, when the visible text is not the whole of it: a
    * pill's name carries its second line and what activating it does. */
   name?: string;
+  /** `pill` only: the id of the element that describes it, such as a pending
+   * follow-up's full text (D52 §3). */
+  describedBy?: string;
   /**
    * Whether this row is its group's one tab stop. A group that roves (the
    * strip's `Working sessions`) passes `false` for every row but one, as
@@ -221,6 +224,7 @@ function PillRow(p: ListRowProps) {
       role={act ? "button" : undefined}
       tabIndex={act ? (p.tabStop === false ? -1 : 0) : undefined}
       aria-label={p.name}
+      aria-describedby={p.describedBy}
       data-pill=""
       onClick={p.onClick}
       onFocus={act ? p.onFocus : undefined}

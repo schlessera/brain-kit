@@ -3,34 +3,15 @@ import { expect, fn } from "storybook/test";
 
 import { WORKING_NOW, ogygiaClock, workingByState } from "../../fixtures/sessions.js";
 import { ComposerRow } from "../../src/chrome/ComposerRow.js";
+import { PendingFollowUps } from "../../src/chrome/PendingFollowUps.js";
 import { SessionStrip, type WorkingSession } from "../../src/chrome/SessionStrip.js";
-import { ListRow } from "../../src/rows/ListRow.js";
 import { stage } from "../_stage.js";
 
 const working: WorkingSession[] = [workingByState["needs-you"], workingByState.running, workingByState.done, workingByState.queued].map((s) => ({ ...s, onOpen: fn() }));
 
-/**
- * The right half's stand-in. Pending follow-ups are #1002's: this is only the
- * shared kit pill in their vocabulary (`pending`, neutral, `◷`), so the row's
- * geometry can be seen with both halves populated before that half exists.
- */
-function Pending({ labels }: { labels: string[] }) {
-  if (!labels.length) return null;
-  return (
-    <div role="group" aria-label="Pending follow-ups" className="bk-pill-group">
-      {labels.map((label, i) => (
-        <ListRow
-          key={label}
-          density="pill"
-          icon="later"
-          title={label}
-          value="pending"
-          name={`Pending follow-up ${i + 1} of ${labels.length}: ${label}. Not yet received by the agent.`}
-          onClick={fn()}
-        />
-      ))}
-    </div>
-  );
+/** The right half: pending follow-ups for the open session (#1002). */
+function Pending({ labels, keyboardOpen }: { labels: string[]; keyboardOpen?: boolean }) {
+  return <PendingFollowUps followUps={labels.map((label, i) => ({ id: `follow-up:${i}`, label, text: label }))} keyboardOpen={keyboardOpen} />;
 }
 
 interface Scene { working: number; pending: string[]; keyboardOpen?: boolean }
@@ -40,7 +21,7 @@ function RowScene(s: Scene) {
   return (
     <ComposerRow
       left={<SessionStrip sessions={working.slice(0, s.working)} now={WORKING_NOW} formatClock={ogygiaClock} keyboardOpen={s.keyboardOpen} />}
-      right={<Pending labels={s.pending} />}
+      right={<Pending labels={s.pending} keyboardOpen={s.keyboardOpen} />}
     />
   );
 }
@@ -90,11 +71,16 @@ export const LeftEmpty = meta.story({
 /** Only working sessions: the right column stays empty. */
 export const RightEmpty = meta.story({ args: { working: 2, pending: [] } as Scene });
 
-/** Keyboard up: the working half collapses to one 44px summary. */
+/** Keyboard up: each populated half collapses to one 44px summary, side by side. */
 export const KeyboardUp = meta.story({
   args: { working: 3, pending: ["Also the April receipts"], keyboardOpen: true },
   play: async ({ canvasElement }) => {
-    await expect(halves(canvasElement).row.height).toBe(44);
+    const { left, right, row } = halves(canvasElement);
+    await expect(row.height).toBe(44);
+    await expect(right.left - left.right).toBeGreaterThanOrEqual(8);
+    const pending = canvasElement.querySelector<HTMLElement>("[data-pending-summary]")!.getBoundingClientRect();
+    await expect(pending.height).toBe(44);
+    await expect(pending.left).toBeGreaterThanOrEqual(right.left);
   },
 });
 

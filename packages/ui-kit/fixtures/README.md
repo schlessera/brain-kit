@@ -78,6 +78,7 @@ Homer's arithmetic**, which does not close either.
 | `search.ts` | one query, three tabs: results, graph, timeline | `SearchResultCard`, `GraphView`, `TimelineList`, `SuggestionChips` |
 | `week.ts` | the weekly review: run counts, what changed, what carried | the §11.3 screen — `FilterRow`, `ListRow`, `ActionCard`, `Callout` |
 | `sessions.ts` | one working session per tracker state, the pinned age clock, a long title | `SessionStrip`, `ComposerRow` |
+| `follow-ups.ts` | five pending follow-ups in send order, one with a label, and a long prompt | `PendingFollowUps`, `ComposerRow` |
 | `index.ts` | namespace re-exports and the `odyssey` aggregate | a story that composes four modules |
 
 `types.ts` imports `Tone`, `ButtonTone` and `IconName` from `../src` rather
