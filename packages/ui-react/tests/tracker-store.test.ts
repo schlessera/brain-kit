@@ -258,6 +258,23 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("running");
   });
 
+  test("an approval decided on its card no longer needs you while its tool runs; a replayed call does not count", () => {
+    const r = root();
+    hello(r, false);
+    runningIn(r, A);
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-1", toolUseId: "tool-wax", toolName: "Bash", input: {} });
+    r.stores.chat.getState().setActiveSession(B);
+    r.stores.chat.getState().setActiveSession(A);
+    expect(state(r, A)).toBe("needs_you");
+    // A replay rebuilds the call as complete before the re-delivery: still pending.
+    const replayed = { id: "hist-1", role: "assistant" as const, content: "", parts: [], isStreaming: false, timestamp: 1, toolCalls: [{ id: "tool-wax", name: "Bash", input: {}, inputJson: "{}", status: "complete" as const }] };
+    r.stores.chat.getState().setMessages(A, [replayed]);
+    expect(state(r, A)).toBe("needs_you");
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-1", toolUseId: "tool-wax", toolName: "Bash", input: {} });
+    r.stores.chat.getState().resolveToolApproval(A, "tool-wax", true);
+    expect(state(r, A)).toBe("running");
+  });
+
   test("a refused answer leaves the question waiting", () => {
     const r = root();
     hello(r, false);
@@ -782,6 +799,22 @@ describe("recovery (Recovery A)", () => {
     await settle();
     expect(reads).toBe(before + 1);
     expect(state(r, A)).toBe("unknown");
+  });
+
+  test("a held turn's end still settles what it raised, even when its order waits for the reread", async () => {
+    let release!: () => void;
+    let reads = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { reads++; if (reads === 1) await gate; if (reads === 2) return Response.json({}, { status: 500 }); return envelope(A, 2, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 1 }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-2" });
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1" });
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-1", toolUseId: "tool-wax", toolName: "Bash", input: {} });
+    frame(r, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    release();
+    await settle(); await settle();
+    expect(r.stores.trackers.getState().evidence[A]!.pending).toEqual([]);
   });
 
   test("held progress after an ambiguous dispatch waits for the reread with it", async () => {

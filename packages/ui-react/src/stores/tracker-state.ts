@@ -445,7 +445,14 @@ export function createTrackerStore(env: StoreEnvironment) {
           if (countedTurn !== null && event.kind === "running" && event.turnId !== null && event.turnId !== countedTurn) ambiguous = true;
           // From there on, held progress may belong to that request's turn:
           // it waits for the reread too. Interactions still apply.
-          if (ambiguous && work) continue;
+          if (ambiguous && work) {
+            // The turn did end, whatever its order: what it raised is no
+            // longer waiting.
+            if (event.kind === "terminal" && event.turnId !== null) {
+              evidence = { ...evidence, pending: evidence.pending.filter((p) => p.turnId !== event.turnId) };
+            }
+            continue;
+          }
           evidence = applyLiveEvent(evidence, event);
         }
         const accepted = [

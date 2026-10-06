@@ -62,6 +62,24 @@ export function createTrackerClient(root: BrainUiServices) {
     return root.stores.followUp.getState().pending[sessionId]?.some((p) => p.confirmed) ?? false;
   }
 
+  /**
+   * An approval decided on this page (Allow or Deny on its card) is no
+   * longer waiting on anyone, though its tool may run long before the
+   * result arrives: settle it in the evidence as soon as the card records
+   * the decision. Only a decision counts: a replayed tool call reads as
+   * complete before its pending approval is re-delivered.
+   */
+  function settleDecidedApprovals(state: ChatState): void {
+    const store = trackers.getState();
+    for (const [sessionId, evidence] of Object.entries(store.evidence)) {
+      const approvals = evidence.pending.filter((p) => p.kind === "approval");
+      if (approvals.length === 0) continue;
+      const tools = state.buffers[sessionId]?.messages.flatMap((m) => m.toolCalls) ?? [];
+      const decided = approvals.filter((p) => tools.some((t) => t.id === p.requestId && (t.status === "approved" || t.status === "denied")));
+      if (decided.length > 0) store.live(sessionId, decided.map((p) => ({ kind: "settled" as const, requestId: p.requestId })));
+    }
+  }
+
   /** The reader left `sessionId`: by New chat, by selecting another session, or by leaving the page. */
   function leave(sessionId: string): void {
     const state = chat.getState();
@@ -101,6 +119,7 @@ export function createTrackerClient(root: BrainUiServices) {
   // leaves nothing.
   let previous = chat.getState().activeSessionId;
   const unsubscribe = chat.subscribe((state) => {
+    settleDecidedApprovals(state);
     const left = previous;
     previous = state.activeSessionId;
     if (left !== null && left !== state.activeSessionId) leave(left);
