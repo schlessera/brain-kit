@@ -1,0 +1,5 @@
+---
+"@schlessera/brain": minor
+---
+
+`brain hygiene reconcile` now also runs `brain validate`'s corpus checks and joins reports of the same problem into one finding: a broken wiki-link that validation and audit both report is one entry, listing both sources. Each finding carries its sources, severity and an evidence fingerprint that covers only the fields relevant to its category, so an unrelated edit does not change it. New `brain hygiene dismiss <id> --expect-fingerprint <fp>` and `brain hygiene snooze <id> --until <date|date-time> --expect-fingerprint <fp>` record durable dispositions in `context/hygiene/` (a new `dismissed.md`). A disposition holds until the finding's evidence changes, or for a snooze until it comes due; a stale fingerprint is refused and nothing is written. `reconcile` and `list` JSON gain the new fields additively, and `brain validate`'s output and exit status are unchanged. The first reconcile after upgrading adds `Sources` and `Fingerprint` lines to open entries, a `Dismissed` count to `_index.md`, and creates `dismissed.md`.

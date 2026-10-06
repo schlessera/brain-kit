@@ -10,7 +10,7 @@ summary: "Open content hygiene issues — review periodically"
 
 ## How to use this file
 
-Each issue has a stable ID. Mutate this file freely by hand — moving entries to `snoozed.md` or `resolved.md`. The skill respects those moves.
+Each issue has a stable ID. Mutate this file freely by hand — moving entries to `snoozed.md` or `resolved.md`; `brain hygiene dismiss` and `snooze` record a disposition with the evidence it applies to. The skill respects those moves.
 
 Categories below; sections with zero entries should be omitted entirely.
 

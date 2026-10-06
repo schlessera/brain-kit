@@ -5,8 +5,10 @@ The maintainer settled three policies on #597 on **2026-10-01**:
 [canonical identity A](https://github.com/schlessera/brain-kit/issues/597#issuecomment-5936732700)
 and [evidence invalidation A](https://github.com/schlessera/brain-kit/issues/597#issuecomment-5937198015).
 They bind selection, reconciliation and dismissal/snooze in human-triggered
-asynchronous hygiene review. This record explains the approved policy; it does
-not establish that the review interface or disposition operations are implemented.
+asynchronous hygiene review. This record explains the approved policy. The
+identity, fingerprint and disposition definitions that implement it are in
+[What the implementation defines](#what-the-implementation-defines) (#1024);
+selection and the review interface are not built yet.
 
 The [shared Queue/Actions decision](async-collaboration.md) continues to govern
 durable Action identity, validated effects, authorization, idempotency and
@@ -24,11 +26,11 @@ or a snooze reset by an unrelated edit, makes the owner's decision temporary.
 
 Reuse the existing markdown log and deterministic CLI operations. A candidate
 already carries category, path and stable evidence (`HygieneCandidate`,
-`packages/core/src/lib/hygiene.ts:43-49`), and its ID derives from those fields
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:98-101`). Those primitives do not
+`packages/core/src/lib/hygiene.ts:61-77`), and its ID derives from those fields
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The existing CLI exposes reconciliation and listing
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:80-82`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:152-154`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -108,6 +110,71 @@ serialized fingerprint format or complete equivalence map:
 | Its target changes before the snooze is due | Permit review of the changed problem before that previous due time. |
 | The document also has a missing required field | Keep that distinct finding and its disposition separate. |
 
+## What the implementation defines
+
+#1024 fills in what the policy above leaves to the implementation: the
+equivalence map, the fingerprints and the storage. The `brain hygiene` JSON
+shapes are in [the integration contract](../integration-contract.md#hygiene-review-data-additive-1024).
+
+**Equivalence map.** Each `brain validate` rule becomes a candidate with a
+category and ID evidence (`VALIDATION_JOIN`,
+`packages/core/src/lib/hygiene.ts:190-203`). Validation gives the join a
+structured detail, so the message is never read (`export interface ValidationDetail`,
+`packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
+when category, path and evidence agree, and the join does not depend on their
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:265-313`).
+
+| Validation rule | Category | ID evidence | Joins |
+| --- | --- | --- | --- |
+| `link-unresolved` | `broken-link` | the target as written | audit's `broken-link`, the one cross-source equivalence |
+| `required-missing` (`title`, `type`, `created`, `updated`, `tags`), `type-invalid` | `required-field` | the field name | nothing else |
+| `field-invalid` (`status`, `relevance`, `generated_from`, `verification`, `supersedes`) | `invalid-field` | the field name | nothing else |
+| `tag-format`, `tag-alias`, `tag-vocabulary` | `tag` | the tag | each other, on one tag |
+| `frontmatter-missing`, `frontmatter-invalid` | `frontmatter` | none | each other |
+| `archived-primary` | `field-conflict` | `status/relevance` | nothing else |
+| `supersedes-unresolved` | `broken-supersedes` | the target | nothing else |
+| `supersedes-cycle` | `supersedes-cycle` | the cycle's members | nothing else |
+
+Every audit, module and `--extra` category keeps its existing evidence rule.
+Each finding records its contributing sources, never an empty list:
+`validation` with the rule name, `audit` with the category, `module` with the
+module name, `hygiene` for silent edits and index table lag, and `skill` for
+`--extra`. Its severity is the most severe source's. Urgency is known only when
+a source states it; otherwise it stays unknown.
+
+**Evidence fingerprints.** A fingerprint is 12 hex digits of SHA-1 over the
+category and a hash of each field below (`FINGERPRINT_FIELDS`,
+`packages/core/src/lib/hygiene.ts:237-241`). Line numbers, messages, other
+document content and age are never in it.
+
+| Category | Fingerprint fields |
+| --- | --- |
+| `broken-link` | target as written; every link token naming that target, as written (`[[target\|label]]`); severity; urgency |
+| `required-field` | field; its raw value (`absent` when missing); the rule it breaks; severity; urgency |
+| any other | ID evidence; the validation rules reporting it (empty otherwise); severity; urgency |
+
+Severity is `unknown` when no source gives one, and urgency is `unknown` when
+none states one. The log records each field's hash beside the fingerprint, so
+an invalidation can name the fields that changed.
+
+**Storage and invalidation.** Dispositions live in markdown only: dismissed
+entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
+records its time and the fingerprint it applied to. `until:` takes an ISO
+date-time or a date; a date is due at the start of that UTC day, as before
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:833-841`). A recorded
+fingerprint that no longer matches reopens the finding at once, with an
+`invalidated:` receipt naming the changed fields and the disposition's date.
+A snooze that comes due reopens it with no receipt.
+
+When the change also changes the ID (a broken link's target is part of its
+identity), the new finding carries the receipt only when the pairing is
+unambiguous. In one run, exactly one disposition in force with that category
+and path stops being detected, and exactly one new finding with them appears
+(`if (prior.length === 1 && siblings.length === 1)`,
+`packages/core/src/lib/hygiene.ts:1351`). Otherwise the new finding opens
+without one. Either way the old disposition does not suppress it. Entries
+moved by hand carry no fingerprint, so they keep their earlier behaviour.
+
 ## A disposition is not a repair or an authority grant
 
 Dismiss and Snooze do not change the document, acknowledge a successful repair
@@ -118,7 +185,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:829-832`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1325-1328`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

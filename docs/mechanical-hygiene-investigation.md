@@ -10,16 +10,16 @@ production command, changes no skill, and selects no adoption policy.
 
 | Operation | Existing owner | Consequence for this evaluation |
 | --- | --- | --- |
-| Audit, silent-edit and row-level table detection | `detectCandidates`, `packages/core/src/lib/hygiene.ts:373-397` | Reuse detection rather than parse finding messages into write instructions. |
-| Stable finding IDs | `hygieneId`, `packages/core/src/lib/hygiene.ts:98-101` | Keep category/path/evidence identity; add no parallel log. |
-| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:732-941` | Reuse the existing reconciler after repair and retain its manual-state tests. |
+| Audit, silent-edit and row-level table detection | `detectCandidates`, `packages/core/src/lib/hygiene.ts:595-638` | Reuse detection rather than parse finding messages into write instructions. |
+| Stable finding IDs | `hygieneId`, `packages/core/src/lib/hygiene.ts:172-175` | Keep category/path/evidence identity; add no parallel log. |
+| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:1167-1471` | Reuse the existing reconciler after repair and retain its manual-state tests. |
 | Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:288-317` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
 | Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:71-99` | Still agent file edits. These are the two prototype operations. |
 | Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-67` | Suggestions only; this is not a mechanical repair handler. |
 
 Neither current hygiene detection nor validation detects the `updated < created`
 ordering itself. Validation checks the presence of the fields (`if (!data.created)`,
-`packages/core/src/lib/validate.ts:132-145`); the prototype must inspect source
+`packages/core/src/lib/validate.ts:204-219`); the prototype must inspect source
 dates in addition to reusing existing table detection. A parsed YAML `Date` is
 insufficient: invalid calendar dates can normalize, and timestamps lose their
 original precision when reduced to a date. The prototype checks lexical date-only
@@ -42,7 +42,7 @@ The normal keyless test transport guards remain active.
 
 Date repair sets both fields to the maximum of created, updated and the original
 file mtime's UTC day, only when updated precedes created. UTC follows the existing
-`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:210-212`). Separate
+`isoDay` convention (`isoDay`, `packages/core/src/lib/auditor.ts:216-218`). Separate
 processes in UTC, Honolulu and Kiritimati produce identical expected bytes.
 Comments, quotes, body content and CRLF endings survive.
 
