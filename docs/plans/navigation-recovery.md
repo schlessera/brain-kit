@@ -365,11 +365,11 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - New chat: (`{hasMessages && (`, `packages/ui-react/src/components/chat/chat-page.tsx:390-397`).
 
-- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:660-676`).
+- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:662-678`).
 
 - Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:71-93`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1468-1477`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1486-1495`).
 
 - Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:62-85`).
 
@@ -401,7 +401,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:671-715`).
 
-- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:767-797`).
+- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:769-799`).
 
 ## Bounded follow-up ownership
 

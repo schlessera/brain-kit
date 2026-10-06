@@ -421,6 +421,8 @@ export interface ChatState {
    * and drops the request and turn identities it held.
    */
   revokeRestoredApprovals: () => void;
+  /** An envelope that counts lists these again: an `unlisted` card takes a decision again. */
+  reopenRestoredApprovals: (key: ChatKey, toolUseIds: readonly string[]) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
@@ -1090,6 +1092,22 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           });
           return changed ? { messages } : {};
         });
+      },
+
+      reopenRestoredApprovals: (key, toolUseIds) => {
+        const reopen = (t: ToolCall) => toolUseIds.includes(t.id) && t.readOnly === "unlisted" && t.status === "pending_approval";
+        const chat = key === null ? get().draft : get().buffers[key];
+        if (!chat?.messages.some((m) => m.toolCalls.some(reopen))) return;
+        mutateBuffer(key, (current) => ({
+          messages: current.messages.map((m) => {
+            if (!m.toolCalls.some(reopen)) return m;
+            return { ...m, toolCalls: m.toolCalls.map((t) => {
+              if (!reopen(t)) return t;
+              const { readOnly: _closed, ...open } = t;
+              return open;
+            }) };
+          }),
+        }));
       },
 
       revokeRestoredApprovals: () =>

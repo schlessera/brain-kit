@@ -156,14 +156,17 @@ export function createTrackerClient(root: BrainUiServices) {
         const still = cards.filter((card) => open.has(card.toolUseId));
         if (result.ok) {
           // A snapshot the evidence rejected (a rollback, or a contradiction
-          // at one revision) proves no reason: the card only stops taking a
-          // decision.
-          const rejected = trackers.getState().evidence[sessionId]?.rolledBack === true;
-          closeRestored(sessionId, still.flatMap((card) => {
-            const closure = closureFromEnvelope(card, result.recovery);
-            if (!closure) return [];
-            return [{ toolUseId: card.toolUseId, closure: rejected ? "unlisted" as const : closure }];
-          }));
+          // at one revision) proves nothing, its pending list included: the
+          // cards stop taking a decision, with no reason, until a read the
+          // evidence accepts.
+          if (trackers.getState().evidence[sessionId]?.rolledBack === true) {
+            closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "unlisted" as const })));
+          } else {
+            const closures = still.map((card) => ({ toolUseId: card.toolUseId, closure: closureFromEnvelope(card, result.recovery) }));
+            // Listed again by an envelope that counts: live again.
+            chat.getState().reopenRestoredApprovals(sessionId, closures.filter((c) => c.closure === null).map((c) => c.toolUseId));
+            closeRestored(sessionId, closures.flatMap((c) => (c.closure ? [{ toolUseId: c.toolUseId, closure: c.closure }] : [])));
+          }
         } else if (result.reason === "unauthorized") {
           revokeRestored();
         } else if (result.reason === "session_not_found") {
@@ -275,7 +278,11 @@ export function createTrackerClient(root: BrainUiServices) {
       }
       // A queue report lists requests the host holds: each was accepted.
       if (msg.type === "session_queue") store.accepted([...msg.followUps.map((f) => f.requestId), msg.started?.requestId]);
-      const events = trackerEventsForFrame(msg);
+      // A late duplicate of a request whose restored card the host already
+      // closed with a reason waits on nobody: it is not pending work.
+      const closedHere = (requestId: string) => chat.getState().buffers[sessionId]?.messages.some((m) =>
+        m.toolCalls.some((t) => t.id === requestId && t.restored && t.readOnly !== undefined && t.readOnly !== "unlisted")) ?? false;
+      const events = trackerEventsForFrame(msg).filter((e) => e.kind !== "pending" || e.entry.kind !== "approval" || !closedHere(e.entry.requestId));
       const tracked = store.records[sessionId] !== undefined;
       // In view, in a visible document: a hidden tab watches nothing.
       const watched = chat.getState().activeSessionId === sessionId

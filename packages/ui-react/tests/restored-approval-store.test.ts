@@ -209,6 +209,38 @@ describe("a closed card and the evidence around it", () => {
     expect(responses).toEqual([]);
     expect(card(r, A).readOnly).toBe("unlisted");
   });
+
+  test("a rejected envelope that still lists the card proves nothing; a consistent one listing it makes it answerable again", async () => {
+    const responses = [
+      envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [listed("tool-wax")], 5),
+      envelope(A, { requestId: "req-1", turnId: "turn-1", state: "running", startedAt: 1 }, [listed("tool-wax")], 3),
+      envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [listed("tool-wax")], 6),
+    ];
+    const r = root({ [A]: () => responses.shift()!() });
+    hello(r);
+    restore(r, A);
+    await settle();
+    hello(r);
+    await settle();
+    expect(card(r, A).readOnly).toBe("unlisted");
+    expect(awaiting(r)).toEqual([]);
+    hello(r);
+    await settle();
+    expect(responses).toEqual([]);
+    expect(card(r, A).readOnly).toBeUndefined();
+    expect(awaiting(r)).toEqual(["tool-wax"]);
+  });
+
+  test("a late duplicate of a closed card's request starts no tracker", async () => {
+    const r = root({ [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 5, endedAt: 9 }, []) });
+    hello(r);
+    restore(r, A);
+    await settle();
+    expect(card(r, A).readOnly).toBe("ended");
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-2", toolUseId: "tool-wax", toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command" });
+    expect(trackerViews(r.stores.trackers.getState()).find((v) => v.sessionId === A)?.state).not.toBe("needs_you");
+  });
 });
 
 describe("a decision on this page while a read is out", () => {
