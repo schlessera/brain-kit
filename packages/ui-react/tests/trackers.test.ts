@@ -86,6 +86,14 @@ describe("live frames (rules 3 and 4)", () => {
     expect(e.latest).toMatchObject({ requestId: "req-3", turnId: "turn-3", state: "running" });
   });
 
+  test("a queued request with no id, from a snapshot, is started only by a dispatch", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(5, { requestId: null, state: "queued" }));
+    e = live(e, frames.delta("turn-4"), frames.result("turn-4"));
+    expect(e.latest).toMatchObject({ requestId: null, turnId: null, state: "queued" });
+    e = live(e, { type: "session_info", sessionId: SID, isNew: false, turnId: "turn-5" } as ServerMessage);
+    expect(e.latest).toMatchObject({ turnId: "turn-5", state: "running" });
+  });
+
   test("a queued request from a snapshot is started only by its own dispatch", () => {
     let e = applySnapshot(emptyEvidence(), envelope(5, { requestId: "req-5", state: "queued" }));
     // A turn this page never saw start is still running ahead of it.

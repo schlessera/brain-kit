@@ -97,7 +97,8 @@ export function evidenceFromRecord(record: TrackerRecord | undefined): TrackerEv
 /** What a live frame says about its session's work. */
 export type TrackerLiveEvent =
   | { kind: "queued"; requestId: string | null }
-  | { kind: "running"; turnId: string | null; requestId: string | null }
+  /** `dispatch`: the frame announces a turn starting (`session_info`, a queue report's `started`). */
+  | { kind: "running"; turnId: string | null; requestId: string | null; dispatch?: true }
   | { kind: "terminal"; turnId: string | null; outcome: ActivitySpanOutcome }
   | { kind: "pending"; entry: SessionRecoveryPending }
   | { kind: "settled"; requestId: string };
@@ -121,7 +122,7 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
       // Work only when it names a running turn or acknowledges a request. A
       // resume re-announces an idle session the same way, with neither.
       return turnId !== null || msg.requestId
-        ? [{ kind: "running", turnId, requestId: msg.requestId ?? null }]
+        ? [{ kind: "running", turnId, requestId: msg.requestId ?? null, dispatch: true }]
         : [];
     case "status":
       if (msg.status === "queued") return [{ kind: "queued", requestId: msg.requestId ?? null }];
@@ -152,7 +153,7 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
       // a follow-up handed to the agent is its turn running, and the
       // newest one still waiting is the session's latest accepted work.
       const events: TrackerLiveEvent[] = [];
-      if (msg.started) events.push({ kind: "running", turnId: msg.started.turnId, requestId: msg.started.requestId ?? null });
+      if (msg.started) events.push({ kind: "running", turnId: msg.started.turnId, requestId: msg.started.requestId ?? null, dispatch: true });
       const newest = msg.followUps.at(-1);
       if (newest) events.push({ kind: "queued", requestId: newest.requestId ?? null });
       return events;
@@ -230,7 +231,9 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
         // turn known not to be its dispatch.
         if (latest.requestId !== null) {
           if (requestId !== latest.requestId) return evidence;
-        } else if (requestId === null && (turnId === null || turnId === evidence.behind)) {
+        } else if (requestId === null && (turnId === null || turnId === evidence.behind || (evidence.behind === null && !event.dispatch))) {
+          // With no turn known to be running ahead of it, only a dispatch
+          // proves its turn: any other frame may be an older turn's.
           return evidence;
         }
         return proven(evidence, { ...latest, turnId, state: "running", requestId: latest.requestId ?? requestId }, evidence.ahead, null);
