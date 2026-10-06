@@ -739,6 +739,24 @@ describe("recovery (Recovery A)", () => {
     expect(state(r, A)).toBe("running");
   });
 
+  test("held progress after an ambiguous dispatch waits for the reread with it", async () => {
+    let release!: () => void;
+    let reads = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { reads++; if (reads === 1) await gate; return envelope(A, 3, { requestId: "req-3", turnId: "turn-3", state: "terminal", outcome: "error", startedAt: 1, endedAt: 2 }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-1" });
+    // During the read: an older request's dispatch and its request-less progress and result.
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-2", requestId: "req-2" });
+    frame(r, { type: "text_delta", sessionId: A, turnId: "turn-2", text: "Wax first." });
+    frame(r, { type: "result", sessionId: A, turnId: "turn-2", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    release();
+    await settle(); await settle();
+    expect(state(r, A)).toBe("failed");
+    expect(r.stores.trackers.getState().evidence[A]!.latest).toMatchObject({ turnId: "turn-3" });
+  });
+
   test("live frames that arrive during a read are applied after it", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });

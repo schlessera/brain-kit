@@ -433,10 +433,11 @@ export function createTrackerStore(env: StoreEnvironment) {
         const counted = result.ok ? result.recovery.latest.requestId : null;
         let ambiguous = false;
         for (const event of held) {
-          if (counted !== null && (event.kind === "queued" || event.kind === "running") && event.requestId !== null && event.requestId !== counted) {
-            ambiguous = true;
-            continue;
-          }
+          const work = event.kind === "queued" || event.kind === "running" || event.kind === "terminal";
+          if (counted !== null && (event.kind === "queued" || event.kind === "running") && event.requestId !== null && event.requestId !== counted) ambiguous = true;
+          // From there on, held progress may belong to that request's turn:
+          // it waits for the reread too. Interactions still apply.
+          if (ambiguous && work) continue;
           evidence = applyLiveEvent(evidence, event);
         }
         const accepted = [

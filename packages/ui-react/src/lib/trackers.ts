@@ -292,9 +292,10 @@ function forward(current: SessionRecoveryLatest, snapshot: SessionRecoveryLatest
 export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecovery): TrackerEvidence {
   const base = { ...evidence, pending: recovery.pending, unavailable: null, settled: true };
   const seen = evidence.revision;
-  // A contradicted snapshot proves nothing, its pending list included: what
-  // it lists may be long settled.
-  const rolledBack: TrackerEvidence = { ...evidence, unavailable: null, settled: true, rolledBack: true };
+  // A contradicted snapshot proves nothing, its pending list included, and
+  // the host it came from no longer vouches for what was pending before:
+  // until a live frame or a consistent read says otherwise, nothing is.
+  const rolledBack: TrackerEvidence = { ...evidence, pending: [], unavailable: null, settled: true, rolledBack: true };
   if (seen !== null && recovery.revision < seen) return rolledBack;
   const latest = evidence.latest;
   if (!latest && seen !== null && recovery.revision === seen && evidence.stored && !sameRequest({ ...recovery.latest, ...evidence.stored }, recovery.latest)) {
