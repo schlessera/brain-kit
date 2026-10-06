@@ -256,10 +256,10 @@
    * are values of their own. */
   --bk-button-hover-bg-primary: var(--bk-color-amber-lift);
   --bk-button-hover-border-primary: var(--bk-color-amber-lift);
-  --bk-button-hover-fg-primary: var(--bk-color-canvas);
+  --bk-button-hover-fg-primary: var(--bk-on-fill);
   --bk-button-hover-bg-affirm: var(--bk-color-teal-lift);
   --bk-button-hover-border-affirm: var(--bk-color-teal-lift);
-  --bk-button-hover-fg-affirm: var(--bk-color-canvas);
+  --bk-button-hover-fg-affirm: var(--bk-on-fill);
   --bk-button-hover-bg-ghost: var(--bk-color-raised);
   --bk-button-hover-border-ghost: var(--bk-hover-border);
   --bk-button-hover-fg-ghost: var(--bk-color-ink);
@@ -963,10 +963,10 @@
   --bk-button-effect-bg-on-solid: transparent;
   --bk-button-hover-bg-primary: var(--bk-color-amber-lift);
   --bk-button-hover-border-primary: var(--bk-color-amber-lift);
-  --bk-button-hover-fg-primary: var(--bk-color-canvas);
+  --bk-button-hover-fg-primary: var(--bk-on-fill);
   --bk-button-hover-bg-affirm: var(--bk-color-teal-lift);
   --bk-button-hover-border-affirm: var(--bk-color-teal-lift);
-  --bk-button-hover-fg-affirm: var(--bk-color-canvas);
+  --bk-button-hover-fg-affirm: var(--bk-on-fill);
   --bk-button-hover-bg-ghost: var(--bk-color-raised);
   --bk-button-hover-border-ghost: var(--bk-hover-border);
   --bk-button-hover-fg-ghost: var(--bk-color-ink);
