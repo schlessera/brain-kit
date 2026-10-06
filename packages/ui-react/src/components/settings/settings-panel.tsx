@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo } from "react";
+import { Suspense, lazy, useMemo, useRef, type RefObject } from "react";
 import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel, type SlidePanelClosedBy } from "../layout/slide-panel.js";
@@ -9,6 +9,8 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { ThemeToggle } from "../layout/theme.js";
 import { ShortcutSwitch } from "../layout/shortcut-switch.js";
 import { Button, Callout, Icon, Label, ScreenHeader, Surface, type IconName } from "@schlessera/brain-ui-kit";
+import { useDestinationPress } from "../../hooks/use-destination-press.js";
+import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 import { createModuleSettingsSession, type ModuleSettingsSessionStore } from "./module-settings-state.js";
 
 /**
@@ -92,6 +94,18 @@ export function SettingsPanel({
     if (!credentialProtected) setTab(id);
   }
 
+  // Pressing Settings while it is open (D52 N3): the drawer body, or the
+  // pane's section scroller, goes to the top, and focus goes to the selected
+  // section tab. One section is always selected, and the press never changes
+  // it, so the leave guard has nothing to ask.
+  const panelRef = useRef<HTMLElement>(null);
+  useDestinationPress("settings", ({ keyboard }) => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    scrollToStart(panel);
+    focusFirst([panel.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')], keyboard);
+  });
+
   if (pane) {
     return (
       <SettingsPane
@@ -102,6 +116,7 @@ export function SettingsPanel({
         onSelect={select}
         onClose={onClose}
         moduleSession={moduleSession}
+        panelRef={panelRef}
       />
     );
   }
@@ -111,7 +126,7 @@ export function SettingsPanel({
   const stripTab: StripTab = tab === "appearance" ? "models" : tab;
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy} destination>
+    <SlidePanel open={open} onClose={onClose} title="Settings" wide closedBy={closedBy} destination panelRef={panelRef}>
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 pt-2">
           {TABS.map(({ id, label, icon: TabIcon }) => (
@@ -174,6 +189,7 @@ function SettingsPane({
   onSelect,
   onClose,
   moduleSession,
+  panelRef,
 }: {
   open: boolean;
   tab: SettingsTab;
@@ -182,10 +198,11 @@ function SettingsPane({
   onSelect: (tab: SettingsTab) => void;
   onClose: () => void;
   moduleSession: ModuleSettingsSessionStore;
+  panelRef: RefObject<HTMLElement | null>;
 }) {
   const appName = useBrainUiRoot().config.appName;
   return (
-    <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane" closedBy={closedBy}>
+    <SlidePanel open={open} onClose={onClose} title="Settings" mode="pane" closedBy={closedBy} panelRef={panelRef}>
       {/* The kit header is `width: 100%`; it needs a shrinking flex child
           around it, or it fills the row and pushes Close past the viewport
           (the Files pane wraps its header the same way). */}

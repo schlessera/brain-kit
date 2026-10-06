@@ -1,6 +1,6 @@
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useImperativeHandle, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
@@ -48,7 +48,16 @@ import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-en
 type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: ThinkingLevel };
 type PendingSend = { requestId: string; key: string | null; input: string; review: string; attachments: PendingAttachment[]; tracks: PendingTrack[]; effort: DraftEffort; error: ConnectionError | null };
 
-export function Composer({ send }: { send: (msg: ClientMessage) => void | boolean }) {
+/**
+ * What the chat page may ask of the composer without reaching into its DOM:
+ * a press of Chat puts the caret at the end of the draft (D52 N3).
+ */
+export interface ComposerHandle {
+  /** Focuses the field with the caret at the end; false when it cannot take focus. */
+  focusEnd: () => boolean;
+}
+
+export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
   const [input, setInput] = useState("");
   const [lastPrompt, setLastPrompt] = useState("");
@@ -58,6 +67,16 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   /** The kit owns the textarea; the frame finds it when a recall or a voice edit needs focus. */
   const focusField = () => frameRef.current?.querySelector("textarea")?.focus();
+  useImperativeHandle(handle, () => ({
+    focusEnd: () => {
+      const field = frameRef.current?.querySelector("textarea");
+      if (!field || field.disabled || field.getClientRects().length === 0) return false;
+      field.focus({ preventScroll: true });
+      if (document.activeElement !== field) return false;
+      field.setSelectionRange(field.value.length, field.value.length);
+      return true;
+    },
+  }), []);
 
   // Image attachments. `attachmentsRef` mirrors state so async add/merge logic
   // reads the current set synchronously (avoids stale closures / updater races).

@@ -17,8 +17,11 @@ import { cn } from "../../lib/utils.js";
  *
  * Every slot replaces whatever panel is open, with no separate close step,
  * and pressing the slot that is already "here" never closes it (D52 §2, N1
- * and N3). Sessions and Files are panels: they open over a view that mounts
- * them and land in Chat otherwise (`openPanel`).
+ * and N3): it scrolls that destination to its start and moves focus, which
+ * the mounted destination answers. On a phone, Chat keeps focus on its tab
+ * unless a card is waiting, so the soft keyboard does not open (the N3
+ * addendum). Sessions and Files are panels: they open over a view that
+ * mounts them and land in Chat otherwise (`pressDestination`).
  *
  * More is the kit `BottomSheet`, docked over a scrim, holding Settings and
  * Graph, then the acts that have no control of their own at this width: Add
@@ -31,7 +34,7 @@ import { cn } from "../../lib/utils.js";
 export function MobileTabBar() {
   const activeView = useUIStore((s) => s.activeView);
   const setActiveView = useUIStore((s) => s.setActiveView);
-  const openPanel = useUIStore((s) => s.openPanel);
+  const press = useUIStore((s) => s.pressDestination);
   const afterLeavingSettings = useUIStore((s) => s.afterLeavingSettings);
   const sessionPanelOpen = useUIStore((s) => s.sessionPanelOpen);
   const filePanelOpen = useUIStore((s) => s.filePanelOpen);
@@ -96,15 +99,15 @@ export function MobileTabBar() {
   }
 
   const items: TabItem[] = [
-    { icon: "brain", label: "Chat", onClick: () => setActiveView("chat") },
-    { icon: "history", label: "Sessions", onClick: () => openPanel("sessions") },
+    { icon: "brain", label: "Chat", onClick: () => press("chat") },
+    { icon: "history", label: "Sessions", onClick: () => press("sessions") },
     {
       icon: "resolved",
       label: "Actions",
       badge: needsYou > 0 ? (needsYou > 9 ? "9+" : String(needsYou)) : undefined,
-      onClick: () => setActiveView("activity"),
+      onClick: () => press("activity"),
     },
-    { icon: "files", label: "Files", onClick: () => openPanel("files") },
+    { icon: "files", label: "Files", onClick: () => press("files") },
     { icon: "more", label: "More", onClick: () => setMoreOpen((v) => !v) },
   ];
   // The amber slot: an open panel is "here" while it is open, then the view.
@@ -153,7 +156,7 @@ export function MobileTabBar() {
               {/* A title-only row is 42px in the kit; every row here is a
                   thumb target, so each is at least 44px. */}
               <div className="flex flex-col [&>*]:min-h-11">
-                <ListRow variant="group" icon="settings" iconTone="neutral" title="Settings" chevron onClick={go(() => openPanel("settings"))} />
+                <ListRow variant="group" icon="settings" iconTone="neutral" title="Settings" chevron onClick={go(() => press("settings"))} />
                 <ListRow variant="group" icon="graph" iconTone="purple" title="Graph" chevron onClick={go(() => setActiveView("graph"))} />
                 <ListRow variant="group" icon="add" iconTone="teal" title="Add a note" subtitle="Write it down in the brain" onClick={act(() => runCommand("add"))} />
                 <ListRow variant="group" icon="sunrise" iconTone="gold" title="Daily briefing" subtitle={hostWhy ?? "What happened since you looked"} value="spends" valueTone="gold" onClick={hostWhy ? undefined : act(() => runCommand("whatsup"))} />

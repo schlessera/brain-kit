@@ -39,6 +39,8 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { PushToggle } from "./push-toggle.js";
 import { ActivityReportSheet, type ActivityReportRequest } from "./activity-report.js";
 import { SettingsPanel } from "../settings/settings-panel.js";
+import { useDestinationPress } from "../../hooks/use-destination-press.js";
+import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 
 /**
  * The Actions surface (D37): one queue, three lenses — `needs you` (pending
@@ -476,7 +478,8 @@ export function ActivityPage() {
   function closeAction() {
     const id = detailActionId;
     setDetailActionId(null);
-    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-decision-list] [data-decision-id="${CSS.escape(id)}"]`)?.focus());
+    // The list's card, open or snoozed in Later; never the closing detail's.
+    if (id) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[aria-label="Actions queue"] [data-decision-id="${CSS.escape(id)}"]`)?.focus());
   }
   /** A blocked Queue row's link: back to the decision it waits on, focused. */
   function queueToAction(id: string) {
@@ -510,12 +513,44 @@ export function ActivityPage() {
     cards[(here + (key === "j" ? 1 : -1) + cards.length) % cards.length]?.focus();
   }
   const openDetail = detailRunId !== null || detailActionId !== null || queueReceiptId !== null;
+
+  // Pressing Actions while it is shown (D52 N3). Every column it draws goes
+  // to its top: the list, the detail, and the evidence rail. Nothing closes.
+  // From `laptop:` focus goes to the selected row in the list; below it, an
+  // open detail stays open and its heading takes focus. Otherwise, and when
+  // the selection is not in the list, the list's heading does.
+  const pageRef = useRef<HTMLDivElement>(null);
+  useDestinationPress("activity", ({ keyboard }) => {
+    const page = pageRef.current;
+    if (!page) return;
+    scrollToStart(page);
+    const el = (sel: string) => page.querySelector<HTMLElement>(sel);
+    // Every match, so a copy that is not drawn (a closed Later) is skipped.
+    const all = (sel: string) => [...page.querySelectorAll<HTMLElement>(sel)];
+    const list = '[aria-label="Actions queue"]';
+    const heading = el(`${list} [data-destination-heading]`);
+    if (window.matchMedia("(min-width: 900px)").matches) {
+      focusFirst([
+        ...all(`${list} [aria-current="true"]`),
+        // Open decisions and snoozed ones in Later alike.
+        ...(detailActionId ? all(`${list} [data-decision-id="${CSS.escape(detailActionId)}"]`) : []),
+        ...(queueReceiptId ? all(`${list} [data-queue-row="${CSS.escape(queueReceiptId)}"] [role="button"]`) : []),
+        // A Queue item with a run opens that run, so its row is found by it.
+        ...(detailRunId ? Object.values(inboxItems)
+          .filter((item) => item.queue === "queue" && item.runId === detailRunId)
+          .flatMap((item) => all(`${list} [data-queue-row="${CSS.escape(item.id)}"] [role="button"]`)) : []),
+        heading,
+      ], keyboard);
+    } else {
+      focusFirst([openDetail ? el("[data-actions-detail] [data-destination-heading]") : null, heading], keyboard);
+    }
+  });
   const queueReceiptItem = queueReceiptId ? inboxItems[queueReceiptId] : undefined;
   const detailAction = detailActionId ? inboxItems[detailActionId] : undefined;
   const nextBack = snoozedDecisions.reduce<number | null>((min, d) => (d.waitUntil !== undefined && (min === null || d.waitUntil < min) ? d.waitUntil : min), null);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col laptop:flex-row">
+    <div ref={pageRef} className="flex h-full min-h-0 flex-1 flex-col laptop:flex-row">
       {/* Hosted here like GraphPage does: the chat page (the usual host) is
           hidden while this view is active, so the staleness deep-link below
           needs its own panel mount. */}
@@ -537,7 +572,7 @@ export function ActivityPage() {
         ) : (<>
         <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
           <ActivityIcon className="h-4 w-4 text-muted-foreground" />
-          <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="">Actions</h1>
+          <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="" data-destination-heading="">Actions</h1>
           <div className="ml-auto flex items-center gap-2">
             {pricingStale && (
               <button
@@ -737,10 +772,10 @@ export function ActivityPage() {
               ) : (
                 <div className="space-y-1">
                   {liveRoots.map((span) => (
-                    <LiveRow key={span.runId} span={span} onOpen={openRun} />
+                    <LiveRow key={span.runId} span={span} selected={span.runId === detailRunId} onOpen={openRun} />
                   ))}
                   {restLive.map((run) => (
-                    <RunRow key={run.runId} run={run} onOpen={openRun} />
+                    <RunRow key={run.runId} run={run} selected={run.runId === detailRunId} onOpen={openRun} />
                   ))}
                 </div>
               )}
@@ -775,7 +810,7 @@ export function ActivityPage() {
                 ) : (
                   <div className="space-y-1">
                     {history.map((run) => (
-                      <RunRow key={run.runId} run={run} onOpen={openRun} onReport={(row) => setReport({ runId: row.runId, run: row, from: "row" })} />
+                      <RunRow key={run.runId} run={run} selected={run.runId === detailRunId} onOpen={openRun} onReport={(row) => setReport({ runId: row.runId, run: row, from: "row" })} />
                     ))}
                   </div>
                 )}
@@ -798,7 +833,7 @@ export function ActivityPage() {
       {/* The detail pane. Below `laptop:` it shows only with a selection and
           takes the whole page; from `laptop:` it is always there, holding the
           selected run or the prompt to pick one. */}
-      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", openDetail ? "flex" : "hidden laptop:flex")}>
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", openDetail ? "flex" : "hidden laptop:flex")} data-actions-detail="">
         {detailRunId ? (
           <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded onReport={setReport} />
         ) : detailActionId ? (

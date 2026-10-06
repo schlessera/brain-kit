@@ -561,11 +561,16 @@ function DeliveredExchange({
         />
       )
   );
+  // A question still waiting for its answer: nothing submitted, or nothing
+  // admitted, and not dismissed. A press of Chat focuses its first control
+  // (D52 N3).
+  const waiting = (!delivery || isRefusedAdmission(delivery.state)) && !exchange.cancelled
+    && exchange.answers === undefined && exchange.order === undefined && exchange.formAnswers === undefined;
   // One wrapper whether or not a delivery exists: a card that moved into a
   // new parent when its footer appeared would remount, and a refused
   // answer's draft would be lost with it.
   return (
-    <div>
+    <div data-ask-waiting={waiting ? "" : undefined}>
       {card}
       {delivery ? (
         <AnswerDeliveryStatus

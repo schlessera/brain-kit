@@ -586,7 +586,7 @@ export function DecisionDetail({
         <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md p-1.5 text-muted-foreground hover:text-foreground laptop:hidden" aria-label="Back to Actions">
           ‹
         </button>
-        <h1 className="min-w-0 flex-1 break-words text-sm font-medium">{item?.payload.title ?? "Decision"}</h1>
+        <h1 className="min-w-0 flex-1 break-words text-sm font-medium" tabIndex={-1} data-destination-heading="">{item?.payload.title ?? "Decision"}</h1>
       </div>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
         {item && !open && outcome && <OutcomeRow item={item} outcome={outcome} />}

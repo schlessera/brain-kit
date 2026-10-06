@@ -1,5 +1,6 @@
 import type { IconName, PaletteItem } from "@schlessera/brain-ui-kit";
 import { useUIStore } from "../../stores/ui-store.js";
+import type { DestinationPressHow } from "../../stores/ui-state.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useChatCommands } from "../chat/use-chat-commands.js";
@@ -13,7 +14,8 @@ export interface DesktopDestination {
   tone: Tone;
   /** The destination's own chord, e.g. `⌘2`, bound by the rail. */
   key: string;
-  go: () => void;
+  /** Pressed; `{ keyboard: true }` from its chord (D52 N3). */
+  go: (how?: DestinationPressHow) => void;
 }
 
 /**
@@ -27,11 +29,13 @@ export interface DesktopDestination {
  * has no chord and is reached through the palette's Jump to. Sessions opens
  * the existing drawer in Chat until the ≥1280 pane is installed.
  *
- * Sessions, Files and Settings are panels, so they go through `openPanel`
- * (D52 §2, N1 and N3), as the phone bar does: each replaces any other open
- * panel, lands in Chat when the current view does not draw it (Actions has
- * no Files), and pressing the one already open leaves it open. Settings'
- * leave guard is asked only when Settings is actually being left.
+ * Every destination goes through `pressDestination` (D52 §2, N1 and N3), as
+ * the phone bar does. Sessions, Files and Settings are panels: each replaces
+ * any other open panel and lands in Chat when the current view does not draw
+ * it (Actions has no Files). Pressing the destination already shown leaves
+ * it open and changes nothing but its scroll and focus, which the mounted
+ * destination answers (N3). Settings' leave guard is asked only when
+ * Settings is actually being left.
  *
  * The acts land in Chat first, as the palette always has, and keep their
  * dispatch in `useChatCommands`. Search and Add talk to the CLI over REST, so
@@ -40,7 +44,7 @@ export interface DesktopDestination {
  */
 export function useDesktopRoutes() {
   const setActiveView = useUIStore((s) => s.setActiveView);
-  const openPanel = useUIStore((s) => s.openPanel);
+  const press = useUIStore((s) => s.pressDestination);
   const afterLeavingSettings = useUIStore((s) => s.afterLeavingSettings);
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
@@ -56,11 +60,11 @@ export function useDesktopRoutes() {
   }
 
   const destinations: DesktopDestination[] = [
-    { icon: "brain", label: "Chat", tone: "amber", key: "⌘1", go: () => setActiveView("chat") },
-    { icon: "history", label: "Sessions", tone: "blue", key: "⌘2", go: () => openPanel("sessions") },
-    { icon: "resolved", label: "Actions", tone: "amber", key: "⌘3", go: () => setActiveView("activity") },
-    { icon: "files", label: "Files", tone: "teal", key: "⌘4", go: () => openPanel("files") },
-    { icon: "settings", label: "Settings", tone: "neutral", key: "⌘5", go: () => openPanel("settings") },
+    { icon: "brain", label: "Chat", tone: "amber", key: "⌘1", go: (how) => press("chat", how) },
+    { icon: "history", label: "Sessions", tone: "blue", key: "⌘2", go: (how) => press("sessions", how) },
+    { icon: "resolved", label: "Actions", tone: "amber", key: "⌘3", go: (how) => press("activity", how) },
+    { icon: "files", label: "Files", tone: "teal", key: "⌘4", go: (how) => press("files", how) },
+    { icon: "settings", label: "Settings", tone: "neutral", key: "⌘5", go: (how) => press("settings", how) },
   ];
 
   // The reason a socket-bound command cannot run right now, printed beside it

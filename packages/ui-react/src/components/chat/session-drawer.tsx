@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
@@ -8,6 +8,8 @@ import { useProviderStore } from "../../stores/provider-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { handoffWhy } from "../../hooks/use-handoff-entry.js";
 import { mintHandoffId } from "../../lib/handoff.js";
+import { useDestinationPress } from "../../hooks/use-destination-press.js";
+import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 
 interface SessionInfo {
   id: string;
@@ -59,6 +61,24 @@ export function SessionDrawer({
 
   useEffect(() => { setSessions([]); setWarning(null); }, [root]);
 
+  // Pressing Sessions while it is open (D52 N3): the drawer body and the list
+  // go to the top, and focus goes to the first Working row. Until #950's
+  // Working group exists that is the reattachable running session; then the
+  // session in view, the first row, and the heading of an empty list.
+  const panelRef = useRef<HTMLElement>(null);
+  useDestinationPress("sessions", ({ keyboard }) => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    scrollToStart(panel);
+    const row = (sel: string) => panel.querySelector<HTMLElement>(sel);
+    focusFirst([
+      row('[data-session-running] [role="button"]'),
+      row('[data-session-row] [role="button"][aria-current="true"]'),
+      row('[data-session-row] [role="button"]'),
+      row("[data-destination-heading]"),
+    ], keyboard);
+  });
+
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -101,7 +121,7 @@ export function SessionDrawer({
   }));
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination>
+    <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination panelRef={panelRef}>
       <SessionList
         groups={groups}
         loading={loading}

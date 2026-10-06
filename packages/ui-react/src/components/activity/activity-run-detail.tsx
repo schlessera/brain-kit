@@ -164,7 +164,7 @@ export function RunDetail({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-medium outline-none" tabIndex={-1} data-run-detail-heading="">{title}</h1>
+          <h1 className="truncate text-sm font-medium outline-none" tabIndex={-1} data-run-detail-heading="" data-destination-heading="">{title}</h1>
           <p className="truncate font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
             {runId}
           </p>

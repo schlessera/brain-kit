@@ -62,17 +62,21 @@ export function SessionList(p: SessionListProps) {
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-4">
         {p.backgroundSessionId && (
-          <ListRow
-            variant="card"
-            icon="run"
-            iconTone="amber"
-            title="Session running…"
-            subtitle="Tap to reattach"
-            value="live"
-            valueTone="amber"
-            selected
-            onClick={() => p.onResume(p.backgroundSessionId!)}
-          />
+          // Marked as the Working row a press of Sessions focuses until
+          // #950's Working group exists (D52 N3 addendum).
+          <div data-session-running="">
+            <ListRow
+              variant="card"
+              icon="run"
+              iconTone="amber"
+              title="Session running…"
+              subtitle="Tap to reattach"
+              value="live"
+              valueTone="amber"
+              selected
+              onClick={() => p.onResume(p.backgroundSessionId!)}
+            />
+          </div>
         )}
 
         {p.warning && (
@@ -99,7 +103,7 @@ export function SessionList(p: SessionListProps) {
                   session.run === "streaming" ? "amber" : session.run === "queued" ? (session.note ? "red" : "amber") : undefined;
                 const subtitle = [session.from ? `from: ${session.from}` : null, session.when, session.cost].filter(Boolean).join(" · ");
                 return (
-                  <span key={session.id} title={session.note} className="flex items-stretch gap-1">
+                  <span key={session.id} title={session.note} className="flex items-stretch gap-1" data-session-row="">
                     <span className="flex min-w-0 flex-1">
                       <ListRow
                         variant="card"

@@ -435,6 +435,58 @@ describe("durable Actions", () => {
     expect(server.action("a-one").status).toBe("resolved");
   });
 
+  /** Snoozes `id`, opens Later and then the snoozed card's detail. */
+  async function snoozedDetail(d: Device, id: string) {
+    await click(button(card(d, id), /^Later: /));
+    await click(button(card(d, id), "Snooze until the next scheduled time"));
+    await settle(6);
+    const later = d.host.querySelector<HTMLElement>("[data-later-section]")!;
+    await click(button(later, /^Later · 1/));
+    const snoozed = later.querySelector<HTMLElement>(`[data-decision-id='${id}']`)!;
+    await click(button(snoozed, /^Details: /));
+    expect(d.host.querySelector("[data-decision-detail]"), "the snoozed decision's detail is open").not.toBeNull();
+    return () => later.querySelector<HTMLElement>(`[data-decision-id='${id}']`);
+  }
+
+  test("#1078: pressing Actions again focuses a snoozed decision selected under Later", async () => {
+    server = createInboxFixtureServer();
+    server.setSnoozeFor(3 * DAY);
+    server.seed(thread("t-harbour"), [decision("a-one", "t-harbour"), decision("a-two", "t-harbour")]);
+    const d = await device("laptop", { width: 1280 });
+    // This harness draws the page itself; the store says Actions is shown.
+    d.ui.stores.ui.getState().setActiveView("activity");
+    const snoozed = await snoozedDetail(d, "a-one");
+    await click(button(d.host.querySelector<HTMLElement>("[data-rail]")!, /^Actions/));
+    expect(d.host.querySelector("[data-decision-detail]"), "the detail stays open").not.toBeNull();
+    expect(document.activeElement, "the selected card in Later").toBe(snoozed());
+  });
+
+  test("#1078: pressing Actions again focuses the Queue row whose run the detail shows", async () => {
+    server = createInboxFixtureServer();
+    server.seed(thread("t-raft"), [blockedWork("q-raft", "t-raft", "", { status: "claimed", blockedByItemId: undefined, runId: "run-raft" } as Partial<InboxQueueItem>)]);
+    const d = await device("laptop", { width: 1280, runs: { "run-raft": { runId: "run-raft", detailPruned: false, spans: [] } } });
+    d.ui.stores.ui.getState().setActiveView("activity");
+    await settle(4);
+    await click(button(d.host, /^Open the queue/));
+    const row = () => d.host.querySelector<HTMLElement>("[data-queue-row='q-raft'] [role='button']");
+    await click(row()!);
+    expect(d.host.querySelector("[data-run-detail-heading]"), "the item's run is open").not.toBeNull();
+    (document.activeElement as HTMLElement | null)?.blur();
+    await click(button(d.host.querySelector<HTMLElement>("[data-rail]")!, /^Actions/));
+    expect(document.activeElement, "the Queue row the run was opened from").toBe(row());
+  });
+
+  test("#1078: Back from a snoozed decision's detail returns focus to its card under Later", async () => {
+    server = createInboxFixtureServer();
+    server.setSnoozeFor(3 * DAY);
+    server.seed(thread("t-harbour"), [decision("a-one", "t-harbour"), decision("a-two", "t-harbour")]);
+    const d = await device("phone");
+    const snoozed = await snoozedDetail(d, "a-one");
+    await click(button(d.host.querySelector<HTMLElement>("[data-decision-detail]")!, "Back to Actions"));
+    await settle(4);
+    expect(document.activeElement, "the card the detail was opened from").toBe(snoozed());
+  });
+
   test("15: a decision dropped at the cap leaves on its delta; its detail says so; its FYI is filed under Notes", async () => {
     server = createInboxFixtureServer();
     server.seed(thread("t-harbour"), [decision("a-one", "t-harbour")]);
