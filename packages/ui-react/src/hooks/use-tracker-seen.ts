@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import { useBrainUiRoot, useRootStore } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
-import { emptyEvidence, isCleared, seenKey } from "../lib/trackers.js";
+import { evidenceFromRecord, isCleared, seenKey } from "../lib/trackers.js";
 
 /** The transcript's own "at the bottom" test (`handleScroll`, chat-page.tsx). */
 const AT_BOTTOM_PX = 20;
@@ -22,7 +22,7 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   const trackers = root.stores.trackers.getState();
   const record = trackers.records[sessionId];
   if (!record) return false;
-  const evidence = trackers.evidence[sessionId] ?? emptyEvidence(record.revision);
+  const evidence = trackers.evidence[sessionId] ?? evidenceFromRecord(record);
   if (isCleared(record, evidence)) return false;
   const key = seenKey(record, evidence);
   if (!key) return false;

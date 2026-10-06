@@ -71,14 +71,27 @@ export interface TrackerEvidence {
   pending: SessionRecoveryPending[];
   /** A snapshot came back below a revision already seen. */
   rolledBack: boolean;
+  /**
+   * The stored record's request and turn, from before a reload. A first
+   * snapshot at the stored revision that names different work contradicts
+   * it, since that work was accepted after the revision was read.
+   */
+  stored: { requestId: string | null; turnId: string | null } | null;
   /** Why the last read gave no envelope; cleared by an envelope or by live proof. */
   unavailable: SessionRecoveryUnavailable | null;
   /** Some read or live frame has answered for this session since the page loaded. */
   settled: boolean;
 }
 
-export function emptyEvidence(revision: number | null = null): TrackerEvidence {
-  return { revision, ahead: false, latest: null, behind: null, past: [], pending: [], rolledBack: false, unavailable: null, settled: false };
+export function emptyEvidence(revision: number | null = null, stored: TrackerEvidence["stored"] = null): TrackerEvidence {
+  return { revision, ahead: false, latest: null, behind: null, past: [], pending: [], rolledBack: false, stored, unavailable: null, settled: false };
+}
+
+/** What a page knows about a tracked session before anything has answered: its stored record. */
+export function evidenceFromRecord(record: TrackerRecord | undefined): TrackerEvidence {
+  if (!record) return emptyEvidence();
+  const stored = record.requestId !== null || record.turnId !== null ? { requestId: record.requestId, turnId: record.turnId } : null;
+  return emptyEvidence(record.revision, stored);
 }
 
 /** What a live frame says about its session's work. */
@@ -265,6 +278,9 @@ export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecove
   const seen = evidence.revision;
   if (seen !== null && recovery.revision < seen) return { ...base, rolledBack: true };
   const latest = evidence.latest;
+  if (!latest && seen !== null && recovery.revision === seen && evidence.stored && !sameRequest({ ...recovery.latest, ...evidence.stored }, recovery.latest)) {
+    return { ...base, rolledBack: true };
+  }
   if (seen === null || recovery.revision > seen || !latest) {
     return { ...base, revision: recovery.revision, latest: recovery.latest, ahead: false, behind: null, past: latest ? superseded(evidence.past, latest, recovery.latest) : evidence.past, rolledBack: false };
   }
@@ -334,6 +350,9 @@ export interface TrackerContext {
 
 /** The key a seen observation must match: the latest turn and its revision. */
 export function seenKey(record: TrackerRecord, evidence: TrackerEvidence): { turnId: string; revision: number } | null {
+  // After a rollback the latest turn is not known: nothing can be seen,
+  // and nothing seen before still clears it.
+  if (evidence.rolledBack) return null;
   const turnId = evidence.latest?.turnId ?? null;
   if (turnId === null) return null;
   return { turnId, revision: evidence.revision ?? record.revision ?? 0 };

@@ -201,6 +201,34 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("queued");
   });
 
+  test("a refused send stays refused after the composer consumes its receipt: no phantom tracker", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Open the bag of winds", "typed", undefined, { requestId: "req-winds" });
+    frame(r, { type: "error", sessionId: A, code: "SESSION_LIMIT", message: "Too many concurrent sessions (max 2).", requestId: "req-winds" });
+    r.stores.chat.getState().clearChatReceipt("req-winds");
+    r.stores.chat.getState().setActiveSession(B);
+    expect(ids(r)).toEqual([]);
+  });
+
+  test("a follow-up waiting as a local entry is the send that is unconfirmed", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    runningIn(r, A);
+    r.stores.chat.getState().addUserMessage(A, "Row past the Sirens", "typed", undefined, { requestId: "req-1" });
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-1" });
+    r.stores.followUp.getState().addLocal(A, { requestId: "req-2", text: "And the cattle of the Sun?", source: "typed", queuedAt: 1 });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("unconfirmed");
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-2" });
+    expect(state(r, A)).toBe("queued");
+  });
+
   test("an accepted send stays accepted after the composer consumes its receipt", () => {
     const r = root();
     hello(r, false);
@@ -406,6 +434,18 @@ describe("recovery (Recovery A)", () => {
     expect(views(cold)[0]).toMatchObject({ sessionId: A, state: "done", startedAt: 10, endedAt: 20, revision: 3 });
     expect(sent).toEqual([]);
     expect(cold.stores.chat.getState().activeSessionId).toBe(B);
+  });
+
+  test("after a reload, an envelope at the stored revision naming older work than the stored request is a rollback", async () => {
+    const storage = memoryStorage();
+    const key = `ithaca:${TRACKER_STORAGE_KEY}`;
+    // Revision 3 was read, then request 4 was accepted live.
+    storage.setItem(key, JSON.stringify({ v: 1, principalKey: null, trackers: [{ sessionId: A, requestId: "req-4", turnId: null, revision: 3, leftAt: 1, seen: null }] }));
+    const host: Host = { envelopes: new Map([[A, () => envelope(A, 3, { requestId: "req-3", turnId: "turn-3", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 })]]), urls: [] };
+    const r = root({ storage, storagePrefix: "ithaca" }, host);
+    hello(r);
+    await settle();
+    expect(state(r, A)).toBe("unknown");
   });
 
   test("live frames that arrive during a read are applied after it", async () => {

@@ -23,9 +23,12 @@ export function createTrackerClient(root: BrainUiServices) {
   /** The newest send in a session that the host has neither accepted nor refused. */
   function unconfirmedRequest(state: ChatState, sessionId: string): string | null {
     if (!root.stores.connection.getState().chatRequestAck) return null;
-    const lastUser = state.buffers[sessionId]?.messages.findLast((m) => m.role === "user");
-    const requestId = lastUser?.requestId;
+    // A follow-up sent while the session was busy waits as a local entry
+    // (#1002), not in the transcript; it is the newest send when present.
+    const local = root.stores.followUp.getState().local[sessionId]?.at(-1)?.requestId;
+    const requestId = local ?? state.buffers[sessionId]?.messages.findLast((m) => m.role === "user")?.requestId;
     if (!requestId) return null;
+    if (trackers.getState().refusedRequests.includes(requestId)) return null;
     // The composer consumes a receipt once it has acted on it, so a missing
     // receipt proves nothing. The frames that accepted the request were
     // also tracker evidence: the session's latest request is this one.
@@ -45,6 +48,7 @@ export function createTrackerClient(root: BrainUiServices) {
     }
     const evidence = trackers.getState().evidence[sessionId];
     if (evidence && (evidence.pending.length > 0 || evidence.latest?.state === "running" || evidence.latest?.state === "queued")) return true;
+    if ((root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0) return true;
     return unconfirmedRequest(state, sessionId) !== null;
   }
 

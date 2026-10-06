@@ -9,7 +9,7 @@ import {
   applyUnavailable,
   compareTrackers,
   deriveTrackerView,
-  emptyEvidence,
+  evidenceFromRecord,
   isCleared,
   parseTrackerSet,
   seenKey,
@@ -33,6 +33,12 @@ export interface TrackerStoreState {
   evidence: Record<string, TrackerEvidence>;
   /** A send per session with no acceptance proof yet, by its requestId. Never stored. */
   unconfirmed: Record<string, string>;
+  /**
+   * Chat requests the host refused on this page, newest last. The composer
+   * consumes a refusal's receipt, and a refused request is never accepted,
+   * so this is the one place that still knows it is settled.
+   */
+  refusedRequests: string[];
   /** `server_hello.principalKey` the stored set belongs to. */
   principalKey: string | null;
   /** `server_hello.capabilities.sessionRecovery`; null until a hello. */
@@ -92,7 +98,7 @@ export function trackerViews(
 ): TrackerView[] {
   return Object.values(state.records)
     .map((record) =>
-      deriveTrackerView(record, state.evidence[record.sessionId] ?? emptyEvidence(record.revision), {
+      deriveTrackerView(record, state.evidence[record.sessionId] ?? evidenceFromRecord(record), {
         recoverySupported: state.recoverySupported,
         unconfirmed: state.unconfirmed[record.sessionId] !== undefined,
         queueNote: queueNotes[record.sessionId] ?? null,
@@ -119,6 +125,9 @@ export function trackerRow(views: readonly TrackerView[]): { shown: TrackerView[
   }
   return { shown, overflow };
 }
+
+/** Refusals remembered per page: far more than the sends one page makes between reads. */
+const REFUSALS_KEPT = 256;
 
 export function createTrackerStore(env: StoreEnvironment) {
   const key = env.storageKey(TRACKER_STORAGE_KEY);
@@ -185,8 +194,9 @@ export function createTrackerStore(env: StoreEnvironment) {
 
     return {
       records: stored.records,
-      evidence: Object.fromEntries(Object.values(stored.records).map((r) => [r.sessionId, emptyEvidence(r.revision)])),
+      evidence: Object.fromEntries(Object.values(stored.records).map((r) => [r.sessionId, evidenceFromRecord(r)])),
       unconfirmed: {},
+      refusedRequests: [],
       principalKey: stored.principalKey,
       recoverySupported: null,
       reading: {},
@@ -197,7 +207,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         const state = get();
         if (state.suspended) return;
         const existing = state.records[sessionId];
-        const evidence = state.evidence[sessionId] ?? emptyEvidence(existing?.revision ?? null);
+        const evidence = state.evidence[sessionId] ?? evidenceFromRecord(existing);
         const record: TrackerRecord = withIdentity({
           sessionId,
           requestId: existing?.requestId ?? null,
@@ -218,7 +228,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         const state = get();
         const record = state.records[sessionId];
         if (record) {
-          if (!isCleared(record, state.evidence[sessionId] ?? emptyEvidence(record.revision))) return;
+          if (!isCleared(record, state.evidence[sessionId] ?? evidenceFromRecord(record))) return;
           const records = { ...state.records };
           delete records[sessionId];
           commit({ records });
@@ -238,15 +248,19 @@ export function createTrackerStore(env: StoreEnvironment) {
           set({ reading: { ...state.reading, [sessionId]: [...held, ...events] } });
           return;
         }
-        let evidence = state.evidence[sessionId] ?? emptyEvidence(state.records[sessionId]?.revision ?? null);
+        let evidence = state.evidence[sessionId] ?? evidenceFromRecord(state.records[sessionId]);
         for (const event of events) evidence = applyLiveEvent(evidence, event);
         const accepted = events.flatMap((e) => (e.kind === "queued" || e.kind === "running" ? [e.requestId] : []));
         settleEvidence(sessionId, evidence, confirmed(state, sessionId, accepted));
       },
 
       refused(sessionId, requestId) {
-        const unconfirmed = confirmed(get(), sessionId, [requestId]);
-        if (unconfirmed) set({ unconfirmed });
+        const state = get();
+        const unconfirmed = confirmed(state, sessionId, [requestId]);
+        const refusedRequests = state.refusedRequests.includes(requestId)
+          ? state.refusedRequests
+          : [...state.refusedRequests, requestId].slice(-REFUSALS_KEPT);
+        set({ refusedRequests, ...(unconfirmed ? { unconfirmed } : {}) });
       },
 
       beginRead(sessionId) {
@@ -266,7 +280,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         const reading = { ...state.reading };
         delete reading[sessionId];
         set({ reading });
-        let evidence = state.evidence[sessionId] ?? emptyEvidence(state.records[sessionId]?.revision ?? null);
+        let evidence = state.evidence[sessionId] ?? evidenceFromRecord(state.records[sessionId]);
         evidence = result.ok ? applySnapshot(evidence, result.recovery) : applyUnavailable(evidence, result.reason);
         for (const event of held) evidence = applyLiveEvent(evidence, event);
         const accepted = [
@@ -280,7 +294,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         const state = get();
         const record = state.records[sessionId];
         if (!record || state.reading[sessionId]) return false;
-        const key = seenKey(record, state.evidence[sessionId] ?? emptyEvidence(record.revision));
+        const key = seenKey(record, state.evidence[sessionId] ?? evidenceFromRecord(record));
         if (!key || key.turnId !== turnId || key.revision !== revision) return false;
         if (record.seen?.turnId === turnId && record.seen.revision === revision && record.seen.basis === "proof") return true;
         commit({ records: { ...state.records, [sessionId]: { ...record, seen: { turnId, revision, basis: "proof" } } } });
@@ -291,7 +305,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         const state = get();
         const record = state.records[sessionId];
         if (!record) return;
-        const key = seenKey(record, state.evidence[sessionId] ?? emptyEvidence(record.revision));
+        const key = seenKey(record, state.evidence[sessionId] ?? evidenceFromRecord(record));
         const records = { ...state.records };
         // With no turn to name, there is nothing to store an acknowledgement
         // against: clearing it is all the reader asked for.

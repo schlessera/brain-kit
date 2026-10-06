@@ -258,6 +258,14 @@ describe("states and words (D52 §4's table)", () => {
     const second = live(first, frames.info("turn-2", "req-2"));
     expect(isCleared(record({ seen }), second)).toBe(false);
   });
+
+  test("a rollback after the turn was seen brings the tracker back as unknown", () => {
+    const seen = { turnId: "turn-1", revision: 1, basis: "proof" as const };
+    let e = applySnapshot(emptyEvidence(), envelope(1, { requestId: "req-1", turnId: "turn-1", state: "terminal", outcome: "success" }));
+    expect(isCleared(record({ seen }), e)).toBe(true);
+    e = applySnapshot(e, envelope(0, { state: "unknown" }));
+    expect(view(e, { seen })).toMatchObject({ state: "unknown", cleared: false });
+  });
 });
 
 describe("the stored set", () => {
