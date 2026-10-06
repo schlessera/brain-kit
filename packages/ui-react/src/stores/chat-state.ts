@@ -21,6 +21,7 @@ import type { ProviderState } from "./provider-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 import type { ChatShellState } from "./shell-stores.js";
 import type { AnswerDelivery } from "../lib/answer-delivery/types.js";
+import type { RestoredApprovalClosure } from "../lib/restored-approvals.js";
 
 export type { MessagePart };
 
@@ -61,6 +62,13 @@ export interface ChatMessage {
   blocks?: MessageBlock[];
   /** The host-minted turn that produced this assistant message, when known. */
   turnId?: string;
+  /**
+   * A turn shell (#964, D52 §4): drawn to hold a restored approval whose
+   * replay ended on the user's message. It has no text of its own, and its
+   * header time is the host's `startedAt` for its turn, never the client
+   * clock (#1072).
+   */
+  turnShell?: true;
   /**
    * The /stats answer (#97), drawn from the kit in place of text. The
    * command answers from REST, not from a turn; `localExchange` says whether
@@ -143,6 +151,18 @@ export interface ToolCall {
    * restored, not one raised while this client watched the turn.
    */
   restored?: true;
+  /**
+   * The host turn that raised a restored approval (#1072), from its frame.
+   * Only a restored card carries it: it is what a terminal frame or a
+   * recovery envelope is matched against.
+   */
+  approvalTurnId?: string;
+  /**
+   * A restored approval the host no longer lists as pending (#1072, D52 §4
+   * R3): the card is read-only and says why. Set only while the host
+   * advertises session recovery; see `lib/restored-approvals.ts`.
+   */
+  readOnly?: RestoredApprovalClosure;
   /**
    * Execution timing for the duration badge. `startedAt` is (re)stamped when
    * the input finishes streaming or an approval is granted — so approval
@@ -388,6 +408,19 @@ export interface ChatState {
     turnId?: string
   ) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
+  /**
+   * Make restored approval cards read-only, each with the host fact that
+   * closed it (#1072, D52 §4 R3). Only a restored card that is not already
+   * closed takes one, except `unlisted`, which a reason replaces. Nothing is
+   * sent.
+   */
+  closeRestoredApprovals: (key: ChatKey, closures: ReadonlyArray<{ toolUseId: string; closure: RestoredApprovalClosure }>) => void;
+  /**
+   * The principal is no longer authorized (a 401/403 read or a revocation):
+   * every restored card in every buffer reads `no longer yours to answer`,
+   * and drops the request and turn identities it held.
+   */
+  revokeRestoredApprovals: () => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
   setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
   /** An `ask_user_list` request: the same exchange slot, holding a list. */
@@ -607,12 +640,20 @@ export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): A
   const scan = (key: ChatKey, chat: SessionChat | null) => {
     if (!chat) return;
     for (const message of chat.messages) {
-      for (const tool of message.toolCalls) if (tool.status === "pending_approval") out.push({ key, tool });
+      for (const tool of message.toolCalls) if (awaitsDecision(tool)) out.push({ key, tool });
     }
   };
   for (const [id, chat] of Object.entries(state.buffers)) scan(id, chat);
   scan(null, state.draft);
   return out;
+}
+
+/**
+ * The card still takes a decision: it is pending, and no restored-card
+ * closure (#1072) has made it read-only.
+ */
+export function awaitsDecision(tool: ToolCall): boolean {
+  return tool.status === "pending_approval" && !tool.readOnly;
 }
 
 /** Evict least-recently-touched non-active buffers beyond MAX_BUFFERS. */
@@ -945,7 +986,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             ...(description ? { approvalDescription: description } : {}),
             // A card already pending keeps what it was; anything else is
             // restored when it lands on a message no live turn is streaming.
-            ...((previous?.status === "pending_approval" ? previous.restored : restored) ? { restored: true as const } : {}),
+            ...((previous?.status === "pending_approval" ? previous.restored : restored)
+              ? { restored: true as const, ...(turnId ? { approvalTurnId: turnId } : {}) }
+              : {}),
           });
           // One card per request: a re-delivery updates the card wherever it
           // is, and never draws a second one (#964).
@@ -982,6 +1025,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               parts: [{ kind: "tool", toolIndex: 0 }],
               isStreaming: false,
               timestamp: Date.now(),
+              turnShell: true,
               ...(turnId ? { turnId } : {}),
             });
             return { messages: msgs };
@@ -1020,6 +1064,55 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
               : t
           ),
         })),
+
+      closeRestoredApprovals: (key, closures) => {
+        if (closures.length === 0) return;
+        const byId = new Map(closures.map((c) => [c.toolUseId, c.closure]));
+        mutateBuffer(key, (chat) => {
+          let changed = false;
+          const messages = chat.messages.map((m) => {
+            if (m.role !== "assistant" || !m.toolCalls.some((t) => byId.has(t.id))) return m;
+            let touched = false;
+            const toolCalls = m.toolCalls.map((t) => {
+              const closure = byId.get(t.id);
+              if (!closure || !t.restored || t.readOnly === closure) return t;
+              if (t.readOnly && t.readOnly !== "unlisted") return t;
+              touched = true;
+              return { ...t, readOnly: closure };
+            });
+            if (!touched) return m;
+            changed = true;
+            return { ...m, toolCalls };
+          });
+          return changed ? { messages } : {};
+        });
+      },
+
+      revokeRestoredApprovals: () =>
+        set((state) => {
+          const revoke = (chat: SessionChat): SessionChat => {
+            if (!chat.messages.some((m) => m.toolCalls.some((t) => t.restored && t.readOnly !== "revoked"))) return chat;
+            const messages = chat.messages.map((m) => {
+              if (!m.toolCalls.some((t) => t.restored && t.readOnly !== "revoked")) return m;
+              const toolCalls = m.toolCalls.map((t) => {
+                if (!t.restored || t.readOnly === "revoked") return t;
+                // The request's identity goes with the authority to answer
+                // it: the card keeps only what it showed.
+                const { approvalTurnId: _turn, ...rest } = t;
+                return { ...rest, id: `revoked-${nextId()}`, readOnly: "revoked" as const };
+              });
+              if (!m.turnShell) return { ...m, toolCalls };
+              const { turnId: _shellTurn, ...shell } = m;
+              return { ...shell, toolCalls };
+            });
+            return { ...chat, messages };
+          };
+          const buffers = Object.fromEntries(Object.entries(state.buffers).map(([id, chat]) => [id, revoke(chat)]));
+          const changed = Object.keys(buffers).some((id) => buffers[id] !== state.buffers[id]);
+          const draft = state.draft ? revoke(state.draft) : state.draft;
+          if (!changed && draft === state.draft) return state;
+          return { buffers, draft };
+        }),
 
       setToolResult: (key, toolUseId, output, isError) =>
         mutateToolHolder(key, toolUseId, (last) => ({

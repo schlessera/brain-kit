@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:224-255`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:244-275`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.

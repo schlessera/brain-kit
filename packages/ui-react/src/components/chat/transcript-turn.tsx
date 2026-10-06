@@ -21,8 +21,8 @@ import { cn } from "../../lib/utils.js";
  */
 export interface TurnHeaderProps {
   who: string;
-  /** Mono time, already formatted. */
-  when: string;
+  /** Mono time, already formatted. Absent prints no time (a turn shell the host has not timed). */
+  when?: string;
   /** The user turn came in by voice: which kind. */
   voice?: "voice-dictate" | "voice-conversation";
   /** Explicit effort provenance, already formatted; defaults leave this absent. */
@@ -52,7 +52,9 @@ export function TurnHeader(p: TurnHeaderProps) {
           <Icon icon="mic" size={12} />
         </span>
       )}
-      <span className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/40">{p.when}</span>
+      {p.when !== undefined && (
+        <span data-turn-time="" className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/40">{p.when}</span>
+      )}
     </div>
   );
 }

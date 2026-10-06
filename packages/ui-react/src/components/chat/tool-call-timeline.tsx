@@ -10,7 +10,8 @@ import {
   FileText,
 } from "lucide-react";
 import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
-import { offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { awaitsDecision, offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
@@ -65,7 +66,9 @@ export function ToolCallTimeline({
 
   if (toolCalls.length === 0) return null;
 
-  const hasPending = toolCalls.some((t) => t.status === "pending_approval");
+  // A restored card the host closed (#1072) stays open too: it is read-only,
+  // and says why, so it must not fold into the summary row.
+  const hasPending = toolCalls.some((t) => awaitsDecision(t) || (t.restored && t.readOnly));
   const effectiveCollapsed = collapsed && !hasPending && !live;
 
   if (effectiveCollapsed) {
@@ -188,7 +191,11 @@ function ToolCallEntry({
     typeof renderer.label === "function"
       ? renderer.label(toolCall)
       : renderer.label ?? getToolLabel(toolCall.name);
-  const isPending = toolCall.status === "pending_approval";
+  const isPending = awaitsDecision(toolCall);
+  // A restored card the host no longer lists as pending (#1072, D52 §4 R3):
+  // read-only, with the host fact that closed it. Nothing on it can reply.
+  const closed = toolCall.restored ? toolCall.readOnly : undefined;
+  const closedWord = restoredApprovalWord(closed);
   const keys = useUIStore((s) => s.singleKeyShortcuts);
   // The caps are printed only while a fine pointer is present (#86); the letters
   // themselves follow the Settings switch alone, so a paired keyboard works
@@ -239,16 +246,16 @@ function ToolCallEntry({
         className={cn(
           "absolute -left-[21px] top-2 h-2.5 w-2.5 rounded-full border-2 border-background",
           toolCall.status === "streaming" && "bg-primary-mark animate-pulse",
-          toolCall.status === "pending_approval" &&
-            "bg-primary-mark",
+          isPending && "bg-primary-mark",
           toolCall.status === "approved" && "bg-accent-mark",
           toolCall.status === "denied" && "bg-destructive-mark",
           toolCall.status === "complete" &&
             (toolCall.isError ? "bg-destructive-mark" : "bg-accent-mark"),
-          !["streaming", "pending_approval", "approved", "denied", "complete"].includes(toolCall.status) && "bg-muted-foreground"
+          (!["streaming", "pending_approval", "approved", "denied", "complete"].includes(toolCall.status)
+            || (toolCall.status === "pending_approval" && !isPending)) && "bg-muted-foreground"
         )}
         style={
-          toolCall.status === "pending_approval"
+          isPending
             ? { animation: "breathe 2s ease-in-out infinite" }
             : undefined
         }
@@ -281,7 +288,7 @@ function ToolCallEntry({
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {/* R3 (D52 §4): the host handed this pending card back after a
               reload; it is the original request, not a new one. */}
-          {isPending && toolCall.restored && (
+          {(isPending || closed) && toolCall.restored && (
             <span
               data-restored-approval=""
               className="rounded-full border border-border-subtle px-1.5 py-px font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground"
@@ -294,9 +301,23 @@ function ToolCallEntry({
               {meta}
             </span>
           )}
-          <StatusIndicator status={toolCall.status} isError={toolCall.isError} />
+          {/* A closed card's word replaces "Approval needed": it needs nothing. */}
+          {!(closed && toolCall.status === "pending_approval") && (
+            <StatusIndicator status={toolCall.status} isError={toolCall.isError} />
+          )}
         </span>
       </button>
+
+      {/* Why a restored card is read-only (D52 §4 R3), on its own line so the
+          words wrap at a phone's width instead of leaving the header row. */}
+      {closedWord && (
+        <p
+          data-restored-closure={closed}
+          className="pb-1 pl-[30px] pr-2 font-[family-name:var(--font-mono)] text-[11px] text-muted-foreground"
+        >
+          {closedWord}
+        </p>
+      )}
 
       {/* Live subagent state for tool fan-outs, fed by the activity stream. */}
       {renderer.subagentRows && <SubagentEntryRows agentToolUseId={toolCall.id} />}
