@@ -372,6 +372,27 @@ describe("creating a tracker", () => {
     expect(ids(r)).toEqual([]);
   });
 
+  test("work held behind a read keeps an unconfirmed-only tracker through a turnless error", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { await gate; return envelope(A, 1, { requestId: "req-winds", state: "unknown" }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Open the bag of winds", "typed", undefined, { requestId: "req-winds" });
+    r.stores.chat.getState().setActiveSession(B);
+    // The read holds the acceptance (`thinking`, naming no request), then routing fails.
+    frame(r, { type: "status", sessionId: A, status: "thinking" });
+    frame(r, { type: "error", sessionId: A, code: "BACKEND_ERROR", message: "No backend.", requestId: "req-winds" });
+    expect(ids(r)).toEqual([A]);
+    release();
+    await settle(); await settle();
+    expect(views(r).map((v) => [v.sessionId, v.state])).toEqual([[A, "unknown"]]);
+  });
+
   test("a refusal keeps a tracker that also has accepted work", () => {
     const r = root();
     hello(r, false);
@@ -712,6 +733,19 @@ describe("persistence", () => {
     } finally {
       delete (globalThis as { window?: unknown }).window;
     }
+  });
+
+  test("a newer turn named without a request is stored without the older request's id", () => {
+    const storage = memoryStorage();
+    const r = root({ storage, storagePrefix: "ithaca" });
+    hello(r, false);
+    r.stores.chat.getState().setActiveSession(A);
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-1" });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(r.stores.trackers.getState().records[A]).toMatchObject({ turnId: "turn-1", requestId: "req-1" });
+    frame(r, { type: "result", sessionId: A, turnId: "turn-1", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    frame(r, { type: "text_delta", sessionId: A, turnId: "turn-2", text: "Again." });
+    expect(r.stores.trackers.getState().records[A]).toMatchObject({ turnId: "turn-2", requestId: null });
   });
 
   test("restored trackers keep identifiers only, not transcripts or payloads", () => {

@@ -276,7 +276,8 @@ export function createTrackerStore(env: StoreEnvironment) {
     /** Keep the record's identifiers in step with the newest evidence, so a reload can detect a rollback. */
     function withIdentity(record: TrackerRecord, evidence: TrackerEvidence): TrackerRecord {
       const revision = evidence.revision ?? record.revision;
-      const requestId = evidence.latest?.requestId ?? record.requestId;
+      // The latest work's own identifiers, never an older request's.
+      const requestId = evidence.latest ? evidence.latest.requestId : record.requestId;
       const turnId = evidence.latest ? evidence.latest.turnId : record.turnId;
       if (revision === record.revision && requestId === record.requestId && turnId === record.turnId) return record;
       return { ...record, revision, requestId, turnId };
@@ -402,7 +403,11 @@ export function createTrackerStore(env: StoreEnvironment) {
           const createdFor = { ...state.createdFor };
           delete createdFor[sessionId];
           const evidence = state.evidence[sessionId];
-          const working = !!evidence && (evidence.pending.length > 0 || evidence.latest?.state === "queued" || evidence.latest?.state === "running");
+          // Work held behind a read in flight counts too: it is the host
+          // speaking, only not yet applied.
+          const held = state.reading[sessionId] ?? [];
+          const working = (!!evidence && (evidence.pending.length > 0 || evidence.latest?.state === "queued" || evidence.latest?.state === "running"))
+            || held.some((e) => e.kind === "queued" || e.kind === "running" || e.kind === "pending");
           if (working) set({ createdFor });
           else {
             const records = { ...state.records };
