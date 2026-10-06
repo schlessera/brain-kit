@@ -288,6 +288,22 @@ describe("stale answers", () => {
   });
 });
 
+describe("restoring, continued", () => {
+  test("a session's draft replaced on another device is restored as itself", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const a = drafts().idFor(ITHACA);
+    drafts().edit(a, ITHACA, { text: "Ask Aeolus" });
+    await until(() => drafts().drafts[a]?.host?.revision === 1);
+    // The other device sent A and started B for the same session.
+    host.rows.set(a, { ...host.rows.get(a)!, deleted: true });
+    host.rows.set("d-b", { draftId: "d-b", sessionId: ITHACA, revision: 1, updatedAt: 5, text: "Ask Hermes", attachments: [] });
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => drafts().drafts["d-b"] !== undefined);
+    expect(drafts().drafts[drafts().idFor(ITHACA)]).toMatchObject({ draftId: "d-b", text: "Ask Hermes", conflict: null });
+  });
+});
+
 describe("capacity", () => {
   test("a send that consumes a saved draft frees a place for one refused as full", async () => {
     const host = fakeHost();

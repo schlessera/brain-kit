@@ -237,6 +237,15 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!result.ok || disposed) return;
       const listed = new Map(result.value.drafts.map((s) => [s.draftId, s]));
       let freed = false;
+      // Gone from the host while nothing here is newer: deleted or sent
+      // elsewhere. First, so a draft that replaced it for the same session
+      // is restored as itself rather than as a conflict on a draft that is gone.
+      for (const d of Object.values(drafts.getState().drafts)) {
+        if (!d.host || listed.has(d.draftId) || busy.has(d.draftId)) continue;
+        if ((hostSeq.get(d.draftId) ?? 0) !== (before.get(d.draftId) ?? 0)) continue;
+        drafts.getState().hostGone(d.draftId);
+        freed = true;
+      }
       for (const summary of result.value.drafts) {
         const local = drafts.getState().drafts[summary.draftId];
         if (local?.host && local.host.revision >= summary.revision) continue;
@@ -249,13 +258,6 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // (a save, a delete, a send that consumed it): the read is stale.
         if ((hostSeq.get(summary.draftId) ?? 0) !== seq || (before.get(summary.draftId) ?? 0) !== seq || busy.has(summary.draftId)) continue;
         if (full.ok) drafts.getState().restore(full.value);
-      }
-      // Gone from the host while nothing here is newer: deleted or sent elsewhere.
-      for (const d of Object.values(drafts.getState().drafts)) {
-        if (!d.host || listed.has(d.draftId) || busy.has(d.draftId)) continue;
-        if ((hostSeq.get(d.draftId) ?? 0) !== (before.get(d.draftId) ?? 0)) continue;
-        drafts.getState().hostGone(d.draftId);
-        freed = true;
       }
       // A draft deleted or sent elsewhere freed a place on the host.
       if (freed) retryFull();
@@ -274,7 +276,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   /** The host accepted a send: its staged tracks are the message's, and a new chat's become its session's. */
   function acceptedTracks(send: DraftSend, sessionId: string | undefined) {
     if (send.tracks) removeTracks(root, send.tracks.key, send.tracks.ids);
-    if (send.sessionId === null && sessionId) moveTracks(root, trackKey(null, send.draftId), trackKey(sessionId, send.draftId));
+    if (send.sessionId === null && sessionId) {
+      const origin = drafts.getState().originOf(send.draftId);
+      moveTracks(root, trackKey(null, origin), trackKey(sessionId, origin));
+    }
   }
 
   /** A save was refused for capacity: another draft's deletion may have made room. */

@@ -115,8 +115,14 @@ export interface DraftStoreState {
   /** Host drafts to delete at a revision: a rotated-away id, or the losing side of a choice. */
   orphans: Array<{ draftId: string; revision: number }>;
 
-  /** The id a draft lives under now: a rotation hands its content to a successor. */
+  /**
+   * The id a draft lives under now: a rotation hands its content to a
+   * successor, and a draft forgotten as its session accepted it hands later
+   * work to that session's draft.
+   */
   resolveId(draftId: string): string;
+  /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
+  originOf(draftId: string): string;
   /** The root is going: previews no transcript message owns are released. */
   release(): void;
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
@@ -186,7 +192,9 @@ const SETTLED_SENDS_KEPT = 16;
 export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): boolean {
   for (const d of Object.values(state.drafts)) {
     if ((d.text.length > 0 || d.attachments.length > 0) && !(d.host !== null && d.host.edit === d.edit)) return true;
-    if (d.conflict) return true;
+    // Emptied, with the host still holding it: the delete has not landed.
+    // Or a save is out: its answer is still owed.
+    if (d.conflict || d.savingSince !== null || (d.host !== null && d.text.length === 0 && d.attachments.length === 0)) return true;
   }
   return Object.values(state.sends).some((s) => s.state === "pending" || s.state === "unconfirmed");
 }
@@ -233,13 +241,18 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   const successors = new Map<string, string>();
   /** The session a forgotten draft belonged to: late work on its id goes to that session's draft. */
   const retired = new Map<string, string>();
-  const resolve = (draftId: string): string => {
-    let id = draftId;
-    for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
-    return id;
-  };
+  const origins = new Map<string, string>();
 
   return createStore<DraftStoreState>((set, get) => {
+    function follow(draftId: string): { id: string; owner: string | null } {
+      let id = draftId;
+      for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
+      const owner = retired.get(id) ?? null;
+      if (owner !== null && !get().drafts[id]) return { id: get().idFor(owner), owner };
+      return { id, owner: null };
+    }
+    const resolve = (draftId: string): string => follow(draftId).id;
+
     function held(draftId: string, sends = get().sends): boolean {
       return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
     }
@@ -276,6 +289,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function rotate(d: ComposerDraft, sessionId: string | null): string {
       const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1 };
       successors.set(d.draftId, next.draftId);
+      origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
         const drafts = { ...state.drafts, [next.draftId]: next };
         delete drafts[d.draftId];
@@ -340,6 +354,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       resolveId: resolve,
+      originOf: (draftId) => origins.get(draftId) ?? draftId,
 
       release() {
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
@@ -348,11 +363,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       edit(requested, requestedSession, patch) {
-        let draftId = resolve(requested);
-        let sessionId = requestedSession;
-        // Late work for a draft that was forgotten as its session accepted it.
-        const owner = retired.get(draftId);
-        if (!get().drafts[draftId] && owner) { draftId = get().idFor(owner); sessionId = owner; }
+        // Late work for a rotated draft, or one forgotten as its session accepted it.
+        const { id: draftId, owner } = follow(requested);
+        const sessionId = get().drafts[draftId]?.sessionId ?? owner ?? requestedSession;
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;

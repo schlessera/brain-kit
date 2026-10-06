@@ -115,7 +115,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
   const [, updateTrackView] = useReducer((n: number) => n + 1, 0);
-  const trackEntry = tracksFor(root, trackKey(sessionId, draftId));
+  // A new chat's tracks follow its draft through rotations, by its first id.
+  const trackOwner = useRootStore("drafts", (s) => s.originOf(draftId));
+  const trackEntry = tracksFor(root, trackKey(sessionId, trackOwner));
   const trackUploads = trackEntry.uploads;
   useEffect(() => {
     trackEntry.listeners.add(updateTrackView);
@@ -446,7 +448,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         requestId, draftId, sessionId, text, attachments: [...attachments],
         ...(readyFiles.length ? { files: readyFiles } : {}),
         // Staged tracks stay in the field until the host accepts the message.
-        ...(currentTracks.length ? { tracks: { key: trackKey(sessionId, draftId), ids: currentTracks.map((t) => t.id) } } : {}),
+        ...(currentTracks.length ? { tracks: { key: trackKey(sessionId, trackOwner), ids: currentTracks.map((t) => t.id) } } : {}),
         message: snapshot,
       }, input);
       if (draftRef) message.draftRef = draftRef;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
-import { createDraftStore, type DraftSend } from "../src/stores/draft-state.ts";
+import { createDraftStore, holdsUnsaved, type DraftSend } from "../src/stores/draft-state.ts";
 import { draftSaveView, draftTitle, unboundDrafts } from "../src/lib/drafts.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
@@ -395,6 +395,42 @@ describe("the host's versions", () => {
     state().unconfirmed("disconnected");
     state().release();
     expect(revoked).toEqual([map.previewUrl]);
+  });
+
+  test("a forgotten new-chat draft's id reads and writes as its session's draft", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Which harbour?" });
+    state().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: message("Which harbour?") }, "Which harbour?");
+    state().accepted("req-1", ITHACA);
+    const chart = image("chart.png");
+    state().edit(state().idFor(ITHACA), ITHACA, { attachments: [chart] });
+    // What the composer reads for its captured id is what it would write to.
+    expect(state().resolveId(first)).toBe(state().idFor(ITHACA));
+    expect(state().drafts[state().resolveId(first)]?.attachments).toEqual([chart]);
+  });
+
+  test("a rotated new-chat draft keeps its first id as its tracks' owner", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Letter" });
+    state().saved(first, { revision: 1, edit: state().drafts[first]!.edit, sessionId: null, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().edit(first, null, { text: "Letter, longer" });
+    state().hostGone(first);
+    expect(state().fresh).not.toBe(first);
+    expect(state().originOf(state().fresh)).toBe(first);
+  });
+
+  test("an emptied draft still on the host, or one with a save out, is unsaved work", () => {
+    const { state } = store();
+    const id = state().idFor(ITHACA);
+    state().edit(id, ITHACA, { text: "Plug" });
+    state().saved(id, { revision: 1, edit: state().drafts[id]!.edit, sessionId: ITHACA, attachmentIds: [], updatedAt: 1 }, new Map());
+    expect(holdsUnsaved(state())).toBe(false);
+    state().edit(id, ITHACA, { text: "" });
+    expect(holdsUnsaved(state()), "the delete has not landed").toBe(true);
+    state().removed(id);
+    expect(holdsUnsaved(state())).toBe(false);
   });
 
   test("saved is printed only for the acknowledged edit", () => {
