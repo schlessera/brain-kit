@@ -231,6 +231,7 @@ export {
 
 /* Chrome — the frame a screen is assembled inside. */
 export { BottomSheet, type BottomSheetProps } from "./chrome/BottomSheet.js";
+export { DiscButton, DiscRow, type DiscButtonProps, type DiscRowProps } from "./chrome/DiscButton.js";
 export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
 export { ModelPicker, type ModelPickerProps } from "./chrome/ModelPicker.js";
 export { MessageBubble, type MessageBubbleProps } from "./chrome/MessageBubble.js";

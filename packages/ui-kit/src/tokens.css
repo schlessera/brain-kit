@@ -1242,9 +1242,10 @@
  * `breathe` is declared above and this must stay AFTER it: two @keyframes of
  * one name resolve by source order, not by specificity.
  *
- * Toggle's knob slide is the only other motion in the kit. It is not ambient —
- * it answers a tap — but it is the one place the kit animates POSITION, so it
- * goes too. `.bk-control:active`'s 1px nudge stays: it lasts exactly as long as
+ * Toggle's knob slide is one of the two other motions in the kit. It is not
+ * ambient — it answers a tap — but it animates POSITION, so it goes too. The
+ * other is the overlay disc's pill widening as it opens, which goes for the
+ * same reason. `.bk-control:active`'s 1px nudge stays: it lasts exactly as long as
  * the finger does, and it is a pressed state rather than a movement.
  */
 @media (prefers-reduced-motion: reduce) {
@@ -1258,6 +1259,13 @@
 
   .bk-switch,
   .bk-switch * {
+    transition: none;
+  }
+
+  /* The overlay disc's pill opens in the same frame (D52 §7). Qualified,
+   * because the disc's own transitions are declared further down. */
+  .bk-disc .bk-disc-paint,
+  .bk-disc .bk-disc-label {
     transition: none;
   }
 }
@@ -1431,6 +1439,69 @@
 .bk-row:focus-visible {
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: -2px;
+}
+
+/* ── Overlay discs (D52 §7) ────────────────────────────────────────────────
+ *
+ * `DiscButton`: a 32px paint inside a 44px button. The paint is the rest
+ * state; with a hovering pointer or keyboard focus, a labelled disc expands
+ * LEFTWARD into a pill printing its name. The label's width animates from 0,
+ * and the box is the paint plus its fixed reach, so the button (and the
+ * `DiscRow` it sits in) grows with the pill rather than letting it spill over
+ * a neighbour. Hover is gated on `(hover: hover)`: a touch tap leaves a
+ * sticky `:hover` behind on mobile browsers, which would open the pill after
+ * the act already ran. The focus ring sits on the paint, not the 44px box. */
+.bk-disc-paint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--bk-color-edge);
+  background: var(--bk-color-surface);
+  box-shadow: 0 2px 8px var(--bk-palette-shadow);
+  white-space: nowrap;
+  transition: padding 150ms ease-out, background-color 150ms ease-out;
+}
+.bk-disc-label {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 150ms ease-out, margin-left 150ms ease-out, opacity 150ms ease-out;
+}
+.bk-disc:focus-visible { outline: none; }
+.bk-disc:focus-visible > .bk-disc-paint {
+  background: var(--bk-color-raised);
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: 2px;
+}
+.bk-disc:focus-visible .bk-disc-label { max-width: 12em; margin-left: 6px; opacity: 1; }
+.bk-disc:focus-visible > .bk-disc-paint:has(.bk-disc-label) { padding-right: 11px; }
+@media (hover: hover) {
+  .bk-disc:hover > .bk-disc-paint { background: var(--bk-color-raised); }
+  .bk-disc:hover .bk-disc-label { max-width: 12em; margin-left: 6px; opacity: 1; }
+  .bk-disc:hover > .bk-disc-paint:has(.bk-disc-label) { padding-right: 11px; }
+}
+.bk-disc:active > .bk-disc-paint {
+  transform: translateY(1px);
+  filter: brightness(0.94);
+}
+
+/* `SuggestionChips` (D52 §7): a disabled chip has no `.bk-control`, so no
+ * hover and no press, but it stays a tab stop and needs the same ring. Under
+ * a coarse pointer every interactive chip is a 44px target; the paint is the
+ * target, so the 7px gap keeps neighbours apart. */
+.bk-suggestion[aria-disabled="true"]:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: 2px;
+}
+@media (any-pointer: coarse) {
+  .bk-suggestion { min-height: 44px; }
 }
 
 /* ── Wave 3: two more expanded hit targets ────────────────────────────────

@@ -112,6 +112,8 @@ import * as firstRun from "../../stories/screens/FirstRun.stories.js";
 import * as morningDigest from "../../stories/screens/MorningDigest.stories.js";
 import * as runDetail from "../../stories/screens/RunDetail.stories.js";
 import * as weeklyReview from "../../stories/screens/WeeklyReview.stories.js";
+import * as discButton from "../../stories/chrome/DiscButton.stories.js";
+import * as suggestionChips from "../../stories/conversation/SuggestionChips.stories.js";
 
 /** What CSF Next hands back: a composed story that renders and plays itself.
  * `run` takes a partial story context, which is how the `theme` global reaches
@@ -513,3 +515,27 @@ test("form: desktop three levels", async () => { await formBaseline(conditionalF
 
 test("form: six-option scale at depth three", async () => { await formBaseline(conditionalForm.FormSixOptionScale, "formsixoptionscale", "dark"); await formBaseline(conditionalForm.FormSixOptionScale, "formsixoptionscale", "light"); });
 test("form: twelve nodes", async () => { await formBaseline(conditionalForm.FormNodeLimit, "formnodelimit", "dark"); await formBaseline(conditionalForm.FormNodeLimit, "formnodelimit", "light"); });
+
+// The overlay discs (#945, D52 §7) are paint over a transcript: an opaque
+// disc, a pill that opens leftward and pushes its neighbour, and a gold cost
+// with a printed reason on a disabled chip. Geometry and hits are asserted in
+// `overlay-targets.visual.tsx`; these baselines catch a lost fill, edge or
+// expansion that a rectangle cannot.
+for (const light of [false, true]) {
+  const paper = light ? ", on paper" : "";
+  test(`chrome: discs over scrolled text, phone${paper}`, async () => {
+    await inViewport(320, 260, () => light
+      ? looksRightOnPaper(discButton.OverScrolledText, "chrome-discs-scrolled")
+      : looksRight(discButton.OverScrolledText, "chrome-discs-scrolled"));
+  });
+  test(`chrome: New chat expanded beside Search, phone${paper}`, async () => {
+    await inViewport(320, 120, () => light
+      ? looksRightOnPaper(discButton.PairNewChatExpanded, "chrome-discs-expanded")
+      : looksRight(discButton.PairNewChatExpanded, "chrome-discs-expanded"));
+  });
+  test(`conversation: chips with cost and a disabled reason, phone${paper}`, async () => {
+    await inViewport(320, 160, () => light
+      ? looksRightOnPaper(suggestionChips.Disabled, "conversation-chips-disabled")
+      : looksRight(suggestionChips.Disabled, "conversation-chips-disabled"));
+  });
+}

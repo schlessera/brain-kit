@@ -219,6 +219,15 @@ destinations through the acts) scrolls within short rails while the wordmark
 and `All commands` stay pinned; targets retain the 3px separation. Dedicated
 Chromium cases cover fine-only, coarse-only and mixed pointers in both themes.
 
+`DiscButton` paints a 32px disc inside a 44px button. The default `end`
+anchor reaches 12px left and 6px up and down, and not right, so the box never
+covers a scrollbar; `center` reaches 6px on every side. A labelled disc opens
+leftward into a pill on hover and keyboard focus, and its `DiscRow` grows with
+it, so a neighbouring disc is pushed rather than covered. Interactive
+`SuggestionChips` are at least 44px tall when any available pointer is coarse.
+A disabled chip prints its `why` and keeps its `cost`. Dedicated Chromium cases
+cover fine-only, coarse-only and mixed pointers in both themes.
+
 `TabBar` uses the design's other sanctioned method — padding cancelled by an
 equal negative margin — and that one is exact: padding is not measured against
 anything, so a border costs it nothing. The neighbour constraint still applies

@@ -12,6 +12,7 @@ import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { rankTouch } from "./tests/visual/rank-pointer.ts";
+import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import viteConfig from "./vite.config.ts";
 
@@ -59,11 +60,11 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
   extends: true,
   test: {
     name: `rail-${mode}`,
-    include: ["tests/visual/side-rail-targets.visual.tsx"],
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, formViewport, buttonPointer },
+      commands: { rankTouch, formViewport, buttonPointer, overlayMouse },
       provider: playwright({
         launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
@@ -109,7 +110,7 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx"],
+            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/overlay-targets.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from
