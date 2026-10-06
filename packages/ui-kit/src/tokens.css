@@ -1937,3 +1937,45 @@
 .bk-askrank[data-embedded] > .bk-rank-hint { order: -1; }
 
 .bk-form-keys { flex-basis: 100%; font: 400 10.5px/1.5 "JetBrains Mono",monospace; color: var(--bk-color-ink-mute); }
+
+/* ── The shared row above the composer (D52 §3, #949) ─────────────────────
+ *
+ * `ComposerRow` is a two-column grid with an 8px gutter, over the composer's
+ * own measure (720px at most). Each half is a hard box: `minmax(0, 1fr)` stops
+ * a long title widening its column across the gutter, and an empty half keeps
+ * its column, so a lone item stays on its own side. The halves are
+ * bottom-aligned and the row is as tall as the taller one. With both halves
+ * empty the row is absent: `display: none`, with no spacer.
+ *
+ * Each half is the size container the pill reads: a half narrower than 240px
+ * draws two-line pills, and one 240px or wider draws one line. Nothing in the
+ * row animates, in either mode (D22's one ambient animation is the filament). */
+.bk-composer-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 8px; align-items: end; box-sizing: border-box; width: 100%; max-width: 720px; margin-inline: auto; }
+.bk-composer-row:not(:has(> .bk-row-half > *)) { display: none; }
+.bk-row-half { container: bk-row-half / inline-size; display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+.bk-pill-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+/* `ListRow density="pill"` and the strip's summaries, which are the same box:
+ * 44px with the 1px border inside it, so the paint and the target are one. */
+.bk-pill { display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; min-width: 0; height: 44px; margin: 0; padding: 0 11px; border: 1px solid var(--bk-color-edge); border-radius: 12px; background: var(--bk-color-surface); color: var(--bk-color-ink); font: inherit; text-align: left; }
+.bk-pill.bk-row { cursor: pointer; }
+/* The 12px radius would cut the box's corners out of hit testing, so a
+ * transparent rectangle over the border box keeps the whole 44px box the
+ * target (as `.bk-side-rail [role="tab"]::before` does). It never reaches
+ * past the box, so stacked pills 6px apart cannot steal each other's taps. */
+.bk-pill.bk-row { position: relative; }
+.bk-pill.bk-row::before { content: ""; position: absolute; inset: -1px; }
+.bk-pill-text { display: flex; flex: 1; flex-direction: column; justify-content: center; min-width: 0; }
+.bk-pill-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 12px/15px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); }
+.bk-pill-value { display: block; flex: none; white-space: nowrap; font: 600 10px/13px "JetBrains Mono", ui-monospace, monospace; }
+.bk-pill-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.bk-pill-wide { display: none; }
+/* A Working-sheet row without a second line would be about 41px: every row
+ * is a 44px target, in every pointer mode. */
+.bk-working-sheet .bk-row { min-height: 44px; }
+@container bk-row-half (min-width: 240px) {
+  .bk-pill-text { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+  .bk-pill-title { flex: 1; }
+  .bk-pill-narrow { display: none; }
+  .bk-pill-wide { display: block; }
+}

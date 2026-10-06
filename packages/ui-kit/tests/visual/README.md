@@ -59,3 +59,10 @@ records real pointer media state after releasing touch; it does not claim that
 disabling touch restores a fine pointer. Runtime boundary proof must retain
 dictation-before-ranking order and a reused visual page; isolated/ranking-first
 passes alone do not verify #878, nor diagnose #879's screenshot differences.
+
+`session-strip.visual.tsx` runs in the three `rail-*` pointer projects, beside
+the rail's targets, so every geometry, focus and corner-hit case is checked with
+fine, coarse and mixed pointers under reduced motion. Its pixel baselines are
+taken in `rail-mixed` only; regenerate them with
+`node scripts/visual.mjs --project=rail-mixed --update`. The fine and coarse
+runs write review captures to `.vitest-attachments/session-strip/` instead.
