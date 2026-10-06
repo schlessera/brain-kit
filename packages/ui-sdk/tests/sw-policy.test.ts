@@ -102,6 +102,52 @@ describe("registerDefaultRoutes", () => {
     ]);
   });
 
+  test("a navigation to the interactive HTML preview goes to the network, never the shell", () => {
+    class FakeNetworkOnly {
+      readonly kind = "network-only";
+    }
+    class FakeExpirationPlugin {}
+    class FakeCacheFirst {
+      readonly kind = "cache-first";
+    }
+    class FakeCacheExpiration {
+      async delete(): Promise<void> {}
+    }
+    const routes: Array<{ capture: RouteMatchCallback; handler: object | RouteHandlerCallback }> = [];
+    registerDefaultRoutes({
+      registerRoute: (capture, handler) => routes.push({ capture, handler }),
+      NetworkOnly: FakeNetworkOnly,
+      CacheFirst: FakeCacheFirst,
+      ExpirationPlugin: FakeExpirationPlugin,
+      CacheExpiration: FakeCacheExpiration,
+      precacheAndRoute: () => {},
+      cleanupOutdatedCaches: () => {},
+      createHandlerBoundToURL: () => async () => new Response("shell"),
+      manifest: [],
+      scope: {
+        caches: { delete: async () => false, has: async () => false, open: async () => emptyCache() },
+        clients: { claim: async () => {} },
+        fetch: async () => new Response("network"),
+        skipWaiting: async () => {},
+        addEventListener: () => {},
+      },
+    });
+    const navigation = { mode: "navigate", destination: "document" } as Request;
+    const framed = { mode: "navigate", destination: "iframe" } as Request;
+    const url = new URL("https://example.test/api/files/html?path=voyage/beacon.html");
+    // Workbox answers with the first registered route that captures.
+    for (const request of [navigation, framed]) {
+      const first = routes.find((route) => route.capture({ request, url }));
+      expect((first?.handler as FakeNetworkOnly | undefined)?.kind).toBe("network-only");
+    }
+    // The shell route itself refuses /api, independent of registration order,
+    // while an ordinary deep link still reaches it.
+    const shell = routes[2]!;
+    expect(shell.capture({ request: navigation, url })).toBe(false);
+    expect(shell.capture({ request: framed, url })).toBe(false);
+    expect(shell.capture({ request: navigation, url: new URL("https://example.test/notes") })).toBe(true);
+  });
+
   test("navigation falls back from network to shell to offline page", async () => {
     class FakeNetworkOnly {}
     class FakeExpirationPlugin {}
