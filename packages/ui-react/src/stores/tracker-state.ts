@@ -40,6 +40,14 @@ export interface TrackerStoreState {
    */
   refusedRequests: string[];
   /**
+   * Chat requests the host accepted on this page, newest last: the
+   * receipts that proved it are consumed by the composer, and the latest
+   * work moves on.
+   */
+  acceptedRequests: string[];
+  /** Record requests the host has shown it accepted (a queue report, for one). */
+  accepted(requestIds: ReadonlyArray<string | null | undefined>): void;
+  /**
    * Trackers created only because of an unconfirmed send, by its requestId.
    * If the host then refuses that send, there was never any work to track.
    */
@@ -185,6 +193,12 @@ export function createTrackerStore(env: StoreEnvironment) {
       commit(patch);
     }
 
+    function remember(requestIds: ReadonlyArray<string | null | undefined>) {
+      const known = get().acceptedRequests;
+      const fresh = requestIds.filter((id): id is string => !!id && !known.includes(id));
+      if (fresh.length > 0) set({ acceptedRequests: [...known, ...fresh].slice(-REFUSALS_KEPT) });
+    }
+
     function confirmed(state: TrackerStoreState, sessionId: string, requestIds: Array<string | null>): Record<string, string> | undefined {
       const pending = state.unconfirmed[sessionId];
       if (pending === undefined || !requestIds.includes(pending)) return undefined;
@@ -202,6 +216,7 @@ export function createTrackerStore(env: StoreEnvironment) {
       evidence: Object.fromEntries(Object.values(stored.records).map((r) => [r.sessionId, evidenceFromRecord(r)])),
       unconfirmed: {},
       refusedRequests: [],
+      acceptedRequests: [],
       createdFor: {},
       principalKey: stored.principalKey,
       recoverySupported: null,
@@ -261,6 +276,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         let evidence = state.evidence[sessionId] ?? evidenceFromRecord(state.records[sessionId]);
         for (const event of events) evidence = applyLiveEvent(evidence, event);
         const accepted = events.flatMap((e) => (e.kind === "queued" || e.kind === "running" ? [e.requestId] : []));
+        remember(accepted);
         settleEvidence(sessionId, evidence, confirmed(state, sessionId, accepted));
       },
 
@@ -310,7 +326,14 @@ export function createTrackerStore(env: StoreEnvironment) {
           ...(result.ok ? [result.recovery.latest.requestId] : []),
           ...held.flatMap((e) => (e.kind === "queued" || e.kind === "running" ? [e.requestId] : [])),
         ];
+        remember(accepted);
         settleEvidence(sessionId, evidence, confirmed(get(), sessionId, accepted));
+      },
+
+      accepted(requestIds) {
+        remember(requestIds);
+        const unconfirmed = Object.fromEntries(Object.entries(get().unconfirmed).filter(([, id]) => !requestIds.includes(id)));
+        if (Object.keys(unconfirmed).length !== Object.keys(get().unconfirmed).length) set({ unconfirmed });
       },
 
       observeSeen({ sessionId, turnId, revision }) {

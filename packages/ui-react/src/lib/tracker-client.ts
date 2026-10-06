@@ -33,7 +33,9 @@ export function createTrackerClient(root: BrainUiServices) {
     // receipt proves nothing. The frames that accepted the request were
     // also tracker evidence: the session's latest request is this one.
     if (state.chatReceipts[requestId]) return null;
-    return trackers.getState().evidence[sessionId]?.latest?.requestId === requestId ? null : requestId;
+    const store = trackers.getState();
+    if (store.acceptedRequests.includes(requestId)) return null;
+    return store.evidence[sessionId]?.latest?.requestId === requestId ? null : requestId;
   }
 
   /** Something in the session is still in flight, or waits on the reader (D52 §4). */
@@ -130,6 +132,8 @@ export function createTrackerClient(root: BrainUiServices) {
         else store.refused(sessionId, msg.requestId);
         return;
       }
+      // A queue report lists requests the host holds: each was accepted.
+      if (msg.type === "session_queue") store.accepted([...msg.followUps.map((f) => f.requestId), msg.started?.requestId]);
       const events = trackerEventsForFrame(msg);
       const tracked = store.records[sessionId] !== undefined;
       // In view, in a visible document: a hidden tab watches nothing.

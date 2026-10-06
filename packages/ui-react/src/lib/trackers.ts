@@ -147,6 +147,9 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
         : [{ kind: "running", turnId, requestId: null }];
     case "tool_result":
       return [{ kind: "settled", requestId: msg.toolUseId }];
+    case "ask_answer_receipt":
+      // Accepted or closed, the question is no longer waiting on anyone.
+      return msg.state === "pending" ? [] : [{ kind: "settled", requestId: msg.requestId }];
     case "result": {
       const outcome: ActivitySpanOutcome =
         msg.outcome ?? (msg.isError ? "error" : "success");

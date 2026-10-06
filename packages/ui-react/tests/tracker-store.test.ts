@@ -229,6 +229,35 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("queued");
   });
 
+  test("acceptance is remembered after newer work moves on and after a queue report", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    runningIn(r, A);
+    r.stores.chat.getState().addUserMessage(A, "Row past the Sirens", "typed", undefined, { requestId: "req-1" });
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-1" });
+    r.stores.chat.getState().clearChatReceipt("req-1");
+    // Another device's request is now the latest work.
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-other-device" });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("queued");
+    // A follow-up the host reports holding was accepted too.
+    r.stores.followUp.getState().addLocal(B, { requestId: "req-b", text: "Who keeps watch?", source: "typed", queuedAt: 1 });
+    frame(r, { type: "session_queue", sessionId: B, followUps: [{ id: "q-1", requestId: "req-b", text: "Who keeps watch?", queuedAt: 1 }] });
+    expect(r.stores.trackers.getState().acceptedRequests).toContain("req-b");
+  });
+
+  test("an answered question no longer needs you, even before its tool result", () => {
+    const r = root();
+    hello(r, false);
+    runningIn(r, A);
+    frame(r, { type: "ask_user_request", sessionId: A, turnId: "turn-1", requestId: "ask-1", questions: [] });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("needs_you");
+    frame(r, { type: "ask_answer_receipt", sessionId: A, turnId: "turn-1", requestId: "ask-1", submissionId: "sub-1", state: "accepted" });
+    expect(state(r, A)).toBe("running");
+  });
+
   test("a tracker created only for a send the host then refuses goes away", () => {
     const r = root();
     hello(r, false);
