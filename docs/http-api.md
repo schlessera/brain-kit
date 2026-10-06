@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft and session-recovery routes mounted by `createApp`: 112 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery and interactive HTML preview routes mounted by `createApp`: 113 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -65,6 +65,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
+| GET | `/api/files/html` | I | Serve an HTML file for the sandboxed, script-running preview | React file viewer iframe and "Open in new tab" link (#1084); browser-rendered UI transport. Its isolation headers are specified below. |
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
@@ -145,7 +146,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 112 declared endpoints are mounted regardless of backend, renderer or
+All 113 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -837,3 +838,39 @@ SDK file-reference frames, `show_block` and kit props retain their ordinary
 contracts. The [imported-track behavior](integration-contract.md#imported-track-files-in-chat-additive)
 describes validation, limits, outcomes and static export. They do not file
 knowledge-base content or narrow existing generic `/api/share` intake.
+
+## Interactive HTML preview (additive, #1084)
+
+`GET /api/files/html?path=…` is protected and serves an `.html`/`.htm` file
+(extension matched case-insensitively, on the requested path and on the file
+it resolves to) under the same path, auth and 10,485,760-byte rules as
+`GET /api/files/content?raw=1`. Missing `path` is 400 `missing_path`; another
+extension, or a symlink to a non-HTML file, is 400 `not_html`; path errors,
+missing and oversized files answer as on the raw route. It is internal UI
+transport, but its headers are a security property and are pinned by tests:
+
+- `Content-Type: text/html; charset=utf-8`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`,
+  `Cache-Control: private, max-age=0, must-revalidate`.
+- `Content-Security-Policy: sandbox allow-scripts; default-src 'none';
+  script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline';
+  img-src data: blob:; font-src data:; media-src data: blob:;
+  connect-src 'none'; form-action 'none'; frame-ancestors 'self'`.
+- `X-Frame-Options: SAMEORIGIN` on a successful response only. Every other
+  response, including this route's errors, keeps `DENY` and
+  `frame-ancestors 'none'`.
+
+The `sandbox` directive gives the document an opaque origin whether it is
+framed or opened as a top-level tab, so its script cannot read the app's DOM,
+cookies or storage. `connect-src 'none'` blocks fetch, XHR, WebSocket and
+beacons in the browser, in every auth mode: the missing `SameSite=Strict`
+cookie is a further barrier only in `AUTH_MODE=password`. Popups, form
+submission, downloads and navigation of the embedding app are not granted.
+
+Accepted residual risks (maintainer ruling on #1084): a document may navigate
+itself to any URL, carrying what it can read (its own file and anything typed
+into it), and a tab shows the untrusted content under the app's host. The
+real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
+asserts the isolation and both accepted behaviours. In a split topology, where
+the client is served from another origin, `frame-ancestors 'self'` refuses the
+preview frame; the new-tab link is not subject to framing rules.
