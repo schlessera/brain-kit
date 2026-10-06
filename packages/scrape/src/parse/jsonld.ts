@@ -105,7 +105,7 @@ const MAX_DEPTH = 12;
  * known list of keys means a posting still gets found when a site wraps it in
  * a container nobody has seen yet, and the caller selects by `@type` anyway.
  */
-export function jsonLdNodes(value: unknown, depth = 0): JsonLdNode[] {
+export function jsonLdNodes(value: unknown, depth: number = 0): JsonLdNode[] {
   if (depth > MAX_DEPTH || value === null || typeof value !== "object") return [];
 
   if (Array.isArray(value)) {

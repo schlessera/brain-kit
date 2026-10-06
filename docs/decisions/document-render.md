@@ -27,7 +27,7 @@ Rejected:
 - **Markup in the skill.** Every use would pay for every kind's HTML in
   tokens, and the markup would drift from the CSS it depends on. The skill
   names the kinds; `brain render --kind <kind> --scaffold` prints the one it
-  needs (`function runReference`, `packages/core/src/cli/commands/render.ts:156-187`).
+  needs (`function runReference`, `packages/core/src/cli/commands/render.ts:155-186`).
 - **`generate-pdf/kinds/<kind>.md` reference files**, the drop's fallback if
   the CLI flag was out of scope. They would be a second copy of each skeleton.
 

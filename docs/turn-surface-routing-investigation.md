@@ -52,7 +52,7 @@ is `discoverSkills` (`packages/core/src/lib/skills/discover.ts:43-81`), and
 project emission is `claudeEmitter`
 (`packages/core/src/lib/skills/emitters/claude.ts:16-52`).
 The probe connects the returned production server instance through
-`connectSurface` (`scripts/turn-surface-routing.ts:18-30`), rather than
+`connectSurface` (`scripts/turn-surface-routing.ts:19-31`), rather than
 asserting the factory alone. Core inventory starts its real source entry
 through `connectBrainSurface` (`scripts/turn-surface-fixture.ts:82-98`).
 Inventory uses a separate production turn instance; returned turns retain
@@ -68,7 +68,7 @@ without silently treating absent observations as zero.
 
 ## Private router and comparison controls
 
-`routePreparedTurn` (`scripts/turn-surface-routing.ts:110-149`) is an
+`routePreparedTurn` (`scripts/turn-surface-routing.ts:111-150`) is an
 unregistered research helper. Routing is disabled unless `enabled` is true.
 It consumes an already assembled turn; it does not start the SDK. The
 existing `createJevClient`
@@ -119,7 +119,7 @@ in baseline, hint and load-set, and is absent in hard-prune. Deliberately
 wrong and needless skill suggestions remain visible in the scripted output.
 These are controlled inputs, not measured wrong-load or tool-use rates.
 
-`scoreCalls` (`scripts/turn-surface-routing.ts:165-179`) parses bridge calls
+`scoreCalls` (`scripts/turn-surface-routing.ts:166-180`) parses bridge calls
 against the shipping contracts, excludes subagent calls and excludes
 incomplete turns. Its controls contain a valid call, an invalid call, a
 delegated call and an incomplete turn. The output reserves live input/cache

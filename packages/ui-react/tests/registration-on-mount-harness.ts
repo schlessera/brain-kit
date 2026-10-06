@@ -1,7 +1,5 @@
-export {
-  createAsrClient,
-  resolveToolRenderer,
-} from "@schlessera/brain-ui-sdk/client";
+export { createAsrClient } from "@schlessera/brain-ui-sdk/client";
+export { resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 export { ToolCallTimeline } from "../src/components/chat/tool-call-timeline.js";
 export { registerBuiltinRenderers } from "../src/components/chat/renderers/index.js";
 export { brainUiToolPack } from "../src/components/chat/renderers/brain-ui-tools.js";

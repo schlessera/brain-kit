@@ -28,7 +28,8 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "@schlessera/brain-ui-sdk/server";
-import { createKeyedLock, resetRtkProbe } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { resetRtkProbe } from "../../ui-sdk/src/server/rtk.js";
 
 import { createClaudeBackend } from "../src/backend";
 import { BRAIN_UPDATE_TOOL, MUTATING_TOOL_MATCHER } from "../src/tool-policy";

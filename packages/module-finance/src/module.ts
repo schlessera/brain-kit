@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
+import { defineModule, type ModuleManifest, repoRelativePathSchema } from "@schlessera/brain";
 import type { AuditIssue, HygieneContext } from "@schlessera/brain";
 import { checkSync, type FinanceOptions } from "./finance.js";
 
@@ -38,7 +38,8 @@ function checkLedgerBlocksUpToDate(ctx: HygieneContext<FinanceConfig>): AuditIss
   }));
 }
 
-export default defineModule({
+// Annotated so the public signature report records the manifest type.
+const financeModule: ModuleManifest<FinanceConfig> = defineModule({
   name: "finance",
   configSchema,
   // Two-phase: the taxonomy dir follows the configured clientsDir instead of
@@ -52,3 +53,5 @@ export default defineModule({
     hygieneChecks: [checkLedgerBlocksUpToDate],
   }),
 });
+
+export default financeModule;

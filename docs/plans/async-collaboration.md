@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:146-240`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:147-241`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -134,7 +134,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:504`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:146-240`). Timeout unwind is
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:147-241`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:284-290`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`) closes measured bypasses.
@@ -143,7 +143,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:55-219`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
-- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:31-148`) and
+- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:27-144`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:457`) settles after execution;

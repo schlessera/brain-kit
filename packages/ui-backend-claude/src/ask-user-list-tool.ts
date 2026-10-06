@@ -4,11 +4,11 @@ import {
   ASK_USER_LIST_DESCRIPTION,
   ASK_USER_LIST_INPUT_SCHEMA,
   ASK_USER_LIST_TOOL_NAME as SHARED_TOOL_NAME,
-  BRIDGE_TOOL_POSTURE,
   handleAskUserList,
   type AskUserListResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
 
 /** Bridges the tool to the host's list provider (`BackendBridge.askUserList`). */
 export type AskUserListHandler = (

@@ -150,7 +150,7 @@ export function setShareStoreForTests(next: ShareStore | null): void {
 export async function pruneStoredShares(
   store: ShareStore,
   ttlMs: number,
-  now = Date.now()
+  now: number = Date.now()
 ): Promise<number> {
   const stale = (await store.list()).filter(
     (record) => now - record.receivedAt > ttlMs

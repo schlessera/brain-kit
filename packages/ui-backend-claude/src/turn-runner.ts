@@ -12,8 +12,8 @@ import {
   BackendBusyError,
   BackendRequestError,
   subscriptionAuthAction,
-  VERSION_PROBE_TIMEOUT_MS,
 } from "@schlessera/brain-ui-sdk/server";
+import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";

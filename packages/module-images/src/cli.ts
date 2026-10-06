@@ -13,7 +13,7 @@ import {
   scratchName,
   writeFileSafely,
   writeScratchFile,
-} from "@schlessera/brain";
+} from "@schlessera/brain/internal";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { readEnvVar } from "./config/env.js";

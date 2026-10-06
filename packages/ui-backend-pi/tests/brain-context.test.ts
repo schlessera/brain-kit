@@ -8,7 +8,7 @@
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
-import { estimateTokens } from "@schlessera/brain";
+import { estimateTokens } from "@schlessera/brain/internal";
 
 import { createBrainAccess } from "../src/brain-access";
 import { makeIndexedBrain, type TempBrain } from "./helpers";

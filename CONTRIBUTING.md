@@ -275,41 +275,42 @@ contract change.
 
 **The API report** (`api-report/*.txt`, written by `scripts/api-report.ts`,
 checked by `tests/api-surface.test.ts`) records every exported name per export
-subpath. For the seams in [`docs/extending/README.md`](docs/extending/README.md#the-seams)
-it also records each declaration's signature: its public surface, without
-comments, bodies, default values or private members. The same goes for every
-type declared in this repo that such a surface names, whether by reference,
-by inline `import("…")` or through `typeof`, directly or through another
-recorded type. A type used only by a private member is not recorded.
+subpath, `/internal` ones included. For every export of an ordinary (public)
+entry point it also records the declaration's signature: its public surface,
+without comments, bodies, default values, private members or members tagged
+`@internal`. The same goes for every type declared in this repo that such a
+surface names, whether by reference, by inline `import("…")` or through
+`typeof`, directly or through another recorded type. A declaration another
+package exports publicly is recorded once, in that package's report; a
+re-export says where. Why the boundary is drawn there is
+[the public export boundary](docs/decisions/public-export-boundary.md).
 
-The report records what is written, so it refuses a seam-reachable surface
-whose type is not written down. `bun run api-report` and the test fail, naming
-the declaration and its `file:line`, when any of these is reachable:
+An inferred return type, and the type of an unannotated constant, are printed
+as the checker infers them, and the repo types they name are followed. Some
+types the report cannot record, so `bun run api-report` and the test fail,
+naming the declaration and its `file:line`, when any of these is reachable:
 
-- a public or protected property, method, getter or function whose type or
-  return type is inferred;
+- a public or protected property whose type is inferred;
 - a parameter without an annotation, including one with a default value and a
   constructor parameter property;
-- an unannotated constant whose inferred type names a type declared in this
-  repo (a constant of purely structural type, like `BLOCK_SCHEMA`, is recorded
-  by the type it infers to);
 - a whole module used as a type (`typeof import("x")`, or `typeof ns` for
   `import * as ns`).
 
-The fix is to write the type down, which changes no behaviour. The `SEAMS`
-list at the top of the script names the seams. Adding or removing an export fails `… matches the current exports`. Retyping a
-seam member, or a member of any type it is made of, fails `… matches the
-current seam signatures`, and the failure shows the changed line.
+The fix is to write the type down, which changes no behaviour. Adding or
+removing an export fails `… matches the current exports`. Retyping a public
+declaration, or a member of any type it is made of, fails `… matches the
+current public signatures`, and the failure shows the changed line. The `SEAMS`
+list at the top of the script names the documented extension seams, which the
+test additionally checks by shape.
 
 To change the surface on purpose, make the change, run `bun run api-report`,
 and read the diff under `api-report/` before committing it. A removed or
-changed line in a signature section is a change to a seam. Whether it breaks
-one is decided by
+changed line in a signature section is a change to the supported API. Whether
+it breaks it is decided by
 [`docs/decisions/contract-versioning.md`](docs/decisions/contract-versioning.md);
 a break needs the ruling and the changeset the contract doc's header describes.
-Nothing else needs updating: the test checks every `SEAMS` entry by shape, not
-by its current signature. When the set of frozen declarations grows, add the
-names to `SEAMS` and regenerate.
+An export that only first-party packages need belongs in the owning package's
+`/internal` entry, not in an ordinary one.
 
 ## Releasing
 

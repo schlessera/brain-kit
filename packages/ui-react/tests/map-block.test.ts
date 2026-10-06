@@ -1,5 +1,6 @@
-import { mapViewBounds } from "@schlessera/brain-ui-kit";
-import { drawnBounds, planPlaces } from "@schlessera/brain-ui-sdk/client";
+import { mapViewBounds } from "@schlessera/brain-ui-kit/internal";
+import { planPlaces } from "@schlessera/brain-ui-sdk/client";
+import { drawnBounds } from "../../ui-sdk/src/places.js";
 import { describe, expect, test } from "bun:test";
 
 import { frameGeometry } from "../src/components/chat/tool-cards/map-block.js";

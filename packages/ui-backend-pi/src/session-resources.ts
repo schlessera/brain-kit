@@ -3,12 +3,8 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import {
-  buildSystemPromptAppend,
-  resolveWebSearchConfigPath,
-  webSearchBrief,
-  type WebSearchBrief,
-} from "@schlessera/brain-ui-sdk/server";
+import { buildSystemPromptAppend, type WebSearchBrief } from "@schlessera/brain-ui-sdk/server";
+import { resolveWebSearchConfigPath, webSearchBrief } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 

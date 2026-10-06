@@ -1,14 +1,16 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import {
-  BRIDGE_TOOL_POSTURE,
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME as SHARED_TOOL_NAME,
-  claudeMaskFilename,
-  claudeReportedMaskPath,
   handleRequestImageMask,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
+import {
+  BRIDGE_TOOL_POSTURE,
+  claudeMaskFilename,
+  claudeReportedMaskPath,
+} from "@schlessera/brain-ui-sdk/internal";
 
 /** Bridges the tool to the host's mask provider (`BackendBridge.requestMask`). */
 export type MaskHandler = (

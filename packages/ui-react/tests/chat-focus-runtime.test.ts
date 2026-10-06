@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
-import { askUserFormSpec } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 
 // The same real-Chrome prerequisite enforced by the unit CI jobs. Focus is

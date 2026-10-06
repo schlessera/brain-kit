@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule } from "@schlessera/brain";
+import { defineModule, type ModuleManifest } from "@schlessera/brain";
 
 /**
  * Config for the speaking module during the travel ownership transition.
@@ -30,7 +30,8 @@ export const configSchema = z
 
 export type SpeakingConfig = z.infer<typeof configSchema>;
 
-export default defineModule({
+// Annotated so the public signature report records the manifest type.
+const speakingModule: ModuleManifest<SpeakingConfig> = defineModule({
   name: "speaking",
   configSchema,
   setup: (config) => {
@@ -64,3 +65,5 @@ export default defineModule({
     };
   },
 });
+
+export default speakingModule;

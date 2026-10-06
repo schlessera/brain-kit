@@ -73,6 +73,11 @@ announced in the CHANGELOG; a change to the stable contract requires a
 `CONTRACT:` commit prefix, and a breaking one a maintainer ruling first (a major
 version bump from 1.0). See [integration-contract.md](../integration-contract.md).
 
+Implement a seam against the packages' ordinary entry points only. What they
+export, and every type their signatures reach, is the supported surface; an
+`/internal` entry point is first-party sharing with no compatibility promise
+([package entry points](../integration-contract.md#package-entry-points)).
+
 The client/server wire protocol is a machine compatibility contract now,
 separate from those experimental seams. Implementing `AgentBackend` means
 speaking that contract. Protocol additions ship in minors. Before 1.0, a break

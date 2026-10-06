@@ -14,7 +14,7 @@ import type {
   AgentBackend,
   StartTurnRequest,
 } from "@schlessera/brain-ui-sdk/server";
-import { askUserFormSpec } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import { createFixtureBrain } from "../../captures/core-fixture.ts";
 
 /** Finite, keyless evidence harness for #942; it changes only its disposable fixture. */

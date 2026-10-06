@@ -1,4 +1,4 @@
-import { defaultToolRendererRegistry, defaultAsrClientRegistry } from "@schlessera/brain-ui-sdk/client";
+import { defaultToolRendererRegistry, defaultAsrClientRegistry } from "@schlessera/brain-ui-sdk/internal/client";
 import { uiConfig, registerDevHandle } from "./config.js";
 import { api } from "./lib/api-client.js";
 import { createRoot } from "./root.js";

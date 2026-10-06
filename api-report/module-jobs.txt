@@ -13,41 +13,20 @@ export "." (./src/index.ts)
   type JobsConfig
   type JobsEnv
   type LocationScoring
-  RETIRED_SOURCES
   REVIEW_STATUSES
   type RawJob
   type ReviewStatus
-  SOURCES
-  SOURCE_STATUSES
-  type ScoreBreakdown
-  type ScoreJobInput
   type ScoringConfig
   type ScoringGroup
   type ScoringTier
   type ScrapeReport
   type Source
   type SourceStatus
-  autoClassify
   configSchema
   default
   getAdapter
-  getJobById
-  getReviewQueue
-  getStats
-  ingestJobs
-  loadScoringConfig
-  openDatabase
-  parseScoringConfig
-  projectJobSummary
-  rescoreAllJobs
   resolveEnv
-  reviewJobs
   runScrape
-  scoreJob
-  scoreMaxes
-  scoreNewJobs
-  searchJobs
-  setReviewStatus
 
 export "./module" (./src/module.ts)
   type JobsConfig
@@ -56,46 +35,22 @@ export "./module" (./src/module.ts)
 
 export "./package.json" (./package.json) [asset]
 
-signatures (the seams in docs/extending/README.md and the types they are made of)
+signatures (every public export and the types it is made of)
   ALL_SOURCES (packages/module-jobs/src/boards.ts)
     const ALL_SOURCES: readonly ["remoteok", "remotive", "weworkremotely", "workingnomads", "builtin", "nodesk", "simplyhired", "jobgether", "dice", "remotelyde"];
-  AdapterResult (packages/scrape/src/adapter/types.ts)
-    export interface AdapterResult<T> {
-        items: T[];
-        status: AdapterStatus;
-        cursor?: string;
-        errors: string[];
+  ENV_VARS (packages/module-jobs/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnrichmentConfig (packages/module-jobs/src/enrich.ts)
+    export interface EnrichmentConfig {
+        concurrency: number;
+        maxDetailPages: number;
     }
-  AdapterRunOptions (packages/scrape/src/adapter/types.ts)
-    export interface AdapterRunOptions {
-        incremental?: boolean;
-        cursor?: string;
-        queries?: string[];
-        proxy?: string;
-        fetch?: FetchOptions;
-    }
-  AdapterStatus (packages/scrape/src/adapter/types.ts)
-    export type AdapterStatus = "ok" | "empty" | "unparseable" | "not_run";
-  BrowserSession (packages/scrape/src/browser/session.ts)
-    export interface BrowserSession {
-        load<T>(request: PageRequest<T>): Promise<T>;
-        close(): Promise<void>;
-    }
-  FetchOptions (packages/scrape/src/fetch/http.ts)
-    export interface FetchOptions {
-        proxy?: string;
-        timeoutMs?: number;
-        retries?: number;
-        retryDelayMs?: number;
-        headers?: Record<string, string>;
-        delayMs?: number;
-        userAgent?: string;
-        allowDisallowed?: boolean;
-    }
-  FetchedPage (packages/scrape/src/fetch/http.ts)
-    export interface FetchedPage {
-        body: string;
-        url: string;
+  EnvVarSpec (packages/module-jobs/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
     }
   JobAdapter (packages/module-jobs/src/types.ts)
     export interface JobAdapter extends SiteAdapter<RawJob> {
@@ -105,30 +60,62 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         readonly detailFetchOptions?: FetchOptions;
         readonly detailHosts?: readonly string[];
     }
-  PageRequest (packages/scrape/src/browser/session.ts)
-    export interface PageRequest<T> {
-        url: string;
-        allowDisallowed?: boolean;
-        waitForSelector?: string;
-        settleMs?: number;
-        extract: () => T;
+  JobRow (packages/module-jobs/src/types.ts)
+    export interface JobRow {
+        id: number;
+        source: Source;
+        source_id: string;
+        fingerprint: string;
+        title: string;
+        title_normalized: string;
+        company: string;
+        company_normalized: string;
+        description: string | null;
+        description_text: string | null;
+        url: string | null;
+        source_url: string | null;
+        location: string | null;
+        remote_type: string | null;
+        job_type: string | null;
+        category: string | null;
+        tags: string | null;
+        salary_min: number | null;
+        salary_max: number | null;
+        salary_raw: string | null;
+        salary_currency: string | null;
+        published_at: string | null;
+        expires_at: string | null;
+        first_seen_at: string;
+        last_seen_at: string;
+        scraped_at: string;
+        relevance_score: number;
+        score_breakdown: string | null;
+        scored_at: string | null;
+        review_status: ReviewStatus;
+        reviewed_at: string | null;
+        review_notes: string | null;
+        is_duplicate: number;
+        duplicate_of: number | null;
     }
-  RateLimiter (packages/scrape/src/politeness/rate-limit.ts)
-    export class RateLimiter {
-        constructor(options?: RateLimiterOptions);
-        acquire(host: string, delayMs?: number, signal?: AbortSignal): Promise<void>;
-        reset(): void;
+  JobSummary (packages/module-jobs/src/review.ts)
+    export interface JobSummary extends Pick<JobRow, "id" | "title" | "company" | "location" | "remote_type" | "salary_raw" | "salary_min" | "salary_max" | "salary_currency" | "published_at" | "review_status" | "relevance_score" | "url"> {
+        source: string;
+        tags: string[];
     }
-  RateLimiterClock (packages/scrape/src/politeness/rate-limit.ts)
-    export interface RateLimiterClock {
-        now(): number;
-        sleep(ms: number, signal?: AbortSignal): Promise<void>;
+  JobsConfig (packages/module-jobs/src/module.ts)
+    export type JobsConfig = z.infer<typeof configSchema>;
+  JobsEnv (packages/module-jobs/src/config/env.ts)
+    export interface JobsEnv {
+        cdpUrl?: string;
     }
-  RateLimiterOptions (packages/scrape/src/politeness/rate-limit.ts)
-    export interface RateLimiterOptions {
-        defaultDelayMs?: number;
-        clock?: RateLimiterClock;
+  LocationScoring (packages/module-jobs/src/score.ts)
+    export interface LocationScoring {
+        weight: number;
+        preferred: string[];
+        excluded: string[];
     }
+  REVIEW_STATUSES (packages/module-jobs/src/types.ts)
+    const REVIEW_STATUSES: readonly ["pending", "queued", "interested", "starred", "dismissed", "archived", "applied"];
   RawJob (packages/module-jobs/src/types.ts)
     export interface RawJob {
         source: Source;
@@ -150,59 +137,107 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         published_at?: string;
         expires_at?: string;
     }
-  RobotsCache (packages/scrape/src/politeness/robots.ts)
-    export class RobotsCache {
-        constructor(options?: RobotsCacheOptions);
-        forUrl(url: string): Promise<RobotsRules>;
-        reset(): void;
+  ReviewStatus (packages/module-jobs/src/types.ts)
+    export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+  ScoringConfig (packages/module-jobs/src/score.ts)
+    export interface ScoringConfig {
+        groups: ScoringGroup[];
+        location: LocationScoring | null;
+        excludeTitles: string[];
+        compensationBenchmark: number | null;
+        compensationWeight: number;
+        queueThreshold: number;
+        dismissThreshold: number;
     }
-  RobotsCacheOptions (packages/scrape/src/politeness/robots.ts)
-    export interface RobotsCacheOptions {
-        fetcher?: RobotsFetcher;
+  ScoringGroup (packages/module-jobs/src/score.ts)
+    export interface ScoringGroup {
+        name: string;
+        weight: number;
+        match: "all" | "title";
+        titleBoost: number;
+        tiers: ScoringTier[];
     }
-  RobotsFetcher (packages/scrape/src/politeness/robots.ts)
-    export type RobotsFetcher = (robotsUrl: string) => Promise<{
-        status: number;
-        body: string;
-    }>;
-  RobotsRules (packages/scrape/src/politeness/robots.ts)
-    export interface RobotsRules {
-        loaded: boolean;
-        isAllowed(url: string, userAgent: string): boolean;
-        crawlDelayMs(userAgent: string): number | undefined;
+  ScoringTier (packages/module-jobs/src/score.ts)
+    export interface ScoringTier {
+        points: number;
+        keywords: string[];
     }
-  ScrapeClient (packages/scrape/src/fetch/http.ts)
-    export class ScrapeClient {
-        readonly userAgent: string;
-        readonly rateLimiter: RateLimiter;
-        readonly robots: RobotsCache;
-        constructor(options?: ScrapeClientOptions);
-        get(url: string, opts?: FetchOptions): Promise<Response>;
-        getJson<T = unknown>(url: string, opts?: FetchOptions): Promise<T>;
-        getPage(url: string, opts?: FetchOptions): Promise<FetchedPage>;
-        getText(url: string, opts?: FetchOptions): Promise<string>;
-    }
-  ScrapeClientOptions (packages/scrape/src/fetch/http.ts)
-    export interface ScrapeClientOptions {
-        userAgent?: string;
-        defaultDelayMs?: number;
-        respectRobots?: boolean;
-        rateLimiter?: RateLimiter;
-        robots?: RobotsCache;
-    }
-  ScrapeContext (packages/scrape/src/adapter/types.ts)
-    export interface ScrapeContext {
-        http: ScrapeClient;
-        browser?: BrowserSession;
-        log(message: string): void;
-    }
-  SiteAdapter (packages/scrape/src/adapter/types.ts)
-    export interface SiteAdapter<T> {
-        readonly id: string;
-        readonly name: string;
-        readonly needsBrowser: boolean;
-        readonly needsProxy: boolean;
-        scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;
+  ScrapeReport (packages/module-jobs/src/scrape.ts)
+    export interface ScrapeReport {
+        sources: Array<{
+            source: Source;
+            status: SourceStatus;
+            jobs_found: number;
+            jobs_new: number;
+            jobs_updated: number;
+            jobs_enriched: number;
+            enrichment_failed: number;
+            enrichment_truncated: number;
+            errors: string[];
+            duration_ms: number;
+        }>;
+        dedup: {
+            checked: number;
+            duplicates_found: number;
+        };
+        scored: number;
+        total_new: number;
+        total_errors: string[];
     }
   Source (packages/module-jobs/src/types.ts)
     export type Source = (typeof ALL_SOURCES)[number];
+  SourceStatus (packages/module-jobs/src/types.ts)
+    export type SourceStatus = AdapterStatus;
+  configSchema (packages/module-jobs/src/module.ts)
+    const configSchema: z.ZodObject<{
+        boards: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        criteria: z.ZodString;
+        dbPath: z.ZodOptional<z.ZodString>;
+        enrichment: z.ZodDefault<z.ZodObject<{
+            concurrency: z.ZodDefault<z.ZodNumber>;
+            maxDetailPages: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strict>>;
+        opportunitiesDir: z.ZodDefault<z.ZodString>;
+        queries: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        rates: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+        scoring: z.ZodOptional<z.ZodObject<{
+            compensationBenchmark: z.ZodOptional<z.ZodUnknown>;
+            compensationWeight: z.ZodOptional<z.ZodUnknown>;
+            dismissThreshold: z.ZodOptional<z.ZodUnknown>;
+            excludeTitles: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+            groups: z.ZodArray<z.ZodObject<{
+                keywords: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+                match: z.ZodOptional<z.ZodUnknown>;
+                name: z.ZodString;
+                tiers: z.ZodOptional<z.ZodUnknown>;
+                titleBoost: z.ZodOptional<z.ZodUnknown>;
+                weight: z.ZodUnknown;
+            }, z.core.$loose>>;
+            location: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                excluded: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+                preferred: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+                weight: z.ZodUnknown;
+            }, z.core.$loose>>>;
+            queueThreshold: z.ZodOptional<z.ZodUnknown>;
+        }, z.core.$loose>>;
+    }, z.core.$strict>;
+  default (packages/module-jobs/src/module.ts) exported name of jobsModule
+  getAdapter (packages/module-jobs/src/scrape.ts)
+    export function getAdapter(source: Source, queries?: string[]): JobAdapter;
+  jobsModule (packages/module-jobs/src/module.ts)
+    const jobsModule: ModuleManifest<JobsConfig>;
+  resolveEnv (packages/module-jobs/src/config/env.ts)
+    export function resolveEnv(env?: NodeJS.ProcessEnv): JobsEnv;
+  runScrape (packages/module-jobs/src/scrape.ts)
+    export function runScrape(opts: {
+        dbPath: string;
+        sources?: Source[];
+        queries?: string[];
+        scoringConfig?: ScoringConfig | null;
+        incremental?: boolean;
+        proxy?: string;
+        verbose?: boolean;
+        dryRun?: boolean;
+        rates?: Record<string, number>;
+        enrichment?: Partial<EnrichmentConfig>;
+    }): Promise<ScrapeReport>;

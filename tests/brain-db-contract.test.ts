@@ -28,10 +28,8 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { SCHEMA_VERSION } from "@schlessera/brain";
-import {
-  MIN_BRAIN_SCHEMA_VERSION,
-  buildKeyterms,
-} from "@schlessera/brain-ui-server";
+import { MIN_BRAIN_SCHEMA_VERSION } from "../packages/ui-server/src/db/brain-db.js";
+import { buildKeyterms } from "../packages/ui-server/src/voice/keyterm-builder.js";
 import {
   getClusters,
   getGraphMeta,

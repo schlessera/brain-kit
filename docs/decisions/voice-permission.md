@@ -42,7 +42,7 @@ that needs no interactive approval, or voice is read-only.
 
 Voice today is tap-to-dictate: the speech contract mints a **dictation** session
 (`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26`) and
-`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26`
+`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:24`
 drives it into the composer.
 There is no voice output and no spoken turn, so nothing in this record describes
 existing behaviour.
@@ -405,7 +405,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:427-433`, and the lookup computing
-`remembered`, `ws/bridge.ts:160-180`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:161-181`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -462,7 +462,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:406-421`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:189-204`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:190-205`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -591,7 +591,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:160-180`,
+  `packages/ui-server/src/ws/bridge.ts:161-181`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:427-433`).
   The evaluation happens

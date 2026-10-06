@@ -3,11 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   ASK_USER_LIST_CONTRACT,
   ASK_USER_LIST_INPUT_SCHEMA,
-  ASK_USER_LIST_LIMITS,
   parseToolPayload,
   toolInputJsonSchema,
   type AskUserListInput,
 } from "../src/tool-contracts/index";
+import { ASK_USER_LIST_LIMITS } from "../src/tool-contracts/bridge.js";
 import { handleAskUserList } from "../src/server/bridge-tools/index";
 import type { AskUserListResult, BackendBridge } from "../src/server/backend";
 import type { AskUserListSpec } from "../src/protocol";

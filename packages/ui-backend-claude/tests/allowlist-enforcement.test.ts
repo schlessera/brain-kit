@@ -32,7 +32,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "@schlessera/brain-ui-sdk/server";
-import { resetRtkProbe } from "@schlessera/brain-ui-sdk/server";
+import { resetRtkProbe } from "../../ui-sdk/src/server/rtk.js";
 
 import { createClaudeBackend } from "../src/backend";
 import { runToolCall } from "./helpers/run-tool-call";

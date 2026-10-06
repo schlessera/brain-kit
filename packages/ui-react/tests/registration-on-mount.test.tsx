@@ -144,7 +144,7 @@ if (!childMode) {
   GlobalRegistrator.register();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-  const sdk = await import("@schlessera/brain-ui-sdk/client");
+  const sdk = await import("@schlessera/brain-ui-sdk/internal/client");
   const realSdk = { ...sdk };
   const realRegisterToolRenderers = realSdk.defaultToolRendererRegistry.register;
   const realRegisterAsrClient = realSdk.defaultAsrClientRegistry.register;

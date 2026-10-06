@@ -39,14 +39,13 @@
  * board could be read, so they never move a board's `status` (#37).
  */
 import {
-  Semaphore,
   extractJsonLd,
-  hostOf,
   jsonLdByType,
   stripHtml,
   type FetchOptions,
   type ScrapeClient,
 } from "@schlessera/brain-scrape";
+import { Semaphore, hostOf } from "@schlessera/brain-scrape/internal";
 
 import type { RawJob, Source } from "./types.js";
 

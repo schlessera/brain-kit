@@ -25,7 +25,7 @@ const BACKEND_ID = "claude";
 // public surface stay identical after the factory split.
 export type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 export { lockKeyForTool } from "./tool-policy.js";
-export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
+export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 
 /**
  * Bash commands that raise a confirmation card before they run.

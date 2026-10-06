@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { ClassificationAnswers, ClassificationRequest } from "@schlessera/brain-ui-sdk/server";
+import type { ClassificationAnswers, ClassificationRequest } from "@schlessera/brain-ui-sdk/internal";
 import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { discoverSkills } from "../packages/core/src/lib/skills/discover.js";
 import { claudeEmitter } from "../packages/core/src/lib/skills/emitters/claude.js";

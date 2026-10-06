@@ -91,3 +91,722 @@ export "./server" (./src/server/index.ts)
   type StaticMapTrackEvidence
   fetchCoastline
   staticMap
+
+signatures (every public export and the types it is made of)
+  BBox (packages/geo/src/coastline.ts)
+    export type BBox = [
+        number,
+        number,
+        number,
+        number
+    ];
+  CalculatedRoute (packages/geo/src/server/routing.ts)
+    export interface CalculatedRoute {
+        kind: "calculated";
+        geometry: RoutePoint[][];
+        waypoints: {
+            requested: Coordinate;
+            snapped: Coordinate;
+            name: string;
+            snapDistanceM: number | null;
+        }[];
+        legs: {
+            index: number;
+            from: Coordinate;
+            to: Coordinate;
+            distanceM: number | null;
+            durationS: number | null;
+        }[];
+        measurements: {
+            distance: {
+                value: number | null;
+                unit: "m";
+            };
+            duration: {
+                value: number | null;
+                unit: "s";
+            };
+        };
+        unknown: {
+            field: string;
+            reason: string;
+        }[];
+        method: {
+            distance: "provider_route_network";
+            duration: "provider_estimate";
+            geometry: "provider_geojson_full";
+        };
+    }
+  CoastlineConfig (packages/geo/src/coastline.ts)
+    export interface CoastlineConfig {
+        enabled: boolean;
+        url: string;
+        userAgent: string;
+        timeoutMs?: number;
+        fetchImpl?: FetchLike;
+        geo?: GeoConfigInput;
+        admissionDir?: string;
+    }
+  CoastlineLayer (packages/geo/src/server/coastline.ts)
+    export type CoastlineLayer = "coastline" | "roads" | "streets";
+  CoastlineLayerGeometry (packages/geo/src/server/coastline.ts)
+    export interface CoastlineLayerGeometry {
+        lines: Coord[][];
+        input: number;
+        omitted: number;
+    }
+  CoastlineRequest (packages/geo/src/coastline.ts)
+    export interface CoastlineRequest {
+        bbox: BBox;
+        widthPx: number;
+        detail?: MapDetail;
+    }
+  CoastlineResult (packages/geo/src/coastline.ts)
+    export interface CoastlineResult {
+        coastline: Coord[][];
+        roads: Coord[][];
+        streets: Coord[][];
+        detail: MapDetail;
+        partial: boolean;
+        land: Coord[][];
+        toleranceM: number;
+        attribution: string;
+    }
+  CoastlineServiceResult (packages/geo/src/server/coastline.ts)
+    export interface CoastlineServiceResult extends GeoResult<CoastlineResult> {
+        queries: {
+            layer: CoastlineLayer;
+            result: OverpassResult<CoastlineLayerGeometry>;
+        }[];
+    }
+  Coord (packages/geo/src/coastline.ts)
+    export type Coord = [
+        number,
+        number
+    ];
+  Coordinate (packages/geo/src/server/poi.ts)
+    type Coordinate = {
+        lat: number;
+        lon: number;
+    };
+  Coordinate (packages/geo/src/server/routing.ts)
+    type Coordinate = Pick<RoutePoint, "lat" | "lon">;
+  Coordinate (packages/geo/src/spatial.ts)
+    type Coordinate = Pick<RoutePoint, "lat" | "lon">;
+  EARTH_RADIUS_M (packages/geo/src/track.ts)
+    const EARTH_RADIUS_M: 6371008.8;
+  FetchLike (packages/geo/src/coastline.ts)
+    export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+  GeoAttribution (packages/geo/src/server/client.ts)
+    export interface GeoAttribution {
+        text: string;
+        url: string;
+    }
+  GeoClient (packages/geo/src/server/client.ts)
+    export class GeoClient {
+        constructor(config?: GeoConfigInput, runtime?: GeoRuntimeOptions);
+        route(points: {
+            lat: number;
+            lon: number;
+        }[], mode: RoutingMode): Promise<RoutingResult>;
+        poi(query: PoiQuery): Promise<PoiResult>;
+        coastline(request: CoastlineRequest): Promise<CoastlineServiceResult>;
+        staticMap(input: StaticMapInput): Promise<StaticMapResult>;
+        geocode(query: string): Promise<GeoResult<GeocodeCandidate[]>>;
+        reverse(lat: number, lon: number): Promise<GeoResult<GeocodeCandidate[]>>;
+    }
+  GeoConfig (packages/geo/src/config.ts)
+    export type GeoConfig = z.infer<typeof geoConfigSchema>;
+  GeoConfigInput (packages/geo/src/config.ts)
+    export type GeoConfigInput = z.input<typeof geoConfigSchema>;
+  GeoError (packages/geo/src/server/io.ts)
+    export interface GeoError {
+        code: GeoErrorCode;
+        message: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        serviceCode?: string;
+    }
+  GeoErrorCode (packages/geo/src/server/io.ts)
+    export type GeoErrorCode = "disabled" | "configuration" | "ineligible" | "capability" | "input" | "no_segment" | "timeout" | "network" | "http" | "admission_denied" | "admission_timeout" | "bad_response" | "response_limit" | "cache_unavailable";
+  GeoResult (packages/geo/src/server/client.ts)
+    export interface GeoResult<T> {
+        status: "ok" | "ambiguous" | "partial" | "no_match" | "no_route" | "disabled" | "error";
+        value: T | null;
+        source: (ServiceSource & {
+            transfer: {
+                data: "text_query" | "coordinates" | "query_geometry";
+                sent: boolean;
+            };
+        }) | null;
+        error: GeoError | null;
+        warnings: string[];
+        attribution: GeoAttribution[];
+        counts?: {
+            input: number;
+            retained: number;
+            omitted: number;
+        };
+    }
+  GeoRuntimeOptions (packages/geo/src/server/io.ts)
+    export interface GeoRuntimeOptions {
+        fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+        admissionDir?: string;
+    }
+  GeocodeCandidate (packages/geo/src/server/client.ts)
+    export interface GeocodeCandidate {
+        displayName: string;
+        summary: string;
+        point: {
+            lat: number;
+            lon: number;
+        };
+        address: Record<string, string>;
+        bounds: [
+            number,
+            number,
+            number,
+            number
+        ] | null;
+        osm: {
+            type: "node" | "way" | "relation";
+            id: number;
+        } | null;
+        accuracyM: null;
+        unknown: {
+            field: "accuracyM";
+            reason: "not_provided";
+        }[];
+    }
+  ImportedTrack (packages/geo/src/imported-track.ts)
+    export interface ImportedTrack {
+        format: TrackFormat;
+        track: ParsedTrack;
+        waypoints: TrackWaypoint[];
+        waypointOmissions: TrackOmission[];
+        waypointCount: number;
+    }
+  LandOptions (packages/geo/src/coastline.ts)
+    export interface LandOptions {
+        onLand?: Coord[][];
+    }
+  MAX_ROUTE_BYTES (packages/geo/src/track.ts)
+    const MAX_ROUTE_BYTES: number;
+  MapDetail (packages/geo/src/coastline.ts)
+    export type MapDetail = "coast" | "roads" | "streets";
+  NearestTrackPoint (packages/geo/src/spatial.ts)
+    export interface NearestTrackPoint {
+        status: "ok" | "partial" | "unknown";
+        partial: boolean;
+        distance: {
+            value: number | null;
+            unit: "m";
+        };
+        point: Coordinate | null;
+        location: {
+            section: number;
+            index: number;
+            fraction: number;
+        } | null;
+        withinTolerance: boolean | null;
+        counts: ParsedTrack["counts"];
+        unknown: string[];
+        method: {
+            distance: "great_circle_segment";
+            earthRadiusM: number;
+            toleranceM: number;
+            scope: "retained_geometry";
+        };
+    }
+  NormalizedTrackPoint (packages/geo/src/track.ts)
+    export interface NormalizedTrackPoint {
+        lat: unknown;
+        lon: unknown;
+        elevation_m?: unknown;
+        time?: unknown;
+    }
+  OSM_ATTRIBUTION (packages/geo/src/coastline.ts)
+    const OSM_ATTRIBUTION: "© OpenStreetMap contributors";
+  OmissionReason (packages/geo/src/track.ts)
+    export type OmissionReason = "latitude_missing_or_invalid" | "longitude_missing_or_invalid" | "latitude_out_of_range" | "longitude_out_of_range";
+  OverpassResult (packages/geo/src/server/overpass.ts)
+    export interface OverpassResult<T> extends GeoResult<T> {
+        source: (NonNullable<GeoResult<T>["source"]> & {
+            fallback: {
+                used: boolean;
+                reason: string | null;
+                primaryEndpoint: string;
+            };
+        }) | null;
+        attempts: {
+            endpoint: string;
+            fromCache: boolean;
+            requestSent: boolean;
+            error: GeoError | null;
+        }[];
+    }
+  ParsedTrack (packages/geo/src/track.ts)
+    export interface ParsedTrack extends RouteGeometry {
+        status: "ok" | "partial" | "no_line";
+        partial: boolean;
+        kind: "track" | "route";
+        counts: {
+            input: number;
+            retained: number;
+            omitted: number;
+            segments: number;
+        };
+        omissions: TrackOmission[];
+    }
+  PoiQuery (packages/geo/src/server/poi.ts)
+    export type PoiQuery = ({
+        near: Coordinate;
+        alongTrack?: never;
+    } | {
+        alongTrack: ParsedTrack;
+        near?: never;
+    }) & {
+        tags: Record<string, string | true>;
+        radiusM: number;
+    };
+  PoiResult (packages/geo/src/server/poi.ts)
+    export interface PoiResult extends OverpassResult<PointOfInterest[]> {
+        query: {
+            kind: "near" | "along_track";
+            radiusM: number;
+            tags: Record<string, string | true>;
+            sections: number;
+            points: number;
+        } | null;
+        track: {
+            partial: boolean;
+            counts: ParsedTrack["counts"];
+            omissions: ParsedTrack["omissions"];
+        } | null;
+        counts: {
+            input: number;
+            retained: number;
+            omitted: number;
+        };
+        truncated: boolean;
+        method: {
+            selection: "overpass_around_geometry";
+            distance: "great_circle_representative_point";
+            earthRadiusM: number;
+            maxRadiusM: number;
+            maxPoints: number;
+            maxSections: number;
+            maxQueryBytes: number;
+            maxResults: number;
+            maxSpanDegrees: number;
+        };
+    }
+  PointOfInterest (packages/geo/src/server/poi.ts)
+    export interface PointOfInterest {
+        osm: {
+            type: "node" | "way" | "relation";
+            id: number;
+        };
+        name: string | null;
+        point: Coordinate;
+        position: "node" | "bounding_box_center";
+        tags: Record<string, string>;
+        openingHours: {
+            value: string | null;
+            interpreted: false;
+        };
+        distance: {
+            value: number | null;
+            unit: "m";
+            to: "query_point" | "retained_track";
+            position: "representative_point";
+        };
+        unknown: {
+            field: string;
+            reason: string;
+        }[];
+    }
+  RouteGeometry (packages/geo/src/track.ts)
+    export interface RouteGeometry {
+        segments: RoutePoint[][];
+        warnings: string[];
+    }
+  RouteMetrics (packages/geo/src/track.ts)
+    export interface RouteMetrics {
+        distance_km: number;
+        ascent_m: number | null;
+        altitude_min_m: number | null;
+        altitude_max_m: number | null;
+        shape: "loop" | "one_way" | "unknown";
+        recorded_duration_s: number | null;
+        points: number;
+        segments: number;
+    }
+  RoutePoint (packages/geo/src/track.ts)
+    export interface RoutePoint {
+        lat: number;
+        lon: number;
+        elevation_m: number | null;
+        time: string | null;
+    }
+  RoutingDataset (packages/geo/src/config.ts)
+    export type RoutingDataset = z.infer<typeof dataset>;
+  RoutingMode (packages/geo/src/config.ts)
+    export type RoutingMode = "car" | "foot" | "bike";
+  RoutingResult (packages/geo/src/server/routing.ts)
+    export interface RoutingResult extends GeoResult<CalculatedRoute> {
+        request: {
+            mode: RoutingMode;
+            points: Coordinate[];
+        };
+        source: (NonNullable<GeoResult<CalculatedRoute>["source"]> & {
+            dataset: {
+                name: string;
+                preparedMode: RoutingMode;
+                profile: string;
+                verification: string;
+            };
+            fallback: {
+                used: boolean;
+                reason: string | null;
+                primaryEndpoint: string | null;
+            };
+        }) | null;
+        attempts: {
+            endpoint: string;
+            fromCache: boolean;
+            requestSent: boolean;
+            error: GeoError | null;
+        }[];
+    }
+  ServiceSource (packages/geo/src/server/io.ts)
+    export interface ServiceSource {
+        kind: "service";
+        service: "nominatim" | "osrm" | "overpass";
+        endpoint: string;
+        fromCache: boolean;
+        fetchedAt: string | null;
+        cacheAgeMs: number | null;
+        requestSent: boolean;
+    }
+  StaticMapInput (packages/geo/src/server/static-map.ts)
+    export interface StaticMapInput {
+        tracks?: StaticMapTrack[];
+        pins?: StaticMapPin[];
+        routes?: RoutingResult[];
+        bbox?: BBox;
+        title?: string;
+        widthPx?: number;
+        background?: "auto" | "none" | CoastlineServiceResult;
+    }
+  StaticMapLegEvidence (packages/geo/src/server/static-map.ts)
+    export interface StaticMapLegEvidence {
+        route: number;
+        index: number;
+        mode: RoutingResult["request"]["mode"];
+        from: {
+            lat: number;
+            lon: number;
+        };
+        to: {
+            lat: number;
+            lon: number;
+        };
+        available: boolean;
+        distanceM: number | null;
+        durationS: number | null;
+    }
+  StaticMapPin (packages/geo/src/server/static-map.ts)
+    export interface StaticMapPin {
+        lat: number;
+        lon: number;
+        label: string;
+    }
+  StaticMapPinEvidence (packages/geo/src/server/static-map.ts)
+    export interface StaticMapPinEvidence extends StaticMapPin {
+        index: number;
+        drawn: boolean;
+        reason: "outside_viewport" | "no_artifact" | null;
+    }
+  StaticMapReason (packages/geo/src/server/static-map.ts)
+    export type StaticMapReason = "unsupported_projection" | "background_extent" | "background_unavailable" | "background_omitted" | "no_spatial_input" | "unsupported_text" | "render_budget" | "renderer_unavailable";
+  StaticMapResult (packages/geo/src/server/static-map.ts)
+    export interface StaticMapResult {
+        status: "ok" | "partial" | "no_map";
+        kind: "geometry" | "track_only" | "none";
+        reason: StaticMapReason | null;
+        png: Uint8Array | null;
+        svg: string | null;
+        widthPx: number;
+        heightPx: number | null;
+        bounds: BBox | null;
+        text: string;
+        title: string;
+        tracks: StaticMapTrackEvidence[];
+        pins: StaticMapPinEvidence[];
+        legs: StaticMapLegEvidence[];
+        routes: RoutingResult[];
+        background: CoastlineServiceResult | null;
+        attribution: GeoAttribution[];
+        warnings: string[];
+        method: {
+            projection: "spherical_web_mercator";
+            line: "source_vertices_in_mercator";
+            latitudeLimit: number;
+            scale: StaticMapScale | null;
+            text: "bundled_ibm_plex_glyph_outlines";
+            gaps: "preserved";
+        };
+    }
+  StaticMapScale (packages/geo/src/server/static-map.ts)
+    export interface StaticMapScale {
+        value: number;
+        unit: "m";
+        lengthPx: number;
+        latitude: number;
+        method: "mercator_at_center_latitude";
+    }
+  StaticMapTrack (packages/geo/src/server/static-map.ts)
+    export interface StaticMapTrack {
+        track: ParsedTrack;
+        source: TrackSource;
+        label?: string;
+    }
+  StaticMapTrackEvidence (packages/geo/src/server/static-map.ts)
+    export interface StaticMapTrackEvidence {
+        index: number;
+        label: string;
+        summary: TrackSummary;
+        omissions: ParsedTrack["omissions"];
+        visiblePoints: number;
+        croppedPoints: number;
+    }
+  TrackCoverage (packages/geo/src/spatial.ts)
+    export interface TrackCoverage {
+        status: "ok" | "partial" | "unknown";
+        partial: boolean;
+        direction: "A_relative_to_B";
+        counts: {
+            a: ParsedTrack["counts"];
+            b: ParsedTrack["counts"];
+        };
+        ratio: number | null;
+        coveredLength: {
+            value: number | null;
+            unit: "m";
+        };
+        usableLength: {
+            value: number;
+            unit: "m";
+        };
+        bounds: {
+            minimumRatio: number;
+            maximumRatio: number;
+        } | null;
+        unknown: string[];
+        method: {
+            distance: "great_circle_segment";
+            earthRadiusM: number;
+            toleranceM: number;
+            sampleSpacingM: number;
+            estimator: "arc_length_midpoints";
+            scope: "usable_sections_of_A";
+            maxSamples: number;
+            maxComparisons: number;
+            samples: number;
+        };
+    }
+  TrackCoverageOptions (packages/geo/src/spatial.ts)
+    export interface TrackCoverageOptions {
+        toleranceM: number;
+        sampleSpacingM?: number;
+    }
+  TrackFormat (packages/geo/src/imported-track.ts)
+    export type TrackFormat = "gpx" | "kml" | "geojson";
+  TrackMeasure (packages/geo/src/track.ts)
+    export interface TrackMeasure {
+        value: number | null;
+        unit: "m" | "s";
+        scope: "usable_sections";
+    }
+  TrackOmission (packages/geo/src/track.ts)
+    export interface TrackOmission {
+        index: number;
+        reason: OmissionReason;
+        reasons: OmissionReason[];
+    }
+  TrackSource (packages/geo/src/track.ts)
+    export interface TrackSource {
+        kind: "file";
+        path: string;
+        recordingClaim?: {
+            text: string;
+            verified: false;
+        };
+    }
+  TrackSummary (packages/geo/src/track.ts)
+    export interface TrackSummary {
+        status: ParsedTrack["status"];
+        partial: boolean;
+        source: TrackSource;
+        counts: ParsedTrack["counts"];
+        geometry: RoutePoint[][];
+        measurements: {
+            distance: TrackMeasure;
+            ascent: TrackMeasure;
+            descent: TrackMeasure;
+            altitudeMin: TrackMeasure;
+            altitudeMax: TrackMeasure;
+            elapsed: TrackMeasure;
+            movingTime: TrackMeasure;
+        };
+        bounds: [
+            number,
+            number,
+            number,
+            number
+        ] | null;
+        start: RoutePoint | null;
+        end: RoutePoint | null;
+        shape: RouteMetrics["shape"];
+        unknown: {
+            field: string;
+            reason: string;
+        }[];
+        warnings: string[];
+        method: {
+            distance: "great_circle";
+            earthRadiusM: number;
+            elevation: "three_point_median_3m_hysteresis";
+            elapsed: "segment_last_minus_first_with_pauses";
+            movingTime: "unavailable";
+        };
+    }
+  TrackWaypoint (packages/geo/src/imported-track.ts)
+    export interface TrackWaypoint extends RoutePoint {
+        name: string;
+    }
+  clipLine (packages/geo/src/coastline.ts)
+    export function clipLine(line: Coord[], bbox: BBox): Coord[][];
+  closeAgainstViewport (packages/geo/src/coastline.ts)
+    export function closeAgainstViewport(chains: Coord[][], request: CoastlineRequest): Coord[][];
+  closedRings (packages/geo/src/coastline.ts)
+    export function closedRings(lines: Coord[][]): Coord[][];
+  dataset (packages/geo/src/config.ts)
+    const dataset: z.ZodObject<{
+        dataset: z.ZodString;
+        preparedMode: z.ZodEnum<{
+            bike: "bike";
+            car: "car";
+            foot: "foot";
+        }>;
+        profile: z.ZodString;
+        url: z.ZodString;
+        verification: z.ZodString;
+    }, z.core.$strict>;
+  detailFor (packages/geo/src/coastline.ts)
+    export function detailFor(bbox: BBox, widthPx: number): MapDetail;
+  distanceM (packages/geo/src/track.ts)
+    export function distanceM(a: RoutePoint, b: RoutePoint): number;
+  fetchCoastline (packages/geo/src/server/coastline.ts)
+    export function fetchCoastline(request: CoastlineRequest, config: CoastlineConfig): Promise<CoastlineResult>;
+  geoConfigSchema (packages/geo/src/config.ts)
+    const geoConfigSchema: z.ZodObject<{
+        admissionWaitMs: z.ZodDefault<z.ZodNumber>;
+        cacheDir: z.ZodOptional<z.ZodString>;
+        cacheTtlMs: z.ZodDefault<z.ZodNumber>;
+        geocoding: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            publicServiceEligible: z.ZodDefault<z.ZodBoolean>;
+            url: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        minimumIntervalMs: z.ZodDefault<z.ZodNumber>;
+        overpass: z.ZodDefault<z.ZodObject<{
+            enabled: z.ZodDefault<z.ZodBoolean>;
+            endpoints: z.ZodDefault<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        routing: z.ZodDefault<z.ZodObject<{
+            demo: z.ZodDefault<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                noncommercialLightUse: z.ZodDefault<z.ZodBoolean>;
+            }, z.core.$strict>>;
+            endpoints: z.ZodDefault<z.ZodObject<{
+                bike: z.ZodOptional<z.ZodObject<{
+                    dataset: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        bike: "bike";
+                        car: "car";
+                        foot: "foot";
+                    }>;
+                    profile: z.ZodString;
+                    url: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+                car: z.ZodOptional<z.ZodObject<{
+                    dataset: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        bike: "bike";
+                        car: "car";
+                        foot: "foot";
+                    }>;
+                    profile: z.ZodString;
+                    url: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+                foot: z.ZodOptional<z.ZodObject<{
+                    dataset: z.ZodString;
+                    preparedMode: z.ZodEnum<{
+                        bike: "bike";
+                        car: "car";
+                        foot: "foot";
+                    }>;
+                    profile: z.ZodString;
+                    url: z.ZodString;
+                    verification: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        timeoutMs: z.ZodDefault<z.ZodNumber>;
+        userAgent: z.ZodDefault<z.ZodString>;
+    }, z.core.$strict>;
+  nearestTrackPoint (packages/geo/src/spatial.ts)
+    export function nearestTrackPoint(track: ParsedTrack, query: Coordinate, toleranceM: number): NearestTrackPoint;
+  normalizeTrack (packages/geo/src/track.ts)
+    export function normalizeTrack(input: readonly (readonly NormalizedTrackPoint[])[], kind?: "track" | "route"): ParsedTrack;
+  parseGpx (packages/geo/src/track.ts)
+    export function parseGpx(source: string): RouteGeometry;
+  parseImportedTrack (packages/geo/src/imported-track.ts)
+    export function parseImportedTrack(source: string): ImportedTrack;
+  parseTrackGpx (packages/geo/src/track.ts)
+    export function parseTrackGpx(source: string): ParsedTrack;
+  prepare (packages/geo/src/coastline.ts)
+    export function prepare(lines: Coord[][], request: CoastlineRequest): Coord[][];
+  prepareLand (packages/geo/src/coastline.ts)
+    export function prepareLand(lines: Coord[][], request: CoastlineRequest, options?: LandOptions): Coord[][];
+  quantizeRoute (packages/geo/src/track.ts)
+    export function quantizeRoute(segments: RoutePoint[][]): RoutePoint[][];
+  routeMetrics (packages/geo/src/track.ts)
+    export function routeMetrics(segments: RoutePoint[][]): RouteMetrics;
+  routePoint (packages/geo/src/track.ts)
+    export function routePoint(lat: unknown, lon: unknown, elevation?: unknown, time?: unknown): RoutePoint;
+  signedArea (packages/geo/src/coastline.ts)
+    export function signedArea(ring: Coord[]): number;
+  simplify (packages/geo/src/coastline.ts)
+    export function simplify(line: Coord[], toleranceM: number, atLat: number): Coord[];
+  staticMap (packages/geo/src/server/static-map.ts)
+    export function staticMap(input: StaticMapInput, client: GeoClient): Promise<StaticMapResult>;
+  stitch (packages/geo/src/coastline.ts)
+    export function stitch(lines: Coord[][]): {
+        rings: Coord[][];
+        chains: Coord[][];
+    };
+  summarizeTrack (packages/geo/src/track.ts)
+    export function summarizeTrack(track: ParsedTrack, source: TrackSource): TrackSummary;
+  toleranceMetres (packages/geo/src/coastline.ts)
+    export function toleranceMetres(bbox: BBox, widthPx: number): number;
+  trackCoverage (packages/geo/src/spatial.ts)
+    export function trackCoverage(a: ParsedTrack, b: ParsedTrack, options: TrackCoverageOptions): TrackCoverage;
+  trimRoute (packages/geo/src/track.ts)
+    export function trimRoute(segments: RoutePoint[][], startM: number, endM: number): RoutePoint[][];
+  writeGpx (packages/geo/src/track.ts)
+    export function writeGpx(segments: RoutePoint[][]): string;

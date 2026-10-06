@@ -41,7 +41,7 @@ import {
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   webSearchProvider,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 import type { AgentConfig } from "../config/env.js";
 import { resolveWebSearchEnv } from "../config/env.js";
 import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";

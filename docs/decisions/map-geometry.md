@@ -509,7 +509,7 @@ summary fields cannot author geometry or metrics
 The React planner fits the full retained envelope, refuses unsupported Mercator,
 longitude and padded extents without clamping, and requests geography only when
 both drawn axes fit the existing guard
-(`planTrack`, `packages/ui-react/src/lib/track-display.ts:11-25`).
+(`planTrack`, `packages/ui-react/src/lib/track-display.ts:12-26`).
 Missing background or a wider projectable extent retains a labeled track-only
 drawing. This does not change place-map fallback. Each usable section has its own
 path; start/end use distinct shapes, merged endpoints say S/E, and every waypoint
@@ -521,7 +521,7 @@ file timestamps do not establish recorded travel.
 `TrackMap` is a prop-driven kit presentation. Original/waypoint evidence remains
 complete when projection fails. Static export resolves the original and optional
 geography before constructing markup
-(`loadTrackDisplay`, `packages/ui-react/src/lib/track-display.ts:80-95`);
+(`loadTrackDisplay`, `packages/ui-react/src/lib/track-display.ts:81-96`);
 an unavailable original refuses export rather than returning an empty map.
 Synthetic fixtures cover the 10 km loop, recovered gaps, a projectable extent over
 5 degrees and valid polar evidence, in phone/desktop and dark/paper renderings.

@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resetRtkProbe, rtkRewriteCommand } from "../src/server";
+import { resetRtkProbe, rtkRewriteCommand } from "../src/server/rtk.js";
 
 let directory: string | undefined;
 

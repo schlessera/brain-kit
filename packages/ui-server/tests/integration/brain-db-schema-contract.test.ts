@@ -32,7 +32,7 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
-import { buildTaxonomy, indexAll, openDatabase } from "@schlessera/brain";
+import { buildTaxonomy, indexAll, openDatabase } from "@schlessera/brain/internal";
 import corpusConfig from "../../../core/fixtures/corpus/brain.config.ts";
 
 import { MIN_BRAIN_SCHEMA_VERSION, openBrainDb } from "../../src/db/brain-db";

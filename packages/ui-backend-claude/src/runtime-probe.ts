@@ -19,11 +19,11 @@ import { loadedSdkIdentity } from "@schlessera/brain-ui-sdk/internal";
 import type { BackendRuntimeReport, BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
 import {
   probeVersionCommand,
-  VERSION_PROBE_TIMEOUT_MS,
   type VersionProbeResult,
   type BackendLogFn,
   type ExecWrapperConfig,
 } from "@schlessera/brain-ui-sdk/server";
+import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
 import { MEASURED_RUNTIME } from "./measured-runtime.js";
 import { assertClaudeSdk, assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";

@@ -27,7 +27,7 @@ import {
   planClassification,
   type ClassificationAnswers,
   type ClassificationPlan,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 
 import { attachMessageBlocks, saveMessageBlocks } from "./blocks-store.js";
 import { recordQuestionConfidence } from "./confidence-store.js";

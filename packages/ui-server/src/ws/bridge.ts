@@ -8,7 +8,8 @@ import type {
   AskUserFormResult,
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
-import { askUserFormSpec, BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { approvalRequestFrame, withTurnScope } from "./frames.js";

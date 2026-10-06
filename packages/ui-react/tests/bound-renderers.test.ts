@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  GET_CURRENT_LOCATION_CONTRACT,
-  resetToolRenderers,
-  resolveToolRenderer,
-  type ToolCallView,
-} from "@schlessera/brain-ui-sdk/client";
+import { GET_CURRENT_LOCATION_CONTRACT, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { resetToolRenderers, resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 import { boundToolNames } from "../src/components/chat/renderers/bind.js";
 import {
   registerBuiltinRenderers,

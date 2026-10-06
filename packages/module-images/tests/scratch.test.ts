@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildTaxonomy, ignoreScratch, SCRATCH_DIR, SCRATCH_TTL_MS } from "@schlessera/brain";
+import { buildTaxonomy, SCRATCH_DIR } from "@schlessera/brain/internal";
+import { ignoreScratch, SCRATCH_TTL_MS } from "../../core/src/lib/scratch.js";
 
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";

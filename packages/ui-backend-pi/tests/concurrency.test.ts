@@ -21,10 +21,10 @@ import {
   BackendBusyError,
   BackendRequestError,
   createKeyedLock,
-  GIT_LOCK_KEY,
   type BackendBridge,
   type ServerMessage,
 } from "@schlessera/brain-ui-sdk/server";
+import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 
 import { createPiBackend, type PiSessionLike, type SessionToolkit } from "../src/backend";
 import { createBrainAccess } from "../src/brain-access";

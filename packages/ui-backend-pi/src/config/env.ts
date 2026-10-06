@@ -19,6 +19,7 @@ import type { DynamicEnvReadSpec } from "./env-core.js";
 import { envFlag } from "./env-core.js";
 export type { DynamicEnvReadSpec } from "./env-core.js";
 export { readEnvVar } from "./env-core.js";
+import { type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import {
   EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
@@ -26,10 +27,9 @@ import {
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   validateExecWrapper,
-  type ExecWrapperConfig,
   webSearchProvider,
   WEB_SEARCH_PROVIDERS,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/internal";
 
 /**

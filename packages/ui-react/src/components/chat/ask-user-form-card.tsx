@@ -4,7 +4,7 @@ import type {
   AskUserFormSpec,
   AskUserFormAnswers,
 } from "@schlessera/brain-ui-sdk/protocol";
-import { askUserFormPayload } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../../lib/format-time.js";

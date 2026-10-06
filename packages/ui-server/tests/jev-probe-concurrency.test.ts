@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ClassificationRequest } from "@schlessera/brain-ui-sdk/server";
+import type { ClassificationRequest } from "@schlessera/brain-ui-sdk/internal";
 import {
   BREAKER_BASE_MS,
   BREAKER_FAILURES,

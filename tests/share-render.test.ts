@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import puppeteer, { type Browser } from "puppeteer-core";
 import { SHOW_BLOCK_CONTRACT, visibleToolName } from "@schlessera/brain-ui-sdk/client";
-import { PRINT_TOKENS } from "@schlessera/brain-ui-kit";
+import { PRINT_TOKENS } from "../packages/ui-kit/src/tokens.js";
 import { buildHtmlDocument } from "@schlessera/brain-render-template";
 
 import { createRenderer, type Renderer } from "../packages/ui-render-puppeteer/src/renderer.ts";

@@ -4,24 +4,22 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  ACCENTS
   type Accent
   type BuildHtmlDocumentOptions
-  DEFAULT_TITLE
   DOCUMENT_BLOCKS
   DOCUMENT_CLASSES
   type DocumentBlock
   type DocumentWarning
   type ExportLinkPolicy
-  OPENER_CLASSES
   type RenderContentType
-  SWITCH_CLASSES
   applyExportLinkPolicy
   buildHtmlDocument
-  documentTitle
-  isFullDocument
   lintDocument
   protectExportLinkDestinations
+
+export "./internal" (./src/internal.ts)
+  documentTitle
+  isFullDocument
 
 export "./kinds" (./src/kinds.ts)
   DOCUMENT_KINDS
@@ -43,3 +41,111 @@ export "./links" (./src/links.ts)
   refusalSentence
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  ACCENTS (packages/render-template/src/components.ts)
+    const ACCENTS: readonly ["amber", "teal", "blue", "purple", "graphite"];
+  Accent (packages/render-template/src/components.ts)
+    export type Accent = (typeof ACCENTS)[number];
+  BuildHtmlDocumentOptions (packages/render-template/src/template.ts)
+    export interface BuildHtmlDocumentOptions {
+        content: string;
+        contentType: RenderContentType;
+        title?: string;
+        allowHosts?: string[];
+        runningTitle?: string | false;
+        linkPolicy?: ExportLinkPolicy;
+    }
+  DOCUMENT_BLOCKS (packages/render-template/src/components.ts)
+    const DOCUMENT_BLOCKS: readonly DocumentBlock[];
+  DOCUMENT_CLASSES (packages/render-template/src/components.ts)
+    const DOCUMENT_CLASSES: readonly string[];
+  DOCUMENT_KINDS (packages/render-template/src/kinds.ts)
+    const DOCUMENT_KINDS: readonly DocumentKind[];
+  DocumentBlock (packages/render-template/src/components.ts)
+    export interface DocumentBlock {
+        name: string;
+        group: "opener" | "block";
+        classes: readonly string[];
+        use: string;
+        html: string;
+    }
+  DocumentKind (packages/render-template/src/kinds.ts)
+    export interface DocumentKind {
+        name: string;
+        aliases: readonly string[];
+        label: string;
+        use: string;
+        opener: string;
+        blocks: readonly string[];
+        accent: Accent;
+        switches: readonly string[];
+        format: "html" | "markdown";
+        file: string;
+    }
+  DocumentWarning (packages/render-template/src/lint.ts)
+    export interface DocumentWarning {
+        code: "unknown-class" | "unknown-accent" | "opener-not-first" | "several-openers" | "placeholder-image" | "remote-image" | "empty-link" | "script" | "network-resource";
+        message: string;
+    }
+  ExportLinkPolicy (packages/render-template/src/link-policy.ts)
+    export type ExportLinkPolicy = "visible-destinations";
+  LINK_URL_MAX (packages/render-template/src/links.ts)
+    const LINK_URL_MAX: 2048;
+  LinkRefusal (packages/render-template/src/links.ts)
+    export type LinkRefusal = Extract<LinkVerdict, {
+        ok: false;
+    }>;
+  LinkRefusalReason (packages/render-template/src/links.ts)
+    export type LinkRefusalReason = "too-long" | "hidden-characters" | "relative" | "unparseable" | "scheme" | "credentials" | "mixed-script";
+  LinkVerdict (packages/render-template/src/links.ts)
+    export type LinkVerdict = {
+        ok: true;
+        href: string;
+        host: string;
+        hostUnicode?: string;
+        path: string;
+        ip: boolean;
+        insecure: boolean;
+    } | {
+        ok: false;
+        reason: LinkRefusalReason;
+        scheme?: string;
+        shown: string;
+    };
+  MAILTO_ADDRESSES_MAX (packages/render-template/src/links.ts)
+    const MAILTO_ADDRESSES_MAX: 10;
+  MailVerdict (packages/render-template/src/links.ts)
+    export type MailVerdict = {
+        ok: true;
+        href: string;
+        display: string;
+        addresses: string[];
+    } | LinkRefusal;
+  RenderContentType (packages/render-template/src/template.ts)
+    export type RenderContentType = "markdown" | "html";
+  applyExportLinkPolicy (packages/render-template/src/link-policy.ts)
+    export function applyExportLinkPolicy(html: string): string;
+  buildHtmlDocument (packages/render-template/src/template.ts)
+    export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string;
+  classifyLink (packages/render-template/src/links.ts)
+    export function classifyLink(raw: string): LinkVerdict;
+  classifyMailto (packages/render-template/src/links.ts)
+    export function classifyMailto(raw: string): MailVerdict;
+  decodePunycode (packages/render-template/src/links.ts)
+    export function decodePunycode(input: string): string | null;
+  highlyRestrictive (packages/render-template/src/links.ts)
+    export function highlyRestrictive(label: string): boolean;
+  lintDocument (packages/render-template/src/lint.ts)
+    export function lintDocument(html: string): DocumentWarning[];
+  protectExportLinkDestinations (packages/render-template/src/link-policy.ts)
+    export function protectExportLinkDestinations(maxCaptureHeight?: number): Promise<void>;
+  readSkeleton (packages/render-template/src/kinds.ts)
+    export function readSkeleton(kind: DocumentKind): string;
+  refusalSentence (packages/render-template/src/links.ts)
+    export function refusalSentence(verdict: {
+        reason: LinkRefusalReason;
+        scheme?: string;
+    }): string;
+  resolveKind (packages/render-template/src/kinds.ts)
+    export function resolveKind(name: string): DocumentKind | undefined;

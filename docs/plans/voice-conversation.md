@@ -27,7 +27,7 @@ background sessions have visual notifications, not competing voices.
 The current input seam mints a dictation session (`SpeechProvider`,
 `packages/ui-sdk/src/server/speech.ts:26-35`). The phase-1 driver guards against
 late starts after cancellation
-(`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26-40`). That path
+(`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:24-38`). That path
 continues to mean capture, review, send. Conversation is a separate explicit
 choice beside Dictate; it does not change Dictate's default or settle #91's
 desktop-sheet sizing.

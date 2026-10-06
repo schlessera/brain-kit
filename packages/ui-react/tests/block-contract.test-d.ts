@@ -19,6 +19,7 @@ import type {
   Tone,
   ValueTone,
 } from "@schlessera/brain-ui-kit";
+import type { Block } from "@schlessera/brain-ui-sdk/client";
 import type {
   BLOCK_CONTACT_KINDS,
   BLOCK_CONTACT_TONES,
@@ -28,8 +29,7 @@ import type {
   BLOCK_STEP_VARIANTS,
   BLOCK_TONES,
   BLOCK_VALUE_TONES,
-  Block,
-} from "@schlessera/brain-ui-sdk/client";
+} from "../../ui-sdk/src/tool-contracts/blocks.js";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
   ? true

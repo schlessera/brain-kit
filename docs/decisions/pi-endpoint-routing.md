@@ -74,7 +74,7 @@ The concrete adapter integration points are:
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
 | Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/session-runtime.ts:37-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. Keep ordinary disk storage and autonomous `SessionManager.inMemory`. |
 | Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/session-runtime.ts:74-114`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
-| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:73-100`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
+| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:69-96`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime
 factory option, new public seam or authentication wrapper is needed. An

@@ -3,7 +3,7 @@
  * packed optional core peer, in an installed consumer (#697).
  *
  * Proves, against a CLI-produced index and the tarball installs:
- * - the exported `buildKeyterms` resolves the peer through its real loader
+ * - the first-party internal `buildKeyterms` resolves the peer through its real loader
  *   (identity, range and operation checks) and returns core's terms;
  * - the packed graph routes, both the shipped TypeScript source and the
  *   compiled default JavaScript, serve populated results through the peer;
@@ -59,7 +59,7 @@ try {
   const probe = join(probeDir, "probe.ts");
   const routesFor = (variant: "src" | "dist") => join(server, variant, "routes", variant === "src" ? "graph.ts" : "graph.js");
   await Bun.write(probe, `
-import { buildKeyterms } from "@schlessera/brain-ui-server";
+import { buildKeyterms } from "@schlessera/brain-ui-server/internal";
 const brainPath = ${JSON.stringify(brainPath)};
 const cache = buildKeyterms({ brainPath, cacheDir: brainPath + "/.brain-ui", limit: 50 });
 if (cache.degraded || !cache.keyterms.includes("Ithaca")) throw new Error("Packed keyterms did not come from core: " + JSON.stringify(cache));

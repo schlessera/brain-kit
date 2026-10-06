@@ -7,7 +7,7 @@ const consumer = resolve(process.argv[flag + 1]), probe = mkdtempSync(join(consu
 try {
   const script = join(probe, "probe.ts");
   await Bun.write(script, `
-import { createUiDb } from "@schlessera/brain-ui-server";
+import { createUiDb } from "@schlessera/brain-ui-server/internal";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 const root = import.meta.dir, source = join(root, "source"), target = join(root, "target");

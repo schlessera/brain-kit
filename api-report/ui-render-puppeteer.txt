@@ -8,10 +8,52 @@ export "." (./src/index.ts)
   type EnvVarSpec
   type RenderOptions
   type Renderer
-  type RendererEnv
   type RendererOptions
   createRenderer
-  resolveEnv
-  shouldAllowRequest
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  ENV_VARS (packages/ui-render-puppeteer/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnvVarSpec (packages/ui-render-puppeteer/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  LaunchArgs (packages/ui-render-puppeteer/src/renderer.ts)
+    export interface LaunchArgs {
+        executablePath: string;
+        headless: true;
+        args: string[];
+    }
+  RenderOptions (packages/ui-render-puppeteer/src/renderer.ts)
+    export interface RenderOptions {
+        html: string;
+        width?: number;
+        linkPolicy?: ExportLinkPolicy;
+    }
+  Renderer (packages/ui-render-puppeteer/src/renderer.ts)
+    export interface Renderer {
+        renderPng(opts: RenderOptions): Promise<Buffer>;
+        renderPdf(opts: RenderOptions): Promise<Buffer>;
+        shutdown(): Promise<void>;
+    }
+  RendererOptions (packages/ui-render-puppeteer/src/renderer.ts)
+    export interface RendererOptions {
+        executablePath?: string;
+        queueTimeoutMs?: number;
+        browserTimeoutMs?: number;
+        renderTimeoutMs?: number;
+        maxConcurrent?: number;
+        maxQueue?: number;
+        idleTimeoutMs?: number;
+        allowHosts?: string[];
+        allowScripts?: boolean;
+        noSandbox?: boolean;
+        launch?: (args: LaunchArgs) => Promise<Browser>;
+    }
+  createRenderer (packages/ui-render-puppeteer/src/renderer.ts)
+    export function createRenderer(options?: RendererOptions): Renderer;

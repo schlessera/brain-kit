@@ -5,52 +5,80 @@
 
 export "." (./src/index.ts)
   type BackendLogFn
-  type BrainAccess
-  type BrainToolDeps
-  type CreatePiAuthOptions
   type CreatePiBackendOptions
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
   type EnvVarSpec
-  PI_BACKEND_ID
-  PI_THINKING_LEVELS
-  type PermissionGateOptions
-  type PiAuth
-  type PiAuthProviderStatus
-  type PiAuthRuntime
   type PiBackendEnv
-  type PiLoginFlow
-  type PiLoginFlowStatus
   type PiProfile
-  type PiSessionFactory
-  type PiSessionLike
-  type PiThinkingLevel
-  type RiskClass
-  type SessionToolkit
-  type ToolLock
-  type TurnContext
-  approvalReason
   backendModule
-  createBrainAccess
-  createBrainTools
-  createPermissionGate
-  createPiAuth
   createPiBackend
-  createTurnContext
-  getPiHistory
-  hasStoredCredential
-  invalidateExtensionCache
-  listPiSessions
-  mapPiEvent
-  normalizeMessages
   readEnvVar
   resolveEnv
-  toolLockFromKeyed
-  toolLockFromWriteLock
 
 export "./internal" (./src/internal.ts)
   DEFAULT_PI_ALLOWED_TOOLS
   TOOL_RISK
+  createBrainAccess
+  createBrainTools
+  createTurnContext
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  BackendLogFn (packages/ui-backend-pi/src/backend-options.ts)
+    export type BackendLogFn = (level: "debug" | "info" | "warn" | "error", message: string, attrs?: Record<string, string | number | boolean>) => void;
+  CreatePiBackendOptions (packages/ui-backend-pi/src/backend-options.ts)
+    export interface CreatePiBackendOptions {
+        versionRequirements?: BackendVersionRequirements;
+        brainPath: string;
+        model?: string;
+        profiles?: PiProfile[] | (() => PiProfile[]);
+        sessionDir?: string;
+        loadExtensions?: boolean;
+        systemPromptAppend?: string;
+        confirmBashPatterns?: readonly ConfirmPatternSource[];
+        allowedTools?: readonly string[];
+        writeLock?: WriteLock;
+        log?: BackendLogFn;
+    }
+  DYNAMIC_ENV_READS (packages/ui-backend-pi/src/config/env.ts)
+    const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
+  DynamicEnvReadSpec (packages/ui-backend-pi/src/config/env-core.ts)
+    export interface DynamicEnvReadSpec {
+        source: string;
+        description: string;
+    }
+  ENV_VARS (packages/ui-backend-pi/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnvVarSpec (packages/ui-backend-pi/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  PiBackendEnv (packages/ui-backend-pi/src/config/env.ts)
+    export interface PiBackendEnv {
+        reverseGeocodeEnabled: boolean;
+        nominatimUrl: string;
+        nominatimUserAgent: string;
+        nominatimPublicServiceEligible: boolean;
+    }
+  PiProfile (packages/ui-backend-pi/src/backend-options.ts)
+    export interface PiProfile {
+        id: string;
+        label: string;
+        vendor?: string;
+        model: string;
+        thinkingLevel?: ThinkingLevel;
+    }
+  backendModule (packages/ui-backend-pi/src/module.ts)
+    const backendModule: BackendModule;
+  createPiBackend (packages/ui-backend-pi/src/backend.ts)
+    export function createPiBackend(options: CreatePiBackendOptions): AgentBackend;
+  readEnvVar (packages/ui-backend-pi/src/config/env-core.ts)
+    export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
+  resolveEnv (packages/ui-backend-pi/src/config/env.ts)
+    export function resolveEnv(env?: NodeJS.ProcessEnv): PiBackendEnv;

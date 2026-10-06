@@ -5,7 +5,7 @@ import { join, resolve } from "path";
 import { parseFrontmatter } from "../../core/src/lib/frontmatter-parse";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { indexAll, initContext, openDatabase } from "@schlessera/brain";
+import { indexAll, initContext, openDatabase } from "@schlessera/brain/internal";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
