@@ -35,6 +35,65 @@ export interface ValidationIssue {
 }
 
 /**
+ * What a validation issue is about, in structured form, so `brain hygiene`
+ * can join it to its own findings without reading the message. `rule` names
+ * the check; `field`, `target` and `value` are set where the check has one.
+ * Never part of `brain validate`'s output: `validate()` drops it.
+ */
+export interface ValidationDetail {
+  rule: ValidationRule;
+  /** The frontmatter field the rule checks. */
+  field?: string;
+  /** A wiki-link or `supersedes` target as written, or a cycle's members joined with `,`. */
+  target?: string;
+  /** The field's current value as `rawValue()` renders it (`absent` when it is not there), or the tag a tag rule names. */
+  value?: string;
+}
+
+export type ValidationRule =
+  | "frontmatter-missing"
+  | "frontmatter-invalid"
+  | "required-missing"
+  | "type-invalid"
+  | "field-invalid"
+  | "archived-primary"
+  | "tag-format"
+  | "tag-alias"
+  | "tag-vocabulary"
+  | "link-unresolved"
+  | "supersedes-unresolved"
+  | "supersedes-cycle";
+
+export interface DetailedValidationIssue extends ValidationIssue {
+  detail: ValidationDetail;
+}
+
+/**
+ * A frontmatter value as a deterministic string, for comparing one run with
+ * the next: its kind and its content. A cycle (YAML anchors) is cut, never
+ * followed, so this cannot throw or loop.
+ */
+export function rawValue(value: unknown): string {
+  if (value === undefined) return "absent";
+  const seen = new Set<object>();
+  const render = (v: unknown): string => {
+    if (v === null || v === undefined) return "null";
+    if (v instanceof Date) return `date:${Number.isNaN(v.getTime()) ? "invalid" : v.toISOString()}`;
+    if (typeof v === "object") {
+      if (seen.has(v)) return "cycle";
+      seen.add(v);
+      const out = Array.isArray(v)
+        ? `[${v.map(render).join(",")}]`
+        : `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${render((v as Record<string, unknown>)[k])}`).join(",")}}`;
+      seen.delete(v);
+      return out;
+    }
+    return `${typeof v}:${typeof v === "string" ? JSON.stringify(v) : String(v)}`;
+  };
+  return render(value);
+}
+
+/**
  * A frontmatter value named by its kind, for a diagnostic. Never serialized:
  * YAML anchors can make a value cyclic, and JSON.stringify throws on that.
  */
@@ -47,8 +106,14 @@ function describeValue(value: unknown): string {
   return `a ${typeof value}`;
 }
 
+/** The corpus issues, as `brain validate` reports them. */
 export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+  return validateDetailed(root, taxonomy).map(({ file, level, message }) => ({ file, level, message }));
+}
+
+/** The corpus issues, each with its structured detail (`ValidationDetail`). */
+export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedValidationIssue[] {
+  const issues: DetailedValidationIssue[] = [];
   const files = getMarkdownFiles(root, taxonomy);
   const tagAliases = taxonomy.tags?.aliases;
   const vocabulary = taxonomy.tags?.vocabulary ? new Set(taxonomy.tags.vocabulary) : null;
@@ -89,6 +154,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: "Missing YAML frontmatter",
+        detail: { rule: "frontmatter-missing" },
       });
       continue;
     }
@@ -104,9 +170,12 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: `Invalid YAML frontmatter: ${e}`,
+        detail: { rule: "frontmatter-invalid" },
       });
       continue;
     }
+    // The field a rule checks, with its value as written.
+    const about = (field: string) => ({ field, value: rawValue(Object.hasOwn(data, field) ? data[field] : undefined) });
 
     // Required fields
     if (!data.title) {
@@ -114,6 +183,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: "Missing required field: title",
+        detail: { rule: "required-missing", ...about("title") },
       });
     }
     if (!data.type) {
@@ -121,12 +191,14 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: "Missing required field: type",
+        detail: { rule: "required-missing", ...about("type") },
       });
     } else if (!taxonomy.isValidType(data.type)) {
       issues.push({
         file: filePath,
         level: "error",
         message: `Invalid type: "${data.type}". Valid: ${taxonomy.validTypes().join(", ")}`,
+        detail: { rule: "type-invalid", ...about("type") },
       });
     }
     if (!data.created) {
@@ -134,6 +206,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "warning",
         message: "Missing field: created",
+        detail: { rule: "required-missing", ...about("created") },
       });
     }
     if (!data.updated) {
@@ -141,6 +214,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "warning",
         message: "Missing field: updated",
+        detail: { rule: "required-missing", ...about("updated") },
       });
     }
     if (!data.tags || !Array.isArray(data.tags) || data.tags.length === 0) {
@@ -148,6 +222,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "warning",
         message: "Missing or empty tags",
+        detail: { rule: "required-missing", ...about("tags") },
       });
     }
 
@@ -157,6 +232,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: `Invalid status: "${data.status}". Valid: ${VALID_STATUSES.join(", ")}`,
+        detail: { rule: "field-invalid", ...about("status") },
       });
     }
     if (data.relevance && !VALID_RELEVANCES.includes(data.relevance)) {
@@ -164,6 +240,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: `Invalid relevance: "${data.relevance}". Valid: ${VALID_RELEVANCES.join(", ")}`,
+        detail: { rule: "field-invalid", ...about("relevance") },
       });
     }
     if ("generated_from" in data && (typeof data.generated_from !== "string" || data.generated_from.trim() === "")) {
@@ -171,6 +248,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "error",
         message: `Invalid generated_from: ${describeValue(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
+        detail: { rule: "field-invalid", ...about("generated_from") },
       });
     }
     // `verification` (#394): `unverified` is the one value brain reads. Any
@@ -180,6 +258,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "warning",
         message: `Unrecognised verification: ${typeof data.verification === "string" ? `"${data.verification}"` : describeValue(data.verification)}. The only value brain reads is "unverified"; otherwise leave the field out`,
+        detail: { rule: "field-invalid", ...about("verification") },
       });
     }
     if (data.status === "archived" && data.relevance === "primary") {
@@ -187,6 +266,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         file: filePath,
         level: "warning",
         message: "status: archived contradicts relevance: primary; set relevance: historical",
+        detail: { rule: "archived-primary", field: "relevance", value: rawValue(data.relevance) },
       });
     }
 
@@ -198,6 +278,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
             file: filePath,
             level: "warning",
             message: `Tag "${tag}" should be lowercase and hyphenated (no spaces)`,
+            detail: { rule: "tag-format", field: "tags", value: String(tag) },
           });
         }
         const name = String(tag);
@@ -206,12 +287,14 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
             file: filePath,
             level: "warning",
             message: `Tag "${name}" is an alias in taxonomy.tags — use "${tagAliases[name]}"`,
+            detail: { rule: "tag-alias", field: "tags", value: name },
           });
         } else if (vocabulary && !vocabulary.has(name)) {
           issues.push({
             file: filePath,
             level: "warning",
             message: `Tag "${name}" is not in taxonomy.tags.vocabulary`,
+            detail: { rule: "tag-vocabulary", field: "tags", value: name },
           });
         }
       }
@@ -226,7 +309,7 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
         resolveAlias(link, aliasMap, filePath);
       if (resolved) continue;
       // `brain audit` words its broken-link findings with the same describer.
-      issues.push({ file: filePath, level: "warning", message: describeUnresolved(link) });
+      issues.push({ file: filePath, level: "warning", message: describeUnresolved(link), detail: { rule: "link-unresolved", target: link } });
     }
   }
 
@@ -243,8 +326,8 @@ export function validate(root: string, taxonomy: Taxonomy): ValidationIssue[] {
 function validateSupersedes(
   values: Map<string, unknown>,
   resolveTarget: (target: string, from: string) => string | null
-): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+): DetailedValidationIssue[] {
+  const issues: DetailedValidationIssue[] = [];
   const edges = new Map<string, string[]>();
   for (const [file, value] of values) {
     const targets = supersedesTargets(value);
@@ -253,6 +336,7 @@ function validateSupersedes(
         file,
         level: "error",
         message: `Invalid supersedes: ${describeValue(value)}. It must be one wiki-link target, "[[target]]" or target, or a non-empty list of them`,
+        detail: { rule: "field-invalid", field: "supersedes", value: rawValue(value) },
       });
       continue;
     }
@@ -260,7 +344,7 @@ function validateSupersedes(
     for (const target of targets) {
       const path = resolveTarget(target, file);
       if (path) resolved.push(path);
-      else issues.push({ file, level: "error", message: `Unresolved supersedes target: [[${target}]]` });
+      else issues.push({ file, level: "error", message: `Unresolved supersedes target: [[${target}]]`, detail: { rule: "supersedes-unresolved", field: "supersedes", target } });
     }
     edges.set(file, resolved);
   }
@@ -273,7 +357,12 @@ function validateSupersedes(
     if (!looped) continue;
     const members = [...component].sort();
     for (const file of members) {
-      issues.push({ file, level: "error", message: `supersedes cycle among ${members.join(", ")}` });
+      issues.push({
+        file,
+        level: "error",
+        message: `supersedes cycle among ${members.join(", ")}`,
+        detail: { rule: "supersedes-cycle", field: "supersedes", target: members.join(",") },
+      });
     }
   }
   return issues;
