@@ -83,8 +83,8 @@ export function createTrackerClient(root: BrainUiServices) {
     // turn or hello asks again.
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
-      trackers.getState().endRead(sessionId, result, epoch);
-      if (again.delete(sessionId)) refresh(sessionId);
+      const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
+      if (again.delete(sessionId) || ambiguous) refresh(sessionId);
     });
   }
 
@@ -113,6 +113,11 @@ export function createTrackerClient(root: BrainUiServices) {
     if (active !== null) leave(active);
   };
   const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
+  // Trackers taken in from another tab's write, when this tab wrote: read them.
+  const unsubscribeReads = trackers.subscribe((state) => {
+    if (state.pendingReads.length > 0) for (const sessionId of trackers.getState().takePendingReads()) refresh(sessionId);
+  });
+
   // Another tab of this root stored its trackers: take them in.
   const onStorage = (event: Event) => {
     const changedKey = (event as StorageEvent).key;
@@ -184,6 +189,7 @@ export function createTrackerClient(root: BrainUiServices) {
     dispose(): void {
       disposed = true;
       unsubscribe();
+      unsubscribeReads();
       again.clear();
       if (typeof window !== "undefined") window.removeEventListener("pagehide", leavePage);
       if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);

@@ -559,6 +559,20 @@ describe("persistence", () => {
     expect(stored).toMatchObject([{ sessionId: A, turnId: "turn-2", seen: null }]);
   });
 
+  test("a tracker taken in while this tab writes is read too", async () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const host: Host = { envelopes: new Map([["odysseus-circe", () => envelope("odysseus-circe", 1, { requestId: "req-c", turnId: "turn-c", state: "running", startedAt: 1 })]]), urls: [] };
+    const here = root({ storage, storagePrefix: "ithaca" }, host);
+    hello(here);
+    storage.setItem(k, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ sessionId: "odysseus-circe", requestId: "req-c", turnId: "turn-c", revision: 1, leftAt: 5, seen: null }] }));
+    // Before any storage event, this tab writes its own tracker.
+    here.stores.trackers.getState().track(A);
+    await settle();
+    expect(host.urls).toContain("/api/sessions/odysseus-circe/recovery");
+    expect(views(here).find((v) => v.sessionId === "odysseus-circe")).toMatchObject({ state: "running", settled: true });
+  });
+
   test("a storage event for another key, or a root that keeps nothing, changes nothing", () => {
     const memory = root({ storage: null });
     hello(memory, false);
@@ -686,6 +700,25 @@ describe("recovery (Recovery A)", () => {
     hello(r);
     await settle();
     expect(state(r, A)).toBe("unknown");
+  });
+
+  test("a held acceptance the envelope does not name is not assumed newer: the envelope stands and is read again", async () => {
+    let release!: () => void;
+    let reads = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { reads++; if (reads === 1) await gate; return envelope(A, 3, { requestId: "req-3", state: "queued" }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-1" });
+    // The read is in flight; an acceptance the envelope will not name arrives.
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-2" });
+    release();
+    await settle(); await settle();
+    expect(r.stores.trackers.getState().evidence[A]!.latest).toMatchObject({ requestId: "req-3", state: "queued" });
+    expect(reads).toBe(2);
+    // req-3's dispatch is recognised.
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-3", requestId: "req-3" });
+    expect(state(r, A)).toBe("running");
   });
 
   test("live frames that arrive during a read are applied after it", async () => {

@@ -85,7 +85,18 @@ export interface TrackerStoreState {
   /** Mark a read in flight. False when one already is. */
   beginRead(sessionId: string): boolean;
   /** Settle a read begun under `epoch`. */
-  endRead(sessionId: string, result: SessionRecoveryResult, epoch: number): void;
+  /**
+   * Settle a read begun under `epoch`. True when a frame held during the
+   * read named a request the envelope did not: which of the two is newer
+   * only another read can say.
+   */
+  endRead(sessionId: string, result: SessionRecoveryResult, epoch: number): boolean;
+  /**
+   * Sessions whose tracker this tab took in from another tab's write and
+   * that need a read; taking them empties the list.
+   */
+  pendingReads: string[];
+  takePendingReads(): string[];
   /**
    * The seen observer's report (D52 §4): it clears the tracker only when
    * the key is the latest turn's. An older key never clears a newer tracker.
@@ -227,7 +238,10 @@ export function createTrackerStore(env: StoreEnvironment) {
       const removed = Object.keys(before).filter((id) => !(id in after));
       const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
       const records = write(get(), before, changed, removed, replace);
-      if (records !== after) adopt(records);
+      if (records !== after) {
+        const moved = adopt(records);
+        if (moved.length > 0) set({ pendingReads: [...new Set([...get().pendingReads, ...moved])] });
+      }
     }
 
     /**
@@ -299,6 +313,7 @@ export function createTrackerStore(env: StoreEnvironment) {
       unconfirmed: {},
       refusedRequests: [],
       acceptedRequests: [],
+      pendingReads: [],
       createdFor: {},
       principalKey: stored.principalKey,
       recoverySupported: null,
@@ -400,21 +415,40 @@ export function createTrackerStore(env: StoreEnvironment) {
         const state = get();
         // A read begun before the set was deleted settles nothing: not even
         // the slot, which may already belong to a newer read.
-        if (epoch !== state.epoch) return;
+        if (epoch !== state.epoch) return false;
         const held = state.reading[sessionId];
-        if (!held) return;
+        if (!held) return false;
         const reading = { ...state.reading };
         delete reading[sessionId];
         set({ reading });
         let evidence = state.evidence[sessionId] ?? evidenceFromRecord(state.records[sessionId]);
         evidence = result.ok ? applySnapshot(evidence, result.recovery) : applyUnavailable(evidence, result.reason);
-        for (const event of held) evidence = applyLiveEvent(evidence, event);
+        // A held acceptance of a request the envelope does not name was
+        // accepted either before the envelope was taken (and is older than
+        // its latest) or after it (and is newer). Neither is assumed: the
+        // envelope stands, and another read decides.
+        const counted = result.ok ? result.recovery.latest.requestId : null;
+        let ambiguous = false;
+        for (const event of held) {
+          if (counted !== null && (event.kind === "queued" || event.kind === "running") && event.requestId !== null && event.requestId !== counted) {
+            ambiguous = true;
+            continue;
+          }
+          evidence = applyLiveEvent(evidence, event);
+        }
         const accepted = [
           ...(result.ok ? [result.recovery.latest.requestId] : []),
           ...held.flatMap((e) => (e.kind === "queued" || e.kind === "running" ? [e.requestId] : [])),
         ];
         remember(accepted);
         settleEvidence(sessionId, evidence, confirmed(get(), sessionId, accepted));
+        return ambiguous;
+      },
+
+      takePendingReads() {
+        const pendingReads = get().pendingReads;
+        if (pendingReads.length > 0) set({ pendingReads: [] });
+        return pendingReads;
       },
 
       accepted(requestIds) {
