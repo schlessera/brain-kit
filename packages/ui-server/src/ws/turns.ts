@@ -18,6 +18,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   DraftRef,
+  LocalExchange,
   MessageSource,
   QueuedFollowUpView,
   ThinkingLevel,
@@ -85,6 +86,20 @@ export interface QueuedFollowUp {
   queuedAt?: number;
   /** Its pill label (#1004), once the host's label model has written one. */
   label?: string;
+  /**
+   * Set when this message was first handed to the backend as a live
+   * follow-up and refused, because the backend had no running turn for it
+   * (#1063). Its source was recorded then, and the local exchanges its
+   * refused prompt took are carried here, so its own turn neither records
+   * it twice nor loses them.
+   */
+  refusedFollowUp?: { exchanges: LocalExchange[] };
+  /**
+   * The order the host received it in. A queue is kept in this order, so a
+   * refused live follow-up that rejoins it late still runs ahead of the
+   * messages sent after it (#1063).
+   */
+  sendOrder?: number;
 }
 
 /**
@@ -157,12 +172,15 @@ export interface FollowUpQueueChange {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp">
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
     bytes += attachment.data.length;
   }
+  // A refused follow-up holds the exchanges its prompt took until it runs.
+  const exchanges = entry.refusedFollowUp?.exchanges;
+  if (exchanges?.length) bytes += Buffer.byteLength(JSON.stringify(exchanges), "utf8");
   return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 
@@ -231,6 +249,12 @@ export interface RunningTurn {
    * Reset when a queued follow-up becomes the next turn.
    */
   lastResult: "success" | "error" | "cancelled" | null;
+  /**
+   * Live follow-ups handed to the backend whose delivery has not settled. A
+   * refused one rejoins the queue (#1063), so the slot lets them settle
+   * before it starts the next queued turn.
+   */
+  deliveries?: Set<Promise<void>>;
   /**
    * Correlation id the client minted for this NEW conversation, echoed back on
    * `session_info` so the client can tell its own turn's identity from a

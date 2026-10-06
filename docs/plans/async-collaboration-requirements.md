@@ -256,7 +256,7 @@ Stated before the requirements because five of them derive from it.
   (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:80-144`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:804-815`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:891-902`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
@@ -266,7 +266,7 @@ Stated before the requirements because five of them derive from it.
   promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:203-261`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:323-329`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:324-330`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.

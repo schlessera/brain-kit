@@ -9,6 +9,7 @@ import type {
   PricingRoute,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
@@ -390,7 +391,9 @@ async function runRetainedSession(
       // resumed session is known now; a new one is named by session_info.
       const recordSource = (sid: string): void =>
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
-      if (resumeId) recordSource(resumeId);
+      // A follow-up the backend refused had its source recorded when it was
+      // first handed over (#1063).
+      if (resumeId && !current.refusedFollowUp) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is
       // only marked carried by a prompt that is actually handed over. The
@@ -400,6 +403,7 @@ async function runRetainedSession(
       draftExchanges = [];
       const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
         ...drafted,
+        ...(current.refusedFollowUp?.exchanges ?? []),
         ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
       ]);
       turn.retryRequest = {
@@ -534,6 +538,11 @@ async function runRetainedSession(
       resumeId = turn.sessionId ?? resumeId;
       profileId = turn.providerId ?? profileId;
 
+      // A live follow-up still being delivered may yet be refused and rejoin
+      // the queue ahead of the messages sent after it: let it settle before
+      // the next of those starts (#1063). With nothing queued the slot ends
+      // as before; a delivery may outlive its turn.
+      if (!turn.cancelled && turn.queue.length > 0) await settleDeliveries(turn);
       if (!turn.cancelled) next = dequeue();
     }
   } finally {
@@ -594,6 +603,36 @@ function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Receipt order of chat messages, for `QueuedFollowUp.sendOrder` (#1063). */
+let nextSendOrder = 0;
+
+/**
+ * How long a slot waits for its live follow-ups' deliveries before it starts
+ * the next queued turn anyway. A backend settles a delivery as it takes the
+ * message, so this only bounds one that never settles.
+ */
+export const FOLLOW_UP_SETTLE_MS = 5_000;
+
+async function settleDeliveries(turn: RunningTurn): Promise<void> {
+  if (!turn.deliveries?.size) return;
+  // A cancel aborts the slot's controller; it must not wait out the bound.
+  const { signal } = turn.abortController;
+  if (signal.aborted) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const bound = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, FOLLOW_UP_SETTLE_MS);
+    onAbort = resolve;
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([Promise.allSettled([...turn.deliveries]), bound]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Apply the same queue budgets during routing and during a running turn. */
 function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp): void {
   const parked = queuedBytes(slot);
@@ -632,12 +671,22 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   // Queue it as the session's next turn; report queued immediately.
   try { host.catalog.clearRetryRequest?.(sessionId); }
   catch (err) { entry.releaseAuthorization(); throw err; }
-  // Accepted: it takes the session's next revision before it joins the queue.
-  const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
-  if (revision !== undefined) entry.revision = revision;
+  // In the order the host received them: only a refused live follow-up
+  // rejoins behind messages sent after it, and it goes back ahead of them.
+  const later = entry.sendOrder === undefined
+    ? -1
+    : slot.queue.findIndex((queued) => queued.sendOrder !== undefined && queued.sendOrder > entry.sendOrder!);
+  // Accepted: it takes the session's next revision before it joins the
+  // queue. One that rejoins ahead of later messages takes none: the latest
+  // acceptance is theirs, and recovery must keep answering for it (#964).
+  if (later === -1) {
+    const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
+    if (revision !== undefined) entry.revision = revision;
+  }
   entry.followUpId = crypto.randomUUID();
   entry.queuedAt = Date.now();
-  slot.queue.push(entry);
+  if (later === -1) slot.queue.push(entry);
+  else slot.queue.splice(later, 0, entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
   // the wall — every queued byte is held in this process until its turn runs.
@@ -708,6 +757,7 @@ export async function handleChatMessage(
     work,
   } = msg;
   const { coordinator } = host;
+  const sendOrder = ++nextSendOrder;
   // Exchanges sent with a message to a session that already exists are
   // recorded like `local_exchange` frames: the prompt handed over next
   // carries them, whichever of the paths below hands it over.
@@ -744,6 +794,7 @@ export async function handleChatMessage(
         ...(draftRef ? { draftRef } : {}),
         ...(work ? { work } : {}),
         releaseAuthorization: leaseFor(authorization, work),
+        sendOrder,
       });
     }
     return;
@@ -751,28 +802,75 @@ export async function handleChatMessage(
 
   if (runningTurn && sessionId) {
     const backend = runningTurn.backend;
+    // Built only when it is queued: the lease retains the principal.
+    const followUpEntry = (): QueuedFollowUp => ({
+      principalId: authorization.principalId,
+      authorization,
+      text,
+      attachments,
+      ...(files?.length ? { files } : {}),
+      ...(client ? { client } : {}),
+      ...(source ? { source } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(draftRef ? { draftRef } : {}),
+      ...(work ? { work } : {}),
+      releaseAuthorization: leaseFor(authorization, work),
+      sendOrder,
+    });
     // Inject natively only into a turn that has not streamed its result yet,
     // and never ahead of older messages queued during routing. Host work never
     // joins a running turn, and nothing joins a running host-work turn: each
     // needs its own turn identity to correlate its result (and keep its own
     // posture), and a follow-up would merge two requests (#957).
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
+    // Only into a turn the backend already holds, too: `startedAt` is set as
+    // the turn is handed to startTurn and cleared once that returns. Before
+    // then the slot is still resolving billing and the failure snapshot,
+    // a resumed or dequeued turn included, and the backend has no turn to
+    // inject into, so the message queues as the next turn instead (#1063).
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.startedAt !== undefined && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
       host.catalog.clearRetryRequest?.(sessionId);
       runningTurn.retryRequest = undefined;
+      // Recorded at the hand-off, not when followUp() settles: a backend may
+      // settle after its turn has ended and the recorder has finished. One the
+      // backend refuses keeps this event, since its sender did write during
+      // this turn, and then runs as its own turn below.
       runningTurn.recorder?.recordFollowUp(authorization.principalId);
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
-      const prompt = withLocalContext(withTrackFiles(text, files), host.catalog.takePendingLocalExchanges?.(sessionId) ?? []);
-      void (async () => {
+      const exchanges = host.catalog.takePendingLocalExchanges?.(sessionId) ?? [];
+      const prompt = withLocalContext(withTrackFiles(text, files), exchanges);
+      const deliveries = (runningTurn.deliveries ??= new Set());
+      const delivery: Promise<void> = (async () => {
         const releaseFollowUp = authorization.retain();
         try {
           await backend.followUp!({ sessionId, prompt, attachments });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          // The backend's turn can end before the host learns it has, for
+          // example when its input closes while it holds a result. The
+          // contract's "no running turn" refusal then means "run it next",
+          // like any message sent between turns (#1063).
+          const slot = err instanceof BackendRequestError
+            ? (coordinator.startingBySession.get(sessionId) ?? coordinator.bySession.get(sessionId))
+            : undefined;
+          // Not if its turn was cancelled meanwhile: that dropped everything
+          // pending in it, and a slot that has replaced it belongs to a later
+          // request.
+          let failure: unknown = err;
+          if (slot && !slot.cancelled && !runningTurn.cancelled) {
+            try {
+              queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
+              return;
+            } catch (queueErr) {
+              // Nothing else would report it: this runs detached.
+              failure = queueErr;
+            }
+          }
+          const message = failure instanceof Error ? failure.message : String(failure);
           host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
           host.sendToClients(
             withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)
@@ -781,21 +879,10 @@ export async function handleChatMessage(
           releaseFollowUp();
         }
       })();
+      deliveries.add(delivery);
+      void delivery.finally(() => deliveries.delete(delivery));
     } else {
-      queueFollowUp(host, ws, sessionId, runningTurn, {
-        principalId: authorization.principalId,
-        authorization,
-        text,
-        attachments,
-        ...(files?.length ? { files } : {}),
-        ...(client ? { client } : {}),
-        ...(source ? { source } : {}),
-        ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
-        ...(requestId ? { requestId } : {}),
-        ...(draftRef ? { draftRef } : {}),
-        ...(work ? { work } : {}),
-        releaseAuthorization: leaseFor(authorization, work),
-      });
+      queueFollowUp(host, ws, sessionId, runningTurn, followUpEntry());
     }
     return;
   }

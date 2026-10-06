@@ -467,6 +467,8 @@ export interface AgentBackend {
    * Inject a user message into a session's RUNNING turn (only when
    * capabilities.followUp). Frames keep flowing through that turn's bridge;
    * rejects with BackendRequestError when the session has no running turn.
+   * The host calls it only once it has handed the turn to startTurn, and
+   * queues a message refused that way as the session's next turn.
    */
   followUp?(req: FollowUpRequest): Promise<void>;
   /** Sessions this backend owns (its own transcript store). */
