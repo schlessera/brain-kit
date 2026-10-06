@@ -186,6 +186,18 @@ describe("createLabeller", () => {
   });
 });
 
+test("asking again for a text whose call outlived its deadline joins that call", async () => {
+  const settle: Array<(label: string) => void> = [];
+  const { provider, calls } = scripted(() => new Promise<string>((resolve) => settle.push(resolve)));
+  const labeller = createLabeller({ options: { provider, timeoutMs: 10 } });
+  expect(await labeller.label("follow-up:a", "Ask Aeolus about the winds")).toBeNull();
+  // The follow-up starts and its session asks for the same request.
+  const again = labeller.label("session:s", "Ask Aeolus about the winds");
+  settle.shift()!("Asking Aeolus");
+  expect(await again).toBe("Asking Aeolus");
+  expect(calls).toHaveLength(1);
+});
+
 describe("createPillLabels", () => {
   test("an older request's slow label never replaces the label of the request that followed it", async () => {
     const pending = new Map<string, (label: string) => void>();

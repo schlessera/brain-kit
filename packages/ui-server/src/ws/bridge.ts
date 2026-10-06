@@ -48,6 +48,7 @@ export function makeBridge(
   const draftPrincipalId = turn.principalId;
   const resumedSession = turn.sessionId !== null;
   let draftSettled = false;
+  let labelAsked = false;
   // Same reason as turnId: the host work this bridge's turn runs, not whatever
   // the slot runs after a late frame arrives.
   const work = turn.work;
@@ -86,6 +87,12 @@ export function makeBridge(
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
         catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        // The session's pill label follows its latest request (#1004), asked
+        // for once its row exists, so the answer always has a row to land on.
+        if (!labelAsked) {
+          labelAsked = true;
+          host.labels?.turnStarted(msg.sessionId, promptText);
+        }
         if (draftRef && !draftSettled) {
           draftSettled = true;
           acceptDraft(host, { draftRef, sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });

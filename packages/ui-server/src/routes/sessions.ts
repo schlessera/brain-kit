@@ -6,6 +6,11 @@ import type { BackendRegistry } from "../agent/backend.js";
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
   db: Database;
+  /**
+   * Whether this host labels pills (#1004). Off, stored labels from an
+   * earlier run are not listed: nothing would refresh them.
+   */
+  labels?: boolean;
 }): Hono {
   const { registry, db } = deps;
   const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
@@ -68,7 +73,7 @@ export function createSessionRoutes(deps: {
                 ? { numTurns: stored.turns }
                 : {}),
               // The host's pill label (#1004); a backend never supplies one.
-              ...(stored?.label ? { label: stored.label } : {}),
+              ...(deps.labels && stored?.label ? { label: stored.label } : {}),
               backendId: backend.id,
             };
           })

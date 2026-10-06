@@ -388,11 +388,8 @@ async function runRetainedSession(
       // The message's source is recorded in the order the backend receives
       // its text, which is the order replay counts identical texts in. A
       // resumed session is known now; a new one is named by session_info.
-      // The session's pill label follows its latest request (#1004).
-      const recordSource = (sid: string): void => {
+      const recordSource = (sid: string): void =>
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
-        host.labels?.turnStarted(sid, text);
-      };
       if (resumeId) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is

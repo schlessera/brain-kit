@@ -568,7 +568,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
-  app.route("/api", createSessionRoutes({ registry, db }));
+  app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null }));
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));

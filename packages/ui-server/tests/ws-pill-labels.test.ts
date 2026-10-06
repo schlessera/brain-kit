@@ -43,7 +43,7 @@ afterEach(() => {
  * Every turn names the session and waits until the test finishes it. The
  * label model answers from {@link LABELS}, or holds while `hold` is set.
  */
-function setup(options: { labeller?: boolean; fail?: boolean } = {}) {
+function setup(options: { labeller?: boolean; fail?: boolean; namingDelayMs?: number } = {}) {
   const db = createUiDb(":memory:");
   const finishers: Array<() => void> = [];
   const prompts: string[] = [];
@@ -64,6 +64,8 @@ function setup(options: { labeller?: boolean; fail?: boolean } = {}) {
     sessions: [{ id: SESSION, title: "Chart the way home", createdAt: 1, lastActiveAt: 2, totalCostUsd: 0, numTurns: 1 }],
     startTurn: async ({ bridge, prompt, signal }) => {
       prompts.push(prompt);
+      // A backend may take a while to name the session it resumes.
+      if (options.namingDelayMs) await new Promise((r) => setTimeout(r, options.namingDelayMs));
       bridge.emit({ type: "session_info", sessionId: SESSION, isNew: prompts.length === 1 });
       await new Promise<void>((resolve) => {
         finishers.push(resolve);
@@ -103,12 +105,12 @@ function setup(options: { labeller?: boolean; fail?: boolean } = {}) {
     await until(() => finishers.length === 1 && host.coordinator.bySession.has(SESSION));
   }
   async function listed(): Promise<Record<string, unknown>> {
-    const res = await createSessionRoutes({ registry, db }).request("/sessions");
+    const res = await createSessionRoutes({ registry, db, labels: host.labels !== null }).request("/sessions");
     const body = (await res.json()) as { sessions: Array<Record<string, unknown>> };
     return body.sessions.find((s) => s.id === SESSION)!;
   }
   return {
-    host, db, prompts, finishers, asked, connect, busy, listed,
+    host, db, catalog, prompts, finishers, asked, connect, busy, listed,
     hold: (on: boolean) => { hold = on; },
     releaseHeld: () => { for (const release of held.splice(0)) release(); },
   };
@@ -188,6 +190,17 @@ describe("pill labels (#1004)", () => {
     expect((await s.listed()).title).toBe("Chart the way home");
   });
 
+  test("a resumed session the host has no row for yet keeps the label its first turn gets", async () => {
+    const s = setup({ namingDelayMs: 40 });
+    const client = await s.connect();
+    // The backend lists the session; this host has never stored it.
+    client.send({ type: "chat_message", text: "Chart the way home", sessionId: SESSION, requestId: "req-resume" });
+    await until(() => s.finishers.length === 1);
+    await until(() => s.asked.length === 1);
+    await settle();
+    expect((await s.listed()).label).toBe("Route home");
+  });
+
   test("with the labeller off the host sends exactly what it sent before", async () => {
     const s = setup({ labeller: false });
     const client = await s.connect();
@@ -199,6 +212,10 @@ describe("pill labels (#1004)", () => {
     expect(client.frames("session_queue")[0].followUps[0]).not.toHaveProperty("label");
     expect(await s.listed()).not.toHaveProperty("label");
     expect(s.asked).toEqual([]);
+    // A label an earlier run stored is not listed: nothing would refresh it.
+    s.catalog.saveSessionLabel!(SESSION, "Route home", "earlier-run");
+    expect(s.catalog.sessionLabel!(SESSION)?.label).toBe("Route home");
+    expect(await s.listed()).not.toHaveProperty("label");
     expect(s.host.labels).toBeNull();
   });
 });

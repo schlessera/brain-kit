@@ -93,7 +93,6 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
   });
   // Answers by text hash, oldest first; a re-read moves an entry to the end.
   const cache = new Map<string, string | null>();
-  const inFlight = new Map<string, Promise<string | null>>();
   const failedItems = new Set<string>();
   const waiting: Array<() => void> = [];
   let running = 0;
@@ -138,44 +137,47 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
   type CallResult = { outcome: LabelOutcome; label: string | null; err?: unknown };
 
   /**
-   * Ask the provider once. The caller hears back at the deadline at the
-   * latest, waiting for a slot included, and a call whose caller has already
-   * given up is never started. A started call keeps its slot until the
-   * provider settles: a
-   * provider that stalls cannot be handed more calls than the limit, and an
-   * answer that arrives late is still kept for the next ask.
+   * One provider call for one text, shared by everyone who asks for that text
+   * while it is pending. It holds its slot until the provider settles, so a
+   * provider that stalls is never handed more calls than the limit, and it
+   * stays registered until then, so asking again for the same text joins it
+   * rather than paying for a second call. An answer that arrives after every
+   * asker gave up is still kept for the next ask. A call that gets its slot
+   * after every asker gave up is not started.
    */
-  function call(text: string, hash: string): Promise<CallResult> {
-    return new Promise<CallResult>((resolve) => {
-      let answered = false;
-      const answer = (result: CallResult) => {
-        if (answered) return;
-        answered = true;
-        resolve(result);
-      };
-      // The deadline covers the wait for a slot as well as the call.
-      const timer = setTimeout(() => answer({ outcome: "timeout", label: null }), timeoutMs);
-      void slot(async () => {
-        // Nobody is waiting for a call that timed out before it got a slot.
-        if (answered) return;
-        let result: CallResult;
-        try {
-          const raw = await provider.complete({
-            system: LABEL_SYSTEM_PROMPT,
-            prompt: text.trim().slice(0, LABEL_PROMPT_CHARS),
-            maxTokens: 24,
-          });
-          const label = typeof raw === "string" ? normaliseLabel(raw) : null;
-          result = { outcome: label ? "labelled" : "empty", label };
-        } catch (err) {
-          result = { outcome: "error", label: null, err };
-        } finally {
-          clearTimeout(timer);
-        }
-        if (answered && result.label) remember(hash, result.label);
-        answer(result);
-      });
+  interface Flight {
+    askers: number;
+    done: Promise<CallResult>;
+  }
+  const inFlight = new Map<string, Flight>();
+
+  function fly(hash: string, text: string): Flight {
+    // Its first asker counts before the call can start, so it does start.
+    const flight: Flight = { askers: 1, done: Promise.resolve({ outcome: "timeout", label: null }) };
+    inFlight.set(hash, flight);
+    flight.done = slot(async (): Promise<CallResult> => {
+      try {
+        if (flight.askers === 0) return { outcome: "timeout", label: null };
+        const raw = await provider.complete({
+          system: LABEL_SYSTEM_PROMPT,
+          prompt: text.trim().slice(0, LABEL_PROMPT_CHARS),
+          maxTokens: 24,
+        });
+        const label = typeof raw === "string" ? normaliseLabel(raw) : null;
+        const outcome: LabelOutcome = label ? "labelled" : "empty";
+        calls?.add(1, { outcome, provider: provider.id });
+        // A text with no usable answer is not asked again either.
+        remember(hash, label);
+        return { outcome, label };
+      } catch (err) {
+        // An error may pass: it is not kept.
+        calls?.add(1, { outcome: "error", provider: provider.id });
+        return { outcome: "error", label: null, err };
+      } finally {
+        inFlight.delete(hash);
+      }
     });
+    return flight;
   }
 
   return {
@@ -188,23 +190,30 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
         remember(hash, label);
         return label;
       }
-      const shared = inFlight.get(hash);
-      if (shared) return shared;
-      if (waiting.length >= LABEL_MAX_WAITING) {
-        calls?.add(1, { outcome: "skipped_busy", provider: provider.id });
-        reportOnce(item, "skipped_busy");
-        return null;
+      let flight = inFlight.get(hash);
+      if (!flight) {
+        if (waiting.length >= LABEL_MAX_WAITING) {
+          calls?.add(1, { outcome: "skipped_busy", provider: provider.id });
+          reportOnce(item, "skipped_busy");
+          return null;
+        }
+        flight = fly(hash, text);
+      } else {
+        flight.askers++;
       }
-      const work = call(text, hash).then(({ outcome, label, err }) => {
-        calls?.add(1, { outcome, provider: provider.id });
-        // A timeout or an error may pass; only an answer is kept.
-        if (outcome === "labelled" || outcome === "empty") remember(hash, label);
-        if (!label) reportOnce(item, outcome, err);
-        return label;
-      });
-      inFlight.set(hash, work);
-      void work.finally(() => inFlight.delete(hash));
-      return work;
+      // The deadline covers waiting for a slot as well as the call.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        flight.done,
+        new Promise<CallResult>((resolve) => {
+          timer = setTimeout(() => resolve({ outcome: "timeout", label: null }), timeoutMs);
+        }),
+      ]);
+      clearTimeout(timer);
+      flight.askers--;
+      if (result.outcome === "timeout") calls?.add(1, { outcome: "timeout", provider: provider.id });
+      if (!result.label) reportOnce(item, result.outcome, result.err);
+      return result.label;
     },
   };
 }
