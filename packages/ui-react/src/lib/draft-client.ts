@@ -153,6 +153,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       // Emptied after a save that got no answer: ask what the host holds,
       // and delete what it stored, rather than let a refresh bring it back.
       const read = await api.get(d.draftId);
+      // The lost save created revision 1. A later one is another device's
+      // edit since: never deleted unseen, it is a conflict on the empty draft.
+      if (read.ok && read.value.revision > 1) {
+        drafts.setState((s) => (s.drafts[d.draftId] ? { drafts: { ...s.drafts, [d.draftId]: { ...s.drafts[d.draftId]!, uncertain: false, host: { revision: read.value.revision, edit: -1, sessionId: read.value.sessionId, attachmentIds: read.value.attachments.map((a) => a.attachmentId), updatedAt: read.value.updatedAt } } } } : s));
+        drafts.getState().conflictWith(d.draftId, read.value, true);
+        return;
+      }
       if (read.ok) {
         const result = await api.remove(d.draftId, read.value.revision);
         if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result); return; }
@@ -443,6 +450,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (held.sessionId === null) openOwnNewChat(held);
       const next = drafts.getState().resend(requestId, nextRequestId);
       if (!next) return false;
+      // The session's tracker waits on the request now sent, not the one replaced.
+      root.stores.trackers.setState((s) => {
+        const rekey = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, v === requestId ? nextRequestId : v]));
+        return { unconfirmed: rekey(s.unconfirmed), createdFor: rekey(s.createdFor) };
+      });
       restoreRows(next, next.sessionId);
       const correlation = next.sessionId ? undefined : chat.getState().startDraftTurn();
       const message = { ...next.message, ...(correlation ? { draftId: correlation } : {}) };

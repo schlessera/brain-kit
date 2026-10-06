@@ -264,7 +264,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     }
 
     function put(draft: ComposerDraft) {
-      set((state) => ({ drafts: { ...state.drafts, [draft.draftId]: draft } }));
+      set((state) => ({
+        drafts: { ...state.drafts, [draft.draftId]: draft },
+        // The new-chat view never shares a draft with a session: one that
+        // gains a session (bound here or on another device) leaves it.
+        ...(draft.sessionId !== null && state.fresh === draft.draftId ? { fresh: mintDraftId() } : {}),
+      }));
     }
 
     function drop(draftId: string, session: string | null = null) {
@@ -618,6 +623,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           if (draft.sessionId !== null) {
             const mine = Object.values(state.drafts).find((d) => d.sessionId === draft.sessionId && (hasContent(d) || d.host));
             if (mine) { get().conflictWith(mine.draftId, draft, false); return; }
+          }
+          // An id handed to the session before its draft arrived goes to this
+          // one: work begun on it (an image decoding) lands here.
+          if (draft.sessionId !== null) {
+            const handed = minted.get(draft.sessionId);
+            if (handed && !state.drafts[handed]) { successors.set(handed, draft.draftId); minted.delete(draft.sessionId); }
           }
           put(fromHost(draft));
           return;

@@ -372,6 +372,40 @@ describe("orphans, continued", () => {
   });
 });
 
+describe("uncertain answers, continued", () => {
+  test("an emptied draft whose lost save another device has edited since is a conflict, not a delete", async () => {
+    const host = fakeHost();
+    const { drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    host.loseNextPut();
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => drafts().drafts[id]?.uncertain === true);
+    host.rows.set(id, { ...host.rows.get(id)!, revision: 2, text: "Ask Aeolus, from the phone" });
+    drafts().edit(id, ITHACA, { text: "" });
+    await until(() => drafts().drafts[id]?.conflict !== null && drafts().drafts[id]?.conflict !== undefined);
+    expect(host.rows.get(id)?.deleted, "the other device's words survive").toBeUndefined();
+    expect(drafts().drafts[id]!.conflict!.other.text).toBe("Ask Aeolus, from the phone");
+  });
+
+  test("Send again moves the session's unconfirmed tracker to the new request", async () => {
+    const host = fakeHost();
+    const { ui, socket, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    drafts().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "Ask Aeolus", attachments: [], message: { type: "chat_message", text: "Ask Aeolus", sessionId: ITHACA, requestId: "req-1", source: "typed" } }, "Ask Aeolus");
+    socket.close();
+    await until(() => drafts().sends["req-1"]?.state === "unconfirmed");
+    ui.stores.trackers.getState().track(ITHACA, { unconfirmedRequestId: "req-1", onlyUnconfirmed: true });
+    ui.connection.reconnectNow();
+    const next = FixtureSocket.last!;
+    next.open();
+    next.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true } });
+    expect(ui.connection.drafts.resend("req-1")).toBe(true);
+    const sent = next.frames("chat_message").at(-1)!;
+    expect(ui.stores.trackers.getState().unconfirmed[ITHACA]).toBe(sent.requestId);
+  });
+});
+
 describe("capacity", () => {
   test("a send that consumes a saved draft frees a place for one refused as full", async () => {
     const host = fakeHost();

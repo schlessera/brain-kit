@@ -451,6 +451,26 @@ describe("the host's versions", () => {
     }
   });
 
+  test("an image begun in an empty session composer lands in the draft restored for it meanwhile", () => {
+    const { state } = store();
+    const handed = state().idFor(ITHACA);
+    state().restore(hostDraft({ draftId: "d-phone", sessionId: ITHACA, text: "From the phone" }));
+    state().edit(handed, ITHACA, { attachments: [image("late.png")] });
+    const all = Object.values(state().drafts).filter((d) => d.sessionId === ITHACA);
+    expect(all, "one draft for the session").toHaveLength(1);
+    expect(all[0]).toMatchObject({ draftId: "d-phone", text: "From the phone" });
+    expect(all[0]!.attachments).toHaveLength(1);
+  });
+
+  test("the open new chat's draft bound on another device leaves the new-chat view", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Letter to Penelope" });
+    state().restore(hostDraft({ draftId: first, sessionId: ITHACA, revision: 2, text: "Letter to Penelope" }));
+    expect(state().fresh, "a fresh new chat").not.toBe(first);
+    expect(state().idFor(null)).not.toBe(state().idFor(ITHACA));
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);
