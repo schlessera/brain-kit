@@ -60,6 +60,8 @@ beforeAll(async () => {
       const toolUseId = `wax-${sequence}`;
       const decision = await bridge.requestPermission({ toolUseId, toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command", description: "Seal the crew's ears with wax." });
       decisions.set(toolUseId, decision.behavior);
+      // The tool ran (or was refused), and every connection hears it.
+      bridge.emit({ type: "tool_result", sessionId, toolUseId, output: decision.behavior === "allow" ? "Ears sealed." : "Denied by user", isError: decision.behavior !== "allow" });
       transcript.push({ role: "assistant", content: `Completed ${prompt}`, toolCalls: [] });
       bridge.emit({ type: "text_delta", sessionId, text: `Completed ${prompt}` });
       bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
@@ -124,6 +126,52 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       await page.getByText("Completed Row past the Sirens", { exact: true }).first().waitFor();
       expect([...decisions.values()]).toEqual(["allow"]);
       expect((await transcript(page)).cards).toBe(0);
+    } finally { await context.close(); }
+  });
+
+  test("answered from a second page, the first page's restored card reads answered on another device and sends nothing", async () => {
+    const context = await browser!.newContext();
+    await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const first = await context.newPage();
+    const decided = decisions.size;
+    // Every approval frame the first page sends, from its first socket on.
+    const replies: string[] = [];
+    first.on("websocket", (ws) => ws.on("framesent", ({ payload }) => {
+      const text = typeof payload === "string" ? payload : payload.toString();
+      if (/"type":"tool_(approval|denial)"/.test(text)) replies.push(text);
+    }));
+    try {
+      await first.goto(origin);
+      await connected(first);
+      const composer = first.locator("textarea.bk-composer");
+      await composer.fill("Steer clear of Scylla");
+      await composer.press("Enter");
+      await first.locator("[data-approval-card]").waitFor();
+      await first.reload();
+      await connected(first);
+      await first.locator("[data-restored-approval]").waitFor();
+      // The host still lists it: the restored card is answerable here.
+      expect((await transcript(first)).cards).toBe(1);
+
+      // The same session, from a second page, answered there.
+      const second = await context.newPage();
+      await second.goto(origin);
+      await connected(second);
+      const card = second.locator("[data-approval-card]");
+      await card.waitFor();
+      // Entrances settle before the click (#992); the pending dot breathes forever.
+      await second.waitForFunction("document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity)");
+      await card.getByRole("button", { name: "Allow", exact: true }).click();
+      await second.getByText("Completed Steer clear of Scylla", { exact: true }).first().waitFor();
+
+      await first.locator("[data-restored-closure='answered']").waitFor();
+      const after = await transcript(first);
+      expect(after.text).toContain("answered on another device");
+      expect(after.cards).toBe(0);
+      expect(await first.getByRole("button", { name: "Allow", exact: true }).count()).toBe(0);
+      expect(decisions.size).toBe(decided + 1);
+      expect([...decisions.values()].at(-1)).toBe("allow");
+      expect(replies).toEqual([]);
     } finally { await context.close(); }
   });
 });

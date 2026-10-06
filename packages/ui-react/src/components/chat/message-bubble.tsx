@@ -4,6 +4,7 @@ import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState } from "react";
+import { useStore } from "zustand";
 import type {
   ChatMessage,
   ToolCall,
@@ -96,6 +97,7 @@ export const MessageBubble = memo(function MessageBubble({
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
   const reducedMotion = useReducedMotion();
+  const shellStartedAt = useShellStartedAt(message);
 
   return (
     <motion.div
@@ -106,7 +108,7 @@ export const MessageBubble = memo(function MessageBubble({
     >
       <TurnHeader
         who={isUser ? "You" : root.config.assistantName}
-        when={formatTime(message.timestamp)}
+        when={message.turnShell ? (shellStartedAt !== null ? formatTime(shellStartedAt) : undefined) : formatTime(message.timestamp)}
         voice={isUser && (message.source === "voice-dictate" || message.source === "voice-conversation") ? message.source : undefined}
         effort={isUser && message.thinkingLevel !== undefined ? (
           message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
@@ -485,6 +487,21 @@ function ThinkingSection({
       onOpenChange={setExpanded}
     />
   );
+}
+
+/**
+ * A turn shell's header time (#1072, D52 §4): the host's `startedAt` for its
+ * turn, when the recovery envelope's latest turn is that turn. Otherwise
+ * none: the shell was drawn on this page's clock, which is not the turn's.
+ */
+function useShellStartedAt(message: ChatMessage): number | null {
+  const root = useBrainUiRoot();
+  const sessionId = useChatStore((s) => s.activeSessionId);
+  return useStore(root.stores.trackers, (s) => {
+    if (!message.turnShell || !message.turnId || sessionId === null || s.recoverySupported !== true) return null;
+    const latest = s.evidence[sessionId]?.latest;
+    return latest && latest.turnId === message.turnId ? latest.startedAt : null;
+  });
 }
 
 function formatTime(timestamp: number): string {

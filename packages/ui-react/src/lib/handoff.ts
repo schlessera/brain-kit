@@ -9,7 +9,7 @@ import {
   HANDOFF_MAX_CHARS,
   HANDOFF_MAX_REFERENCES,
 } from "@schlessera/brain-ui-sdk/protocol";
-import type { ChatMessage, SessionChat } from "../stores/chat-state.js";
+import { awaitsDecision, type ChatMessage, type SessionChat } from "../stores/chat-state.js";
 
 export interface HandoffSnapshot {
   /** Settled messages, in order; the running turn is not among them. */
@@ -51,7 +51,7 @@ export function snapshotSource(
   }
   const messages = all.slice(0, end);
   const pendingApprovals = all.reduce(
-    (n, message) => n + message.toolCalls.filter((tool) => tool.status === "pending_approval").length,
+    (n, message) => n + message.toolCalls.filter(awaitsDecision).length,
     0
   );
   return { messages, running, pendingApprovals };

@@ -7,7 +7,7 @@ import type { ActivitySpan, ActivitySpanEvent } from "@schlessera/brain-ui-sdk/p
 
 import { useActivityStore, childSpans, eventsFor, spanForTool } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { useChatStore, activeChat } from "../../stores/chat-store.js";
+import { useChatStore, activeChat, awaitsDecision } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { getToolLabel, formatDuration } from "./tool-views.js";
 import { SpanPayload, SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
@@ -41,7 +41,7 @@ export function SubagentView({
     useShallow((s) => {
       const chat = activeChat(s);
       const last = chat.messages.at(-1);
-      return (last?.toolCalls ?? []).filter((t) => t.status === "pending_approval");
+      return (last?.toolCalls ?? []).filter(awaitsDecision);
     })
   );
 

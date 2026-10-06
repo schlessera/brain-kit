@@ -4386,7 +4386,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:267`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:269`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4988,6 +4988,32 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+
+> **2026-10-06 — R3's read-only card and the shell's time, implemented by
+> #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,
+> applied by the #948 tracker client, whose recovery read now also covers a
+> session that holds a restored card. Only a read that began after the card
+> was restored can close it by absence. Readings of the text above:
+>
+> - `answered on another device`: a `tool_result` arrived while the card was
+>   still waiting on this page, or the envelope no longer lists it while the
+>   turn that raised it is still `latest`'s running turn. During its turn the
+>   host drops a pending approval only on a decision; the turn's end drains
+>   the rest.
+> - `ended with the turn`: a terminal frame for that turn, an envelope whose
+>   latest turn is that turn and is terminal or `unknown`, or is a different
+>   turn, or `session not found`.
+> - `no longer yours to answer`: a 401/403 read for any session, or a
+>   revocation. Every restored card in every buffer takes it and drops its
+>   request and turn identities.
+> - Absent from `pending[]` with a newer request only queued, or with an
+>   unknown latest that names no turn, or in an envelope rejected as a
+>   rollback or a contradiction: no fact says why. The controls go and no
+>   word is printed until a frame or the next read says which. A closed
+>   card's request is settled in the tracker evidence too, and a late
+>   duplicate of its request does not reopen it.
+> - The shell's header time is `latest.startedAt` when `latest.turnId` is the
+>   shell's turn. Otherwise, and without the capability, no time is printed.
 
 ### 5. Per-session drafts, stored on the host (storage C)
 

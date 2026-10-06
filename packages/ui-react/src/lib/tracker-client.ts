@@ -1,7 +1,8 @@
 import { SESSION_RECOVERY_CAPABILITY, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { isSettledExchange, pendingApprovals, type ChatState } from "../stores/chat-state.js";
-import { isWork, trackerEventsForFrame } from "./trackers.js";
+import { applySnapshot, evidenceFromRecord, isWork, trackerEventsForFrame } from "./trackers.js";
+import { answeredByResult, closureFromEnvelope, openRestoredCards, type RestoredApprovalClosure } from "./restored-approvals.js";
 
 /**
  * Keeps one root's trackers (D52 §4, #948) in step with its chat state and
@@ -93,19 +94,91 @@ export function createTrackerClient(root: BrainUiServices) {
     }
   }
 
+  /** The host advertises recovery: restored cards follow its envelope (#1072). */
+  const recovering = () => trackers.getState().recoverySupported === true;
+
+  /**
+   * Close restored cards, and settle their requests in the session's
+   * evidence: a closed card waits on nobody, even when a frame held behind a
+   * read listed it again.
+   */
+  function closeRestored(sessionId: string, closures: Array<{ toolUseId: string; closure: RestoredApprovalClosure }>): void {
+    if (closures.length === 0) return;
+    chat.getState().closeRestoredApprovals(sessionId, closures);
+    settleRequests(sessionId, closures.map((c) => c.toolUseId));
+  }
+
+  function settleRequests(sessionId: string, requestIds: string[]): void {
+    const store = trackers.getState();
+    if (requestIds.length === 0 || (!store.evidence[sessionId] && !store.reading[sessionId])) return;
+    store.live(sessionId, requestIds.map((requestId) => ({ kind: "settled" as const, requestId })));
+  }
+
+  /**
+   * An unauthorized read: no restored card is this principal's to answer.
+   * Every one is revoked, and what each session's evidence still lists for
+   * them goes too, so no tracker asks for a card that can no longer answer.
+   */
+  function revokeRestored(): void {
+    const byBuffer = Object.entries(chat.getState().buffers).map(([sessionId, buffer]) => ({
+      sessionId,
+      ids: buffer.messages.flatMap((m) => m.toolCalls.filter((t) => t.restored).map((t) => t.id)),
+    }));
+    chat.getState().revokeRestoredApprovals();
+    for (const { sessionId, ids } of byBuffer) settleRequests(sessionId, ids);
+  }
+
   function refresh(sessionId: string): void {
     if (disposed || trackers.getState().recoverySupported !== true) return;
     if (root.stores.connection.getState().wsStatus !== "connected") return;
     const store = trackers.getState();
-    if (!store.records[sessionId]) return;
+    // A tracked session, or one holding a restored card: the card's controls
+    // follow this same read (#1072), so there is no second poller.
+    if (!store.records[sessionId] && openRestoredCards(chat.getState().buffers[sessionId]).length === 0) return;
     if (!store.beginRead(sessionId)) { again.add(sessionId); return; }
     const epoch = store.epoch;
+    // Only cards restored before the read began: a request raised after the
+    // host took its snapshot is not in it, and its absence proves nothing.
+    const cards = openRestoredCards(chat.getState().buffers[sessionId]);
     // Bounded, so a stalled request cannot hold the session's live frames
     // forever: a timeout reads as host unreachable, and the next end of a
     // turn or hello asks again.
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
+      const current = trackers.getState().epoch === epoch;
+      // Whether the evidence accepts the envelope itself, judged before the
+      // frames held behind it are replayed: live proof clears a rollback
+      // mark, but it does not make the rejected snapshot's pending list true.
+      const before = trackers.getState().evidence[sessionId] ?? evidenceFromRecord(trackers.getState().records[sessionId]);
+      const rejected = result.ok && applySnapshot(before, result.recovery).rolledBack;
       const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
+      // After the envelope and the frames held behind it are applied: a
+      // closure then settles whatever they listed for the card.
+      if (current) {
+        // A card decided on this page while the read was out is not the
+        // host's to close: its absence is this page's own answer.
+        const open = new Set(openRestoredCards(chat.getState().buffers[sessionId]).map((c) => c.toolUseId));
+        const still = cards.filter((card) => open.has(card.toolUseId));
+        if (result.ok) {
+          // A snapshot the evidence rejected (a rollback, or a contradiction
+          // at one revision) proves nothing, its pending list included: the
+          // cards stop taking a decision, with no reason, until a read the
+          // evidence accepts.
+          if (rejected) {
+            closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "unlisted" as const })));
+          } else {
+            const closures = still.map((card) => ({ toolUseId: card.toolUseId, closure: closureFromEnvelope(card, result.recovery) }));
+            // Listed again by an envelope that counts: live again.
+            chat.getState().reopenRestoredApprovals(sessionId, closures.filter((c) => c.closure === null).map((c) => c.toolUseId));
+            closeRestored(sessionId, closures.flatMap((c) => (c.closure ? [{ toolUseId: c.toolUseId, closure: c.closure }] : [])));
+          }
+        } else if (result.reason === "unauthorized") {
+          revokeRestored();
+        } else if (result.reason === "session_not_found") {
+          // The session is gone, and the turn that raised the card with it.
+          closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "ended" as const })));
+        }
+      }
       // A card decided while the read held its approval's frame.
       settleDecidedApprovals(chat.getState());
       if (again.delete(sessionId) || ambiguous) refresh(sessionId);
@@ -113,15 +186,36 @@ export function createTrackerClient(root: BrainUiServices) {
   }
 
   function refreshAll(): void {
-    for (const sessionId of Object.keys(trackers.getState().records)) refresh(sessionId);
+    const sessions = new Set(Object.keys(trackers.getState().records));
+    for (const [sessionId, buffer] of Object.entries(chat.getState().buffers)) {
+      if (openRestoredCards(buffer).length > 0) sessions.add(sessionId);
+    }
+    for (const sessionId of sessions) refresh(sessionId);
+  }
+
+  /**
+   * Restored cards in buffers that changed (#1072): one a `tool_result`
+   * answered while it waited here is closed as answered, and a newly
+   * restored one asks the host whether it is still pending.
+   */
+  function reconcileRestored(state: ChatState, prev: ChatState): void {
+    if (!recovering()) return;
+    for (const [sessionId, buffer] of Object.entries(state.buffers)) {
+      const before = prev.buffers[sessionId];
+      if (buffer === before) continue;
+      closeRestored(sessionId, answeredByResult(before, buffer).map((toolUseId) => ({ toolUseId, closure: "answered" as const })));
+      const known = new Set(openRestoredCards(before).map((c) => c.toolUseId));
+      if (openRestoredCards(chat.getState().buffers[sessionId]).some((c) => !known.has(c.toolUseId))) refresh(sessionId);
+    }
   }
 
   // Leaving by selection or New chat moves the view off the session. A
   // draft becoming a session (`bindDraftSession`) moves it ONTO one, which
   // leaves nothing.
   let previous = chat.getState().activeSessionId;
-  const unsubscribe = chat.subscribe((state) => {
+  const unsubscribe = chat.subscribe((state, prev) => {
     settleDecidedApprovals(state);
+    reconcileRestored(state, prev);
     const left = previous;
     previous = state.activeSessionId;
     if (left !== null && left !== state.activeSessionId) leave(left);
@@ -139,7 +233,9 @@ export function createTrackerClient(root: BrainUiServices) {
   };
   const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
   // Trackers taken in from another tab's write, when this tab wrote: read them.
-  const unsubscribeReads = trackers.subscribe((state) => {
+  const unsubscribeReads = trackers.subscribe((state, prev) => {
+    // A revocation: no restored card is this principal's to answer (#1072).
+    if (state.suspended && !prev.suspended && state.recoverySupported === true) chat.getState().revokeRestoredApprovals();
     if (state.pendingReads.length > 0) for (const sessionId of trackers.getState().takePendingReads()) refresh(sessionId);
   });
 
@@ -162,6 +258,13 @@ export function createTrackerClient(root: BrainUiServices) {
       if (disposed) return;
       const sessionId = (msg as { sessionId?: string }).sessionId;
       if (!sessionId) return;
+      // The turn that raised a restored card ended: the card ended with it.
+      const frameTurn = (msg as { turnId?: string }).turnId;
+      if (recovering() && frameTurn && (msg.type === "result" || (msg.type === "status" && msg.status === "cancelled"))) {
+        closeRestored(sessionId, openRestoredCards(chat.getState().buffers[sessionId])
+          .filter((card) => card.turnId === frameTurn)
+          .map((card) => ({ toolUseId: card.toolUseId, closure: "ended" as const })));
+      }
       const store = trackers.getState();
       if (msg.type === "error" && msg.requestId && !(msg as { turnId?: string }).turnId) {
         // Refused, unless the host had already accepted it: an accepted
@@ -180,7 +283,11 @@ export function createTrackerClient(root: BrainUiServices) {
       }
       // A queue report lists requests the host holds: each was accepted.
       if (msg.type === "session_queue") store.accepted([...msg.followUps.map((f) => f.requestId), msg.started?.requestId]);
-      const events = trackerEventsForFrame(msg);
+      // A late duplicate of a request whose restored card the host already
+      // closed with a reason waits on nobody: it is not pending work.
+      const closedHere = (requestId: string) => chat.getState().buffers[sessionId]?.messages.some((m) =>
+        m.toolCalls.some((t) => t.id === requestId && t.restored && t.readOnly !== undefined && t.readOnly !== "unlisted")) ?? false;
+      const events = trackerEventsForFrame(msg).filter((e) => e.kind !== "pending" || e.entry.kind !== "approval" || !closedHere(e.entry.requestId));
       const tracked = store.records[sessionId] !== undefined;
       // In view, in a visible document: a hidden tab watches nothing.
       const watched = chat.getState().activeSessionId === sessionId
