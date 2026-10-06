@@ -131,23 +131,26 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       for (const attempt of open) {
         const item = store().getItem(attempt.item_id) as InboxQueueItem | null;
         if (inboxRunIsLive(db, attempt.run_id)) continue;
-        // A claim inside its lease may belong to a worker still starting up.
-        if (item?.status === "claimed" && item.runId === attempt.run_id && (item.leaseUntil ?? 0) > at) continue;
-        const occurrence = occurrenceRow(attempt.occurrence_id)!;
-        const task = internal.taskRow(occurrence.task_id)!;
         const reservation = db.query("SELECT status, runtime_acquired_at FROM inbox_budget_reservations WHERE run_id = ?")
           .get(attempt.run_id) as { status: string; runtime_acquired_at: number | null } | null;
         // A settled reservation means Activity holds the turn's terminal
         // receipt: the backend finished and unwound (a yield, say) and only
         // the schedule outcome is missing. That is a known outcome.
-        const receipt = reservation?.status === "settled"
-          ? (db.query("SELECT outcome FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1")
-            .get(attempt.run_id) as { outcome: string | null } | null)?.outcome ?? null
+        const root = reservation?.status === "settled"
+          ? db.query("SELECT outcome, ended_at FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1")
+            .get(attempt.run_id) as { outcome: string | null; ended_at: number | null } | null
           : null;
+        const receipt = root?.outcome ?? null;
+        // Without a receipt, a claim inside its lease may belong to a worker still starting up.
+        if (receipt === null && item?.status === "claimed" && item.runId === attempt.run_id && (item.leaseUntil ?? 0) > at) continue;
+        const occurrence = occurrenceRow(attempt.occurrence_id)!;
+        const task = internal.taskRow(occurrence.task_id)!;
         const effectPossible = receipt === null && reservation?.runtime_acquired_at != null;
-        // A deadline that fired persisted `unwinding`: that attempt timed out,
-        // whatever its receipt says, exactly as uninterrupted dispatch records it.
-        const outcome = receipt !== null && occurrence.state === "unwinding" ? "timeout"
+        // A deadline that fired persisted `unwinding`, and a turn that ended
+        // after its deadline is late whatever its receipt says: that attempt
+        // timed out, exactly as uninterrupted dispatch records it.
+        const late = occurrence.state === "unwinding" || (root?.ended_at ?? 0) >= attempt.deadline_at;
+        const outcome = receipt !== null && late ? "timeout"
           : receipt === "success" ? "success" : receipt !== null ? (receipt === "cancelled" ? "cancelled" : "error")
           : effectPossible ? "unknown" : "interrupted";
         db.query("UPDATE schedule_attempts SET outcome = ?, ended_at = ? WHERE run_id = ? AND outcome IS NULL")
@@ -418,7 +421,8 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
     // The backend has returned (unwound). Record the outcome, then release.
     db.transaction(() => {
       const at = now();
-      const outcome = timedOut ? "timeout" : result === null ? "error" : result.outcome;
+      // A deadline a blocked event loop never let the timer report still counts.
+      const outcome = timedOut || at >= started.deadline ? "timeout" : result === null ? "error" : result.outcome;
       // Another process's recovery may have settled this attempt from its
       // Activity receipt in the instant after the backend returned; its
       // decision stands.

@@ -414,6 +414,49 @@ test("recovery keeps a fired deadline's timeout even when the turn's receipt rep
   expect(occurrences(f)[0]).toMatchObject({ id, state: "retrying" });
 });
 
+test("a turn that finishes after its deadline is a timeout even when the timer never fired", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-overdue", atDefinition(isoInstant(at)));
+  const clock = manualTimers();
+  const h = harness(f, async (request, n) => {
+    f.clock.now += 11 * MINUTE; // a blocked event loop: the deadline passes unreported
+    await succeed("Too late.")(request, n);
+  }, { timers: clock.timers });
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  await h.runtime.tick();
+  expect(clock.pending.size).toBe(0);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "timeout" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "retrying", result_state: "unavailable" });
+});
+
+test("recovery settles a finished turn from its receipt even while its claim's lease is unexpired", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-fresh-lease", cronDefinition("* * * * *"));
+  const h = harness(f, succeed("Finished; the dispatcher died before recording it."));
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  await h.runtime.tick();
+  // Rewind to the dispatcher dying after the turn settled, its claim still leased.
+  const attempt = f.db.query("SELECT * FROM schedule_attempts").get() as { run_id: string; item_id: string; started_at: number; deadline_at: number };
+  f.db.query("DELETE FROM schedule_attempts").run();
+  f.db.query("INSERT INTO schedule_attempts (run_id, occurrence_id, item_id, started_at, deadline_at) VALUES (?, ?, ?, ?, ?)")
+    .run(attempt.run_id, id, attempt.item_id, attempt.started_at, attempt.deadline_at);
+  f.db.query("UPDATE schedule_occurrences SET state = 'running', result_state = 'unavailable', result_text = NULL WHERE id = ?").run(id);
+  const lease = f.clock.now + 9 * MINUTE;
+  f.db.query(`UPDATE inbox_items SET status = 'claimed', lease_until = ?, run_id = ?,
+    data_json = json_set(data_json, '$.status', 'claimed', '$.leaseUntil', ?, '$.runId', ?) WHERE id = ?`)
+    .run(lease, attempt.run_id, lease, attempt.run_id, attempt.item_id);
+  expect(h.admission.recover()).toBe(1);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "success" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "completed" });
+  // Nothing outstanding remains, so the next instant is admitted on time.
+  f.clock.now += MINUTE;
+  expect(await h.admission.admit()).toHaveLength(1);
+});
+
 test("an item the Queue expired late still leaves the latest fresh instant for catch-up", async () => {
   const f = fixture = start();
   const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;
