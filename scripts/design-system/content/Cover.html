@@ -1,0 +1,56 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Serif+Text&family=Plus+Jakarta+Sans:wght@400;500&display=swap">
+<style>
+  body { margin: 0; background: var(--bk-color-canvas); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bk-color-canvas); }
+  svg { position: absolute; left: 0; top: 0; }
+  .amber { fill: var(--bk-amber-fill); }
+  .teal { fill: var(--bk-teal-fill); }
+  .purple { fill: var(--bk-purple-fill); }
+  .gold { fill: var(--bk-gold-fill); }
+  .slab { fill: var(--bk-color-raised); stroke: var(--bk-color-edge); stroke-width: 1; }
+  .dot { fill: var(--bk-amber-mark); }
+  .card { rx: var(--radius-card); }
+  .text { position: absolute; left: 40px; bottom: 36px; width: 420px; display: flex; flex-direction: column; gap: 10px; }
+  .name { margin: 0; font-family: "DM Serif Text", Georgia, serif; font-weight: 400; font-size: 88px; line-height: .92; color: var(--bk-color-ink); }
+  .tag { margin: 0; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-size: 13px; line-height: 1.45; color: var(--bk-color-ink-dim); }
+</style>
+</head>
+<body>
+<div class="cover">
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <!--
+      blocks: bk-amber-fill 180x168 (the agent, largest), bk-teal-fill 120x240 (your turn), bk-purple-fill 112x168 (provenance), bk-gold-fill 112x60 (caution, small), bk-color-raised slab 180x60
+      arrangement: staggered modular columns from x=500, 12px gutters (spacing-12), the teal column runs full height like a rail
+      pattern: a status-dot grid, because StatusDot is the kit's one breathing mark; 60 dots in bk-amber-mark on the raised slab
+      steps and radii: gutters spacing-12, dot pitch spacing-12, dot 6px (mark size 6-8), corners radius-card 14
+    -->
+    <rect class="amber card" x="500" y="24" width="180" height="168" rx="14"></rect>
+    <rect class="teal card" x="692" y="24" width="120" height="240" rx="14"></rect>
+    <rect class="gold card" x="824" y="24" width="112" height="60" rx="14"></rect>
+    <rect class="purple card" x="824" y="96" width="112" height="168" rx="14"></rect>
+    <rect class="slab card" x="500.5" y="204.5" width="179" height="59" rx="14"></rect>
+    <g id="dots"></g>
+  </svg>
+  <div class="text">
+    <h1 class="name">Brain Kit</h1>
+    <p class="tag">Who is acting, what it will change, and whether you can trust it.</p>
+  </div>
+</div>
+<script>
+  const g = document.getElementById("dots");
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 15; c++) {
+    const d = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    d.setAttribute("class", "dot");
+    d.setAttribute("cx", 506 + 12 * c);
+    d.setAttribute("cy", 216 + 12 * r);
+    d.setAttribute("r", 3);
+    g.appendChild(d);
+  }
+</script>
+</body>
+</html>
