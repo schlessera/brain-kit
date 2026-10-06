@@ -17,5 +17,4 @@ session or being scrolled up does not count, and an older observation never
 clears newer work. Each root stores only identifiers, under its own prefix
 (`${storagePrefix}:trackers:v1`); a different principal or a revocation
 deletes the set. Recovery reads never send a frame, select a session or
-start a turn. The root gains a `trackers` store; the strip and pane that show
-it are separate work.
+start a turn. The strip and pane that show trackers are separate work.
