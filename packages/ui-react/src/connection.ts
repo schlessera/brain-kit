@@ -2,6 +2,7 @@ import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/cli
 import type { ServerMessage, ClientMessage, ServerLocationRequest, InboxView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
 import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from "./stores/chat-state.js";
+import type { StartedFollowUp } from "./stores/follow-up-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
@@ -214,6 +215,35 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
   }
 
+  /**
+   * A follow-up the agent has just received enters the transcript once, as
+   * the user message of its turn, where it entered the conversation (#1002).
+   * A session this client holds no buffer for heals from history when opened;
+   * a message already drawn (by a history replay) is not drawn again.
+   */
+  function placeStartedFollowUp(started: StartedFollowUp): void {
+    const chat = root.stores.chat.getState();
+    const buffer = chat.buffers[started.sessionId];
+    if (!buffer) return;
+    if (started.requestId && buffer.messages.some((message) => message.role === "user" && message.requestId === started.requestId)) return;
+    if (buffer.isStreaming) chat.finishAssistantMessage(started.sessionId);
+    chat.addUserMessage(
+      started.sessionId,
+      started.text,
+      started.source,
+      started.attachments,
+      started.requestId ? { requestId: started.requestId, ...(started.thinkingLevel !== undefined ? { thinkingLevel: started.thinkingLevel } : {}) } : undefined,
+      started.files
+    );
+    if (!started.attachments?.length && started.attachmentCount) {
+      const current = root.stores.chat.getState().buffers[started.sessionId]!;
+      const messages = [...current.messages];
+      messages[messages.length - 1] = { ...messages.at(-1)!, attachmentCount: started.attachmentCount };
+      root.stores.chat.setState({ buffers: { ...root.stores.chat.getState().buffers, [started.sessionId]: { ...current, messages } } });
+    }
+    chat.startAssistantMessage(started.sessionId, started.turnId, started.requestId);
+  }
+
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
     handleFrame(msg);
@@ -235,12 +265,26 @@ export function createWebSocketClient(root: BrainUiServices) {
 
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
+    if (msg.type === "session_queue") {
+      const started = root.stores.followUp.getState().applyReport(msg);
+      if (started) placeStartedFollowUp(started);
+      return;
+    }
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+      // A follow-up sent as the session went idle runs at once, never queued:
+      // its turn is starting now, so it is the agent's (#1002).
+      if (msg.type === "session_info") {
+        const started = root.stores.followUp.getState().takeLocal(msg.requestId);
+        const turnId = (msg as { turnId?: string }).turnId;
+        if (started) placeStartedFollowUp({ ...started, sessionId: msg.sessionId, ...(turnId ? { turnId } : {}) });
+      }
     } else if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
+      // A refused follow-up was never pending; the composer keeps its draft.
+      root.stores.followUp.getState().dropLocal(msg.requestId);
     }
 
     // Activity stream frames feed their own store and never touch chat state.

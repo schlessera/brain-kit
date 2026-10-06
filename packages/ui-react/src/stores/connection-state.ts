@@ -29,6 +29,9 @@ export interface ConnectionState {
   /** The current host accepts per-message effort and correlated chat acknowledgements. */
   chatRequestAck: boolean;
   setChatRequestAck(supported: boolean): void;
+  /** The current host reports pending follow-ups (`session_queue`, #1002). */
+  followUpQueue: boolean;
+  setFollowUpQueue(supported: boolean): void;
   vpnStatus: VpnStatus;
   handshakeFailures: number;
   lastCloseCode: number | null;
@@ -54,6 +57,8 @@ export function createConnectionStore() {
     wsStatus: "disconnected",
     chatRequestAck: false,
     setChatRequestAck: (chatRequestAck) => set({ chatRequestAck }),
+    followUpQueue: false,
+    setFollowUpQueue: (followUpQueue) => set({ followUpQueue }),
     vpnStatus: "checking",
     handshakeFailures: 0,
     lastCloseCode: null,
@@ -71,6 +76,7 @@ export function createConnectionStore() {
     noteSocketOpen: () =>
       set((state) => ({
         chatRequestAck: false,
+        followUpQueue: false,
         handshakeFailures: 0,
         // Cleared here, not on the next close: the server accepts the upgrade and
         // THEN closes with 4008 when it is at its connection cap, so the code

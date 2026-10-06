@@ -20,6 +20,7 @@ import { SearchPanel } from "../quick-actions/search-modal.js";
 import { AddPanel } from "../quick-actions/add-modal.js";
 import { FilePanel } from "../files/file-panel.js";
 import { Composer } from "./composer.js";
+import { ChatComposerRow } from "./composer-row.js";
 import { HandoffSheet } from "./handoff-sheet.js";
 import { HandoffMarker } from "./handoff-links.js";
 import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js";
@@ -441,6 +442,7 @@ export function ChatPage() {
       </div>
 
       <HandoffSheet />
+      <ChatComposerRow />
       <Composer send={send} />
     </div>
   );

@@ -109,6 +109,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     return () => { window.removeEventListener("online", changed); window.removeEventListener("offline", changed); };
   }, [wsStatus, trackUploads]);
   const chatRequestAck = useConnectionStore((s) => s.chatRequestAck);
+  const followUpQueue = useConnectionStore((s) => s.followUpQueue);
   const connectionError = useConnectionStore((s) => s.lastError);
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
@@ -162,6 +163,8 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     // No acknowledgement means no automatic resend and no consumed override.
     // Release the local wait so reconnecting cannot strand this draft forever.
     setPendingSend(null);
+    // Nothing confirmed it, so nothing says it is waiting either.
+    root.stores.followUp.getState().dropLocal(pendingSend.requestId);
     setEffortNotice("Send was not confirmed. Check the conversation before sending again.");
     const chat = root.stores.chat.getState();
     const buffer = pendingSend.key === null ? chat.draft : chat.buffers[pendingSend.key];
@@ -348,14 +351,30 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     const source = reviewText.trim() ? "voice-dictate" : "typed";
     const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
     for (const attachment of attachments) transferredPreviews.current.add(attachment.previewUrl);
-    chat.addUserMessage(
-      sessionId,
-      text,
-      source,
-      messageAttachments.length > 0 ? messageAttachments : undefined,
-      requestId ? { requestId, thinkingLevel: selectedEffort } : undefined,
-      readyFiles.length ? readyFiles : undefined
-    );
+    // A send while the session is busy is a follow-up the host queues. On a
+    // host that reports its queue it waits as a pending pill, not in the
+    // chat, and enters the transcript when its own turn starts (#1002).
+    const pendingFollowUp = isStreaming && sessionId !== null && requestId !== undefined && followUpQueue;
+    if (pendingFollowUp) {
+      root.stores.followUp.getState().addLocal(sessionId, {
+        requestId,
+        text,
+        source,
+        ...(messageAttachments.length > 0 ? { attachments: messageAttachments } : {}),
+        ...(readyFiles.length ? { files: readyFiles } : {}),
+        ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
+        queuedAt: Date.now(),
+      });
+    } else {
+      chat.addUserMessage(
+        sessionId,
+        text,
+        source,
+        messageAttachments.length > 0 ? messageAttachments : undefined,
+        requestId ? { requestId, thinkingLevel: selectedEffort } : undefined,
+        readyFiles.length ? readyFiles : undefined
+      );
+    }
     // A send while the session is already streaming is a follow-up — the server
     // queues it or delivers it live; don't pre-start a second assistant bubble
     // (the backend's next frames start it).
@@ -394,6 +413,7 @@ export function Composer({ send }: { send: (msg: ClientMessage) => void | boolea
     if (requestId) {
       if (sent === false) {
         setPendingSend(null);
+        if (pendingFollowUp) root.stores.followUp.getState().dropLocal(requestId);
         if (!isStreaming) chat.failAssistantMessage(sessionId, { errorClass: "unknown", message: "The message could not be sent. Your draft is kept." });
         root.stores.connection.getState().reportError("CHAT_NOT_SENT", "The message could not be sent. Your draft is kept.");
       }

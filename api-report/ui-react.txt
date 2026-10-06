@@ -375,6 +375,8 @@ signatures (every public export and the types it is made of)
         wsStatus: WsStatus;
         chatRequestAck: boolean;
         setChatRequestAck(supported: boolean): void;
+        followUpQueue: boolean;
+        setFollowUpQueue(supported: boolean): void;
         vpnStatus: VpnStatus;
         handshakeFailures: number;
         lastCloseCode: number | null;
@@ -526,6 +528,24 @@ signatures (every public export and the types it is made of)
         setHighlightedDir: (path: string | null) => void;
         ensureWikilinks: () => Promise<void>;
         reset: () => void;
+    }
+  FollowUpAnnouncement (packages/ui-react/src/stores/follow-up-state.ts)
+    export interface FollowUpAnnouncement {
+        sessionId: string;
+        text: string;
+        seq: number;
+    }
+  FollowUpState (packages/ui-react/src/stores/follow-up-state.ts)
+    export interface FollowUpState {
+        reported: Record<string, QueuedFollowUpView[]>;
+        local: Record<string, LocalFollowUp[]>;
+        pending: Record<string, PendingFollowUp[]>;
+        announcement: FollowUpAnnouncement | null;
+        addLocal(sessionId: string, entry: LocalFollowUp): void;
+        applyReport(frame: ServerSessionQueue): StartedFollowUp | null;
+        takeLocal(requestId: string): StartedFollowUp | null;
+        dropLocal(requestId: string): void;
+        reset(): void;
     }
   GraphError (packages/ui-react/src/stores/graph-state.ts)
     interface GraphError {
@@ -713,6 +733,16 @@ signatures (every public export and the types it is made of)
         saved: "draft" | "pending" | "saved" | "unsaved";
         reason?: string;
     }
+  LocalFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
+    export interface LocalFollowUp {
+        requestId: string;
+        text: string;
+        source: MessageSource;
+        attachments?: MessageAttachment[];
+        files?: SharedFileMeta[];
+        thinkingLevel?: ThinkingLevel;
+        queuedAt: number;
+    }
   LocalParams (packages/ui-react/src/stores/graph-state.ts)
     export interface LocalParams {
         center: string | null;
@@ -754,6 +784,17 @@ signatures (every public export and the types it is made of)
         label: string;
         expiresAt: number;
         cookie: string;
+    }
+  PendingFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
+    export interface PendingFollowUp {
+        id: string;
+        requestId?: string;
+        text: string;
+        attachmentCount?: number;
+        fileCount?: number;
+        source?: MessageSource;
+        queuedAt: number;
+        confirmed: boolean;
     }
   PendingTurnRetry (packages/ui-react/src/stores/chat-state.ts)
     export interface PendingTurnRetry {
@@ -890,6 +931,18 @@ signatures (every public export and the types it is made of)
     export interface SoftwareInput {
         client: SoftwareIdentity;
         server: Fetched<SoftwareIdentity>;
+    }
+  StartedFollowUp (packages/ui-react/src/stores/follow-up-state.ts)
+    export interface StartedFollowUp {
+        sessionId: string;
+        turnId?: string;
+        requestId?: string;
+        text: string;
+        source?: MessageSource;
+        attachments?: MessageAttachment[];
+        attachmentCount?: number;
+        files?: SharedFileMeta[];
+        thinkingLevel?: ThinkingLevel;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
     export type StatsSection = {
@@ -1369,6 +1422,7 @@ signatures (every public export and the types it is made of)
         chat: import("zustand").StoreApi<import("./chat-state.js").ChatState>;
         connection: import("zustand").StoreApi<import("./connection-state.js").ConnectionState>;
         file: import("zustand").StoreApi<import("./file-state.js").FileState>;
+        followUp: import("zustand").StoreApi<import("./follow-up-state.js").FollowUpState>;
         graph: import("zustand").StoreApi<import("./graph-state.js").GraphState> & {
             clearSceneCache: () => void;
             dispose(): void;
