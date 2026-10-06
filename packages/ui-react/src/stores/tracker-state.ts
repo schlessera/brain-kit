@@ -39,6 +39,11 @@ export interface TrackerStoreState {
    * so this is the one place that still knows it is settled.
    */
   refusedRequests: string[];
+  /**
+   * Trackers created only because of an unconfirmed send, by its requestId.
+   * If the host then refuses that send, there was never any work to track.
+   */
+  createdFor: Record<string, string>;
   /** `server_hello.principalKey` the stored set belongs to. */
   principalKey: string | null;
   /** `server_hello.capabilities.sessionRecovery`; null until a hello. */
@@ -61,7 +66,7 @@ export interface TrackerStoreState {
    * Track a session: it was left with work in flight, or its work started
    * while another was in view. A tracker already present starts over unseen.
    */
-  track(sessionId: string, options?: { unconfirmedRequestId?: string | null; now?: number }): void;
+  track(sessionId: string, options?: { unconfirmedRequestId?: string | null; onlyUnconfirmed?: boolean; now?: number }): void;
   /** The session was left with nothing in flight: a seen tracker goes, an unseen one stays. */
   leftIdle(sessionId: string): void;
   /** Apply one frame's events, or hold them while a read is in flight. */
@@ -189,7 +194,7 @@ export function createTrackerStore(env: StoreEnvironment) {
     }
 
     function deleteAll() {
-      commit({ records: {}, evidence: {}, unconfirmed: {}, reading: {}, epoch: get().epoch + 1 });
+      commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1 });
     }
 
     return {
@@ -197,6 +202,7 @@ export function createTrackerStore(env: StoreEnvironment) {
       evidence: Object.fromEntries(Object.values(stored.records).map((r) => [r.sessionId, evidenceFromRecord(r)])),
       unconfirmed: {},
       refusedRequests: [],
+      createdFor: {},
       principalKey: stored.principalKey,
       recoverySupported: null,
       reading: {},
@@ -221,6 +227,10 @@ export function createTrackerStore(env: StoreEnvironment) {
           evidence: { ...state.evidence, [sessionId]: evidence },
         };
         if (options.unconfirmedRequestId) patch.unconfirmed = { ...state.unconfirmed, [sessionId]: options.unconfirmedRequestId };
+        const createdFor = { ...state.createdFor };
+        if (options.onlyUnconfirmed && options.unconfirmedRequestId && !existing) createdFor[sessionId] = options.unconfirmedRequestId;
+        else delete createdFor[sessionId];
+        patch.createdFor = createdFor;
         commit(patch);
       },
 
@@ -261,6 +271,19 @@ export function createTrackerStore(env: StoreEnvironment) {
           ? state.refusedRequests
           : [...state.refusedRequests, requestId].slice(-REFUSALS_KEPT);
         set({ refusedRequests, ...(unconfirmed ? { unconfirmed } : {}) });
+        // A tracker that existed only for this send tracked nothing.
+        if (state.createdFor[sessionId] === requestId) {
+          const createdFor = { ...state.createdFor };
+          delete createdFor[sessionId];
+          const evidence = state.evidence[sessionId];
+          const working = !!evidence && (evidence.pending.length > 0 || evidence.latest?.state === "queued" || evidence.latest?.state === "running");
+          if (working) set({ createdFor });
+          else {
+            const records = { ...state.records };
+            delete records[sessionId];
+            commit({ createdFor, records });
+          }
+        }
       },
 
       beginRead(sessionId) {
@@ -293,7 +316,9 @@ export function createTrackerStore(env: StoreEnvironment) {
       observeSeen({ sessionId, turnId, revision }) {
         const state = get();
         const record = state.records[sessionId];
-        if (!record || state.reading[sessionId]) return false;
+        // A newer send without acceptance proof is not on screen yet: the
+        // turn at the bottom is not the latest work.
+        if (!record || state.reading[sessionId] || state.unconfirmed[sessionId] !== undefined) return false;
         const key = seenKey(record, state.evidence[sessionId] ?? evidenceFromRecord(record));
         if (!key || key.turnId !== turnId || key.revision !== revision) return false;
         if (record.seen?.turnId === turnId && record.seen.revision === revision && record.seen.basis === "proof") return true;

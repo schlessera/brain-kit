@@ -38,6 +38,11 @@ export function createTrackerClient(root: BrainUiServices) {
 
   /** Something in the session is still in flight, or waits on the reader (D52 §4). */
   function qualifies(state: ChatState, sessionId: string): boolean {
+    return working(state, sessionId) || unconfirmedRequest(state, sessionId) !== null;
+  }
+
+  /** Accepted work in flight, or an interaction waiting on the reader. */
+  function working(state: ChatState, sessionId: string): boolean {
     const run = state.runStates[sessionId];
     if (run === "streaming" || run === "queued") return true;
     const buffer = state.buffers[sessionId];
@@ -48,15 +53,16 @@ export function createTrackerClient(root: BrainUiServices) {
     }
     const evidence = trackers.getState().evidence[sessionId];
     if (evidence && (evidence.pending.length > 0 || evidence.latest?.state === "running" || evidence.latest?.state === "queued")) return true;
-    if ((root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0) return true;
-    return unconfirmedRequest(state, sessionId) !== null;
+    return (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0;
   }
 
   /** The reader left `sessionId`: by New chat, by selecting another session, or by leaving the page. */
   function leave(sessionId: string): void {
     const state = chat.getState();
     if (qualifies(state, sessionId)) {
-      trackers.getState().track(sessionId, { unconfirmedRequestId: unconfirmedRequest(state, sessionId) });
+      const unconfirmedRequestId = unconfirmedRequest(state, sessionId);
+      const onlyUnconfirmed = unconfirmedRequestId !== null && !working(state, sessionId);
+      trackers.getState().track(sessionId, { unconfirmedRequestId, onlyUnconfirmed });
       refresh(sessionId);
     } else {
       trackers.getState().leftIdle(sessionId);
@@ -117,12 +123,18 @@ export function createTrackerClient(root: BrainUiServices) {
       if (!sessionId) return;
       const store = trackers.getState();
       if (msg.type === "error" && msg.requestId && !(msg as { turnId?: string }).turnId) {
-        store.refused(sessionId, msg.requestId);
+        // Refused, unless the host had already accepted it: an accepted
+        // request that fails before its turn exists ends it, and the
+        // envelope then says how.
+        if (store.evidence[sessionId]?.latest?.requestId === msg.requestId) refresh(sessionId);
+        else store.refused(sessionId, msg.requestId);
         return;
       }
       const events = trackerEventsForFrame(msg);
       const tracked = store.records[sessionId] !== undefined;
-      const watched = chat.getState().activeSessionId === sessionId;
+      // In view, in a visible document: a hidden tab watches nothing.
+      const watched = chat.getState().activeSessionId === sessionId
+        && (typeof document === "undefined" || document.visibilityState === "visible");
       if (!tracked && !watched) {
         if (!isWork(events)) return;
         store.track(sessionId);
@@ -134,7 +146,10 @@ export function createTrackerClient(root: BrainUiServices) {
       // envelope then says how the turn ended.
       const ended = events.some((e) => e.kind === "terminal")
         || (msg.type === "status" && msg.status === "idle")
-        || msg.type === "error";
+        || msg.type === "error"
+        // A queue report that dropped a request (an expired or revoked
+        // sender's) ends it without a turn frame.
+        || (msg.type === "session_queue" && (msg.dropped?.length ?? 0) > 0);
       if (!tracked && !watched) refresh(sessionId);
       else if (ended) refresh(sessionId);
     },

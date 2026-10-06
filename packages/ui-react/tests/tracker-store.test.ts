@@ -229,6 +229,60 @@ describe("creating a tracker", () => {
     expect(state(r, A)).toBe("queued");
   });
 
+  test("a tracker created only for a send the host then refuses goes away", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    const chat = r.stores.chat.getState();
+    chat.setActiveSession(A);
+    chat.setMessages(A, []);
+    chat.addUserMessage(A, "Open the bag of winds", "typed", undefined, { requestId: "req-winds" });
+    r.stores.chat.getState().setActiveSession(B);
+    expect(state(r, A)).toBe("unconfirmed");
+    frame(r, { type: "error", sessionId: A, code: "SESSION_QUEUE_FULL", message: "This session's queue is full.", requestId: "req-winds" });
+    expect(ids(r)).toEqual([]);
+  });
+
+  test("a refusal keeps a tracker that also has accepted work", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    runningIn(r, A);
+    r.stores.chat.getState().addUserMessage(A, "Open the bag of winds", "typed", undefined, { requestId: "req-winds" });
+    r.stores.chat.getState().setActiveSession(B);
+    frame(r, { type: "error", sessionId: A, code: "SESSION_QUEUE_FULL", message: "This session's queue is full.", requestId: "req-winds" });
+    expect(views(r).map((v) => [v.sessionId, v.state])).toEqual([[A, "running"]]);
+  });
+
+  test("while a newer send is unconfirmed, the older turn on screen does not clear the tracker", () => {
+    const r = root();
+    hello(r, false);
+    r.stores.connection.getState().setChatRequestAck(true);
+    runningIn(r, A);
+    r.stores.followUp.getState().addLocal(A, { requestId: "req-2", text: "And the cattle of the Sun?", source: "typed", queuedAt: 1 });
+    r.stores.chat.getState().setActiveSession(B);
+    r.stores.chat.getState().setActiveSession(A);
+    expect(r.stores.trackers.getState().observeSeen({ sessionId: A, turnId: "turn-1", revision: 0 })).toBe(false);
+    expect(views(r)[0]).toMatchObject({ state: "unconfirmed", cleared: false });
+  });
+
+  test("work starting in the session in view while the document is hidden is unwatched", () => {
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    (globalThis as { document?: unknown }).document = doc;
+    try {
+      const r = root();
+      hello(r, false);
+      r.stores.chat.getState().setActiveSession(A);
+      doc.visibilityState = "hidden";
+      doc.dispatchEvent(new Event("visibilitychange"));
+      expect(ids(r)).toEqual([]);
+      frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-other-device" });
+      expect(views(r).map((v) => [v.sessionId, v.state])).toEqual([[A, "running"]]);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
   test("an accepted send stays accepted after the composer consumes its receipt", () => {
     const r = root();
     hello(r, false);
@@ -507,6 +561,24 @@ describe("recovery (Recovery A)", () => {
     await settle();
     expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
     expect(views(r)[0]).toMatchObject({ state: "failed", endedAt: 30 });
+  });
+
+  test("an accepted request failing before its turn, or a dropped follow-up, asks the host again", async () => {
+    let reads = 0;
+    const host: Host = { envelopes: new Map([[A, () => { reads++; return envelope(A, 5, { requestId: "req-5", state: "queued" }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-5" });
+    await settle();
+    expect(reads).toBe(1);
+    // Accepted, then routing failed: not a refusal.
+    frame(r, { type: "error", sessionId: A, code: "BACKEND_ERROR", message: "No backend.", requestId: "req-5" });
+    await settle();
+    expect(reads).toBe(2);
+    expect(r.stores.trackers.getState().refusedRequests).toEqual([]);
+    frame(r, { type: "session_queue", sessionId: A, followUps: [], dropped: [{ id: "q-5", requestId: "req-5", reason: "revoked" }] });
+    await settle();
+    expect(reads).toBe(3);
   });
 
   test("a read is bounded: a failed request frees the session's live frames", async () => {
