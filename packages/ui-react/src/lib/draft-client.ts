@@ -222,7 +222,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const orphanRetries = new Map<string, { orphan: { draftId: string; revision: number }; tries: number; timer: ReturnType<typeof setTimeout> }>();
 
   function removeOrphan(orphan: { draftId: string; revision: number }, tries = 0) {
+    // A read of it begun before this delete is stale whatever the delete's answer.
+    bumpHost(orphan.draftId);
     void api.remove(orphan.draftId, orphan.revision).then((result) => {
+      bumpHost(orphan.draftId);
       if (disposed) return;
       orphanRetries.delete(orphan.draftId);
       // No answer: try again later, backing off as saves do. A conflict means

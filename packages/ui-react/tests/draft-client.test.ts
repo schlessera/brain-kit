@@ -348,6 +348,30 @@ describe("uncertain answers", () => {
   });
 });
 
+describe("orphans, continued", () => {
+  test("a read begun before the reader's choice deleted the other draft does not raise the conflict again", async () => {
+    const host = fakeHost();
+    const { socket, drafts } = boot(host);
+    const mine = drafts().idFor(ITHACA);
+    drafts().edit(mine, ITHACA, { text: "Typed here" });
+    await until(() => drafts().drafts[mine]?.host?.revision === 1);
+    host.rows.set("d-other", { draftId: "d-other", sessionId: ITHACA, revision: 1, updatedAt: 5, text: "Typed on the phone", attachments: [] });
+    const hello = () => socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    hello();
+    await until(() => drafts().drafts[mine]?.conflict !== null);
+    // Another list starts a read of the other draft; the reader keeps theirs meanwhile.
+    const release = host.holdGets();
+    const reads = host.calls.filter((c) => c === "GET /drafts/d-other").length;
+    hello();
+    await until(() => host.calls.filter((c) => c === "GET /drafts/d-other").length > reads);
+    drafts().resolve(mine, "mine");
+    await until(() => host.rows.get("d-other")?.deleted === true);
+    release();
+    await wait(200);
+    expect(drafts().drafts[mine]?.conflict, "the choice stands").toBeNull();
+  });
+});
+
 describe("capacity", () => {
   test("a send that consumes a saved draft frees a place for one refused as full", async () => {
     const host = fakeHost();
