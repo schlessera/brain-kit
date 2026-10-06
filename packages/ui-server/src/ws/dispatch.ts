@@ -1,7 +1,7 @@
 import { resolveChatFiles, withTrackFiles } from "../tracks/read.js";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { estimateDecodedBase64Bytes } from "./attachments.js";
-import { PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
+import { FOLLOW_UP_QUEUE_CAPABILITY, PROTOCOL_REV_CLIENT_ECHO } from "@schlessera/brain-ui-sdk/protocol";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { WSContext } from "./clients.js";
 import type { AuthorizationContext } from "./turns.js";
@@ -114,6 +114,14 @@ export async function handleClientMessage(
       connection.protocolRev = msg.protocolRev;
       connection.capabilities = { ...(msg.capabilities ?? {}) };
       host.clients.setCapabilities(ws, msg.capabilities);
+      // A client that reloaded or reconnected rebuilds every session's
+      // pending follow-ups from these (#1002). An empty queue sends nothing:
+      // the client clears its own on each new server_hello.
+      if (connection.capabilities[FOLLOW_UP_QUEUE_CAPABILITY] === true) {
+        for (const sessionId of coordinator.sessionsWithFollowUps()) {
+          host.sendMessage(ws, host.followUpQueueFrame(sessionId));
+        }
+      }
       return;
     }
 
@@ -486,7 +494,7 @@ export async function handleClientMessage(
           starting.cancelled = true;
           // Releasing here, not in runSession: a start cancelled before it
           // becomes a turn never reaches the loop that would drain its queue.
-          for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+          coordinator.dropStartingQueue(msg.sessionId, starting, "Cancelled by user");
           host.sendToClients({ type: "status", status: "idle", sessionId: msg.sessionId, detail: "Cancelled before starting" });
         }
         return;
@@ -605,6 +613,12 @@ export async function handleClientMessage(
         // the same way, first, as a reconnect sends them (#964).
         resendPendingApprovals(host, ws, msg.sessionId);
         resendPendingAsks(host, ws, msg.sessionId);
+        // The history holds no follow-up that is still waiting: it enters
+        // the transcript only when its turn starts. Hand the waiting ones
+        // over whole, even none, so stale pills clear (#1002).
+        if (connection.capabilities?.[FOLLOW_UP_QUEUE_CAPABILITY] === true) {
+          host.sendMessage(ws, host.followUpQueueFrame(msg.sessionId));
+        }
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming
         // message mid-turn. Mirror the snapshot-on-connect status instead.

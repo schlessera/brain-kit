@@ -1973,6 +1973,25 @@
 /* A Working-sheet row without a second line would be about 41px: every row
  * is a 44px target, in every pointer mode. */
 .bk-working-sheet .bk-row { min-height: 44px; }
+/* Pending follow-ups (#1002). A pill and its full-text popover share one
+ * wrapper, so moving the pointer from the pill onto the popover to select its
+ * text keeps it open. The popover sits above the pill, right-aligned in the
+ * right half, at most 280px and never wider than its half (`100cqw` is the
+ * half: each half is the size container). Ink on raised, no transition. */
+.bk-follow-up { position: relative; min-width: 0; }
+.bk-follow-up-text { position: absolute; right: 0; bottom: 100%; z-index: 20; box-sizing: border-box; width: max-content; max-width: min(280px, 100cqw); padding-bottom: 6px; }
+/* The 6px above the pill belongs to the popover's own box, transparent, so a
+ * pointer travelling from the pill up to the text never leaves the wrapper. */
+.bk-follow-up-box { box-sizing: border-box; max-height: min(50vh, 320px); overflow-y: auto; padding: 8px 10px; border: 1px solid var(--bk-color-edge); border-radius: 10px; background: var(--bk-color-raised); color: var(--bk-color-ink); font: 400 12.5px/18px "Plus Jakarta Sans", sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; cursor: text; }
+.bk-follow-up-text[hidden] { display: none; }
+/* The sheet's read-only list: every message in full, numbered in send order.
+ * Each row is a focus stop and at least a 44px target, like a Working row. */
+.bk-pending-list { margin: 0; padding: 0; list-style: none; }
+.bk-pending-row { display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-height: 44px; padding: 10px 16px; border-bottom: 1px solid var(--bk-color-line); }
+.bk-pending-row:last-child { border-bottom: 0; }
+.bk-pending-row:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+.bk-pending-count { font: 600 10px/13px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-mute); }
+.bk-pending-full { font: 400 13px/19px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 @container bk-row-half (min-width: 240px) {
   .bk-pill-text { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
   .bk-pill-title { flex: 1; }

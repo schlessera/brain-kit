@@ -2,6 +2,7 @@ import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/cli
 import type { ServerMessage, ClientMessage, ServerLocationRequest, InboxView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
 import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from "./stores/chat-state.js";
+import type { StartedFollowUp } from "./stores/follow-up-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
@@ -214,6 +215,76 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
   }
 
+  /**
+   * A follow-up the agent has just received enters the transcript once, as
+   * the user message of its turn, where it entered the conversation (#1002).
+   * A session this client holds no buffer for heals from history when opened;
+   * a message already drawn (by a history replay) is not drawn again.
+   */
+  function placeStartedFollowUp(started: StartedFollowUp): void {
+    const chat = root.stores.chat.getState();
+    const buffer = chat.buffers[started.sessionId];
+    if (!buffer) return;
+    if (started.requestId && buffer.messages.some((message) => message.role === "user" && message.requestId === started.requestId)) return;
+    if (buffer.isStreaming) chat.finishAssistantMessage(started.sessionId);
+    chat.addUserMessage(
+      started.sessionId,
+      started.text,
+      started.source,
+      started.attachments,
+      started.requestId ? { requestId: started.requestId, ...(started.thinkingLevel !== undefined ? { thinkingLevel: started.thinkingLevel } : {}) } : undefined,
+      started.files
+    );
+    if (!started.attachments?.length && started.attachmentCount) {
+      const current = root.stores.chat.getState().buffers[started.sessionId]!;
+      const messages = [...current.messages];
+      messages[messages.length - 1] = { ...messages.at(-1)!, attachmentCount: started.attachmentCount };
+      root.stores.chat.setState({ buffers: { ...root.stores.chat.getState().buffers, [started.sessionId]: { ...current, messages } } });
+    }
+    chat.startAssistantMessage(started.sessionId, started.turnId, started.requestId);
+    // Another client's message: the report counts its files but cannot carry
+    // what they are, and may carry only the head of a long text. History has
+    // both, so this session's is read again once this turn ends.
+    if ((started.fileCount && !started.files?.length) || started.textTruncated) followUpRefresh.add(started.sessionId);
+  }
+
+  /**
+   * A message this client drew in the chat as an ordinary send, but that the
+   * host queued instead (#1002): it went out between a turn's `result` and
+   * the host handing over its next queued turn, while the transcript had
+   * stopped streaming. The host's report is the proof it is waiting, so it
+   * leaves the transcript, with the empty reply opened for it, and becomes a
+   * pending follow-up that enters the chat when its turn starts.
+   */
+  function adoptQueuedMessages(report: Extract<ServerMessage, { type: "session_queue" }>): void {
+    const chat = root.stores.chat.getState();
+    const buffer = chat.buffers[report.sessionId];
+    const queued = new Set(report.followUps.map((entry) => entry.requestId).filter((id): id is string => Boolean(id)));
+    if (!buffer || queued.size === 0) return;
+    const drawn = buffer.messages.filter((m) => m.role === "user" && m.requestId && queued.has(m.requestId));
+    if (drawn.length === 0) return;
+    const opened = (m: (typeof buffer.messages)[number]) =>
+      m.role === "assistant" && !m.turnId && !m.content && !m.thinking && m.toolCalls.length === 0 && Boolean(m.requestId && queued.has(m.requestId));
+    const messages = buffer.messages.filter((m) => !drawn.includes(m) && !opened(m));
+    root.stores.chat.setState({
+      buffers: {
+        ...chat.buffers,
+        [report.sessionId]: { ...buffer, messages, isStreaming: buffer.isStreaming && messages.some((m) => m.role === "assistant" && m.isStreaming) },
+      },
+    });
+    for (const m of drawn) {
+      root.stores.followUp.getState().addLocal(report.sessionId, {
+        requestId: m.requestId!,
+        text: m.content,
+        source: m.source ?? "typed",
+        ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+        ...(m.files?.length ? { files: m.files } : {}),
+        ...(m.thinkingLevel !== undefined ? { thinkingLevel: m.thinkingLevel } : {}),
+        queuedAt: m.timestamp,
+      });
+    }
+  }
+
   function handleServerMessage(msg: ServerMessage) {
     if (disposed) return;
     handleFrame(msg);
@@ -235,12 +306,35 @@ export function createWebSocketClient(root: BrainUiServices) {
 
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
+    if (msg.type === "session_queue") {
+      adoptQueuedMessages(msg);
+      const started = root.stores.followUp.getState().applyReport(msg);
+      if (started) placeStartedFollowUp(started);
+      // The queue emptied with no turn running, as when its last entry is
+      // dropped: a history refresh deferred until now has no turn end to wait for.
+      else if (msg.followUps.length === 0 && !root.stores.chat.getState().buffers[msg.sessionId]?.isStreaming) refreshFollowUpHistory(msg.sessionId);
+      return;
+    }
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+      // A follow-up sent as the session went idle runs at once, never queued:
+      // its turn is starting now, so it is the agent's (#1002).
+      if (msg.type === "session_info") {
+        const started = root.stores.followUp.getState().takeLocal(msg.requestId);
+        const turnId = (msg as { turnId?: string }).turnId;
+        if (started) placeStartedFollowUp({ ...started, sessionId: msg.sessionId, ...(turnId ? { turnId } : {}) });
+      }
     } else if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
+      // A refused follow-up was never pending; the composer keeps its draft.
+      // A turn-scoped error is not a refusal: the follow-up's turn started
+      // and failed before it named itself, so the message is the agent's and
+      // belongs above that failure.
+      const ran = msg.turnId && msg.sessionId ? root.stores.followUp.getState().takeLocal(msg.requestId) : null;
+      if (ran) placeStartedFollowUp({ ...ran, sessionId: msg.sessionId!, turnId: msg.turnId! });
+      else root.stores.followUp.getState().dropLocal(msg.requestId);
     }
 
     // Activity stream frames feed their own store and never touch chat state.
@@ -424,6 +518,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   // reconnect), so a background session settling first cannot consume it.
   let wasDisconnected = false;
   let resyncSessionId: string | null = null;
+  /** Sessions whose started follow-up needs history to be whole (#1002). */
+  const followUpRefresh = new Set<string>();
 
   function handleSocketClose(close: WebSocketClose): void {
     const connection = root.stores.connection.getState();
@@ -436,7 +532,22 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
   }
 
+  /**
+   * Read a session's history again for a started follow-up that arrived
+   * incomplete (#1002), but only once nothing else is waiting in it: a replay
+   * that lands after the next queued turn has started would replace its live
+   * frames, so the last turn's end takes the refresh instead.
+   */
+  function refreshFollowUpHistory(sessionId: string | null): boolean {
+    if (!sessionId || (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0) return false;
+    if (!followUpRefresh.delete(sessionId)) return false;
+    if (resyncSessionId === sessionId) resyncSessionId = null;
+    wsClient?.send({ type: "session_resume", sessionId });
+    return true;
+  }
+
   function resyncIfNeeded(sessionId: string | null) {
+    if (refreshFollowUpHistory(sessionId)) return;
     if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
     resyncSessionId = null;
     wsClient?.send({ type: "session_resume", sessionId });

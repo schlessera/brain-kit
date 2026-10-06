@@ -567,6 +567,17 @@ signatures (every public export and the types it is made of)
     }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
     export type FlatAttributes = Record<string, string | number | boolean>;
+  FollowUpQueueChange (packages/ui-server/src/ws/turns.ts)
+    export interface FollowUpQueueChange {
+        started?: {
+            entry: QueuedFollowUp;
+            turnId: string;
+        };
+        dropped?: {
+            entries: readonly QueuedFollowUp[];
+            reason: string;
+        };
+    }
   FrameRateLimiter (packages/ui-server/src/ws/rate-limit.ts)
     export class FrameRateLimiter {
         constructor(options: RateLimitOptions);
@@ -578,6 +589,18 @@ signatures (every public export and the types it is made of)
         brainCli?: string;
         backends?: Readonly<Record<string, BackendVersionRequirements>>;
     }
+  HostWork (packages/ui-server/src/ws/turns.ts)
+    export interface HostWork {
+        posture: "voice";
+        started(turnId: string): void;
+        observe(frame: import("@schlessera/brain-ui-sdk/protocol").ServerMessage): void;
+        settle(outcome: HostWorkOutcome, detail?: {
+            sessionId?: string | null;
+            reason?: string;
+        }): void;
+    }
+  HostWorkOutcome (packages/ui-server/src/ws/turns.ts)
+    export type HostWorkOutcome = "completed" | "cancelled" | "error" | "refused";
   InMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export interface InMemoryMeterProvider extends MeterProvider, MetricsReader {
     }
@@ -738,6 +761,24 @@ signatures (every public export and the types it is made of)
         lastUsedAt: number | null;
         principalId: string | null;
         timeZone: string | null;
+    }
+  QueuedFollowUp (packages/ui-server/src/ws/turns.ts)
+    export interface QueuedFollowUp {
+        work?: HostWork;
+        principalId: string;
+        authorization: AuthorizationContext;
+        text: string;
+        attachments: ChatImageAttachment[];
+        files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+        client?: ClientEnvironment;
+        source?: MessageSource;
+        thinkingLevel?: ThinkingLevel;
+        requestId?: string;
+        draftRef?: DraftRef;
+        revision?: number;
+        releaseAuthorization: () => void;
+        followUpId?: string;
+        queuedAt?: number;
     }
   RateLimitDecision (packages/ui-server/src/ws/rate-limit.ts)
     export interface RateLimitDecision {
@@ -1121,6 +1162,7 @@ signatures (every public export and the types it is made of)
         reportTurnFailed(code: string, turn: TurnLogContext, error?: string): void;
         reportAbnormalClose(code: number): void;
         sendToClients(msg: ServerMessage): void;
+        followUpQueueFrame(sessionId: string, change?: FollowUpQueueChange): ServerSessionQueue;
         sendToCapable(capability: string, msg: ServerMessage): void;
         revokePrincipals(principalIds: readonly string[], code: number, reason: string): void;
         expireAuthorizationContexts(now?: number): void;

@@ -311,8 +311,9 @@ describe("the client hello", () => {
     expect(JSON.parse(socket.sent[0])).toEqual({
       type: "client_hello",
       protocolRev: PROTOCOL_REV,
-      // Rev 5 (#910): this client reads ask-answer receipts.
-      capabilities: { askReceipts: true },
+      // Rev 5 (#910): this client reads ask-answer receipts. #1002: and
+      // pending follow-up reports.
+      capabilities: { askReceipts: true, followUpQueue: true },
     });
   });
 });

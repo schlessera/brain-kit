@@ -19,6 +19,7 @@ import type {
   ClientEnvironment,
   DraftRef,
   MessageSource,
+  QueuedFollowUpView,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnRecorder } from "../activity/recorder.js";
@@ -76,6 +77,69 @@ export interface QueuedFollowUp {
   revision?: number;
   /** Queue-owned authorization lease, transferred to the runner on dequeue. */
   releaseAuthorization: () => void;
+  /**
+   * Host-minted identity and acceptance time, set when the entry joins a
+   * queue (#1002). Clients key their pending follow-ups by it.
+   */
+  followUpId?: string;
+  queuedAt?: number;
+}
+
+/**
+ * Serialized bytes of one follow-up's text a report carries (#1002): its
+ * JSON string on the wire, escapes included, since a control character
+ * costs six bytes there. A full queue (`MAX_SESSION_QUEUE`, 50) then stays
+ * near 400 KB, under the 512 KB frame bound, so the frame shrinker never
+ * clips the list itself: every pending follow-up is always reported, and
+ * only a very long prompt is shortened.
+ */
+export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
+
+const wireBytes = (text: string) => Buffer.byteLength(JSON.stringify(text), "utf8");
+
+/** Head of `text` within `bytes` serialized bytes, with an elision note when cut. */
+export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
+  if (wireBytes(text) <= bytes) return text;
+  const budget = Math.max(0, bytes - 64);
+  // The longest head that fits: wire size grows with length, so bisect.
+  let low = 0;
+  let high = Math.min(text.length, budget);
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (wireBytes(text.slice(0, mid)) <= budget) low = mid;
+    else high = mid - 1;
+  }
+  let head = text.slice(0, low);
+  // Never end on half of a surrogate pair.
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
+  return `${head}\n…[${text.length - head.length} chars elided]`;
+}
+
+/** What a client is shown of one pending follow-up (#1002): no attachment bytes. */
+export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
+  const text = boundFollowUpText(entry.text);
+  return {
+    id: entry.followUpId ?? "",
+    ...(entry.requestId ? { requestId: entry.requestId } : {}),
+    text,
+    ...(text !== entry.text ? { textTruncated: true } : {}),
+    ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
+    ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
+    ...(entry.source ? { source: entry.source } : {}),
+    queuedAt: entry.queuedAt ?? 0,
+  };
+}
+
+/** Why a follow-up leaves when its sender's authorization ends (#1002). */
+export const REVOKED_REASON = "Its sender was signed out.";
+
+/** How a session's pending follow-ups just changed (#1002). */
+export interface FollowUpQueueChange {
+  /** The entry that just became the session's turn, and that turn's id. */
+  started?: { entry: QueuedFollowUp; turnId: string };
+  /** Entries that left without running, and why. */
+  dropped?: { entries: readonly QueuedFollowUp[]; reason: string };
 }
 
 /**
@@ -148,6 +212,13 @@ export interface RunningTurn {
   abortController: AbortController;
   timeoutHandle: ReturnType<typeof setTimeout>;
   queue: QueuedFollowUp[];
+  /**
+   * The entry taken off `queue` to run next, until its turn reaches the
+   * backend (#1002). Routing and billing are awaited in between, and the
+   * message is still pending for that whole window: a client that reconnects
+   * inside it must still see the pill.
+   */
+  handingOver?: QueuedFollowUp;
   cancelled: boolean;
   /**
    * Terminal disposition of the CURRENT turn's `result` frame, when one has
@@ -319,6 +390,11 @@ export class TurnCoordinator {
    * Assigned by the owning WsHost, which publishes `tool_resolution`.
    */
   onApprovalSettled?: (toolUseId: string, record: ToolResolutionRecord) => void;
+  /**
+   * Told whenever a session's pending follow-ups change (#1002). Assigned by
+   * the owning WsHost, which publishes `session_queue`.
+   */
+  onQueueChanged?: (sessionId: string, change: FollowUpQueueChange) => void;
   readonly pendingAskUser = new Map<string, PendingAskUser>();
   readonly pendingAskUserList = new Map<string, PendingAskUserList>();
   readonly pendingAskUserRank = new Map<string, PendingAskUserRank>();
@@ -338,6 +414,57 @@ export class TurnCoordinator {
 
   /** Every authorization context with at least one live owner or async lease. */
   readonly authorizationRegistry = new Map<AuthorizationContext, number>();
+
+  /**
+   * A session's follow-ups that the agent has not received yet, in send
+   * order (#1002): the one being handed over, then the queue. A session still
+   * routing its first message holds its queue in `startingBySession`.
+   */
+  pendingFollowUps(sessionId: string): QueuedFollowUp[] {
+    // The same precedence as chat dispatch, which queues into a start first.
+    const starting = this.startingBySession.get(sessionId);
+    if (starting) return [...starting.queue];
+    const turn = this.bySession.get(sessionId);
+    return turn ? [...(turn.handingOver ? [turn.handingOver] : []), ...turn.queue] : [];
+  }
+
+  /** Every session that has at least one pending follow-up. */
+  sessionsWithFollowUps(): string[] {
+    const ids = new Set<string>();
+    for (const [sessionId, turn] of this.bySession) {
+      if (turn.handingOver || turn.queue.length > 0) ids.add(sessionId);
+    }
+    for (const [sessionId, starting] of this.startingBySession) {
+      if (starting.queue.length > 0) ids.add(sessionId);
+    }
+    return [...ids];
+  }
+
+  /** Report a change to a session's pending follow-ups; a no-op without a session. */
+  queueChanged(sessionId: string | null, change: FollowUpQueueChange = {}): void {
+    if (!sessionId) return;
+    // Dropping nothing changed nothing.
+    if (change.dropped?.entries.length === 0 && !change.started) return;
+    this.onQueueChanged?.(sessionId, change);
+  }
+
+  /**
+   * Take every pending follow-up off a turn without running it: the queue
+   * and the entry being handed over. Leases are released by the caller's
+   * own path (the slot's loop releases a handed-over entry itself).
+   */
+  private takePending(turn: RunningTurn): { taken: QueuedFollowUp[]; handingOver?: QueuedFollowUp } {
+    const handingOver = turn.handingOver;
+    turn.handingOver = undefined;
+    return { taken: turn.queue.splice(0), ...(handingOver ? { handingOver } : {}) };
+  }
+
+  /** Drop a session start's queue, releasing each lease, and report it. */
+  dropStartingQueue(sessionId: string, starting: { queue: QueuedFollowUp[] }, reason: string): void {
+    const dropped = starting.queue.splice(0);
+    for (const entry of dropped) entry.releaseAuthorization();
+    this.queueChanged(sessionId, { dropped: { entries: dropped, reason } });
+  }
 
   /** Remember what became of an ask request, within the TTL/count bounds. */
   recordAskOutcome(outcome: AskOutcome): void {
@@ -481,11 +608,16 @@ export class TurnCoordinator {
       if (principalIds.has(turn.principalId)) {
         affectedRunning.push(turn);
       }
+      const dropped: QueuedFollowUp[] = [];
       turn.queue = turn.queue.filter((entry) => {
         if (!principalIds.has(entry.principalId)) return true;
         entry.releaseAuthorization();
+        dropped.push(entry);
         return false;
       });
+      // A handed-over entry is dropped by the slot's own authorization check
+      // before it reaches the backend, which reports it there.
+      this.queueChanged(turn.sessionId, { dropped: { entries: dropped, reason: REVOKED_REASON } });
     }
     return affectedRunning;
   }
@@ -493,10 +625,10 @@ export class TurnCoordinator {
   /** Cancel every running turn (used on shutdown). */
   cancelAll(reason: string): boolean {
     const hadWork = this.running.size > 0 || this.startingBySession.size > 0;
-    for (const starting of this.startingBySession.values()) {
+    for (const [sessionId, starting] of this.startingBySession) {
       starting.cancelled = true;
       // Release, never truncate: each entry's lease settles host work it carries.
-      for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
+      this.dropStartingQueue(sessionId, starting, reason);
     }
     if (!hadWork) return false;
     for (const turn of [...this.running]) this.cancelTurn(turn, reason);
@@ -506,7 +638,13 @@ export class TurnCoordinator {
   /** Cancel a session's current turn and drop its queued follow-ups. */
   cancelTurn(turn: RunningTurn, reason: string): void {
     turn.cancelled = true;
-    for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
+    // The handed-over entry's lease belongs to the slot's loop, which
+    // releases it on the way out; it is reported as dropped here.
+    const { taken, handingOver } = this.takePending(turn);
+    for (const entry of taken) entry.releaseAuthorization();
+    this.queueChanged(turn.sessionId, {
+      dropped: { entries: handingOver ? [handingOver, ...taken] : taken, reason },
+    });
     clearTimeout(turn.timeoutHandle);
     turn.abortController.abort();
     this.drainPendingForTurn(turn, reason);

@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactElement } from "react";
 
-import { BottomSheet } from "./BottomSheet.js";
+import { SheetDialog } from "../internal/sheet-dialog.js";
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { ListRow } from "../rows/ListRow.js";
-import { accent, color, token } from "../tokens.js";
+import { accent, color } from "../tokens.js";
 import type { Tone } from "../types.js";
 
 /**
@@ -531,91 +531,38 @@ interface WorkingSheetProps {
  * row, Tab is trapped, and Esc or a tap on the scrim dismisses.
  */
 function WorkingSheet(p: WorkingSheetProps) {
-  const panel = useRef<HTMLDivElement>(null);
-  // On open, and whenever the list changes under the caret: a session that
-  // leaves while its row is focused takes the focus with it, and focus on
-  // <body> would escape the trap. The dialog itself is the last resort.
-  const ids = p.sessions.map((s) => s.id).join("\n");
-  useEffect(() => {
-    const here = panel.current;
-    if (!here || here.contains(document.activeElement)) return;
-    (here.querySelector<HTMLElement>('[role="button"]') ?? here).focus();
-  }, [ids]);
-  function keys(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      p.onDismiss();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const stops = [...(panel.current?.querySelectorAll<HTMLElement>('[role="button"][tabindex="0"]') ?? [])];
-    const first = stops[0];
-    const last = stops.at(-1);
-    // Focus on the dialog itself (a click on its title or padding) is inside
-    // the trap too, with no row to step from.
-    if (!stops.includes(document.activeElement as HTMLElement)) {
-      e.preventDefault();
-      (e.shiftKey ? last : first)?.focus();
-    } else if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last?.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first?.focus();
-    }
-  }
   return (
-    <div
-      data-working-scrim=""
-      data-theme={p.theme}
-      // Ink is set here, not inherited: the portal leaves the strip's subtree,
-      // and the page's foreground may belong to the other theme.
-      style={{ position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow"), color: color.ink }}
-      onMouseDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        // The press would otherwise move focus to whatever is under the scrim
-        // once it is gone, undoing the return to the opener.
-        e.preventDefault();
-        p.onDismiss();
-      }}
+    <SheetDialog
+      title="Working"
+      subtitle="Sessions you left while they were busy."
+      stops='[role="button"]'
+      itemsKey={p.sessions.map((s) => s.id).join("\n")}
+      theme={p.theme}
+      onDismiss={p.onDismiss}
+      scrimAttr="data-working-scrim"
+      sheetAttr="data-working-sheet"
+      className="bk-working-sheet"
     >
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        aria-label="Working"
-        data-working-sheet=""
-        className="bk-working-sheet"
-        onKeyDown={keys}
-        style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxWidth: 720, margin: "0 auto" }}
-      >
-        <BottomSheet title="Working" subtitle="Sessions you left while they were busy.">
-          <div style={{ maxHeight: "min(60vh, 520px)", overflowY: "auto" }}>
-            {p.sessions.map((s, i) => {
-              const view = describeWorkingSession(s, p.now, p.clock);
-              return (
-                <div key={s.id} data-session={s.id} data-state={s.state}>
-                  <ListRow
-                    variant="group"
-                    icon={view.icon}
-                    iconTone={view.tone}
-                    title={s.label}
-                    subtitle={view.detail}
-                    subMono
-                    value={view.word}
-                    valueTone={view.tone}
-                    name={view.name}
-                    last={i === p.sessions.length - 1}
-                    onClick={() => p.onOpen(s)}
-                  />
-                </div>
-              );
-            })}
+      {p.sessions.map((s, i) => {
+        const view = describeWorkingSession(s, p.now, p.clock);
+        return (
+          <div key={s.id} data-session={s.id} data-state={s.state}>
+            <ListRow
+              variant="group"
+              icon={view.icon}
+              iconTone={view.tone}
+              title={s.label}
+              subtitle={view.detail}
+              subMono
+              value={view.word}
+              valueTone={view.tone}
+              name={view.name}
+              last={i === p.sessions.length - 1}
+              onClick={() => p.onOpen(s)}
+            />
           </div>
-        </BottomSheet>
-      </div>
-    </div>
+        );
+      })}
+    </SheetDialog>
   );
 }

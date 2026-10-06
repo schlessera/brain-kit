@@ -235,6 +235,12 @@ export { DiscButton, DiscRow, type DiscButtonProps, type DiscRowProps } from "./
 export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
 export { ComposerRow, type ComposerRowProps } from "./chrome/ComposerRow.js";
 export {
+  PendingFollowUps,
+  followUpLabel,
+  type PendingFollowUp,
+  type PendingFollowUpsProps,
+} from "./chrome/PendingFollowUps.js";
+export {
   SessionStrip,
   WORKING_STATES,
   describeWorkingSession,

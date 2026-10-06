@@ -16,6 +16,7 @@ export * as events from "./events.js";
 export * as runs from "./runs.js";
 export * as actions from "./actions.js";
 export * as files from "./files.js";
+export * as followUps from "./follow-ups.js";
 export * as money from "./money.js";
 export * as search from "./search.js";
 export * as sessions from "./sessions.js";
@@ -24,6 +25,7 @@ export * as week from "./week.js";
 import * as actionsNs from "./actions.js";
 import * as eventsNs from "./events.js";
 import * as filesNs from "./files.js";
+import * as followUpsNs from "./follow-ups.js";
 import * as moneyNs from "./money.js";
 import * as notesNs from "./notes.js";
 import * as peopleNs from "./people.js";
@@ -50,5 +52,6 @@ export const odyssey = {
   money: moneyNs,
   search: searchNs,
   sessions: sessionsNs,
+  followUps: followUpsNs,
   week: weekNs,
 } as const;

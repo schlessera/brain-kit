@@ -2,12 +2,17 @@ import type { ServerMessageHandlerMap } from "./types.js";
 
 type ConnectionFrame =
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
-  | "tool_resolution" | "conversation_opened" | "conversation_closed"
+  | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
   | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission";
 
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
     context.stores.connection.getState().setChatRequestAck(msg.capabilities?.chatRequestAck === true);
+    // Pending follow-ups (#1002): this host re-reports every non-empty queue
+    // right after this hello, so what this client held belongs to the old
+    // connection. A host that does not report them keeps follow-ups in chat.
+    context.stores.connection.getState().setFollowUpQueue(msg.capabilities?.followUpQueue === true);
+    context.stores.followUp.getState().reset();
     context.stores.activity.getState().setSupported(msg.capabilities?.activity === true);
     // A new hello means a new connection: server-side subscriptions are gone.
     context.stores.activity.getState().resetSubscriptions();
@@ -33,6 +38,8 @@ export const connectionFrameHandlers = {
   // connection that started a conversation or declared toolResolution, and
   // this client does neither yet (capture/playback is #960).
   tool_resolution: () => {},
+  // Pending follow-ups (#1002) are consumed by the connection before demux.
+  session_queue: () => {},
   conversation_opened: () => {},
   conversation_closed: () => {},
   conversation_event: () => {},

@@ -105,6 +105,8 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           ...(host.inbox ? { inbox: true } : {}),
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,
+          // `session_queue` to connections that declare it (#1002).
+          followUpQueue: true,
           ...(host.conversations ? { liveConversation: true } : {}),
           ...(host.drafts ? { sessionDrafts: true } : {}),
           // GET /api/sessions/:id/recovery answers, and replays carry

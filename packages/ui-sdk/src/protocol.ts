@@ -78,6 +78,12 @@ export const ASK_RECEIPTS_CAPABILITY = "askReceipts";
 /** `server_hello` capability: the host answers `ping` with `pong`. */
 export const LIVENESS_CAPABILITY = "liveness";
 
+/**
+ * `server_hello`/`client_hello` capability (additive, #1002): the host sends
+ * `session_queue` frames, and only to connections that declared the flag.
+ */
+export const FOLLOW_UP_QUEUE_CAPABILITY = "followUpQueue";
+
 /** `error.code` for an ask answer the host refused because it carried no `submissionId`. */
 export const ASK_ANSWER_UPDATE_REQUIRED = "ASK_ANSWER_UPDATE_REQUIRED";
 
@@ -785,6 +791,7 @@ export type ServerMessage =
   | InboxSnapshot
   | InboxDelta
   | ServerToolResolution
+  | ServerSessionQueue
   | ServerConversationOpened
   | ServerConversationClosed
   | ServerConversationEvent
@@ -1964,6 +1971,47 @@ export interface ServerToolResolution extends SessionScoped {
   /** Channel of the decision that settled it, when one did. */
   channel?: ApprovalChannel;
   reason?: string;
+}
+
+/**
+ * One message the host accepted while its session was busy and has not yet
+ * handed to the agent (additive, #1002). `id` is host-minted and stable while
+ * the entry waits; `requestId` is the sender's `chat_message` correlation id,
+ * when it sent one. Attachments are counted, never repeated.
+ */
+export interface QueuedFollowUpView {
+  id: string;
+  requestId?: string;
+  text: string;
+  /** `text` is the head of a longer message; history holds the whole of it. */
+  textTruncated?: boolean;
+  /** Images the message carries. */
+  attachmentCount?: number;
+  /** Shared files the message carries. */
+  fileCount?: number;
+  source?: MessageSource;
+  /** Host clock when the entry was queued. */
+  queuedAt: number;
+}
+
+/**
+ * Server → Client (additive, #1002). The session's pending follow-ups, whole
+ * and in send order, so a client that reloads or reconnects rebuilds them.
+ * Sent only to connections whose `client_hello` declared
+ * {@link FOLLOW_UP_QUEUE_CAPABILITY}: after that hello for every session with
+ * a non-empty queue, after every `session_resume`, and on every change.
+ *
+ * `started` names the entry that just became the session's turn, with that
+ * turn's id, before any of the turn's own frames. `dropped` names entries that
+ * left without running (cancelled, revoked, the session ended), each with the
+ * host's reason. Neither repeats in a later frame.
+ */
+export interface ServerSessionQueue {
+  type: "session_queue";
+  sessionId: string;
+  followUps: QueuedFollowUpView[];
+  started?: QueuedFollowUpView & { turnId: string };
+  dropped?: Array<{ id: string; requestId?: string; reason: string }>;
 }
 
 // ============================================================

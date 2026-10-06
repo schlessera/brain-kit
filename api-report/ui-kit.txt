@@ -165,6 +165,9 @@ export "." (./src/index.ts)
   type PaletteItem
   PathRef
   type PathRefProps
+  type PendingFollowUp
+  PendingFollowUps
+  type PendingFollowUpsProps
   PlaceList
   type PlaceListProps
   type PlaceListRow
@@ -266,6 +269,7 @@ export "." (./src/index.ts)
   color
   describeWorkingSession
   effectLineCount
+  followUpLabel
   font
 
 export "./internal" (./src/internal.ts)
@@ -1279,6 +1283,7 @@ signatures (every public export and the types it is made of)
         iconSize?: number;
         density?: "pill";
         name?: string;
+        describedBy?: string;
         tabStop?: boolean;
         onFocus?: () => void;
         onClick?: () => void;
@@ -1462,6 +1467,21 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         meta?: string;
         fontSize?: number;
+    }
+  PendingFollowUp (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
+    export interface PendingFollowUp {
+        id: string;
+        text: string;
+        label?: string;
+    }
+  PendingFollowUps (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
+    export function PendingFollowUps(p: PendingFollowUpsProps): import("react").JSX.Element | null;
+  PendingFollowUpsProps (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
+    export interface PendingFollowUpsProps {
+        followUps: readonly PendingFollowUp[];
+        keyboardOpen?: boolean;
+        announcement?: string;
+        announcementKey?: number | string;
     }
   PlaceList (packages/ui-kit/src/blocks/PlaceMap.tsx)
     export function PlaceList(p: PlaceListProps): import("react").JSX.Element;
@@ -2423,6 +2443,8 @@ signatures (every public export and the types it is made of)
     export function describeWorkingSession(s: WorkingSession, now: number, clock?: (ms: number) => string): WorkingSessionView;
   effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
     export function effectLineCount(text: string | undefined): number;
+  followUpLabel (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
+    export function followUpLabel(text: string, words?: number): string;
   font (packages/ui-kit/src/tokens.ts)
     const font: {
         readonly body: "'Plus Jakarta Sans',sans-serif";
