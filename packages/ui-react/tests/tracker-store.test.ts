@@ -591,6 +591,19 @@ describe("persistence", () => {
     expect(views(here).find((v) => v.sessionId === "odysseus-circe")).toMatchObject({ state: "running", settled: true });
   });
 
+  test("a stale tab never overwrites a set another tab stored for a different principal", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const stale = root({ storage, storagePrefix: "ithaca" });
+    hello(stale, false, "pk-ithaca");
+    runningIn(stale, A);
+    stale.stores.chat.getState().setActiveSession(B);
+    const theirs = JSON.stringify({ v: 1, principalKey: "pk-penelope", trackers: [{ sessionId: "odysseus-loom", requestId: null, turnId: null, revision: null, leftAt: 1, seen: null }] });
+    storage.setItem(k, theirs);
+    stale.stores.trackers.getState().track("odysseus-circe");
+    expect(storage.data.get(k)).toBe(theirs);
+  });
+
   test("a storage event for another key, or a root that keeps nothing, changes nothing", () => {
     const memory = root({ storage: null });
     hello(memory, false);
@@ -737,6 +750,38 @@ describe("recovery (Recovery A)", () => {
     // req-3's dispatch is recognised.
     frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-3", requestId: "req-3" });
     expect(state(r, A)).toBe("running");
+  });
+
+  test("a held turn other than the envelope's is not assumed newer either", async () => {
+    let release!: () => void;
+    let reads = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const host: Host = { envelopes: new Map([[A, async () => { reads++; if (reads === 1) await gate; return envelope(A, 2, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 1 }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    frame(r, { type: "status", sessionId: A, status: "queued", requestId: "req-2" });
+    // A reconnect announces turn 1, naming no request, during the read.
+    frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1" });
+    release();
+    await settle(); await settle();
+    expect(r.stores.trackers.getState().evidence[A]!.latest).toMatchObject({ turnId: "turn-2", state: "running" });
+    expect(reads).toBe(2);
+  });
+
+  test("a turnless error for a request this page never saw accepted still asks the host", async () => {
+    let reads = 0;
+    // First the session's earlier turn, running; then the new request, unknown.
+    const host: Host = { envelopes: new Map([[A, () => { reads++; return reads === 1 ? envelope(A, 1, { requestId: "req-1", turnId: "turn-1", state: "running", startedAt: 1 }) : envelope(A, 2, { requestId: "req-x", state: "unknown" }); }]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    runningIn(r, A);
+    r.stores.chat.getState().setActiveSession(B);
+    await settle();
+    const before = reads;
+    frame(r, { type: "error", sessionId: A, code: "BACKEND_ERROR", message: "No backend.", requestId: "req-x" });
+    await settle();
+    expect(reads).toBe(before + 1);
+    expect(state(r, A)).toBe("unknown");
   });
 
   test("held progress after an ambiguous dispatch waits for the reread with it", async () => {

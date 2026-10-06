@@ -146,8 +146,15 @@ export function createTrackerClient(root: BrainUiServices) {
         // Refused, unless the host had already accepted it: an accepted
         // request that fails before its turn exists ends it, and the
         // envelope then says how.
-        if (store.evidence[sessionId]?.latest?.requestId === msg.requestId || store.acceptedRequests.includes(msg.requestId)) refresh(sessionId);
-        else store.refused(sessionId, msg.requestId);
+        if (store.evidence[sessionId]?.latest?.requestId === msg.requestId || store.acceptedRequests.includes(msg.requestId)) {
+          refresh(sessionId);
+          return;
+        }
+        store.refused(sessionId, msg.requestId);
+        // Not every acceptance is announced with its request (a known
+        // session's acceptance says only `thinking`), so the host decides
+        // what the session's latest work now is.
+        refresh(sessionId);
         return;
       }
       // A queue report lists requests the host holds: each was accepted.

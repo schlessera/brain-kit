@@ -196,7 +196,10 @@ export function createTrackerStore(env: StoreEnvironment) {
       const storage = env.storage();
       if (!storage) return records;
       const current = replace ? null : readStored();
-      if (current && (current.principalKey === null || state.principalKey === null || current.principalKey === state.principalKey)) {
+      // Another tab stored a different principal's set: this tab's is stale,
+      // and only a principal change (a hello) may replace it.
+      if (current && current.principalKey !== null && state.principalKey !== null && current.principalKey !== state.principalKey) return records;
+      if (current) {
         const merged = { ...current.records };
         // Another tab moved a record when the stored one is no longer the
         // one this tab changed from. Its record then stands, unless this
@@ -431,10 +434,15 @@ export function createTrackerStore(env: StoreEnvironment) {
         // its latest) or after it (and is newer). Neither is assumed: the
         // envelope stands, and another read decides.
         const counted = result.ok ? result.recovery.latest.requestId : null;
+        const countedTurn = result.ok ? result.recovery.latest.turnId : null;
         let ambiguous = false;
         for (const event of held) {
           const work = event.kind === "queued" || event.kind === "running" || event.kind === "terminal";
           if (counted !== null && (event.kind === "queued" || event.kind === "running") && event.requestId !== null && event.requestId !== counted) ambiguous = true;
+          // So is progress of a turn other than the one the envelope names:
+          // it may be older (a reconnect announcing a turn still running) or
+          // newer.
+          if (countedTurn !== null && event.kind === "running" && event.turnId !== null && event.turnId !== countedTurn) ambiguous = true;
           // From there on, held progress may belong to that request's turn:
           // it waits for the reread too. Interactions still apply.
           if (ambiguous && work) continue;
