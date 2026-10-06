@@ -295,6 +295,25 @@ describe("dismissal and snooze: the decision's example table", () => {
   });
 });
 
+describe("hand-edited and unusual input", () => {
+  test("an unreadable until keeps the snooze, and list still reads it", async () => {
+    const root = brain();
+    const fp = finding(await run(root), BROKEN_ID).fingerprint;
+    await run(root, NOW, [{ kind: "snoozed", id: BROKEN_ID, expectFingerprint: fp, until: "2026-07-20" }]);
+    const path = join(root, "context/hygiene/snoozed.md");
+    writeFileSync(path, readFileSync(path, "utf-8").replace("- until: 2026-07-20", "- until: 2026-99-99"));
+    await run(root, at(30 * DAY));
+    expect(entry(root, BROKEN_ID)).toMatchObject({ state: "snoozed", dueAt: null });
+  });
+
+  test("a module or skill category named like an Object property gets the default fingerprint", async () => {
+    const root = brain();
+    const odd: HygieneCandidate = { category: "constructor", path: DOC, evidence: "", message: "An odd category" };
+    const result = await run(root, NOW, [], [odd]);
+    expect(finding(result, hygieneId("constructor", DOC, "")).fingerprint).toMatch(/^[0-9a-f]{12}$/);
+  });
+});
+
 describe("refusals", () => {
   test("a stale or unknown fingerprint is refused before anything is written", async () => {
     const root = brain();
@@ -397,6 +416,20 @@ describe("brain hygiene dismiss/snooze (fresh processes)", () => {
       expect(refused.out.currentFingerprint).not.toBe(fp);
     }
     expect(hygieneFiles(root)).toEqual(before);
+  });
+
+  test("a finding the skill reported is dismissed with the same --extra file, and refused without it", async () => {
+    const root = brain();
+    const extra = join(root, "extra.json");
+    const conflictId = hygieneId("conflict", DOC, "king of Ithaca");
+    writeFileSync(extra, JSON.stringify([{ category: "conflict", path: DOC, evidence: "king of Ithaca", message: "Role differs from me/identity.md" }]));
+    const fp = (await reconcileCli(root, "--extra", extra)).detected.find((d: { id: string }) => d.id === conflictId).fingerprint;
+    const without = await cli(root, "hygiene", "dismiss", conflictId, "--expect-fingerprint", fp);
+    expect(without.code).toBe(1);
+    expect(without.out).toMatchObject({ status: "refused", reason: "not-detected", id: conflictId });
+    const withExtra = await cli(root, "hygiene", "dismiss", conflictId, "--expect-fingerprint", fp, "--extra", extra);
+    expect(withExtra).toMatchObject({ code: 0, out: { status: "dismissed", id: conflictId } });
+    expect((await listCli(root)).find((e) => e.id === conflictId)).toMatchObject({ state: "dismissed" });
   });
 
   test("brain validate still reports a dismissed error and exits 1", async () => {

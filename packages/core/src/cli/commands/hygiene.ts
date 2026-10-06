@@ -44,14 +44,15 @@ const HELP = `brain hygiene <reconcile|list|dismiss|snooze> — the content-hygi
       "lastSeen", "until", "dueAt", "resolvedBy", "resolvedOn", "sources", "severity",
       "fingerprint", "disposition", "invalidation" }] }
 
-  dismiss <id> --expect-fingerprint <fp> [--reason <text>]
-  snooze <id> --until <date|date-time> --expect-fingerprint <fp> [--reason <text>]
+  dismiss <id> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
+  snooze <id> --until <date|date-time> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>]
       Reconcile, then record the disposition in dismissed.md or snoozed.md
       with the fingerprint it applies to. A dismissed finding stays out of
       review until its evidence changes; a snoozed one until --until arrives
       (an ISO date, or a date-time with a zone) or its evidence changes. When
       the finding is not detected now, or its fingerprint is not <fp>, it is
-      refused: exit 1, nothing written.
+      refused: exit 1, nothing written. A finding the skill reported through
+      reconcile --extra is detected only with the same --extra file.
       --json envelope: { "status": "dismissed"|"snoozed", "id", "fingerprint", "until",
       "reason", "changedFiles" }; refused: { "status": "refused", "reason":
       "not-detected"|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }`;
@@ -172,8 +173,11 @@ export const hygieneCommand: CoreCommand = {
     if (sub === "dismiss" || sub === "snooze") {
       const now = new Date();
       const request = dispositionRequest(sub, pos, flags, now);
+      if (flags.extra === true) throw new UsageError("--extra needs a file");
+      // A finding the skill reported (`--extra`) is detected again only from the same candidates.
+      const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
       try {
-        const result = await detectAndReconcile(cli, { now, dispositions: [request] });
+        const result = await detectAndReconcile(cli, { now, extra, dispositions: [request] });
         const payload = {
           status: request.kind,
           id: request.id,

@@ -30,7 +30,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The existing CLI exposes reconciliation and listing
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:152-154`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:153-155`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -122,7 +122,7 @@ category and ID evidence (`VALIDATION_JOIN`,
 structured detail, so the message is never read (`export interface ValidationDetail`,
 `packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
 when category, path and evidence agree, and the join does not depend on their
-order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:265-313`).
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:265-314`).
 
 | Validation rule | Category | ID evidence | Joins |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:833-841`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:834-844`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -171,7 +171,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1351`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1354`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -185,7 +185,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1325-1328`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1328-1331`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

@@ -17,7 +17,7 @@ does not establish a measured model go/no-go.
 | Context and asset result caches | `chunkContextKey`, `packages/core/src/lib/indexer/caches.ts:29-38`; `assetCacheKey`, `packages/core/src/lib/indexer/caches.ts:113-116` | Keys identify generated derivatives. They do not prove that metadata at a particular imported path was successfully written. Existing keys do not contain this prototype's model/configuration identity. |
 | Cached context generation | `generateChunkContexts`, `packages/core/src/lib/indexer/contexts.ts:36-58` | Index-time chunk context is separate from writing an imported document's frontmatter summary. |
 | Preserving frontmatter edits | `editFrontmatter`, `packages/core/src/lib/frontmatter-edit.ts:216-295` | Reuse surgical edits. Unsupported syntax refuses a write rather than falling back to whole-document serialization. |
-| Conditional source replacement | `replaceIfUnchanged`, `packages/core/src/lib/hygiene.ts:1103-1119` | Reuse regular-file checks, exclusive staging, expected-byte comparison and rename. This is a single-file primitive, not a durable multi-file transaction. |
+| Conditional source replacement | `replaceIfUnchanged`, `packages/core/src/lib/hygiene.ts:1106-1122` | Reuse regular-file checks, exclusive staging, expected-byte comparison and rename. This is a single-file primitive, not a durable multi-file transaction. |
 
 The current skill's combined LLM enrichment must therefore be measured by
 running the actual skill/agent on the frozen files. The scripted combined arm

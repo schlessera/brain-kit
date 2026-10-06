@@ -10,9 +10,9 @@ production command, changes no skill, and selects no adoption policy.
 
 | Operation | Existing owner | Consequence for this evaluation |
 | --- | --- | --- |
-| Audit, silent-edit and row-level table detection | `detectCandidates`, `packages/core/src/lib/hygiene.ts:595-638` | Reuse detection rather than parse finding messages into write instructions. |
+| Audit, silent-edit and row-level table detection | `detectCandidates`, `packages/core/src/lib/hygiene.ts:596-639` | Reuse detection rather than parse finding messages into write instructions. |
 | Stable finding IDs | `hygieneId`, `packages/core/src/lib/hygiene.ts:172-175` | Keep category/path/evidence identity; add no parallel log. |
-| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:1167-1471` | Reuse the existing reconciler after repair and retain its manual-state tests. |
+| Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:1170-1474` | Reuse the existing reconciler after repair and retain its manual-state tests. |
 | Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:288-317` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
 | Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:71-99` | Still agent file edits. These are the two prototype operations. |
 | Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-67` | Suggestions only; this is not a mechanical repair handler. |

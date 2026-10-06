@@ -139,7 +139,7 @@ Unsupported, missing, invalid and no-op cases stay manual/unavailable. Reindex
 after authoritative Markdown changes, then rerun the finding's actual check;
 partial repair or a failed check never becomes success.
 
-Reuse `candidateFromAudit` (`packages/core/src/lib/hygiene.ts:331-375`) and
+Reuse `candidateFromAudit` (`packages/core/src/lib/hygiene.ts:332-376`) and
 `hygieneId` (`packages/core/src/lib/hygiene.ts:172-175`) without inventing another
 identity or disposition store. The [hygiene-review policy](decisions/hygiene-review.md)
 binds #597's canonical equivalence, severity/known-urgency ordering and relevant

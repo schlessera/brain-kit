@@ -294,7 +294,8 @@ export function canonicalFindings(candidates: HygieneCandidate[]): Map<string, H
       severity: severity ?? "unknown",
       urgency: urgency ?? "unknown",
     };
-    const fieldNames = FINGERPRINT_FIELDS[category] ?? DEFAULT_FINGERPRINT_FIELDS;
+    // Own keys only: a module or skill category may be named `constructor`.
+    const fieldNames = Object.hasOwn(FINGERPRINT_FIELDS, category) ? FINGERPRINT_FIELDS[category] : DEFAULT_FINGERPRINT_FIELDS;
     const fingerprintFields = Object.fromEntries(fieldNames.map((name) => [name, sha1(values[name]).slice(0, 8)]));
     out.set(id, {
       id,
@@ -833,11 +834,13 @@ const DISPOSITION_FIELDS = ["until", "dismissed-on", "snoozed-on", "reason", "di
 function dueAt(until: string | null): number | null {
   if (until === null) return null;
   if (/^\d{4}-\d{2}-\d{2}T/.test(until)) {
-    const at = Date.parse(until);
+    // A date-time written without a zone is read as UTC, the same on every machine.
+    const at = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/i.test(until) ? until : `${until}Z`);
     return Number.isNaN(at) ? null : at;
   }
   const d = day(until);
-  return d === null ? null : Date.parse(`${d}T00:00:00Z`);
+  const at = d === null ? NaN : Date.parse(`${d}T00:00:00Z`);
+  return Number.isNaN(at) ? null : at;
 }
 
 /** An ISO date (`YYYY-MM-DD`) or date-time with a zone (`2026-10-12T08:00:00+02:00`, `…Z`). */
