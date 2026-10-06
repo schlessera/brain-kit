@@ -77,15 +77,21 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   const showTree = showContent && (!currentPath || treeExpanded);
 
   // Pressing Files while it is open (D52 N3): the viewer goes to the top of
-  // the file and the tree box to its top, and focus goes to the open file's
-  // tree row. With the tree hidden it goes to the reading pane's title, and
-  // with no file open to the Files heading; the panes have no title stop.
-  // The tree's own reveal (a smooth, centred scroll) is not asked for.
+  // the file (an HTML preview by reloading) and the tree box to its top, and
+  // focus goes to the open file's tree row. With the tree hidden it goes to
+  // the reading pane's title, and with no file open to the Files heading;
+  // the panes have no title stop. The tree's own reveal (a smooth, centred
+  // scroll) is not asked for.
   const panelRef = useRef<HTMLElement>(null);
   useDestinationPress("files", ({ keyboard }) => {
     const panel = panelRef.current;
     if (!open || !panel) return;
     scrollToStart(panel);
+    // A sandboxed HTML preview scrolls inside a document the panel cannot
+    // reach; loading the same source again shows the top of the file.
+    for (const frame of panel.querySelectorAll<HTMLIFrameElement>("iframe[data-html-preview]")) {
+      frame.setAttribute("srcdoc", frame.getAttribute("srcdoc") ?? "");
+    }
     const el = (sel: string) => panel.querySelector<HTMLElement>(sel);
     focusFirst([
       el('[role="treeitem"][aria-selected="true"]'),

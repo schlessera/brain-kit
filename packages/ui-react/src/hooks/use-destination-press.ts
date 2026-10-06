@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useBrainUiRoot } from "../root-context.js";
 import { useUIStore } from "../stores/ui-store.js";
 import type { Destination, DestinationPress } from "../stores/ui-state.js";
 
@@ -9,17 +10,24 @@ import type { Destination, DestinationPress } from "../stores/ui-state.js";
  * own containers to their start and moves focus with the helpers in
  * `lib/destination-start.ts`.
  *
- * A press recorded before this component mounted is not answered: the count
- * it last saw starts at the store's current one.
+ * Only a press recorded while this component watches the store is answered.
+ * One seen at mount, or carried by a replacement root the provider switches
+ * to without remounting, is taken as already answered: each root counts its
+ * presses from zero, so the count alone cannot tell two roots' presses apart.
  */
 export function useDestinationPress(destination: Destination, onPress: (press: DestinationPress) => void) {
+  const store = useBrainUiRoot().stores.ui;
   const press = useUIStore((s) => s.destinationPress);
-  const seen = useRef(press?.n ?? 0);
+  const seen = useRef({ store, press });
   const handler = useRef(onPress);
   handler.current = onPress;
   useEffect(() => {
-    if (!press || press.n === seen.current) return;
-    seen.current = press.n;
+    if (seen.current.store !== store) {
+      seen.current = { store, press };
+      return;
+    }
+    if (!press || press === seen.current.press) return;
+    seen.current.press = press;
     if (press.destination === destination) handler.current(press);
-  }, [press, destination]);
+  }, [store, press, destination]);
 }

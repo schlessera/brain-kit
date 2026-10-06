@@ -5449,8 +5449,8 @@ chord as keyboard input for `:focus-visible`; a tap shows none.
 | Actions, list | below 900 | list → top | the "Actions" heading |
 | Actions, detail open | below 900 | detail → top; it stays open | the detail's heading · the "Actions" heading |
 | Actions | 900 up | list, detail and evidence rail → top | the selected row (run rows carry `aria-current`) · the "Actions" heading |
-| Files | below 900 | viewer and tree box → top | the open file's tree row, when the tree is shown · the reading pane's title · the "Files" heading |
-| | 900 up | reading pane, tree and evidence rail → top | the open file's tree row · the "Files" heading |
+| Files | below 900 | viewer and tree box → top; a sandboxed HTML preview, whose scroll the panel cannot reach, loads its source again | the open file's tree row, when the tree is shown · the reading pane's title · the "Files" heading |
+| | 900 up | reading pane (an HTML preview as below 900), tree and evidence rail → top | the open file's tree row · the "Files" heading |
 | Settings | every width | drawer body, or the pane's section scroller → top | the selected section tab |
 
 Headings are script-only stops (`tabIndex=-1`) that Tab never reaches; they
@@ -5466,7 +5466,7 @@ makes its own keys live as a Tab to it would.
 shown, with no DOM (`pressDestination`,
 `packages/ui-react/src/stores/ui-state.ts:233-241`). The mounted destination
 answers it (`useDestinationPress`,
-`packages/ui-react/src/hooks/use-destination-press.ts:15-25`) with the shared
+`packages/ui-react/src/hooks/use-destination-press.ts:18-33`) with the shared
 reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:36-47`).
 The cells are `packages/ui-react/tests/browser/destination-press.pointer.tsx`,
 run in the kit's `rail-fine`, `rail-coarse` and `rail-mixed` projects.

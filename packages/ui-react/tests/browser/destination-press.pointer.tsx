@@ -88,6 +88,9 @@ const FILES = Array.from({ length: 40 }, (_, i) => ({
 }));
 const OPEN_FILE = "crew-roster.md";
 const ROSTER = ["# Crew roster for Aeaea", "", ...Array.from({ length: 120 }, (_, i) => `- Oar ${i + 1}: a man of Ithaca, counted at dawn and again at dusk.`)].join("\n");
+/** An HTML file, previewed in a sandboxed frame whose scroll the panel cannot reach. */
+const HTML_FILE = "voyage-map.html";
+const MAP = `<!doctype html><body>${Array.from({ length: 120 }, (_, i) => `<p>League ${i + 1} from Ithaca.</p>`).join("")}</body>`;
 
 /** Every request the shell makes, answered offline. */
 function fixtureRequest() {
@@ -101,7 +104,10 @@ function fixtureRequest() {
     if (run) return Response.json(runDetail(decodeURIComponent(run[1]!)));
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
     if (path.endsWith("/files/tree")) return Response.json({ path: "", entries: FILES });
-    if (path.endsWith("/files/resolve")) return Response.json({ path: OPEN_FILE, ancestors: [], exists: true, type: "file" });
+    if (path.endsWith("/files/resolve")) return Response.json({ path: parsed.searchParams.get("path"), ancestors: [], exists: true, type: "file" });
+    if (path.endsWith("/files/content") && parsed.searchParams.get("path") === HTML_FILE) {
+      return Response.json({ path: HTML_FILE, kind: "html", size: MAP.length, mtime: T0, content: MAP });
+    }
     if (path.endsWith("/files/content")) return Response.json({ path: OPEN_FILE, kind: "markdown", size: ROSTER.length, mtime: T0, content: ROSTER });
     return new Response("{}", { status: 404 });
   };
@@ -463,4 +469,28 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
       expect(untouched(s), `${start}: nothing but scroll and focus changed`).toEqual(before);
     });
   }
+}
+
+// The HTML preview is sandboxed with no permissions: its document has an
+// opaque origin, so neither the panel nor this test can read or set its
+// scroll. What is observable is that the press loads the same source again,
+// which shows the top of the file.
+for (const width of [320, 900] as const) {
+  test(`D52 N3 at ${width}: Files with an HTML preview loads it again at its top`, async (ctx) => {
+    const mode = pointer();
+    const s = await mount(ctx, "files", width, HEIGHT, "dark");
+    await s.ui.stores.file.getState().openFile(HTML_FILE);
+    let frame: HTMLIFrameElement | null = null;
+    await expect.poll(() => (frame = panel(s, "Files")?.querySelector<HTMLIFrameElement>('iframe[title="HTML preview"]') ?? null) !== null,
+      { message: "the HTML preview is drawn" }).toBe(true);
+    await expect.poll(() => moving(), { interval: 16, message: "entrances have settled" }).toBe(false);
+    let loads = 0;
+    frame!.addEventListener("load", () => { loads++; });
+    await settle(s, 6);
+    const before = loads;
+    await press(s, SPECS.files, "pointer", mode);
+    await expect.poll(() => loads, { message: "the press loads the preview again" }).toBeGreaterThan(before);
+    expect(s.ui.stores.file.getState().currentPath, "the file stays open").toBe(HTML_FILE);
+    expect(panel(s, "Files")?.querySelector('iframe[title="HTML preview"]'), "the same frame, not a remount").toBe(frame);
+  });
 }
