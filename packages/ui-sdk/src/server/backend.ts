@@ -369,6 +369,20 @@ export interface StartTurnRequest {
    * @experimental
    */
   noGrantSurface?: boolean;
+  /**
+   * Run this turn under the backend's declared VOICE tool posture
+   * (docs/decisions/voice-permission.md "The voice posture"): the backend
+   * selects its named voice allowlist in place of its ordinary one. Only valid
+   * with `enforceAllowedTools` and `noGrantSurface` (`assertTurnPosture`). A
+   * backend that declares no voice posture must reject the turn with
+   * `BackendRequestError` rather than run it on its ordinary allowlist.
+   *
+   * Absent (the default) every existing deployment behaves exactly as it
+   * always has. Hosts set it for turns a live conversation starts (#957).
+   *
+   * @experimental
+   */
+  posture?: "voice";
 }
 
 /** @experimental Nonpersistence and permission posture, not a containment profile. */
@@ -474,7 +488,7 @@ export class BackendRequestError extends Error {
  * @experimental
  */
 export function assertTurnPosture(
-  req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge">>,
+  req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>,
   supportsAutonomous: boolean = false
 ): void {
   if (req.autonomous !== undefined) {
@@ -491,6 +505,12 @@ export function assertTurnPosture(
         typeof req.bridge?.checkpointPermission !== "function") {
       throw new BackendRequestError("Autonomous turns require nonpersistence, an explicit tool policy, enforced no-grant posture and a checkpoint bridge; resume is forbidden.");
     }
+  }
+  if (req.posture !== undefined &&
+      (req.posture !== "voice" || req.autonomous !== undefined || req.enforceAllowedTools !== true || req.noGrantSurface !== true)) {
+    throw new BackendRequestError(
+      "A voice-posture turn must declare enforceAllowedTools and noGrantSurface, and cannot be autonomous."
+    );
   }
   if (req.noGrantSurface === true && req.enforceAllowedTools !== true) {
     throw new BackendRequestError(

@@ -16,6 +16,8 @@ interface AttachedClient {
   ws: WSContext;
   principalId: string;
   onRemove?: () => void;
+  /** Opt-in flags this connection declared in `client_hello`. */
+  capabilities?: Readonly<Record<string, boolean>>;
 }
 
 function canSendRaw(raw: unknown): raw is { send: (data: string) => unknown } {
@@ -61,6 +63,20 @@ export class ClientSet {
     const client = this.clients.get(identity);
     this.clients.delete(identity);
     client?.onRemove?.();
+  }
+
+  /**
+   * Record what a connection declared in `client_hello`. Negotiated frames
+   * (`tool_resolution`) go only to connections that asked for them.
+   */
+  setCapabilities(ws: WSContext, capabilities: Readonly<Record<string, boolean>> | undefined): void {
+    const client = this.clients.get(ws.raw ?? ws);
+    if (client) client.capabilities = { ...(capabilities ?? {}) };
+  }
+
+  /** Whether this socket declared one opt-in capability. */
+  declares(ws: WSContext, capability: string): boolean {
+    return this.clients.get(ws.raw ?? ws)?.capabilities?.[capability] === true;
   }
 
   count(): number {
@@ -130,10 +146,16 @@ export class ClientSet {
    * socket is skipped (its `onClose` will prune it) so one dead peer can't
    * block delivery to the others; `onSendError` lets the owner count the skip.
    */
-  broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void): void {
+  broadcast(
+    msg: ServerMessage,
+    onSendError?: (err: unknown) => void,
+    /** Only connections that declared this `client_hello` capability. */
+    requiredCapability?: string
+  ): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
-    for (const { ws } of this.clients.values()) {
+    for (const { ws, capabilities } of this.clients.values()) {
+      if (requiredCapability !== undefined && capabilities?.[requiredCapability] !== true) continue;
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed
         // connection) rather than throwing, and hono's WSContext.send discards

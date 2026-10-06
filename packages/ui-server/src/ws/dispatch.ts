@@ -26,6 +26,39 @@ export interface ConnectionState {
   authorization: AuthorizationContext;
   /** Revision the client declared via `client_hello`; absent means rev 2. */
   protocolRev?: number;
+  /** Opt-in flags the client declared via `client_hello`. */
+  capabilities?: Readonly<Record<string, boolean>>;
+}
+
+/**
+ * Answer a permission reply that applied to nothing pending (#957): the host
+ * says what actually happened instead of letting the sender assume. A reply
+ * whose turn echo does not match the settled request learns `unknown` — it
+ * was never about that request.
+ */
+function replyResolution(
+  host: WsHost,
+  ws: WSContext,
+  connection: ConnectionState,
+  toolUseId: string,
+  echoed: string | undefined,
+  requireEcho: boolean
+): void {
+  if (connection.capabilities?.toolResolution !== true) return;
+  const record = host.coordinator.resolvedApprovals.get(toolUseId);
+  if (record && turnIdMatches(record, echoed, requireEcho)) {
+    host.sendMessage(ws, {
+      type: "tool_resolution",
+      toolUseId,
+      outcome: record.outcome,
+      ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+      turnId: record.turnId,
+      ...(record.channel ? { channel: record.channel } : {}),
+      ...(record.reason ? { reason: record.reason } : {}),
+    });
+    return;
+  }
+  host.sendMessage(ws, { type: "tool_resolution", toolUseId, outcome: "unknown", ...(echoed ? { turnId: echoed } : {}) });
 }
 
 /**
@@ -77,6 +110,8 @@ export async function handleClientMessage(
       // future client declaring rev 9 is simply held to the rules this host
       // knows, and an unknown capability flag is ignored.
       connection.protocolRev = msg.protocolRev;
+      connection.capabilities = { ...(msg.capabilities ?? {}) };
+      host.clients.setCapabilities(ws, msg.capabilities);
       return;
     }
 
@@ -339,6 +374,9 @@ export async function handleClientMessage(
 
     case "tool_approval": {
       const pending = coordinator.pendingApprovals.get(msg.toolUseId);
+      if (!pending || !turnIdMatches(pending, msg.turnId, requireEcho)) {
+        replyResolution(host, ws, connection, msg.toolUseId, msg.turnId, requireEcho);
+      }
       if (pending && turnIdMatches(pending, msg.turnId, requireEcho)) {
         // Voice may deny; it may never grant (docs/decisions/voice-permission.md).
         // A grant attributed to voice is refused before anything else looks
@@ -423,6 +461,12 @@ export async function handleClientMessage(
             ...(msg.channel ? { channel: msg.channel } : {}),
           }
         );
+        coordinator.recordApprovalOutcome(msg.toolUseId, {
+          outcome: "granted",
+          turnId: pending.turnId,
+          sessionId: pending.turn.sessionId,
+          ...(msg.channel ? { channel: msg.channel } : {}),
+        });
       }
       break;
     }
@@ -438,6 +482,16 @@ export async function handleClientMessage(
             ...(msg.channel ? { channel: msg.channel } : {}),
           }
         );
+        coordinator.recordApprovalOutcome(msg.toolUseId, {
+          outcome: "denied",
+          turnId: pending.turnId,
+          sessionId: pending.turn.sessionId,
+          ...(msg.channel ? { channel: msg.channel } : {}),
+        });
+      } else {
+        // Already granted, expired, or never pending: a denial that lost a
+        // race is told so, never confirmed (a visual grant stays a grant).
+        replyResolution(host, ws, connection, msg.toolUseId, msg.turnId, requireEcho);
       }
       break;
     }
@@ -449,6 +503,9 @@ export async function handleClientMessage(
           coordinator.recordCancellation(turn, connection.authorization.principalId);
           coordinator.cancelTurn(turn, "Cancelled by user");
         }
+        // A cancel drops the session's queued follow-ups; a conversation's
+        // committed-but-unsubmitted work in that session goes with them.
+        host.conversations?.sessionCancelled(msg.sessionId);
         const starting = coordinator.startingBySession.get(msg.sessionId);
         if (starting) {
           starting.cancelled = true;
@@ -472,6 +529,7 @@ export async function handleClientMessage(
       const turn = [...coordinator.running][0]!;
       coordinator.recordCancellation(turn, connection.authorization.principalId);
       coordinator.cancelTurn(turn, "Cancelled by user");
+      if (turn.sessionId) host.conversations?.sessionCancelled(turn.sessionId);
       break;
     }
 
@@ -522,6 +580,29 @@ export async function handleClientMessage(
 
     case "activity_unsubscribe": {
       host.activity?.stream.handleUnsubscribe(ws, msg);
+      break;
+    }
+
+    case "conversation_start":
+    case "conversation_audio":
+    case "conversation_endpoint":
+    case "conversation_commit":
+    case "conversation_playback":
+    case "conversation_stop": {
+      if (connection.closed) break;
+      const conversations = host.conversations;
+      if (!conversations) {
+        host.sendMessage(ws, { type: "error", code: "CONVERSATION_UNAVAILABLE", message: "Live conversation is not configured on this host." });
+        break;
+      }
+      switch (msg.type) {
+        case "conversation_start": await conversations.start(ws, connection, msg); break;
+        case "conversation_audio": conversations.audio(ws, connection, msg); break;
+        case "conversation_endpoint": conversations.endpoint(ws, connection, msg); break;
+        case "conversation_commit": conversations.commit(ws, connection, msg); break;
+        case "conversation_playback": conversations.playback(ws, connection, msg); break;
+        case "conversation_stop": conversations.stop(ws, connection, msg); break;
+      }
       break;
     }
 

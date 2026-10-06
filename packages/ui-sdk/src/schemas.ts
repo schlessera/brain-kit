@@ -20,7 +20,7 @@ export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
-import { isThinkingLevel, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, isThinkingLevel, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -30,6 +30,27 @@ import { BLOCK_SCHEMA } from "./tool-contracts/blocks.js";
 
 import type {
   AskUserAnnotation,
+  ClientConversationAudio,
+  ClientConversationCommit,
+  ClientConversationEndpoint,
+  ClientConversationPlayback,
+  ClientConversationStart,
+  ClientConversationStop,
+  ConversationAudioFormat,
+  ConversationCapabilities,
+  ConversationDisclosure,
+  ConversationInterval,
+  ConversationLimits,
+  ConversationOutputRecord,
+  ConversationWireEvent,
+  ConversationWorkReceipt,
+  ServerConversationClosed,
+  ServerConversationEvent,
+  ServerConversationOpened,
+  ServerConversationOutput,
+  ServerConversationPermission,
+  ServerConversationWork,
+  ServerToolResolution,
   ClientHello,
   QueueAddRequest, QueueAddResult,
   ClientInboxResolve, ClientInboxSnooze, ClientInboxSubscribe, ClientInboxUnsubscribe,
@@ -670,6 +691,77 @@ export const clientInboxSnoozeSchema = z.strictObject({ type: z.literal("inbox_s
 export const clientInboxSubscribeSchema = z.strictObject({ type: z.literal("inbox_subscribe"), view: inboxViewSchema, threadId: id.optional() }) satisfies z.ZodType<ClientInboxSubscribe>;
 export const clientInboxUnsubscribeSchema = z.strictObject({ type: z.literal("inbox_unsubscribe"), view: inboxViewSchema, threadId: id.optional() }) satisfies z.ZodType<ClientInboxUnsubscribe>;
 
+// --- Live conversation (additive, #957) ---
+
+/** Canonical base64 whose decoded size is a whole number of PCM16 samples within the chunk cap. */
+const conversationPcmSchema = z
+  .string()
+  .min(4)
+  .max(Math.ceil((CONVERSATION_LIMITS.maxAudioChunkBytes * 4) / 3) + 8)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/, { message: "pcm must be base64" })
+  .refine((d) => d.length % 4 === 0, { message: "pcm length must be a multiple of 4" })
+  .refine((d) => decodedBase64Bytes(d) <= CONVERSATION_LIMITS.maxAudioChunkBytes, {
+    message: `pcm exceeds ${CONVERSATION_LIMITS.maxAudioChunkBytes} decoded bytes`,
+  })
+  .refine((d) => decodedBase64Bytes(d) % 2 === 0, { message: "pcm must hold whole 16-bit samples" });
+
+/** Sample rates a conversation accepts; providers declare which one they use. */
+export const conversationSampleRateSchema = z.number().int().min(8_000).max(48_000);
+const conversationSequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const conversationEpoch = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+const conversationPlaybackSchema = z.enum(["played", "discarded", "unknown"]);
+const sampleRangeSchema = z
+  .looseObject({ start: z.number().int().min(0), end: z.number().int().min(0) })
+  .refine((r) => r.end >= r.start, { message: "end must not precede start" });
+
+export const clientConversationStartSchema = z.looseObject({
+  type: z.literal("conversation_start"),
+  conversationId: id.optional(),
+  sessionId: id.optional(),
+}) satisfies z.ZodType<ClientConversationStart>;
+
+export const clientConversationAudioSchema = z.looseObject({
+  type: z.literal("conversation_audio"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  utteranceId: id,
+  sequence: conversationSequence,
+  rate: conversationSampleRateSchema,
+  pcm: conversationPcmSchema,
+}) satisfies z.ZodType<ClientConversationAudio>;
+
+export const clientConversationEndpointSchema = z.looseObject({
+  type: z.literal("conversation_endpoint"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  utteranceId: id,
+}) satisfies z.ZodType<ClientConversationEndpoint>;
+
+export const clientConversationCommitSchema = z.looseObject({
+  type: z.literal("conversation_commit"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  utteranceId: id,
+  requestId: id,
+  text: z.string().max(CONVERSATION_LIMITS.maxCommitChars).refine((t) => t.trim().length > 0, {
+    message: "text must not be empty",
+  }),
+}) satisfies z.ZodType<ClientConversationCommit>;
+
+export const clientConversationPlaybackSchema = z.looseObject({
+  type: z.literal("conversation_playback"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  outputId: id,
+  playback: conversationPlaybackSchema,
+  playedSamples: sampleRangeSchema.optional(),
+}) satisfies z.ZodType<ClientConversationPlayback>;
+
+export const clientConversationStopSchema = z.looseObject({
+  type: z.literal("conversation_stop"),
+  conversationId: id,
+}) satisfies z.ZodType<ClientConversationStop>;
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientRetryTurnSchema,
   clientRetryStatusSchema,
@@ -695,6 +787,12 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHandoffPrepareCancelSchema,
   clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
+  clientConversationStartSchema,
+  clientConversationAudioSchema,
+  clientConversationEndpointSchema,
+  clientConversationCommitSchema,
+  clientConversationPlaybackSchema,
+  clientConversationStopSchema,
 ]) satisfies z.ZodType<ClientMessage>;
 
 // --- Boundary helper ---
@@ -1226,6 +1324,184 @@ export const inboxSnapshotSchema = z.looseObject({
 }) satisfies z.ZodType<InboxSnapshot>;
 export const inboxDeltaSchema = z.looseObject({ type: z.literal("inbox_delta"), view: inboxViewSchema, change: inboxChangeSchema }) satisfies z.ZodType<InboxDelta>;
 
+// --- Live conversation and tool resolution (additive, #957) ---
+
+export const conversationEvidenceSchema = z.enum(["supported", "unsupported", "unproven"]);
+
+export const conversationCapabilitiesSchema = z.looseObject({
+  nonblockingWork: conversationEvidenceSchema,
+  manualEndpoint: conversationEvidenceSchema,
+  finalTranscript: conversationEvidenceSchema,
+  remoteOutputCancelAck: conversationEvidenceSchema,
+  exactPermissionSpeech: conversationEvidenceSchema,
+  echoIsolatedInput: conversationEvidenceSchema,
+  outputWordAlignment: conversationEvidenceSchema,
+}) satisfies z.ZodType<ConversationCapabilities>;
+
+export const conversationDisclosureSchema = z.looseObject({
+  voiceService: z.string().min(1).max(500),
+  destinations: z.array(z.string().min(1).max(500)).min(1).max(16),
+}) satisfies z.ZodType<ConversationDisclosure>;
+
+export const conversationAudioFormatSchema = z.looseObject({
+  encoding: z.literal("pcm16"),
+  sampleRate: conversationSampleRateSchema,
+  channels: z.literal(1),
+}) satisfies z.ZodType<ConversationAudioFormat>;
+
+const conversationIntervalSchema = z
+  .looseObject({ startMs: z.number().min(0), endMs: z.number().min(0) })
+  .refine((i) => i.endMs >= i.startMs, { message: "endMs must not precede startMs" }) satisfies z.ZodType<ConversationInterval>;
+
+const fragmentText = z.string().max(CONVERSATION_LIMITS.maxFragmentChars);
+
+/**
+ * `certainty: "known"` requires a confidence and `"unknown"` forbids one, so
+ * a consumer never reads a guessed number as calibrated evidence.
+ */
+const inputFragmentEventSchema = z
+  .looseObject({
+    kind: z.literal("input_fragment"),
+    utteranceId: id,
+    sequence: conversationSequence,
+    text: fragmentText,
+    interval: conversationIntervalSchema.optional(),
+    finalization: z.enum(["interim", "final", "unknown"]),
+    certainty: z.enum(["known", "unknown"]),
+    confidence: z.number().min(0).max(1).optional(),
+    origin: z.enum(["user", "assistant", "unknown"]),
+  })
+  .refine((e) => (e.certainty === "known") === (e.confidence !== undefined), {
+    message: "confidence is present exactly when certainty is known",
+  });
+
+export const conversationWireEventSchema = z.union([
+  z.looseObject({
+    kind: z.literal("ready"),
+    model: z.string().max(MAX_ID_CHARS).optional(),
+    api: z.string().max(MAX_ID_CHARS).optional(),
+    input: conversationAudioFormatSchema,
+    output: conversationAudioFormatSchema,
+  }),
+  inputFragmentEventSchema,
+  z.looseObject({
+    kind: z.literal("output_transcript"),
+    outputId: id,
+    sequence: conversationSequence,
+    text: fragmentText,
+    interval: conversationIntervalSchema.optional(),
+  }),
+  z.looseObject({
+    kind: z.literal("audio"),
+    outputId: id,
+    sequence: conversationSequence,
+    format: conversationAudioFormatSchema,
+    pcm: conversationPcmSchema,
+  }),
+  z.looseObject({ kind: z.literal("interrupted"), outputId: id.optional() }),
+]) satisfies z.ZodType<ConversationWireEvent>;
+
+
+const conversationWorkReceiptShape = {
+  conversationId: id,
+  epoch: conversationEpoch,
+  utteranceId: id,
+  requestId: id,
+  turnId: id.optional(),
+  sessionId: id.optional(),
+  state: z.enum(["queued", "running", "completed", "cancelled", "error", "refused"]),
+  delivery: z.enum(["pending", "returned", "discarded"]),
+  recognized: z.string().max(CONVERSATION_LIMITS.maxUtteranceChars),
+  submitted: z.string().max(CONVERSATION_LIMITS.maxCommitChars),
+  reason: z.string().max(500).optional(),
+};
+
+export const conversationWorkReceiptSchema = z.looseObject(conversationWorkReceiptShape) satisfies z.ZodType<ConversationWorkReceipt>;
+
+const conversationOutputRecordShape = {
+  epoch: conversationEpoch,
+  outputId: id,
+  generated: z.string().max(CONVERSATION_LIMITS.maxGeneratedChars),
+  playback: conversationPlaybackSchema,
+  playedSamples: sampleRangeSchema.optional(),
+};
+
+export const conversationOutputRecordSchema = z.looseObject(conversationOutputRecordShape) satisfies z.ZodType<ConversationOutputRecord>;
+
+export const serverConversationOutputSchema = z.looseObject({
+  type: z.literal("conversation_output"),
+  conversationId: id,
+  ...conversationOutputRecordShape,
+}) satisfies z.ZodType<ServerConversationOutput>;
+
+const limitValue = z.number().int().min(0);
+export const conversationLimitsSchema = z.looseObject({
+  maxAudioChunkBytes: limitValue,
+  maxUtterances: limitValue,
+  maxFragmentsPerUtterance: limitValue,
+  maxFragmentChars: limitValue,
+  maxUtteranceChars: limitValue,
+  maxGeneratedChars: limitValue,
+  maxCommitChars: limitValue,
+  maxQueuedWork: limitValue,
+  maxPendingNativeRequests: limitValue,
+  maxFactChars: limitValue,
+  maxOutputs: limitValue,
+  maxConversationsPerConnection: limitValue,
+}) satisfies z.ZodType<ConversationLimits>;
+
+export const serverConversationOpenedSchema = z.looseObject({
+  type: z.literal("conversation_opened"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  sessionId: id.optional(),
+  providerId: id,
+  capabilities: conversationCapabilitiesSchema,
+  disclosure: conversationDisclosureSchema,
+  limits: conversationLimitsSchema,
+  resync: z.looseObject({ work: z.number().int().min(0), outputs: z.number().int().min(0) }),
+}) satisfies z.ZodType<ServerConversationOpened>;
+
+export const serverConversationClosedSchema = z.looseObject({
+  type: z.literal("conversation_closed"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  reason: z.enum(["stopped", "replaced", "disconnected", "provider_closed", "provider_error", "backpressure", "correlation", "refused"]),
+  message: z.string().max(500).optional(),
+}) satisfies z.ZodType<ServerConversationClosed>;
+
+export const serverConversationEventSchema = z.looseObject({
+  type: z.literal("conversation_event"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  event: conversationWireEventSchema,
+}) satisfies z.ZodType<ServerConversationEvent>;
+
+export const serverConversationWorkSchema = z.looseObject({
+  type: z.literal("conversation_work"),
+  ...conversationWorkReceiptShape,
+}) satisfies z.ZodType<ServerConversationWork>;
+
+export const serverConversationPermissionSchema = z.looseObject({
+  type: z.literal("conversation_permission"),
+  conversationId: id,
+  epoch: conversationEpoch,
+  sessionId: id,
+  turnId: id,
+  toolUseId: id,
+  toolName: z.string().max(MAX_ID_CHARS),
+  announce: z.boolean(),
+}) satisfies z.ZodType<ServerConversationPermission>;
+
+export const serverToolResolutionSchema = z.looseObject({
+  type: z.literal("tool_resolution"),
+  toolUseId: id,
+  outcome: z.enum(["granted", "denied", "expired", "unknown"]),
+  channel: approvalChannelSchema.optional().catch(undefined),
+  reason: z.string().max(500).optional(),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerToolResolution>;
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   serverRetryReceiptSchema,
   serverHelloSchema,
@@ -1254,6 +1530,13 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverHandoffDraftSchema,
   serverHandoffReceiptSchema,
   inboxSnapshotSchema, inboxDeltaSchema,
+  serverToolResolutionSchema,
+  serverConversationOpenedSchema,
+  serverConversationClosedSchema,
+  serverConversationEventSchema,
+  serverConversationWorkSchema,
+  serverConversationOutputSchema,
+  serverConversationPermissionSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

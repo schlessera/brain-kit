@@ -87,16 +87,17 @@ classification does not freeze the seams immediately or schedule 1.0; see the
 ## The seams
 
 The [live-conversation decision](../decisions/live-conversation.md) selects
-Gemini Live and OpenAI GPT-Live as two intended implementations of one future
-conversation interface. Its [specification](../live-conversation-investigation.md)
-keeps host-owned tools, permissions, correlation and playback authority. That
-interface is not exported or registered yet, and is not an eleventh shipped
-seam. It does not replace dictation's `SpeechProvider` / `AsrClient` or introduce
-a standalone TTS provider. Future implementation must document its additive
-SDK/configuration/wire contract before changing this inventory.
+Gemini Live and OpenAI GPT-Live as two intended implementations of one
+conversation interface, `LiveConversationProvider`. Its
+[specification](../live-conversation-investigation.md) keeps host-owned tools,
+permissions, correlation and playback authority, and the
+[contract](../integration-contract.md#live-conversation-additive-957) documents
+its SDK, configuration and wire surface. It does not replace dictation's
+`SpeechProvider` / `AsrClient` or introduce a standalone TTS provider; no
+adapter ships yet.
 
-There are ten. This table is the list; the integration contract's
-"Extension interfaces" table names the same ten, and `tests/seam-list.test.ts`
+There are eleven. This table is the list; the integration contract's
+"Extension interfaces" table names the same eleven, and `tests/seam-list.test.ts`
 fails when the two or the `@experimental` tags in the source disagree.
 
 | Seam                                | Interface            | Imported from                     | What it swaps                            |
@@ -109,10 +110,11 @@ fails when the two or the `@experimental` tags in the source disagree.
 | [Agent backends](agent-backends.md) | `AgentBackend`       | `@schlessera/brain-ui-sdk/server` | The runtime that drives a chat session   |
 | Speech                              | `SpeechProvider`     | `@schlessera/brain-ui-sdk/server` | Who mints a dictation session            |
 | Speech                              | `AsrClient`          | `@schlessera/brain-ui-sdk/client` | The browser end of that session          |
+| Live conversation                   | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` | The voice service a live conversation runs on |
 | Tool renderers                      | `ToolRenderer`       | `@schlessera/brain-ui-sdk/client` | How one tool call looks in the timeline  |
 | Site adapters                       | `SiteAdapter`        | `@schlessera/brain-scrape`        | The site a module fetches from           |
 
-The first five live in core. The self-hosted chat UI adds four in
+The first five live in core. The self-hosted chat UI adds five in
 `@schlessera/brain-ui-sdk` (`packages/ui-sdk` in this monorepo).
 
 - **[Agent backends](agent-backends.md)** — `BackendModule`, the package-level
@@ -130,6 +132,12 @@ The first five live in core. The self-hosted chat UI adds four in
   registered per provider id on the UI root's `asr` registry (or the SDK's
   default registry via `registerAsrClient`). Contract:
   `packages/ui-sdk/src/client/asr.ts`.
+- **`LiveConversationProvider`** (server) — opens one bidirectional voice
+  session per conversation epoch and reports normalized, evidence-qualified
+  events. The host commits input, runs work through the ordinary backend and
+  permission bridge, and returns bounded results; the provider never executes
+  tools or settles permissions. Pass one to `createApp({ conversationProvider })`.
+  Contract: `packages/ui-sdk/src/server/conversation.ts`.
 - **`ToolRenderer`** (client) — per-tool rendering for the chat timeline
   (icon, summary, input/output React components), registered at build time in
   `RendererPack`s; resolution is backend-scoped name → global name → scored

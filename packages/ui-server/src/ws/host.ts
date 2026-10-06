@@ -16,6 +16,9 @@ import type { Principal } from "../db/principals.js";
 import type { InboxStream } from "../inbox/stream.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
+import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import { ConversationHost } from "./conversation.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -129,6 +132,12 @@ export interface WsHostOptions {
    * every card stays per-use (what existing tests expect).
    */
   toolPermissions?: ToolPermissions;
+  /**
+   * Live-conversation provider (#957). Absent means the host does not
+   * advertise `liveConversation` and refuses every `conversation_*` frame.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProvider?: LiveConversationProvider;
 }
 
 /** The remembered per-tool auto-allow store the ws layer consults. */
@@ -181,6 +190,8 @@ export class WsHost {
   readonly activity: ActivityRuntime | null;
   readonly inbox: InboxStream | null;
   readonly toolPermissions: ToolPermissions | null;
+  /** Live-conversation orchestration, when a provider is registered. */
+  readonly conversations: ConversationHost | null;
   readonly classifier: TurnClassifier | null;
   readonly scratchPrune?: () => Promise<void>;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
@@ -224,6 +235,10 @@ export class WsHost {
     this.activity = options.activity ?? null;
     this.inbox = options.inbox ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
+    if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
+    this.conversations = options.conversationProvider
+      ? new ConversationHost(this, options.conversationProvider)
+      : null;
     this.classifier = options.classifier ?? null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
     this.log = this.observability.logger("ws");
@@ -248,6 +263,19 @@ export class WsHost {
       description: "WebSocket connections refused before admission",
     });
     this.coordinator.log = this.log;
+    // Every settled permission request, by any path, reaches the connections
+    // that asked for host outcomes (#957).
+    this.coordinator.onApprovalSettled = (toolUseId, record) => {
+      this.sendToCapable("toolResolution", {
+        type: "tool_resolution",
+        toolUseId,
+        outcome: record.outcome,
+        ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+        turnId: record.turnId,
+        ...(record.channel ? { channel: record.channel } : {}),
+        ...(record.reason ? { reason: record.reason } : {}),
+      });
+    };
     this.authorizationExpiryTimer = setInterval(
       () => this.expireAuthorizationContexts(),
       AUTHORIZATION_EXPIRY_SWEEP_MS
@@ -385,6 +413,17 @@ export class WsHost {
     });
   }
 
+  /** Fan a negotiated frame out to the clients that declared `capability`. */
+  sendToCapable(capability: string, msg: ServerMessage): void {
+    this.clients.broadcast(
+      msg,
+      () => {
+        this.framesDropped.add(1, { reason: "broadcast_send_failed", direction: "outbound" });
+      },
+      capability
+    );
+  }
+
   /**
    * Apply principal-store revocation to every in-memory authority boundary.
    * Running turns are marked but deliberately not aborted.
@@ -419,6 +458,7 @@ export class WsHost {
   close(): void {
     clearInterval(this.authorizationExpiryTimer);
     this.inbox?.close();
+    this.conversations?.closeAll();
   }
 
   /** Send a frame to one specific socket (size-bounded). */

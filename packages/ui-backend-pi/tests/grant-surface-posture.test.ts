@@ -39,7 +39,7 @@ function fakeSession(sessionId: string): PiSessionLike {
 }
 
 async function runTurn(
-  posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface">
+  posture: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "posture">
 ): Promise<{ outcome: Promise<void>; frames: ServerMessage[]; sessions: () => number }> {
   const brain = makeEmptyBrain();
   let opened = 0;
@@ -164,5 +164,23 @@ describe("pi: noGrantSurface without enforceAllowedTools", () => {
     } finally {
       r.brain.cleanup();
     }
+  });
+});
+
+describe("pi: the voice posture (#957)", () => {
+  test("a voice-posture turn is refused before a session exists: pi declares no voice allowlist", async () => {
+    const turn = await runTurn({ posture: "voice", enforceAllowedTools: true, noGrantSurface: true });
+
+    await expect(turn.outcome).rejects.toBeInstanceOf(BackendRequestError);
+    await expect(turn.outcome).rejects.toThrow(/no voice tool posture/);
+    expect(turn.frames).toHaveLength(0);
+    expect(turn.sessions()).toBe(0);
+  });
+
+  test("a voice posture without the enforced no-grant pair is refused by the shared rule", async () => {
+    const turn = await runTurn({ posture: "voice", enforceAllowedTools: true });
+
+    await expect(turn.outcome).rejects.toThrow(/voice-posture turn must declare enforceAllowedTools and noGrantSurface/);
+    expect(turn.sessions()).toBe(0);
   });
 });

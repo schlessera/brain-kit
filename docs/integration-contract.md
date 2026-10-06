@@ -2427,6 +2427,228 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
   `chat_message` starts an ordinary new chat, and the client receives no
   `handoff_*` frame. Older clients drop the new frames, read `source:
   "handoff"` as absent and show the first message as text.
+### Tool resolution receipts (additive, #957)
+
+```
+server_hello.capabilities.toolResolution: true
+client_hello.capabilities.toolResolution?: boolean
+server → { type: "tool_resolution", toolUseId, sessionId?, turnId?,
+           outcome: "granted" | "denied" | "expired" | "unknown",
+           channel?, reason? }
+```
+
+Sending `tool_denial` is not confirmation of a denial. A host that advertises
+`toolResolution` sends `tool_resolution` only to connections whose
+`client_hello` declared the same flag; a client that does not declare it
+receives exactly the frames it received before. `turnId` is the turn that
+raised the request.
+
+- **granted** / **denied** — a card or reply settled the request. Every
+  opted-in connection is told, including the one that answered. `channel` is
+  the decision's channel.
+- **expired** — the turn ended first (cancel, timeout, session end) and
+  resolved the request itself. No `tool_result` is required or implied; a
+  client clears the card on this frame. `reason` is the host's reason.
+- **unknown** — a reply matched nothing the host holds: the id was never
+  pending, its outcome was evicted, or the reply's `turnId` names a different
+  turn (a stale echo from before a reconnect). It never applies the reply to
+  a replacement request.
+
+A `tool_approval` or `tool_denial` that applies to no pending request is
+answered to its sender with the settled outcome when the echoed turn matches,
+and `unknown` otherwise. A spoken denial that loses to a card grant is
+therefore told `granted`; the grant is never undone or reported as refused.
+A voice-attributed grant is still refused and produces no resolution: the
+request stays pending and its card is re-sent. The host retains the last 512
+settled outcomes. Approval and denial semantics are otherwise unchanged.
+
+### Live conversation (additive, #957)
+
+A separately registered live-conversation provider runs a bidirectional voice
+session beside dictation, whose `SpeechProvider`, `AsrClient` and
+`/api/voice/session` keep their meaning. The [decision](decisions/live-conversation.md)
+and [specification](live-conversation-investigation.md) give the reasoning;
+this section is the contract. The host owns semantic commit, admission, the
+agent backend, tools, permissions, cancellation and every identity. Provider
+text, native call ids and generated speech are evidence, never authority.
+
+**Registration and discovery.** `CreateAppOptions.conversationProvider?:
+LiveConversationProvider` (`@schlessera/brain-ui-server`) registers one
+provider by value; it is validated at startup and an invalid one throws. Only
+then does `server_hello` carry `capabilities.liveConversation: true`. Without
+one, every `conversation_*` frame is answered with `error` code
+`CONVERSATION_UNAVAILABLE`. No existing frame, route or rev-3 rule changes,
+and `PROTOCOL_REV` stays 4.
+
+```
+client → { type: "conversation_start", conversationId?, sessionId? }
+client → { type: "conversation_audio", conversationId, epoch, utteranceId,
+           sequence, rate, pcm }
+client → { type: "conversation_endpoint", conversationId, epoch, utteranceId }
+client → { type: "conversation_commit", conversationId, epoch, utteranceId,
+           requestId, text }
+client → { type: "conversation_playback", conversationId, epoch, outputId,
+           playback: "played" | "discarded" | "unknown", playedSamples? }
+client → { type: "conversation_stop", conversationId }
+server → { type: "conversation_opened", conversationId, epoch, sessionId?,
+           providerId, capabilities, disclosure, limits,
+           resync: { work, outputs } }
+server → { type: "conversation_closed", conversationId, epoch, reason, message? }
+server → { type: "conversation_event", conversationId, epoch, event }
+server → { type: "conversation_work", ...ConversationWorkReceipt }
+server → { type: "conversation_output", conversationId, ...ConversationOutputRecord }
+server → { type: "conversation_permission", conversationId, epoch, sessionId,
+           turnId, toolUseId, toolName, announce }
+```
+
+**Capabilities are evidence.** `capabilities` has seven keys —
+`nonblockingWork`, `manualEndpoint`, `finalTranscript`,
+`remoteOutputCancelAck`, `exactPermissionSpeech`, `echoIsolatedInput`,
+`outputWordAlignment` — each `supported`, `unsupported` or `unproven`. Neither
+the host nor a client promotes `unproven`. `disclosure` names the voice service
+and model and one to sixteen destination statements, shown before capture.
+
+**Identities and epochs.** The host mints `conversationId`. Each
+`conversation_start` opens a new `epoch`, starting at 1; resuming an existing
+id (same principal) after a disconnect or restart opens the next. The new
+epoch's `conversation_opened` is followed, before any event of that epoch, by
+one `conversation_work` per retained receipt and one `conversation_output` per
+retained output record; `resync` gives both counts. One record per frame keeps
+each one whole under the per-frame cap. Nothing is resubmitted, re-executed or
+re-announced, and capture restarts explicitly. Frames for an ended epoch are
+dropped; a commit for one is refused. One connection holds one conversation;
+resuming it from another connection ends the first one's epoch with
+`replaced`. An id this principal cannot resume is answered with `error` code
+`CONVERSATION_UNKNOWN`. The client mints `utteranceId` and a per-conversation `requestId`.
+
+**Semantic commit is the only admission.** Audio, endpoints, recognized
+fragments and provider work requests never run anything. `conversation_commit`
+creates host work only for an utterance this epoch received audio for, with
+at least one recognized fragment not attributed to the assistant, and not
+already committed. The committed `text` is what the agent receives. A
+repeated `requestId` replays its receipt and never queues again; once its
+receipt is evicted, the id is refused instead. A conversation remembers 4,096
+admitted ids and then refuses further commits: start a new conversation. A provider's
+advisory work request binds to committed work of the same epoch: one naming
+its utterance binds to that utterance's work in any state, and if the result
+already went out without a handle the same result is returned again with it;
+one naming no utterance binds only to the oldest unbound work still running,
+or waits for the next commit. One request holds one handle: a further
+request naming an utterance whose work already holds one is dropped. The
+handle is only the token the result is returned with. An utterance id an epoch has evicted stays retired: audio for
+it closes the epoch with `correlation` rather than starting it over.
+
+**Execution.** Work runs through the ordinary chat path with
+`source: "voice-conversation"`, `requestId` and the conversation's chat
+session (the first commit creates one when `conversation_start` named none).
+One conversation submits one request at a time, so its work never becomes
+parallel turns of one session. Host work always runs as its own turn, never a
+native follow-up, so its result has its own turn identity; for the same reason
+a typed message arriving while a host-work turn runs queues as the next turn
+instead of joining it, even on a `followUp` backend. A `cancel` for the
+session, and any cancellation of the running request (a cancel without a
+session id, host shutdown, a timeout), also cancels the conversation's
+committed work that was not yet submitted. A new turn it
+starts declares the voice posture: `posture: "voice"` with
+`enforceAllowedTools` and `noGrantSurface`. An ordinary turn already running
+in the session keeps its own posture. A failed host-work turn offers no
+client Retry handle (`retryOfTurnId`), because `retry_turn` could not restore
+its posture. Backend `startTurn`, `followUp`, the session queue and the
+permission bridge are otherwise unchanged.
+
+`StartTurnRequest.posture?: "voice"` (additive, `@experimental`) asks the
+backend to run the turn on its declared voice allowlist instead of its
+ordinary one ([voice posture](decisions/voice-permission.md#the-voice-posture)).
+`assertTurnPosture` refuses it without both `enforceAllowedTools` and
+`noGrantSurface`, or on an autonomous turn. The Claude backend selects
+`VOICE_ALLOWED_TOOLS`. The pi backend declares no voice posture and rejects the
+turn with `BackendRequestError`, so a conversation on pi fails visibly instead
+of running on the ordinary allowlist. A conforming backend must do one or the
+other; ignoring the field is forbidden.
+
+**Receipts and provenance.** `ConversationWorkReceipt` carries
+`conversationId`, the commit `epoch`, `utteranceId`, `requestId`, `turnId?`,
+`sessionId?`, `state`, `delivery`, `recognized` (the utterance's original
+fragments joined in sequence order), `submitted` (the committed text) and
+`reason?`. `state` is `queued`, `running`, `completed`, `cancelled`, `error`
+or `refused`. `delivery` is `pending`, `returned` (the provider accepted the
+result) or `discarded`. Recognized, submitted and generated text are separate
+facts: `input_fragment` events carry original recognized text, finalization
+(`interim` / `final` / `unknown`), certainty (`known` only with a calibrated
+`confidence`) and origin (`user` / `assistant` / `unknown`);
+`output_transcript` is generated text, not a record of what was heard.
+`ConversationOutputRecord` keeps an output's `epoch`, generated text, the
+client's `playback` evidence and optional `playedSamples`; output ids are
+scoped to their epoch, and playback for an ended epoch is dropped. Completion is the
+host terminal receipt plus local playback drained or discarded; provider
+generation end is a separate fact.
+
+**No stale result.** The host returns a result to the provider only when the
+work `completed` or failed with `error`, its epoch is still live, the
+conversation is still attached, and the provider has not withdrawn the
+request. Cancellation, a host timeout (state `cancelled`, reason
+`Turn timed out`), withdrawal, epoch replacement, stop and disconnect all
+leave the host outcome in place with `delivery: "discarded"`. A result
+handed to a provider that had not acknowledged it when its epoch ended is
+discarded too; a late acknowledgement does not change that. Work queued
+behind a session start whose routing fails settles as `error`, and so does a
+turn that ends with only an `error` frame and no `result`. `conversation_stop` and an ended epoch cancel committed work
+that has not been submitted yet; submitted work keeps running as an ordinary
+chat turn.
+
+**Permissions.** `conversation_permission` lists a request pending in the
+conversation's session. `announce` is true at most once per
+`(sessionId, turnId, toolUseId)` for the conversation's lifetime, across
+epochs, and only when `exactPermissionSpeech` is `supported`. Neither
+provider text nor a native handle can settle a request; spoken grants remain
+refused, and refusals use `tool_denial` with `channel: "voice"` and the
+outcomes above.
+
+**Bounds** (`CONVERSATION_LIMITS`, published on `conversation_opened`):
+
+| Limit | Value | Over the limit |
+| --- | --- | --- |
+| `maxAudioChunkBytes` | 65,536 decoded bytes of PCM16 per chunk | client frame refused (`PARSE_ERROR`); provider chunk closes the epoch, `correlation` |
+| `maxUtterances` | 16 per epoch; an ended or committed one is evicted first | epoch closed, `backpressure` |
+| `maxFragmentsPerUtterance` | 128 | epoch closed, `backpressure` |
+| `maxFragmentChars` | 2,000 per fragment | provider event refused, epoch closed `correlation` |
+| `maxUtteranceChars` | 16,000 recognized characters per utterance, fragments joined | epoch closed, `backpressure` |
+| `maxGeneratedChars` | 16,000 generated characters per output record | record truncated |
+| `maxCommitChars` | 8,000 | frame refused (`PARSE_ERROR`) |
+| `maxQueuedWork` | 4 per conversation, running included | commit receipt `refused` |
+| receipts | 64 per conversation; a final one is evicted first | commit receipt `refused` while 64 results await the provider |
+| `maxPendingNativeRequests` | 8 unbound provider requests | epoch closed, `backpressure` |
+| `maxFactChars` | 4,000 per returned result | facts truncated |
+| `maxOutputs` | 32 output records; the oldest is evicted | — |
+| `maxConversationsPerConnection` | 1 | `error` `CONVERSATION_LIMIT` |
+
+Audio is mono PCM16 at 8–48 kHz. `sequence` starts at 0 in every epoch and
+increases by exactly one per chunk. A missing or out-of-order chunk, audio for
+an ended utterance, or an endpoint or fragment for an utterance the epoch never
+received closes the epoch with `correlation`, so lost audio is never a silent
+gap. Audio frames share the connection's ordinary frame metering (the
+`BRAIN_UI_WS_RATE` budget), so send chunks of about 100 ms or more. Any frame
+metered away on a connection holding a conversation ends its epoch with
+`backpressure`, because it may have been audio, an endpoint or a commit. Host teardown closes every provider session. A host retains up to 16 conversations for resumption and 64
+receipts per conversation. `conversation_closed.reason` is `stopped`,
+`replaced`, `disconnected` (not sent: the socket is gone), `provider_closed`,
+`provider_error`, `backpressure`, `correlation` or `refused`. A disconnect
+leaves the conversation resumable.
+
+**Provider seam.** `LiveConversationProvider` (`@schlessera/brain-ui-sdk/server`)
+has `id`, `capabilities`, `disclosure` and `open(scope, { signal, resync })`,
+returning a `LiveConversationSession`: `events` (an async iterable of the
+closed `LiveConversationEvent` union), `appendAudio`, `markEndpoint`,
+`returnWork(ref, result)` and `close()`. `resync.work` is context, not a
+request to resubmit. `ConversationWorkRef` carries the scope, `utteranceId`,
+`turnId`, `requestId` and the bound `nativeHandle?`; `ConversationWorkResult`
+is `{ outcome: "completed" | "error", facts, delivery: "quiet" | "when-idle" }`.
+Every event carries its scope and is validated by `parseLiveConversationEvent`
+before the host reads it; an event for another scope is ignored and an
+invalid one closes the epoch. `assertLiveConversationProvider` and
+`assertLiveConversationSession` are the registration checks. No shipped
+adapter, client capture/playback or provider network call is part of this
+contract.
 
 ## File-layer contracts
 
@@ -2530,11 +2752,12 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
 
 ## Extension interfaces
 
-These ten seams are `@experimental` until 1.0: breaking changes are
+These eleven seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
 own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
-`SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `AdapterResult`, `ScrapeContext`,
+`SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `LiveConversationSession`,
+`LiveConversationEvent`, `ConversationScope`, `ConversationWorkRef`, `ConversationWorkResult`, `AdapterResult`, `ScrapeContext`,
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
 `AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
@@ -2556,6 +2779,7 @@ compatibility guarantees follow the contract-versioning rules above.
 | `Reranker` | `@schlessera/brain` |
 | `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
 | `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
+| `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
 | `AsrClient` | `@schlessera/brain-ui-sdk/client` |
 | `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
 | `SiteAdapter` | `@schlessera/brain-scrape` |
@@ -2569,8 +2793,8 @@ The [speech stability ruling](https://github.com/schlessera/brain-kit/issues/347
 selects `SpeechProvider` and `AsrClient`, including their reachable authoring
 types, for stability at the actual 1.0 transition. They remain experimental
 before that transition. The [decision](decisions/dictation-speech.md) preserves
-dictation's current meaning beside the separately registered future live
-conversation interface; no TTS or speech-side tool/permission authority is added.
+dictation's current meaning beside the separately registered
+[live conversation](#live-conversation-additive-957) interface; no TTS or speech-side tool/permission authority is added.
 
 `CreateAppOptions.speechProvider?: SpeechProvider` in
 `@schlessera/brain-ui-server` accepts an implementation by value. It takes
@@ -2667,6 +2891,11 @@ and reaches the model as a denial. `noGrantSurface` is valid only with
 valid no-grant turn, both tool grants and command confirmations are denied
 promptly without an unanswered bridge request, with a named tool error and
 `permission_denied` activity evidence.
+
+`StartTurnRequest.posture: "voice"` (additive, #957) follows the same rule: a
+conforming backend runs the turn on its declared voice allowlist or rejects it
+with `BackendRequestError` before execution; it never runs it on the ordinary
+allowlist. See [Live conversation](#live-conversation-additive-957).
 
 `runBackendContract` in `@schlessera/brain-ui-sdk/testing` checks this baseline
 with a required permission probe and observable tool-body effects. Both

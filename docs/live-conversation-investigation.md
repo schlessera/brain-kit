@@ -160,8 +160,11 @@ to grant a permission merely because the user spoke.
 
 ## Shared interface specification
 
-These names describe the proposed common seam; none is an exported type or a
-new wire message yet. A provider descriptor creates a server-side conversation
+These names describe the proposed common seam as specified on the evidence
+date. #957 has since exported it, with the adjustments its
+[contract](integration-contract.md#live-conversation-additive-957) records
+(`open` takes `{ signal, resync }`; results are `completed` or `error`).
+A provider descriptor creates a server-side conversation
 session with a capability profile, disclosure and normalized event stream.
 The browser owns capture/playback; the host owns admission and correlation.
 Registration is separate from dictation. Do not expose arbitrary vendor frames
@@ -227,7 +230,7 @@ requestId)`; actual tool requests additionally use their existing `toolUseId`.
 Only committed original input supplies `StartTurnRequest.prompt`. The host
 selects the pinned existing backend/profile, cancellation signal and
 `BackendBridge`, and enforces the voice posture on new voice turns
-(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:298-379`).
+(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:298-393`).
 Do not feed approximate fragments or native task descriptions directly into
 execution. Keep raw outputs/private memory in the host and return only reviewed
 bounded facts needed by the voice service.
@@ -236,7 +239,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:423-451`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:437-465`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 
@@ -270,12 +273,12 @@ matcher. An isolated ambiguous refusal denies all **current** pending requests;
 an exact refusal can name one. With none pending, it is ordinary input. Bind
 each denial to existing IDs, echoed turn and `channel:"voice"`; the server still
 rejects voice grants
-(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:349-372`).
+(`if (msg.channel === "voice")`, `packages/ui-server/src/ws/dispatch.ts:387-410`).
 Never add a spoken approve or always-allow path.
 
-The existing denial handler removes/resolves a matched request but provides
-no dedicated denial receipt at that branch
-(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:430-443`). The future
+On the evidence date the denial handler removed/resolved a matched request but
+provided no dedicated denial receipt at that branch; #957 added one
+(`case "tool_denial"`, `packages/ui-server/src/ws/dispatch.ts:474-497`). The
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains

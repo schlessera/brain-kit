@@ -95,7 +95,13 @@ export type ClientMessage =
   | ClientInboxResolve
   | ClientInboxSnooze
   | ClientInboxSubscribe
-  | ClientInboxUnsubscribe;
+  | ClientInboxUnsubscribe
+  | ClientConversationStart
+  | ClientConversationAudio
+  | ClientConversationEndpoint
+  | ClientConversationCommit
+  | ClientConversationPlayback
+  | ClientConversationStop;
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -112,7 +118,8 @@ export type ClientMessage =
 export interface ClientHello {
   type: "client_hello";
   protocolRev: number;
-  /** Coarse, additive capability flags. */
+  /** Coarse, additive capability flags. `toolResolution: true` asks for
+   * `tool_resolution` frames; a client that omits it never receives one. */
   capabilities?: Record<string, boolean>;
 }
 
@@ -505,7 +512,14 @@ export type ServerMessage =
   | ServerHandoffDraft
   | ServerHandoffReceipt
   | InboxSnapshot
-  | InboxDelta;
+  | InboxDelta
+  | ServerToolResolution
+  | ServerConversationOpened
+  | ServerConversationClosed
+  | ServerConversationEvent
+  | ServerConversationWork
+  | ServerConversationOutput
+  | ServerConversationPermission;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -518,7 +532,10 @@ export interface ServerHello {
   type: "server_hello";
   protocolRev: number;
   /** Coarse, additive flags. `inbox: true` advertises durable Queue/Actions;
-   * absent/false means unsupported. Delivery still requires `inbox_subscribe`. */
+   * absent/false means unsupported. Delivery still requires `inbox_subscribe`.
+   * `toolResolution: true` offers `tool_resolution` to clients that declare
+   * the same flag; `liveConversation: true` means a conversation provider is
+   * registered and the `conversation_*` frames are accepted. */
   capabilities?: Record<string, boolean>;
 }
 
@@ -1293,6 +1310,366 @@ export interface AsrFinal {
 }
 
 export type AsrEvent = AsrPartial | AsrFinal;
+
+// ============================================================
+// Live conversation (additive, #957)
+//
+// A separately registered conversation runs beside dictation; nothing above
+// changes meaning. The host owns commit, admission, tools, permissions,
+// cancellation and correlation. A provider's evidence is published as it is:
+// "unproven" is never promoted to "supported" by the host or by a client.
+// docs/integration-contract.md "Live conversation" is the normative text.
+// ============================================================
+
+/** What a provider can show about one capability. Missing evidence is "unproven". */
+export type ConversationEvidence = "supported" | "unsupported" | "unproven";
+
+/** The closed capability profile a live-conversation provider publishes. */
+export interface ConversationCapabilities {
+  /** Conversation continues while host work is pending. */
+  nonblockingWork: ConversationEvidence;
+  /** The host can mark an utterance's end itself. */
+  manualEndpoint: ConversationEvidence;
+  /** The provider can say an input transcript is final. */
+  finalTranscript: ConversationEvidence;
+  /** The provider acknowledges a remote output cancellation. */
+  remoteOutputCancelAck: ConversationEvidence;
+  /** Host-approved permission copy can be rendered exactly as audio. */
+  exactPermissionSpeech: ConversationEvidence;
+  /** Input recognition is isolated from the assistant's own playback. */
+  echoIsolatedInput: ConversationEvidence;
+  /** Output transcript words align with played audio samples. */
+  outputWordAlignment: ConversationEvidence;
+}
+
+/** Every `ConversationCapabilities` key, in a fixed order. */
+export const CONVERSATION_CAPABILITY_KEYS = [
+  "nonblockingWork",
+  "manualEndpoint",
+  "finalTranscript",
+  "remoteOutputCancelAck",
+  "exactPermissionSpeech",
+  "echoIsolatedInput",
+  "outputWordAlignment",
+] as const satisfies readonly (keyof ConversationCapabilities)[];
+
+/**
+ * Where a conversation's data goes, shown before capture starts. The host
+ * relay and the agent backend are named by the host, not by the provider.
+ */
+export interface ConversationDisclosure {
+  /** Voice service and model, e.g. "Example Voice API, example-live-1". */
+  voiceService: string;
+  /** Plain statements of each destination: audio, transcripts, reviewed facts. */
+  destinations: string[];
+}
+
+/** Mono 16-bit little-endian PCM at one sample rate. */
+export interface ConversationAudioFormat {
+  encoding: "pcm16";
+  sampleRate: number;
+  channels: 1;
+}
+
+/**
+ * Fixed per-conversation bounds. Exceeding one is never a silent drop: the
+ * host refuses the commit with a `refused` work receipt, or closes the epoch
+ * with reason `backpressure`, and says so.
+ */
+export const CONVERSATION_LIMITS = {
+  /** Decoded bytes in one `conversation_audio` or provider audio chunk. */
+  maxAudioChunkBytes: 65_536,
+  /** Utterances whose provenance an epoch keeps; the oldest settled one is evicted first. */
+  maxUtterances: 16,
+  /** Input fragments kept for one utterance. */
+  maxFragmentsPerUtterance: 128,
+  /** Characters in one input fragment or output transcript fragment. */
+  maxFragmentChars: 2_000,
+  /** Characters of recognized text one utterance keeps, all fragments joined. */
+  maxUtteranceChars: 16_000,
+  /** Characters of generated transcript one output record keeps. */
+  maxGeneratedChars: 16_000,
+  /** Characters of reviewed text in one `conversation_commit`. */
+  maxCommitChars: 8_000,
+  /** Committed work held by one conversation, the running item included. */
+  maxQueuedWork: 4,
+  /** Advisory provider work requests not yet bound to committed work. */
+  maxPendingNativeRequests: 8,
+  /** Characters of host facts returned to the provider for one request. */
+  maxFactChars: 4_000,
+  /** Output streams whose provenance an epoch keeps. */
+  maxOutputs: 32,
+  /** Live conversations on one connection. */
+  maxConversationsPerConnection: 1,
+} as const;
+
+/** The limits a host applies, as published on `conversation_opened`. */
+export type ConversationLimits = { -readonly [K in keyof typeof CONVERSATION_LIMITS]: number };
+
+/** Milliseconds from the start of an utterance or output stream. */
+export interface ConversationInterval {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Normalized provider evidence the host forwards. Every value is a fact the
+ * provider reported; none is authority. `input_fragment` text is recognized,
+ * not submitted; `output_transcript` text is generated, not heard.
+ */
+export type ConversationWireEvent =
+  | {
+      kind: "ready";
+      /** Resolved model/API the provider reports for this epoch. */
+      model?: string;
+      api?: string;
+      input: ConversationAudioFormat;
+      output: ConversationAudioFormat;
+    }
+  | {
+      kind: "input_fragment";
+      utteranceId: string;
+      sequence: number;
+      /** Original recognized text, before any pronunciation mapping. */
+      text: string;
+      interval?: ConversationInterval;
+      finalization: "interim" | "final" | "unknown";
+      /** `known` only when the provider reported a calibrated `confidence`. */
+      certainty: "known" | "unknown";
+      confidence?: number;
+      /** Whose voice the provider attributes it to. Synthetic tags prove routing, not isolation. */
+      origin: "user" | "assistant" | "unknown";
+    }
+  | {
+      kind: "output_transcript";
+      outputId: string;
+      sequence: number;
+      text: string;
+      interval?: ConversationInterval;
+    }
+  | {
+      kind: "audio";
+      outputId: string;
+      sequence: number;
+      format: ConversationAudioFormat;
+      /** Base64 PCM. */
+      pcm: string;
+    }
+  | {
+      /** The provider reported that it stopped output. Only sent when observed. */
+      kind: "interrupted";
+      outputId?: string;
+    };
+
+/** Host-side state of one committed request. */
+export type ConversationWorkState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "error"
+  | "refused";
+
+/**
+ * Whether a request's result reached the voice service. `discarded` means
+ * the host kept the outcome but the epoch, conversation or native request
+ * it belonged to had ended, or the work was cancelled.
+ */
+export type ConversationDelivery = "pending" | "returned" | "discarded";
+
+/**
+ * One committed request: what was recognized, what the user submitted, and
+ * what the host did with it. Host authority, keyed by host identities only.
+ */
+export interface ConversationWorkReceipt {
+  conversationId: string;
+  /** The epoch the request was committed in. */
+  epoch: number;
+  utteranceId: string;
+  requestId: string;
+  /** Host turn identity, once the turn started. */
+  turnId?: string;
+  /** Chat session, once known. */
+  sessionId?: string;
+  state: ConversationWorkState;
+  delivery: ConversationDelivery;
+  /** Original recognized fragments of the utterance, joined in sequence order. */
+  recognized: string;
+  /** The reviewed text the user committed — what the agent received. */
+  submitted: string;
+  reason?: string;
+}
+
+/** Playback evidence a client reports for one output stream. */
+export type ConversationPlayback = "played" | "discarded" | "unknown";
+
+/** One output stream: generated text and what the client says it played. */
+export interface ConversationOutputRecord {
+  /** The epoch the output was generated in; output ids are scoped to it. */
+  epoch: number;
+  outputId: string;
+  /** Generated transcript, bounded; not a verbatim record of what was heard. */
+  generated: string;
+  playback: ConversationPlayback;
+  /** Samples the client reports as audible, when it reported a range. */
+  playedSamples?: { start: number; end: number };
+}
+
+/** Client → Server. Open a conversation, or a new epoch of an existing one. */
+export interface ClientConversationStart {
+  type: "conversation_start";
+  /** Resume this conversation as a new epoch. Absent starts a new one. */
+  conversationId?: string;
+  /** Chat session the conversation's work runs in. Absent: the first commit creates one. */
+  sessionId?: string;
+}
+
+/** Client → Server. One chunk of captured microphone audio. */
+export interface ClientConversationAudio {
+  type: "conversation_audio";
+  conversationId: string;
+  epoch: number;
+  /** Client-minted utterance the chunk belongs to. */
+  utteranceId: string;
+  /** Strictly increasing within an epoch. */
+  sequence: number;
+  /** Sample rate of `pcm`; mono PCM16. */
+  rate: number;
+  /** Base64 PCM16, at most `CONVERSATION_LIMITS.maxAudioChunkBytes` decoded. */
+  pcm: string;
+}
+
+/** Client → Server. The client marks the end of one utterance's capture. */
+export interface ClientConversationEndpoint {
+  type: "conversation_endpoint";
+  conversationId: string;
+  epoch: number;
+  utteranceId: string;
+}
+
+/**
+ * Client → Server. Semantic commit: the user's reviewed text for one
+ * utterance becomes host work. Nothing runs before this frame.
+ */
+export interface ClientConversationCommit {
+  type: "conversation_commit";
+  conversationId: string;
+  epoch: number;
+  utteranceId: string;
+  /** Client-minted, unique per conversation; a repeat replays its receipt. */
+  requestId: string;
+  text: string;
+}
+
+/** Client → Server. What the client actually played of one output stream. */
+export interface ClientConversationPlayback {
+  type: "conversation_playback";
+  conversationId: string;
+  epoch: number;
+  outputId: string;
+  playback: ConversationPlayback;
+  playedSamples?: { start: number; end: number };
+}
+
+/** Client → Server. End the conversation. Submitted host work keeps running. */
+export interface ClientConversationStop {
+  type: "conversation_stop";
+  conversationId: string;
+}
+
+/**
+ * Server → Client. A conversation epoch opened. It is followed, before any
+ * event of the epoch, by one `conversation_work` per retained receipt and one
+ * `conversation_output` per retained output record — `resync` says how many,
+ * so a client knows when it holds the whole picture. Nothing is resubmitted,
+ * re-executed or re-announced. One frame per record keeps every record whole:
+ * a single snapshot frame could outgrow the per-frame cap and be clipped.
+ */
+export interface ServerConversationOpened {
+  type: "conversation_opened";
+  conversationId: string;
+  epoch: number;
+  /** Chat session, once known. */
+  sessionId?: string;
+  providerId: string;
+  capabilities: ConversationCapabilities;
+  disclosure: ConversationDisclosure;
+  limits: ConversationLimits;
+  resync: { work: number; outputs: number };
+}
+
+/** Server → Client. One retained output record, resent after `conversation_opened`. */
+export interface ServerConversationOutput extends ConversationOutputRecord {
+  type: "conversation_output";
+  conversationId: string;
+}
+
+export type ConversationCloseReason =
+  | "stopped"
+  | "replaced"
+  | "disconnected"
+  | "provider_closed"
+  | "provider_error"
+  | "backpressure"
+  | "correlation"
+  | "refused";
+
+/** Server → Client. A conversation epoch ended. Capture must restart explicitly. */
+export interface ServerConversationClosed {
+  type: "conversation_closed";
+  conversationId: string;
+  epoch: number;
+  reason: ConversationCloseReason;
+  message?: string;
+}
+
+/** Server → Client. Normalized provider evidence for the current epoch. */
+export interface ServerConversationEvent {
+  type: "conversation_event";
+  conversationId: string;
+  epoch: number;
+  event: ConversationWireEvent;
+}
+
+/** Server → Client. A committed request changed state or delivery. */
+export interface ServerConversationWork extends ConversationWorkReceipt {
+  type: "conversation_work";
+}
+
+/**
+ * Server → Client. A permission request is pending in the conversation's
+ * session. `announce` is true at most once per (session, turn, toolUseId) for
+ * the conversation's lifetime, and only when the provider has proven exact
+ * permission speech. Never a grant path: voice may refuse, never grant.
+ */
+export interface ServerConversationPermission {
+  type: "conversation_permission";
+  conversationId: string;
+  epoch: number;
+  sessionId: string;
+  turnId: string;
+  toolUseId: string;
+  toolName: string;
+  announce: boolean;
+}
+
+/**
+ * Host outcome of one permission request (additive, #957). Sent only to
+ * connections whose `client_hello` declared `capabilities.toolResolution`.
+ * `expired` means the turn ended first; `unknown` means the host holds no
+ * outcome the reply could have applied to. Sending a denial is not
+ * confirmation of one — this frame is.
+ */
+export type ToolResolutionOutcome = "granted" | "denied" | "expired" | "unknown";
+
+export interface ServerToolResolution extends SessionScoped {
+  type: "tool_resolution";
+  toolUseId: string;
+  outcome: ToolResolutionOutcome;
+  /** Channel of the decision that settled it, when one did. */
+  channel?: ApprovalChannel;
+  reason?: string;
+}
 
 // ============================================================
 // File Manager

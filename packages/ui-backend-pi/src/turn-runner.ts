@@ -6,7 +6,7 @@ import type {
   StartTurnRequest,
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture } from "@schlessera/brain-ui-sdk/server";
+import { assertTurnPosture, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import type { CreatePiBackendOptions } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec } from "./profiles.js";
@@ -36,6 +36,11 @@ export function createPiTurnRunner(
     // pi has none of the runtime shortcuts the pairing guards against, but the
     // declaration is refused here too so it means the same on both backends.
     assertTurnPosture(req, !options.sessionFactory);
+    // pi declares no voice tool posture. Running a voice turn on its ordinary
+    // allowlist would be the silent widening the posture exists to prevent.
+    if (req.posture === "voice") {
+      throw new BackendRequestError("The pi backend declares no voice tool posture; a voice turn cannot run on it.");
+    }
     // acquire() claims the session (per-session busy) and validates caller
     // input. On any throw — BackendBusyError / BackendRequestError — nothing
     // has been emitted and the promise REJECTS, per the startTurn contract.

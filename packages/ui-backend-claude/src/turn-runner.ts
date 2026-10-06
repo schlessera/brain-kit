@@ -31,7 +31,7 @@ import {
 import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { createTurnInput, type TurnInput } from "./turn-input.js";
-import { DEFAULT_ALLOWED_TOOLS } from "./tool-policy.js";
+import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
 import { resolveExecConfig } from "./config/env.js";
 import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -259,8 +259,12 @@ export function createClaudeTurnRunner(options: {
     };
 
     try {
+      // A voice turn selects the named voice posture in place of the profile's
+      // ordinary list (docs/decisions/voice-permission.md "The voice posture").
       const allowedTools =
-        req.autonomous?.allowedTools ?? profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+        req.autonomous?.allowedTools ??
+        (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
+        profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const sdkTurn = createClaudeSdkTurn({
         backend: options.backend,
         req: { ...req, signal: abortController.signal },

@@ -15,7 +15,7 @@ import {
   parseServerMessage,
   serverMessageSchema,
 } from "../src/schemas.js";
-import type { ServerMessage } from "../src/protocol.js";
+import { CONVERSATION_LIMITS, type ServerMessage } from "../src/protocol.js";
 
 import { actionItem, thread } from "./inbox-fixtures.js";
 
@@ -120,6 +120,25 @@ const SAMPLES: ServerMessage[] = [
   { type: "local_exchange_result", sessionId: "s1", exchangeId: "x1", saved: false, reason: "No store." },
   { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
+  { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
+  {
+    type: "conversation_opened", conversationId: "c1", epoch: 1, sessionId: "s1", providerId: "fake-live",
+    capabilities: {
+      nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unsupported",
+      exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unsupported",
+    },
+    disclosure: { voiceService: "Fictional voice service of Ithaca", destinations: ["Audio goes to this host and the voice service."] },
+    limits: { ...CONVERSATION_LIMITS },
+    resync: { work: 1, outputs: 1 },
+  },
+  { type: "conversation_output", conversationId: "c1", epoch: 1, outputId: "o1", generated: "Twelve oxen.", playback: "played", playedSamples: { start: 0, end: 480 } },
+  { type: "conversation_closed", conversationId: "c1", epoch: 1, reason: "stopped" },
+  { type: "conversation_event", conversationId: "c1", epoch: 1, event: { kind: "interrupted", outputId: "o1" } },
+  {
+    type: "conversation_work", conversationId: "c1", epoch: 1, utteranceId: "u1", requestId: "r1", state: "queued",
+    delivery: "pending", recognized: "count the oxen", submitted: "Count the oxen",
+  },
+  { type: "conversation_permission", conversationId: "c1", epoch: 1, sessionId: "s1", turnId: "turn-1", toolUseId: "t1", toolName: "Write", announce: false },
 ];
 
 describe("coverage", () => {
