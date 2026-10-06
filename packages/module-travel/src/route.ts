@@ -129,7 +129,7 @@ export async function importRoute(root: string, source: string, to: string, star
   if (/^[a-z][a-z\d+.-]*:/i.test(source)) {
     const url = httpUrl(source);
     if (url.hostname === "outdooractive.com" || url.hostname.endsWith(".outdooractive.com")) {
-      throw new Error("Outdooractive route import needs written site permission for its robots-disallowed geometry API (#568). Export GPX yourself and import the local file meanwhile.");
+      throw new Error("Outdooractive routes cannot be fetched: its robots.txt disallows the geometry API and GPX download. Export the GPX from the route page while signed in, then import the local file.");
     }
     const requested = komootSource(url);
     // Public route pages need neither account credentials nor share tokens.
