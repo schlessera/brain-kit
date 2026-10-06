@@ -1,11 +1,10 @@
 import { InlineToast } from "@schlessera/brain-ui-kit";
-import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useRef, useEffect, useImperativeHandle, type Ref } from "react";
+import { useBrainUiRoot, useRootStore } from "../../root-context.js";
+import { useState, useRef, useEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import type { ConnectionError } from "../../stores/connection-state.js";
 import { deriveConnectionIssue } from "../connectivity/connection-state.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import {
@@ -23,10 +22,12 @@ import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
-import { createTrackUploads, trackPending, trackReady, type PendingTrack } from "../../lib/track-uploads.js";
+import { createTrackUploads, trackPending, trackReady } from "../../lib/track-uploads.js";
 import { apiBaseFor } from "../../lib/backend.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
+import type { BrainUiRoot } from "../../root.js";
+import { DraftSaveLine } from "./draft-save-line.js";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -41,12 +42,41 @@ import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-en
  * The corollary is a rule for future edits: transcript-scale state does not
  * belong in this file, and draft state does not belong above it.
  *
- * This is the container (S7): every store read, the draft, the attachments
- * and their object URLs, the provider choice and the voice review live here;
- * `ComposerView` draws the field.
+ * This is the container (S7): every store read, the provider choice and the
+ * voice review live here; `ComposerView` draws the field.
+ *
+ * **The draft is the session's, not the composer's (D52 §5, #951).** Text
+ * and images live in the root's draft store under the view's draft id: the
+ * session's own, or the new-chat view's fresh one. Switching sessions,
+ * destinations and panels, and remounting this component, restore it by
+ * that id; nothing typed here can appear in another session. The store is
+ * not the transcript's, so a keystroke still re-renders only this subtree.
+ * A send is a snapshot the store keeps apart from the draft: the field
+ * empties at once, and only the host's answer for that request settles it.
  */
 type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: ThinkingLevel };
-type PendingSend = { requestId: string; key: string | null; input: string; review: string; attachments: PendingAttachment[]; tracks: PendingTrack[]; effort: DraftEffort; error: ConnectionError | null };
+/** The effort choice a send carried, consumed only once the host accepts it. */
+type PendingSend = { requestId: string; key: string | null; effort: DraftEffort };
+
+const NO_ATTACHMENTS: PendingAttachment[] = [];
+
+/**
+ * Track files staged per draft, per root: a session's tracks stay with its
+ * draft across remounts, and never show in another session's composer.
+ * They are uploads staged on the host for the message, not draft content.
+ */
+const trackRegistries = new WeakMap<BrainUiRoot, Map<string, { uploads: ReturnType<typeof createTrackUploads>; listeners: Set<() => void> }>>();
+function tracksFor(root: BrainUiRoot, draftId: string) {
+  let registry = trackRegistries.get(root);
+  if (!registry) { registry = new Map(); trackRegistries.set(root, registry); }
+  let entry = registry.get(draftId);
+  if (!entry) {
+    const listeners = new Set<() => void>();
+    entry = { uploads: createTrackUploads(root.request, apiBaseFor(root.config), () => { for (const l of listeners) l(); }), listeners };
+    registry.set(draftId, entry);
+  }
+  return entry;
+}
 
 /**
  * What the chat page may ask of the composer without reaching into its DOM:
@@ -59,7 +89,18 @@ export interface ComposerHandle {
 
 export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
-  const [input, setInput] = useState("");
+  const sessionId = useChatStore((s) => s.activeSessionId);
+  // The draft this view shows (D52 §5): its session's, or the new chat's.
+  const draftId = useRootStore("drafts", (s) => s.idFor(sessionId));
+  const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
+  const input = draft?.text ?? "";
+  const attachments = draft?.attachments ?? NO_ATTACHMENTS;
+  /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
+  const setInput = (value: string | ((current: string) => string)) => {
+    const store = root.stores.drafts.getState();
+    const current = store.drafts[draftId]?.text ?? "";
+    store.edit(draftId, sessionId, { text: typeof value === "function" ? value(current) : value });
+  };
   const [lastPrompt, setLastPrompt] = useState("");
   const [effort, setEffort] = useState<DraftEffort>({ key: null });
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
@@ -78,45 +119,32 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     },
   }), []);
 
-  // Image attachments. `attachmentsRef` mirrors state so async add/merge logic
-  // reads the current set synchronously (avoids stale closures / updater races).
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const transferredPreviews = useRef(new Set<string>());
-  const attachmentsRef = useRef<PendingAttachment[]>([]);
+  // Image attachments live in the draft; the store owns their preview URLs.
+  // Async add/merge logic reads the draft's current set from the store, for
+  // the draft that started it, so a session switch mid-decode cannot carry
+  // an image into another session.
+  const attachmentsOf = (id: string) => root.stores.drafts.getState().drafts[id]?.attachments ?? NO_ATTACHMENTS;
+  const setAttachmentsOf = (id: string, owner: string | null, next: PendingAttachment[]) =>
+    root.stores.drafts.getState().edit(id, owner, { attachments: next });
   const [attachErrors, setAttachErrors] = useState<string[]>([]);
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
-  const [, updateTrackView] = useState(0);
-  const [trackUploads] = useState(() => createTrackUploads(root.request, apiBaseFor(root.config), () => updateTrackView(value => value + 1)));
+  const [, updateTrackView] = useReducer((n: number) => n + 1, 0);
+  const trackEntry = tracksFor(root, draftId);
+  const trackUploads = trackEntry.uploads;
+  useEffect(() => {
+    trackEntry.listeners.add(updateTrackView);
+    return () => { trackEntry.listeners.delete(updateTrackView); };
+  }, [trackEntry]);
   const tracks = trackUploads.files;
   const [heldSend, setHeldSend] = useState(false);
-  const trackLifetime = useRef({ generation: 0 });
-  useEffect(() => {
-    const lifetime = trackLifetime.current;
-    const generation = ++lifetime.generation;
-    return () => { queueMicrotask(() => { if (generation === lifetime.generation) trackUploads.dispose(); }); };
-  }, [trackUploads]);
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-  // Revoke preview URLs of attachments that were never sent (unmount cleanup;
-  // sent attachments transfer URL ownership to the message in the chat store).
-  useEffect(
-    () => () => {
-      for (const a of attachmentsRef.current) {
-        if (!transferredPreviews.current.has(a.previewUrl)) URL.revokeObjectURL(a.previewUrl);
-      }
-    },
-    []
-  );
 
   // Provider picker
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const providerMenuRef = useRef<HTMLDivElement>(null);
 
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
-  const sessionId = useChatStore((s) => s.activeSessionId);
   // A conversation with a settled reply can be continued on another backend (#61).
   const hasSettledTurn = useChatStore((s) => activeChat(s).messages.some((m) => m.role === "assistant" && !m.isStreaming));
   const handoffEntry = useHandoffEntry(sessionId, hasSettledTurn);
@@ -130,7 +158,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }, [wsStatus, trackUploads]);
   const chatRequestAck = useConnectionStore((s) => s.chatRequestAck);
   const followUpQueue = useConnectionStore((s) => s.followUpQueue);
-  const connectionError = useConnectionStore((s) => s.lastError);
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
@@ -146,51 +173,30 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const setSelectedProvider = useProviderStore((s) => s.setSelected);
   const loadProviders = useProviderStore((s) => s.loadProviders);
   const backends = useProviderStore((s) => s.backends);
-  const receipt = useChatStore((s) => pendingSend ? s.chatReceipts[pendingSend.requestId] : undefined);
+  const sendState = useRootStore("drafts", (s) => pendingSend ? s.sends[pendingSend.requestId] : undefined);
+  // A send of this view still unanswered: another would start a second
+  // conversation, or repeat this one, so it waits (#942).
+  const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.state === "pending" && x.sessionId === sessionId && (sessionId !== null || x.draftId === draftId)));
   useEffect(() => {
     // Naming our accepted new conversation is not a conversation switch.
     // Carry a newer choice to its identity; consume only the sent choice.
-    const namedDraft = pendingSend?.key === null && receipt?.state === "accepted" && receipt.sessionId === sessionId;
+    const namedDraft = pendingSend?.key === null && sendState?.state === "accepted" && sendState.acceptedSessionId === sessionId;
     setEffort((current) => namedDraft && current !== pendingSend.effort ? { ...current, key: sessionId } : { key: sessionId });
     setEffortNotice("");
     setHeldSend(false);
-    // Receipt changes consume a send below; this runs only when identity changes.
+    setAttachErrors([]);
+    // Settled sends consume a choice below; this runs only when identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, draftId]);
   useEffect(() => {
-    if (!receipt || !pendingSend) return;
-    const visible = sessionId === pendingSend.key || (pendingSend.key === null && sessionId === receipt.sessionId);
-    if (receipt.state === "accepted" && visible) {
-      setInput((value) => value === pendingSend.input ? "" : value);
-      if (root.stores.voice.getState().reviewText === pendingSend.review) root.stores.voice.getState().clearReview();
-      const remaining = attachmentsRef.current.filter((attachment) => !pendingSend.attachments.includes(attachment));
-      attachmentsRef.current = remaining;
-      setAttachments(remaining);
-      for (const track of pendingSend.tracks) trackUploads.remove(track.id);
-      setAttachErrors([]);
+    if (!pendingSend || !sendState || sendState.state === "pending") return;
+    const visible = sessionId === pendingSend.key || (pendingSend.key === null && sessionId === sendState.acceptedSessionId);
+    if (sendState.state === "accepted" && visible) {
       setEffortNotice("");
       setEffort((current) => current === pendingSend.effort ? { key: sessionId } : current);
     }
-    root.stores.chat.getState().clearChatReceipt(pendingSend.requestId);
     setPendingSend(null);
-  }, [receipt, pendingSend, sessionId, root, trackUploads]);
-
-  useEffect(() => {
-    if (!pendingSend || receipt) return;
-    const uncorrelatedRefusal = connectionError !== pendingSend.error && connectionError &&
-      ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"].includes(connectionError.code);
-    if (wsStatus === "connected" && !uncorrelatedRefusal) return;
-    // No acknowledgement means no automatic resend and no consumed override.
-    // Release the local wait so reconnecting cannot strand this draft forever.
-    setPendingSend(null);
-    // Nothing confirmed it, so nothing says it is waiting either.
-    root.stores.followUp.getState().dropLocal(pendingSend.requestId);
-    setEffortNotice("Send was not confirmed. Check the conversation before sending again.");
-    const chat = root.stores.chat.getState();
-    const buffer = pendingSend.key === null ? chat.draft : chat.buffers[pendingSend.key];
-    const optimistic = buffer?.messages.find((message) => message.requestId === pendingSend.requestId && message.role === "assistant" && !message.turnId && message.isStreaming);
-    if (optimistic) chat.failAssistantMessage(pendingSend.key, { errorClass: "unknown", message: "Send was not confirmed. Your draft is kept." });
-  }, [pendingSend, receipt, connectionError, wsStatus, root]);
+  }, [sendState, pendingSend, sessionId]);
 
   // Voice dictation state
   const voiceMode = useVoiceStore((s) => s.mode);
@@ -274,10 +280,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    * revoked so nothing leaks.
    */
   async function addFiles(files: FileList | File[]) {
+    // The draft that asked: decoding is async, and the view may move on.
+    const target = draftId;
+    const owner = sessionId;
     const incoming = Array.from(files);
     const list = incoming.filter(file => file.type.startsWith("image/"));
-    const trackErrors = trackUploads.add(incoming.filter(file => !file.type.startsWith("image/")), attachmentsRef.current.length + list.length,
-      attachmentsRef.current.reduce((sum, image) => sum + image.bytes, 0));
+    const trackErrors = trackUploads.add(incoming.filter(file => !file.type.startsWith("image/")), attachmentsOf(target).length + list.length,
+      attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const results = await Promise.all(list.map((f) => fileToAttachment(f)));
@@ -291,8 +300,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       }
     });
 
+    const current = attachmentsOf(target);
     const { accepted: imageAccepted } = validateAttachments([
-      ...attachmentsRef.current,
+      ...current,
       ...fresh,
     ]);
     let combinedBytes = trackUploads.files.reduce((sum, track) => sum + track.file.size, 0);
@@ -307,18 +317,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         errors.push(`${f.name}: not added (message limit reached)`);
       }
     }
-    attachmentsRef.current = accepted;
-    setAttachments(accepted);
-    setAttachErrors(errors);
+    setAttachmentsOf(target, owner, accepted);
+    if (target === draftIdRef.current) setAttachErrors(errors);
   }
 
+  /** One chip removes only that image, in the draft's next revision (D52 §5). */
   function removeAttachment(index: number) {
-    const next = attachmentsRef.current.filter((item, i) => {
-      if (i === index) URL.revokeObjectURL(item.previewUrl);
-      return i !== index;
-    });
-    attachmentsRef.current = next;
-    setAttachments(next);
+    setAttachmentsOf(draftId, sessionId, attachmentsOf(draftId).filter((_, i) => i !== index));
   }
 
   async function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -328,11 +333,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     e.target.value = "";
   }
 
+  const draftIdRef = useRef(draftId);
+  draftIdRef.current = draftId;
+
   function handleSubmit() {
     const text = draftText();
     const currentTracks = trackUploads.files;
     const hasAttachments = attachments.length > 0 || currentTracks.length > 0;
-    if ((!text && !hasAttachments) || wsStatus !== "connected" || pendingSend?.key === sessionId) return;
+    if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting) return;
 
     if (currentTracks.some(track => track.state === "failed")) {
       setHeldSend(false);
@@ -370,7 +378,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const chat = root.stores.chat.getState();
     const source = reviewText.trim() ? "voice-dictate" : "typed";
     const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
-    for (const attachment of attachments) transferredPreviews.current.add(attachment.previewUrl);
     // A send while the session is busy is a follow-up the host queues. On a
     // host that reports its queue it waits as a pending pill, not in the
     // chat, and enters the transcript when its own turn starts (#1002).
@@ -401,13 +408,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (!isStreaming) chat.startAssistantMessage(sessionId, undefined, requestId);
     // Correlate this turn when it is starting a NEW conversation, so its
     // session_info can be told apart from a background turn's.
-    const draftId = sessionId ? undefined : chat.startDraftTurn();
-    if (requestId) setPendingSend({ requestId, key: sessionId, input, review: reviewText, attachments, tracks: currentTracks, effort, error: connectionError });
-    const sent = send({
+    const correlation = sessionId ? undefined : chat.startDraftTurn();
+    const message: Extract<ClientMessage, { type: "chat_message" }> = {
       type: "chat_message",
       text,
       sessionId: sessionId ?? undefined,
-      ...(draftId ? { draftId } : {}),
+      ...(correlation ? { draftId: correlation } : {}),
       ...(requestId ? { requestId } : {}),
       ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
       // Provider only applies to new conversations; resumed sessions are
@@ -429,22 +435,43 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       // Kept by the host and returned on replay, so the message still reads
       // as dictated after a reload or on another device.
       source,
-    });
+    };
+    const drafts = root.stores.drafts.getState();
+    if (requestId) {
+      // The snapshot the host's answer settles (D52 §5). The field empties
+      // now; the host keeps the revision the message names until it accepts
+      // the message, and edits made from here on are the next revision.
+      const { draftId: _correlation, ...snapshot } = message;
+      const draftRef = drafts.beginSend({
+        requestId, draftId, sessionId, text, attachments: [...attachments],
+        ...(readyFiles.length ? { files: readyFiles } : {}),
+        message: snapshot,
+      }, input);
+      if (draftRef) message.draftRef = draftRef;
+      setPendingSend({ requestId, key: sessionId, effort });
+    }
+    const sent = send(message);
     if (requestId) {
       if (sent === false) {
         setPendingSend(null);
+        // Nothing left: the snapshot goes back into the draft, whole.
+        drafts.sendFailed(requestId);
+        chat.withdrawSend(sessionId, requestId);
         if (pendingFollowUp) root.stores.followUp.getState().dropLocal(requestId);
-        if (!isStreaming) chat.failAssistantMessage(sessionId, { errorClass: "unknown", message: "The message could not be sent. Your draft is kept." });
         root.stores.connection.getState().reportError("CHAT_NOT_SENT", "The message could not be sent. Your draft is kept.");
+        return;
       }
+      clearReview();
+      for (const track of currentTracks) trackUploads.remove(track.id);
+      setAttachErrors([]);
       return;
     }
-    setInput("");
+    // A host without request receipts: the message is gone the moment it is
+    // sent, so is the draft. Ownership of the preview URLs transfers to the
+    // rendered user message (revoked later by the chat store) — not revoked here.
+    drafts.transfer(attachments);
+    drafts.edit(draftId, sessionId, { text: "", attachments: [] });
     clearReview();
-    // Ownership of the preview URLs transfers to the rendered user message
-    // (revoked later by the chat store on clear/resume) — don't revoke here.
-    attachmentsRef.current = [];
-    setAttachments([]);
     for (const track of currentTracks) trackUploads.remove(track.id);
     setAttachErrors([]);
   }
@@ -528,12 +555,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
-  const canSend = hasDraft && wsStatus === "connected" && pendingSend?.key !== sessionId;
+  const canSend = hasDraft && wsStatus === "connected" && !waiting;
 
   // Provider picker: locked to the pinned combo once a session is live.
   // Lock while streaming too: the first send of a new conversation pins the
   // provider server-side before session_info delivers the sessionId.
-  const providerLocked = sessionId != null || isStreaming || pendingSend?.key === sessionId;
+  const providerLocked = sessionId != null || isStreaming || waiting;
   const displayProviderId = providerLocked
     ? pinnedProviderId ?? selectedProviderId
     : selectedProviderId;
@@ -705,6 +732,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             setTimeout(focusField, 0);
           }}
         />
+        {/* What became of this draft's save, under the field (D52 §5). */}
+        <DraftSaveLine draftId={draftId} />
       </div>
     </>
   );

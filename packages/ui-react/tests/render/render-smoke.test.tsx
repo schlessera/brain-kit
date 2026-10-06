@@ -5283,15 +5283,17 @@ describe("one-message composer effort", () => {
     return { root, view, sent, choose, field, type, send, done() { view.unmount(); root.dispose(); } };
   }
 
-  test("refusal keeps draft and effort; start acknowledgement consumes them and the next message omits the override", async () => {
+  test("a send empties the field into its snapshot; refusal gives draft and effort back; acknowledgement consumes them", async () => {
     const h = await mounted();
     try {
       h.choose("max"); h.type("first"); h.send();
       expect(h.sent).toHaveLength(1);
       expect(h.sent[0].thinkingLevel).toBe("max");
       expect(h.view.getByRole("button", { name: "Model — Claude · effort max for the next message" })).toBeTruthy();
-      expect(h.field().value).toBe("first");
+      // D52 §5: what was sent is a snapshot apart from the draft.
+      expect(h.field().value).toBe("");
       act(() => h.root.connection.handleServerMessage({ type: "error", code: "SESSION_LIMIT", message: "Try again", requestId: h.sent[0].requestId }));
+      // Refused, so nothing was consumed: the words come back.
       expect(h.field().value).toBe("first");
       expect(h.view.getByText("· max")).toBeTruthy();
       h.send();
@@ -5307,25 +5309,31 @@ describe("one-message composer effort", () => {
     } finally { h.done(); }
   });
 
-  test("an interrupted acknowledgement releases the wait without resending or consuming the draft effort", async () => {
+  test("an interrupted acknowledgement holds the send for review: nothing is resent until Send again, and Edit puts it back", async () => {
     const h = await mounted();
     try {
       h.choose("high"); h.type("unconfirmed"); h.send();
       act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
       expect(h.sent).toHaveLength(1);
-      expect(h.field().value).toBe("unconfirmed");
+      const held = () => Object.values(h.root.stores.drafts.getState().sends).filter((s) => s.state === "unconfirmed");
+      expect(held().map((s) => s.text)).toEqual(["unconfirmed"]);
+      expect(h.field().value).toBe("");
       expect(h.view.getByText("· high")).toBeTruthy();
-      expect(h.view.getByText("Send was not confirmed. Check the conversation before sending again.")).toBeTruthy();
       act(() => h.root.stores.connection.getState().setWsStatus("connected"));
       expect(h.sent).toHaveLength(1);
+      // Send again: the same snapshot under a new request id, effort included.
+      // (The composer's own `send` is the host here, so the frame goes through the root.)
+      const resent = held()[0]!;
+      expect(resent.message.thinkingLevel).toBe("high");
+      act(() => h.root.stores.connection.getState().reportError("RATE_LIMITED", "Slow down"));
+      expect(held()).toHaveLength(1);
+      act(() => h.root.stores.drafts.getState().editSend(resent.requestId));
+      expect(h.field().value).toBe("unconfirmed");
+      expect(held()).toHaveLength(0);
       h.send();
       expect(h.sent).toHaveLength(2);
       expect(h.sent[1].thinkingLevel).toBe("high");
-      act(() => h.root.connection.handleServerMessage({ type: "error", code: "RATE_LIMITED", message: "Slow down" }));
-      expect(h.field().value).toBe("unconfirmed");
-      h.send();
-      expect(h.sent).toHaveLength(3);
-      expect(h.sent[2].thinkingLevel).toBe("high");
+      expect(h.sent[1].requestId).not.toBe(h.sent[0].requestId);
     } finally { h.done(); }
   });
 

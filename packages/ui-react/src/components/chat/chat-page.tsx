@@ -34,6 +34,7 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { Button, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
+import { UnconfirmedSends } from "./unconfirmed-sends.js";
 import { trackerLabel, useWorkingSessions } from "../../hooks/use-working-sessions.js";
 import { announcementText } from "../../lib/tracker-announcer.js";
 import type { TrackerState } from "../../lib/trackers.js";
@@ -555,6 +556,7 @@ export function ChatPage() {
                 </div>
                 {/* A tracked session whose history came back empty can still be acknowledged. */}
                 {unlinked && <MarkAsSeen onMark={markSeen} />}
+                <div className="px-4 md:px-6"><div className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
               </div>
             ) : (
@@ -606,6 +608,8 @@ export function ChatPage() {
                     </Fragment>
                   ))}
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
+                  {/* A send the host never confirmed, held where it was sent (D52 §5). */}
+                  <UnconfirmedSends />
                 </div>
               </div>
             )}
