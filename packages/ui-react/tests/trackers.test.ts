@@ -157,6 +157,15 @@ describe("live frames (rules 3 and 4)", () => {
     }
   });
 
+  test("a queue report fills in only when nothing is known: its newest entry may be older work", () => {
+    const report = (requestId: string) => ({ type: "session_queue", sessionId: SID, followUps: [{ id: "q", requestId, text: "Who keeps watch?", queuedAt: 1 }] }) as unknown as ServerMessage;
+    expect(live(emptyEvidence(), report("req-2")).latest).toMatchObject({ requestId: "req-2", state: "queued" });
+    // req-3 was the latest; after it was dropped, the report names req-2.
+    const e = live(applySnapshot(emptyEvidence(), envelope(3, { requestId: "req-3", state: "unknown" })), report("req-2"));
+    expect(e.latest).toMatchObject({ requestId: "req-3", state: "unknown" });
+    expect(e.ahead).toBe(false);
+  });
+
   test("a resume's session_info, naming no turn and no request, is not a new run", () => {
     let e = live(emptyEvidence(), frames.info("turn-1", "req-1"), frames.result("turn-1"));
     e = live(e, { type: "session_info", sessionId: SID, isNew: false } as ServerMessage);

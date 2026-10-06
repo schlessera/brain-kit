@@ -96,7 +96,8 @@ export function evidenceFromRecord(record: TrackerRecord | undefined): TrackerEv
 
 /** What a live frame says about its session's work. */
 export type TrackerLiveEvent =
-  | { kind: "queued"; requestId: string | null }
+  /** `reported`: from a queue report, which lists what waits, not what was accepted last. */
+  | { kind: "queued"; requestId: string | null; reported?: true }
   /** `dispatch`: the frame announces a turn starting (`session_info`, a queue report's `started`). */
   | { kind: "running"; turnId: string | null; requestId: string | null; dispatch?: true }
   | { kind: "terminal"; turnId: string | null; outcome: ActivitySpanOutcome }
@@ -155,7 +156,7 @@ export function trackerEventsForFrame(msg: ServerMessage): TrackerLiveEvent[] {
       const events: TrackerLiveEvent[] = [];
       if (msg.started) events.push({ kind: "running", turnId: msg.started.turnId, requestId: msg.started.requestId ?? null, dispatch: true });
       const newest = msg.followUps.at(-1);
-      if (newest) events.push({ kind: "queued", requestId: newest.requestId ?? null });
+      if (newest) events.push({ kind: "queued", requestId: newest.requestId ?? null, reported: true });
       return events;
     }
     case "ask_answer_receipt":
@@ -206,6 +207,10 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
   switch (event.kind) {
     case "queued": {
       if (event.requestId !== null && latest?.requestId === event.requestId) return evidence;
+      // A queue report's newest entry is the newest still waiting, which is
+      // older work when a newer one was dropped: it fills in only when
+      // nothing is known, and a read orders the rest.
+      if (event.reported && latest) return evidence;
       // Late frames of the turn running now belong to it, not to this
       // request; a request queued behind another queued one waits behind
       // the same turn.
