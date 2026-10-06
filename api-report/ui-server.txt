@@ -25,6 +25,10 @@ export "." (./src/index.ts)
   type EnvVarDescriptor
   type HostVersionRequirements
   type InMemoryMeterProvider
+  LABEL_MAX_CHARS
+  type LabelCompletionProvider
+  type Labeller
+  type LabellerOptions
   type LogQuery
   type LogReader
   type LogWriter
@@ -57,6 +61,7 @@ export "." (./src/index.ts)
   createBrainClient
   createConsoleLoggerProvider
   createInMemoryMeterProvider
+  createLabeller
   createObservability
   createRecordingLoggerProvider
   createRecordingObservability
@@ -64,6 +69,7 @@ export "." (./src/index.ts)
   createSilentLoggerProvider
   createSilentObservability
   createStaticBackendRegistry
+  normaliseLabel
   openBrainDb
   resolveServerConfig
   websocket
@@ -515,9 +521,16 @@ signatures (every public export and the types it is made of)
         renderer?: AppRenderer;
         speechProvider?: SpeechProvider;
         conversationProvider?: LiveConversationProvider;
+        labeller?: LabellerOptions;
         turnTimeoutMs?: number;
         registry?: BackendRegistry;
         observability?: Observability;
+    }
+  CreateLabellerDeps (packages/ui-server/src/labels/labeller.ts)
+    export interface CreateLabellerDeps {
+        options?: LabellerOptions | null;
+        log?: Logger;
+        meter?: Meter;
     }
   DraftAcceptOutcome (packages/ui-server/src/drafts/store.ts)
     export type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
@@ -626,6 +639,27 @@ signatures (every public export and the types it is made of)
     }
   IntentKind (packages/ui-server/src/activity/notify.ts)
     export type IntentKind = "failure" | "completion" | "stuck";
+  LABEL_MAX_CHARS (packages/ui-server/src/labels/normalise.ts)
+    const LABEL_MAX_CHARS: 32;
+  LabelCompletionProvider (packages/ui-server/src/labels/labeller.ts)
+    export interface LabelCompletionProvider {
+        id: string;
+        complete(req: {
+            system?: string;
+            prompt: string;
+            maxTokens?: number;
+        }): Promise<string>;
+    }
+  Labeller (packages/ui-server/src/labels/labeller.ts)
+    export interface Labeller {
+        readonly enabled: boolean;
+        label(item: string, text: string): Promise<string | null>;
+    }
+  LabellerOptions (packages/ui-server/src/labels/labeller.ts)
+    export interface LabellerOptions {
+        provider: LabelCompletionProvider;
+        timeoutMs?: number;
+    }
   LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
     export interface LocalExchangeRecord extends LocalExchange {
         seq: number;
@@ -710,6 +744,11 @@ signatures (every public export and the types it is made of)
     export interface OpenBrainDbOptions {
         minSchemaVersion?: number;
     }
+  PillLabels (packages/ui-server/src/labels/pill-labels.ts)
+    export interface PillLabels {
+        followUpQueued(sessionId: string, entry: QueuedFollowUp): void;
+        turnStarted(sessionId: string, text: string): void;
+    }
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -779,6 +818,7 @@ signatures (every public export and the types it is made of)
         releaseAuthorization: () => void;
         followUpId?: string;
         queuedAt?: number;
+        label?: string;
     }
   RateLimitDecision (packages/ui-server/src/ws/rate-limit.ts)
     export interface RateLimitDecision {
@@ -979,6 +1019,11 @@ signatures (every public export and the types it is made of)
         recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
         findHandoff?(handoffId: string): string | null;
         addSessionCost?(sessionId: string, costUsd: number): void;
+        sessionLabel?(sessionId: string): {
+            label: string;
+            source: string;
+        } | null;
+        saveSessionLabel?(sessionId: string, label: string, source: string): void;
     }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
@@ -1149,6 +1194,7 @@ signatures (every public export and the types it is made of)
         readonly toolPermissions: ToolPermissions | null;
         readonly conversations: ConversationHost | null;
         readonly classifier: TurnClassifier | null;
+        readonly labels: PillLabels | null;
         readonly scratchPrune?: () => Promise<void>;
         readonly log: ReturnType<Observability["logger"]>;
         constructor(options: WsHostOptions);
@@ -1176,6 +1222,7 @@ signatures (every public export and the types it is made of)
         registry: BackendRegistry;
         catalog: SessionCatalog;
         classifier?: TurnClassifier | null;
+        labeller?: Labeller | null;
         scratchPrune?: () => Promise<void>;
         appName?: string;
         turnTimeoutMs?: number;
@@ -1208,6 +1255,8 @@ signatures (every public export and the types it is made of)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export function createInMemoryMeterProvider(): InMemoryMeterProvider;
+  createLabeller (packages/ui-server/src/labels/labeller.ts)
+    export function createLabeller(deps: CreateLabellerDeps): Labeller;
   createObservability (packages/ui-server/src/observability/index.ts)
     export function createObservability(options?: ObservabilityOptions): Observability;
   createRecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
@@ -1228,6 +1277,8 @@ signatures (every public export and the types it is made of)
         modelSource?: BackendModelSource | null;
         log?: Logger;
     }): BackendRegistry;
+  normaliseLabel (packages/ui-server/src/labels/normalise.ts)
+    export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   resolveServerConfig (packages/ui-server/src/config/env.ts)

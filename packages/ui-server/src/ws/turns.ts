@@ -83,6 +83,8 @@ export interface QueuedFollowUp {
    */
   followUpId?: string;
   queuedAt?: number;
+  /** Its pill label (#1004), once the host's label model has written one. */
+  label?: string;
 }
 
 /**
@@ -128,6 +130,7 @@ export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
     ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
     ...(entry.source ? { source: entry.source } : {}),
     queuedAt: entry.queuedAt ?? 0,
+    ...(entry.label ? { label: entry.label } : {}),
   };
 }
 

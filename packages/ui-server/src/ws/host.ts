@@ -21,6 +21,8 @@ import { FailureReplay } from "./turn-failures.js";
 import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { ConversationHost } from "./conversation.js";
+import type { Labeller } from "../labels/labeller.js";
+import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -82,6 +84,11 @@ export interface WsHostOptions {
    * means.
    */
   classifier?: TurnClassifier | null;
+  /**
+   * The pill labeller (#1004). Absent or disabled means no labels: pills
+   * print their fallbacks, and nothing else changes.
+   */
+  labeller?: Labeller | null;
   /**
    * The scratch prune a bridge tool runs after writing into the scratch area
    * (#310): the host's own periodic pass, so the policy stays in core's CLI.
@@ -203,6 +210,8 @@ export class WsHost {
   /** Live-conversation orchestration, when a provider is registered. */
   readonly conversations: ConversationHost | null;
   readonly classifier: TurnClassifier | null;
+  /** Where pill labels are asked for (#1004); null when the host labels nothing. */
+  readonly labels: PillLabels | null;
   readonly scratchPrune?: () => Promise<void>;
   /** Scoped instruments, resolved once — `[ws]` is the existing log prefix. */
   readonly log: ReturnType<Observability["logger"]>;
@@ -251,6 +260,9 @@ export class WsHost {
       ? new ConversationHost(this, options.conversationProvider)
       : null;
     this.classifier = options.classifier ?? null;
+    this.labels = options.labeller?.enabled
+      ? createPillLabels({ labeller: options.labeller, catalog: this.catalog, coordinator: this.coordinator })
+      : null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
     this.log = this.observability.logger("ws");
     this.failureReplay = new FailureReplay(this.catalog, this.log);

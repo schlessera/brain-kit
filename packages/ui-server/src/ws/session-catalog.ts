@@ -113,6 +113,13 @@ export interface SessionCatalog {
    * not a turn of its conversation. Unknown cost adds nothing.
    */
   addSessionCost?(sessionId: string, costUsd: number): void;
+  /**
+   * The pill label stored for a session (#1004) and the hash of the text it
+   * was written from, or null. Never throws: a failed read is no label.
+   */
+  sessionLabel?(sessionId: string): { label: string; source: string } | null;
+  /** Store a session's pill label and its source hash; a missing row stores nothing. */
+  saveSessionLabel?(sessionId: string, label: string, source: string): void;
 }
 
 const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -317,6 +324,27 @@ export function createSessionCatalog(db: () => Database, log?: Logger): SessionC
         .query("SELECT id FROM sessions WHERE handoff_id = ?")
         .get(handoffId) as { id: string } | null;
       return row?.id ?? null;
+    },
+
+    sessionLabel(sessionId) {
+      try {
+        const row = db()
+          .query("SELECT label, label_source AS source FROM sessions WHERE id = ?")
+          .get(sessionId) as { label: string | null; source: string | null } | null;
+        return row?.label && row.source ? { label: row.label, source: row.source } : null;
+      } catch {
+        return null;
+      }
+    },
+
+    saveSessionLabel(sessionId, label, source) {
+      try {
+        db()
+          .prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?")
+          .run(label, source, sessionId);
+      } catch (err) {
+        reportWriteFailure(sessionId, err);
+      }
     },
 
     addSessionCost(sessionId, costUsd) {

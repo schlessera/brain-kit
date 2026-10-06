@@ -54,6 +54,16 @@ export {
 
 // WebSocket host for embedders.
 export { WsHost, type WsHostOptions } from "./ws/host.js";
+// Pill labels (#1004): the createApp option's shape and the labeller a
+// WsHost embedder passes.
+export {
+  createLabeller,
+  normaliseLabel,
+  LABEL_MAX_CHARS,
+  type Labeller,
+  type LabellerOptions,
+  type LabelCompletionProvider,
+} from "./labels/index.js";
 export { websocket } from "./ws/connection.js";
 export { type AuthorizationContext } from "./ws/turns.js";
 export {

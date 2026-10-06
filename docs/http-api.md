@@ -450,6 +450,9 @@ backendId. Stored nonzero accounting supplements a backend's zero figures.
 A cross-backend handoff destination (additive, #61) also carries
 `handoffFrom: { sessionId, title, backendId?, afterTurns? }`, as the
 [integration contract](integration-contract.md#cross-backend-handoff-additive-61)
+describes. A session the host has labelled (additive, #1004) carries
+`label`, a few words about its latest request, as the
+[integration contract](integration-contract.md#pill-labels-additive-1004)
 describes.
 Each backend list has a three-second wait; unfinished work is reused by retries
 and is not canceled. One unavailable backend is omitted and identified in the

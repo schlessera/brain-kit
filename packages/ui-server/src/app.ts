@@ -86,6 +86,7 @@ import { WsHost } from "./ws/host.js";
 import { createWsUpgrade, websocket } from "./ws/connection.js";
 import { createSessionCatalog } from "./ws/session-catalog.js";
 import { createJevClient, createTurnClassifier } from "./classification/index.js";
+import { createLabeller, type LabellerOptions } from "./labels/labeller.js";
 import type { KeytermSettings } from "./voice/keyterm-builder.js";
 import { createObservability, type Observability } from "./observability/index.js";
 import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
@@ -144,6 +145,17 @@ export interface CreateAppOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * The small, fast model that labels working-session and pending follow-up
+   * pills with a few words (#1004): any value of core's `CompletionProvider`
+   * shape, separate from every session's chat model. Absent, which is the
+   * default, labels nothing and pills print the session title or the start of
+   * the prompt. When set, the text of every queued follow-up and of every
+   * turn's request is sent to this provider, which may be a different vendor
+   * from the session's backend. The provider reports no usage, so these calls
+   * are counted (`brain.labeller.calls`) but their cost is unknown.
+   */
+  labeller?: LabellerOptions;
   /** Per-turn timeout in ms (default 10 minutes). */
   turnTimeoutMs?: number;
   /** Backend registry override (tests/embedders); default is built from config. */
@@ -343,6 +355,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       createInboxResolver(db, { allowedOperations: () => [], timeZone: config.inbox?.budget?.timeZone })),
     classifier,
+    labeller: createLabeller({
+      options: options.labeller ?? null,
+      log: observability.logger("labels"),
+      meter: observability.meter("labels"),
+    }),
     scratchPrune: () => scratchPrune.tick(),
     ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
     ...(options.appName ? { appName: options.appName } : {}),

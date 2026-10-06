@@ -388,8 +388,11 @@ async function runRetainedSession(
       // The message's source is recorded in the order the backend receives
       // its text, which is the order replay counts identical texts in. A
       // resumed session is known now; a new one is named by session_info.
-      const recordSource = (sid: string): void =>
+      // The session's pill label follows its latest request (#1004).
+      const recordSource = (sid: string): void => {
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
+        host.labels?.turnStarted(sid, text);
+      };
       if (resumeId) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is
@@ -658,6 +661,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
     withSessionId({ type: "status", status: "queued", ...(entry.requestId ? { requestId: entry.requestId } : {}), ...(detail ? { detail } : {}) }, sessionId)
   );
   host.coordinator.queueChanged(sessionId);
+  host.labels?.followUpQueued(sessionId, entry);
   // Queued is accepted: the sent revision of its draft is consumed now.
   acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
 }
