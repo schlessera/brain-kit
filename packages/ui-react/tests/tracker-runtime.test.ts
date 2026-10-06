@@ -113,6 +113,9 @@ async function release(prompt: string) {
 const runs: Array<{ name: string; theme: "dark" | "light"; options: BrowserContextOptions }> = [
   { name: "320 phone, dark, coarse pointer", theme: "dark", options: { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true } },
   { name: "320 phone, light, coarse pointer", theme: "light", options: { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true } },
+  { name: "390 phone, light, coarse pointer", theme: "light", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } },
+  { name: "480 tablet, dark, coarse pointer", theme: "dark", options: { viewport: { width: 480, height: 800 }, hasTouch: true } },
+  { name: "900 short viewport, light, reduced motion", theme: "light", options: { viewport: { width: 900, height: 480 }, reducedMotion: "reduce" } },
   { name: "1280 desktop, dark", theme: "dark", options: { viewport: { width: 1280, height: 800 } } },
   { name: "1440 desktop, light, reduced motion", theme: "light", options: { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" } },
 ];
