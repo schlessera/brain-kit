@@ -5614,6 +5614,7 @@ signatures (every public export and the types it is made of)
         id: string;
         requestId?: string;
         text: string;
+        textTruncated?: boolean;
         attachmentCount?: number;
         fileCount?: number;
         source?: MessageSource;
@@ -10217,6 +10218,7 @@ signatures (every public export and the types it is made of)
             typed: "typed";
         }>>>;
         text: z.ZodString;
+        textTruncated: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
     }, z.core.$loose>;
   readShareLaunchParams (packages/ui-sdk/src/client/share-target.ts)
     export function readShareLaunchParams(url: string): {
@@ -12948,6 +12950,7 @@ signatures (every public export and the types it is made of)
                 typed: "typed";
             }>>>;
             text: z.ZodString;
+            textTruncated: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
         }, z.core.$loose>>;
         sessionId: z.ZodString;
         started: z.ZodOptional<z.ZodObject<{
@@ -12963,6 +12966,7 @@ signatures (every public export and the types it is made of)
                 typed: "typed";
             }>>>;
             text: z.ZodString;
+            textTruncated: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
             turnId: z.ZodString;
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;
@@ -13626,6 +13630,7 @@ signatures (every public export and the types it is made of)
                 typed: "typed";
             }>>>;
             text: z.ZodString;
+            textTruncated: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
         }, z.core.$loose>>;
         sessionId: z.ZodString;
         started: z.ZodOptional<z.ZodObject<{
@@ -13641,6 +13646,7 @@ signatures (every public export and the types it is made of)
                 typed: "typed";
             }>>>;
             text: z.ZodString;
+            textTruncated: z.ZodCatch<z.ZodOptional<z.ZodBoolean>>;
             turnId: z.ZodString;
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;

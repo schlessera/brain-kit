@@ -124,7 +124,7 @@ const SAMPLES: ServerMessage[] = [
   {
     type: "session_queue",
     sessionId: "s1",
-    followUps: [{ id: "fu-2", requestId: "r2", text: "Keep the bag of winds shut", attachmentCount: 1, queuedAt: 1783854000000 }],
+    followUps: [{ id: "fu-2", requestId: "r2", text: "Keep the bag of winds shut", textTruncated: true, attachmentCount: 1, queuedAt: 1783854000000 }],
     started: { id: "fu-1", requestId: "r1", text: "Ask Aeolus about the winds", source: "voice-dictate", queuedAt: 1783853990000, turnId: "turn-2" },
     dropped: [{ id: "fu-0", requestId: "r0", reason: "Cancelled by user" }],
   },

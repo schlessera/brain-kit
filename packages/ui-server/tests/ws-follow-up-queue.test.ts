@@ -102,6 +102,7 @@ describe("session_queue", () => {
     expect(ids(last)).toEqual(["req-winds", "req-bag", "req-cyclopes"]);
     expect(last.followUps[0]).toMatchObject({ text: "Ask Aeolus about the winds", queuedAt: expect.any(Number), id: expect.any(String) });
     expect(new Set(last.followUps.map((f: any) => f.id)).size).toBe(3);
+    expect(last.followUps[0].textTruncated, "a whole text is not marked").toBeUndefined();
     // A legacy connection sees exactly the frames it always saw.
     expect(legacy.frames("session_queue")).toEqual([]);
     expect(legacy.frames("status").some((f) => f.status === "queued")).toBe(true);
@@ -237,6 +238,7 @@ describe("session_queue", () => {
       expect(raw.followUps.map((f: any) => f.requestId)).toEqual(Array.from({ length: 50 }, (_, i) => `req-${i}`));
       expect(Buffer.byteLength(JSON.stringify(raw), "utf8"), "under the 512 KB frame bound").toBeLessThanOrEqual(512_000);
       expect(raw.followUps[0].text.startsWith(`0: Ithaca ${filler}${filler}`)).toBe(true);
+      expect(raw.followUps[0].textTruncated, "says the text is only its head").toBe(true);
       expect(raw.followUps[0].text).toMatch(/\u2026\[\d+ chars elided\]$/);
     });
   }

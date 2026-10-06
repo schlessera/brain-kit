@@ -118,10 +118,12 @@ export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_T
 
 /** What a client is shown of one pending follow-up (#1002): no attachment bytes. */
 export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
+  const text = boundFollowUpText(entry.text);
   return {
     id: entry.followUpId ?? "",
     ...(entry.requestId ? { requestId: entry.requestId } : {}),
-    text: boundFollowUpText(entry.text),
+    text,
+    ...(text !== entry.text ? { textTruncated: true } : {}),
     ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
     ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
     ...(entry.source ? { source: entry.source } : {}),

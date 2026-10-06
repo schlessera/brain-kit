@@ -1983,6 +1983,8 @@ export interface QueuedFollowUpView {
   id: string;
   requestId?: string;
   text: string;
+  /** `text` is the head of a longer message; history holds the whole of it. */
+  textTruncated?: boolean;
   /** Images the message carries. */
   attachmentCount?: number;
   /** Shared files the message carries. */

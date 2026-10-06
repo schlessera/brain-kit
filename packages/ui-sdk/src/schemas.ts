@@ -1669,6 +1669,7 @@ export const queuedFollowUpViewSchema = z.looseObject({
   id,
   requestId: id.optional(),
   text: z.string().max(MAX_PROMPT_CHARS),
+  textTruncated: z.boolean().optional().catch(undefined),
   attachmentCount: z.number().int().min(0).optional(),
   fileCount: z.number().int().min(0).optional(),
   source: optionalMessageSource,
