@@ -349,6 +349,64 @@ test("instants that pass while an occurrence runs are busy even when it finishes
   expect(occurrences(f).at(-1)).toMatchObject({ due_at: at + 3 * MINUTE });
 });
 
+test("the attempt is recorded under the pricing route its claim reserved with", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-route", atDefinition(isoInstant(at)));
+  const h = harness(f, succeed("Priced."), { pricingRoute: "direct" });
+  f.clock.now = at;
+  await h.admission.admit();
+  await h.runtime.tick();
+  const root = f.db.query("SELECT attrs FROM activity_spans WHERE parent_span_id IS NULL").get() as { attrs: string };
+  expect(JSON.parse(root.attrs)).toMatchObject({ "brain.pricing_route": "direct" });
+});
+
+test("recovery reads a settled turn's Activity receipt instead of declaring a finished yield unknown", async () => {
+  const f = fixture = start();
+  const at = f.clock.now + MINUTE;
+  await create(f, "ithaca-yield-race", atDefinition(isoInstant(at)));
+  const h = harness(f, async (request, n) => {
+    if (n === 1) { request.autonomous!.onYield!("path:notes/ithaca.md"); return; }
+    await succeed("Finished after the yield.")(request, n);
+  });
+  f.clock.now = at;
+  const [id] = await h.admission.admit();
+  await h.runtime.tick();
+  // Rewind to the instant after the yielded turn returned: its lifetime is
+  // released, its reservation settled and its item back in the Queue, but
+  // the schedule outcome is not recorded yet (as if that dispatcher died, or
+  // another process's recovery ran first).
+  const attempt = f.db.query("SELECT * FROM schedule_attempts").get() as { run_id: string; item_id: string; started_at: number; deadline_at: number };
+  f.db.query("DELETE FROM schedule_attempts").run();
+  f.db.query("INSERT INTO schedule_attempts (run_id, occurrence_id, item_id, started_at, deadline_at) VALUES (?, ?, ?, ?, ?)")
+    .run(attempt.run_id, id, attempt.item_id, attempt.started_at, attempt.deadline_at);
+  f.db.query("UPDATE schedule_occurrences SET state = 'running' WHERE id = ?").run(id);
+  expect(reservations(f)).toEqual([expect.objectContaining({ status: "settled", runtime_acquired_at: expect.any(Number) })]);
+  expect(createInboxStore(f.db).getItem(`${id}-1`)).toMatchObject({ status: "ready", attempts: 1 });
+  expect(h.admission.recover()).toBe(1);
+  expect(f.db.query("SELECT outcome FROM schedule_attempts").get()).toEqual({ outcome: "cancelled" });
+  expect(occurrences(f)[0]).toMatchObject({ id, state: "retrying", operations_used: 1 });
+  f.clock.now += 2 * MINUTE;
+  expect((await h.runtime.tick()).claimed).toBe(1);
+  expect(occurrences(f)[0]).toMatchObject({ state: "completed", operations_used: 2 });
+});
+
+test("an item the Queue expired late still leaves the latest fresh instant for catch-up", async () => {
+  const f = fixture = start();
+  const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;
+  await create(f, "ithaca-late-expiry", cronDefinition("0 * * * *"));
+  const h = harness(f, succeed("Hourly."));
+  f.clock.now = hour;
+  const [first] = await h.admission.admit();
+  // The Queue's own lifecycle sweep expires the item 25 hours later, before admission runs.
+  f.clock.now = hour + 25 * HOUR + 5 * MINUTE;
+  await h.runtime.tick();
+  expect(createInboxStore(f.db).getItem(`${first}-1`)).toMatchObject({ status: "expired" });
+  const [latest] = await h.admission.admit();
+  expect(occurrences(f).find((o) => o.id === first)).toMatchObject({ state: "expired" });
+  expect(occurrences(f).find((o) => o.id === latest)).toMatchObject({ due_at: hour + 25 * HOUR, state: "queued" });
+});
+
 test("cancel versus start: a cancellation that commits first leaves nothing to start", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;

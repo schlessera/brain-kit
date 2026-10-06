@@ -89,6 +89,10 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         WHERE id = (SELECT task_id FROM schedule_occurrences WHERE id = ?)`).run(extra.busyUntil ?? at, id);
   }
 
+  /** An occurrence that expired stopped being outstanding at its expiry, even if noticed later. */
+  const busyUntil = (occurrence: OccurrenceRow, final: OccurrenceRow["state"], at: number) =>
+    final === "expired" ? Math.min(at, occurrence.expires_at - 1) : at;
+
   /** Past its freshness bound or its task's approved end: no new attempt may start. */
   const over = (occurrence: OccurrenceRow, task: TaskRow, at: number) =>
     at >= occurrence.expires_at || internal.ended(task, at);
@@ -131,13 +135,29 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         if (item?.status === "claimed" && item.runId === attempt.run_id && (item.leaseUntil ?? 0) > at) continue;
         const occurrence = occurrenceRow(attempt.occurrence_id)!;
         const task = internal.taskRow(occurrence.task_id)!;
-        const acquired = db.query("SELECT runtime_acquired_at FROM inbox_budget_reservations WHERE run_id = ?")
-          .get(attempt.run_id) as { runtime_acquired_at: number | null } | null;
-        const effectPossible = acquired?.runtime_acquired_at != null;
+        const reservation = db.query("SELECT status, runtime_acquired_at FROM inbox_budget_reservations WHERE run_id = ?")
+          .get(attempt.run_id) as { status: string; runtime_acquired_at: number | null } | null;
+        // A settled reservation means Activity holds the turn's terminal
+        // receipt: the backend finished and unwound (a yield, say) and only
+        // the schedule outcome is missing. That is a known outcome.
+        const receipt = reservation?.status === "settled"
+          ? (db.query("SELECT outcome FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL ORDER BY started_at LIMIT 1")
+            .get(attempt.run_id) as { outcome: string | null } | null)?.outcome ?? null
+          : null;
+        const effectPossible = receipt === null && reservation?.runtime_acquired_at != null;
+        const outcome = receipt === "success" ? "success" : receipt !== null ? (receipt === "cancelled" ? "cancelled" : "error")
+          : effectPossible ? "unknown" : "interrupted";
         db.query("UPDATE schedule_attempts SET outcome = ?, ended_at = ? WHERE run_id = ? AND outcome IS NULL")
-          .run(effectPossible ? "unknown" : "interrupted", at, attempt.run_id);
+          .run(outcome, at, attempt.run_id);
         count++;
         if (occurrence.state !== "running" && occurrence.state !== "unwinding") continue;
+        if (outcome === "success") {
+          // The result text was not recorded; the outcome was.
+          setOccurrence(occurrence.id, "completed", at);
+          settleTask(task, "completed", at);
+          dropClaim(attempt.item_id);
+          continue;
+        }
         if (effectPossible) {
           setOccurrence(occurrence.id, "unknown", at);
           settleTask(task, "unknown", at);
@@ -152,13 +172,14 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         const reclaimed = item?.status === "claimed" && item.runId !== attempt.run_id;
         const alive = item !== null && (reclaimed ||
           (["scheduled", "ready", "claimed"].includes(item.status) && item.attempts < item.maxAttempts));
-        const retry = alive && !over(occurrence, task, at) && task.state === "active";
+        // A backend that actually ran may repeat only safe reads.
+        const retry = alive && !over(occurrence, task, at) && task.state === "active" && (receipt === null || readOnly(task));
         if (retry) {
           setOccurrence(occurrence.id, "retrying", at);
           if (item!.status === "claimed" && item!.runId === attempt.run_id) failInboxWork(db, item!.id, item!.version, at);
         } else {
           const final = over(occurrence, task, at) ? "expired" : task.state === "cancelled" ? "cancelled" : "failed";
-          setOccurrence(occurrence.id, final, at);
+          setOccurrence(occurrence.id, final, at, { busyUntil: busyUntil(occurrence, final, at) });
           settleTask(task, final, at);
           dropClaim(attempt.item_id);
         }
@@ -173,7 +194,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       for (const occurrence of stranded) {
         const task = internal.taskRow(occurrence.task_id)!;
         const final = over(occurrence, task, at) ? "expired" : task.state === "cancelled" ? "cancelled" : "failed";
-        setOccurrence(occurrence.id, final, at);
+        setOccurrence(occurrence.id, final, at, { busyUntil: busyUntil(occurrence, final, at) });
         settleTask(task, final, at);
         count++;
       }
@@ -194,7 +215,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       const stale = unstarted.filter((occurrence) => over(occurrence, internal.taskRow(occurrence.task_id)!, at));
       for (const occurrence of stale) {
         // It stopped being outstanding at its expiry, even if noticed later.
-        setOccurrence(occurrence.id, "expired", at, { busyUntil: Math.min(at, occurrence.expires_at - 1) });
+        setOccurrence(occurrence.id, "expired", at, { busyUntil: busyUntil(occurrence, "expired", at) });
         const task = internal.taskRow(occurrence.task_id)!;
         dropUnstartedItems(db, task.id, at);
         settleTask(task, "expired", at);
@@ -337,7 +358,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
           // failed occurrence, never a stranded one: its only item goes, so
           // a later due instant can be admitted once the cause is fixed.
           const final = over(occurrence, current, at) ? "expired" : current.state === "cancelled" ? "cancelled" : "failed";
-          setOccurrence(occurrence.id, final, at);
+          setOccurrence(occurrence.id, final, at, { busyUntil: busyUntil(occurrence, final, at) });
           settleTask(current, final, at);
         }
         // The claim is dropped and its never-acquired reservation released.
@@ -351,7 +372,9 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
       const runs = [...(JSON.parse(occurrence.run_ids_json) as string[]), runId];
       db.query(`UPDATE schedule_occurrences SET state = 'running', operations_used = ?, run_ids_json = ?,
         attempt_deadline_at = ?, updated_at = ? WHERE id = ?`).run(admitted, JSON.stringify(runs), deadline, at, occurrence.id);
-      return { deadline, definition: internal.definitionOf(current), policy: policyOf(current), creator: current.creator_principal_id };
+      return { deadline, definition: internal.definitionOf(current), policy: policyOf(current), creator: current.creator_principal_id,
+        // The same server-selected billing and pricing the claim reserved with.
+        operation: deps.operation(policyOf(current)) };
     }).immediate();
     if (!started) { reconcileInboxBudgets(db, now()); return; }
 
@@ -381,7 +404,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         turnId: runId, principalId: started.creator, prompt: started.definition.prompt,
         profileId: started.policy.profileId ?? undefined, allowedTools: deps.allowedTools(started.definition),
         systemPromptAppend: "This is approved scheduled work. Use only the approved tools and targets; do not change files or use the network.",
-        signal: controller.signal, billingMode: deps.operation(started.policy).billingMode,
+        signal: controller.signal, billingMode: started.operation.billingMode, pricingRoute: started.operation.pricingRoute,
       });
     } catch { result = null; }
     finally {
@@ -393,7 +416,11 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
     db.transaction(() => {
       const at = now();
       const outcome = timedOut ? "timeout" : result === null ? "error" : result.outcome;
-      db.query("UPDATE schedule_attempts SET outcome = ?, ended_at = ? WHERE run_id = ? AND outcome IS NULL").run(outcome, at, runId);
+      // Another process's recovery may have settled this attempt from its
+      // Activity receipt in the instant after the backend returned; its
+      // decision stands.
+      if (db.query("UPDATE schedule_attempts SET outcome = ?, ended_at = ? WHERE run_id = ? AND outcome IS NULL")
+        .run(outcome, at, runId).changes === 0) return;
       const occurrence = occurrenceRow(link.occurrence_id)!;
       const current = internal.taskRow(task.id)!;
       const claim = store().getItem(item.id) as InboxQueueItem | null;

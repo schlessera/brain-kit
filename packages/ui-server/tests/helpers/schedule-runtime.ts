@@ -57,6 +57,7 @@ export function scheduleRuntime(db: Database, options: {
   afterClaim?: () => unknown;
   /** The host's current execution policy; defaults to the approved fixture policy. */
   policy?: () => ExecutionPolicy | null;
+  pricingRoute?: "openrouter" | "direct";
 }) {
   const now = () => options.clock.now;
   const service = createScheduleService(db, { brainRoot: options.root, now, executionPolicy: options.policy ?? (() => POLICY),
@@ -65,7 +66,7 @@ export function scheduleRuntime(db: Database, options: {
   const activity = createActivityStore(db, { writer: "schedule-runtime-test" });
   const admission = createScheduleAdmission(db, {
     service, backend, now, store: activity, timers: options.timers ?? manualTimers().timers,
-    operation: () => ({ model: "fixture", billingMode: "subscription" }),
+    operation: () => ({ model: "fixture", billingMode: "subscription", ...(options.pricingRoute ? { pricingRoute: options.pricingRoute } : {}) }),
     allowedTools: options.allowedTools ?? ((definition) => definition.scope.tools.map((tool) => tool.name)),
   });
   const runtime = createInboxRuntime(db, {
