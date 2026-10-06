@@ -288,7 +288,7 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
             onClick={toggle}
           />
           <div id={textId} className="bk-follow-up-text" data-follow-up-text="" hidden={!open}>
-            {f.text}
+            <div className="bk-follow-up-box">{f.text}</div>
           </div>
         </div>
       );

@@ -143,6 +143,10 @@ for (const width of [320, 900]) {
     expect(box.left, "never across the gutter").toBeGreaterThanOrEqual(half.left - 0.5);
     expect(box.bottom, "above its pill").toBeLessThanOrEqual(rect(pill!).top);
     expect(document.getAnimations(), "no transition").toEqual([]);
+    // The 6px between the pill and its text is part of the hover region, so
+    // a pointer travelling up to select the text never leaves it.
+    const gap = document.elementFromPoint(rect(pill!).right - 12, rect(pill!).top - 3);
+    expect(gap && pill!.closest("[data-follow-up]")!.contains(gap), "the gap above the pill keeps the hover").toBe(true);
     if (mode !== "fine") {
       // Another tap closes it; a tap outside closes one a tap opened.
       const r = rect(pill!);
