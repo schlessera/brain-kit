@@ -36,6 +36,7 @@ import {
   StatTiles,
   StepList,
   TimelineList,
+  TrackerPillList,
   TrendChart,
   type IconName,
 } from "@schlessera/brain-ui-kit";
@@ -96,6 +97,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       const verdict = classifyLink(block.url);
       return verdict.ok ? `link · ${verdict.host}` : "link · withheld";
     }
+    case "tracker":
+      return `tracker · ${count(block.events.length, "change")}`;
     case "suggestions":
       return `suggestions · ${block.items.length}`;
   }
@@ -168,6 +171,10 @@ function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: 
       const { kind: _kind, ...props } = block;
       return <LinkPreviewCard {...props} onCopy={copyAddress} />;
     }
+    case "tracker":
+      // The list derives every repository, number, type and host from each
+      // event's `url`, and draws a refused one as withheld (#1001).
+      return <TrackerPillList events={block.events} isStatic={isStatic} />;
     case "suggestions":
       // Never drawn in the answer: the closing row takes the turn's last
       // valid call (D50), and a share or a print leaves them out.

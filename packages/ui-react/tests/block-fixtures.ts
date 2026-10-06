@@ -124,6 +124,21 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     title: "Harbour tide tables, week 39",
     description: "High water before dawn all week; the pass is safest Tuesday.",
   },
+  tracker: {
+    kind: "tracker",
+    events: [
+      { url: "https://github.com/ithaca/hall/issues/12", action: "opened", title: "Suitors overstay in the great hall" },
+      { url: "https://github.com/ithaca/hall/pull/21", action: "merged", title: "Restore the bow to the great hall" },
+      { url: "https://github.com/ithaca/hall/issues/9", action: "closed", qualifier: "not planned", title: "Weave a second shroud" },
+      // Seven events, one withheld: past the collapse, so a static render
+      // (the share document) is shown drawing all of them, and the withheld
+      // line's screen-reader text is shown staying hidden there.
+      { url: "https://odysseus:nobody@github.com/ithaca/hall/issues/14", action: "commented", title: "Raft repair estimate" },
+      { url: "https://github.com/ithaca/hall/pull/22", action: "reviewed", qualifier: "approved", title: "Line the twelve axes up" },
+      { url: "https://github.com/ithaca/hall/issues/12", action: "labeled", qualifier: "household", title: "Suitors overstay in the great hall" },
+      { url: "https://tracker.ogygia-shipyard.example/tickets/4", action: "opened", title: "Order pine for the raft" },
+    ],
+  },
 };
 
 /** The follow-ups the model offers under its answer (#40), drawn in the closing row. */

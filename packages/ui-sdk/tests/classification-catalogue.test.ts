@@ -543,7 +543,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map`, `track` and `link` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map`, `track`, `link` and `tracker` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -575,12 +575,17 @@ describe("the kinds the catalogue can draw", () => {
     // A track is file-backed evidence, not coordinates inferred from prose.
     // Its model payload supplies only the staged source path (#526).
     const FILE_BACKED: readonly string[] = ["track"];
+    // A tracker event is the agent's report of its own act on an item whose
+    // identity is read from a url (#1001). Prose naming `#12` carries no url
+    // to read it from, and deriving pills from tool output is a follow-up,
+    // not this pass.
+    const AGENT_ACTS: readonly string[] = ["tracker"];
     const leftOver = BLOCK_KINDS.filter(
       (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
     );
-    expect(leftOver).toEqual(["trend", "bars", "map", "track", "link"]);
+    expect(leftOver).toEqual(["trend", "bars", "map", "track", "link", "tracker"]);
     const figures: string[] = leftOver.filter(
-      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind)
+      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind) && !AGENT_ACTS.includes(kind)
     );
     expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });

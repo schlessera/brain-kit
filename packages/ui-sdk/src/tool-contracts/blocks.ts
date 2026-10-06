@@ -448,6 +448,75 @@ export const LINK_BLOCK_SCHEMA = z.object({
     .describe("One or two sentences on why it is relevant. Plain text; shown as written by you."),
 });
 
+/** What happened to a tracker item: the kit's `TrackerAction`. */
+export const BLOCK_TRACKER_ACTIONS = [
+  "opened",
+  "closed",
+  "reopened",
+  "merged",
+  "labeled",
+  "commented",
+  "reviewed",
+] as const;
+
+/** The most events one `tracker` block carries. */
+export const TRACKER_EVENTS_MAX = 20;
+
+/**
+ * Changes the model made to an issue tracker, one line each (#1001). Every
+ * event is the model's report of its own act; nothing is fetched to check it.
+ *
+ * The item's identity is deliberately not a field (D1 on #1001): repository,
+ * number and type are derived from a GitHub-shaped `url` by the kit, and a
+ * non-GitHub address shows only its title, action and host. An event that
+ * carries any key besides its four is rejected with the key named, so a
+ * `repository` or `number` the model supplies cannot reach a pill that would
+ * contradict where the pill goes. Each `url` passes the link policy as a
+ * `link` block's does: the handler rejects a refused one, and the kit draws
+ * one that reaches it anyway as withheld.
+ */
+export const TRACKER_EVENT_SCHEMA = z
+  .object({
+    url: z
+      .string()
+      .min(1)
+      .max(2048)
+      .describe(
+        "The item's absolute https address, e.g. https://github.com/<owner>/<name>/issues/<n> or .../pull/<n>. Repository, number and type are read from it; never state them."
+      ),
+    action: z.enum(BLOCK_TRACKER_ACTIONS).describe("What you did to the item."),
+    qualifier: z
+      .string()
+      .trim()
+      .min(1)
+      .max(60)
+      .regex(/^[^\r\n]*$/, "one line")
+      .optional()
+      .describe(
+        'A short note on the action: the close reason ("completed", "not planned", "duplicate"), the label name, or the review verdict ("approved", "changes requested"). Omit otherwise.'
+      ),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .regex(/^[^\r\n]*$/, "one line")
+      .describe("The item's title, one line. Shown as written by you, truncated to the line."),
+  })
+  .strict();
+
+export type TrackerEventInput = z.infer<typeof TRACKER_EVENT_SCHEMA>;
+
+export const TRACKER_BLOCK_SCHEMA = z
+  .object({
+    kind: z.literal("tracker"),
+    events: z
+      .array(TRACKER_EVENT_SCHEMA)
+      .min(1)
+      .max(TRACKER_EVENTS_MAX)
+      .describe("The changes in the order you made them. 1-20."),
+  });
+
 /**
  * Several named places, drawn on real geography with a numbered list under
  * them (#44). The model says WHICH places; the surface decides HOW they are
@@ -577,6 +646,7 @@ const OTHER_BLOCK_SCHEMAS = [
   MAP_BLOCK_SCHEMA,
   TRACK_BLOCK_SCHEMA,
   LINK_BLOCK_SCHEMA,
+  TRACKER_BLOCK_SCHEMA,
 ] as const;
 
 /** Rendered block data: discard unknown fields, including on stored suggestions. */
@@ -600,7 +670,7 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places, an imported track or a link card. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a map of places, an imported track, a link card or a list of tracker changes. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -611,8 +681,9 @@ export const SHOW_BLOCK_DESCRIPTION = [
   "map: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.",
   "track: a validated GPX, KML or supported GeoJSON attachment. Give only source.path from intake; the surface reads the original, calculates shared measurements and draws it without inferring recorded travel. Never restate coordinates or choose a viewport.",
   "link: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.",
+  "tracker: issues and pull requests you just opened, closed, reopened, merged, labeled, commented on or reviewed, 1-20 events in the order you made them, each with the item's url, the action and its title. Use it instead of listing tracker changes in prose: each event is drawn as one tappable line that opens the item. Give closed its reason, labeled its label and reviewed its verdict as the qualifier. Never state the repository, number or type: they are read from a github.com url, and a field naming them is rejected. A url the link policy refuses is rejected with the reason, as for link.",
   "suggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.",
-  "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's address was refused, so fix the shape or the address rather than retrying it unchanged.",
+  "The tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's or tracker event's address was refused, so fix the shape or the address rather than retrying it unchanged.",
 ].join("\n");
 
 export const SHOW_BLOCK_INPUT_SCHEMA = z.object({
@@ -661,6 +732,8 @@ export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLO
         TRACK_BLOCK_SCHEMA,
         // No tone, icon or restated field, so every form shares the one schema.
         LINK_BLOCK_SCHEMA,
+        // The same: an event has no tone, icon or restated field either.
+        TRACKER_BLOCK_SCHEMA,
         suggestionsBlock(f, true),
       ]),
     });

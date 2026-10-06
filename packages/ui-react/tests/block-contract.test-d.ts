@@ -17,6 +17,8 @@ import type {
   SuggestionChipsProps,
   SuggestionItem,
   Tone,
+  TrackerAction,
+  TrackerEvent,
   ValueTone,
 } from "@schlessera/brain-ui-kit";
 import type { Block } from "@schlessera/brain-ui-sdk/client";
@@ -28,6 +30,7 @@ import type {
   BLOCK_STEP_STATES,
   BLOCK_STEP_VARIANTS,
   BLOCK_TONES,
+  BLOCK_TRACKER_ACTIONS,
   BLOCK_VALUE_TONES,
 } from "../../ui-sdk/src/tool-contracts/blocks.js";
 
@@ -46,6 +49,16 @@ type StepStatesMatch = Assert<Equal<Member<typeof BLOCK_STEP_STATES>, StepState>
 type QuoteTonesMatch = Assert<Equal<Member<typeof BLOCK_QUOTE_TONES>, QuoteTone>>;
 type ContactKindsMatch = Assert<Equal<Member<typeof BLOCK_CONTACT_KINDS>, ContactKind>>;
 type ContactTonesMatch = Assert<Equal<Member<typeof BLOCK_CONTACT_TONES>, ContactTone>>;
+type TrackerActionsMatch = Assert<Equal<Member<typeof BLOCK_TRACKER_ACTIONS>, TrackerAction>>;
+
+/*
+ * `tracker` (#1001): an event's keys equal the kit's `TrackerEvent` keys in
+ * both directions, so neither side can grow an identity field (a repository,
+ * a number) the other does not know about.
+ */
+type TrackerEventKeysMatch = Assert<
+  Equal<keyof Extract<Block, { kind: "tracker" }>["events"][number], keyof TrackerEvent>
+>;
 
 /*
  * `suggestions` (#40, D50) is the one block not drawn by the kit component it
@@ -78,4 +91,6 @@ export type {
   QuoteTonesMatch,
   ContactKindsMatch,
   ContactTonesMatch,
+  TrackerActionsMatch,
+  TrackerEventKeysMatch,
 };

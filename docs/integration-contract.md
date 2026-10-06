@@ -1214,7 +1214,7 @@ connected browser. `query_activity`
 `show_block` (side-effect free, always registered) renders one of the kit's
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
-address the link policy refuses.
+address the link policy refuses, and a `tracker` block with any event whose address it refuses.
 The eight bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
@@ -1376,6 +1376,7 @@ pre-formatted string because the blocks do no arithmetic:
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
 | `map` | `title?` (≤60), `places[1..30]{label (1-80), lat? (-90..90), lon? (-180..180), meta? (≤40), source? (≤80), accuracyM? (>0, ≤100000)}`; `lat` and `lon` come together or not at all (additive in 0.39.0) | `PlaceMap`, planned by `planPlaces` |
 | `link` (0.39.0) | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
+| `tracker` (0.41.0) | `events[1..20]{url (1-2048), action, qualifier? (1-60, trimmed, one line), title (1-200, trimmed, one line)}`, `action` one of `opened`, `closed`, `reopened`, `merged`, `labeled`, `commented`, `reviewed`; an event takes no other key | `TrackerPillList` |
 | `suggestions` (0.39.0) | `label?` (1-24), `items[1..2]{label (4-80, trimmed, one line), icon?}` | the app's closing row, from `SuggestionChips`' data minus `tone` |
 
 A `link` block's address passes `classifyLink` (`@schlessera/brain-ui-kit/links`)
@@ -1392,6 +1393,30 @@ back to the generic view. The host is not a field: the card derives the host
 it shows and the `href` it opens from one parse of `url`. Nothing is fetched
 to draw the card, and it navigates only when the reader activates its Open
 anchor (`target="_blank"`, `rel="noopener noreferrer nofollow"`, no referrer).
+
+A `tracker` block (#1001) lists changes the agent reports it made to issues
+and pull requests, one line each, in payload order. An event's repository,
+number and item type are not fields: the kit derives them from a
+GitHub-shaped `url` (`https://github.com/<owner>/<name>/issues/<n>` or
+`.../pull/<n>`, optionally followed by a subpath, query or fragment), and any
+other address shows only its title, its action and the host derived from the
+`url`. An event carrying any key besides its four (`repository`, `number`,
+`type`, `host`, …) is rejected naming the key, on the model's call and in the
+client's payload parse alike. Each `url` passes `classifyLink` as a `link`
+block's does: the handler rejects the call naming the event's 1-based
+position and the reason (`refused tracker event 2: credentials`), and a
+refused address that reaches a client anyway draws a withheld line with no
+anchor. Every other line is an anchor to the parsed `href` (new tab, no
+opener, no referrer); consecutive events with the same host and repository
+share one header naming them; more than six events show five and a `Show
+all N changes` control in the chat, while a shared image or PDF draws every
+event with its title in full; and the list always ends with `Changes as reported
+by the brain · tracker not checked`. Nothing is fetched to draw it. The
+`qualifier` is the close reason, the label name or the review verdict, and
+with the action it picks the line's tone (`merged`, `closed completed` and
+`reviewed approved` teal, `opened` amber, `reopened` and `reviewed changes
+requested` gold, everything else neutral); the action is always printed as
+a word.
 
 Layout knobs the kit components take (`labelWidth`, `barWidth`, `height`,
 `timeWidth`, …) are not part of the contract: the surface decides them.

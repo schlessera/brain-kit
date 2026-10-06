@@ -401,8 +401,13 @@ describe("reserved identifiers only", () => {
   test("every hostname is an RFC 2606 reserved name", async () => {
     const text = await fixtureText();
     const hosts = [...text.matchAll(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/g)].map((m) => m[0]);
+    // The one real host by contract: a tracker block derives an item's
+    // repository, number and type only from a github.com url (#1001), so its
+    // fixtures have to use that host. The repositories on it are the world's.
+    const BY_CONTRACT: readonly string[] = ["github.com"];
     const offenders = hosts.filter(
       (h) =>
+        !BY_CONTRACT.includes(h) &&
         // Only consider things that look like hostnames, not file paths or
         // decimal numbers -- a real TLD is what we are hunting.
         /\.(com|net|org|io|dev|co|app|ai|invalid|test|example|localhost)$/.test(h) &&

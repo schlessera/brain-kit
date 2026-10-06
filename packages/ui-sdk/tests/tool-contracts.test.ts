@@ -115,7 +115,11 @@ describe("show_block", () => {
     // effect on the call rate, so its rule rides in the always-loaded
     // description instead. #550 measures whether that holds. Any OTHER kind
     // the brief stops naming still fails here.
-    const BRIEF_EXEMPT: readonly string[] = ["suggestions"];
+    //
+    // `tracker` is exempt by the same kind of ruling (D2 on #1001): its "use
+    // this instead of prose" guidance rides only in the description, and a
+    // brief line waits for epic #39's measurement to show it is needed.
+    const BRIEF_EXEMPT: readonly string[] = ["suggestions", "tracker"];
     for (const kind of BLOCK_KINDS) {
       if (BRIEF_EXEMPT.includes(kind)) expect(brief).not.toContain(`\`${kind}\``);
       else expect(brief).toContain(`\`${kind}\``);
@@ -166,7 +170,7 @@ describe("show_block", () => {
     });
   });
 
-  test("the fifteen kinds, in brief order", () => {
+  test("the sixteen kinds, in brief order", () => {
     expect(BLOCK_KINDS).toEqual([
       "comparison",
       "stats",
@@ -182,6 +186,7 @@ describe("show_block", () => {
       "map",
       "track",
       "link",
+      "tracker",
       "suggestions",
     ]);
   });

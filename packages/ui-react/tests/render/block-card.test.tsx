@@ -92,6 +92,7 @@ const EXPECTED_TEXT: Record<AnswerBlockKind, string[]> = {
   track: ["Reading original track", "ithaca-loop.gpx"],
   map: ["Where the crew went ashore", "Harbour steps", "Agora well", "Raft timber stand", "no position"],
   link: ["ithaca-harbour.", "example", "Harbour tide tables, week 39", "Title and summary by the brain"],
+  tracker: ["github.", "ithaca/", "hall", "opened", "#12", "PR 21", "closed not planned", "Weave a second shroud", "Changes as reported by the brain"],
 };
 
 describe("BlockCard", () => {

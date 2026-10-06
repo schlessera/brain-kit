@@ -135,7 +135,7 @@ describe("a message with blocks", () => {
 
   test("draws every block kind, in order, in the print theme", async () => {
     const kinds = Object.keys(BLOCKS) as AnswerBlockKind[];
-    expect(kinds).toHaveLength(14);
+    expect(kinds).toHaveLength(15);
     store().startAssistantMessage(null);
     store().appendText(null, "All of them.");
     kinds.forEach((kind, i) => showBlock(`s${i}`, BLOCKS[kind])());
@@ -220,5 +220,23 @@ describe("a message with blocks", () => {
     expect(html).toContain("First line.");
     expect(html).toContain("Fourth.");
     expect(html).not.toMatch(/[\r\n]/);
+  });
+
+  test("a tracker block draws every event in a static render, with no collapse control", async () => {
+    const block = BLOCKS.tracker;
+    if (block.kind !== "tracker") throw new Error("Expected the tracker fixture");
+    expect(block.events.length).toBeGreaterThan(6);
+    const html = await renderBlockHtml(block);
+    const { Window } = await import("happy-dom");
+    const { document } = new Window();
+    document.body.innerHTML = html;
+    expect(document.querySelectorAll("[data-tracker-pill], [data-tracker-withheld]")).toHaveLength(block.events.length);
+    expect(document.querySelector("[data-tracker-more]")).toBeNull();
+    // The screen-reader line hides itself: the share document carries the
+    // print tokens, not the kit stylesheet that defines `.bk-sr-only`.
+    const sr = document.querySelector("[data-tracker-sr]") as unknown as HTMLElement;
+    expect(sr.getAttribute("class")).toBeNull();
+    expect(sr.style.position).toBe("absolute");
+    expect(sr.style.clipPath).toBe("inset(50%)");
   });
 });
