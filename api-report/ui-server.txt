@@ -775,6 +775,7 @@ signatures (every public export and the types it is made of)
         thinkingLevel?: ThinkingLevel;
         requestId?: string;
         draftRef?: DraftRef;
+        revision?: number;
         releaseAuthorization: () => void;
         followUpId?: string;
         queuedAt?: number;
