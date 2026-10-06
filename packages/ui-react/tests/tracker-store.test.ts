@@ -497,7 +497,8 @@ describe("clearing a tracker", () => {
 
 describe("the seen observer's conditions", () => {
   test("only Chat, visible, uncovered and at the end of the linked turn sees it", () => {
-    const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    let modal = false;
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible", querySelector: (selector: string) => (modal && selector === '[aria-modal="true"]' ? {} : null) });
     (globalThis as { document?: unknown }).document = doc;
     try {
       const r = root();
@@ -519,6 +520,7 @@ describe("the seen observer's conditions", () => {
         ["subagent drill-in", () => ui.setState({ subagentStack: ["span-1"] }), () => ui.setState({ subagentStack: [] })],
         ["mask editor", () => r.stores.mask.setState({ request: { requestId: "m1" } as never }), () => r.stores.mask.setState({ request: null })],
         ["handoff sheet", () => r.stores.handoff.setState({ sheet: { kind: "review" } as never }), () => r.stores.handoff.setState({ sheet: null })],
+        ["a modal dialog (a zoom viewer, a one-time credential)", () => { modal = true; }, () => { modal = false; }],
       ];
       for (const [name, cover, uncover] of blocked) {
         cover();
@@ -698,6 +700,20 @@ describe("persistence", () => {
     expect(ids(here)).toEqual([]);
     here.stores.trackers.getState().track("odysseus-loom");
     expect(JSON.parse(storage.data.get(k)!)).toMatchObject({ principalKey: "pk-penelope", trackers: [{ sessionId: "odysseus-loom" }] });
+  });
+
+  test("a revocation in a stale tab clears only its own set, never a newer principal's", () => {
+    const storage = memoryStorage();
+    const k = `ithaca:${TRACKER_STORAGE_KEY}`;
+    const stale = root({ storage, storagePrefix: "ithaca" });
+    hello(stale, false, "pk-ithaca");
+    runningIn(stale, A);
+    stale.stores.chat.getState().setActiveSession(B);
+    const theirs = JSON.stringify({ v: 1, principalKey: "pk-penelope", trackers: [{ sessionId: "odysseus-loom", requestId: null, turnId: null, revision: null, leftAt: 1, seen: null }] });
+    storage.setItem(k, theirs);
+    stale.stores.trackers.getState().revoke();
+    expect(ids(stale)).toEqual([]);
+    expect(storage.data.get(k)).toBe(theirs);
   });
 
   test("a stale tab never overwrites a set another tab stored for a different principal", () => {

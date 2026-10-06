@@ -192,14 +192,19 @@ export function createTrackerStore(env: StoreEnvironment) {
     before: Record<string, TrackerRecord>,
     changed: readonly string[],
     removed: readonly string[],
-    replace: boolean,
+    /** `takeover`: a new principal's set replaces whatever is stored. `own`: this tab's own set is cleared. */
+    replace: false | "takeover" | "own",
   ): Record<string, TrackerRecord> {
     let records = state.records;
     owner = null;
     try {
       const storage = env.storage();
       if (!storage) return records;
-      const current = replace ? null : readStored();
+      const stored = readStored();
+      // Clearing this tab's set (a revocation) never reaches a set another
+      // tab already stored for a newer principal.
+      if (replace === "own" && stored && stored.principalKey !== null && state.principalKey !== null && stored.principalKey !== state.principalKey) return records;
+      const current = replace ? null : stored;
       // Another tab stored a different principal's set: this tab's is stale,
       // and only a principal change (a hello) may replace it.
       if (current && current.principalKey !== null && state.principalKey !== null && current.principalKey !== state.principalKey) return records;
@@ -241,7 +246,7 @@ export function createTrackerStore(env: StoreEnvironment) {
   const stored = readStored() ?? parseTrackerSet(null);
 
   return createStore<TrackerStoreState>((set, get) => {
-    function commit(patch: Partial<TrackerStoreState>, replace = false) {
+    function commit(patch: Partial<TrackerStoreState>, replace: false | "takeover" | "own" = false) {
       const before = get().records;
       set(patch);
       if (patch.records === undefined && patch.principalKey === undefined) return;
@@ -317,7 +322,7 @@ export function createTrackerStore(env: StoreEnvironment) {
     }
 
     function deleteAll() {
-      commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1 }, true);
+      commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1 }, "own");
     }
 
     return {
@@ -525,7 +530,7 @@ export function createTrackerStore(env: StoreEnvironment) {
         if (principalKey === null || principalKey === current) return;
         // A new principal replaces the set in one write, under its own key,
         // which is the explicit ownership change a stale tab cannot make.
-        if (current !== null) commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1, principalKey }, true);
+        if (current !== null) commit({ records: {}, evidence: {}, unconfirmed: {}, createdFor: {}, reading: {}, epoch: get().epoch + 1, principalKey }, "takeover");
         else commit({ principalKey });
       },
 

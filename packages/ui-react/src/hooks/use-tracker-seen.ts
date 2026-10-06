@@ -32,6 +32,8 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   // The other modal surfaces that cover Chat: the mask editor and the handoff sheet.
   if (root.stores.mask.getState().request || root.stores.handoff.getState().sheet) return false;
   if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
+  // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
+  if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
   const last = chat.buffers[sessionId]?.messages.at(-1);
   if (!last || last.turnId !== key.turnId) return false;
   if (transcript.clientHeight === 0) return false;
@@ -60,6 +62,15 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   useRootStore("handoff", (s) => s.sheet !== null);
   useEffect(() => {
     observeTrackerSeen(root, transcript.current, scrollDisc);
+  });
+  // While this session has a tracker to clear, a modal dialog closing
+  // (they mount and unmount under the body) is a chance too.
+  const waiting = useRootStore("trackers", (s) => !!sessionId && !!s.records[sessionId] && !isCleared(s.records[sessionId]!, s.evidence[sessionId] ?? evidenceFromRecord(s.records[sessionId])));
+  useEffect(() => {
+    if (!waiting || typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+    const observer = new MutationObserver(() => observeTrackerSeen(root, transcript.current, scrollDisc));
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
+    return () => observer.disconnect();
   });
   useEffect(() => {
     const check = () => observeTrackerSeen(root, transcript.current, scrollDisc);
