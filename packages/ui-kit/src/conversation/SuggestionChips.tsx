@@ -30,8 +30,8 @@ import type { SuggestionTone } from "../types.js";
  * a gold effect chip after the label; a `disabled` chip keeps it, dims only
  * its label and icon, and prints `why` after them in mono. Neither appears
  * unless the caller passes it, so an existing chip renders exactly as before.
- * A chip with a reason wraps instead of ellipsising: a clipped reason is not
- * an honest one.
+ * A chip with a cost or a reason wraps instead of ellipsising: a clipped cost
+ * or reason is not an honest one.
  *
  * Under a coarse pointer every interactive chip is at least 44px tall
  * (`.bk-suggestion`, D52 §7). The 7px gap stays, so neighbouring targets
@@ -173,7 +173,10 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             font: `500 11.5px/1.3 ${font.body}`,
             color: ink,
             cursor: off ? "not-allowed" : act ? "pointer" : "default",
-            ...(why
+            // A chip that prints a cost or a reason wraps rather than clips:
+            // the label's text cannot shrink, so an ellipsis would push the
+            // printed word past the clipped edge first.
+            ...(why || it.cost
               ? { flexWrap: "wrap", rowGap: 3, whiteSpace: "normal", overflowWrap: "anywhere" }
               : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
             ...({

@@ -154,3 +154,24 @@ export const DisabledNarrow = Disabled.extend({
     await expect(chip.scrollWidth, "the reason is not clipped").toBeLessThanOrEqual(chip.clientWidth);
   },
 });
+
+/**
+ * An ENABLED chip with a cost in a narrow column wraps its label, so the cost
+ * stays inside the chip instead of being pushed past a clipped edge (V6).
+ */
+export const CostNarrow = meta.story({
+  parameters: { stageWidth: 200 },
+  args: {
+    items: [
+      { label: "What happened on the voyage since Troy?", icon: "digest", tone: "amber", cost: "spends", onClick: fn() },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const chip = canvas.getByRole("button", { name: /What happened/ });
+    const cost = [...chip.querySelectorAll("span")].find((el) => el.textContent === "spends")!;
+    const outer = chip.getBoundingClientRect();
+    const inner = cost.getBoundingClientRect();
+    await expect(inner.right <= outer.right && inner.left >= outer.left, "the cost is inside the chip").toBe(true);
+    await expect(chip.scrollWidth, "nothing clipped").toBeLessThanOrEqual(chip.clientWidth);
+  },
+});
