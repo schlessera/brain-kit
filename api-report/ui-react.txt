@@ -854,6 +854,7 @@ signatures (every public export and the types it is made of)
   ProviderState (packages/ui-react/src/stores/provider-state.ts)
     export interface ProviderState {
         available: ProviderInfo[];
+        unavailable: UnavailableProfileInfo[];
         selectedId: string;
         pinnedId: string | null;
         backends: Record<string, BackendInfo>;
@@ -1309,6 +1310,7 @@ signatures (every public export and the types it is made of)
         providers: () => Promise<{
             backends?: Record<string, BackendInfo>;
             providers: ProviderInfo[];
+            unavailable?: UnavailableProfileInfo[];
         }>;
         pushPublicKey: () => Promise<{
             publicKey: string;
@@ -1679,6 +1681,7 @@ signatures (every public export and the types it is made of)
         providers: () => Promise<{
             backends?: Record<string, import("./lib/api-client.js").BackendInfo>;
             providers: import("@schlessera/brain-ui-sdk").ProviderInfo[];
+            unavailable?: import("@schlessera/brain-ui-sdk").UnavailableProfileInfo[];
         }>;
         pushPublicKey: () => Promise<{
             publicKey: string;

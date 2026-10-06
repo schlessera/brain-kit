@@ -587,8 +587,14 @@ Model operations are protected. Roster IDs and discovered membership can evolve;
 clients use IDs as opaque selections and the declared metadata for presentation.
 
 **GET /api/providers.** No inputs. Returns
-`{ providers: ProviderInfo[], backends: Record<string, { id, capabilities }> }`.
+`{ providers: ProviderInfo[], backends: Record<string, { id, capabilities }>, unavailable?: UnavailableProfileInfo[] }`.
 Visible profiles only; hidden profiles still resolve for pinned sessions.
+`providers` lists only profiles that can run now. `unavailable` (additive,
+#1044) lists visible profiles a backend is configured with but cannot run, each
+`{ id, label, reason, backendId }` with `reason` from the closed
+`ProfileUnavailableReason` enum (`needs-credentials`); it is absent when there
+are none, and its ids are never valid `providerId`s. Clients own the reason's
+copy and show an unknown reason generically.
 Each backend record contains id and declared capabilities. ProviderInfo has id/label,
 optional vendor/backendId/contextWindow/thinkingLevel/source/billingMode/
 pricingRoute, with SDK meanings. Cached discovery is refreshed when stale;

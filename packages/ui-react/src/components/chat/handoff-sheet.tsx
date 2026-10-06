@@ -7,6 +7,7 @@ import {
   HANDOFF_MAX_REFERENCES,
   type ClientMessage,
   type ProviderInfo,
+  type UnavailableProfileInfo,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -38,9 +39,23 @@ const PRIMARY = `${BUTTON} border-transparent bg-primary-fill text-primary-foreg
 const GHOST = `${BUTTON} border-border bg-transparent text-foreground hover:bg-surface-raised`;
 const LINKISH = "inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
 
+/**
+ * The client's copy for a closed unavailability reason (#1044). The host
+ * sends only the enum; a reason this client does not know yet reads as a
+ * generic one rather than leaking through.
+ */
+export function unavailableReasonCopy(reason: string): string {
+  return reason === "needs-credentials" ? "needs credentials" : "can't run now";
+}
+
 /** Where a choice of destination profile stands. */
-function destinationWhy(profile: ProviderInfo | undefined, connected: boolean): string | undefined {
+function destinationWhy(
+  profile: ProviderInfo | undefined,
+  connected: boolean,
+  unavailable: UnavailableProfileInfo | undefined
+): string | undefined {
   if (!connected) return "host offline";
+  if (!profile && unavailable) return unavailableReasonCopy(unavailable.reason);
   if (!profile) return "choose another backend";
   return undefined;
 }
@@ -99,8 +114,22 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   );
   const canSummarize = Boolean(sourceBackendId && backends[sourceBackendId]?.capabilities.autonomous);
 
-  const [destinationId, setDestinationId] = useState<string>(() => destinations[0]?.id ?? "");
+  // Configured on another backend but unable to run now (#1044): listed,
+  // disabled, with the reason printed; never chosen.
+  const unavailableProfiles = useProviderStore((s) => s.unavailable);
+  const unavailableDestinations = useMemo(
+    () => unavailableProfiles.filter((p) => p.backendId && p.backendId !== sourceBackendId),
+    [unavailableProfiles, sourceBackendId]
+  );
+
+  const [destinationId, setDestinationId] = useState<string>(
+    () => destinations[0]?.id ?? unavailableDestinations[0]?.id ?? ""
+  );
   const destination = destinations.find((p) => p.id === destinationId);
+  const unavailableDestination = destination ? undefined : unavailableDestinations.find((p) => p.id === destinationId);
+  function chooseDestination(id: string) {
+    if (destinations.some((p) => p.id === id)) setDestinationId(id);
+  }
   const [snapshot, setSnapshot] = useState<HandoffSnapshot | null>(null);
   const [historyError, setHistoryError] = useState(false);
   const [text, setText] = useState("");
@@ -276,7 +305,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   const over = text.length > HANDOFF_MAX_CHARS;
   const busy = phase.kind === "creating" || phase.kind === "checking";
   const why = !connected ? "needs the host"
-    : destinationWhy(destination, connected)
+    : destinationWhy(destination, connected, unavailableDestination)
     ?? (over ? "shorten the handoff" : !text.trim() ? "write the handoff" : checking ? "checking references" : undefined);
 
   function start() {
@@ -349,7 +378,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
       {/* To */}
       <div className="flex flex-col gap-1.5">
         <label htmlFor={`${titleId}-to`}><Label text="To" /></label>
-        {destinations.length === 0 ? (
+        {destinations.length === 0 && unavailableDestinations.length === 0 ? (
           <p className="text-sm text-muted-foreground">No other backend is set up on this host.</p>
         ) : (
           <select
@@ -357,12 +386,17 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
             ref={toRef}
             value={destinationId}
             disabled={busy}
-            onChange={(e) => setDestinationId(e.target.value)}
+            onChange={(e) => chooseDestination(e.target.value)}
             className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             {destinations.map((p) => (
               <option key={p.id} value={p.id} disabled={!connected}>
                 {p.label} · {p.backendId}{p.billingMode === "api" ? " · spends" : ""}{!connected ? " — host offline" : ""}
+              </option>
+            ))}
+            {unavailableDestinations.map((p) => (
+              <option key={`unavailable:${p.id}`} value={p.id} disabled>
+                {p.label} · {p.backendId} — {!connected ? "host offline" : unavailableReasonCopy(p.reason)}
               </option>
             ))}
           </select>

@@ -102,10 +102,19 @@ failing closed, a retry still finds the destination.
   [`lib/handoff.ts`](../../packages/ui-react/src/lib/handoff.ts).
 - Wire: [integration contract, cross-backend handoff](../integration-contract.md#cross-backend-handoff-additive-61).
 
+## Profiles that cannot run
+
+The To list offers the runnable profiles on other backends, then the
+configured ones that cannot run now, disabled with their reason printed
+(`needs credentials`). The host reports those apart from the runnable roster
+(#1044, ruled 2026-10-06), so routing and every client that reads the roster
+keep its "runnable now" meaning. The reason is a closed enum and the client
+owns its copy; no backend detail, such as a key name, reaches the sheet.
+`host offline` stays client-derived. The entry points are unchanged: they
+still need a runnable profile on another backend, so opening the sheet never
+starts a priced summary for a handoff that could not start.
+
 ## Known limits
 
-- Backends list only the profiles they can run, so the sheet cannot show a
-  profile that is unavailable for missing credentials with that reason. It
-  shows what the host advertises, disabled while the host is offline.
 - There is no file picker in the client yet; `+ add a file` takes a
   brain-relative path, which the sheet checks before it can be sent.

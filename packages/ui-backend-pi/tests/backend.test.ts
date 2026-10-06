@@ -54,6 +54,23 @@ describe("createPiBackend (no LLM)", () => {
     }
   });
 
+  test("omits listUnavailableProfiles: every configured profile is listed (#1044)", () => {
+    const brain = makeEmptyBrain();
+    try {
+      // pi checks a profile's credential when a session starts, so a profile
+      // whose vendor has no key is still in listProfiles(); there is nothing
+      // left out to report as unavailable.
+      const backend = createPiBackend({
+        brainPath: brain.root,
+        profiles: [{ id: "no-key", label: "No key", vendor: "openrouter", model: "z-ai/glm-4.7" }],
+      });
+      expect(backend.listUnavailableProfiles).toBeUndefined();
+      expect((backend.listProfiles() as ProviderInfo[]).map((p) => p.id)).toEqual(["no-key"]);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("listProfiles derives a default from a model string", () => {
     const brain = makeEmptyBrain();
     try {

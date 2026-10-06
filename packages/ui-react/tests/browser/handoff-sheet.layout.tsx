@@ -33,6 +33,8 @@ const PROVIDERS = [
   { id: "claude", label: "Claude Opus", backendId: "claude" },
   { id: "codex", label: "Codex · gpt-5.5", backendId: "pi", billingMode: "api" },
 ];
+// Configured on the other backend but missing its credential (#1044).
+const UNAVAILABLE = [{ id: "ithaca-proxy", label: "Ithaca proxy · gpt-5.5", reason: "needs-credentials", backendId: "pi" }];
 const BACKENDS = {
   claude: { id: "claude", capabilities: { concurrentSessions: true, followUp: false, autonomous: true } },
   pi: { id: "pi", capabilities: { concurrentSessions: true, followUp: true, autonomous: false } },
@@ -44,7 +46,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(
     String(url).includes("/files/resolve")
       ? { path: "plans/ithaca.md", ancestors: ["plans"], exists: true, type: "file" }
-      : { entries: [], providers: PROVIDERS, backends: BACKENDS, slugs: {}, models: [], sessions: [] }
+      : { entries: [], providers: PROVIDERS, backends: BACKENDS, unavailable: UNAVAILABLE, slugs: {}, models: [], sessions: [] }
   )));
 });
 
@@ -74,7 +76,7 @@ async function mount(width: number, height: number, theme: "dark" | "light") {
   host.style.cssText = `position:fixed;inset:0;display:flex;flex-direction:column;width:${width}px;height:${height}px`;
   document.body.append(host);
   ui = createBrainUiRoot({ storage: null });
-  ui.stores.provider.setState({ available: PROVIDERS as never, backends: BACKENDS, pinnedId: "claude", loaded: true });
+  ui.stores.provider.setState({ available: PROVIDERS as never, unavailable: UNAVAILABLE as never, backends: BACKENDS, pinnedId: "claude", loaded: true });
   const chat = ui.stores.chat.getState();
   chat.setActiveSession("ithaca");
   chat.setSessionBackend("ithaca", "claude");
@@ -132,6 +134,13 @@ for (const c of cases) {
       expect(rect.height, `${label} height`).toBeGreaterThanOrEqual(44);
       if (el.tagName === "BUTTON") expect(rect.width, `${label} width`).toBeGreaterThanOrEqual(36);
     }
+    // A configured profile that cannot run is listed, disabled, with its reason.
+    expect([...to.options].map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Codex · gpt-5.5 · pi · spends", false],
+      ["Ithaca proxy · gpt-5.5 · pi — needs credentials", true],
+    ]);
+    expect(to.value, "the runnable profile stays chosen").toBe("codex");
+    expect(to.getBoundingClientRect().right, "the To select fits the sheet").toBeLessThanOrEqual(panel.right + 0.5);
     const startButton = dialog.querySelector<HTMLElement>('button[aria-label^="Start new chat on"]')!;
     expect(startButton.getAttribute("aria-label")).toBe("Start new chat on Codex · gpt-5.5");
     // At 320 the two actions sit side by side.

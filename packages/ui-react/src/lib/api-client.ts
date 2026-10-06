@@ -16,6 +16,7 @@ import type {
   VoiceSessionResponse,
   PronunciationOverride,
   ProviderInfo,
+  UnavailableProfileInfo,
   PasskeySummary,
   BillingMode,
   ModelCatalogResponse,
@@ -479,6 +480,8 @@ export function createBrainApi(
       fetchJson<{
         providers: ProviderInfo[];
         backends?: Record<string, BackendInfo>;
+        /** Configured but not runnable now (#1044); never a valid providerId. */
+        unavailable?: UnavailableProfileInfo[];
       }>("/providers"),
 
     /** Full model catalog for the settings screen — hidden entries included. */

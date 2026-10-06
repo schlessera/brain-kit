@@ -164,6 +164,62 @@ describe("opening the review", () => {
   });
 });
 
+describe("a configured profile that cannot run (#1044)", () => {
+  const proxy = { id: "ithaca-proxy", label: "Ithaca proxy", reason: "needs-credentials" as const, backendId: "claude" };
+  const options = () => [...screen.q.getByRole("combobox").querySelectorAll("option")];
+
+  /** Source on pi, so Claude's profiles are the destinations. */
+  function fromPi(available: Array<{ id: string; label: string; backendId: string }>) {
+    const ctx = setup({ summarize: false });
+    act(() => {
+      ctx.root.stores.provider.setState({ available, unavailable: [proxy], pinnedId: "codex" });
+      ctx.root.stores.chat.getState().setSessionBackend("src", "pi");
+    });
+    open(ctx.root);
+    return ctx;
+  }
+
+  test("is listed after the runnable ones, disabled, reading needs credentials, and cannot be chosen", async () => {
+    const { socket } = fromPi([
+      { id: "claude", label: "Claude Opus", backendId: "claude" },
+      { id: "codex", label: "Codex", backendId: "pi" },
+    ]);
+    await flush();
+    expect(options().map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Claude Opus · claude", false],
+      ["Ithaca proxy · claude — needs credentials", true],
+    ]);
+    const select = screen.q.getByRole("combobox") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "ithaca-proxy" } });
+    expect(select.value).toBe("claude");
+    typeInto(textarea(), "Odysseus is sailing home.");
+    fireEvent.click(start());
+    expect(socket.frames().filter((f) => f.type === "chat_message").map((f) => f.providerId)).toEqual(["claude"]);
+  });
+
+  test("as the only choice, Start stays disabled with the reason and nothing is sent", async () => {
+    const { socket } = fromPi([{ id: "codex", label: "Codex", backendId: "pi" }]);
+    await flush();
+    expect(options().map((o) => [o.textContent, o.disabled])).toEqual([
+      ["Ithaca proxy · claude — needs credentials", true],
+    ]);
+    typeInto(textarea(), "Odysseus is sailing home.");
+    expect((start() as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.q.getByText(/Nothing is sent until you start it\. · needs credentials/)).toBeTruthy();
+    fireEvent.click(start());
+    expect(socket.frames().some((f) => f.type === "chat_message")).toBe(false);
+  });
+
+  test("a profile on the source's own backend is not offered, unavailable or not", async () => {
+    setup({ summarize: false });
+    const root = roots.at(-1)!;
+    act(() => root.stores.provider.setState({ unavailable: [proxy] }));
+    open(root);
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["Codex · pi · spends"]);
+  });
+});
+
 describe("starting the new chat", () => {
   test("sends exactly the reviewed text and readable references, keyed by the handoff; a missing reference is listed, not sent", async () => {
     const { root, socket } = setup({ summarize: false });

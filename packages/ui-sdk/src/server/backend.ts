@@ -48,11 +48,26 @@ import type {
   ClientEnvironment,
   GeoCoords,
   GeoRequestOptions,
+  ProfileUnavailableReason,
   ProviderInfo,
   ServerMessage,
   SessionHistoryMessage,
   ThinkingLevel,
 } from "../protocol.js";
+
+/**
+ * A profile the backend is configured with but cannot run now, and why
+ * (additive, #1044). `reason` is the closed `ProfileUnavailableReason` enum;
+ * the host drops an entry with any other value and copies only these three
+ * fields, so no backend-authored detail reaches a client.
+ *
+ * @experimental Part of the `AgentBackend` seam.
+ */
+export interface UnavailableProfile {
+  id: string;
+  label: string;
+  reason: ProfileUnavailableReason;
+}
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface BackendCapabilities {
@@ -440,6 +455,13 @@ export interface AgentBackend {
   capabilities: BackendCapabilities;
   /** Model/endpoint profiles this backend can run. Never exposes keys. */
   listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
+  /**
+   * Profiles this backend is configured with but cannot run now (additive,
+   * #1044). Optional and absent by default: a backend that omits it reports
+   * none. Never part of `listProfiles()`, so routing and the runnable roster
+   * are unaffected; the host lists them apart, for presentation only.
+   */
+  listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
   startTurn(req: StartTurnRequest): Promise<void>;
   /**
    * Inject a user message into a session's RUNNING turn (only when

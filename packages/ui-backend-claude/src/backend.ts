@@ -8,6 +8,7 @@ import type {
   ChatSession,
   ProviderInfo,
   SessionHistoryMessage,
+  UnavailableProfile,
 } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
@@ -15,7 +16,7 @@ import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal
 import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
-import { listProfiles } from "./profiles.js";
+import { listProfiles, listUnavailableProfiles } from "./profiles.js";
 import { createClaudeTurnRunner } from "./turn-runner.js";
 import { assertClaudeSdk, claudeRuntimeRequirements } from "./version-requirements.js";
 
@@ -115,6 +116,9 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     capabilities,
     listProfiles(): ProviderInfo[] {
       return listProfiles(resolveProfiles());
+    },
+    listUnavailableProfiles(): UnavailableProfile[] {
+      return listUnavailableProfiles(resolveProfiles());
     },
     startTurn,
     followUp,

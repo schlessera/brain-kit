@@ -154,7 +154,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:86`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2117`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2144`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:804-815`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
@@ -807,7 +807,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2117`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2144`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -1183,7 +1183,7 @@ and a server-selected tool policy.
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (the additive `StartTurnRequest.autonomous` mode carries persistence,
   origin, tool policy and prompt configuration —
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:298-386`))
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:313-401`))
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected

@@ -182,11 +182,13 @@ export "." (./src/index.ts)
   type ModuleSettingsOption
   type ModuleSettingsSnapshot
   PILL_LABEL_MAX_CHARS
+  PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PricingRoute
+  type ProfileUnavailableReason
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -284,6 +286,7 @@ export "." (./src/index.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type UnavailableProfileInfo
   type V1ResolutionEffect
   type VoiceKeytermsResponse
   type VoiceMode
@@ -296,6 +299,7 @@ export "." (./src/index.ts)
   isBillingMode
   isFailureOutcome
   isPricingRoute
+  isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
   resolveThinkingLevel
@@ -528,6 +532,7 @@ export "./client" (./src/client/index.ts)
   type ModelCatalogResponse
   type ModelUsage
   PILL_LABEL_MAX_CHARS
+  PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -539,6 +544,7 @@ export "./client" (./src/client/index.ts)
   type PlacePlan
   type PlaceRow
   type PricingRoute
+  type ProfileUnavailableReason
   type PronunciationOverride
   type ProtocolError
   type ProviderInfo
@@ -666,6 +672,7 @@ export "./client" (./src/client/index.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type UnavailableProfileInfo
   type UnpinnedReason
   type V1ResolutionEffect
   type VoiceKeytermsResponse
@@ -686,6 +693,7 @@ export "./client" (./src/client/index.ts)
   isBillingMode
   isFailureOutcome
   isPricingRoute
+  isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
   parseToolPayload
@@ -923,11 +931,13 @@ export "./protocol" (./src/protocol.ts)
   type ModelCatalogResponse
   type ModelUsage
   PILL_LABEL_MAX_CHARS
+  PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
   type PasskeySummary
   type PricingRoute
+  type ProfileUnavailableReason
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -1025,6 +1035,7 @@ export "./protocol" (./src/protocol.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type UnavailableProfileInfo
   type V1ResolutionEffect
   type VoiceKeytermsResponse
   type VoiceMode
@@ -1037,6 +1048,7 @@ export "./protocol" (./src/protocol.ts)
   isBillingMode
   isFailureOutcome
   isPricingRoute
+  isProfileUnavailableReason
   isThinkingLevel
   parseHandoffText
   resolveThinkingLevel
@@ -1455,6 +1467,7 @@ export "./server" (./src/server/index.ts)
   type ModelUsage
   OSM_ATTRIBUTION
   PILL_LABEL_MAX_CHARS
+  PROFILE_UNAVAILABLE_REASONS
   PROTOCOL_REV
   PROTOCOL_REV_ASK_RECEIPTS
   PROTOCOL_REV_CLIENT_ECHO
@@ -1462,6 +1475,7 @@ export "./server" (./src/server/index.ts)
   type PermissionDecision
   type PermissionRequest
   type PricingRoute
+  type ProfileUnavailableReason
   type PronunciationOverride
   type ProviderInfo
   QUERY_ACTIVITY_CONTRACT
@@ -1592,6 +1606,8 @@ export "./server" (./src/server/index.ts)
   type TurnFailure
   type TurnRetry
   type TurnUsage
+  type UnavailableProfile
+  type UnavailableProfileInfo
   type V1ResolutionEffect
   type VersionProbeOptions
   type VersionProbeResult
@@ -1645,6 +1661,7 @@ export "./server" (./src/server/index.ts)
   isCompletedAutonomousToolCall
   isFailureOutcome
   isPricingRoute
+  isProfileUnavailableReason
   isThinkingLevel
   killWrapped
   parseHandoffText
@@ -2495,6 +2512,7 @@ signatures (every public export and the types it is made of)
         id: string;
         capabilities: BackendCapabilities;
         listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
+        listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
         startTurn(req: StartTurnRequest): Promise<void>;
         followUp?(req: FollowUpRequest): Promise<void>;
         listSessions(): Promise<ChatSession[]>;
@@ -5400,6 +5418,8 @@ signatures (every public export and the types it is made of)
   OSM_ATTRIBUTION (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   PILL_LABEL_MAX_CHARS (packages/ui-sdk/src/protocol.ts)
     const PILL_LABEL_MAX_CHARS: 32;
+  PROFILE_UNAVAILABLE_REASONS (packages/ui-sdk/src/protocol.ts)
+    const PROFILE_UNAVAILABLE_REASONS: readonly ["needs-credentials"];
   PROTOCOL_REV (packages/ui-sdk/src/protocol.ts)
     const PROTOCOL_REV: 5;
   PROTOCOL_REV_ASK_RECEIPTS (packages/ui-sdk/src/protocol.ts)
@@ -5507,6 +5527,8 @@ signatures (every public export and the types it is made of)
     }
   PricingRoute (packages/ui-sdk/src/protocol.ts)
     export type PricingRoute = "openrouter" | "direct";
+  ProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
+    export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
   PronunciationOverride (packages/ui-sdk/src/protocol.ts)
     export interface PronunciationOverride {
         match: string;
@@ -7674,6 +7696,19 @@ signatures (every public export and the types it is made of)
   TurnUsage (packages/ui-sdk/src/protocol.ts)
     export interface TurnUsage extends ModelUsage {
         perModel?: Record<string, ModelUsage>;
+    }
+  UnavailableProfile (packages/ui-sdk/src/server/backend.ts)
+    export interface UnavailableProfile {
+        id: string;
+        label: string;
+        reason: ProfileUnavailableReason;
+    }
+  UnavailableProfileInfo (packages/ui-sdk/src/protocol.ts)
+    export interface UnavailableProfileInfo {
+        id: string;
+        label: string;
+        reason: ProfileUnavailableReason;
+        backendId?: string;
     }
   UnpinnedReason (packages/ui-sdk/src/places.ts)
     export type UnpinnedReason = "no position" | "0, 0 is usually a missing value" | "beyond the map's ±85°";
@@ -9843,6 +9878,8 @@ signatures (every public export and the types it is made of)
     export function isFailureOutcome(outcome: ActivitySpanOutcome | string | null | undefined): boolean;
   isPricingRoute (packages/ui-sdk/src/protocol.ts)
     export function isPricingRoute(v: unknown): v is PricingRoute;
+  isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
+    export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason;
   isShareTargetRequest (packages/ui-sdk/src/client/share-target.ts)
     export function isShareTargetRequest(request: Request, path?: string): boolean;
   isThinkingLevel (packages/ui-sdk/src/protocol.ts)

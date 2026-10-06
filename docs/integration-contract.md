@@ -2521,6 +2521,36 @@ ChatSession.handoffFrom?: { sessionId, title, backendId?, afterTurns? }
   `chat_message` starts an ordinary new chat, and the client receives no
   `handoff_*` frame. Older clients drop the new frames, read `source:
   "handoff"` as absent and show the first message as text.
+
+### Unavailable profiles (additive, #1044)
+
+A backend may report profiles it is configured with but cannot run now
+(ruled 2026-10-06 on #1044: a separate optional roster, closed reason enum).
+
+```
+PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"]
+AgentBackend.listUnavailableProfiles?(): { id, label, reason }[] | Promise<…>
+GET /api/providers → { providers, backends, unavailable?: { id, label, reason, backendId }[] }
+```
+
+- **Apart from the roster.** `providers` and `listProfiles()` keep meaning
+  "runnable now"; routing, the handoff resolver and every existing consumer
+  are unchanged. An unavailable id is never a valid `providerId`. The member
+  is optional on the existing `AgentBackend` interface, not a new seam; a
+  backend without it reports none. Claude reports a profile whose required
+  environment key is missing as `needs-credentials`; pi lists every configured
+  profile and omits the member.
+- **Closed reason.** The host keeps only `id`, `label` and a `reason` in
+  `PROFILE_UNAVAILABLE_REASONS`, adds the reporting `backendId`, drops any
+  other entry and filters hidden profiles. No backend free text, such as a key
+  name, reaches the client, which owns the copy (`needs credentials`) and shows
+  a reason it does not know generically. A new reason is an additive change.
+  A backend whose report throws reports none; the roster is unaffected.
+- **Tolerance.** `unavailable` is absent when empty, so the response is
+  unchanged for hosts with nothing to report. Older clients ignore it. The
+  handoff sheet lists these profiles on other backends, disabled, with their
+  reason ([decision](decisions/session-handoff.md#profiles-that-cannot-run)).
+
 ### Tool resolution receipts (additive, #957)
 
 ```
