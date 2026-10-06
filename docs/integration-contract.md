@@ -187,6 +187,19 @@ export publication, sensitive-artifact handling and same-artifact crash
 resumption. The host must retain a successful complete export at least every
 24 hours; content Markdown remains separately backed up in Git.
 
+## Rail acts and All commands (additive, #944)
+
+`@schlessera/brain-ui-kit` exports `RailAct` (`icon`, `label`, optional
+`name`, `effect`, `cost`, `why`, `onClick`), and `SideRailProps` gains two
+optional props, `acts?: RailAct[]` and `onOpenPalette?: () => void` (D52 §1 in
+[the design-kit record](decisions/design-kit.md)). Acts render as a vertical
+toolbar named `Acts`, with one roving tab stop. Its accessible names append
+the effect, the cost and `unavailable: {why}`. A `why` makes the act
+`aria-disabled` and never invokes it. The collapsed rail omits acts that have
+an effect, a cost or a `why`. `onOpenPalette` renders a button named
+`All commands` with `aria-keyshortcuts="Meta+K"` in place of the passive ⌘K
+cap. A rail given neither prop renders as before.
+
 ## Consumers
 
 | Consumer | Surfaces used |
