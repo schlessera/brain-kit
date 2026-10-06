@@ -77,6 +77,7 @@ Homer's arithmetic**, which does not close either.
 | `money.ts` | three ledgers: agent spend, the crew, the estate | `Meter`, `BarList`, `TrendChart`, `DataTable` |
 | `search.ts` | one query, three tabs: results, graph, timeline | `SearchResultCard`, `GraphView`, `TimelineList`, `SuggestionChips` |
 | `week.ts` | the weekly review: run counts, what changed, what carried | the §11.3 screen — `FilterRow`, `ListRow`, `ActionCard`, `Callout` |
+| `sessions.ts` | one working session per tracker state, the pinned age clock, a long title | `SessionStrip`, `ComposerRow` |
 | `index.ts` | namespace re-exports and the `odyssey` aggregate | a story that composes four modules |
 
 `types.ts` imports `Tone`, `ButtonTone` and `IconName` from `../src` rather

@@ -27,6 +27,20 @@ import type { ListRowVariant, Tone, ToggleTone } from "../types.js";
  * design and not an oversight: neither is given a handler, so the whole row is
  * the one hit target and the switch inside it grows no competing one. A caller
  * who wants an independently operable switch composes `Toggle` directly.
+ *
+ * ## `density="pill"` (D52 §3, #949)
+ *
+ * The 44px pill of the shared row above the composer: working sessions on
+ * the left, pending follow-ups on the right. The paint and the target are the
+ * same 44px box, so it needs no reach and no paint/target exception. It reads
+ * the half it sits in, not its own width: inside a `ComposerRow` half
+ * narrower than 240px it draws two lines (the title at 12/600, then `value`
+ * in mono 10/600: 8 + 15 + 13 + 8 = 44, the 8s counting the 1px border);
+ * at 240px or wider it draws one, with `value` right-aligned. Outside a half
+ * it keeps two lines. `value` is the state word and never truncates; only the
+ * title does, which is acceptable only because activating the pill opens the
+ * thing it names. `subtitle`, `toggle`, `actionLabel` and `chevron` are not
+ * drawn in a pill: 44px holds a title and a state, nothing else.
  */
 export interface ListRowProps {
   title?: string;
@@ -55,6 +69,19 @@ export interface ListRowProps {
   /** Set false for a proportional value. */
   valueMono?: boolean;
   iconSize?: number;
+  /** `pill`: the 44px pill of the row above the composer. See the note above. */
+  density?: "pill";
+  /** The accessible name, when the visible text is not the whole of it: a
+   * pill's name carries its second line and what activating it does. */
+  name?: string;
+  /**
+   * Whether this row is its group's one tab stop. A group that roves (the
+   * strip's `Working sessions`) passes `false` for every row but one, as
+   * `ChoiceOption` does; leaving it undefined keeps the row a stop.
+   */
+  tabStop?: boolean;
+  /** Called when the row takes focus, so a roving owner can follow the caret. */
+  onFocus?: () => void;
   onClick?: () => void;
 }
 
@@ -70,6 +97,11 @@ const TONES: Record<Tone, string> = {
 };
 
 export function ListRow(p: ListRowProps) {
+  if (p.density === "pill") return <PillRow {...p} />;
+  return <StandardRow {...p} />;
+}
+
+function StandardRow(p: ListRowProps) {
   const v = p.variant || "group";
   const titleId = useId();
   const tone = TONES[p.iconTone || "neutral"] || TONES.neutral;
@@ -141,9 +173,11 @@ export function ListRow(p: ListRowProps) {
       style={box}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
-      tabIndex={act ? 0 : undefined}
+      tabIndex={act ? (p.tabStop === false ? -1 : 0) : undefined}
       aria-current={act && selected ? true : undefined}
+      aria-label={p.name}
       onClick={p.onClick}
+      onFocus={act ? p.onFocus : undefined}
       onKeyDown={act ? onKeyDown : undefined}
     >
       {p.icon ? <Icon icon={p.icon} size={Number(p.iconSize) || (v === "launcher" ? 19 : 17)} color={tone} /> : null}
@@ -159,6 +193,48 @@ export function ListRow(p: ListRowProps) {
       {p.toggle !== undefined ? <Toggle on={p.toggle === true} tone={p.toggleTone || "amber"} labelledBy={titleId} /> : null}
       {p.actionLabel ? <Button label={p.actionLabel} tone="ghost" size="sm" block={false} /> : null}
       {p.chevron === true ? <Icon icon="next" size={16} color={color.inkMute} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The pill body. Kept apart from the row above because it shares the
+ * interaction contract (the `.bk-row` states, Enter and Space, no role without
+ * a handler) and none of the layout. The one- or two-line switch lives in
+ * `tokens.css` under `.bk-pill`, as a container query on the enclosing half.
+ */
+function PillRow(p: ListRowProps) {
+  const act = Boolean(p.onClick);
+  const tone = TONES[p.iconTone || "neutral"] || TONES.neutral;
+  // The box itself is `.bk-pill` in `tokens.css`, shared with the strip's
+  // summaries; only the hover value is per-element, as for every `.bk-row`.
+  const box = { "--hv-bg": act ? color.raised : color.surface } as CSSProperties;
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    p.onClick?.();
+  }
+  return (
+    <div
+      style={box}
+      className={act ? "bk-row bk-pill" : "bk-pill"}
+      role={act ? "button" : undefined}
+      tabIndex={act ? (p.tabStop === false ? -1 : 0) : undefined}
+      aria-label={p.name}
+      data-pill=""
+      onClick={p.onClick}
+      onFocus={act ? p.onFocus : undefined}
+      onKeyDown={act ? onKeyDown : undefined}
+    >
+      {p.icon ? <Icon icon={p.icon} size={Number(p.iconSize) || 15} color={tone} /> : null}
+      <span className="bk-pill-text">
+        <span className="bk-pill-title" data-pill-title="" title={p.title}>{p.title}</span>
+        {p.value ? (
+          <span className="bk-pill-value" data-pill-value="" style={{ color: TONES[p.valueTone || "neutral"] || color.inkMute }}>
+            {p.value}
+          </span>
+        ) : null}
+      </span>
     </div>
   );
 }

@@ -66,6 +66,8 @@ export "." (./src/index.ts)
   Composer
   type ComposerProps
   type ComposerRecall
+  ComposerRow
+  type ComposerRowProps
   type ComposerState
   type ComposerVariant
   type ContactAction
@@ -202,6 +204,8 @@ export "." (./src/index.ts)
   type ScreenHeaderVariant
   SearchResultCard
   type SearchResultCardProps
+  SessionStrip
+  type SessionStripProps
   SideRail
   type SideRailProps
   type StatTile
@@ -254,8 +258,13 @@ export "." (./src/index.ts)
   type TurnErrorCardProps
   type ValueTone
   type ViewState
+  WORKING_STATES
+  type WorkingSession
+  type WorkingSessionView
+  type WorkingState
   canvas
   color
+  describeWorkingSession
   effectLineCount
   font
 
@@ -737,6 +746,13 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         tone?: Tone;
     }
+  ComposerRow (packages/ui-kit/src/chrome/ComposerRow.tsx)
+    export function ComposerRow(p: ComposerRowProps): import("react").JSX.Element;
+  ComposerRowProps (packages/ui-kit/src/chrome/ComposerRow.tsx)
+    export interface ComposerRowProps {
+        left?: ReactNode;
+        right?: ReactNode;
+    }
   ComposerState (packages/ui-kit/src/chrome/Composer.tsx)
     export type ComposerState = "ready" | "streaming" | "reconnecting" | "offline" | "dictating";
   ComposerVariant (packages/ui-kit/src/types.ts)
@@ -1068,6 +1084,7 @@ signatures (every public export and the types it is made of)
         readonly approval: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ask: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly attach: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly attention: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly back: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly battery: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly bell: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1095,6 +1112,7 @@ signatures (every public export and the types it is made of)
         readonly filer: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly files: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly filter: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly finished: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly folder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly fyi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly graph: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1130,15 +1148,21 @@ signatures (every public export and the types it is made of)
         readonly settings: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly share: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly steps: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly stopped: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly sunrise: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly thread: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly trust: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly unheard: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly unproven: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly unreachable: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unverified: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly up: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly wallet: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly watcher: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly wifi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly withdrawn: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly working: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
     };
   Icon (packages/ui-kit/src/primitives/Icon.tsx)
     export function Icon({ icon = "brain", size = 16, color, strokeWidth = 2 }: IconProps): import("react").JSX.Element;
@@ -1253,6 +1277,10 @@ signatures (every public export and the types it is made of)
         subMono?: boolean;
         valueMono?: boolean;
         iconSize?: number;
+        density?: "pill";
+        name?: string;
+        tabStop?: boolean;
+        onFocus?: () => void;
         onClick?: () => void;
     }
   ListRowVariant (packages/ui-kit/src/types.ts)
@@ -1689,6 +1717,15 @@ signatures (every public export and the types it is made of)
         stateAction?: string;
         onStateAction?: () => void;
         onClick?: () => void;
+    }
+  SessionStrip (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export function SessionStrip(p: SessionStripProps): import("react").JSX.Element | null;
+  SessionStripProps (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export interface SessionStripProps {
+        sessions: readonly WorkingSession[];
+        now: number;
+        keyboardOpen?: boolean;
+        formatClock?: (ms: number) => string;
     }
   SideRail (packages/ui-kit/src/desktop/SideRail.tsx)
     export function SideRail(p: SideRailProps): import("react").JSX.Element;
@@ -2319,6 +2356,31 @@ signatures (every public export and the types it is made of)
     export type ValueTone = Tone | InkTone;
   ViewState (packages/ui-kit/src/types.ts)
     export type ViewState = "ready" | "loading" | "empty" | "error";
+  WORKING_STATES (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    const WORKING_STATES: readonly ["needs-you", "failed", "unconfirmed", "running", "queued", "unknown", "cant-check", "done", "cancelled"];
+  WorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export interface WorkingSession {
+        id: string;
+        label: string;
+        state: WorkingState;
+        need?: "approval" | "question";
+        outcome?: "failed" | "interrupted" | "timed out" | "cancelled" | "denied";
+        queueNote?: string;
+        reason?: "host unreachable" | "host too old" | "session not found";
+        startedAt?: number | null;
+        endedAt?: number | null;
+        onOpen: () => void;
+    }
+  WorkingSessionView (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export interface WorkingSessionView {
+        word: string;
+        detail?: string;
+        tone: Tone;
+        icon: IconName;
+        name: string;
+    }
+  WorkingState (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export type WorkingState = (typeof WORKING_STATES)[number];
   canvas (packages/ui-kit/src/tokens.ts)
     const canvas: {
         readonly diagram: {
@@ -2357,6 +2419,8 @@ signatures (every public export and the types it is made of)
         readonly tealLift: string;
     };
   decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  describeWorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
+    export function describeWorkingSession(s: WorkingSession, now: number, clock?: (ms: number) => string): WorkingSessionView;
   effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
     export function effectLineCount(text: string | undefined): number;
   font (packages/ui-kit/src/tokens.ts)

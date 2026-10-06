@@ -233,6 +233,16 @@ export {
 export { BottomSheet, type BottomSheetProps } from "./chrome/BottomSheet.js";
 export { DiscButton, DiscRow, type DiscButtonProps, type DiscRowProps } from "./chrome/DiscButton.js";
 export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
+export { ComposerRow, type ComposerRowProps } from "./chrome/ComposerRow.js";
+export {
+  SessionStrip,
+  WORKING_STATES,
+  describeWorkingSession,
+  type SessionStripProps,
+  type WorkingSession,
+  type WorkingSessionView,
+  type WorkingState,
+} from "./chrome/SessionStrip.js";
 export { ModelPicker, type ModelPickerProps } from "./chrome/ModelPicker.js";
 export { MessageBubble, type MessageBubbleProps } from "./chrome/MessageBubble.js";
 export { ScreenBody, type ScreenBodyProps } from "./chrome/ScreenBody.js";
