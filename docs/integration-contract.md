@@ -2863,7 +2863,8 @@ The six routes, their headers, bodies and error codes are specified in the
 - **Receipts.** A successful save or upload is stored under its
   `Idempotency-Key` (per draft and operation, the 32 most recent). The same
   request under the same key returns the stored response; a different one
-  is 409 `DRAFT_KEY_REUSED`.
+  is 409 `DRAFT_KEY_REUSED`. An upload receipt whose image is no longer
+  stored is not replayed: the retried upload is stored again under a new id.
 - **Tombstones.** Deleting or sending a draft keeps its row at the next
   revision with no text or images. Every later save, upload or bind of that
   id is 410 `DRAFT_DELETED` with `tombstoneRevision`, so nothing stale

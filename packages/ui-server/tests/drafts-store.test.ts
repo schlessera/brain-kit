@@ -84,6 +84,16 @@ test("an upload receipt replays its id; a different image under the same key is 
     .toMatchObject({ error: "DRAFT_KEY_REUSED" });
 });
 
+test("an upload retried after its bytes were swept stores them again under a usable id", () => {
+  const { store, owner, advance } = setup();
+  const first = store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1) });
+  advance(PENDING_ATTACHMENT_TTL_MS + 1);
+  const retried = store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1) });
+  expect(retried.attachmentId).not.toBe(first.attachmentId);
+  expect(store.save(owner, "draft-a", { ifMatch: 0, idempotencyKey: "s1", sessionId: null, text: "", attachmentIds: [retried.attachmentId] })).toMatchObject({ revision: 1 });
+  expect(store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1) })).toEqual(retried);
+});
+
 test("acceptance consumes only a matching, current, same-session revision", () => {
   const { store, owner } = setup();
   store.save(owner, "bound", { ifMatch: 0, idempotencyKey: "s", sessionId: "voyage-1", text: "Sirens", attachmentIds: [] });

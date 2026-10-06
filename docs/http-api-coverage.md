@@ -252,8 +252,9 @@ checks both nonempty priced and mixed-knownness fixtures
 - `per-draft byte bound counts text and images together` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`per-draft byte bound counts text and images together`, `packages/ui-server/tests/drafts-store.test.ts:56-62`)
 - `a dropped image is deleted with its revision; an unlisted upload waits an hour, then is swept` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a dropped image is deleted with its revision; an unlisted upload waits an hour, then is swept`, `packages/ui-server/tests/drafts-store.test.ts:64-77`)
 - `an upload receipt replays its id; a different image under the same key is refused` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload receipt replays its id; a different image under the same key is refused`, `packages/ui-server/tests/drafts-store.test.ts:79-85`)
-- `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:87-99`)
-- `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:101-107`)
+- `an upload retried after its bytes were swept stores them again under a usable id` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload retried after its bytes were swept stores them again under a usable id`, `packages/ui-server/tests/drafts-store.test.ts:87-95`)
+- `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:97-109`)
+- `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:111-117`)
 
 **J — Confirmed share intake.**
 

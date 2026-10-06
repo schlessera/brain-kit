@@ -400,8 +400,15 @@ export function createDraftStore(
         authorize(principalId);
         sweepPending(at);
         const fingerprint = sha256("attachment", input.mime, input.name ?? "", input.bytes);
-        const replay = receipt(draftId, "attachment", input.idempotencyKey, fingerprint);
-        if (replay !== undefined) return replay as DraftAttachmentResponse;
+        const replay = receipt(draftId, "attachment", input.idempotencyKey, fingerprint) as DraftAttachmentResponse | undefined;
+        if (replay !== undefined) {
+          const kept = db.query("SELECT 1 FROM session_draft_attachments WHERE attachment_id = ?").get(replay.attachmentId);
+          if (kept) return replay;
+          // The bytes are gone (swept, dropped or deleted): a receipt for them
+          // would acknowledge an id no save can use. Store the upload afresh.
+          db.prepare("DELETE FROM session_draft_receipts WHERE draft_id = ? AND operation = 'attachment' AND idempotency_key = ?")
+            .run(draftId, input.idempotencyKey);
+        }
 
         const row = readDraft(draftId);
         if (row?.deleted_at != null) throw deleted(row);
