@@ -20,8 +20,8 @@ function latest(over: Partial<SessionRecoveryLatest>): SessionRecoveryLatest {
 
 type Respond = () => Response | Promise<Response>;
 
-function envelope(sessionId: string, over: Partial<SessionRecoveryLatest>, pending: SessionRecoveryPending[] = []): Respond {
-  const body: SessionRecovery = { sessionId, backendId: "pi", revision: 2, latest: latest(over), pending };
+function envelope(sessionId: string, over: Partial<SessionRecoveryLatest>, pending: SessionRecoveryPending[] = [], revision = 2): Respond {
+  const body: SessionRecovery = { sessionId, backendId: "pi", revision, latest: latest(over), pending };
   return () => Response.json(body);
 }
 
@@ -169,6 +169,45 @@ describe("a restored approval card, with the host advertising recovery", () => {
     // The first read proved nothing about the card; the one it asked for next does.
     expect(r.urls.length).toBe(2);
     expect(card(r, A).readOnly).toBe("answered");
+  });
+});
+
+describe("a closed card and the evidence around it", () => {
+  test("a closed card leaves no tracker asking for it, though its frame was held behind the read", async () => {
+    const r = root({ [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, []) });
+    hello(r);
+    restore(r, A);
+    await settle();
+    expect(card(r, A).readOnly).toBe("answered");
+    r.stores.chat.getState().setActiveSession(B);
+    expect(trackerViews(r.stores.trackers.getState()).find((v) => v.sessionId === A)?.state).not.toBe("needs_you");
+  });
+
+  test("a late duplicate of a closed card's request does not revive it", async () => {
+    const r = root({ [A]: envelope(A, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 5, endedAt: 9 }, []) });
+    hello(r);
+    restore(r, A);
+    await settle();
+    expect(card(r, A).readOnly).toBe("ended");
+    frame(r, { type: "tool_approval_request", sessionId: A, turnId: "turn-2", toolUseId: "tool-wax", toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command" });
+    expect(card(r, A).readOnly).toBe("ended");
+    expect(awaiting(r)).toEqual([]);
+  });
+
+  test("an envelope rolled back below a revision already seen gives no reason", async () => {
+    const responses = [
+      envelope(A, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 5 }, [listed("tool-wax")], 5),
+      envelope(A, { requestId: "req-1", turnId: "turn-1", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 }, [], 3),
+    ];
+    const r = root({ [A]: () => responses.shift()!() });
+    hello(r);
+    restore(r, A);
+    await settle();
+    expect(card(r, A).readOnly).toBeUndefined();
+    hello(r);
+    await settle();
+    expect(responses).toEqual([]);
+    expect(card(r, A).readOnly).toBe("unlisted");
   });
 });
 

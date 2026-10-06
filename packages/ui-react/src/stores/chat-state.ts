@@ -997,7 +997,9 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             const target = msgs[holder]!;
             msgs[holder] = {
               ...target,
-              toolCalls: target.toolCalls.map((t) => t.id === toolUseId ? request(t, !target.isStreaming) : t),
+              // A card the host already closed with a reason (#1072) stays
+              // closed: a late duplicate of its request revives nothing.
+              toolCalls: target.toolCalls.map((t) => t.id !== toolUseId || (t.readOnly && t.readOnly !== "unlisted") ? t : request(t, !target.isStreaming)),
             };
             return { messages: msgs };
           }

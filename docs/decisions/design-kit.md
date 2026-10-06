@@ -5007,8 +5007,11 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   revocation. Every restored card in every buffer takes it and drops its
 >   request and turn identities.
 > - Absent from `pending[]` with a newer request only queued, or with an
->   unknown latest that names no turn: no fact says why. The controls go and
->   no word is printed until a frame or the next read says which.
+>   unknown latest that names no turn, or in an envelope rejected as a
+>   rollback or a contradiction: no fact says why. The controls go and no
+>   word is printed until a frame or the next read says which. A closed
+>   card's request is settled in the tracker evidence too, and a late
+>   duplicate of its request does not reopen it.
 > - The shell's header time is `latest.startedAt` when `latest.turnId` is the
 >   shell's turn. Otherwise, and without the capability, no time is printed.
 

@@ -97,8 +97,21 @@ export function createTrackerClient(root: BrainUiServices) {
   /** The host advertises recovery: restored cards follow its envelope (#1072). */
   const recovering = () => trackers.getState().recoverySupported === true;
 
+  /**
+   * Close restored cards, and settle their requests in the session's
+   * evidence: a closed card waits on nobody, even when a frame held behind a
+   * read listed it again.
+   */
   function closeRestored(sessionId: string, closures: Array<{ toolUseId: string; closure: RestoredApprovalClosure }>): void {
-    if (closures.length > 0) chat.getState().closeRestoredApprovals(sessionId, closures);
+    if (closures.length === 0) return;
+    chat.getState().closeRestoredApprovals(sessionId, closures);
+    settleRequests(sessionId, closures.map((c) => c.toolUseId));
+  }
+
+  function settleRequests(sessionId: string, requestIds: string[]): void {
+    const store = trackers.getState();
+    if (requestIds.length === 0 || (!store.evidence[sessionId] && !store.reading[sessionId])) return;
+    store.live(sessionId, requestIds.map((requestId) => ({ kind: "settled" as const, requestId })));
   }
 
   /**
@@ -112,10 +125,7 @@ export function createTrackerClient(root: BrainUiServices) {
       ids: buffer.messages.flatMap((m) => m.toolCalls.filter((t) => t.restored).map((t) => t.id)),
     }));
     chat.getState().revokeRestoredApprovals();
-    for (const { sessionId, ids } of byBuffer) {
-      if (ids.length === 0 || !trackers.getState().evidence[sessionId]) continue;
-      trackers.getState().live(sessionId, ids.map((requestId) => ({ kind: "settled" as const, requestId })));
-    }
+    for (const { sessionId, ids } of byBuffer) settleRequests(sessionId, ids);
   }
 
   function refresh(sessionId: string): void {
@@ -135,15 +145,24 @@ export function createTrackerClient(root: BrainUiServices) {
     // turn or hello asks again.
     void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
-      if (trackers.getState().epoch === epoch) {
+      const current = trackers.getState().epoch === epoch;
+      const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
+      // After the envelope and the frames held behind it are applied: a
+      // closure then settles whatever they listed for the card.
+      if (current) {
         // A card decided on this page while the read was out is not the
         // host's to close: its absence is this page's own answer.
         const open = new Set(openRestoredCards(chat.getState().buffers[sessionId]).map((c) => c.toolUseId));
         const still = cards.filter((card) => open.has(card.toolUseId));
         if (result.ok) {
+          // A snapshot the evidence rejected (a rollback, or a contradiction
+          // at one revision) proves no reason: the card only stops taking a
+          // decision.
+          const rejected = trackers.getState().evidence[sessionId]?.rolledBack === true;
           closeRestored(sessionId, still.flatMap((card) => {
             const closure = closureFromEnvelope(card, result.recovery);
-            return closure ? [{ toolUseId: card.toolUseId, closure }] : [];
+            if (!closure) return [];
+            return [{ toolUseId: card.toolUseId, closure: rejected ? "unlisted" as const : closure }];
           }));
         } else if (result.reason === "unauthorized") {
           revokeRestored();
@@ -152,7 +171,6 @@ export function createTrackerClient(root: BrainUiServices) {
           closeRestored(sessionId, still.map((card) => ({ toolUseId: card.toolUseId, closure: "ended" as const })));
         }
       }
-      const ambiguous = trackers.getState().endRead(sessionId, result, epoch);
       // A card decided while the read held its approval's frame.
       settleDecidedApprovals(chat.getState());
       if (again.delete(sessionId) || ambiguous) refresh(sessionId);
