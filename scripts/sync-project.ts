@@ -58,15 +58,15 @@ export const REPOS = [
  */
 const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
   // Getting the thing into somebody else's hands: the two templates, and the
-  // documentation that has to stop pointing at a private installation.
+  // public documentation and website that introduce it to new users.
   Distribution: [
-    { epics: [26, 70], also: [69], repo: "schlessera/brain-kit" },
+    { epics: [26, 70, 608], also: [69], repo: "schlessera/brain-kit" },
     { epics: [], also: [1, 2, 3], repo: "schlessera/brain-template" },
   ],
   Hardening: [{ epics: [], also: [38, 152, 251, 282], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736],
-    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902],
+    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598],
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
