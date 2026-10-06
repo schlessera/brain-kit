@@ -76,17 +76,19 @@ if (!process.env[CHILD_MARKER]) {
     field.remove();
   });
 
-  test("a value cleared with no event, as an accepted send does, is counted again", async () => {
+  test("a value cleared with no event, as an accepted send does, is counted again while the keyboard is up", async () => {
     const lines = { value: 4 };
     const field = composer(lines);
+    viewport.height = window.innerHeight - 300;
     const { result, unmount } = renderHook(() => useSoftKeyboard());
     await act(async () => { field.focus(); });
     await settle();
-    expect(result.current.composerLines).toBe(4);
+    expect(result.current).toEqual({ open: true, composerLines: 4 });
     lines.value = 1;
     await settle(400);
-    expect(result.current.composerLines, "re-read while focused").toBe(1);
+    expect(result.current.composerLines, "re-read while the keyboard is up").toBe(1);
     unmount();
     field.remove();
+    viewport.height = window.innerHeight;
   });
 }
