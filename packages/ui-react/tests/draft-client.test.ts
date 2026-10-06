@@ -355,6 +355,37 @@ describe("sends", () => {
     expect(drafts().sends["req-old"]).toMatchObject({ state: "unconfirmed", checked: "cant_check", checkReason: "the host's latest is another message" });
   });
 
+  test("Send again for A's held first message never takes B's new chat transcript or announcement", async () => {
+    const host = fakeHost();
+    const { ui, socket, drafts } = boot(host);
+    const chat = () => ui.stores.chat.getState();
+    const firstSend = (text: string, rid: string) => {
+      const id = drafts().fresh;
+      drafts().edit(id, null, { text });
+      chat().addUserMessage(null, text, "typed", undefined, { requestId: rid });
+      chat().startAssistantMessage(null, undefined, rid);
+      const correlation = chat().startDraftTurn();
+      drafts().beginSend({ requestId: rid, draftId: id, sessionId: null, text, attachments: [], message: { type: "chat_message", text, requestId: rid, source: "typed" } }, text);
+      return { id, correlation };
+    };
+    firstSend("Which harbour?", "req-a");
+    socket.close();
+    await until(() => drafts().sends["req-a"]?.state === "unconfirmed");
+    ui.connection.reconnectNow();
+    const next = FixtureSocket.last!;
+    next.open();
+    next.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true } });
+    chat().clearMessages();
+    const b = firstSend("Letter to Penelope", "req-b");
+    expect(ui.connection.drafts.resend("req-a")).toBe(true);
+    const resent = next.frames("chat_message").at(-1)!;
+    next.deliver({ type: "session_info", sessionId: "odysseus-letter", isNew: true, requestId: "req-b", draftId: b.correlation });
+    next.deliver({ type: "session_info", sessionId: "odysseus-harbour", isNew: true, requestId: resent.requestId, draftId: resent.draftId });
+    const users = (key: string) => chat().buffers[key]?.messages.filter((m) => m.role === "user").map((m) => m.content);
+    expect(users("odysseus-harbour"), "A's session holds only A's message").toEqual(["Which harbour?"]);
+    expect(users("odysseus-letter"), "B's session holds only B's message").toEqual(["Letter to Penelope"]);
+  });
+
   test("a late acceptance for A settles only A's send, never another draft's words", async () => {
     const host = fakeHost();
     const { ui, socket, drafts } = boot(host);

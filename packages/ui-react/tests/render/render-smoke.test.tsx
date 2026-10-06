@@ -5381,6 +5381,21 @@ describe("one-message composer effort", () => {
     } finally { h.done(); }
   });
 
+  test("a held send accepted after Send again consumes the effort it carried", async () => {
+    const h = await mounted();
+    try {
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      h.choose("high"); h.type("queued"); h.send();
+      act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
+      act(() => h.root.stores.connection.getState().setWsStatus("connected"));
+      expect(h.view.getByText("· high")).toBeTruthy();
+      // Send again re-keys the snapshot; the host accepts the new request.
+      act(() => { h.root.stores.drafts.getState().resend(h.sent[0].requestId!, "req-again"); });
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: "req-again" }));
+      expect(h.view.queryByText("· high")).toBeNull();
+    } finally { h.done(); }
+  });
+
   test("an acknowledgement that empties the session's draft keeps an effort chosen meanwhile", async () => {
     const h = await mounted();
     try {

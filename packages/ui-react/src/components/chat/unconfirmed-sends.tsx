@@ -68,7 +68,7 @@ function UnconfirmedSend({ send }: { send: DraftSend }) {
           onClick={() => { if (connected) root.connection.drafts.resend(send.requestId); }} />
         <Button label="Edit" tone="ghost" size="md" block={false}
           onClick={() => {
-            root.stores.drafts.getState().editSend(send.requestId);
+            root.connection.drafts.edit(send.requestId);
             // The text is back in the field: put the caret there.
             setTimeout(() => {
               const field = document.querySelector<HTMLTextAreaElement>("[data-composer] textarea");

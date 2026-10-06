@@ -154,7 +154,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const setSelectedProvider = useProviderStore((s) => s.setSelected);
   const loadProviders = useProviderStore((s) => s.loadProviders);
   const backends = useProviderStore((s) => s.backends);
-  const sendState = useRootStore("drafts", (s) => pendingSend ? s.sends[pendingSend.requestId] : undefined);
+  // Followed by the id it was first sent under: Send again re-keys it.
+  const sendState = useRootStore("drafts", (s) => pendingSend ? Object.values(s.sends).find((x) => (x.origin ?? x.requestId) === pendingSend.requestId) : undefined);
   // A send of this view still unanswered: another would start a second
   // conversation, or repeat this one, so it waits (#942).
   const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.state === "pending" && x.sessionId === sessionId && (sessionId !== null || x.draftId === draftId)));
@@ -172,7 +173,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // id): its errors are not this one's. Effort follows the session, not the id.
   useEffect(() => { setAttachErrors([]); }, [draftId]);
   useEffect(() => {
-    if (!pendingSend || !sendState || sendState.state === "pending") return;
+    if (!pendingSend) return;
+    // Taken back by Edit: nothing was sent, so nothing is consumed.
+    if (!sendState) { setPendingSend(null); return; }
+    // Still waiting, or held for review: the choice stays until the host answers.
+    if (sendState.state === "pending" || sendState.state === "unconfirmed") return;
     const visible = sessionId === pendingSend.key || (pendingSend.key === null && sessionId === sendState.acceptedSessionId);
     if (sendState.state === "accepted" && visible) {
       setEffortNotice("");

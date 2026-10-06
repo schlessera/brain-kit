@@ -273,6 +273,19 @@ describe("the host's versions", () => {
     expect(revoked).toEqual([sail.previewUrl]);
   });
 
+  test("words typed while the session draft's delete was out stay that session's, under a new id", () => {
+    const { state } = store();
+    const id = state().idFor(RAFT);
+    state().edit(id, RAFT, { text: "Raft" });
+    state().saved(id, { revision: 1, edit: state().drafts[id]!.edit, sessionId: RAFT, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().edit(id, RAFT, { text: "" });
+    state().edit(id, RAFT, { text: "Twenty trees" });
+    state().removed(id);
+    const now = state().drafts[state().idFor(RAFT)]!;
+    expect(now).toMatchObject({ text: "Twenty trees", sessionId: RAFT, host: null });
+    expect(now.draftId).not.toBe(id);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

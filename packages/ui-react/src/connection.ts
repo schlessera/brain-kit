@@ -764,6 +764,8 @@ export function createWebSocketClient(root: BrainUiServices) {
       resend: (requestId: string) => drafts.resend(requestId),
       /** Ask the host whether it accepted the held send. Reads only. */
       check: (requestId: string) => drafts.check(requestId),
+      /** Put the held send's text and images back into its own draft. */
+      edit: (requestId: string) => drafts.edit(requestId),
     },
     handleServerMessage,
     answers,

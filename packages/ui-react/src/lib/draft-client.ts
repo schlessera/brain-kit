@@ -270,6 +270,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
   }
 
+  /**
+   * A new chat's held first message acts only in its own new chat: if the
+   * view shows another (or any session), it opens that one first, as New
+   * chat does, so the other's transcript and announcement stay its own.
+   */
+  function openOwnNewChat(send: DraftSend) {
+    const c = chat.getState();
+    if (c.activeSessionId !== null || drafts.getState().fresh !== send.draftId || c.pendingDraftId !== null) {
+      c.clearMessages();
+      drafts.setState({ fresh: send.draftId });
+    }
+  }
+
   /** A send's rows in its transcript, as the composer drew them when it was sent. */
   function restoreRows(send: DraftSend, key: string | null) {
     const c = chat.getState();
@@ -367,7 +380,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     resend(requestId: string): boolean {
       const store = drafts.getState();
       const nextRequestId = crypto.randomUUID();
-      const next = store.resend(requestId, nextRequestId);
+      const held = store.sends[requestId];
+      if (!held || held.state !== "unconfirmed") return false;
+      if (held.sessionId === null) openOwnNewChat(held);
+      const next = drafts.getState().resend(requestId, nextRequestId);
       if (!next) return false;
       restoreRows(next, next.sessionId);
       const correlation = next.sessionId ? undefined : chat.getState().startDraftTurn();
@@ -378,6 +394,14 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         withdraw(drafts.getState().sends[nextRequestId] ?? next);
       }
       return sent;
+    },
+
+    /** Edit: the held send's text and images go back into its own draft, in its own view. */
+    edit(requestId: string): void {
+      const held = drafts.getState().sends[requestId];
+      if (!held || held.state !== "unconfirmed") return;
+      if (held.sessionId === null) openOwnNewChat(held);
+      drafts.getState().editSend(requestId);
     },
 
     /**

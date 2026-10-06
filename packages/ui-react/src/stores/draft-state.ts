@@ -77,6 +77,8 @@ export type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
 /** One send: an immutable snapshot of what left the composer (D52 §5). */
 export interface DraftSend {
   requestId: string;
+  /** The request id it was first sent under: Send again keeps it, so the composer can follow its effort choice. */
+  origin?: string;
   draftId: string;
   /** Where it was sent: its session, or null for the message that starts one. */
   sessionId: string | null;
@@ -336,7 +338,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const draftRef = state.supported && d && isClean(d) && d.conflict === null && d.host
           ? { draftId: d.draftId, revision: d.host.revision } : null;
         for (const a of input.attachments) transferred.add(a.previewUrl);
-        const send: DraftSend = { ...input, draftRef, state: "pending", sentAt: now(), ...(draftRef ? { message: { ...input.message, draftRef } } : {}) };
+        const send: DraftSend = { ...input, origin: input.requestId, draftRef, state: "pending", sentAt: now(), ...(draftRef ? { message: { ...input.message, draftRef } } : {}) };
         set((s) => ({ sends: pruneSends({ ...s.sends, [input.requestId]: send }) }));
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
@@ -504,8 +506,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       removed(draftId) {
         const d = get().drafts[draftId];
         if (!d) return;
-        if (hasContent(d) || held(draftId)) { put({ ...d, host: null, uploads: new Map(), savingSince: null }); return; }
-        drop(draftId);
+        if (!hasContent(d)) {
+          if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
+          else drop(draftId);
+          return;
+        }
+        // Typed again while the delete was out: the id is a tombstone now,
+        // so the new words move to a new id of the same session.
+        put({ ...d, host: null, uploads: new Map(), savingSince: null });
+        rotate(get().drafts[draftId]!, d.sessionId);
       },
 
       hostGone(draftId) {
