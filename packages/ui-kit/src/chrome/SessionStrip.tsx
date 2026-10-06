@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactElement } from "react";
 
@@ -325,6 +325,18 @@ export function SessionStrip(p: SessionStripProps) {
     if (!inGroup.current || sheet || document.activeElement !== document.body) return;
     group.current?.querySelector<HTMLElement>(`:is(${ITEM})[tabindex="0"]`)?.focus();
   }, [drawn, sheet]);
+
+  // The roving stop is an index, and a live reorder can move the focused
+  // session to another one while React keeps its node focused. Re-anchor the
+  // stop on the focused item after every render, so Tab still leaves the group
+  // in one step and re-entry returns to the same session.
+  useLayoutEffect(() => {
+    const here = group.current;
+    const active = document.activeElement;
+    if (!here || !(active instanceof HTMLElement) || !here.contains(active)) return;
+    const at = [...here.querySelectorAll<HTMLElement>(ITEM)].indexOf(active);
+    if (at !== -1 && at !== roving.stop) roving.onItemFocus(at);
+  });
 
   if (mode === "none") return null;
 

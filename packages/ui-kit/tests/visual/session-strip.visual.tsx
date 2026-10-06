@@ -495,3 +495,24 @@ for (const theme of ["dark", "light"]) {
     expect(document.activeElement, "an update never takes focus from elsewhere").toBe(m.composer);
   });
 }
+
+for (const theme of ["dark", "light"]) {
+  test(`a live reorder keeps the roving stop on the focused session: ${theme}`, async () => {
+    pointerScene();
+    const done = workingSessions[7]!;
+    const running = workingSessions[3]!;
+    const m = await mount({ width: 390, theme, sessions: [done, running] });
+    const focused = () => (document.activeElement?.closest("[data-session]") as HTMLElement | null)?.dataset.session;
+    items()[1]!.focus();
+    expect(focused(), "the done session is focused, second").toBe(done.id);
+    m.render([{ ...done, state: "needs-you", need: "question" }, running]);
+    expect(host!.querySelector<HTMLElement>("[data-session]")!.dataset.session, "it moved first").toBe(done.id);
+    expect(focused(), "React kept its node focused").toBe(done.id);
+    await expect.poll(() => (document.activeElement as HTMLElement).tabIndex, { message: "the focused session is the stop" }).toBe(0);
+    expect(m.left.querySelectorAll('[tabindex="0"]'), "still one stop").toHaveLength(1);
+    await userEvent.tab();
+    expect(document.activeElement, "Tab leaves the group in one step").toBe(m.composer);
+    await userEvent.tab({ shift: true });
+    expect(focused(), "re-entry returns to the same session").toBe(done.id);
+  });
+}
