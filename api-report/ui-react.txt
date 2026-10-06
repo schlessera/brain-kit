@@ -293,7 +293,7 @@ signatures (every public export and the types it is made of)
         startToolCall: (key: ChatKey, toolUseId: string, toolName: string) => void;
         appendToolInput: (key: ChatKey, partialJson: string) => void;
         completeToolCall: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>) => void;
-        requestToolApproval: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>, description?: string, kind?: "tool" | "command", rememberable?: boolean) => void;
+        requestToolApproval: (key: ChatKey, toolUseId: string, toolName: string, input: Record<string, unknown>, description?: string, kind?: "tool" | "command", rememberable?: boolean, turnId?: string) => void;
         resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
         setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
         setAskUserRequest: (key: ChatKey, requestId: string, questions: AskUserQuestion[], turnId?: string) => void;
@@ -977,6 +977,7 @@ signatures (every public export and the types it is made of)
         approvalKind?: "tool" | "command";
         approvalRememberable?: false;
         approvalDescription?: string;
+        restored?: true;
         startedAt?: number;
         endedAt?: number;
     }
@@ -1267,6 +1268,9 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
+        sessionRecovery: (sessionId: string, opts?: {
+            signal?: AbortSignal;
+        }) => Promise<SessionRecoveryResult>;
         sessions: () => Promise<{
             sessions: Array<{
                 backendId?: string;
@@ -1632,6 +1636,9 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
+        sessionRecovery: (sessionId: string, opts?: {
+            signal?: AbortSignal;
+        }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
         sessions: () => Promise<{
             sessions: Array<{
                 backendId?: string;

@@ -78,6 +78,8 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     ...(msg.role === "user" ? { source: msg.source ?? "typed" } : {}),
     ...(msg.role === "user" && msg.thinkingLevel !== undefined ? { thinkingLevel: msg.thinkingLevel, effectiveThinkingLevel: msg.effectiveThinkingLevel } : {}),
     ...localAnswerFields(msg),
+    // The host-proven turn this answer ended (#964); never guessed.
+    ...(msg.role === "assistant" && msg.turnId ? { turnId: msg.turnId } : {}),
     // The failure that ended the turn (#575), drawn as it was live.
     ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure, retryOfTurnId: msg.retryOfTurnId } : {}),
   };
@@ -330,7 +332,8 @@ export const chatFrameHandlers = {
       msg.input,
       msg.description,
       msg.kind,
-      msg.rememberable
+      msg.rememberable,
+      context.frameTurnId
     );
   },
   tool_result: (msg, context) => {

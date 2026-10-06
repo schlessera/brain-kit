@@ -20,7 +20,7 @@ export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
-import { CONVERSATION_LIMITS, isThinkingLevel, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, isThinkingLevel, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -131,6 +131,8 @@ import type {
   DraftListResponse,
   DraftRef,
   DraftSaveResponse,
+  SessionRecovery,
+  SessionRecoveryResult,
   DraftSummary,
   SessionDraftLimits,
 } from "./protocol.js";
@@ -1006,6 +1008,7 @@ const historyMessageSchema = z.looseObject({
   localAnswer: localAnswerSchema.optional().catch(undefined),
   failure: turnFailureSchema.optional().catch(undefined),
   retryOfTurnId: id.optional().catch(undefined),
+  turnId: id.optional().catch(undefined),
 }) satisfies z.ZodType<SessionHistoryMessage>;
 
 /** Every session-scoped frame carries these, both optional on the wire. */
@@ -1070,6 +1073,52 @@ export const draftSaveResponseSchema = z.looseObject({
   revision: revisionSchema,
   updatedAt: byteCount,
 }) satisfies z.ZodType<DraftSaveResponse>;
+
+// --- Session recovery HTTP response (#964) ---
+
+const hostTime = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+export const sessionRecoverySchema = z.looseObject({
+  sessionId: id,
+  backendId: nullableId,
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  latest: z.looseObject({
+    requestId: nullableId,
+    turnId: nullableId,
+    state: z.enum(["queued", "running", "terminal", "unknown"]),
+    outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(),
+    startedAt: hostTime.nullable(),
+    endedAt: hostTime.nullable(),
+  }),
+  pending: z.array(z.looseObject({
+    kind: z.enum(["approval", "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"]),
+    requestId: id,
+    turnId: id,
+  })),
+}).refine(
+  // An outcome is a terminal fact; anything else carrying one is contradictory.
+  (value) => (value.latest.state === "terminal") === (value.latest.outcome !== null)
+    && (value.latest.state === "terminal" || value.latest.endedAt === null),
+  "latest.outcome and latest.endedAt belong to a terminal state only",
+) satisfies z.ZodType<SessionRecovery>;
+
+/**
+ * Classify one `GET /api/sessions/:id/recovery` answer as D52 §6 maps it.
+ * `body` is the parsed JSON, or undefined when there was none. A transport
+ * failure never reaches here: the caller reports it as `host_unreachable`.
+ */
+export function classifySessionRecoveryResponse(status: number, body: unknown): SessionRecoveryResult {
+  if (status === 200) {
+    const parsed = sessionRecoverySchema.safeParse(body);
+    return parsed.success ? { ok: true, recovery: parsed.data } : { ok: false, reason: "host_unreachable" };
+  }
+  if (status === 401 || status === 403) return { ok: false, reason: "unauthorized" };
+  if (status === 404) {
+    const code = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+    return { ok: false, reason: code === SESSION_NOT_FOUND ? "session_not_found" : "host_too_old" };
+  }
+  return { ok: false, reason: "host_unreachable" };
+}
 
 export const serverTextDeltaSchema = z.looseObject({
   type: z.literal("text_delta"),

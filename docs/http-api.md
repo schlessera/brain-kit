@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task and session-draft routes mounted by `createApp`: 111 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft and session-recovery routes mounted by `createApp`: 112 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -106,6 +106,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/schedules` | S | Publish an approved schedule proposal | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -144,7 +145,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 111 declared endpoints are mounted regardless of backend, renderer or
+All 112 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -796,6 +797,26 @@ each with `limit` and `bound`; 428 `DRAFT_PRECONDITION_REQUIRED` when
 `If-Match` is missing. Bodies are counted as they stream, whatever
 `Content-Length` says. A refused or failed request leaves the committed
 draft unchanged.
+
+## Session recovery (additive, #964)
+
+**GET /api/sessions/:id/recovery** is protected and read-only: it never
+selects a session, starts work, answers an interaction or grants anything.
+It is mounted, and `server_hello.capabilities.sessionRecovery: true` is sent,
+only by a host that records accepted work; a client must not read it
+without the flag, and reads a missing route as a host too old to answer.
+It answers 200 with the SDK's `SessionRecovery` for a session the catalog,
+the live coordinator or any backend knows; the
+[integration contract](integration-contract.md#session-recovery-additive-964)
+holds the field semantics. Every response is `Cache-Control: no-store`. The
+common authentication guard answers first; the handler re-checks the
+principal after its one asynchronous step (looking the session up in the
+backends when the catalog does not know it) and answers a revoked or expired
+one with the guard's 401 `{ error: "Authentication required", authRequired:
+true }`, disclosing nothing about the session. An unknown session is 404
+`{ error: "SESSION_NOT_FOUND", message }`. A storage or backend read failure
+is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
+`unknown`.
 
 ## Imported track UI transport (#526)
 

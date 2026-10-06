@@ -128,7 +128,8 @@ async function replay(sessionId: string): Promise<SessionHistoryMessage[]> {
   await handleClientMessage(ws, { type: "session_resume", sessionId });
   const history = frames.find((frame) => frame.type === "session_history");
   if (!history || history.type !== "session_history") throw new Error("no session_history sent");
-  return history.messages;
+  // Host-proven turn ids (#964) are asserted in ws-session-recovery.test.ts.
+  return history.messages.map(({ turnId: _turnId, ...message }) => message);
 }
 
 function userSources(messages: SessionHistoryMessage[]): Array<MessageSource | undefined> {

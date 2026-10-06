@@ -11,8 +11,21 @@ import type { WsHost } from "./host.js";
  * correct turn's promise through the normal dispatch path.
  */
 export function resendPendingInteractive(host: WsHost, ws: WSContext): void {
-  const { coordinator } = host;
-  for (const p of coordinator.pendingApprovals.values()) {
+  resendPendingApprovals(host, ws);
+  resendPendingAsks(host, ws);
+}
+
+/**
+ * Re-send pending approval cards, optionally only those of one session.
+ * `session_resume` uses the filtered form after its history replaced the
+ * client's transcript (#964): a replay that ends on the user's message has
+ * no answer to carry the card, so without this a reload lost it. Only what
+ * is still pending goes out, under its original turn, so a settled approval
+ * is never revived and a repeated resume re-sends the same card, not a new one.
+ */
+export function resendPendingApprovals(host: WsHost, ws: WSContext, sessionId?: string): void {
+  for (const p of host.coordinator.pendingApprovals.values()) {
+    if (sessionId !== undefined && p.turn.sessionId !== sessionId) continue;
     host.sendMessage(
       ws,
       withTurnScope(
@@ -22,7 +35,6 @@ export function resendPendingInteractive(host: WsHost, ws: WSContext): void {
       )
     );
   }
-  resendPendingAsks(host, ws);
 }
 
 /**

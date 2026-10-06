@@ -137,6 +137,12 @@ export interface ToolCall {
    */
   approvalDescription?: string;
   /**
+   * The host re-delivered this pending approval after the transcript was
+   * rebuilt from history (#964, D52 §4 R3): it is the original request,
+   * restored, not one raised while this client watched the turn.
+   */
+  restored?: true;
+  /**
    * Execution timing for the duration badge. `startedAt` is (re)stamped when
    * the input finishes streaming or an approval is granted — so approval
    * wait time doesn't inflate the reported duration. `endedAt` is stamped by
@@ -376,7 +382,9 @@ export interface ChatState {
     input: Record<string, unknown>,
     description?: string,
     kind?: "tool" | "command",
-    rememberable?: boolean
+    rememberable?: boolean,
+    /** The host turn the request belongs to, from the frame. */
+    turnId?: string
   ) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   setToolResult: (key: ChatKey, toolUseId: string, output: string, isError: boolean) => void;
@@ -693,6 +701,23 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       });
     }
 
+    /**
+     * Update the assistant message that holds tool call `toolUseId`, else the
+     * last assistant message. A restored approval can sit in a turn shell
+     * (#964) while the turn's later output streams into a newer message, and
+     * its decision and result must still reach the card.
+     */
+    function mutateToolHolder(key: ChatKey, toolUseId: string, fn: (msg: ChatMessage) => ChatMessage): void {
+      mutateBuffer(key, (chat) => {
+        let index = chat.messages.findLastIndex((m) => m.role === "assistant" && m.toolCalls.some((t) => t.id === toolUseId));
+        if (index === -1) index = chat.messages.findLastIndex((m) => m.role === "assistant");
+        if (index === -1) return {};
+        const msgs = [...chat.messages];
+        msgs[index] = fn(msgs[index]!);
+        return { messages: msgs };
+      });
+    }
+
     /** Monotonic per store, so every take is a new request. */
     let composerInsertSeq = 0;
 
@@ -905,14 +930,10 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           ),
         })),
 
-      requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable) =>
-        mutateLastAssistant(key, (last) => {
-          // Check if tool call already exists (from streaming)
-          const existingIdx = last.toolCalls.findIndex(
-            (t) => t.id === toolUseId || (t.name === toolName && t.status === "streaming")
-          );
-          const tools = [...last.toolCalls];
-          const toolCall: ToolCall = {
+      requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId) =>
+        mutateBuffer(key, (chat) => {
+          const msgs = [...chat.messages];
+          const request = (previous: ToolCall | undefined, restored: boolean): ToolCall => ({
             id: toolUseId,
             name: toolName,
             input,
@@ -921,7 +942,56 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             ...(kind ? { approvalKind: kind } : {}),
             ...(rememberable === false ? { approvalRememberable: false } : {}),
             ...(description ? { approvalDescription: description } : {}),
-          };
+            // A card already pending keeps what it was; anything else is
+            // restored when it lands on a message no live turn is streaming.
+            ...((previous?.status === "pending_approval" ? previous.restored : restored) ? { restored: true as const } : {}),
+          });
+          // One card per request: a re-delivery updates the card wherever it
+          // is, and never draws a second one (#964).
+          const holder = msgs.findLastIndex((m) => m.role === "assistant" && m.toolCalls.some((t) => t.id === toolUseId));
+          if (holder !== -1) {
+            const target = msgs[holder]!;
+            msgs[holder] = {
+              ...target,
+              toolCalls: target.toolCalls.map((t) => t.id === toolUseId ? request(t, !target.isStreaming) : t),
+            };
+            return { messages: msgs };
+          }
+          // The turn's own answer, when a message carries its id; otherwise
+          // the latest answer, if it is still streaming or comes after the
+          // user's latest message, and no other turn owns it.
+          let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && m.turnId === turnId) : -1;
+          if (index === -1) {
+            const last = msgs.findLastIndex((m) => m.role === "assistant");
+            const lastUser = msgs.findLastIndex((m) => m.role === "user");
+            const candidate = last === -1 ? undefined : msgs[last]!;
+            if (candidate && (candidate.isStreaming || last > lastUser) && (!candidate.turnId || !turnId || candidate.turnId === turnId)) {
+              index = last;
+            }
+          }
+          if (index === -1) {
+            // No answer belongs to this turn: the replay ended on the user's
+            // message. Draw the turn's shell, holding only the card, with no
+            // invented text (D52 §4, approval recovery).
+            msgs.push({
+              id: nextId(),
+              role: "assistant",
+              content: "",
+              toolCalls: [request(undefined, true)],
+              parts: [{ kind: "tool", toolIndex: 0 }],
+              isStreaming: false,
+              timestamp: Date.now(),
+              ...(turnId ? { turnId } : {}),
+            });
+            return { messages: msgs };
+          }
+          const last = msgs[index]!;
+          // Check if tool call already exists (from streaming)
+          const existingIdx = last.toolCalls.findIndex(
+            (t) => t.name === toolName && t.status === "streaming"
+          );
+          const tools = [...last.toolCalls];
+          const toolCall = request(undefined, !last.isStreaming);
           let parts = last.parts;
           if (existingIdx >= 0) {
             tools[existingIdx] = toolCall;
@@ -931,11 +1001,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             parts = [...parts, { kind: "tool", toolIndex: tools.length }];
             tools.push(toolCall);
           }
-          return { ...last, toolCalls: tools, parts };
+          msgs[index] = { ...last, toolCalls: tools, parts };
+          return { messages: msgs };
         }),
 
       resolveToolApproval: (key, toolUseId, approved) =>
-        mutateLastAssistant(key, (last) => ({
+        mutateToolHolder(key, toolUseId, (last) => ({
           ...last,
           toolCalls: last.toolCalls.map((t) =>
             t.id === toolUseId
@@ -950,7 +1021,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         })),
 
       setToolResult: (key, toolUseId, output, isError) =>
-        mutateLastAssistant(key, (last) => ({
+        mutateToolHolder(key, toolUseId, (last) => ({
           ...last,
           toolCalls: last.toolCalls.map((t) =>
             t.id === toolUseId

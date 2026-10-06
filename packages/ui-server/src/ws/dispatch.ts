@@ -11,7 +11,7 @@ import { validateAttachments } from "./attachments.js";
 import { handleChatMessage } from "./run-session.js";
 import { cancelHandoffPreparation, handoffStatus, prepareHandoff, startHandoff } from "./handoff.js";
 import { handleAskAnswer, handleAskAnswerStatus } from "./ask-answers.js";
-import { resendPendingAsks } from "./resend.js";
+import { resendPendingApprovals, resendPendingAsks } from "./resend.js";
 import type { WsHost } from "./host.js";
 
 /** Per-connection negotiation state, owned by the socket handler. */
@@ -601,7 +601,9 @@ export async function handleClientMessage(
         // live card for a question still waiting in this session. Hand those
         // questions over again, after the history, as a reconnect would
         // (#910). The client keys cards by request id, so a card the history
-        // already rebuilt is updated rather than drawn twice.
+        // already rebuilt is updated rather than drawn twice. Approvals go
+        // the same way, first, as a reconnect sends them (#964).
+        resendPendingApprovals(host, ws, msg.sessionId);
         resendPendingAsks(host, ws, msg.sessionId);
         // A resume of a RUNNING session (reattach) must not report idle: idle
         // would clear the client's running badge and finish its streaming

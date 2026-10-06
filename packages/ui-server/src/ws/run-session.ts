@@ -17,6 +17,7 @@ import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
 import { withLocalContext } from "./local-exchanges.js";
 import { acceptDraft } from "./drafts.js";
+import { acceptRequest } from "./recovery.js";
 import type { AuthorizationContext, HostWork, HostWorkOutcome, QueuedFollowUp, RunningTurn } from "./turns.js";
 import { queuedBytes, queuedFollowUpBytes } from "./turns.js";
 import {
@@ -88,6 +89,8 @@ type RunSessionInput = {
   draftId?: string;
   /** The saved draft revision this message was sent from (#979). */
   draftRef?: DraftRef;
+  /** Accepted-work revision of this request (#964), for a known session. */
+  revision?: number;
   /**
    * Local exchanges the draft conversation holds (#582). Recorded against
    * the session once `session_info` names it, and carried on its first
@@ -160,7 +163,11 @@ async function runRetainedSession(
   initial: RunSessionInput
 ): Promise<void> {
   const { coordinator } = host;
-  const starting = { queue: [] as QueuedFollowUp[], cancelled: false };
+  const starting: { queue: QueuedFollowUp[]; cancelled: boolean; revision?: number } = {
+    queue: [],
+    cancelled: false,
+    ...(initial.revision !== undefined ? { revision: initial.revision } : {}),
+  };
   if (initial.sessionId) coordinator.startingBySession.set(initial.sessionId, starting);
   coordinator.startingSessions += 1;
   let target: Awaited<ReturnType<typeof resolveTurnTarget>>;
@@ -249,6 +256,7 @@ async function runRetainedSession(
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
     ...(initial.requestId ? { requestId: initial.requestId } : {}),
     ...(initial.draftRef ? { draftRef: initial.draftRef } : {}),
+    ...(initial.revision !== undefined ? { revision: initial.revision } : {}),
     ...(initial.work ? { work: initial.work } : {}),
     releaseAuthorization: () => {
       initial.work?.settle("cancelled", { reason: "The session ended before this request ran" });
@@ -259,11 +267,16 @@ async function runRetainedSession(
   try {
     while (next && !turn.cancelled) {
       releaseActiveAuthorization = next.releaseAuthorization;
+      // The slot now holds this request; recovery reads it as queued until
+      // its turn is handed to the backend (#964).
+      turn.revision = next.revision;
+      turn.startedAt = undefined;
       turn.principalId = next.principalId;
       turn.authorization = next.authorization;
       if (!turn.authorization.valid) {
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
+        turn.revision = undefined;
         next = turn.queue.shift() ?? null;
         if (next) {
           turn.turnId = crypto.randomUUID();
@@ -317,6 +330,7 @@ async function runRetainedSession(
       // enforces revocation, so the timer only has to close the socket.
       host.expireAuthorizationContexts();
       if (!turn.authorization.valid) {
+        turn.revision = undefined;
         await failureRecording.finish();
         clearTimeout(timeoutHandle);
         releaseActiveAuthorization();
@@ -390,6 +404,13 @@ async function runRetainedSession(
         resumeId
           ? undefined
           : (sid) => {
+              // A new conversation is accepted the moment it has a name,
+              // and its turn is already running (#964).
+              const revision = acceptRequest(host, sid, turn.requestId, backend.id);
+              turn.revision = revision;
+              if (revision !== undefined && turn.startedAt !== undefined) {
+                host.catalog.dispatchWork?.(sid, revision, turn.turnId, backend.id, turn.startedAt);
+              }
               recordSource(sid);
               recordDraftExchanges(host, sid, drafted);
               initial.handoffHooks?.onNamed(sid);
@@ -397,6 +418,11 @@ async function runRetainedSession(
         failureRecording.observe
       );
       const startedAt = Date.now();
+      // Handed to the backend now: recovery reads this request as running.
+      turn.startedAt = startedAt;
+      if (turn.revision !== undefined && resumeId) {
+        host.catalog.dispatchWork?.(resumeId, turn.revision, turn.turnId, backend.id, startedAt);
+      }
       host.reportTurnStarted(turn);
       work?.started(turn.turnId);
       let workOutcome: HostWorkOutcome = "error";
@@ -461,7 +487,11 @@ async function runRetainedSession(
           ? "Turn timed out"
           : err instanceof Error ? err.message : String(err);
       } finally {
-        await failureRecording.finish();
+        // The recorder has written the terminal: from here on the Activity
+        // record, not this slot, answers for the request (#964).
+        turn.revision = undefined;
+        turn.startedAt = undefined;
+        await failureRecording.finish(turn.sessionId);
         clearTimeout(timeoutHandle);
         turn.recorder = undefined;
         work?.settle(workOutcome, { sessionId: turn.sessionId, ...(workReason ? { reason: workReason } : {}) });
@@ -573,6 +603,9 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   // Queue it as the session's next turn; report queued immediately.
   try { host.catalog.clearRetryRequest?.(sessionId); }
   catch (err) { entry.releaseAuthorization(); throw err; }
+  // Accepted: it takes the session's next revision before it joins the queue.
+  const revision = acceptRequest(host, sessionId, entry.requestId, host.catalog.getStoredBackendId(sessionId));
+  if (revision !== undefined) entry.revision = revision;
   slot.queue.push(entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
@@ -749,8 +782,12 @@ export async function handleChatMessage(
     return;
   }
 
+  let revision: number | undefined;
   if (sessionId) {
     host.catalog.clearRetryRequest?.(sessionId);
+    // Accepted for a known session: it takes the next revision now, before
+    // routing, so anything sent after it orders after it (#964).
+    revision = acceptRequest(host, sessionId, requestId, host.catalog.getStoredBackendId(sessionId));
     host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
   }
   void runSession(host, {
@@ -768,6 +805,7 @@ export async function handleChatMessage(
     ...(requestId ? { requestId } : {}),
     ...(draftId ? { draftId } : {}),
     ...(draftRef ? { draftRef } : {}),
+    ...(revision !== undefined ? { revision } : {}),
     ...(!sessionId && localExchanges?.length ? { localExchanges } : {}),
     ...(!sessionId && msg.handoffHooks ? { handoffHooks: msg.handoffHooks } : {}),
     ...(work ? { work } : {}),

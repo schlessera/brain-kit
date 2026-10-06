@@ -195,6 +195,9 @@ export "." (./src/index.ts)
   type RenderRequest
   type ResolutionEffect
   SESSION_DRAFT_LIMITS
+  SESSION_NOT_FOUND
+  SESSION_RECOVERY_CAPABILITY
+  SESSION_RECOVERY_FAILED
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -248,6 +251,13 @@ export "." (./src/index.ts)
   type ServerToolUseStart
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionRecovery
+  type SessionRecoveryLatest
+  type SessionRecoveryPending
+  type SessionRecoveryPendingKind
+  type SessionRecoveryResult
+  type SessionRecoveryState
+  type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
   type SetBillingOverridesRequest
@@ -545,6 +555,9 @@ export "./client" (./src/client/index.ts)
   type RequestImageMaskInput
   type ResolutionEffect
   SESSION_DRAFT_LIMITS
+  SESSION_NOT_FOUND
+  SESSION_RECOVERY_CAPABILITY
+  SESSION_RECOVERY_FAILED
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -605,6 +618,13 @@ export "./client" (./src/client/index.ts)
   type ServerToolUseStart
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionRecovery
+  type SessionRecoveryLatest
+  type SessionRecoveryPending
+  type SessionRecoveryPendingKind
+  type SessionRecoveryResult
+  type SessionRecoveryState
+  type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
   type SetBillingOverridesRequest
@@ -908,6 +928,9 @@ export "./protocol" (./src/protocol.ts)
   type RenderRequest
   type ResolutionEffect
   SESSION_DRAFT_LIMITS
+  SESSION_NOT_FOUND
+  SESSION_RECOVERY_CAPABILITY
+  SESSION_RECOVERY_FAILED
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -961,6 +984,13 @@ export "./protocol" (./src/protocol.ts)
   type ServerToolUseStart
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionRecovery
+  type SessionRecoveryLatest
+  type SessionRecoveryPending
+  type SessionRecoveryPendingKind
+  type SessionRecoveryResult
+  type SessionRecoveryState
+  type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
   type SetBillingOverridesRequest
@@ -1011,6 +1041,7 @@ export "./schemas" (./src/schemas.ts)
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  classifySessionRecoveryResponse
   clientActivitySubscribeSchema
   clientActivityUnsubscribeSchema
   clientAskAnswerStatusSchema
@@ -1124,6 +1155,7 @@ export "./schemas" (./src/schemas.ts)
   serverToolUseCompleteSchema
   serverToolUseStartSchema
   sessionDraftLimitsSchema
+  sessionRecoverySchema
   sharedFileMetaSchema
   v1ResolutionEffectSchema
   validateResolutionEffect
@@ -1438,6 +1470,9 @@ export "./server" (./src/server/index.ts)
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
   SESSION_DRAFT_LIMITS
+  SESSION_NOT_FOUND
+  SESSION_RECOVERY_CAPABILITY
+  SESSION_RECOVERY_FAILED
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -1496,6 +1531,13 @@ export "./server" (./src/server/index.ts)
   type ServerToolUseStart
   type SessionDraftLimits
   type SessionHistoryMessage
+  type SessionRecovery
+  type SessionRecoveryLatest
+  type SessionRecoveryPending
+  type SessionRecoveryPendingKind
+  type SessionRecoveryResult
+  type SessionRecoveryState
+  type SessionRecoveryUnavailable
   type SessionRef
   type SessionScoped
   type SetBillingOverridesRequest
@@ -5677,6 +5719,12 @@ signatures (every public export and the types it is made of)
     }
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
+  SESSION_NOT_FOUND (packages/ui-sdk/src/protocol.ts)
+    const SESSION_NOT_FOUND: "SESSION_NOT_FOUND";
+  SESSION_RECOVERY_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const SESSION_RECOVERY_CAPABILITY: "sessionRecovery";
+  SESSION_RECOVERY_FAILED (packages/ui-sdk/src/protocol.ts)
+    const SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED";
   SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target.ts)
     const SHARE_ERROR_PARAM: "share_error";
   SHARE_MAX_CONCURRENT_INTAKE (packages/ui-sdk/src/protocol.ts)
@@ -7240,7 +7288,45 @@ signatures (every public export and the types it is made of)
         localAnswer?: LocalAnswer;
         failure?: TurnFailure;
         retryOfTurnId?: string;
+        turnId?: string;
     }
+  SessionRecovery (packages/ui-sdk/src/protocol.ts)
+    export interface SessionRecovery {
+        sessionId: string;
+        backendId: string | null;
+        revision: number;
+        latest: SessionRecoveryLatest;
+        pending: SessionRecoveryPending[];
+    }
+  SessionRecoveryLatest (packages/ui-sdk/src/protocol.ts)
+    export interface SessionRecoveryLatest {
+        requestId: string | null;
+        turnId: string | null;
+        state: SessionRecoveryState;
+        outcome: ActivitySpanOutcome | null;
+        startedAt: number | null;
+        endedAt: number | null;
+    }
+  SessionRecoveryPending (packages/ui-sdk/src/protocol.ts)
+    export interface SessionRecoveryPending {
+        kind: SessionRecoveryPendingKind;
+        requestId: string;
+        turnId: string;
+    }
+  SessionRecoveryPendingKind (packages/ui-sdk/src/protocol.ts)
+    export type SessionRecoveryPendingKind = "approval" | "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
+  SessionRecoveryResult (packages/ui-sdk/src/protocol.ts)
+    export type SessionRecoveryResult = {
+        ok: true;
+        recovery: SessionRecovery;
+    } | {
+        ok: false;
+        reason: SessionRecoveryUnavailable;
+    };
+  SessionRecoveryState (packages/ui-sdk/src/protocol.ts)
+    export type SessionRecoveryState = "queued" | "running" | "terminal" | "unknown";
+  SessionRecoveryUnavailable (packages/ui-sdk/src/protocol.ts)
+    export type SessionRecoveryUnavailable = "unauthorized" | "session_not_found" | "host_too_old" | "host_unreachable";
   SessionRef (packages/ui-sdk/src/protocol.ts)
     export interface SessionRef {
         backendId: string;
@@ -7653,6 +7739,8 @@ signatures (every public export and the types it is made of)
     export function canonicalModelId(id: string): string;
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;
+  classifySessionRecoveryResponse (packages/ui-sdk/src/schemas.ts)
+    export function classifySessionRecoveryResponse(status: number, body: unknown): SessionRecoveryResult;
   clientActivitySubscribeSchema (packages/ui-sdk/src/schemas.ts)
     const clientActivitySubscribeSchema: z.ZodObject<{
         runId: z.ZodOptional<z.ZodString>;
@@ -11645,6 +11733,7 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 output: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>>;
+            turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
         sessionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
@@ -13407,6 +13496,7 @@ signatures (every public export and the types it is made of)
                 name: z.ZodString;
                 output: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>>;
+            turnId: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         }, z.core.$loose>>;
         sessionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
@@ -13538,6 +13628,43 @@ signatures (every public export and the types it is made of)
         maxDrafts: z.ZodNumber;
         maxTextBytes: z.ZodNumber;
         maxTotalBytes: z.ZodNumber;
+    }, z.core.$loose>;
+  sessionRecoverySchema (packages/ui-sdk/src/schemas.ts)
+    const sessionRecoverySchema: z.ZodObject<{
+        backendId: z.ZodNullable<z.ZodString>;
+        latest: z.ZodObject<{
+            endedAt: z.ZodNullable<z.ZodNumber>;
+            outcome: z.ZodNullable<z.ZodEnum<{
+                cancelled: "cancelled";
+                denied: "denied";
+                error: "error";
+                interrupted: "interrupted";
+                success: "success";
+                timeout: "timeout";
+            }>>;
+            requestId: z.ZodNullable<z.ZodString>;
+            startedAt: z.ZodNullable<z.ZodNumber>;
+            state: z.ZodEnum<{
+                queued: "queued";
+                running: "running";
+                terminal: "terminal";
+                unknown: "unknown";
+            }>;
+            turnId: z.ZodNullable<z.ZodString>;
+        }, z.core.$loose>;
+        pending: z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                approval: "approval";
+                ask_user: "ask_user";
+                ask_user_form: "ask_user_form";
+                ask_user_list: "ask_user_list";
+                ask_user_rank: "ask_user_rank";
+            }>;
+            requestId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
+        revision: z.ZodNumber;
+        sessionId: z.ZodString;
     }, z.core.$loose>;
   sharedFileMetaSchema (packages/ui-sdk/src/track-schemas.ts)
     const sharedFileMetaSchema: z.ZodType<SharedFileMeta>;

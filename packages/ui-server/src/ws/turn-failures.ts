@@ -18,13 +18,13 @@ export function assistantCount(messages: SessionHistoryMessage[]): number {
 }
 
 /** Guard against an edited/truncated/rebranched transcript reusing an old position. */
-function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMessage): void {
+export function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMessage): void {
   hash.update(JSON.stringify([message.role, message.content, message.thinking ?? null,
     message.toolCalls, message.attachmentCount ?? 0, message.failure?.message ?? null]));
   hash.update("\n");
 }
 
-function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
+export function prefixDigest(messages: SessionHistoryMessage[], end: number): string {
   const hash = new Bun.CryptoHasher("sha256");
   for (const message of messages.slice(0, end + 1)) updatePrefix(hash, message);
   return hash.digest("hex");
@@ -56,6 +56,9 @@ export function attachTurnFailures(db: Database, sessionId: string, backendId: s
   });
 }
 
+/** How long a turn-boundary read may hold the session's next turn. */
+const BOUNDARY_READ_MS = 10_000;
+
 /** One concrete host's in-flight writes; never shared across apps or sessions. */
 export class FailureReplay {
   private readonly pending = new Map<string, Set<Promise<void>>>();
@@ -85,12 +88,47 @@ export class FailureReplay {
     finally { signal.removeEventListener("abort", onAbort); }
   }
 
+  private track(sessionId: string, write: Promise<void>): void {
+    const writes = this.pending.get(sessionId) ?? new Set<Promise<void>>();
+    writes.add(write); this.pending.set(sessionId, writes);
+    void write.then(() => { writes.delete(write); if (writes.size === 0) this.pending.delete(sessionId); });
+  }
+
+  /**
+   * After a turn: if the transcript gained an assistant answer during it,
+   * record that answer's position as the turn's boundary (#964). Waits on
+   * the turn's failure write first, so both describe one transcript.
+   */
+  private boundary(backend: AgentBackend, sessionId: string, turnId: string, before: number): Promise<void> {
+    const write = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // The turn's own signal may be aborted (a cancel or timeout ends it),
+        // so the read is bounded by its own timer instead.
+        const messages = await Promise.race([
+          backend.getHistory(sessionId),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), BOUNDARY_READ_MS); }),
+        ]);
+        const count = assistantCount(messages);
+        // Nothing answered during the turn: no message is this turn's.
+        if (count <= before || messages.at(-1)?.role !== "assistant") return;
+        this.catalog.recordTurnBoundary?.(sessionId, backend.id, {
+          turnId, assistantOrdinal: count - 1, prefixDigest: prefixDigest(messages, messages.length - 1),
+        });
+      } catch (err) { this.report(sessionId, err); }
+      finally { clearTimeout(timer); }
+    })();
+    this.track(sessionId, write);
+    return write;
+  }
+
   async begin(backend: AgentBackend, sessionId: string | undefined, turnId: string, signal: AbortSignal): Promise<{
     observe: (sessionId: string, failure: TurnFailure) => void;
-    finish: () => Promise<void>;
+    /** `sessionId` is the session the turn ran in, when it ran; boundaries are recorded only then. */
+    finish: (sessionId?: string | null) => Promise<void>;
   }> {
     let before: number | null = null;
-    if (this.catalog.recordTurnFailure) {
+    if (this.catalog.recordTurnFailure || this.catalog.recordTurnBoundary) {
       try {
         if (sessionId) await this.wait(sessionId);
         before = sessionId ? assistantCount(await this.history(backend, sessionId, signal)) : 0;
@@ -117,11 +155,15 @@ export class FailureReplay {
             });
           } catch (err) { this.report(sid, err); }
         })();
-        const writes = this.pending.get(sid) ?? new Set<Promise<void>>();
-        writes.add(write); this.pending.set(sid, writes);
-        void write.then(() => { writes.delete(write!); if (writes.size === 0) this.pending.delete(sid); });
+        this.track(sid, write);
       },
-      finish: async () => { closed = true; release(); await write; },
+      finish: async (sid) => {
+        const first = !closed;
+        closed = true; release(); await write;
+        if (first && sid && before !== null && this.catalog.recordTurnBoundary) {
+          await this.boundary(backend, sid, turnId, before);
+        }
+      },
     };
   }
 }

@@ -72,6 +72,8 @@ export interface QueuedFollowUp {
   requestId?: string;
   /** The saved draft revision this message was sent from (#979). */
   draftRef?: DraftRef;
+  /** Accepted-work revision the host gave this request (#964); absent if unrecorded. */
+  revision?: number;
   /** Queue-owned authorization lease, transferred to the runner on dequeue. */
   releaseAuthorization: () => void;
 }
@@ -116,6 +118,14 @@ export interface RunningTurn {
   draftRef?: DraftRef;
   /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
   work?: HostWork;
+  /**
+   * Accepted-work revision (#964) of the request this slot currently holds,
+   * from dequeue until its turn has finished; cleared in between, so a slot
+   * between turns never claims one.
+   */
+  revision?: number;
+  /** When the CURRENT turn was handed to the backend; unset until then and after it ends. */
+  startedAt?: number;
   /** Principal responsible for the CURRENT turn in this session slot. */
   principalId: string;
   authorization: AuthorizationContext;
@@ -293,7 +303,13 @@ export class TurnCoordinator {
   readonly bySession = new Map<string, RunningTurn>();
   startingSessions = 0;
   /** Reserve a known session before asynchronous backend routing. */
-  readonly startingBySession = new Map<string, { queue: QueuedFollowUp[]; cancelled: boolean }>();
+  readonly startingBySession = new Map<string, { queue: QueuedFollowUp[]; cancelled: boolean; revision?: number }>();
+  /**
+   * Sessions whose newest acceptance could not be recorded (#964). Their
+   * recovery reads `unknown` until a later acceptance is recorded, so an
+   * older persisted request can never stand in for newer work.
+   */
+  readonly unorderedSessions = new Set<string>();
 
   readonly pendingApprovals = new Map<string, PendingApproval>();
   /** Settled permission outcomes by toolUseId, bounded by MAX_RESOLVED_APPROVALS. */
@@ -612,6 +628,7 @@ export class TurnCoordinator {
       for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     }
     this.startingBySession.clear();
+    this.unorderedSessions.clear();
     this.running.clear();
     this.bySession.clear();
     this.pendingApprovals.clear();
