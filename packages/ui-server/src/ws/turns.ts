@@ -390,7 +390,8 @@ export class TurnCoordinator {
     const hadWork = this.running.size > 0 || this.startingBySession.size > 0;
     for (const starting of this.startingBySession.values()) {
       starting.cancelled = true;
-      starting.queue.length = 0;
+      // Release, never truncate: each entry's lease settles host work it carries.
+      for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     }
     if (!hadWork) return false;
     for (const turn of [...this.running]) this.cancelTurn(turn, reason);
@@ -514,7 +515,8 @@ export class TurnCoordinator {
     }
     for (const starting of this.startingBySession.values()) {
       starting.cancelled = true;
-      starting.queue.length = 0;
+      // Release, never truncate: each entry's lease settles host work it carries.
+      for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
     }
     this.startingBySession.clear();
     this.running.clear();

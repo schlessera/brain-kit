@@ -797,6 +797,51 @@ describe("sixth review pass: cancellation without a session id, metering", () =>
   });
 });
 
+describe("seventh review pass: extra native requests and shutdown during routing", () => {
+  test("further native requests for an utterance that already holds a handle are dropped, never parked", async () => {
+    const s = setup();
+    const client = await s.connect();
+    const conversation = await client.open();
+    await client.speak(conversation, "u1", "Who mends the sails?");
+    conversation.session.emit({ kind: "work_requested", handle: "native-1", utteranceId: "u1" });
+    conversation.session.emit({ kind: "work_requested", handle: "native-2", utteranceId: "u1" });
+    await settle();
+    client.commit(conversation, "u1", "r1", "Who mends the sails?");
+    await until(() => s.turns.length === 1);
+    for (let i = 3; i < 3 + CONVERSATION_LIMITS.maxPendingNativeRequests + 1; i++) {
+      conversation.session.emit({ kind: "work_requested", handle: `native-${i}`, utteranceId: "u1" });
+    }
+    await settle();
+    expect(client.frames("conversation_closed")).toEqual([]);
+    s.turns[0]!.answer("Mentor's crew.");
+    await until(() => conversation.session.returned.length === 1);
+    expect(conversation.session.returned[0]!.ref.nativeHandle).toBe("native-1");
+  });
+
+  test("a host-wide cancel releases conversation work queued behind a session start still routing", async () => {
+    let stall = true;
+    let releaseRouting: (() => void) | null = null;
+    const s = setup({
+      listProfiles: () => stall
+        ? new Promise((resolve) => { stall = false; releaseRouting = () => resolve([{ id: "fake", label: "FAKE" }]); })
+        : Promise.resolve([{ id: "fake", label: "FAKE" }]),
+    });
+    const client = await s.connect();
+    const conversation = await client.open({ sessionId: "sess-quay" });
+    client.send({ type: "chat_message", text: "Is the quay clear?", sessionId: "sess-quay" });
+    await until(() => releaseRouting !== null);
+    await client.speak(conversation, "u1", "Then load the amphorae");
+    client.commit(conversation, "u1", "r1", "Then load the amphorae");
+    await until(() => client.receipts("r1").length > 0);
+    expect(client.last("r1").state).toBe("queued");
+
+    s.host.coordinator.cancelAll("Server shutting down");
+    await settle();
+    expect(client.last("r1")).toMatchObject({ state: "cancelled" });
+    releaseRouting!();
+  });
+});
+
 describe("correlation across conversations and scopes", () => {
   test("two conversations in two sessions each receive only their own result", async () => {
     const s = setup();

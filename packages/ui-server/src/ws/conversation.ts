@@ -386,11 +386,13 @@ export class ConversationHost {
     conversation.usedRequestIds.add(work.receipt.requestId);
     this.retainReceipt(conversation, work);
     // An advisory request the provider made before this commit binds now.
+    // One handle per request: further requests naming this utterance are
+    // dropped, not parked, since nothing could ever answer them.
     for (const [handle, pending] of epoch.nativePending) {
       if (pending.utteranceId === undefined || pending.utteranceId === utterance.id) {
+        if (work.nativeHandle === undefined) work.nativeHandle = handle;
+        else if (pending.utteranceId === undefined) continue;
         epoch.nativePending.delete(handle);
-        work.nativeHandle = handle;
-        break;
       }
     }
     conversation.queue.push(work);
@@ -525,6 +527,13 @@ export class ConversationHost {
         const known = epoch.nativePending.has(event.handle) ||
           conversation.receipts.some((work) => work.receipt.epoch === epoch.number && work.nativeHandle === event.handle);
         if (known) return;
+        // A second request for an utterance whose work already holds a handle
+        // is unsupported: drop it rather than park a request nothing answers.
+        if (event.utteranceId !== undefined && conversation.receipts.some((work) =>
+          work.receipt.epoch === epoch.number && work.receipt.utteranceId === event.utteranceId && work.nativeHandle !== undefined)) {
+          this.host.log.emit({ severityText: "WARN", body: "second live-conversation work request for one utterance dropped" });
+          return;
+        }
         // Bind to committed work of this epoch that has no handle yet. The
         // request itself never runs anything. A request naming its utterance
         // binds to that work in any state; one naming none binds only to work
@@ -538,11 +547,14 @@ export class ConversationHost {
           // native request with the same result. Discarded work stays
           // unanswered; its handle is consumed, not parked.
           const handed = target.handedOver;
-          if (handed && target.receipt.delivery !== "discarded" && epoch.session && !epoch.closed) {
-            const session = epoch.session;
-            void Promise.resolve()
-              .then(() => session.returnWork({ ...handed.ref, nativeHandle: event.handle }, handed.result))
-              .catch(() => {});
+          // Called synchronously, while this event is being applied to the
+          // live epoch: a deferred call could land after a stop or restart.
+          if (handed && target.receipt.delivery !== "discarded" && epoch.session && !epoch.closed && conversation.ws) {
+            try {
+              void Promise.resolve(epoch.session.returnWork({ ...handed.ref, nativeHandle: event.handle }, handed.result)).catch(() => {});
+            } catch {
+              // The provider refused synchronously; the host outcome stands.
+            }
           }
           return;
         }

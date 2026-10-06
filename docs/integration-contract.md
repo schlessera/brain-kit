@@ -2533,8 +2533,9 @@ advisory work request binds to committed work of the same epoch: one naming
 its utterance binds to that utterance's work in any state, and if the result
 already went out without a handle the same result is returned again with it;
 one naming no utterance binds only to the oldest unbound work still running,
-or waits for the next commit. The handle is only the token the result is
-returned with. An utterance id an epoch has evicted stays retired: audio for
+or waits for the next commit. One request holds one handle: a further
+request naming an utterance whose work already holds one is dropped. The
+handle is only the token the result is returned with. An utterance id an epoch has evicted stays retired: audio for
 it closes the epoch with `correlation` rather than starting it over.
 
 **Execution.** Work runs through the ordinary chat path with
