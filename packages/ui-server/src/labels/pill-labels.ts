@@ -51,7 +51,12 @@ export function createPillLabels(deps: {
     turnStarted(sessionId, text) {
       if (!labeller.enabled || !catalog.saveSessionLabel || !text.trim()) return;
       const source = labelSourceHash(text);
-      if (catalog.sessionLabel?.(sessionId)?.source === source) return;
+      // Already labelled for this request: an older request still being
+      // labelled must not replace it when its answer arrives.
+      if (catalog.sessionLabel?.(sessionId)?.source === source) {
+        latest.delete(sessionId);
+        return;
+      }
       latest.set(sessionId, source);
       void labeller.label(`session:${sessionId}`, text).then((label) => {
         if (latest.get(sessionId) !== source) return;

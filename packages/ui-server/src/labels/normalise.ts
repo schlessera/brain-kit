@@ -13,7 +13,7 @@ export const LABEL_MAX_CHARS = PILL_LABEL_MAX_CHARS;
 export const LABEL_MAX_WORDS = 4;
 
 // C0/C1 controls, zero-width and bidirectional formatting characters.
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 const QUOTES = /["'`‘’‚‛“”„‟«»‹›]/g;
 // Markdown emphasis and list or heading markers a model may wrap its answer in.
 const MARKUP = /[*_#>~]/g;

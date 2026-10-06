@@ -135,27 +135,47 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
     }
   }
 
-  async function call(text: string): Promise<{ outcome: LabelOutcome; label: string | null; err?: unknown }> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const answer = await Promise.race([
-        provider.complete({
-          system: LABEL_SYSTEM_PROMPT,
-          prompt: text.trim().slice(0, LABEL_PROMPT_CHARS),
-          maxTokens: 24,
-        }),
-        new Promise<"timeout">((resolve) => {
-          timer = setTimeout(() => resolve("timeout"), timeoutMs);
-        }),
-      ]);
-      if (answer === "timeout") return { outcome: "timeout", label: null };
-      const label = typeof answer === "string" ? normaliseLabel(answer) : null;
-      return { outcome: label ? "labelled" : "empty", label };
-    } catch (err) {
-      return { outcome: "error", label: null, err };
-    } finally {
-      clearTimeout(timer);
-    }
+  type CallResult = { outcome: LabelOutcome; label: string | null; err?: unknown };
+
+  /**
+   * Ask the provider once. The caller hears back at the deadline at the
+   * latest, waiting for a slot included, and a call whose caller has already
+   * given up is never started. A started call keeps its slot until the
+   * provider settles: a
+   * provider that stalls cannot be handed more calls than the limit, and an
+   * answer that arrives late is still kept for the next ask.
+   */
+  function call(text: string, hash: string): Promise<CallResult> {
+    return new Promise<CallResult>((resolve) => {
+      let answered = false;
+      const answer = (result: CallResult) => {
+        if (answered) return;
+        answered = true;
+        resolve(result);
+      };
+      // The deadline covers the wait for a slot as well as the call.
+      const timer = setTimeout(() => answer({ outcome: "timeout", label: null }), timeoutMs);
+      void slot(async () => {
+        // Nobody is waiting for a call that timed out before it got a slot.
+        if (answered) return;
+        let result: CallResult;
+        try {
+          const raw = await provider.complete({
+            system: LABEL_SYSTEM_PROMPT,
+            prompt: text.trim().slice(0, LABEL_PROMPT_CHARS),
+            maxTokens: 24,
+          });
+          const label = typeof raw === "string" ? normaliseLabel(raw) : null;
+          result = { outcome: label ? "labelled" : "empty", label };
+        } catch (err) {
+          result = { outcome: "error", label: null, err };
+        } finally {
+          clearTimeout(timer);
+        }
+        if (answered && result.label) remember(hash, result.label);
+        answer(result);
+      });
+    });
   }
 
   return {
@@ -175,7 +195,7 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
         reportOnce(item, "skipped_busy");
         return null;
       }
-      const work = slot(() => call(text)).then(({ outcome, label, err }) => {
+      const work = call(text, hash).then(({ outcome, label, err }) => {
         calls?.add(1, { outcome, provider: provider.id });
         // A timeout or an error may pass; only an answer is kept.
         if (outcome === "labelled" || outcome === "empty") remember(hash, label);

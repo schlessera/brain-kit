@@ -11,7 +11,10 @@ import {
   normaliseLabel,
   type LabelCompletionProvider,
 } from "../src/labels/index";
+import { createPillLabels } from "../src/labels/pill-labels";
 import { createRecordingObservability } from "../src/observability/index";
+import type { SessionCatalog } from "../src/ws/session-catalog";
+import { TurnCoordinator } from "../src/ws/turns";
 
 describe("normaliseLabel", () => {
   test.each([
@@ -23,7 +26,7 @@ describe("normaliseLabel", () => {
     ["- Charting the strait", "Charting the strait"],
     ["Label:\nSirens' song plan", "Sirens song plan"],
     ["  Crew   rations \t audit  ", "Crew rations audit"],
-    ["Loom​ weaving delay...", "Loom weaving delay"],
+    ["Loom\u200b weaving delay...", "Loom weaving delay"],
   ])("%j becomes %j", (raw, label) => {
     expect(normaliseLabel(raw)).toBe(label);
   });
@@ -152,5 +155,60 @@ describe("createLabeller", () => {
     }
     expect(await Promise.all(answers)).toEqual(["Label 1", "Label 2", "Label 3", "Label 4", "Label 5"]);
     expect(peak).toBe(LABEL_CONCURRENCY);
+  });
+
+  test("a call past its deadline answers null but keeps its slot until the provider settles", async () => {
+    let running = 0;
+    let peak = 0;
+    const settle: Array<() => void> = [];
+    const { provider, calls } = scripted(async (prompt) => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise<void>((resolve) => settle.push(resolve));
+      running--;
+      return `Late ${prompt.slice(-1)}`;
+    });
+    const labeller = createLabeller({ options: { provider, timeoutMs: 10 } });
+    const answers = await Promise.all(["1", "2", "3", "4"].map((n) => labeller.label(`follow-up:${n}`, `Message ${n}`)));
+    // The first two timed out while running; the other two timed out
+    // waiting for a slot, and are never started.
+    expect(answers).toEqual([null, null, null, null]);
+    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+    while (settle.length || running) {
+      settle.shift()?.();
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(peak).toBe(LABEL_CONCURRENCY);
+    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+    // A late answer is kept: asking again costs no call.
+    expect(await labeller.label("follow-up:1", "Message 1")).toBe("Late 1");
+    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+  });
+});
+
+describe("createPillLabels", () => {
+  test("an older request's slow label never replaces the label of the request that followed it", async () => {
+    const pending = new Map<string, (label: string) => void>();
+    const labeller = {
+      enabled: true,
+      label: (_item: string, text: string) => new Promise<string | null>((resolve) => pending.set(text, resolve)),
+    };
+    const stored = new Map<string, { label: string; source: string }>();
+    const catalog = {
+      sessionLabel: (id: string) => stored.get(id) ?? null,
+      saveSessionLabel: (id: string, label: string, source: string) => { stored.set(id, { label, source }); },
+    } as unknown as SessionCatalog;
+    const labels = createPillLabels({ labeller, catalog, coordinator: new TurnCoordinator() });
+
+    labels.turnStarted("s", "Chart the way home");
+    pending.get("Chart the way home")!("Route home");
+    await Promise.resolve();
+    expect(stored.get("s")?.label).toBe("Route home");
+    // B starts and is slow; then the session repeats A, already labelled.
+    labels.turnStarted("s", "Ask Aeolus about the winds");
+    labels.turnStarted("s", "Chart the way home");
+    pending.get("Ask Aeolus about the winds")!("Asking Aeolus");
+    await Promise.resolve();
+    expect(stored.get("s")?.label).toBe("Route home");
   });
 });
