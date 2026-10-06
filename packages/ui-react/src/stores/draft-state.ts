@@ -177,6 +177,20 @@ export interface DraftStoreState {
 /** Settled sends kept so a remounted composer can still read how its send ended. */
 const SETTLED_SENDS_KEPT = 16;
 
+/**
+ * Something a reload would lose (#951): a draft the host has not
+ * acknowledged as it is, or a send no answer has settled. The drafts live in
+ * this root's memory, and a session's draft is not on screen while another
+ * session is.
+ */
+export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): boolean {
+  for (const d of Object.values(state.drafts)) {
+    if ((d.text.length > 0 || d.attachments.length > 0) && !(d.host !== null && d.host.edit === d.edit)) return true;
+    if (d.conflict) return true;
+  }
+  return Object.values(state.sends).some((s) => s.state === "pending" || s.state === "unconfirmed");
+}
+
 export const hasContent = (d: Pick<ComposerDraft, "text" | "attachments"> | undefined): boolean =>
   Boolean(d && (d.text.length > 0 || d.attachments.length > 0));
 
@@ -217,6 +231,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   const consumed = new Set<string>();
   /** Where a rotated draft's content went: async work started on the old id lands on the new one. */
   const successors = new Map<string, string>();
+  /** The session a forgotten draft belonged to: late work on its id goes to that session's draft. */
+  const retired = new Map<string, string>();
   const resolve = (draftId: string): string => {
     let id = draftId;
     for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
@@ -236,7 +252,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       set((state) => ({ drafts: { ...state.drafts, [draft.draftId]: draft } }));
     }
 
-    function drop(draftId: string) {
+    function drop(draftId: string, session: string | null = null) {
+      const owner = get().drafts[draftId]?.sessionId ?? session;
+      if (owner) retired.set(draftId, owner);
       set((state) => {
         const drafts = { ...state.drafts };
         const gone = drafts[draftId];
@@ -325,11 +343,16 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
       release() {
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
-        for (const s of Object.values(get().sends)) if (s.state !== "accepted" && s.state !== "refused") release(s.attachments, []);
+        // A held send's rows left the transcript: its snapshot alone owns its previews.
+        for (const s of Object.values(get().sends)) if (s.state === "unconfirmed") for (const a of s.attachments) revoke(a.previewUrl);
       },
 
-      edit(requested, sessionId, patch) {
-        const draftId = resolve(requested);
+      edit(requested, requestedSession, patch) {
+        let draftId = resolve(requested);
+        let sessionId = requestedSession;
+        // Late work for a draft that was forgotten as its session accepted it.
+        const owner = retired.get(draftId);
+        if (!get().drafts[draftId] && owner) { draftId = get().idFor(owner); sessionId = owner; }
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
@@ -404,7 +427,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         if (wasConsumed) {
           consumed.add(d.draftId);
-          if (!hasContent(d) && !held(d.draftId)) { drop(d.draftId); return; }
+          if (!hasContent(d) && !held(d.draftId)) { drop(d.draftId, session); return; }
           // Edits made after submitting become the next revision, under a
           // new id: the host's row for this one is a tombstone now.
           put({ ...d, sessionId: session });
@@ -422,6 +445,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         put({ ...d, sessionId: session });
         settle(d.draftId);
       },
+
 
       refused(requestId) {
         const send = get().sends[requestId];

@@ -5136,7 +5136,9 @@ question-answer rules are independent.
 >
 > - *Kept on this device* means kept by this page's root, in memory. A
 >   draft survives a reload only through the host; device storage across a
->   reload is #1014's, keyed by this store's draft identity.
+>   reload is #1014's, keyed by this store's draft identity. So a service
+>   worker update waits while any draft holds words the host has not
+>   acknowledged, or any send is unsettled.
 > - The field empties when a message is sent: the send is the snapshot, and
 >   the host keeps the revision it names until it accepts the message. The
 >   message names a revision only when the host acknowledged exactly what

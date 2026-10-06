@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useBrainUiRoot } from "../root-context.js";
+import { holdsUnsaved } from "../stores/draft-state.js";
 
 /** Default unsaved-text probe used by the service-worker reload guard. */
 export function hasUnsentText(): boolean {
@@ -28,6 +30,11 @@ export function useServiceWorkerUpdates({
   enabled = true,
   reload,
 }: UseServiceWorkerUpdatesOptions): void {
+  // Every session's draft lives in the root, not on screen (#951): one the
+  // host has not acknowledged, or a send nothing has settled, is unsaved work.
+  const root = useBrainUiRoot();
+  const rootRef = useRef(root);
+  rootRef.current = root;
   const isBusyRef = useRef(isBusy);
   const probeUnsentTextRef = useRef(probeUnsentText);
   const reloadRef = useRef(reload);
@@ -60,7 +67,9 @@ export function useServiceWorkerUpdates({
         }
       | undefined;
 
-    const busy = () => isBusyRef.current || probeUnsentTextRef.current();
+    const busy = () => isBusyRef.current || probeUnsentTextRef.current() || holdsUnsaved(rootRef.current.stores.drafts.getState());
+    // A draft saved, or a send settled, may be the transition back to idle.
+    const unsubscribeDrafts = rootRef.current.stores.drafts.subscribe(() => tryReloadRef.current());
     const doReload = () => {
       if (refreshingRef.current || disposed) return;
       refreshingRef.current = true;
@@ -124,6 +133,7 @@ export function useServiceWorkerUpdates({
       disposed = true;
       serviceWorker.removeEventListener("controllerchange", onControllerChange);
       document.removeEventListener("input", onInput);
+      unsubscribeDrafts();
       if (registrationListener) {
         registrationListener.registration.removeEventListener(
           "updatefound",

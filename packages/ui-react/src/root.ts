@@ -7,6 +7,7 @@ import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
+import { disposeTracks } from "./lib/draft-tracks.js";
 
 export interface BrainUiRootOptions {
   config?: Partial<BrainUiConfig>;
@@ -109,6 +110,7 @@ export function createRoot(
       connection.dispose();
       // Previews of images still in a draft or a held send: nothing else will release them.
       stores.drafts.getState().release();
+      disposeTracks(services);
       answerTabs?.dispose();
       stores.activity.dispose();
       stores.graph.dispose();

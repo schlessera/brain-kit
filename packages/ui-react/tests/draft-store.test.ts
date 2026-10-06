@@ -373,6 +373,30 @@ describe("the host's versions", () => {
     expect(back.attachment).toEqual(sail.attachment);
   });
 
+  test("an image decoded after a new chat's first message was accepted lands in that session's draft", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Which harbour?" });
+    state().beginSend({ requestId: "req-1", draftId: first, sessionId: null, text: "Which harbour?", attachments: [], message: message("Which harbour?") }, "Which harbour?");
+    state().accepted("req-1", ITHACA);
+    expect(state().drafts[first]).toBeUndefined();
+    // The composer captured the new chat's id and owner before decoding.
+    state().edit(first, null, { attachments: [image("chart.png")] });
+    expect(unboundDrafts(state().drafts), "no stray unbound draft").toHaveLength(0);
+    expect(state().drafts[state().idFor(ITHACA)]?.attachments).toHaveLength(1);
+  });
+
+  test("disposing the root releases a held send's previews", () => {
+    const { state, revoked } = store();
+    const id = state().idFor(ITHACA);
+    const map = image("map.png");
+    state().edit(id, ITHACA, { text: "x", attachments: [map] });
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "x", attachments: [map], message: message("x") }, "x");
+    state().unconfirmed("disconnected");
+    state().release();
+    expect(revoked).toEqual([map.previewUrl]);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

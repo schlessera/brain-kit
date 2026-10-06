@@ -1868,6 +1868,37 @@ describe("useServiceWorkerUpdates", () => {
     rerender({ isBusy: false });
     expect(reloads).toBe(1);
   });
+
+  test("an unsaved draft in another session, or a held send, keeps the page from reloading", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    const root = createBrainUiRoot({ storage: null });
+    const drafts = root.stores.drafts.getState();
+    // Not on screen: the draft of a session not in view, never saved.
+    const id = drafts.idFor("odysseus-raft");
+    drafts.edit(id, "odysseus-raft", { text: "Twenty trees" });
+    let reloads = 0;
+    renderHook(() => useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ }), {
+      wrapper: ({ children }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
+    });
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "the raft's draft would be lost").toBe(0);
+    // A send held for review instead: still nothing.
+    act(() => {
+      root.stores.drafts.getState().beginSend({ requestId: "req-1", draftId: id, sessionId: "odysseus-raft", text: "Twenty trees", attachments: [], message: { type: "chat_message", text: "Twenty trees", sessionId: "odysseus-raft", requestId: "req-1", source: "typed" } }, "Twenty trees");
+      root.stores.drafts.getState().unconfirmed("disconnected");
+    });
+    expect(reloads, "the held send would be lost").toBe(0);
+    // Taken back and emptied by the reader: nothing left to lose.
+    act(() => {
+      root.stores.drafts.getState().editSend("req-1");
+      root.stores.drafts.getState().edit(id, "odysseus-raft", { text: "" });
+    });
+    expect(reloads).toBe(1);
+    root.dispose();
+  });
 });
 
 describe("MarkdownContent", () => {

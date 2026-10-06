@@ -41,6 +41,14 @@ export function removeTracks(root: BrainUiServices, key: string, ids: readonly s
   for (const id of ids) entry.uploads.remove(id);
 }
 
+/** The root is going: every staged upload is aborted, and none starts another. */
+export function disposeTracks(root: BrainUiServices): void {
+  const map = registries.get(root.stores);
+  if (!map) return;
+  for (const entry of map.values()) entry.uploads.dispose();
+  map.clear();
+}
+
 /** A new chat's first message named its session: what is staged there is the session's. */
 export function moveTracks(root: BrainUiServices, from: string, to: string): void {
   const map = registry(root);
