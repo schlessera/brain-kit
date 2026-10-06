@@ -121,7 +121,12 @@ export function createTrackerClient(root: BrainUiServices) {
       }
       store.live(sessionId, events);
       // The end of a turn is when the host has times and an outcome to give.
-      const ended = events.some((e) => e.kind === "terminal") || (msg.type === "status" && msg.status === "idle");
+      // A turn-scoped `error` may be the only frame a failed start sends,
+      // with no result after it: it changes no state here, but the host's
+      // envelope then says how the turn ended.
+      const ended = events.some((e) => e.kind === "terminal")
+        || (msg.type === "status" && msg.status === "idle")
+        || msg.type === "error";
       if (!tracked && !watched) refresh(sessionId);
       else if (ended) refresh(sessionId);
     },

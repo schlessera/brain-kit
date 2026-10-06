@@ -439,6 +439,20 @@ describe("recovery (Recovery A)", () => {
     expect(await outcome(() => Response.json({ error: "SESSION_RECOVERY_FAILED", message: "x" }, { status: 500 }))).toMatchObject({ state: "needs_you", pendingKind: "approval" });
   });
 
+  test("a turn-scoped error with no result after it asks the host how the turn ended", async () => {
+    const host: Host = { envelopes: new Map([[A, () => envelope(A, 2, { requestId: "req-1", turnId: "turn-1", state: "terminal", outcome: "error", startedAt: 10, endedAt: 30 })]]), urls: [] };
+    const r = root({}, host);
+    hello(r);
+    runningIn(r, A);
+    r.stores.chat.getState().setActiveSession(B);
+    await settle();
+    host.urls.length = 0;
+    frame(r, { type: "error", sessionId: A, turnId: "turn-1", code: "BACKEND_ERROR", message: "The oars broke.", requestId: "req-1" });
+    await settle();
+    expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
+    expect(views(r)[0]).toMatchObject({ state: "failed", endedAt: 30 });
+  });
+
   test("a read is bounded: a failed request frees the session's live frames", async () => {
     let signal: AbortSignal | undefined;
     const r = createBrainUiRoot({
