@@ -11,7 +11,7 @@ import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-
 import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
-import { rankTouch } from "./tests/visual/rank-pointer.ts";
+import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import viteConfig from "./vite.config.ts";
@@ -69,7 +69,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, formViewport, formConsumerStyles, buttonPointer, overlayMouse },
+      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, buttonPointer, overlayMouse },
       provider: playwright({
         launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
