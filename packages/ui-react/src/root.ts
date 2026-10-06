@@ -107,6 +107,8 @@ export function createRoot(
     answers: connection.answers,
     dispose() {
       connection.dispose();
+      // Previews of images still in a draft or a held send: nothing else will release them.
+      stores.drafts.getState().release();
       answerTabs?.dispose();
       stores.activity.dispose();
       stores.graph.dispose();

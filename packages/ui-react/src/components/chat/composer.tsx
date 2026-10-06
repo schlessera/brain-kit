@@ -104,7 +104,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // Async add/merge logic reads the draft's current set from the store, for
   // the draft that started it, so a session switch mid-decode cannot carry
   // an image into another session.
-  const attachmentsOf = (id: string) => root.stores.drafts.getState().drafts[id]?.attachments ?? NO_ATTACHMENTS;
+  const attachmentsOf = (id: string) => {
+    const store = root.stores.drafts.getState();
+    return store.drafts[store.resolveId(id)]?.attachments ?? NO_ATTACHMENTS;
+  };
   const setAttachmentsOf = (id: string, owner: string | null, next: PendingAttachment[]) =>
     root.stores.drafts.getState().edit(id, owner, { attachments: next });
   const [attachErrors, setAttachErrors] = useState<string[]>([]);

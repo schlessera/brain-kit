@@ -115,6 +115,10 @@ export interface DraftStoreState {
   /** Host drafts to delete at a revision: a rotated-away id, or the losing side of a choice. */
   orphans: Array<{ draftId: string; revision: number }>;
 
+  /** The id a draft lives under now: a rotation hands its content to a successor. */
+  resolveId(draftId: string): string;
+  /** The root is going: previews no transcript message owns are released. */
+  release(): void;
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
   idFor(sessionId: string | null): string;
   /** Change a draft's content; a draft emptied with nothing on the host is forgotten. */
@@ -211,6 +215,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   const transferred = new Set<string>();
   /** Drafts this page's own accepted send consumed on the host. */
   const consumed = new Set<string>();
+  /** Where a rotated draft's content went: async work started on the old id lands on the new one. */
+  const successors = new Map<string, string>();
+  const resolve = (draftId: string): string => {
+    let id = draftId;
+    for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
+    return id;
+  };
 
   return createStore<DraftStoreState>((set, get) => {
     function held(draftId: string, sends = get().sends): boolean {
@@ -246,6 +257,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
       const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1 };
+      successors.set(d.draftId, next.draftId);
       set((state) => {
         const drafts = { ...state.drafts, [next.draftId]: next };
         delete drafts[d.draftId];
@@ -305,7 +317,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         return id;
       },
 
-      edit(draftId, sessionId, patch) {
+      resolveId: resolve,
+
+      release() {
+        for (const d of Object.values(get().drafts)) release(d.attachments, []);
+        for (const s of Object.values(get().sends)) if (s.state !== "accepted" && s.state !== "refused") release(s.attachments, []);
+      },
+
+      edit(requested, sessionId, patch) {
+        const draftId = resolve(requested);
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
@@ -369,7 +389,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // An unbound draft's first message named a session: the draft is
         // that session's now, whatever view the reader has moved on to.
         const session = d.sessionId ?? acceptedSessionId ?? null;
-        const wasConsumed = send.draftRef !== null && d.host?.revision === send.draftRef.revision;
+        const wasConsumed = send.draftRef !== null && send.draftRef.draftId === d.draftId && d.host?.revision === send.draftRef.revision;
         if (wasConsumed && d.savingSince !== null) {
           // A save is out: the host may have stored a newer revision before
           // it accepted the message, and kept it. Its answer decides; a new
@@ -435,7 +455,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!send || send.state !== "unconfirmed") return null;
         const d = state.drafts[send.draftId];
         // The revision is named again only while the host still holds it.
-        const draftRef = send.draftRef && d?.host?.revision === send.draftRef.revision ? send.draftRef : null;
+        const draftRef = send.draftRef && send.draftRef.draftId === d?.draftId && d.host?.revision === send.draftRef.revision ? send.draftRef : null;
         const { draftRef: _old, ...message } = send.message;
         const next: DraftSend = {
           ...send,
@@ -568,7 +588,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // that is an acknowledgement, not another device's version.
         if (local.text === draft.text && local.attachments.length === draft.attachments.length
           && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)) {
-          put({ ...local, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null });
+          // Bound on another device meanwhile: it is that session's draft here too.
+          put({ ...local, sessionId: local.sessionId ?? draft.sessionId, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null });
           return;
         }
         // A host refresh never overwrites dirty visible content (D52 §5).

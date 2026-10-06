@@ -304,6 +304,61 @@ describe("the host's versions", () => {
     expect(state().orphans).toEqual([]);
   });
 
+  test("work started on a draft before it rotated lands on its successor", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const id = state().idFor(ITHACA);
+    state().edit(id, ITHACA, { text: "Plug" });
+    state().saved(id, { revision: 1, edit: state().drafts[id]!.edit, sessionId: ITHACA, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "Plug", attachments: [], message: message("Plug") }, "Plug");
+    state().edit(id, ITHACA, { text: "And bind me" });
+    state().accepted("req-1", ITHACA);
+    // An image decoded meanwhile, written to the id the composer captured.
+    state().edit(id, ITHACA, { attachments: [image("mast.png")] });
+    const drafts = Object.values(state().drafts).filter((d) => d.sessionId === ITHACA);
+    expect(drafts, "one draft for the session").toHaveLength(1);
+    expect(drafts[0]).toMatchObject({ text: "And bind me" });
+    expect(drafts[0]!.attachments).toHaveLength(1);
+  });
+
+  test("a send names a revision of its own draft only: a successor at the same number is not consumed", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const id = state().idFor(RAFT);
+    state().edit(id, RAFT, { text: "Lash" });
+    state().saved(id, { revision: 1, edit: state().drafts[id]!.edit, sessionId: RAFT, attachmentIds: [], updatedAt: 1 }, new Map());
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: RAFT, text: "Lash", attachments: [], message: message("Lash") }, "Lash");
+    state().unconfirmed("disconnected");
+    state().edit(id, RAFT, { text: "Newer" });
+    state().hostGone(id);
+    const next = state().idFor(RAFT) === id ? undefined : Object.values(state().drafts).find((d) => d.text === "Newer")!;
+    expect(next).toBeDefined();
+    state().saved(next!.draftId, { revision: 1, edit: next!.edit, sessionId: next!.sessionId, attachmentIds: [], updatedAt: 2 }, new Map());
+    state().accepted("req-1", RAFT);
+    expect(state().drafts[next!.draftId], "the successor survives").toMatchObject({ text: "Newer" });
+  });
+
+  test("the same words bound on another device make the draft that session's here", () => {
+    const { state } = store();
+    const first = state().fresh;
+    state().edit(first, null, { text: "Letter to Penelope" });
+    state().restore(hostDraft({ draftId: first, sessionId: ITHACA, revision: 2, text: "Letter to Penelope" }));
+    expect(state().drafts[first]).toMatchObject({ sessionId: ITHACA, host: { revision: 2 } });
+    expect(unboundDrafts(state().drafts)).toHaveLength(0);
+  });
+
+  test("disposing the root releases previews only a draft or a held send owns", () => {
+    const { state, revoked } = store();
+    const id = state().idFor(ITHACA);
+    const kept = image("kept.png");
+    const sent = image("sent.png");
+    state().edit(id, ITHACA, { text: "x", attachments: [kept, sent] });
+    state().beginSend({ requestId: "req-1", draftId: id, sessionId: ITHACA, text: "x", attachments: [sent], message: message("x") }, "x");
+    state().accepted("req-1", ITHACA);
+    state().release();
+    expect(revoked).toEqual([kept.previewUrl]);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);
