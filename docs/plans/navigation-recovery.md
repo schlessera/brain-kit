@@ -11,6 +11,8 @@ maintainer decisions in [#929](https://github.com/schlessera/brain-kit/issues/92
 select authoritative host recovery A and per-session host-backed draft storage C.
 They supersede the earlier discard-confirm proposal; the measurements below
 describe incumbent behavior, and the selected contracts still require implementation.
+The adopted design built on this evidence is
+[D52 in the design-kit record](../decisions/design-kit.md#2026-10-06--d52-sessions-is-a-destination-work-left-running-is-tracked-until-seen-and-every-session-keeps-its-own-draft-943).
 
 ## Evidence boundary and reproduction
 
