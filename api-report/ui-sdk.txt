@@ -49,6 +49,8 @@ export "." (./src/index.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  CONVERSATION_CAPABILITY_KEYS
+  CONVERSATION_LIMITS
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -61,6 +63,12 @@ export "." (./src/index.ts)
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
+  type ClientConversationAudio
+  type ClientConversationCommit
+  type ClientConversationEndpoint
+  type ClientConversationPlayback
+  type ClientConversationStart
+  type ClientConversationStop
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -82,6 +90,19 @@ export "." (./src/index.ts)
   type ClientToolApproval
   type ClientToolDenial
   type ConfiguredModule
+  type ConversationAudioFormat
+  type ConversationCapabilities
+  type ConversationCloseReason
+  type ConversationDelivery
+  type ConversationDisclosure
+  type ConversationEvidence
+  type ConversationInterval
+  type ConversationLimits
+  type ConversationOutputRecord
+  type ConversationPlayback
+  type ConversationWireEvent
+  type ConversationWorkReceipt
+  type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
@@ -174,6 +195,12 @@ export "." (./src/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerConversationClosed
+  type ServerConversationEvent
+  type ServerConversationOpened
+  type ServerConversationOutput
+  type ServerConversationPermission
+  type ServerConversationWork
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -192,6 +219,7 @@ export "." (./src/index.ts)
   type ServerThinkingDelta
   type ServerToolApprovalRequest
   type ServerToolInputDelta
+  type ServerToolResolution
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
@@ -212,6 +240,7 @@ export "." (./src/index.ts)
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
   type TurnFailure
@@ -337,6 +366,8 @@ export "./client" (./src/client/index.ts)
   type BridgeToolName
   COMPARISON_BLOCK_SCHEMA
   CONTACT_BLOCK_SCHEMA
+  CONVERSATION_CAPABILITY_KEYS
+  CONVERSATION_LIMITS
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -349,6 +380,12 @@ export "./client" (./src/client/index.ts)
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
+  type ClientConversationAudio
+  type ClientConversationCommit
+  type ClientConversationEndpoint
+  type ClientConversationPlayback
+  type ClientConversationStart
+  type ClientConversationStop
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -370,6 +407,19 @@ export "./client" (./src/client/index.ts)
   type ClientToolApproval
   type ClientToolDenial
   type ConnectionStatus
+  type ConversationAudioFormat
+  type ConversationCapabilities
+  type ConversationCloseReason
+  type ConversationDelivery
+  type ConversationDisclosure
+  type ConversationEvidence
+  type ConversationInterval
+  type ConversationLimits
+  type ConversationOutputRecord
+  type ConversationPlayback
+  type ConversationWireEvent
+  type ConversationWorkReceipt
+  type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
@@ -507,6 +557,12 @@ export "./client" (./src/client/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerConversationClosed
+  type ServerConversationEvent
+  type ServerConversationOpened
+  type ServerConversationOutput
+  type ServerConversationPermission
+  type ServerConversationWork
   type ServerError
   type ServerFrameHandlers
   type ServerHandoffDraft
@@ -526,6 +582,7 @@ export "./client" (./src/client/index.ts)
   type ServerThinkingDelta
   type ServerToolApprovalRequest
   type ServerToolInputDelta
+  type ServerToolResolution
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
@@ -561,6 +618,7 @@ export "./client" (./src/client/index.ts)
   type ToolPayload
   type ToolRenderer
   type ToolRendererRegistry
+  type ToolResolutionOutcome
   type ToolSemantics
   type TrackFileSummary
   type TrackFileView
@@ -678,6 +736,8 @@ export "./protocol" (./src/protocol.ts)
   type BillingMode
   type BrainSearchResult
   type BrainStats
+  CONVERSATION_CAPABILITY_KEYS
+  CONVERSATION_LIMITS
   type ChatFileAttachment
   type ChatImageAttachment
   type ChatSession
@@ -690,6 +750,12 @@ export "./protocol" (./src/protocol.ts)
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
+  type ClientConversationAudio
+  type ClientConversationCommit
+  type ClientConversationEndpoint
+  type ClientConversationPlayback
+  type ClientConversationStart
+  type ClientConversationStop
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -710,6 +776,19 @@ export "./protocol" (./src/protocol.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ConversationAudioFormat
+  type ConversationCapabilities
+  type ConversationCloseReason
+  type ConversationDelivery
+  type ConversationDisclosure
+  type ConversationEvidence
+  type ConversationInterval
+  type ConversationLimits
+  type ConversationOutputRecord
+  type ConversationPlayback
+  type ConversationWireEvent
+  type ConversationWorkReceipt
+  type ConversationWorkState
   type CronJobStatus
   DOWNSCALE_MAX_EDGE
   FILE_SIZE_CAP_BYTES
@@ -797,6 +876,12 @@ export "./protocol" (./src/protocol.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerConversationClosed
+  type ServerConversationEvent
+  type ServerConversationOpened
+  type ServerConversationOutput
+  type ServerConversationPermission
+  type ServerConversationWork
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -815,6 +900,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerThinkingDelta
   type ServerToolApprovalRequest
   type ServerToolInputDelta
+  type ServerToolResolution
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
@@ -835,6 +921,7 @@ export "./protocol" (./src/protocol.ts)
   THINKING_LEVELS
   TRACK_MAX_FILE_BYTES
   type ThinkingLevel
+  type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
   type TurnFailure
@@ -877,6 +964,12 @@ export "./schemas" (./src/schemas.ts)
   clientAskUserResponseSchema
   clientCancelSchema
   clientChatMessageSchema
+  clientConversationAudioSchema
+  clientConversationCommitSchema
+  clientConversationEndpointSchema
+  clientConversationPlaybackSchema
+  clientConversationStartSchema
+  clientConversationStopSchema
   clientEnvironmentSchema
   clientHandoffPrepareCancelSchema
   clientHandoffPrepareSchema
@@ -897,6 +990,15 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  conversationAudioFormatSchema
+  conversationCapabilitiesSchema
+  conversationDisclosureSchema
+  conversationEvidenceSchema
+  conversationLimitsSchema
+  conversationOutputRecordSchema
+  conversationSampleRateSchema
+  conversationWireEventSchema
+  conversationWorkReceiptSchema
   handoffRequestSchema
   inboxActionItemSchema
   inboxActionStatusSchema
@@ -927,6 +1029,12 @@ export "./schemas" (./src/schemas.ts)
   serverAskUserListRequestSchema
   serverAskUserRankRequestSchema
   serverAskUserRequestSchema
+  serverConversationClosedSchema
+  serverConversationEventSchema
+  serverConversationOpenedSchema
+  serverConversationOutputSchema
+  serverConversationPermissionSchema
+  serverConversationWorkSchema
   serverErrorSchema
   serverHandoffDraftSchema
   serverHandoffReceiptSchema
@@ -945,6 +1053,7 @@ export "./schemas" (./src/schemas.ts)
   serverThinkingDeltaSchema
   serverToolApprovalRequestSchema
   serverToolInputDeltaSchema
+  serverToolResolutionSchema
   serverToolResultSchema
   serverToolUseCompleteSchema
   serverToolUseStartSchema
@@ -1086,6 +1195,8 @@ export "./server" (./src/server/index.ts)
   COMPARISON_BLOCK_SCHEMA
   CONFIDENCE
   CONTACT_BLOCK_SCHEMA
+  CONVERSATION_CAPABILITY_KEYS
+  CONVERSATION_LIMITS
   type Candidate
   type CandidateKind
   type CandidateSpan
@@ -1110,6 +1221,12 @@ export "./server" (./src/server/index.ts)
   type ClientAskUserResponse
   type ClientCancelRequest
   type ClientChatMessage
+  type ClientConversationAudio
+  type ClientConversationCommit
+  type ClientConversationEndpoint
+  type ClientConversationPlayback
+  type ClientConversationStart
+  type ClientConversationStop
   type ClientEnvironment
   type ClientHandoffPrepare
   type ClientHandoffPrepareCancel
@@ -1137,6 +1254,23 @@ export "./server" (./src/server/index.ts)
   type CompletedAutonomousToolCall
   type ConfirmPattern
   type ConfirmPatternSource
+  type ConversationAudioFormat
+  type ConversationCapabilities
+  type ConversationCloseReason
+  type ConversationDelivery
+  type ConversationDisclosure
+  type ConversationEvidence
+  type ConversationInterval
+  type ConversationLimits
+  type ConversationOutputRecord
+  type ConversationPlayback
+  type ConversationResync
+  type ConversationScope
+  type ConversationWireEvent
+  type ConversationWorkReceipt
+  type ConversationWorkRef
+  type ConversationWorkResult
+  type ConversationWorkState
   type Coord
   type CreateToolPermissionRequestInput
   type CronJobStatus
@@ -1203,6 +1337,11 @@ export "./server" (./src/server/index.ts)
   LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
+  type LiveConversationAudioChunk
+  type LiveConversationEvent
+  type LiveConversationOpenOptions
+  type LiveConversationProvider
+  type LiveConversationSession
   type LocalAnswer
   type LocalExchange
   type LocationFix
@@ -1296,6 +1435,12 @@ export "./server" (./src/server/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerConversationClosed
+  type ServerConversationEvent
+  type ServerConversationOpened
+  type ServerConversationOutput
+  type ServerConversationPermission
+  type ServerConversationWork
   type ServerError
   type ServerHandoffDraft
   type ServerHandoffReceipt
@@ -1314,6 +1459,7 @@ export "./server" (./src/server/index.ts)
   type ServerThinkingDelta
   type ServerToolApprovalRequest
   type ServerToolInputDelta
+  type ServerToolResolution
   type ServerToolResult
   type ServerToolUseComplete
   type ServerToolUseStart
@@ -1354,6 +1500,7 @@ export "./server" (./src/server/index.ts)
   type ToolPayload
   type ToolPermissionApproval
   type ToolPermissionDecisionInput
+  type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
   type TranscriptStore
@@ -1387,6 +1534,8 @@ export "./server" (./src/server/index.ts)
   askUserListSpec
   askUserRankPayload
   askUserRankSpec
+  assertLiveConversationProvider
+  assertLiveConversationSession
   assertTurnPosture
   assertVersionRequirements
   bashLockKey
@@ -1407,6 +1556,7 @@ export "./server" (./src/server/index.ts)
   createWriteLock
   decideToolPermission
   defineBackendModule
+  defineLiveConversationProvider
   defineSpeechProvider
   defineToolComponentContract
   defineToolContract
@@ -1433,6 +1583,7 @@ export "./server" (./src/server/index.ts)
   killWrapped
   observeClassification
   parseHandoffText
+  parseLiveConversationEvent
   parseMarkdown
   parseToolPayload
   piMaskFilename
@@ -1801,6 +1952,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         listSessions(): Promise<ChatSession[]>;
         getHistory(sessionId: string): Promise<SessionHistoryMessage[]>;
     }
+  ApprovalChannel (packages/ui-sdk/src/protocol.ts)
+    export type ApprovalChannel = "card" | "voice";
   AskUserAnnotation (packages/ui-sdk/src/protocol.ts)
     export interface AskUserAnnotation {
         preview?: string;
@@ -2435,6 +2588,21 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export type BillingMode = "subscription" | "api";
   Block (packages/ui-sdk/src/tool-contracts/blocks.ts)
     export type Block = z.infer<typeof BLOCK_SCHEMA>;
+  CONVERSATION_LIMITS (packages/ui-sdk/src/protocol.ts)
+    const CONVERSATION_LIMITS: {
+        readonly maxAudioChunkBytes: 65536;
+        readonly maxUtterances: 16;
+        readonly maxFragmentsPerUtterance: 128;
+        readonly maxFragmentChars: 2000;
+        readonly maxUtteranceChars: 16000;
+        readonly maxGeneratedChars: 16000;
+        readonly maxCommitChars: 8000;
+        readonly maxQueuedWork: 4;
+        readonly maxPendingNativeRequests: 8;
+        readonly maxFactChars: 4000;
+        readonly maxOutputs: 32;
+        readonly maxConversationsPerConnection: 1;
+    };
   ChatImageAttachment (packages/ui-sdk/src/protocol.ts)
     export interface ChatImageAttachment {
         data: string;
@@ -2486,6 +2654,104 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     }
   ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type ConfirmPatternSource = string | ConfirmPattern;
+  ConversationAudioFormat (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationAudioFormat {
+        encoding: "pcm16";
+        sampleRate: number;
+        channels: 1;
+    }
+  ConversationCapabilities (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationCapabilities {
+        nonblockingWork: ConversationEvidence;
+        manualEndpoint: ConversationEvidence;
+        finalTranscript: ConversationEvidence;
+        remoteOutputCancelAck: ConversationEvidence;
+        exactPermissionSpeech: ConversationEvidence;
+        echoIsolatedInput: ConversationEvidence;
+        outputWordAlignment: ConversationEvidence;
+    }
+  ConversationCloseReason (packages/ui-sdk/src/protocol.ts)
+    export type ConversationCloseReason = "stopped" | "replaced" | "disconnected" | "provider_closed" | "provider_error" | "backpressure" | "correlation" | "refused";
+  ConversationDelivery (packages/ui-sdk/src/protocol.ts)
+    export type ConversationDelivery = "pending" | "returned" | "discarded";
+  ConversationDisclosure (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationDisclosure {
+        voiceService: string;
+        destinations: string[];
+    }
+  ConversationEvidence (packages/ui-sdk/src/protocol.ts)
+    export type ConversationEvidence = "supported" | "unsupported" | "unproven";
+  ConversationInterval (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationInterval {
+        startMs: number;
+        endMs: number;
+    }
+  ConversationLimits (packages/ui-sdk/src/protocol.ts)
+    export type ConversationLimits = {
+        -readonly [K in keyof typeof CONVERSATION_LIMITS]: number;
+    };
+  ConversationOutputRecord (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationOutputRecord {
+        epoch: number;
+        outputId: string;
+        generated: string;
+        playback: ConversationPlayback;
+        playedSamples?: {
+            start: number;
+            end: number;
+        };
+    }
+  ConversationPlayback (packages/ui-sdk/src/protocol.ts)
+    export type ConversationPlayback = "played" | "discarded" | "unknown";
+  ConversationWireEvent (packages/ui-sdk/src/protocol.ts)
+    export type ConversationWireEvent = {
+        kind: "ready";
+        model?: string;
+        api?: string;
+        input: ConversationAudioFormat;
+        output: ConversationAudioFormat;
+    } | {
+        kind: "input_fragment";
+        utteranceId: string;
+        sequence: number;
+        text: string;
+        interval?: ConversationInterval;
+        finalization: "interim" | "final" | "unknown";
+        certainty: "known" | "unknown";
+        confidence?: number;
+        origin: "user" | "assistant" | "unknown";
+    } | {
+        kind: "output_transcript";
+        outputId: string;
+        sequence: number;
+        text: string;
+        interval?: ConversationInterval;
+    } | {
+        kind: "audio";
+        outputId: string;
+        sequence: number;
+        format: ConversationAudioFormat;
+        pcm: string;
+    } | {
+        kind: "interrupted";
+        outputId?: string;
+    };
+  ConversationWorkReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationWorkReceipt {
+        conversationId: string;
+        epoch: number;
+        utteranceId: string;
+        requestId: string;
+        turnId?: string;
+        sessionId?: string;
+        state: ConversationWorkState;
+        delivery: ConversationDelivery;
+        recognized: string;
+        submitted: string;
+        reason?: string;
+    }
+  ConversationWorkState (packages/ui-sdk/src/protocol.ts)
+    export type ConversationWorkState = "queued" | "running" | "completed" | "cancelled" | "error" | "refused";
   CreateToolPermissionRequestInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface CreateToolPermissionRequestInput {
         toolUseId: string;
@@ -2829,6 +3095,56 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         requestId: string;
         questions: AskUserQuestion[];
     }
+  ServerConversationClosed (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationClosed {
+        type: "conversation_closed";
+        conversationId: string;
+        epoch: number;
+        reason: ConversationCloseReason;
+        message?: string;
+    }
+  ServerConversationEvent (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationEvent {
+        type: "conversation_event";
+        conversationId: string;
+        epoch: number;
+        event: ConversationWireEvent;
+    }
+  ServerConversationOpened (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationOpened {
+        type: "conversation_opened";
+        conversationId: string;
+        epoch: number;
+        sessionId?: string;
+        providerId: string;
+        capabilities: ConversationCapabilities;
+        disclosure: ConversationDisclosure;
+        limits: ConversationLimits;
+        resync: {
+            work: number;
+            outputs: number;
+        };
+    }
+  ServerConversationOutput (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationOutput extends ConversationOutputRecord {
+        type: "conversation_output";
+        conversationId: string;
+    }
+  ServerConversationPermission (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationPermission {
+        type: "conversation_permission";
+        conversationId: string;
+        epoch: number;
+        sessionId: string;
+        turnId: string;
+        toolUseId: string;
+        toolName: string;
+        announce: boolean;
+    }
+  ServerConversationWork (packages/ui-sdk/src/protocol.ts)
+    export interface ServerConversationWork extends ConversationWorkReceipt {
+        type: "conversation_work";
+    }
   ServerError (packages/ui-sdk/src/protocol.ts)
     export interface ServerError extends SessionScoped {
         type: "error";
@@ -2882,7 +3198,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta;
+    export type ServerMessage = ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -2970,6 +3286,14 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         type: "tool_input_delta";
         toolUseId: string;
         partialJson: string;
+    }
+  ServerToolResolution (packages/ui-sdk/src/protocol.ts)
+    export interface ServerToolResolution extends SessionScoped {
+        type: "tool_resolution";
+        toolUseId: string;
+        outcome: ToolResolutionOutcome;
+        channel?: ApprovalChannel;
+        reason?: string;
     }
   ServerToolResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolResult extends SessionScoped {
@@ -3068,6 +3392,7 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         client?: ClientEnvironment;
         enforceAllowedTools?: boolean;
         noGrantSurface?: boolean;
+        posture?: "voice";
     }
   SubscriptionAuthAction (packages/ui-sdk/src/protocol.ts)
     export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
@@ -3118,6 +3443,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             tool: ToolCallView;
         }>;
     }
+  ToolResolutionOutcome (packages/ui-sdk/src/protocol.ts)
+    export type ToolResolutionOutcome = "granted" | "denied" | "expired" | "unknown";
   ToolSemantics (packages/ui-sdk/src/client/renderers.ts)
     export interface ToolSemantics {
         command?(tool: ToolCallView): string | null;
