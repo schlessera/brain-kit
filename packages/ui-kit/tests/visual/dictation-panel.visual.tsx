@@ -112,10 +112,15 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
 const done = () => [...host!.querySelectorAll<HTMLButtonElement>("button")].find(el => /^(Done|Finalizing…)$/u.test(el.textContent?.trim() ?? ""))!;
 const panel = () => done().parentElement!.parentElement!;
 
+/** Wait until the sheet's entrance, if any, has finished playing. */
+async function expectEntranceSettled(sheet = panel()) {
+  await expect.poll(() => sheet.getAnimations().every(animation => animation.playState === "finished")).toBe(true);
+}
+
 /** Entrance translation can round rect edges independently; measure the exact cap at rest. */
 async function expectSettledHeightCap(maximum: number) {
   const sheet = panel();
-  await expect.poll(() => sheet.getAnimations().every(animation => animation.playState === "finished")).toBe(true);
+  await expectEntranceSettled(sheet);
   expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity, "height cap is measured without entrance translation").toBe(true);
   expect(sheet.getBoundingClientRect().height, "settled dictation sheet respects height cap").toBeLessThanOrEqual(maximum);
 }
@@ -344,6 +349,13 @@ for (const width of [320, 1280]) for (const phase of ["connecting", "listening",
     expect(panel().textContent).toContain(phase === "connecting" ? "Connecting…" : "Listening");
     expect(document.body.style.overflow).toBe("hidden");
     if (phase === "draining") {
+      // The phone sheet is still entering here. Under load two animation
+      // frames can share a timestamp, which passes Playwright's stability
+      // check mid-entrance. Vitest wraps its iframe in scale(1), so Playwright
+      // skips the frame hit test, and the host viewport is 120px taller than
+      // the iframe: a Done still below the iframe is clicked on the host page
+      // and nothing reaches the sheet (#992). Click it at rest.
+      await expectEntranceSettled();
       await userEvent.click(done());
       expect(panel().textContent).toContain("Finalizing…");
       expect(client.drained).toBe(1);
