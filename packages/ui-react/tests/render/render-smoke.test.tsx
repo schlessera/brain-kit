@@ -222,12 +222,17 @@ afterEach(() => {
     activeView: "chat",
     filePanelOpen: false,
     settingsPanelOpen: false,
+    sessionPanelOpen: false,
+    searchPanelOpen: false,
+    addPanelOpen: false,
+    whatsupPanelOpen: false,
+    paletteOpen: false,
     settingsTab: "models",
     theme: "dark",
   });
   // The chat store was the one this file never reset, and it leaked the
   // thing hardest to see: `activeChat(state).isStreaming`. Nothing renders it
-  // directly, but several surfaces gate on it — `desktop-palette.tsx:77`
+  // directly, but several surfaces gate on it — `const why` in `desktop-routes.ts`
   // turns an enabled row into "a turn is running" — so a test that left a
   // buffer streaming changed what a LATER test's queries could find, and only
   // when the two happened to run in that order. That is what made the
@@ -238,6 +243,8 @@ afterEach(() => {
   // into `buffers`, so clearing one without the other still resolves to a
   // stale chat.
   useChatStore.setState(useChatStore.getInitialState(), true);
+  // A guard left by a failed test would hold every later navigation.
+  useUIStore.getState().setSettingsNavigationGuard(null);
   delete document.documentElement.dataset.theme;
   useConnectionStore.setState({
     wsStatus: "disconnected",
@@ -3741,34 +3748,53 @@ describe("MobileTabBar on the kit TabBar", () => {
 /* ── S7: the desktop rail and the ⌘K palette ────────────────────────────── */
 
 describe("SideRail on the kit SideRail", () => {
-  test("five destinations in one vertical tablist, the open-decision count as the badge, the socket as the status line", () => {
+  test("D52's five destinations in one vertical tablist, the open-decision count as the badge, the socket as the status line", () => {
     openDecisions(2);
     const view = render(<SideRail />);
     const tabs = view.getAllByRole("tab");
     // The test window is 1024px wide, so the rail is expanded: label, badge
-    // and printed ⌘ key are the row's text.
-    expect(tabs.map((t) => t.textContent)).toEqual(["Chat⌘1", "Actions2⌘2", "Files⌘3", "Graph⌘4", "Settings⌘5"]);
+    // and printed ⌘ key are the row's text. Graph is no longer a destination.
+    expect(tabs.map((t) => t.textContent)).toEqual(["Chat⌘1", "Sessions⌘2", "Actions2⌘3", "Files⌘4", "Settings⌘5"]);
     expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
     expect(tabs.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
-    // Nothing the app cannot back: no spend meter, and the ⌘K cap is the palette's.
+    expect(view.queryByRole("tab", { name: /Graph/ })).toBeNull();
+    // Nothing the app cannot back: no spend meter.
     expect(view.container.textContent).not.toContain("$");
-    expect(view.container.textContent).toContain("⌘K");
     // Disconnected is what the store starts as, and the rail says so.
     expect(view.container.textContent).toContain("offline");
     view.unmount();
     openDecisions(0);
   });
 
-  test("below 900px the rail collapses and each row keeps its name through aria-label", () => {
+  test("the acts sit under the destinations with the palette's names, cost and reasons, and All commands is a real button", () => {
+    const view = render(<SideRail />);
+    const acts = view.getByRole("toolbar", { name: "Acts" });
+    const buttons = Array.from(acts.querySelectorAll("button"));
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Search the brain",
+      "Add a note",
+      "Daily briefing, spends, unavailable: needs the host",
+    ]);
+    // The briefing prints its cost and its reason at rest, not on hover.
+    expect(buttons[2]!.textContent).toBe("Daily briefingspendsneeds the host");
+    const all = view.getByRole("button", { name: "All commands" });
+    expect(all.getAttribute("aria-keyshortcuts")).toBe("Meta+K");
+    expect(all.textContent).toContain("⌘K");
+    view.unmount();
+  });
+
+  test("below 900px the rail collapses, each row keeps its name, and only the effect-free acts stay", () => {
     const realMatchMedia = window.matchMedia;
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
     try {
       const view = render(<SideRail />);
       const tabs = view.getAllByRole("tab");
-      expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
+      expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Chat", "Sessions", "Actions", "Files", "Settings"]);
       expect(tabs.map((t) => t.textContent)).toEqual(["", "", "", "", ""]);
-      expect(view.container.textContent).toContain("⌘K");
-      expect(view.container.textContent).not.toContain("Command palette");
+      // The briefing is reached through All commands when collapsed (D52 §1).
+      const acts = view.getByRole("toolbar", { name: "Acts" });
+      expect(Array.from(acts.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))).toEqual(["Search the brain", "Add a note"]);
+      expect(view.getByRole("button", { name: "All commands" }).textContent).toBe("⌘K");
       view.unmount();
     } finally {
       window.matchMedia = realMatchMedia;
@@ -3778,29 +3804,134 @@ describe("SideRail on the kit SideRail", () => {
   test("a destination switches the view or opens its panel, and an open panel is the amber row", () => {
     const view = render(<SideRail />);
     const tab = (name: string) => view.getByRole("tab", { name: new RegExp(`^${name}`) });
-    fireEvent.click(tab("Graph"));
-    expect(useUIStore.getState().activeView).toBe("graph");
-    expect(tab("Graph").getAttribute("aria-selected")).toBe("true");
+    const selected = () => view.getAllByRole("tab").filter((t) => t.getAttribute("aria-selected") === "true");
+    fireEvent.click(tab("Actions"));
+    expect(useUIStore.getState().activeView).toBe("activity");
+    // Sessions opens the drawer in Chat, and is the amber row while it is open.
+    fireEvent.click(tab("Sessions"));
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().sessionPanelOpen).toBe(true);
+    expect(selected()).toEqual([tab("Sessions")]);
     fireEvent.click(tab("Files"));
     expect(useUIStore.getState().filePanelOpen).toBe(true);
-    expect(tab("Files").getAttribute("aria-selected")).toBe("true");
-    // The view is still the graph underneath; closing the panel hands the row back.
-    fireEvent.click(tab("Files"));
-    expect(tab("Graph").getAttribute("aria-selected")).toBe("true");
+    expect(useUIStore.getState().sessionPanelOpen).toBe(false);
+    expect(selected()).toEqual([tab("Files")]);
+    // Graph is no destination: while it shows, no row is amber.
+    act(() => useUIStore.getState().setActiveView("graph"));
+    expect(selected()).toEqual([]);
     view.unmount();
   });
 
-  test("⌘1–⌘5 (or Ctrl) reach the destinations from anywhere; a bare digit does not", () => {
+  test("⌘1–⌘5 (or Ctrl) reach Chat, Sessions, Actions, Files and Settings from anywhere; a bare digit does not", () => {
     const view = render(<SideRail />);
+    act(() => useUIStore.getState().setActiveView("activity"));
     fireEvent.keyDown(window, { key: "2", metaKey: true });
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().sessionPanelOpen).toBe(true);
+    fireEvent.keyDown(window, { key: "3", ctrlKey: true });
     expect(useUIStore.getState().activeView).toBe("activity");
-    fireEvent.keyDown(window, { key: "4", ctrlKey: true });
-    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(useUIStore.getState().sessionPanelOpen).toBe(false);
+    fireEvent.keyDown(window, { key: "4", metaKey: true });
+    expect(useUIStore.getState().filePanelOpen).toBe(true);
+    expect(useUIStore.getState().activeView).toBe("activity");
     fireEvent.keyDown(window, { key: "1" });
-    expect(useUIStore.getState().activeView).toBe("graph");
+    expect(useUIStore.getState().activeView).toBe("activity");
     fireEvent.keyDown(window, { key: "5", metaKey: true });
     expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+    fireEvent.keyDown(window, { key: "1", metaKey: true });
+    expect(useUIStore.getState().activeView).toBe("chat");
+    // Nothing is bound past the five, so Graph has no chord.
+    fireEvent.keyDown(window, { key: "6", metaKey: true });
+    expect(useUIStore.getState().activeView).toBe("chat");
     view.unmount();
+  });
+
+  test("Search and Add open their panels in Chat even mid-turn; the briefing runs only when the host is quiet", () => {
+    act(() => useUIStore.getState().setActiveView("activity"));
+    const view = render(<SideRail />);
+    const actButton = (name: RegExp) => view.getByRole("button", { name });
+    // Disconnected: the briefing is a stop that says why and runs nothing.
+    const briefing = actButton(/^Daily briefing/);
+    expect(briefing.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(briefing);
+    expect(useUIStore.getState().whatsupPanelOpen).toBe(false);
+    expect(useUIStore.getState().activeView).toBe("activity");
+
+    act(() => {
+      useConnectionStore.setState({ wsStatus: "connected" });
+      useChatStore.getState().startAssistantMessage(null);
+    });
+    expect(activeChat(useChatStore.getState()).isStreaming).toBe(true);
+    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, spends, unavailable: a turn is running");
+    // REST, so a running turn does not stop them; each lands in Chat.
+    fireEvent.click(actButton(/^Search the brain/));
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().searchPanelOpen).toBe(true);
+    act(() => useUIStore.getState().setActiveView("activity"));
+    fireEvent.click(actButton(/^Add a note/));
+    expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().addPanelOpen).toBe(true);
+
+    act(() => useChatStore.getState().finishAssistantMessage(null));
+    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, spends");
+    fireEvent.click(actButton(/^Daily briefing/));
+    expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
+    view.unmount();
+  });
+
+  test("unsaved Settings hold the acts and Sessions until the guard lets them leave, then they run", () => {
+    useConnectionStore.setState({ wsStatus: "connected" });
+    const view = render(<SideRail />);
+    act(() => useUIStore.getState().openSettings("modules"));
+    let leave: (() => void) | null = null;
+    act(() => useUIStore.getState().setSettingsNavigationGuard((go) => { leave = go; }));
+    const ui = () => useUIStore.getState();
+    for (const run of [
+      () => fireEvent.click(view.getByRole("button", { name: /^Search the brain/ })),
+      () => fireEvent.click(view.getByRole("button", { name: /^Daily briefing/ })),
+      () => fireEvent.keyDown(window, { key: "2", metaKey: true }),
+    ]) {
+      leave = null;
+      run();
+      // Nothing opens over Settings, and the briefing does not start, before consent.
+      expect(leave, "the guard was asked").not.toBeNull();
+      expect(ui().settingsPanelOpen).toBe(true);
+      expect([ui().searchPanelOpen, ui().whatsupPanelOpen, ui().sessionPanelOpen]).toEqual([false, false, false]);
+    }
+    // Consent, as the modules tab gives it: clear the guard, then leave.
+    act(() => { ui().setSettingsNavigationGuard(null); leave!(); });
+    expect(ui().settingsPanelOpen).toBe(false);
+    expect(ui().activeView).toBe("chat");
+    expect(ui().sessionPanelOpen, "the held route completes").toBe(true);
+    view.unmount();
+  });
+
+  test("All commands opens its own root's palette and no other mounted root's", () => {
+    const a = createBrainUiRoot({ storage: null });
+    const b = createBrainUiRoot({ storage: null });
+    const view = render(
+      <div>
+        <div data-root="a"><BrainUiProvider root={a}><SideRail /><DesktopPalette /></BrainUiProvider></div>
+        <div data-root="b"><BrainUiProvider root={b}><SideRail /><DesktopPalette /></BrainUiProvider></div>
+      </div>
+    );
+    const inA = view.container.querySelector<HTMLElement>('[data-root="a"]')!;
+    const allA = Array.from(inA.querySelectorAll("button")).find((el) => el.getAttribute("aria-keyshortcuts") === "Meta+K")!;
+    allA.focus();
+    fireEvent.click(allA);
+    expect(a.stores.ui.getState().paletteOpen).toBe(true);
+    expect(b.stores.ui.getState().paletteOpen).toBe(false);
+    const dialogs = view.getAllByRole("dialog", { name: "Command palette" });
+    expect(dialogs).toHaveLength(1);
+    expect(inA.contains(dialogs[0]!)).toBe(true);
+    // Focus enters the query, and esc hands it back to the button.
+    expect(document.activeElement).toBe(dialogs[0]!.querySelector("input"));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(allA);
+    view.unmount();
+    a.dispose();
+    b.dispose();
   });
 });
 
@@ -3812,9 +3943,16 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     const dialog = view.getByRole("dialog", { name: "Command palette" });
     expect(dialog).toBeTruthy();
     const names = view.getAllByRole("option").map((o) => o.textContent);
-    // Jump to: the five destinations with their keys, then the two acts that move you.
-    expect(names.slice(0, 5).map((n) => n?.replace(/⌘\d|⏎/g, ""))).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
-    expect(names.some((n) => n?.includes("New chat"))).toBe(true);
+    // Jump to: the five destinations with their remapped keys, then Graph
+    // with none, then New chat. Sessions is one row, not two (D52 §1).
+    expect(names.slice(0, 7).map((n) => n?.replace(/⏎/g, ""))).toEqual([
+      "Chat⌘1", "Sessions⌘2", "Actions⌘3", "Files⌘4", "Settings⌘5", "Graph", "New chat",
+    ]);
+    expect(names.filter((n) => n?.includes("Sessions"))).toHaveLength(1);
+    // Every other route is still here, the rail's acts included.
+    for (const label of ["Search the brain", "Brain statistics", "Sync the brain", "Daily briefing", "Add a note"]) {
+      expect(names.some((n) => n?.includes(label))).toBe(true);
+    }
     // Disconnected: Sync, the briefing and stats are listed DISABLED with the
     // reason, never omitted (D37).
     const sync = view.getByRole("option", { name: /Sync the brain/ });
@@ -3826,22 +3964,39 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     expect(document.activeElement).toBe(input);
 
     changeControlledInput(input, "gr");
-    expect(view.getAllByRole("option").map((o) => o.textContent)).toEqual(["Graph⌘4"]);
+    expect(view.getAllByRole("option").map((o) => o.textContent)).toEqual(["Graph⏎"]);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(useUIStore.getState().activeView).toBe("graph");
     expect(view.queryByRole("dialog")).toBeNull();
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     // The query was reset with the close.
-    expect(view.getAllByRole("option").length).toBeGreaterThan(5);
+    expect(view.getAllByRole("option").length).toBeGreaterThan(7);
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(view.queryByRole("dialog")).toBeNull();
     view.unmount();
   });
 
+  test("⌘K again, or a click on the scrim, closes it and hands focus back to what held it", () => {
+    const view = render(<div><button type="button">before</button><DesktopPalette /></div>);
+    const before = view.getByRole("button", { name: "before" });
+    before.focus();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(document.activeElement).toBe(view.getByRole("combobox"));
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(before);
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const scrim = view.getByRole("dialog").closest(".fixed")!;
+    fireEvent.mouseDown(scrim);
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(before);
+    view.unmount();
+  });
+
   test("with the socket live and no turn streaming, Sync carries its effect chip in its name", () => {
     useConnectionStore.setState({ wsStatus: "connected" });
-    // Both halves of the precondition, stated. `why` in desktop-palette.tsx
+    // Both halves of the precondition, stated. `why` in desktop-routes.ts
     // needs `connected` AND `!isStreaming`, and this test used to set only the
     // first — so it passed on whatever the previous test left behind. The
     // afterEach above now clears the chat store, and this asserts the state
@@ -4068,17 +4223,21 @@ describe("printed keys follow the pointer (#86)", () => {
     }
   });
 
-  test("a coarse-only pointer drops the rail's ⌘n caps and keeps ⌘1–⌘5 working", () => {
+  test("a coarse-only pointer drops the rail's and the palette's ⌘n caps and keeps ⌘1–⌘5 working", () => {
     withPointer(false, () => {
-      const view = render(<SideRail />);
+      const view = render(<div><SideRail /><DesktopPalette /></div>);
       // Still expanded (the width query is real and the window is 1024px),
       // so the row's text is the label alone — no key to a finger.
-      expect(view.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Chat", "Actions", "Files", "Graph", "Settings"]);
+      expect(view.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Chat", "Sessions", "Actions", "Files", "Settings"]);
       expect(view.container.textContent).not.toMatch(/⌘[1-5]/);
-      // The palette's ⌘K is out of this issue's scope and stays.
-      expect(view.container.textContent).toContain("⌘K");
+      // All commands prints ⌘K on every pointer (D36 addendum).
+      expect(view.getByRole("button", { name: "All commands" }).textContent).toContain("⌘K");
+      // Tapped open, the palette prints no destination chord either.
+      fireEvent.click(view.getByRole("button", { name: "All commands" }));
+      expect(view.getAllByRole("option").slice(0, 5).map((o) => o.textContent?.replace("⏎", ""))).toEqual(["Chat", "Sessions", "Actions", "Files", "Settings"]);
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
       fireEvent.keyDown(window, { key: "4", metaKey: true });
-      expect(useUIStore.getState().activeView).toBe("graph");
+      expect(useUIStore.getState().filePanelOpen).toBe(true);
       view.unmount();
     });
     useUIStore.getState().setActiveView("chat");
