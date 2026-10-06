@@ -471,7 +471,7 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
   }
 }
 
-// The HTML preview is sandboxed with no permissions: its document has an
+// The HTML preview is sandboxed (scripts only, #1084): its document has an
 // opaque origin, so neither the panel nor this test can read or set its
 // scroll. What is observable is that the press loads the same source again,
 // which shows the top of the file.

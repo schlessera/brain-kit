@@ -88,9 +88,11 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     if (!open || !panel) return;
     scrollToStart(panel);
     // A sandboxed HTML preview scrolls inside a document the panel cannot
-    // reach; loading the same source again shows the top of the file.
+    // reach; loading the same source again shows the top of the file, and
+    // brings back a preview that navigated itself away (#1084).
     for (const frame of panel.querySelectorAll<HTMLIFrameElement>("iframe[data-html-preview]")) {
-      frame.setAttribute("srcdoc", frame.getAttribute("srcdoc") ?? "");
+      const src = frame.getAttribute("src");
+      if (src !== null) frame.setAttribute("src", src);
     }
     const el = (sel: string) => panel.querySelector<HTMLElement>(sel);
     focusFirst([

@@ -5086,7 +5086,17 @@ describe("frontmatter chips and the viewer frame", () => {
     expect(onCopyPath).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByTitle("Reveal in tree"));
     expect(onReveal).toHaveBeenCalledTimes(1);
+    expect(view.queryByRole("link", { name: "Open in new tab" })).toBeNull();
     view.unmount();
+
+    // An HTML file opens its sandboxed preview route in a new tab, without an opener.
+    const html = render(<ViewerToolbar fileName="beacon.html" fullPath="voyage/beacon.html" mode="preview" previewAvailable copied={false} share={null}
+      openInTab="/api/files/html?path=voyage%2Fbeacon.html" onMode={onMode} onCopyPath={onCopyPath} onReveal={onReveal} />);
+    const tab = html.getByRole("link", { name: "Open in new tab" });
+    expect(tab.getAttribute("href")).toBe("/api/files/html?path=voyage%2Fbeacon.html");
+    expect(tab.getAttribute("target")).toBe("_blank");
+    expect(tab.getAttribute("rel")).toBe("noopener");
+    html.unmount();
 
     const raw = render(<ViewerToolbar fileName="x.bin" fullPath="x.bin" mode="raw" previewAvailable={false} copied share={null} onMode={onMode} onCopyPath={onCopyPath} onReveal={onReveal} />);
     expect(raw.queryByRole("tab")).toBeNull();
