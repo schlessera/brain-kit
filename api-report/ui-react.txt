@@ -946,6 +946,10 @@ signatures (every public export and the types it is made of)
         checkRetryDelivery: (sessionId: string) => boolean;
         connect: () => () => void;
         dispose(): void;
+        drafts: {
+            check: (requestId: string) => Promise<void>;
+            resend: (requestId: string) => boolean;
+        };
         flushChatDeltas: () => void;
         handleServerMessage: (msg: ServerMessage) => void;
         reconnectNow: () => void;

@@ -5127,6 +5127,46 @@ draft are authenticated data operations. None grants permission to send,
 reply or start a model turn, and none answers a question; #910's
 question-answer rules are independent.
 
+> **2026-10-06 — Implemented by #951.** The root's draft store is
+> `packages/ui-react/src/stores/draft-state.ts`, the host sync and the send
+> settlement are `lib/draft-client.ts` over `lib/draft-api.ts`, the words
+> are `lib/drafts.ts`, the line under the composer and `Compare drafts` are
+> `components/chat/draft-save-line.tsx`, and the review block is
+> `components/chat/unconfirmed-sends.tsx`. Readings of the text above:
+>
+> - *Kept on this device* means kept by this page's root, in memory. A
+>   draft survives a reload only through the host; device storage across a
+>   reload is #1014's, keyed by this store's draft identity.
+> - The field empties when a message is sent: the send is the snapshot, and
+>   the host keeps the revision it names until it accepts the message. The
+>   message names a revision only when the host acknowledged exactly what
+>   is sent. A refused message's text and images go back into its draft,
+>   ahead of anything typed since; Edit does the same for a held one.
+> - A `410` for a draft this page's own accepted send consumed keeps the
+>   newer content in that session, under a new id; any other `410` makes it
+>   a new unbound draft, as above. A second host draft for a session that
+>   already keeps one here is a conflict on it (`Keep other's` takes the
+>   other draft, `Keep both` makes it a Draft entry), never a switch.
+> - While a save is out for under 600ms, or a dirty draft has not been sent
+>   yet, the line prints nothing; a Draft entry then reads `not saved yet`.
+>   `too large` prints the bound the host named (`8 MB`, `64 KB`, `4
+>   images`), and `full` its count or bytes.
+> - A new conversation whose first message is still unanswered when the
+>   reader leaves it keeps its transcript aside; its `session_info` makes it
+>   that session's buffer without selecting it, and its draft that
+>   session's draft.
+> - The review block's reason reads `The connection dropped before the host
+>   confirmed it got this.`, or, for a refusal that named no request, `The
+>   host refused a message without saying which, so it may not have got
+>   this.` `Check again` prints `Checked: not accepted.` or `Can't check ·
+>   {reason}`; a first message has no session to read, so its reason is
+>   `no session yet`. Send again sends the same snapshot under a new request
+>   id, naming the revision only while the host still holds it.
+> - Track files are uploads staged for a message, not draft content: they
+>   stay with their draft on this page and are not saved to the host.
+> - In empty Chat the pane's `New conversation` stays `aria-disabled` (§2);
+>   a nonempty new-chat draft reaches a fresh one through the palette row.
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
