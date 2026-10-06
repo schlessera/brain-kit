@@ -346,7 +346,7 @@ once, using the host outcome as truth.
 
 Silence produces no reminder. At expiry the server denies and removes pending
 requests (`drainPendingForTurn`,
-`packages/ui-server/src/ws/turns.ts:684-718`). Clear the correlated card's
+`packages/ui-server/src/ws/turns.ts:690-724`). Clear the correlated card's
 actionable state on the host terminal outcome even if no `tool_result` arrives;
 the current terminal-frame contract is (`ServerResultMessage`,
 `packages/ui-sdk/src/protocol.ts:1046-1056`). Keep the existing card/receipt in

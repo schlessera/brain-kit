@@ -94,6 +94,12 @@ export interface QueuedFollowUp {
    * it twice nor loses them.
    */
   refusedFollowUp?: { exchanges: LocalExchange[] };
+  /**
+   * The order the host received it in. A queue is kept in this order, so a
+   * refused live follow-up that rejoins it late still runs ahead of the
+   * messages sent after it (#1063).
+   */
+  sendOrder?: number;
 }
 
 /**

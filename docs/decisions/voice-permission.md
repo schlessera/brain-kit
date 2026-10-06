@@ -368,7 +368,7 @@ further, because a model that nags about a request the user ignored is worse
 than one that lets the turn lapse. When the budget expires the host drains every
 pending approval for that turn as a denial and deletes it
 (`coordinator.drainPendingForTurn`, `packages/ui-server/src/ws/run-session.ts:329` →
-`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:684-718`),
+`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:690-724`),
 so **on the server nothing is left waiting**: the request is resolved, not
 parked. The model therefore says
 that it stopped and that the thing has to be asked for again, never that it is

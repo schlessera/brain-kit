@@ -598,12 +598,11 @@ function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/**
- * Apply the same queue budgets during routing and during a running turn.
- * `front` puts the entry ahead of everything queued: a refused live
- * follow-up was sent before any of it (#1063).
- */
-function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp, position: "back" | "front" = "back"): void {
+/** Receipt order of chat messages, for `QueuedFollowUp.sendOrder` (#1063). */
+let nextSendOrder = 0;
+
+/** Apply the same queue budgets during routing and during a running turn. */
+function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { queue: QueuedFollowUp[] }, entry: QueuedFollowUp): void {
   const parked = queuedBytes(slot);
   const incoming = queuedFollowUpBytes(entry);
   // A single message can never exceed the budget on its own: the frame cap
@@ -645,8 +644,13 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   if (revision !== undefined) entry.revision = revision;
   entry.followUpId = crypto.randomUUID();
   entry.queuedAt = Date.now();
-  if (position === "front") slot.queue.unshift(entry);
-  else slot.queue.push(entry);
+  // In the order the host received them: only a refused live follow-up
+  // rejoins behind messages sent after it, and it goes back ahead of them.
+  const later = entry.sendOrder === undefined
+    ? -1
+    : slot.queue.findIndex((queued) => queued.sendOrder !== undefined && queued.sendOrder > entry.sendOrder!);
+  if (later === -1) slot.queue.push(entry);
+  else slot.queue.splice(later, 0, entry);
   const total = parked + incoming;
   // Accepted, but heavy enough that the sender should know before they hit
   // the wall — every queued byte is held in this process until its turn runs.
@@ -717,6 +721,7 @@ export async function handleChatMessage(
     work,
   } = msg;
   const { coordinator } = host;
+  const sendOrder = ++nextSendOrder;
   // Exchanges sent with a message to a session that already exists are
   // recorded like `local_exchange` frames: the prompt handed over next
   // carries them, whichever of the paths below hands it over.
@@ -753,6 +758,7 @@ export async function handleChatMessage(
         ...(draftRef ? { draftRef } : {}),
         ...(work ? { work } : {}),
         releaseAuthorization: leaseFor(authorization, work),
+        sendOrder,
       });
     }
     return;
@@ -774,6 +780,7 @@ export async function handleChatMessage(
       ...(draftRef ? { draftRef } : {}),
       ...(work ? { work } : {}),
       releaseAuthorization: leaseFor(authorization, work),
+      sendOrder,
     });
     // Inject natively only into a turn that has not streamed its result yet,
     // and never ahead of older messages queued during routing. Host work never
@@ -813,10 +820,11 @@ export async function handleChatMessage(
           const slot = err instanceof BackendRequestError
             ? (coordinator.startingBySession.get(sessionId) ?? coordinator.bySession.get(sessionId))
             : undefined;
-          // The slot's queue was empty when this was handed over, so anything
-          // in it now was sent later: this one goes ahead of it.
-          if (slot && !slot.cancelled) {
-            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } }, "front");
+          // Not if its turn was cancelled meanwhile: that dropped everything
+          // pending in it, and a slot that has replaced it belongs to a later
+          // request.
+          if (slot && !slot.cancelled && !runningTurn.cancelled) {
+            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
             return;
           }
           const message = err instanceof Error ? err.message : String(err);

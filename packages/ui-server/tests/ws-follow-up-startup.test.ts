@@ -54,6 +54,7 @@ function runnerLikeBackend(options: { refuseEveryFollowUp?: boolean; settleLater
       let resolveDone!: () => void;
       const done = new Promise<void>((resolve) => { resolveDone = resolve; });
       live.set(sessionId, { finish: resolveDone });
+      req.signal.addEventListener("abort", () => resolveDone(), { once: true });
       req.bridge.emit({ type: "session_info", sessionId, isNew: !req.sessionId, providerId: "default" });
       try {
         await done;
@@ -275,6 +276,52 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
     await waitFor(() => fake.prompts.length === 3);
     expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail for Scylla", "Hug the cliff", "Then row hard"]);
     fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
+  test("two refused follow-ups keep the order they were sent in", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws, sent } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail for Charybdis", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Keep to the left", sessionId: "s-ithaca" });
+    await handleClientMessage(ws, { type: "chat_message", text: "Then lower the sail", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 2);
+    fake.pendingRefusals.shift()!();
+    fake.pendingRefusals.shift()!();
+    await waitFor(() => queued(sent, "s-ithaca").length === 2);
+
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 2);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => fake.prompts.length === 3);
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail for Charybdis", "Keep to the left", "Then lower the sail"]);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
+  test("a follow-up refused after its turn was cancelled does not run in the next one", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Land on Thrinacia", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Take the cattle", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 1);
+    await handleClientMessage(ws, { type: "cancel", sessionId: "s-ithaca" });
+    await waitFor(() => !isTurnActive());
+    // A new request takes the session before the old delivery settles.
+    await handleClientMessage(ws, { type: "chat_message", text: "Leave the cattle alone", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    fake.pendingRefusals.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    fake.live.get("s-ithaca")!.finish();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Land on Thrinacia", "Leave the cattle alone"]);
     await waitFor(() => !isTurnActive());
   });
 });
