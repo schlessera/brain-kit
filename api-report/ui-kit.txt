@@ -264,11 +264,9 @@ export "." (./src/index.ts)
   type WorkingState
   canvas
   color
-  defaultWorkingClock
   describeWorkingSession
   effectLineCount
   font
-  workingAge
 
 export "./internal" (./src/internal.ts)
   mapViewBounds
@@ -2421,8 +2419,6 @@ signatures (every public export and the types it is made of)
         readonly tealLift: string;
     };
   decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
-  defaultWorkingClock (packages/ui-kit/src/chrome/SessionStrip.tsx)
-    export function defaultWorkingClock(ms: number): string;
   describeWorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export function describeWorkingSession(s: WorkingSession, now: number, clock?: (ms: number) => string): WorkingSessionView;
   effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
@@ -2435,5 +2431,3 @@ signatures (every public export and the types it is made of)
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
-  workingAge (packages/ui-kit/src/chrome/SessionStrip.tsx)
-    export function workingAge(ms: number): string;

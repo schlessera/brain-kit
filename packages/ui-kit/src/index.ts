@@ -237,9 +237,7 @@ export { ComposerRow, type ComposerRowProps } from "./chrome/ComposerRow.js";
 export {
   SessionStrip,
   WORKING_STATES,
-  defaultWorkingClock,
   describeWorkingSession,
-  workingAge,
   type SessionStripProps,
   type WorkingSession,
   type WorkingSessionView,

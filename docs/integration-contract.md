@@ -200,6 +200,24 @@ an effect, a cost or a `why`. `onOpenPalette` renders a button named
 `All commands` with `aria-keyshortcuts="Meta+K"` in place of the passive ⌘K
 cap. A rail given neither prop renders as before.
 
+## Working sessions and the shared composer row (additive, #949)
+
+`@schlessera/brain-ui-kit` exports `ComposerRow` (`left?`, `right?`), the row
+between the message area and the composer, and `SessionStrip` (`sessions`,
+`now`, optional `keyboardOpen` and `formatClock`), the row's left half (D52
+§3–4 in [the design-kit record](decisions/design-kit.md)). A `WorkingSession` is
+`id`, `label`, `state` (one of `WORKING_STATES`: `needs-you`, `failed`,
+`unconfirmed`, `running`, `queued`, `unknown`, `cant-check`, `done`,
+`cancelled`) and `onOpen`, with optional `need`, `outcome`, `queueNote`,
+`reason`, `startedAt` and `endedAt`. `describeWorkingSession(session, now,
+clock?)` returns the `WorkingSessionView` the strip prints: `word`, `detail`,
+`tone`, `icon` and the accessible `name`. No age or clock time is printed
+from a null or absent timestamp. `ListRowProps` gains four optional props,
+`density?: "pill"`, `name`, `tabStop` and `onFocus`. `IconName` gains
+`attention`, `stopped`, `unheard`, `working`, `unproven`, `unreachable`,
+`finished` and `withdrawn`. A `ListRow` given none of the new props renders
+as before.
+
 ## Consumers
 
 | Consumer | Surfaces used |
