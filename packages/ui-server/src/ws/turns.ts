@@ -18,6 +18,7 @@ import type {
   ChatImageAttachment,
   ClientEnvironment,
   DraftRef,
+  LocalExchange,
   MessageSource,
   QueuedFollowUpView,
   ThinkingLevel,
@@ -85,6 +86,14 @@ export interface QueuedFollowUp {
   queuedAt?: number;
   /** Its pill label (#1004), once the host's label model has written one. */
   label?: string;
+  /**
+   * Set when this message was first handed to the backend as a live
+   * follow-up and refused, because the backend had no running turn for it
+   * (#1063). Its source was recorded then, and the local exchanges its
+   * refused prompt took are carried here, so its own turn neither records
+   * it twice nor loses them.
+   */
+  refusedFollowUp?: { exchanges: LocalExchange[] };
 }
 
 /**

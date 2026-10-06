@@ -9,6 +9,7 @@ import type {
   PricingRoute,
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
+import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
@@ -390,7 +391,9 @@ async function runRetainedSession(
       // resumed session is known now; a new one is named by session_info.
       const recordSource = (sid: string): void =>
         host.catalog.recordMessageSource?.(sid, text, source ?? "typed", { thinkingLevel, turnId: turn.turnId, files });
-      if (resumeId) recordSource(resumeId);
+      // A follow-up the backend refused had its source recorded when it was
+      // first handed over (#1063).
+      if (resumeId && !current.refusedFollowUp) recordSource(resumeId);
       // Locally answered commands the agent has not seen yet ride on this
       // prompt (#582), taken here, past the last await, so an exchange is
       // only marked carried by a prompt that is actually handed over. The
@@ -400,6 +403,7 @@ async function runRetainedSession(
       draftExchanges = [];
       const prompt = (initial.replayPrompt !== undefined && turn.turnId === firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
         ...drafted,
+        ...(current.refusedFollowUp?.exchanges ?? []),
         ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
       ]);
       turn.retryRequest = {
@@ -751,27 +755,62 @@ export async function handleChatMessage(
 
   if (runningTurn && sessionId) {
     const backend = runningTurn.backend;
+    // Built only when it is queued: the lease retains the principal.
+    const followUpEntry = (): QueuedFollowUp => ({
+      principalId: authorization.principalId,
+      authorization,
+      text,
+      attachments,
+      ...(files?.length ? { files } : {}),
+      ...(client ? { client } : {}),
+      ...(source ? { source } : {}),
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(draftRef ? { draftRef } : {}),
+      ...(work ? { work } : {}),
+      releaseAuthorization: leaseFor(authorization, work),
+    });
     // Inject natively only into a turn that has not streamed its result yet,
     // and never ahead of older messages queued during routing. Host work never
     // joins a running turn, and nothing joins a running host-work turn: each
     // needs its own turn identity to correlate its result (and keep its own
     // posture), and a follow-up would merge two requests (#957).
-    if (backend.capabilities.followUp && backend.followUp && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
+    // Only into a turn the backend already holds, too: `startedAt` is set as
+    // the turn is handed to startTurn and cleared once that returns. Before
+    // then the slot is still resolving billing and the failure snapshot,
+    // a resumed or dequeued turn included, and the backend has no turn to
+    // inject into, so the message queues as the next turn instead (#1063).
+    if (backend.capabilities.followUp && backend.followUp && runningTurn.startedAt !== undefined && runningTurn.lastResult === null && runningTurn.queue.length === 0 && thinkingLevel === undefined && requestId === undefined && draftRef === undefined && work === undefined && runningTurn.work === undefined) {
       // Inject into the running turn; frames flow through its bridge. The
       // device snapshot is deliberately not forwarded: a follow-up joins a
       // turn whose system prompt was already built and cannot be revised.
       host.catalog.clearRetryRequest?.(sessionId);
       runningTurn.retryRequest = undefined;
-      runningTurn.recorder?.recordFollowUp(authorization.principalId);
+      const recorder = runningTurn.recorder;
       // Recorded before the hand-off: the running turn's own prompt was
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
-      const prompt = withLocalContext(withTrackFiles(text, files), host.catalog.takePendingLocalExchanges?.(sessionId) ?? []);
+      const exchanges = host.catalog.takePendingLocalExchanges?.(sessionId) ?? [];
+      const prompt = withLocalContext(withTrackFiles(text, files), exchanges);
       void (async () => {
         const releaseFollowUp = authorization.retain();
         try {
           await backend.followUp!({ sessionId, prompt, attachments });
+          // Only one that joined is the turn's follow-up; a refused one
+          // becomes its own turn.
+          recorder?.recordFollowUp(authorization.principalId);
         } catch (err) {
+          // The backend's turn can end before the host learns it has, for
+          // example when its input closes while it holds a result. The
+          // contract's "no running turn" refusal then means "run it next",
+          // like any message sent between turns (#1063).
+          const slot = err instanceof BackendRequestError
+            ? (coordinator.startingBySession.get(sessionId) ?? coordinator.bySession.get(sessionId))
+            : undefined;
+          if (slot && !slot.cancelled) {
+            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
           host.sendToClients(
@@ -782,20 +821,7 @@ export async function handleChatMessage(
         }
       })();
     } else {
-      queueFollowUp(host, ws, sessionId, runningTurn, {
-        principalId: authorization.principalId,
-        authorization,
-        text,
-        attachments,
-        ...(files?.length ? { files } : {}),
-        ...(client ? { client } : {}),
-        ...(source ? { source } : {}),
-        ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
-        ...(requestId ? { requestId } : {}),
-        ...(draftRef ? { draftRef } : {}),
-        ...(work ? { work } : {}),
-        releaseAuthorization: leaseFor(authorization, work),
-      });
+      queueFollowUp(host, ws, sessionId, runningTurn, followUpEntry());
     }
     return;
   }

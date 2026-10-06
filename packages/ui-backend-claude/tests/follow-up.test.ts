@@ -117,6 +117,32 @@ describe("delivering a follow-up into the running turn", () => {
     ]);
   });
 
+  test("a resumed turn takes one from the moment startTurn is called", async () => {
+    // The host offers a live follow-up as soon as it has handed the turn to
+    // startTurn (#1063), before anything the turn awaits. The runner must
+    // already hold the session's input by then, or the message is refused.
+    let followUp: SDKUserMessage | undefined;
+    const h = harness(
+      async function* (input) {
+        yield init;
+        const next = await input.next();
+        followUp = next.done ? undefined : next.value;
+        yield lifecycle(followUp?.uuid, "queued");
+        yield lifecycle(followUp?.uuid, "started");
+        yield lifecycle(followUp?.uuid, "completed");
+        yield result(2, 10, 0.01);
+      },
+      { sessionId: "voyage" }
+    );
+    const turn = h.start();
+    const delivery = h.backend.followUp!({ sessionId: "voyage", prompt: "Mind the Cyclops." });
+    delivery.catch(() => {});
+    await expect(delivery).resolves.toBeUndefined();
+    await turn;
+
+    expect(followUp?.message.content).toBe("Mind the Cyclops.");
+  });
+
   test("is refused for an autonomous run, which is not a conversation", async () => {
     let refusal: Promise<void> | undefined;
     let identified!: () => void;
