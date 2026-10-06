@@ -172,12 +172,15 @@ export interface FollowUpQueueChange {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp">
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
     bytes += attachment.data.length;
   }
+  // A refused follow-up holds the exchanges its prompt took until it runs.
+  const exchanges = entry.refusedFollowUp?.exchanges;
+  if (exchanges?.length) bytes += Buffer.byteLength(JSON.stringify(exchanges), "utf8");
   return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 

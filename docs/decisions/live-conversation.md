@@ -40,7 +40,7 @@ posture. A speech provider cannot reinterpret a visual grant, widen an
 allowlist, or settle an approval because it generated an answer.
 
 The host resolves pending exchanges when a turn ends
-(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:696-730`). The
+(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:699-733`). The
 conversation integration must also reconcile client cards and audible claims;
 that server method is not proof of a client receipt. Completion requires host
 terminal state plus local playback drained or discarded. Provider generation

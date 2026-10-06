@@ -615,12 +615,21 @@ export const FOLLOW_UP_SETTLE_MS = 5_000;
 
 async function settleDeliveries(turn: RunningTurn): Promise<void> {
   if (!turn.deliveries?.size) return;
+  // A cancel aborts the slot's controller; it must not wait out the bound.
+  const { signal } = turn.abortController;
+  if (signal.aborted) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const bound = new Promise<void>((resolve) => { timer = setTimeout(resolve, FOLLOW_UP_SETTLE_MS); });
+  let onAbort: (() => void) | undefined;
+  const bound = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, FOLLOW_UP_SETTLE_MS);
+    onAbort = resolve;
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
   try {
     await Promise.race([Promise.allSettled([...turn.deliveries]), bound]);
   } finally {
     clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -851,11 +860,17 @@ export async function handleChatMessage(
           // Not if its turn was cancelled meanwhile: that dropped everything
           // pending in it, and a slot that has replaced it belongs to a later
           // request.
+          let failure: unknown = err;
           if (slot && !slot.cancelled && !runningTurn.cancelled) {
-            queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
-            return;
+            try {
+              queueFollowUp(host, ws, sessionId, slot, { ...followUpEntry(), refusedFollowUp: { exchanges } });
+              return;
+            } catch (queueErr) {
+              // Nothing else would report it: this runs detached.
+              failure = queueErr;
+            }
           }
-          const message = err instanceof Error ? err.message : String(err);
+          const message = failure instanceof Error ? failure.message : String(failure);
           host.reportTurnFailed("FOLLOWUP_FAILED", runningTurn, message);
           host.sendToClients(
             withTurnScope({ type: "error", code: "FOLLOWUP_FAILED", message }, runningTurn)

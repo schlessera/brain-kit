@@ -11,6 +11,7 @@ import type { LocalExchange, ServerMessage } from "@schlessera/brain-ui-sdk/prot
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import type { AgentBackend, FollowUpRequest } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
+import { queuedFollowUpBytes } from "../src/ws/turns";
 import {
   addClient,
   closeDb,
@@ -357,6 +358,51 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
     expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail for Aeaea", "Count the crew", "Ask Circe for the way"]);
     fake.live.get("s-ithaca")!.finish();
     await waitFor(() => !isTurnActive());
+  });
+
+  test("a cancel while the slot waits for a delivery ends the slot at once", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail past the Sirens", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Bind me to the mast", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 1);
+    await handleClientMessage(ws, { type: "chat_message", text: "Then row on", sessionId: "s-ithaca", thinkingLevel: "low" });
+    fake.live.get("s-ithaca")!.finish();
+    // The slot now waits for the first follow-up's answer; a cancel ends it.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await handleClientMessage(ws, { type: "cancel", sessionId: "s-ithaca" });
+    await waitFor(() => !isTurnActive());
+    expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Sail past the Sirens"]);
+    fake.pendingRefusals.shift()!();
+  });
+
+  test("a refused follow-up that cannot be queued is reported, not thrown", async () => {
+    const fake = runnerLikeBackend({ refuseEveryFollowUp: true, settleLater: true });
+    setBackendForTests(fake.backend);
+    const { ws, sent } = client();
+
+    await handleClientMessage(ws, { type: "chat_message", text: "Sail for Ithaca", sessionId: "s-ithaca" });
+    await waitFor(() => fake.live.has("s-ithaca"));
+    await handleClientMessage(ws, { type: "chat_message", text: "Wake me at the harbour", sessionId: "s-ithaca" });
+    await waitFor(() => fake.pendingRefusals.length === 1);
+    testHost().catalog.clearRetryRequest = () => { throw new Error("The session store is unavailable."); };
+    fake.pendingRefusals.shift()!();
+
+    await waitFor(() => errors(sent).length > 0);
+    expect(errors(sent)).toEqual([
+      expect.objectContaining({ code: "FOLLOWUP_FAILED", message: "The session store is unavailable." }),
+    ]);
+    fake.live.get("s-ithaca")!.finish();
+    await waitFor(() => !isTurnActive());
+  });
+
+  test("the exchanges a refused follow-up holds count against the queue budget", () => {
+    const entry = { text: "Count the crew", attachments: [] };
+    expect(queuedFollowUpBytes({ ...entry, refusedFollowUp: { exchanges: [ledger] } }))
+      .toBeGreaterThan(queuedFollowUpBytes(entry) + ledger.context.length);
   });
 
   test("a follow-up refused after its turn was cancelled does not run in the next one", async () => {
