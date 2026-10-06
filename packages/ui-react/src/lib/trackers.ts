@@ -61,6 +61,12 @@ export interface TrackerEvidence {
    * queue: its late frames belong to it, not to the queued request.
    */
   behind: string | null;
+  /**
+   * Turns that `latest` has moved past, newest last. The host keeps a
+   * turn's identity on its late emissions, so a frame from one of these
+   * is that old turn speaking, never newer work.
+   */
+  past: string[];
   /** Live interactions waiting on a person, by original identity. */
   pending: SessionRecoveryPending[];
   /** A snapshot came back below a revision already seen. */
@@ -72,7 +78,7 @@ export interface TrackerEvidence {
 }
 
 export function emptyEvidence(revision: number | null = null): TrackerEvidence {
-  return { revision, ahead: false, latest: null, behind: null, pending: [], rolledBack: false, unavailable: null, settled: false };
+  return { revision, ahead: false, latest: null, behind: null, past: [], pending: [], rolledBack: false, unavailable: null, settled: false };
 }
 
 /** What a live frame says about its session's work. */
@@ -148,8 +154,18 @@ function fresh(requestId: string | null, turnId: string | null, state: "queued" 
 }
 
 /** Live proof replaces an unavailable read and a rollback: the frame is the host speaking now. */
+/** How many superseded turns are remembered; enough for any burst of late frames. */
+const PAST_TURNS = 16;
+
+/** `past` after `latest` moves from `previous` to `next`. */
+function superseded(past: string[], previous: SessionRecoveryLatest | null, next: SessionRecoveryLatest): string[] {
+  const old = previous?.turnId ?? null;
+  if (old === null || old === next.turnId || past.includes(old)) return past;
+  return [...past, old].slice(-PAST_TURNS);
+}
+
 function proven(evidence: TrackerEvidence, latest: SessionRecoveryLatest, ahead: boolean, behind = evidence.behind): TrackerEvidence {
-  return { ...evidence, latest, ahead, behind, rolledBack: false, unavailable: null, settled: true };
+  return { ...evidence, latest, ahead, behind, past: superseded(evidence.past, evidence.latest, latest), rolledBack: false, unavailable: null, settled: true };
 }
 
 /**
@@ -170,6 +186,8 @@ export function applyLiveEvent(evidence: TrackerEvidence, event: TrackerLiveEven
     }
     case "running": {
       const { turnId, requestId } = event;
+      // A late frame of a turn already superseded.
+      if (turnId !== null && turnId !== latest?.turnId && evidence.past.includes(turnId)) return evidence;
       if (!latest) return proven(evidence, { ...fresh(requestId, turnId, "running") }, true, null);
       if (latest.state === "queued" && latest.turnId === null) {
         // Only the request's own dispatch starts it: the turn's
@@ -248,7 +266,7 @@ export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecove
   if (seen !== null && recovery.revision < seen) return { ...base, rolledBack: true };
   const latest = evidence.latest;
   if (seen === null || recovery.revision > seen || !latest) {
-    return { ...base, revision: recovery.revision, latest: recovery.latest, ahead: false, behind: null, rolledBack: false };
+    return { ...base, revision: recovery.revision, latest: recovery.latest, ahead: false, behind: null, past: latest ? superseded(evidence.past, latest, recovery.latest) : evidence.past, rolledBack: false };
   }
   // Equal revision.
   if (sameRequest(latest, recovery.latest)) {

@@ -95,6 +95,17 @@ describe("live frames (rules 3 and 4)", () => {
     expect(e.latest).toMatchObject({ turnId: "turn-5", state: "running" });
   });
 
+  test("a late frame of a superseded turn never brings it back", () => {
+    let e = live(emptyEvidence(), frames.info("turn-1", "req-1"), frames.result("turn-1"), frames.info("turn-2", "req-2"), frames.result("turn-2"));
+    e = live(e, frames.delta("turn-1"), frames.result("turn-1", "error"));
+    expect(e.latest).toMatchObject({ turnId: "turn-2", state: "terminal", outcome: "success" });
+    // Also after a snapshot moved latest on.
+    let s = live(emptyEvidence(), frames.info("turn-3", "req-3"));
+    s = applySnapshot(s, envelope(4, { requestId: "req-4", turnId: "turn-4", state: "running" }));
+    s = live(s, frames.delta("turn-3"));
+    expect(s.latest).toMatchObject({ turnId: "turn-4", state: "running" });
+  });
+
   test("progress of the running turn answers a failed read", () => {
     let e = applySnapshot(emptyEvidence(), envelope(2, { requestId: "req-2", turnId: "turn-2", state: "running", startedAt: 1 }));
     e = applyUnavailable(e, "host_unreachable");

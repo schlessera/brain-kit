@@ -439,6 +439,25 @@ describe("recovery (Recovery A)", () => {
     expect(await outcome(() => Response.json({ error: "SESSION_RECOVERY_FAILED", message: "x" }, { status: 500 }))).toMatchObject({ state: "needs_you", pendingKind: "approval" });
   });
 
+  test("a read is bounded: a failed request frees the session's live frames", async () => {
+    let signal: AbortSignal | undefined;
+    const r = createBrainUiRoot({
+      storage: null,
+      request: async (_url, init) => { signal = init?.signal ?? undefined; throw new DOMException("The operation timed out.", "TimeoutError"); },
+    });
+    roots.push(r);
+    r.stores.connection.setState({ wsStatus: "connected" });
+    hello(r);
+    runningIn(r, A);
+    r.stores.chat.getState().setActiveSession(B);
+    await settle();
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(r.stores.trackers.getState().reading[A]).toBeUndefined();
+    expect(views(r)[0]).toMatchObject({ state: "cant_check", cantCheck: "host_unreachable" });
+    frame(r, { type: "text_delta", sessionId: A, turnId: "turn-1", text: "Still rowing." });
+    expect(views(r)[0]!.state).toBe("running");
+  });
+
   test("a read begun before the set was deleted cannot settle a newer read", async () => {
     const r = root();
     hello(r, false, "pk-ithaca");

@@ -54,6 +54,10 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   const sessionId = useRootStore("chat", (s) => s.activeSessionId);
   useRootStore("trackers", (s) => (sessionId ? s.evidence[sessionId] : undefined));
   useRootStore("trackers", (s) => (sessionId ? s.records[sessionId] : undefined));
+  // Something that covered Chat going away is a chance too.
+  useRootStore("ui", (s) => `${s.activeView}:${s.paletteOpen}:${s.subagentStack.length}`);
+  useRootStore("mask", (s) => s.request !== null);
+  useRootStore("handoff", (s) => s.sheet !== null);
   useEffect(() => {
     observeTrackerSeen(root, transcript.current, scrollDisc);
   });

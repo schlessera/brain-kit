@@ -10,6 +10,9 @@ import { isWork, trackerEventsForFrame } from "./trackers.js";
  * authenticated, read-only `GET /api/sessions/:id/recovery`, and only when
  * the host advertises it.
  */
+/** How long one recovery read may take before it counts as unreachable. */
+const RECOVERY_READ_TIMEOUT_MS = 10_000;
+
 export function createTrackerClient(root: BrainUiServices) {
   const trackers = root.stores.trackers;
   const chat = root.stores.chat;
@@ -59,7 +62,10 @@ export function createTrackerClient(root: BrainUiServices) {
     if (!store.records[sessionId]) return;
     if (!store.beginRead(sessionId)) { again.add(sessionId); return; }
     const epoch = store.epoch;
-    void root.api.sessionRecovery(sessionId).then((result) => {
+    // Bounded, so a stalled request cannot hold the session's live frames
+    // forever: a timeout reads as host unreachable, and the next end of a
+    // turn or hello asks again.
+    void root.api.sessionRecovery(sessionId, { signal: AbortSignal.timeout(RECOVERY_READ_TIMEOUT_MS) }).then((result) => {
       if (disposed) return;
       trackers.getState().endRead(sessionId, result, epoch);
       if (again.delete(sessionId)) refresh(sessionId);
