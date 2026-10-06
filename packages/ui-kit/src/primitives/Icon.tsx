@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 79 keys, 77 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 79 are kept.
+ * 87 keys, 85 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 87 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -34,6 +34,14 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
+  CircleEllipsis,
+  CircleMinus,
+  CircleSlash,
+  CircleX,
+  Contrast,
   GripVertical,
   AlarmClock,
   ArrowDown,
@@ -198,6 +206,16 @@ export const ICONS = {
   wifi: Wifi,
   battery: BatteryFull,
   run: Play,
+  // The working-session states (D52 §4), each a ringed glyph so a pill and a
+  // Working-sheet row read as one family. `queued` reuses `later`.
+  attention: CircleAlert,
+  stopped: CircleX,
+  unheard: CircleEllipsis,
+  working: Contrast,
+  unproven: CircleDashed,
+  unreachable: CircleSlash,
+  finished: CircleCheck,
+  withdrawn: CircleMinus,
   filter: SlidersHorizontal,
 } as const satisfies Record<string, LucideIcon>;
 
