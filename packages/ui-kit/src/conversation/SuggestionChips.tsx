@@ -1,6 +1,7 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
 import { warnOnce } from "../internal/dev.js";
+import { Chip } from "../primitives/Chip.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { SuggestionTone } from "../types.js";
@@ -24,12 +25,40 @@ import type { SuggestionTone } from "../types.js";
  * `brightness(.95)` with no transform where `.bk-control` uses `.94` with one;
  * the shared implementation wins, because four states with one implementation
  * each is the only reason they stay consistent across thirty components.
+ *
+ * **Cost and unavailability are printed, never hovered** (D52 §2). `cost` is
+ * a gold effect chip after the label; a `disabled` chip keeps it, dims only
+ * its label and icon, and prints `why` after them in mono. Neither appears
+ * unless the caller passes it, so an existing chip renders exactly as before.
+ * A chip with a cost or a reason wraps instead of ellipsising: a clipped cost
+ * or reason is not an honest one.
+ *
+ * Under a coarse pointer every interactive chip is at least 44px tall
+ * (`.bk-suggestion`, D52 §7). The 7px gap stays, so neighbouring targets
+ * never overlap.
  */
 export interface SuggestionItem {
   label: string;
   icon?: IconName;
   tone?: SuggestionTone;
   onClick?: () => void;
+  /**
+   * What running the chip costs, printed on it at rest as a gold effect chip
+   * (`spends`, D38 §5). The caller's own word: the kit never estimates one,
+   * and a chip that cannot spend passes nothing.
+   */
+  cost?: string;
+  /**
+   * The chip cannot run now. It stays focusable and announced
+   * (`aria-disabled`), keeps its `cost`, and ignores taps, clicks, Enter and
+   * Space. Pair it with `why`.
+   */
+  disabled?: boolean;
+  /**
+   * Why a disabled chip cannot run (`needs the host`), printed on the chip
+   * after its label rather than in a tooltip. Ignored while enabled.
+   */
+  why?: string;
 }
 
 export interface SuggestionChipsProps {
@@ -123,7 +152,11 @@ export function SuggestionChips(p: SuggestionChipsProps) {
         {src.map((it, i) => {
           const tone = it.tone;
           const ink = tone ? INKS[tone] || color.inkDim : color.inkDim;
-          const act = Boolean(it.onClick);
+          const off = it.disabled === true;
+          // A disabled chip is still a control: it is the chip a user would
+          // tap, and it has to be reachable to announce why it cannot run.
+          const act = Boolean(it.onClick) || off;
+          const why = off && it.why ? it.why : undefined;
           // The PRESENCE of a tone is what makes a chip toned, not its value:
           // an untoned chip is transparent with the plain card edge, and lifts
           // to the white veil rather than to a tint of nothing.
@@ -139,10 +172,13 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             padding: "7px 12px",
             font: `500 11.5px/1.3 ${font.body}`,
             color: ink,
-            cursor: act ? "pointer" : "default",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            cursor: off ? "not-allowed" : act ? "pointer" : "default",
+            // A chip that prints a cost or a reason wraps rather than clips:
+            // the label's text cannot shrink, so an ellipsis would push the
+            // printed word past the clipped edge first.
+            ...(why || it.cost
+              ? { flexWrap: "wrap", rowGap: 3, whiteSpace: "normal", overflowWrap: "anywhere" }
+              : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
             ...({
               "--hv-bg": tone ? HOVER_TINTS[tone] || HOVER_TINTS.neutral : token("hover-veil-strong"),
               "--hv-bd": tone ? HOVER_BORDERS[tone] || HOVER_BORDERS.neutral : token("hover-border"),
@@ -155,21 +191,36 @@ export function SuggestionChips(p: SuggestionChipsProps) {
           function onKeyDown(event: KeyboardEvent<HTMLSpanElement>) {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
-            it.onClick?.();
+            if (!off) it.onClick?.();
           }
 
+          const glyph = it.icon ? <Icon icon={it.icon} size={12} color={ink} /> : null;
           return (
             <span
               key={i}
               style={chip}
-              className={act ? "bk-control" : undefined}
+              className={off ? "bk-suggestion" : act ? "bk-control bk-suggestion" : undefined}
               role={act ? "button" : undefined}
               tabIndex={act ? 0 : undefined}
-              onClick={it.onClick}
+              aria-disabled={off ? true : undefined}
+              onClick={off ? undefined : it.onClick}
               onKeyDown={act ? onKeyDown : undefined}
             >
-              {it.icon ? <Icon icon={it.icon} size={12} color={ink} /> : null}
-              {it.label}
+              {off ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, opacity: 0.45 }}>
+                  {glyph}
+                  {it.label}
+                </span>
+              ) : (
+                <>
+                  {glyph}
+                  {it.label}
+                </>
+              )}
+              {it.cost ? <Chip variant="effect" tone="gold" label={it.cost} /> : null}
+              {why ? (
+                <span style={{ font: `500 10px/1.3 ${font.mono}`, color: color.inkMute }}>{why}</span>
+              ) : null}
             </span>
           );
         })}

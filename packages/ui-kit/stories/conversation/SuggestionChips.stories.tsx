@@ -89,3 +89,89 @@ export const MixedGating = meta.story({
     await expect(await canvas.findAllByRole("button")).toHaveLength(1);
   },
 });
+
+/**
+ * COST IS PRINTED, NOT HOVERED (D52 §2). `cost` is the caller's own word, a
+ * gold effect chip after the label; the kit never estimates one, and a chip
+ * that cannot spend passes nothing.
+ */
+export const WithCost = meta.story({
+  args: {
+    label: "Start with",
+    items: [
+      { label: "What's new?", icon: "digest", tone: "amber", cost: "spends", onClick: fn() },
+      { label: "Search…", icon: "search", onClick: fn() },
+      { label: "Add a note…", icon: "add", onClick: fn() },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const chip = canvas.getByRole("button", { name: /What's new\?/ });
+    await expect(chip).toHaveTextContent("spends");
+    await expect(canvas.getByRole("button", { name: "Search…" })).not.toHaveTextContent("spends");
+  },
+});
+
+/**
+ * UNAVAILABLE, WITH ITS REASON (D52 §2). The chip stays a tab stop and is
+ * announced as disabled, keeps its cost, prints why after the label, and
+ * ignores a click, Enter and Space.
+ */
+export const Disabled = meta.story({
+  args: {
+    label: "Start with",
+    items: [
+      { label: "What's new?", icon: "digest", tone: "amber", cost: "spends", disabled: true, why: "needs the host", onClick: fn() },
+      { label: "Search…", icon: "search", onClick: fn() },
+    ],
+  },
+  play: async ({ canvas, userEvent, args }) => {
+    const chip = canvas.getByRole("button", { name: /What's new\?/ });
+    await expect(chip).toHaveAttribute("aria-disabled", "true");
+    await expect(chip).toHaveTextContent("spends");
+    await expect(chip).toHaveTextContent("needs the host");
+    await userEvent.click(chip);
+    chip.focus();
+    await expect(chip).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(" ");
+    await expect(args.items?.[0].onClick).not.toHaveBeenCalled();
+    // The neighbour still works, so the rejection is the chip's, not the row's.
+    await userEvent.click(canvas.getByRole("button", { name: "Search…" }));
+    await expect(args.items?.[1].onClick).toHaveBeenCalledTimes(1);
+  },
+});
+
+/** In a narrow column the reason wraps inside the chip rather than being clipped. */
+export const DisabledNarrow = Disabled.extend({
+  parameters: { stageWidth: 200 },
+  args: {
+    items: [
+      { label: "What's new?", icon: "digest", tone: "amber", cost: "spends", disabled: true, why: "a turn is running", onClick: fn() },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const chip = canvas.getByRole("button", { name: /What's new\?/ });
+    await expect(chip.scrollWidth, "the reason is not clipped").toBeLessThanOrEqual(chip.clientWidth);
+  },
+});
+
+/**
+ * An ENABLED chip with a cost in a narrow column wraps its label, so the cost
+ * stays inside the chip instead of being pushed past a clipped edge (V6).
+ */
+export const CostNarrow = meta.story({
+  parameters: { stageWidth: 200 },
+  args: {
+    items: [
+      { label: "What happened on the voyage since Troy?", icon: "digest", tone: "amber", cost: "spends", onClick: fn() },
+    ],
+  },
+  play: async ({ canvas }) => {
+    const chip = canvas.getByRole("button", { name: /What happened/ });
+    const cost = [...chip.querySelectorAll("span")].find((el) => el.textContent === "spends")!;
+    const outer = chip.getBoundingClientRect();
+    const inner = cost.getBoundingClientRect();
+    await expect(inner.right <= outer.right && inner.left >= outer.left, "the cost is inside the chip").toBe(true);
+    await expect(chip.scrollWidth, "nothing clipped").toBeLessThanOrEqual(chip.clientWidth);
+  },
+});

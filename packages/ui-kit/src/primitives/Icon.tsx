@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 78 keys, 76 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 78 are kept.
+ * 79 keys, 77 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 79 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -36,6 +36,7 @@ import {
   Activity,
   GripVertical,
   AlarmClock,
+  ArrowDown,
   ArrowUp,
   ArrowUpRight,
   BatteryFull,
@@ -155,6 +156,8 @@ export const ICONS = {
   attach: Paperclip,
   mic: Mic,
   send: ArrowUp,
+  /** The scroll disc's glyph: back down to the newest message (D52 §7). */
+  latest: ArrowDown,
   add: Plus,
   share: Share2,
   bookmark: Bookmark,

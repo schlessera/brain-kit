@@ -86,6 +86,10 @@ export "." (./src/index.ts)
   type DigestCardProps
   type DigestGroup
   type DigestItem
+  DiscButton
+  type DiscButtonProps
+  DiscRow
+  type DiscRowProps
   Disclosure
   type DisclosureProps
   DispositionBar
@@ -830,6 +834,26 @@ signatures (every public export and the types it is made of)
         text: string;
         meta?: string;
     }
+  DiscButton (packages/ui-kit/src/chrome/DiscButton.tsx)
+    export function DiscButton(p: DiscButtonProps): import("react").JSX.Element;
+  DiscButtonProps (packages/ui-kit/src/chrome/DiscButton.tsx)
+    export interface DiscButtonProps {
+        name: string;
+        icon: IconName;
+        tone?: "ink" | "mute";
+        label?: string;
+        anchor?: "end" | "center";
+        onClick: () => void;
+        style?: CSSProperties;
+    }
+  DiscRow (packages/ui-kit/src/chrome/DiscButton.tsx)
+    export function DiscRow(p: DiscRowProps): import("react").JSX.Element;
+  DiscRowProps (packages/ui-kit/src/chrome/DiscButton.tsx)
+    export interface DiscRowProps {
+        label?: string;
+        children?: ReactNode;
+        style?: CSSProperties;
+    }
   Disclosure (packages/ui-kit/src/blocks/Disclosure.tsx)
     export function Disclosure(p: DisclosureProps): import("react").JSX.Element;
   DisclosureProps (packages/ui-kit/src/blocks/Disclosure.tsx)
@@ -1080,6 +1104,7 @@ signatures (every public export and the types it is made of)
         readonly image: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly install: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly later: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly latest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly link: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly menu: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1757,6 +1782,9 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         tone?: SuggestionTone;
         onClick?: () => void;
+        cost?: string;
+        disabled?: boolean;
+        why?: string;
     }
   SuggestionTone (packages/ui-kit/src/types.ts)
     export type SuggestionTone = "teal" | "amber" | "purple" | "blue" | "neutral";

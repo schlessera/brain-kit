@@ -68,10 +68,15 @@ type TrackerEventKeysMatch = Assert<
  * `tone` (a suggestion never carries an effect, so it is never amber), and the
  * block carries the row's `label`. Keys equal in both directions, so a field
  * added to the kit fails here until it is carried or excluded by name.
+ *
+ * `cost`, `disabled` and `why` (#945, D52 §2) are excluded by name: they are
+ * the app's own truth about a command's spend and availability. A model-offered
+ * chip only fills the composer and never sends (D50), so it has no cost to
+ * print, and a model cannot declare a command unavailable.
  */
 type SuggestionsBlock = Extract<Block, { kind: "suggestions" }>;
 type SuggestionItemKeysMatch = Assert<
-  Equal<keyof SuggestionsBlock["items"][number], keyof Omit<SuggestionItem, "onClick" | "tone">>
+  Equal<keyof SuggestionsBlock["items"][number], keyof Omit<SuggestionItem, "onClick" | "tone" | "cost" | "disabled" | "why">>
 >;
 type SuggestionRowKeysMatch = Assert<
   Equal<Exclude<keyof SuggestionsBlock, "kind" | "items">, keyof Pick<SuggestionChipsProps, "label">>

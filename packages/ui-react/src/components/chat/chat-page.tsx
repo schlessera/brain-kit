@@ -1,7 +1,7 @@
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { ArrowDown, ChevronUp } from "lucide-react";
+import { ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
@@ -26,7 +26,7 @@ import { useHandoffStore, type HandoffLink } from "../../stores/handoff-store.js
 import { markerPosition } from "../../lib/handoff.js";
 import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
-import { Icon } from "@schlessera/brain-ui-kit";
+import { DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import {
   primeClientEnvironment,
   READING_COLUMN_ATTR,
@@ -340,22 +340,17 @@ export function ChatPage() {
             the transcript keeps that height (#93), and first in the area so
             Tab reaches it before the messages.
 
-            The disc is the scroll-to-bottom disc's paint, mirrored to the top
-            right. The button around it is the 44px target: it reaches 12px
-            left and 6px up and down, and not right, so it never sits over a
-            classic scrollbar. */}
+            The kit's overlay disc (D52 §7): a 32px paint in a 44px button
+            that reaches 12px left and 6px up and down, and not right, so it
+            never sits over a classic scrollbar. Ink at rest as the primary
+            act; hover and keyboard focus open the pill leftward. There is no
+            confirmation: every session keeps its own draft (D52 §5). The row
+            is right-anchored, so the phone Search disc (#947) joins it on the
+            left and is pushed, never covered, when the pill opens. */}
         {hasMessages && (
-          <button
-            type="button"
-            onClick={clearMessages}
-            aria-label="New chat"
-            title="New chat"
-            className="group absolute right-4 top-2.5 z-10 flex h-11 w-11 items-center justify-end outline-none"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface shadow-md text-muted-foreground transition-all duration-150 group-hover:text-foreground group-focus-visible:ring-2 group-focus-visible:ring-primary/50">
-              <Icon icon="compose" size={16} />
-            </span>
-          </button>
+          <DiscRow label="Chat actions" style={{ position: "absolute", right: 16, top: 10, zIndex: 10 }}>
+            <DiscButton name="New chat" icon="compose" tone="ink" label="New chat" onClick={clearMessages} />
+          </DiscRow>
         )}
         {messages.length === 0 ? (
           <div className="h-full overflow-y-auto">
@@ -415,15 +410,16 @@ export function ChatPage() {
           </div>
         )}
 
+        {/* The paint stays 16px above the area's bottom (D52 §3); its 44px
+            box reaches 6px past it on every side. */}
         {showScrollButton && (
-          <button
-            type="button"
+          <DiscButton
+            name="Scroll to latest"
+            icon="latest"
+            anchor="center"
             onClick={scrollToBottom}
-            title="Scroll to bottom"
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface shadow-md text-muted-foreground transition-all duration-150 hover:text-foreground"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </button>
+            style={{ position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)" }}
+          />
         )}
       </div>
 
