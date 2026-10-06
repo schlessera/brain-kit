@@ -463,6 +463,43 @@ describe("persistence", () => {
     expect(stored()).toEqual([B, "odysseus-circe"].sort());
   });
 
+  test("a tracker another tab stored, or stored at a newer revision, starts over here and is read again", async () => {
+    const storage = memoryStorage();
+    const host: Host = { envelopes: new Map([[A, () => envelope(A, 2, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 })]]), urls: [] };
+    const here = root({ storage, storagePrefix: "ithaca" }, host);
+    hello(here);
+    // This tab knows A at revision 1, turn 1, as done.
+    here.stores.trackers.getState().track(A);
+    here.stores.trackers.getState().beginRead(A);
+    here.stores.trackers.getState().endRead(A, { ok: true, recovery: { sessionId: A, backendId: null, revision: 1, latest: latest({ requestId: "req-1", turnId: "turn-1", state: "terminal", outcome: "success" }), pending: [] } }, here.stores.trackers.getState().epoch);
+    // The other tab stored A at revision 2.
+    const key = `ithaca:${TRACKER_STORAGE_KEY}`;
+    storage.setItem(key, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ sessionId: A, requestId: "req-2", turnId: "turn-2", revision: 2, leftAt: 5, seen: null }] }));
+    host.urls.length = 0;
+    expect(here.stores.trackers.getState().syncFromStorage()).toEqual([A]);
+    // Turn 1 can no longer be seen as the latest.
+    expect(here.stores.trackers.getState().observeSeen({ sessionId: A, turnId: "turn-1", revision: 1 })).toBe(false);
+    expect(views(here)[0]).toMatchObject({ revision: 2 });
+  });
+
+  test("a storage event from another tab reads the trackers it brought", async () => {
+    const page = new EventTarget();
+    (globalThis as { window?: unknown }).window = page;
+    try {
+      const storage = memoryStorage();
+      const host: Host = { envelopes: new Map([[A, () => envelope(A, 2, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 })]]), urls: [] };
+      const here = root({ storage, storagePrefix: "ithaca" }, host);
+      hello(here);
+      storage.setItem(`ithaca:${TRACKER_STORAGE_KEY}`, JSON.stringify({ v: 1, principalKey: "pk-ithaca", trackers: [{ sessionId: A, requestId: "req-2", turnId: "turn-2", revision: 2, leftAt: 5, seen: null }] }));
+      page.dispatchEvent(new Event("storage"));
+      await settle();
+      expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
+      expect(views(here)[0]).toMatchObject({ state: "done", settled: true });
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
+  });
+
   test("restored trackers keep identifiers only, not transcripts or payloads", () => {
     const storage = memoryStorage();
     tracked(storage, "ithaca");

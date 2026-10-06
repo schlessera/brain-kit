@@ -102,7 +102,7 @@ export interface TrackerStoreState {
    * Another tab of this root changed the stored set (a `storage` event):
    * this tab takes its trackers as they now stand.
    */
-  syncFromStorage(): void;
+  syncFromStorage(): string[];
   /** A revocation: the whole set goes, and tracking stops until `resume`. */
   revoke(): void;
   /** A hello arrived: the connection is authorized, so tracking resumes. */
@@ -197,11 +197,26 @@ export function createTrackerStore(env: StoreEnvironment) {
       if (records !== get().records) adopt(records);
     }
 
-    /** Take in trackers another tab of this root stored. */
-    function adopt(records: Record<string, TrackerRecord>) {
-      const evidence = { ...get().evidence };
-      for (const record of Object.values(records)) if (!evidence[record.sessionId]) evidence[record.sessionId] = evidenceFromRecord(record);
+    /**
+     * Take in trackers another tab of this root stored. Returns the sessions
+     * whose tracker is new here, or whose stored revision is ahead of what
+     * this tab knows: their evidence starts over from the record, so an
+     * older turn cannot be shown or seen, and they need a fresh read.
+     */
+    function adopt(records: Record<string, TrackerRecord>): string[] {
+      const state = get();
+      const evidence = { ...state.evidence };
+      const changed: string[] = [];
+      for (const record of Object.values(records)) {
+        const known = evidence[record.sessionId];
+        const mine = state.records[record.sessionId];
+        if (!mine || !known || (record.revision ?? -1) > (known.revision ?? -1)) {
+          if (!mine || (record.revision ?? -1) > (known?.revision ?? -1)) evidence[record.sessionId] = evidenceFromRecord(record);
+          changed.push(record.sessionId);
+        }
+      }
       set({ records, evidence });
+      return changed;
     }
 
     /** Keep the record's identifiers in step with the newest evidence, so a reload can detect a rollback. */
@@ -415,8 +430,8 @@ export function createTrackerStore(env: StoreEnvironment) {
         const principalKey = get().principalKey;
         // A set stored under another principal is not this tab's to take;
         // its next hello decides.
-        if (current.principalKey !== null && principalKey !== null && current.principalKey !== principalKey) return;
-        adopt(current.records);
+        if (current.principalKey !== null && principalKey !== null && current.principalKey !== principalKey) return [];
+        return adopt(current.records);
       },
 
       revoke() {

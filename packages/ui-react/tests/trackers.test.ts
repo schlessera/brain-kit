@@ -157,6 +157,12 @@ describe("recovery envelopes (rules 1, 2 and 5)", () => {
     expect(trackerWords(view(e), 0)).toEqual({ word: "unknown", detail: "host can't confirm the latest turn" });
   });
 
+  test("a rollback snapshot's pending list is not taken as current", () => {
+    let e = applySnapshot(emptyEvidence(), envelope(4, { requestId: "req-4", turnId: "turn-4", state: "running" }));
+    e = applySnapshot(e, envelope(3, { requestId: "req-3", turnId: "turn-3", state: "running" }, [{ kind: "approval", requestId: "tool-old", turnId: "turn-3" }]));
+    expect(view(e).state).toBe("unknown");
+  });
+
   test("the stored revision guards a reload: a lower first snapshot is a rollback", () => {
     const e = applySnapshot(emptyEvidence(7), envelope(5, { state: "terminal", outcome: "success" }));
     expect(view(e).state).toBe("unknown");

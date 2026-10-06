@@ -111,7 +111,7 @@ export function createTrackerClient(root: BrainUiServices) {
   };
   const onVisibility = () => { if (document.visibilityState === "hidden") leavePage(); };
   // Another tab of this root stored its trackers: take them in.
-  const onStorage = () => trackers.getState().syncFromStorage();
+  const onStorage = () => { for (const sessionId of trackers.getState().syncFromStorage()) refresh(sessionId); };
   if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
   if (typeof window !== "undefined") window.addEventListener("pagehide", leavePage);
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);

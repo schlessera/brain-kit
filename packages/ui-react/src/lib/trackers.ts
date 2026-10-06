@@ -285,10 +285,13 @@ function forward(current: SessionRecoveryLatest, snapshot: SessionRecoveryLatest
 export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecovery): TrackerEvidence {
   const base = { ...evidence, pending: recovery.pending, unavailable: null, settled: true };
   const seen = evidence.revision;
-  if (seen !== null && recovery.revision < seen) return { ...base, rolledBack: true };
+  // A contradicted snapshot proves nothing, its pending list included: what
+  // it lists may be long settled.
+  const rolledBack: TrackerEvidence = { ...evidence, unavailable: null, settled: true, rolledBack: true };
+  if (seen !== null && recovery.revision < seen) return rolledBack;
   const latest = evidence.latest;
   if (!latest && seen !== null && recovery.revision === seen && evidence.stored && !sameRequest({ ...recovery.latest, ...evidence.stored }, recovery.latest)) {
-    return { ...base, rolledBack: true };
+    return rolledBack;
   }
   if (seen === null || recovery.revision > seen || !latest) {
     // The first snapshot to count work the frames already showed: the
@@ -304,7 +307,7 @@ export function applySnapshot(evidence: TrackerEvidence, recovery: SessionRecove
   // an older answer never masks it.
   if (evidence.ahead) return base;
   // Two different requests at one revision contradict each other.
-  return { ...base, rolledBack: true };
+  return rolledBack;
 }
 
 /** A read that gave no envelope (D52 §6). Unauthorized drops what was pending. */
