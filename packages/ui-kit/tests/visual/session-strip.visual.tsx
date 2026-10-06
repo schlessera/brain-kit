@@ -11,6 +11,7 @@
  * places it, so the 1280 and 1440 cases measure the strip the kit would draw
  * there; the app (#950) passes no left half at those widths.
  */
+import { useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, inject, test, vi } from "vitest";
@@ -342,5 +343,96 @@ for (const theme of ["dark", "light"]) for (const [width, keyboardOpen] of [[320
     const name = `session-strip-${theme}-${width}${keyboardOpen ? "-keyboard" : ""}`;
     if (mode === "mixed") await expect(page.elementLocator(m.row)).toMatchScreenshot(name);
     else await page.screenshot({ element: m.row, path: `../../.vitest-attachments/session-strip/${name}-${mode}.png` });
+  });
+}
+
+/** The app's arrangement for the three cases below: `keyboardOpen` follows the
+ * composer's focus, the session list can change, and the strip can sit in a
+ * subtree themed apart from `<html>`. */
+function FocusDriven(props: { sessions: WorkingSession[]; theme?: string }) {
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  return (
+    <div data-theme={props.theme} style={{ width: 320, padding: 12, boxSizing: "border-box", background: "var(--bk-color-canvas)" }}>
+      <ComposerRow left={<SessionStrip sessions={props.sessions} now={WORKING_NOW} formatClock={ogygiaClock} keyboardOpen={keyboardOpen} />} />
+      <textarea
+        data-composer=""
+        aria-label="Message"
+        defaultValue="Can you also check the April receipts"
+        onFocus={() => setKeyboardOpen(true)}
+        onBlur={() => setKeyboardOpen(false)}
+        style={{ width: "100%", height: 56, marginTop: 8, boxSizing: "border-box" }}
+      />
+    </div>
+  );
+}
+
+async function mountDriven(sessions: WorkingFixture[], theme: string, subtree?: string) {
+  await page.viewport(320, 640);
+  await commands.formViewport(320, 640);
+  document.documentElement.dataset.theme = theme;
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  const live = sessions.map((s) => ({ ...s, onOpen: vi.fn() }));
+  const draw = (list: WorkingSession[]) => flushSync(() => root!.render(<FocusDriven sessions={list} theme={subtree} />));
+  draw(live);
+  await document.fonts.ready;
+  return { live, draw, composer: host.querySelector<HTMLTextAreaElement>("[data-composer]")! };
+}
+
+for (const theme of ["dark", "light"]) {
+  for (const n of [2, 5]) {
+    test(`keyboardOpen driven by composer focus: the press opens the sheet and the caret returns: ${theme}, ${n} sessions`, async () => {
+      const mode = pointerScene();
+      const { composer } = await mountDriven(five.slice(0, n), theme);
+      composer.focus();
+      composer.setSelectionRange(5, 5);
+      await expect.poll(() => host!.querySelector("[data-strip-summary]")?.getAttribute("data-strip-summary"), { message: "composer focus collapses the strip" }).toBe("keyboard");
+      const summary = host!.querySelector<HTMLElement>('[data-strip-summary="keyboard"]')!;
+      if (mode === "fine") await userEvent.click(summary);
+      else {
+        const r = rect(summary);
+        await commands.rankTouch("touchStart", [{ x: r.left + r.width / 2, y: r.top + r.height / 2 }]);
+        await commands.rankTouch("touchEnd", []);
+      }
+      await expect.poll(() => sheet(), { message: "the pressed summary opens the sheet" }).not.toBeNull();
+      expect(document.activeElement, "the composer is blurred").not.toBe(composer);
+      expect(sheet()!.contains(document.activeElement), "focus is in the sheet").toBe(true);
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => sheet()).toBeNull();
+      await expect.poll(() => document.activeElement, { message: "focus returns to the composer" }).toBe(composer);
+      expect([composer.selectionStart, composer.selectionEnd], "with the caret restored").toEqual([5, 5]);
+    });
+  }
+
+  test(`a session leaving under the sheet's caret keeps focus in the sheet: ${theme}`, async () => {
+    pointerScene();
+    const { live, draw } = await mountDriven(five, theme);
+    items()[1]!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => sheet()).not.toBeNull();
+    const rows = () => [...sheet()!.querySelectorAll<HTMLElement>('[role="button"]')];
+    rows()[1]!.focus();
+    const leaving = sheet()!.querySelectorAll<HTMLElement>("[data-session]")[1]!.dataset.session;
+    draw(live.filter((s) => s.id !== leaving));
+    expect(rows(), "the row left").toHaveLength(4);
+    await expect.poll(() => sheet()!.contains(document.activeElement), { message: "focus stays in the dialog" }).toBe(true);
+    await userEvent.tab({ shift: true });
+    expect(sheet()!.contains(document.activeElement), "Tab is still trapped").toBe(true);
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => sheet(), { message: "Esc still reaches the dialog" }).toBeNull();
+  });
+
+  test(`the sheet keeps a subtree theme past the portal: ${theme} page`, async () => {
+    pointerScene();
+    const other = theme === "dark" ? "light" : "dark";
+    await mountDriven(five, theme, other);
+    const surfaceIn = getComputedStyle(host!.querySelector<HTMLElement>("[data-pill]")!).backgroundColor;
+    items()[1]!.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => sheet()).not.toBeNull();
+    expect(document.body.querySelector<HTMLElement>("[data-working-scrim]")!.dataset.theme).toBe(other);
+    const panel = sheet()!.querySelector<HTMLElement>(":scope > div")!;
+    expect(getComputedStyle(panel).backgroundColor, "the sheet's surface is the strip's theme").toBe(surfaceIn);
   });
 }

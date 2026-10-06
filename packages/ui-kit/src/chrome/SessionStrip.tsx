@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, KeyboardEvent, PointerEvent, ReactElement } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactElement } from "react";
 
 import { BottomSheet } from "./BottomSheet.js";
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
@@ -215,6 +215,8 @@ interface OpenSheet {
   returnTo: HTMLElement | null;
   /** The composer's caret, when the keyboard-open summary opened the sheet. */
   selection: [number, number] | null;
+  /** The nearest `data-theme` around the strip, for a subtree-themed embed. */
+  theme?: string;
 }
 
 /**
@@ -241,10 +243,14 @@ interface OpenSheet {
  * sheet): it moves focus to its first row, traps Tab, and closes on Esc or a
  * tap on the scrim. Dismissing returns focus to the summary that opened it.
  * From the keyboard-open summary it returns to the element that held focus
- * before the tap (the composer) with its caret restored; activating the
- * summary blurs that element first, so the soft keyboard drops. Opening a
+ * when it was pressed (the composer) with its caret restored; the press does
+ * not move focus, so a caller that derives `keyboardOpen` from the composer's
+ * focus cannot redraw the summary away before the click, and the click then
+ * blurs the composer so the soft keyboard drops. If the focused row's session
+ * leaves while the sheet is open, focus moves to a remaining row. Opening a
  * session from the sheet closes it and leaves focus to the caller, whose
- * focus rule for an opened session (D52 §4) applies.
+ * focus rule for an opened session (D52 §4) applies. The sheet is portalled
+ * to `<body>` and carries the strip's nearest `data-theme` with it.
  *
  * Nothing animates: there is no progress bar, no breathing and no transition,
  * because D22's one ambient animation is the filament.
@@ -253,7 +259,6 @@ export function SessionStrip(p: SessionStripProps) {
   const sorted = byUrgency(p.sessions);
   const clock = p.formatClock ?? defaultWorkingClock;
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
-  const capture = useRef<OpenSheet | null>(null);
   const group = useRef<HTMLDivElement>(null);
   // Set by a dismissal, consumed once the sheet has unmounted, so the trap
   // cannot take focus back and the target is the element that is now drawn.
@@ -294,29 +299,33 @@ export function SessionStrip(p: SessionStripProps) {
     else focusSibling(from, delta, ITEM, "[data-session-strip]");
   }
 
+  const themeOf = (el: HTMLElement) => el.closest<HTMLElement>("[data-theme]")?.dataset.theme;
+
   function openFromSummary(el: HTMLElement) {
-    setSheet({ returnTo: el, selection: null });
+    setSheet({ returnTo: el, selection: null, theme: themeOf(el) });
   }
 
-  // Read before the tap moves focus: the composer, and its caret.
-  function noteComposer(e: PointerEvent<HTMLButtonElement>) {
-    const active = document.activeElement;
-    capture.current = null;
-    if (active instanceof HTMLElement && active !== e.currentTarget && active !== document.body) {
-      const field = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active : null;
-      capture.current = {
-        returnTo: active,
-        selection: field && field.selectionStart !== null && field.selectionEnd !== null ? [field.selectionStart, field.selectionEnd] : null,
-      };
-    }
+  // The press must not move focus. A caller that derives `keyboardOpen` from
+  // the composer's focus would otherwise redraw the strip between press and
+  // click, and the summary that was pressed would be gone before it is clicked.
+  function holdFocus(e: MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
   }
 
+  // The composer still has focus here: note it and its caret, then blur it
+  // so the soft keyboard drops.
   function openFromKeyboardSummary(el: HTMLElement) {
-    const noted = capture.current;
-    capture.current = null;
     const active = document.activeElement;
-    if (active instanceof HTMLElement && active !== el) active.blur();
-    setSheet(noted ?? { returnTo: el, selection: null });
+    let returnTo: HTMLElement = el;
+    let selection: [number, number] | null = null;
+    if (active instanceof HTMLElement && active !== el && active !== document.body) {
+      returnTo = active;
+      if ((active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) && active.selectionStart !== null && active.selectionEnd !== null) {
+        selection = [active.selectionStart, active.selectionEnd];
+      }
+      active.blur();
+    }
+    setSheet({ returnTo, selection, theme: themeOf(el) });
   }
 
   function dismiss() {
@@ -342,7 +351,7 @@ export function SessionStrip(p: SessionStripProps) {
         aria-label={`${n} working ${n === 1 ? "session" : "sessions"}: ${all.map((c) => c.text).join(", ")}. Open list.`}
         tabIndex={roving.tabIndexFor(0)}
         onFocus={() => roving.onItemFocus(0)}
-        onPointerDown={noteComposer}
+        onMouseDown={holdFocus}
         onClick={(e) => openFromKeyboardSummary(e.currentTarget)}
         style={{ "--hv-bg": color.raised } as CSSProperties}
       >
@@ -421,6 +430,7 @@ export function SessionStrip(p: SessionStripProps) {
           sessions={sorted}
           now={p.now}
           clock={clock}
+          theme={sheet.theme}
           onDismiss={dismiss}
           onOpen={(s) => {
             setSheet(null);
@@ -439,6 +449,8 @@ interface WorkingSheetProps {
   clock: (ms: number) => string;
   onDismiss: () => void;
   onOpen: (s: WorkingSession) => void;
+  /** The `data-theme` of the subtree the strip sits in, carried past the portal. */
+  theme?: string;
 }
 
 /**
@@ -449,9 +461,15 @@ interface WorkingSheetProps {
  */
 function WorkingSheet(p: WorkingSheetProps) {
   const panel = useRef<HTMLDivElement>(null);
+  // On open, and whenever the list changes under the caret: a session that
+  // leaves while its row is focused takes the focus with it, and focus on
+  // <body> would escape the trap. The dialog itself is the last resort.
+  const ids = p.sessions.map((s) => s.id).join("\n");
   useEffect(() => {
-    panel.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
-  }, []);
+    const here = panel.current;
+    if (!here || here.contains(document.activeElement)) return;
+    (here.querySelector<HTMLElement>('[role="button"]') ?? here).focus();
+  }, [ids]);
   function keys(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -474,6 +492,7 @@ function WorkingSheet(p: WorkingSheetProps) {
   return (
     <div
       data-working-scrim=""
+      data-theme={p.theme}
       style={{ position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow") }}
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
@@ -487,6 +506,7 @@ function WorkingSheet(p: WorkingSheetProps) {
         ref={panel}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-label="Working"
         data-working-sheet=""
         className="bk-working-sheet"
