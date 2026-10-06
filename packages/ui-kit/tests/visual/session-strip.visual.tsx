@@ -264,6 +264,13 @@ for (const theme of ["dark", "light"]) {
       await userEvent.tab();
       expect(document.activeElement, "Tab wraps to the first row").toBe(rows[0]);
       expect(sheet()!.getAnimations({ subtree: true })).toEqual([]);
+      // Focus on the dialog itself, as a click on its title leaves it, is still trapped.
+      sheet()!.focus();
+      await userEvent.tab({ shift: true });
+      expect(document.activeElement, "Shift+Tab from the dialog itself stays in it").toBe(rows[4]);
+      sheet()!.focus();
+      await userEvent.tab();
+      expect(document.activeElement, "Tab from the dialog itself stays in it").toBe(rows[0]);
       if (mode === "mixed") await page.screenshot({ element: sheet()!, path: `../../.vitest-attachments/session-strip/sheet-${theme}-${width}.png` });
       await userEvent.keyboard("{Escape}");
       await expect.poll(() => sheet()).toBeNull();
@@ -434,6 +441,9 @@ for (const theme of ["dark", "light"]) {
     expect(document.body.querySelector<HTMLElement>("[data-working-scrim]")!.dataset.theme).toBe(other);
     const panel = sheet()!.querySelector<HTMLElement>(":scope > div")!;
     expect(getComputedStyle(panel).backgroundColor, "the sheet's surface is the strip's theme").toBe(surfaceIn);
+    const inkIn = getComputedStyle(host!.querySelector<HTMLElement>("[data-pill-title]")!).color;
+    const title = [...panel.querySelectorAll<HTMLElement>("span")].find((el) => el.textContent === "Working")!;
+    expect(getComputedStyle(title).color, "the sheet's ink is the strip's theme").toBe(inkIn);
   });
 }
 

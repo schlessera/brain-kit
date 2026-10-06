@@ -552,7 +552,12 @@ function WorkingSheet(p: WorkingSheetProps) {
     const stops = [...(panel.current?.querySelectorAll<HTMLElement>('[role="button"][tabindex="0"]') ?? [])];
     const first = stops[0];
     const last = stops.at(-1);
-    if (e.shiftKey && document.activeElement === first) {
+    // Focus on the dialog itself (a click on its title or padding) is inside
+    // the trap too, with no row to step from.
+    if (!stops.includes(document.activeElement as HTMLElement)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first)?.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
       last?.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
@@ -564,7 +569,9 @@ function WorkingSheet(p: WorkingSheetProps) {
     <div
       data-working-scrim=""
       data-theme={p.theme}
-      style={{ position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow") }}
+      // Ink is set here, not inherited: the portal leaves the strip's subtree,
+      // and the page's foreground may belong to the other theme.
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow"), color: color.ink }}
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
         // The press would otherwise move focus to whatever is under the scrim
