@@ -269,7 +269,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     root.stores.chat.setState({
       buffers: {
         ...chat.buffers,
-        [report.sessionId]: { ...buffer, messages, isStreaming: messages.at(-1)?.isStreaming === true },
+        [report.sessionId]: { ...buffer, messages, isStreaming: buffer.isStreaming && messages.some((m) => m.role === "assistant" && m.isStreaming) },
       },
     });
     for (const m of drawn) {

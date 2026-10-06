@@ -149,6 +149,18 @@ test("a re-asked answer sent behind a queued follow-up moves to the stack, then 
   expect(users(root)).toEqual(["Chart the way home", winds.text, "Yes: keep the bag shut"]);
 });
 
+test("moving one of two drawn sends out of the chat keeps the running reply streaming", () => {
+  const { root, socket } = busy();
+  const sent: Array<{ requestId?: string }> = [];
+  sendReask(root.stores, S, "Yes: keep the bag shut", (msg) => { sent.push(msg as never); });
+  sendReask(root.stores, S, "And count the oars", (msg) => { sent.push(msg as never); });
+  const [first] = sent.map((m) => m.requestId!);
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [{ id: "fu-1", requestId: first, text: "Yes: keep the bag shut", queuedAt: 5 }] });
+  expect(root.stores.chat.getState().buffers[S]!.isStreaming, "turn-1 is still writing").toBe(true);
+  socket.deliver({ type: "text_delta", sessionId: S, turnId: "turn-1", text: " and the Sirens" });
+  expect(messages(root).filter((m) => m.role === "assistant")).toHaveLength(1);
+});
+
 test("a refused follow-up was never pending", () => {
   const { root, socket } = busy();
   root.stores.followUp.getState().addLocal(S, { requestId: "req-bag", text: bag.text, source: "typed", queuedAt: 3 });
