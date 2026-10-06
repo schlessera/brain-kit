@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  BLOCK_KINDS,
-  BLOCK_SCHEMA,
-} from "../src/tool-contracts/index";
+import { BLOCK_SCHEMA } from "../src/tool-contracts/index";
+import { BLOCK_KINDS } from "../src/tool-contracts/blocks.js";
 import {
   CANDIDATE_KINDS,
   CATALOGUE_BLOCK_KINDS,

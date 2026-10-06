@@ -27,7 +27,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { QuestionObservation } from "@schlessera/brain-ui-sdk/server";
+import type { QuestionObservation } from "@schlessera/brain-ui-sdk/internal";
 
 /** How long a recorded confidence is kept. Long enough to tune on, bounded. */
 export const CONFIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;

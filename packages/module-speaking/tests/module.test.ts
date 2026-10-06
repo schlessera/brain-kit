@@ -2,7 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { buildTaxonomy, discoverSkills, lintSkills, type LoadedModule } from "@schlessera/brain";
+import { type LoadedModule } from "@schlessera/brain";
+import { buildTaxonomy } from "@schlessera/brain/internal";
+import { discoverSkills } from "../../core/src/lib/skills/discover.js";
+import { lintSkills } from "../../core/src/lib/skills/lint.js";
 
 import manifest, { configSchema } from "../src/module";
 

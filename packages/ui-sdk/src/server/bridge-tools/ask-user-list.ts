@@ -1,9 +1,6 @@
 import type { AskUserListSpec } from "../../protocol.js";
-import {
-  ASK_USER_LIST_LIMITS,
-  type AskUserListInput,
-  type AskUserListPayload,
-} from "../../tool-contracts/index.js";
+import { type AskUserListInput, type AskUserListPayload } from "../../tool-contracts/index.js";
+import { ASK_USER_LIST_LIMITS } from "../../tool-contracts/bridge.js";
 import type { AskUserListResult, BackendBridge } from "../backend.js";
 
 /**

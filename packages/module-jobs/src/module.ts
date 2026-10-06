@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule, repoRelativePathSchema } from "@schlessera/brain";
+import { defineModule, type ModuleManifest, repoRelativePathSchema } from "@schlessera/brain";
 
 import { checkOpportunityStages } from "./pipeline.js";
 import { jobsSettings, scoringSourceSchema } from "./settings.js";
@@ -54,7 +54,8 @@ export const configSchema = z
 
 export type JobsConfig = z.infer<typeof configSchema>;
 
-export default defineModule({
+// Annotated so the public signature report records the manifest type.
+const jobsModule: ModuleManifest<JobsConfig> = defineModule({
   name: "jobs",
   configSchema,
   settings: jobsSettings<JobsConfig>(),
@@ -76,3 +77,5 @@ export default defineModule({
     cron: [{ name: "scrape", schedule: "0 6 * * *", command: "jobs scrape" }],
   }),
 });
+
+export default jobsModule;

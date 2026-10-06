@@ -14,7 +14,8 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { brainConfigSchema, resolveCompletionProvider } from "@schlessera/brain";
+import { brainConfigSchema } from "../packages/core/src/lib/config.js";
+import { resolveCompletionProvider } from "../packages/core/src/lib/registry.js";
 import type { query } from "@anthropic-ai/claude-agent-sdk";
 
 import { createClaudeBackend } from "../packages/ui-backend-claude/src/backend";

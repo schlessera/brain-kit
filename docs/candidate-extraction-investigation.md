@@ -25,7 +25,7 @@ scrapers already parse structured pages. The shared JSON-LD extractor returns
 parsed documents and errors, without raw-value offsets (`extractJsonLd`,
 `packages/scrape/src/parse/jsonld.ts:67-90`); enrichment selects a populated
 description from that structure (`postingDescription`,
-`packages/module-jobs/src/enrich.ts:146-152`). A new free-text selector must
+`packages/module-jobs/src/enrich.ts:145-151`). A new free-text selector must
 not replace these board parsers or imply their per-board outcome audit is done.
 [#32](https://github.com/schlessera/brain-kit/issues/32) retains that audit.
 Any accepted board/HTML parser work stays coordinated there and in the existing

@@ -11,7 +11,6 @@ export "." (./src/index.ts)
   type BrowserSession
   type BrowserSessionOptions
   type CheerioAPI
-  DEFAULT_USER_AGENT
   ENV_VARS
   type EnvVarSpec
   type FeedItem
@@ -34,32 +33,30 @@ export "." (./src/index.ts)
   type ScrapeClientOptions
   type ScrapeContext
   type ScrapeEnv
-  Semaphore
   type SiteAdapter
   type SiteSelectors
-  absoluteUrl
   createBrowserSession
   extractCards
   extractJsonLd
-  hasJsonLdType
-  hostOf
   itemListEntries
   jsonLdByType
   jsonLdNodes
-  jsonLdTypes
   ok
   parseHtml
-  parseRetryAfterMs
   parseRssItems
   partial
-  readField
   resolveEnv
   runAdapters
   stripHtml
 
+export "./internal" (./src/internal.ts)
+  DEFAULT_USER_AGENT
+  Semaphore
+  hostOf
+
 export "./package.json" (./package.json) [asset]
 
-signatures (the seams in docs/extending/README.md and the types they are made of)
+signatures (every public export and the types it is made of)
   AdapterOutcome (packages/scrape/src/adapter/runner.ts)
     export interface AdapterOutcome<T> extends AdapterResult<T> {
         id: string;
@@ -101,6 +98,18 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         rateLimiter?: RateLimiter;
         launch?: () => Promise<any>;
     }
+  CheerioAPI re-exported from cheerio
+  ENV_VARS (packages/scrape/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnvVarSpec (packages/scrape/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  FeedItem (packages/scrape/src/parse/feed.ts)
+    export type FeedItem = Record<string, string>;
   FetchOptions (packages/scrape/src/fetch/http.ts)
     export interface FetchOptions {
         proxy?: string;
@@ -117,6 +126,20 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         body: string;
         url: string;
     }
+  FieldSelector (packages/scrape/src/adapter/selectors.ts)
+    export interface FieldSelector {
+        selector?: string;
+        attr?: string;
+        absolute?: boolean;
+        fallbacks?: Array<Omit<FieldSelector, "fallbacks">>;
+    }
+  JsonLdExtraction (packages/scrape/src/parse/jsonld.ts)
+    export interface JsonLdExtraction {
+        documents: unknown[];
+        errors: string[];
+    }
+  JsonLdNode (packages/scrape/src/parse/jsonld.ts)
+    export type JsonLdNode = Record<string, unknown>;
   PageRequest (packages/scrape/src/browser/session.ts)
     export interface PageRequest<T> {
         url: string;
@@ -150,6 +173,10 @@ signatures (the seams in docs/extending/README.md and the types they are made of
   RobotsCacheOptions (packages/scrape/src/politeness/robots.ts)
     export interface RobotsCacheOptions {
         fetcher?: RobotsFetcher;
+    }
+  RobotsDisallowedError (packages/scrape/src/politeness/robots.ts)
+    export class RobotsDisallowedError extends Error {
+        constructor(readonly url: string, readonly userAgent: string, readonly reason?: string);
     }
   RobotsFetcher (packages/scrape/src/politeness/robots.ts)
     export type RobotsFetcher = (robotsUrl: string) => Promise<{
@@ -195,6 +222,14 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         browser?: BrowserSession;
         log(message: string): void;
     }
+  ScrapeEnv (packages/scrape/src/config/env.ts)
+    export interface ScrapeEnv {
+        userAgent: string;
+        chromeUrl?: string;
+        chromePath?: string;
+        noSandbox: boolean;
+        respectRobots: boolean;
+    }
   SiteAdapter (packages/scrape/src/adapter/types.ts)
     export interface SiteAdapter<T> {
         readonly id: string;
@@ -203,9 +238,36 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         readonly needsProxy: boolean;
         scrape(ctx: ScrapeContext, options: AdapterRunOptions): Promise<AdapterResult<T>>;
     }
+  SiteSelectors (packages/scrape/src/adapter/selectors.ts)
+    export interface SiteSelectors {
+        card: string;
+        readySelector?: string;
+        fields: Record<string, FieldSelector>;
+        required?: string[];
+    }
+  createBrowserSession (packages/scrape/src/browser/session.ts)
+    export function createBrowserSession(options?: BrowserSessionOptions): BrowserSession;
+  extractCards (packages/scrape/src/adapter/selectors.ts)
+    export function extractCards($: CheerioAPI, selectors: SiteSelectors, pageUrl: string): Array<Record<string, string>>;
+  extractJsonLd (packages/scrape/src/parse/jsonld.ts)
+    export function extractJsonLd(html: string): JsonLdExtraction;
+  itemListEntries (packages/scrape/src/parse/jsonld.ts)
+    export function itemListEntries(node: JsonLdNode): JsonLdNode[];
+  jsonLdByType (packages/scrape/src/parse/jsonld.ts)
+    export function jsonLdByType(value: unknown, type: string): JsonLdNode[];
+  jsonLdNodes (packages/scrape/src/parse/jsonld.ts)
+    export function jsonLdNodes(value: unknown, depth?: number): JsonLdNode[];
   ok (packages/scrape/src/adapter/types.ts)
     export function ok<T>(items: T[], cursor?: string): AdapterResult<T>;
+  parseHtml (packages/scrape/src/parse/html.ts)
+    export function parseHtml(html: string): CheerioAPI;
+  parseRssItems (packages/scrape/src/parse/feed.ts)
+    export function parseRssItems(xml: string): FeedItem[];
   partial (packages/scrape/src/adapter/types.ts)
     export function partial<T>(items: T[], error: unknown, cursor?: string): AdapterResult<T>;
+  resolveEnv (packages/scrape/src/config/env.ts)
+    export function resolveEnv(env?: NodeJS.ProcessEnv): ScrapeEnv;
   runAdapters (packages/scrape/src/adapter/runner.ts)
     export function runAdapters<T>(options: RunAdaptersOptions<T>): Promise<Array<AdapterOutcome<T>>>;
+  stripHtml (packages/scrape/src/parse/html.ts)
+    export function stripHtml(html: string): string;

@@ -1,4 +1,5 @@
-import { mapViewBounds, type TrackMapProps } from "@schlessera/brain-ui-kit";
+import { type TrackMapProps } from "@schlessera/brain-ui-kit";
+import { mapViewBounds } from "@schlessera/brain-ui-kit/internal";
 import type { TrackFileView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../root.js";
 import { geometryPaths } from "../components/chat/tool-cards/location-card.js";

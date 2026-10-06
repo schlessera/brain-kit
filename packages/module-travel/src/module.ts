@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineModule } from "@schlessera/brain";
+import { defineModule, type ModuleManifest } from "@schlessera/brain";
 
 export const configSchema = z.object({
   travelParty: z.array(z.object({
@@ -10,7 +10,8 @@ export const configSchema = z.object({
 }).strict();
 export type TravelConfig = z.infer<typeof configSchema>;
 
-export default defineModule({
+// Annotated so the public signature report records the manifest type.
+const travelModule: ModuleManifest<TravelConfig> = defineModule({
   name: "travel",
   configSchema,
   setup: (config) => ({
@@ -28,3 +29,5 @@ export default defineModule({
     commands: { travel: () => import("./cli.js") },
   }),
 });
+
+export default travelModule;

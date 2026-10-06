@@ -2,7 +2,8 @@
 // every spelling of the name resolves to the receipt, and the summary reads
 // the parsed payload.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { resolveToolRenderer, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "../src/components/chat/renderers";
 
 const payload = JSON.stringify({

@@ -41,9 +41,9 @@ import {
   bashLockKey,
   BRAIN_LOCK_KEY,
   rtkRewriteCommand,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 
-import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain";
+import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain/internal";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
 import {

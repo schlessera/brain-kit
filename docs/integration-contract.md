@@ -4,8 +4,10 @@ The machine-readable surface and deliberately supported user inputs other
 systems and brain owners may depend on. The [supported-input policy](supported-inputs.md)
 includes brain configuration, documented environment inputs, per-module JSON
 settings and canonical module content, with field references delegated to their
-owners. Internal implementation details outside these listed or delegated
-promises may change without notice. Contract changes require a `CONTRACT:` commit prefix and a
+owners. The TypeScript API is what the packages' ordinary entry points export,
+including every type their signatures reach; `/internal` entry points are not
+part of it ([package entry points](#package-entry-points)). Implementation
+details outside these promises may change without notice. Contract changes require a `CONTRACT:` commit prefix and a
 same-commit update of this file. How they are versioned:
 
 - **Additive** — a new field, a new optional input, a new tool, a
@@ -17,6 +19,31 @@ same-commit update of this file. How they are versioned:
   version bump of `@schlessera/brain-*`.
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
+
+## Package entry points
+
+**Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
+`@schlessera/brain-*` package's ordinary entry points (`.` and its documented
+subpaths) export only the supported API. That API includes every type reachable
+through a public signature, exported by name or not, and the documented
+behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
+private member is.
+
+Entry points named `/internal` (`@schlessera/brain/internal`,
+`@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
+`@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
+`@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`
+and the two backends' `/internal`)
+are first-party implementation sharing with no compatibility guarantee. Use
+them only with the same lockstep version, if at all.
+
+Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
+retyping an ordinary export or a type its signatures reach, or changing its
+documented behavior, requires a major version; additions ship in minors.
+`api-report/` records every entry point's names and every public export's
+signature with the types it reaches, and the packaging check holds the built
+declarations to the same names. The removed and moved names, with migration
+paths, are listed in [the boundary decision](decisions/public-export-boundary.md#migration).
 
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.
@@ -176,8 +203,9 @@ requires `reranker.enabled: true` in canonical `brain.config.ts` or
 provider, `--rerank jev`, MCP `rerank: "jev"` or `BRAIN_RERANK_MODE=jev`.
 The boolean is runtime validated; provider is optional (default `jev`).
 The same setting governs CLI search/context/process, MCP search/context,
-eval and configured library/backend access. Direct `hybridSearch` injection
-also requires `SearchDeps.rerankerEnabled: true`; provider construction through
+eval and configured library/backend access. First-party `hybridSearch`
+injection (through the unsupported `@schlessera/brain/internal` entry) also
+requires `SearchDeps.rerankerEnabled: true`; provider construction through
 `resolveReranker` alone does not activate it. `rerankSetup` forwards the flag.
 
 Off uses local lifecycle `heuristic` ordering, or retrieval order for `none`.
@@ -375,8 +403,8 @@ The deliberately public `createRenderer` API of
 `renderPdf({ html, width?, linkPolicy? })`
 resolve to `Buffer`; `shutdown()` is terminal. Width is clamped to
 320–4096 CSS pixels. The package README documents the remaining options.
-This documents the renderer's intended API without classifying other exports;
-the broader export inventory is tracked in #534.
+`RenderOptions`, `ENV_VARS` and `EnvVarSpec` complete the package's public
+entry; see [package entry points](#package-entry-points).
 
 **Pre-1.0 breaking behavior change (#72):** `renderTimeoutMs` now bounds page
 creation, setup and PNG/PDF production, excluding queue waiting and browser
@@ -1631,8 +1659,11 @@ with no compatibility guarantee; use the same lockstep package version. Its
 `archiveDocument`, `assembleContext`, `hybridSearch`, `indexAll`, `ingest`,
 `loadVecSupport` and `openDatabase` exports serve pi's remaining search/context
 and write implementation. They may accept native handles and are not supported
-query APIs. This scoped classification adds the internal entry and migrates
-pi's imports; #534 owns removal of existing accidental ordinary exports.
+query APIs. This scoped classification added the internal entry and migrated
+pi's imports; the [export curation](#package-entry-points) removed these
+helpers from the ordinary `@schlessera/brain` entry, and moved the other
+helpers pi and the modules share (path safety, scratch, generated regions,
+taxonomy, context and write helpers) to the same internal entry.
 Existing direct-SQL guarantees remain binding until the explicit retirement.
 
 ### UI server optional core peer (breaking host migration, #697)
@@ -2761,8 +2792,8 @@ own `@experimental` tag. Related experimental declarations include:
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
 `AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
-public signatures, including their reachable types, for 1.0 stability; final
-package-wide export curation is tracked in #534.
+public signatures, including their reachable types, for 1.0 stability; the
+[package entry points](#package-entry-points) section states the boundary.
 [extending/README.md](extending/README.md#the-seams) says what each one swaps.
 
 The client/server wire protocol is a machine contract rather than an

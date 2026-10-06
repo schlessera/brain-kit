@@ -5,7 +5,7 @@
  * package's public surface. This test regenerates them from the sources
  * (statically — nothing is imported) and fails on any drift, in either
  * direction: an export added or removed without regenerating the report, a
- * seam declaration (or a type it is made of) whose signature changed, or a
+ * public declaration (or a type it is made of) whose signature changed, or a
  * report left behind for a package that is gone.
  *
  * On failure: review the change ON PURPOSE, then `bun run api-report`.
@@ -15,7 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, relative, resolve } from "path";
-import { generateReports, seamSignatures, SEAMS, SIGNATURES_HEADING } from "../scripts/api-report";
+import { generateReports, isInternalSubpath, seamSignatures, SEAMS, SIGNATURES_HEADING } from "../scripts/api-report";
 
 const ROOT = resolve(import.meta.dir, "..");
 const REPORT_DIR = join(ROOT, "api-report");
@@ -46,20 +46,47 @@ describe("api surface reports", () => {
     });
 
     if (expected.signatures) {
-      test(`api-report/${file} matches the current seam signatures`, () => {
+      test(`api-report/${file} matches the current public signatures`, () => {
         expect(checkedIn().signatures).toBe(expected.signatures);
       });
     }
   }
 
-  test("the frozen set is recorded where it is expected", () => {
-    // A signature section that silently came out empty would pass the test
-    // above for every retype.
-    const withSignatures = [...reports]
-      .filter(([, content]) => sections(content).signatures !== "")
-      .map(([file]) => file)
-      .sort();
-    expect(withSignatures).toEqual(Object.keys(SEAMS).map((dir) => `${dir}.txt`).sort());
+  test("every public export is recorded with its signature", () => {
+    // A signature section that silently came out empty, or that skipped a
+    // name, would pass the test above for every retype of what it skipped.
+    // Every name a public (non-`./internal`) entry exports must have an
+    // entry: printed here, referenced to its owning report, or named as a
+    // third-party re-export.
+    const publicNames = (report: string) => {
+      const names = new Set<string>();
+      let internal = false;
+      for (const line of sections(report).names.split("\n")) {
+        const entry = /^export "([^"]+)"/.exec(line);
+        if (entry) {
+          internal = isInternalSubpath(entry[1]);
+          continue;
+        }
+        const name = /^  (?:type )?([\w$]+)$/.exec(line)?.[1];
+        if (name && !internal) names.add(name);
+      }
+      return names;
+    };
+    let checked = 0;
+    for (const [file, content] of reports) {
+      const names = publicNames(content);
+      const signatures = sections(content).signatures.split("\n");
+      for (const name of names) {
+        const recorded = signatures.some(
+          (line) => line.startsWith(`  ${name} (`) || line.startsWith(`  ${name} re-exported from `)
+        );
+        if (!recorded) {
+          expect.unreachable(`${name} has no signature entry in api-report/${file}`);
+        }
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
     // Every seam is recorded with its declaration printed under it. Checked
     // by shape, not by content, so retyping a seam on purpose needs only the
     // regenerated report.
@@ -151,30 +178,47 @@ ${member}
 
   test.each([
     ["an initialized property", `  value = "x";`, "client.ts:2 Client: property `value` has no type annotation"],
-    ["an inferred method return", `  get() { return 1; }`, "client.ts:2 Client: `get` has no return type annotation"],
-    ["an inferred getter", `  get size() { return 1; }`, "client.ts:2 Client: `size` has no return type annotation"],
     ["a default parameter", `  get(n = 1): number { return n; }`, "client.ts:2 Client: parameter `n` has no type annotation"],
     ["a constructor parameter property", `  constructor(public limit = 1) {}`, "client.ts:2 Client: parameter `limit` has no type annotation"],
   ])("a seam-reachable class with %s is refused", (_, member, message) => {
     expect(() => generate(reachedClass(member))).toThrow(message);
   });
 
-  test("a seam-reachable function with an inferred return is refused", () => {
-    const files = {
+  // An inferred return type is printed from the checker, and the repo types it
+  // names are followed, so changing what the body returns changes the report.
+  test("an inferred function, method or getter return is printed and follows what it names", () => {
+    const files = (ret: string) => ({
       "seam.ts": `import type { make } from "./make";
+import type { Client } from "./client";
 export interface Seam {
   make: typeof make;
+  client: Client;
 }
 `,
-      "make.ts": `export function make(n: number) {
-  return n;
+      "make.ts": `export interface Made {
+  value: ${ret};
+}
+export function make(n: number) {
+  return { value: n } as Made;
 }
 `,
-    };
-    expect(() => generate(files)).toThrow("make.ts:1 make: `make` has no return type annotation");
+      "client.ts": `import type { Made } from "./make";
+export class Client {
+  get(): Made { return null!; }
+  read() { return 1; }
+  get size() { return "s"; }
+}
+`,
+    });
+    const baseline = generate(files("number"));
+    expect(baseline).toContain("export function make(n: number): Made;");
+    expect(baseline).toContain("read(): number;");
+    expect(baseline).toContain("get size(): string;");
+    expect(baseline).toContain("  Made (");
+    expect(generate(files("string"))).not.toBe(baseline);
   });
 
-  test("an unannotated constant whose inferred type names a repo type is refused", () => {
+  test("an unannotated constant whose inferred type names a repo type records that type", () => {
     const page = (body: string) => `export interface Page {
   body: ${body};
 }
@@ -189,12 +233,83 @@ export interface Seam {
   value: typeof ${query};
 }
 `;
-    expect(() => generate({ "seam.ts": seam("page"), "page.ts": page("string") })).toThrow(
-      "page.ts:7 page: no type annotation, and its inferred type names Page"
-    );
-    expect(() => generate({ "seam.ts": seam("pages"), "page.ts": page("string") })).toThrow(
-      "page.ts:8 pages: no type annotation, and its inferred type names Page"
-    );
+    for (const query of ["page", "pages"]) {
+      const baseline = generate({ "seam.ts": seam(query), "page.ts": page("string") });
+      expect(baseline).toContain("  Page (");
+      expect(baseline).toContain("body: string;");
+      // The constant prints only the name; the followed declaration shows the retype.
+      expect(generate({ "seam.ts": seam(query), "page.ts": page("number") })).not.toBe(baseline);
+    }
+  });
+
+  test("an inferred type that names a repo type only through an index signature records it", () => {
+    const files = (value: string) => ({
+      "seam.ts": `import type { make } from "./make";
+export interface Seam {
+  make: typeof make;
+}
+`,
+      "make.ts": `export interface Made {
+  value: ${value};
+}
+export function make() {
+  return {} as { [key: string]: Made };
+}
+`,
+    });
+    const baseline = generate(files("number"));
+    expect(baseline).toContain("  Made (");
+    expect(generate(files("string"))).not.toBe(baseline);
+  });
+
+  // The checker orders an inferred union by type creation, which depends on
+  // what it checked first; two CI shards printed one type two ways.
+  test("an inferred union and a mapped record over it print in a canonical order", () => {
+    const out = generate({
+      "seam.ts": `import type { make } from "./make";
+export interface Seam {
+  make: typeof make;
+}
+`,
+      "make.ts": `const early: "teal" = "teal";
+export function make(flag: boolean) {
+  const tone = flag ? early : ("gold" as const);
+  const keys = {} as { [K in typeof tone]: K };
+  return { tone, keys };
+}
+`,
+    });
+    expect(out).toContain('tone: "gold" | "teal";');
+    expect(out.indexOf('gold: "gold";')).toBeGreaterThan(-1);
+    expect(out.indexOf('gold: "gold";')).toBeLessThan(out.indexOf('teal: "teal";'));
+  });
+
+  test("an @internal member is left out of the recorded surface", () => {
+    const files = (hidden: string) => ({
+      "seam.ts": `export interface Hidden { n: ${hidden}; }
+export class Host {
+  /** @internal first-party wiring */
+  readonly wiring: Hidden = { n: null! };
+  visible(): number { return 1; }
+}
+export interface Options {
+  /** @internal test hook */
+  hook?: Hidden;
+  name: string;
+}
+export interface Seam {
+  host: Host;
+  options: Options;
+}
+`,
+    });
+    const baseline = generate(files("number"));
+    expect(baseline).toContain("visible(): number;");
+    expect(baseline).toContain("name: string;");
+    expect(baseline).not.toContain("wiring");
+    expect(baseline).not.toContain("hook");
+    expect(baseline).not.toContain("Hidden");
+    expect(generate(files("string"))).toBe(baseline);
   });
 
   test("an unannotated constant of purely structural type is recorded in full", () => {

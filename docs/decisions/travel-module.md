@@ -16,12 +16,12 @@ embedded visit history. `place` is a canonical country, city, town or spot.
 A visit's identity is its owner's root-relative document path plus a stable
 visit ID. Route labels identify variants inside one trip; one primary route
 makes selection explicit. The parser checks those invariants
-(`parseTravelDocument`, `packages/module-travel/src/content.ts:78-97`).
+(`parseTravelDocument`, `packages/module-travel/src/content.ts:80-99`).
 
 Place summaries union references from the place and from canonical
 journey/trip visits, deduplicating the document/visit pair. They never read
 stored counts or dates as authority
-(`summarizePlaceVisits`, `packages/module-travel/src/content.ts:178-201`).
+(`summarizePlaceVisits`, `packages/module-travel/src/content.ts:180-203`).
 Unknown dates and coordinates stay unknown. An undated visit still counts;
 first/last bounds remain unknown if any included date is unknown. Valid
 zero coordinates remain zero. Domain parsing uses YAML JSON scalars through the
@@ -29,7 +29,7 @@ cache-free frontmatter helper so timestamp coercion cannot turn a written
 nonexistent date into another day. A failing fixture showed unquoted
 `2026-02-30` becoming `2026-03-02` under the default timestamp parser. Relative assets must resolve within the brain,
 and place ancestry and visit references must resolve in canonical files
-(`readTravelCorpus`, `packages/module-travel/src/content.ts:105-167`).
+(`readTravelCorpus`, `packages/module-travel/src/content.ts:107-169`).
 Markdown remains authoritative; no travel database or geocoding is introduced.
 
 ## Migration boundary
@@ -139,7 +139,7 @@ introduced. Travel depends on the existing scrape package for this concrete
 HTTP job, sharing its robots/pacing policy rather than adding an adapter or
 browser-driver seam. URL/DNS checks run before every route hop and bounded
 robots redirect; unavailable robots retains the shared permissive policy
-(`RouteRobots`, `packages/module-travel/src/route.ts:68-83`).
+(`RouteRobots`, `packages/module-travel/src/route.ts:69-84`).
 
 **2026-10-01 — Shared ownership.** The #525 ownership ruling moves the
 concrete GPX reader, metrics and trimming to `@schlessera/brain-geo`. Travel
@@ -167,7 +167,7 @@ and duration requires ordered absolute timestamps
 (`routeMetrics`, `packages/geo/src/track.ts:236-252`).
 The package README specifies units, smoothing, shape and serialization
 tolerances. Original inputs and occupied output names remain untouched
-(`importRoute`, `packages/module-travel/src/route.ts:121-176`).
+(`importRoute`, `packages/module-travel/src/route.ts:122-177`).
 
 Outdooractive has a readable public route page, but GPX export requires
 login and its geometry API is covered by its `/api/*` robots disallow.

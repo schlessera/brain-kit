@@ -31,7 +31,7 @@ takes precedence, with module `opportunitiesDir` as the null-directory fallback
 (`resolveJobsCtx`, `packages/module-jobs/src/cli.ts:48-70`). The pipeline is
 also real code: ensure the registry spec, then regenerate tables from child
 frontmatter (`cmdPipeline`, `packages/module-jobs/src/cli.ts:525-542`;
-`ensurePipelineIndex`, `packages/module-jobs/src/pipeline.ts:60-100`). There
+`ensurePipelineIndex`, `packages/module-jobs/src/pipeline.ts:61-101`). There
 is no reason to classify a structured event or hand-edit a pipeline row.
 
 Briefing queries indexed deadlines over the next 60 days (`// 3. Upcoming deadlines`,

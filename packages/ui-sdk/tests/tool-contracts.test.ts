@@ -7,18 +7,18 @@ import {
   ASK_USER_RANK_CONTRACT,
   ASK_USER_FORM_CONTRACT,
   BRIDGE_TOOL_CONTRACTS,
-  BRIDGE_TOOL_POSTURE,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
-  BLOCK_KINDS,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
   toolInputJsonSchema,
   visibleToolName,
 } from "../src/tool-contracts/index";
+import { BRIDGE_TOOL_POSTURE } from "../src/tool-contracts/bridge.js";
+import { BLOCK_KINDS } from "../src/tool-contracts/blocks.js";
 import { buildSystemPromptAppend } from "../src/server/system-prompt";
 
 describe("the contract list is the single source", () => {

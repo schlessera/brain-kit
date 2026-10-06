@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { safeResolve } from "@schlessera/brain";
+import { safeResolve } from "@schlessera/brain/internal";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import type { FinanceConfig } from "./module.js";

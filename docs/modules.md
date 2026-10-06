@@ -142,7 +142,7 @@ clause did in module code. `findIndexDocuments` returns the complete
 path-ordered set without a cap; its `pathSuffix` is a literal, case-sensitive
 suffix, not a `LIKE` pattern. The jobs module's opportunity check, for
 example, filters that complete set for the former `path = 'status.md' OR path
-LIKE '%/status.md'` (`isStatusFile`, `packages/module-jobs/src/pipeline.ts:199-202`).
+LIKE '%/status.md'` (`isStatusFile`, `packages/module-jobs/src/pipeline.ts:200-203`).
 A module with its own store (such as the jobs module's `jobs.db`) keeps
 opening that itself.
 

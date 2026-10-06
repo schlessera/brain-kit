@@ -239,9 +239,9 @@ Generated from `packages/ui-backend-claude/src/config/env.ts` by `bun run env-do
 
 ## Asynchronous runtime probe
 
-`probeClaudeRuntime(options): Promise<BackendRuntimeReport>` and the module's
-`probeRuntime(context)` are asynchronous. Await the probe and catch
-`ClaudeRuntimeUnavailableError` from the rejected promise. It still executes
+The module's `probeRuntime(context): Promise<BackendRuntimeReport>`
+(`backendModule.probeRuntime`) is asynchronous. Await it; a rejection (a
+`ClaudeRuntimeUnavailableError`, not exported) refuses startup. It still executes
 only `--version` of the SDK-selected binary with the turn's wrapper,
 environment and working directory. A timeout rejects even if a version was
 printed. The five-second deadline starts cancellation while the child is

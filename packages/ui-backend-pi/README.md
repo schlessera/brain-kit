@@ -222,8 +222,10 @@ the gate, so confirm patterns always see the command as the model wrote it.
 when the host bridge provides the corresponding seam, and the system-prompt
 brief names them on the same condition.
 
-The brain tools call `@schlessera/brain` (`hybridSearch` / `ingest` /
-`filterSearch` / `archiveDocument`) directly in-process rather than shelling
+The brain tools call core in-process: graph and listing reads through the
+supported `@schlessera/brain/queries` API, search, context and writes
+(`hybridSearch` / `ingest` / `archiveDocument`) through the unsupported,
+lockstep-only `@schlessera/brain/internal` entry, rather than shelling
 out to the `brain` CLI or MCP — the same surface the Claude backend reaches
 via the brain repo's `mcp__brain__*` server, without the subprocess. Search
 degrades to FTS-only when no embedding key is configured (the same keyless
@@ -236,9 +238,9 @@ ecosystem, loaded by default (`loadExtensions: true`):
 
 - **`pi-web-access`** — `web_search` / `fetch_content`, auto-allowed,
   mirroring Claude's WebSearch/WebFetch. Providers are configured in
-  `~/.pi/web-search.json`; Settings → Models → Web search writes it (see
-  `WEB_SEARCH_PROVIDERS` in `@schlessera/brain-ui-sdk/server` for the
-  catalog). Enabled providers are written as `searchRouting.providers`
+  `~/.pi/web-search.json`; Settings → Models → Web search writes it (the
+  catalog is ui-sdk's first-party `WEB_SEARCH_PROVIDERS`, in its
+  unsupported `/internal` entry). Enabled providers are written as `searchRouting.providers`
   ordered cheapest-first, so a free provider (zero-config Exa) answers the
   ordinary case and a paid one is reached only when the cheap ones fail.
 

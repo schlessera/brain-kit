@@ -39,8 +39,8 @@ then degrades an old schema to empty vocabulary while retaining overrides
 received a raw database ([pre-#699 hygiene context](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12-L17)); jobs used it for opportunity metadata ([pre-#699 opportunity query](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151-L170)).
 These are separate compatibility obligations, not just the five drawn-graph
 endpoints. The current cross-package tests deliberately assert both schema
-columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:61-74`) and actual consumers against a CLI-produced index
-(`ui-server's readers run`, `tests/brain-db-contract.test.ts:213-256`). Those proofs must be replaced with result and runtime coverage,
+columns (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:59-72`) and actual consumers against a CLI-produced index
+(`ui-server's readers run`, `tests/brain-db-contract.test.ts:211-254`). Those proofs must be replaced with result and runtime coverage,
 not deleted to make a schema change pass.
 
 > **2026-10-01 — Implementation context (pi reader audit above).** Pi's graph
@@ -171,7 +171,7 @@ config/root and the separate jobs operational database retain their ownership.
 > (`bindContentIndexQueries`, `packages/core/src/queries/bound.ts:37-61`).
 > Jobs filters the complete `findIndexDocuments` set with the former predicate
 > and throws on a failed read
-> (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:151-190`).
+> (`checkOpportunityStages`, `packages/module-jobs/src/pipeline.ts:152-191`).
 > `tests/module-hygiene-queries.test.ts` runs both through the real loader
 > against CLI-produced indexes. The direct-SQL promise still binds until #701.
 

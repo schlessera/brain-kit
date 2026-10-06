@@ -12,7 +12,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { CONFIDENCE, planClassification, questionsFor } from "@schlessera/brain-ui-sdk/server";
+import { CONFIDENCE, questionsFor } from "../../ui-sdk/src/classification/catalogue.js";
+import { planClassification } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
 import {
   CONFIDENCE_RETENTION_MS,

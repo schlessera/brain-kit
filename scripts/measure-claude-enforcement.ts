@@ -6,7 +6,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { resetRtkProbe, type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
+import { type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
+import { resetRtkProbe } from "../packages/ui-sdk/src/server/rtk.js";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 import { resultText, scriptedModel } from "./measure-claude-runtime";

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildTaxonomy } from "@schlessera/brain";
+import { buildTaxonomy } from "@schlessera/brain/internal";
 
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";

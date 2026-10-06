@@ -17,6 +17,7 @@ import { z } from "zod";
 // The server barrel carries both halves: the handlers from
 // `server/bridge-tools/` and the contracts from `tool-contracts/`.
 import * as shared from "../packages/ui-sdk/src/server";
+import { BRIDGE_TOOL_POSTURE } from "../packages/ui-sdk/src/tool-contracts/bridge";
 import * as claudeAsk from "../packages/ui-backend-claude/src/ask-user-tool";
 import * as claudeAskList from "../packages/ui-backend-claude/src/ask-user-list-tool";
 import * as claudeAskRank from "../packages/ui-backend-claude/src/ask-user-rank-tool";
@@ -27,7 +28,7 @@ import * as claudeBlock from "../packages/ui-backend-claude/src/show-block-tool"
 import * as pi from "../packages/ui-backend-pi/src/bridge-tools";
 
 type Adapter = "claude" | "pi";
-type ToolName = (typeof shared.BRIDGE_TOOL_POSTURE.names)[number];
+type ToolName = (typeof BRIDGE_TOOL_POSTURE.names)[number];
 type SnapshotEntry = {
   definitionSha256: string;
   resultSha256: string;
@@ -291,7 +292,7 @@ describe("bridge tool adapter identity", () => {
     const root = mkdtempSync(join(tmpdir(), "bridge-identity-"));
     try {
       const adapters = makeAdapters(root);
-      for (const name of shared.BRIDGE_TOOL_POSTURE.names) {
+      for (const name of BRIDGE_TOOL_POSTURE.names) {
         const claude = adapters.claude.find((item) => item.name === name)!;
         const piTool = adapters.pi.find((item) => item.name === name)!;
         const { $schema: _schema, ...jsonSchema } = z.toJSONSchema(
@@ -566,7 +567,7 @@ describe("bridge tool adapter validation", () => {
     writeFileSync(join(root, "x.png"), "");
     try {
       const adapters = makeAdapters(root);
-      for (const name of shared.BRIDGE_TOOL_POSTURE.names) {
+      for (const name of BRIDGE_TOOL_POSTURE.names) {
         const claude = adapters.claude.find((item) => item.name === name)!;
         const piTool = adapters.pi.find((item) => item.name === name)!;
         expect((await claude.handler(VALID_INPUTS[name], {})).isError).toBeUndefined();
@@ -775,7 +776,7 @@ describe("bridge tool loading posture", () => {
     // here to prevent.
     const tools = await listBridgeTools(fullServer());
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...shared.BRIDGE_TOOL_POSTURE.names].sort()
+      [...BRIDGE_TOOL_POSTURE.names].sort()
     );
     for (const tool of tools) {
       expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);
@@ -810,7 +811,7 @@ describe("bridge tool loading posture", () => {
     try {
       const tools = makeAdapters(root).pi;
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...shared.BRIDGE_TOOL_POSTURE.names].sort()
+        [...BRIDGE_TOOL_POSTURE.names].sort()
       );
       // The invariant that matters is not a missing field — asserting an
       // absence on a plain object proves nothing. It is that each tool arrives

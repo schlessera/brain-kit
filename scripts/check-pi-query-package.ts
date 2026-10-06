@@ -27,7 +27,7 @@ try {
   await run([join(consumer, "node_modules/.bin/brain"), "index", "--force", "--json"]);
   const probe = join(probeDir, "probe.ts");
   await Bun.write(probe, `
-import { createBrainAccess, createBrainTools, createTurnContext } from "@schlessera/brain-backend-pi";
+import { createBrainAccess, createBrainTools, createTurnContext } from "@schlessera/brain-backend-pi/internal";
 import * as internal from "@schlessera/brain/internal";
 for (const name of ["archiveDocument", "assembleContext", "hybridSearch", "indexAll", "ingest", "loadVecSupport", "openDatabase"]) {
   if (typeof internal[name] !== "function") throw new Error("Packed native helper missing: " + name);

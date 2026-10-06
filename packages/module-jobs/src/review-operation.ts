@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import { safeResolve } from "@schlessera/brain";
+import { safeResolve } from "@schlessera/brain/internal";
 import { z } from "zod";
 import { openDatabase } from "./db.js";
 import type { JobsConfig } from "./module.js";

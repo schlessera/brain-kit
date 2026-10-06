@@ -2,7 +2,8 @@
 // import line + registerToolRenderers call here (React.lazy for heavy packs).
 // Runtime plugin loading into the compiled PWA is deliberately not supported.
 
-import { defaultToolRendererRegistry, type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
+import { type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
+import { defaultToolRendererRegistry } from "@schlessera/brain-ui-sdk/internal/client";
 import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";

@@ -5,17 +5,13 @@
 
 export "." (./src/index.ts)
   type ActivityChange
-  type ActivityDigest
   type ActivityStore
   type ActivityStream
   type AgentConfig
-  type AppEnv
   type AppRenderer
   type AuthConfig
   type AuthMode
-  type AuthRuntime
   type AuthorizationContext
-  type BackendLogFn
   type BackendRegistry
   type BrainClient
   BrainDbUnavailableError
@@ -23,21 +19,12 @@ export "." (./src/index.ts)
   BrainSyncError
   type BrainSyncOutput
   type BrainUiApp
-  CONFIDENCE_BUCKETS
-  CONFIDENCE_BUCKET_WIDTH
-  CONFIDENCE_RETENTION_MS
   type CapturedLog
-  type ConfidenceBucket
-  type ConfidenceReadOptions
-  type ConnectionState
   type CreateAppOptions
-  type CronRunRecord
-  DIGEST_JOB_NAME
   ENV_VARS
   type EnvVarDescriptor
   type HostVersionRequirements
   type InMemoryMeterProvider
-  type KeytermSettings
   type LogQuery
   type LogReader
   type LogWriter
@@ -48,15 +35,12 @@ export "." (./src/index.ts)
   type MetricSnapshot
   type MetricsReader
   type ModelDiscoverySource
-  type ModelDiscoveryState
   type Observability
   type ObservabilityOptions
   type Principal
   type RecordingLoggerProvider
   type RecordingObservability
-  type RollupPricing
   SEVERITIES
-  SPAN_OUTCOMES
   type ServerConfig
   type SessionCatalog
   type Severity
@@ -69,13 +53,7 @@ export "." (./src/index.ts)
   WsHost
   type WsHostOptions
   assertBackendResolvable
-  authGuard
-  buildKeyterms
-  confidenceDistribution
-  createActivityStore
-  createActivityStream
   createApp
-  createBackendRegistry
   createBrainClient
   createConsoleLoggerProvider
   createInMemoryMeterProvider
@@ -86,36 +64,130 @@ export "." (./src/index.ts)
   createSilentLoggerProvider
   createSilentObservability
   createStaticBackendRegistry
-  createUiDb
-  createWsHandlers
-  createWsUpgrade
-  generateActivityDigest
-  handleClientMessage
-  ingestSpanSink
-  isWsAuthorized
-  latestActivityDigest
   openBrainDb
-  parseSyncResult
-  pruneShareStaging
-  recordCronRun
-  resolveAuthMode
-  resolveCookiePrincipal
   resolveServerConfig
-  resolveTurnTarget
-  revokeAllSessions
-  seriesKey
-  severityRank
-  shareStagingRoot
-  syncActivityAttrs
-  syncMessage
-  turnIdMatches
   websocket
   withBrainDb
-  writeCache
+
+export "./internal" (./src/internal.ts)
+  buildKeyterms
+  createUiDb
 
 export "./package.json" (./package.json) [asset]
 
-signatures (the seams in docs/extending/README.md and the types they are made of)
+signatures (every public export and the types it is made of)
+  ActionAttempt (packages/ui-server/src/inbox/notify.ts)
+    export interface ActionAttempt {
+        attemptId: number;
+        count: number;
+        payload: ActionNoticePayload;
+    }
+  ActionAttemptOutcome (packages/ui-server/src/inbox/notify.ts)
+    export type ActionAttemptOutcome = "success" | "failed" | "ambiguous" | "gone";
+  ActionNoticePayload (packages/ui-server/src/inbox/notify.ts)
+    export interface ActionNoticePayload {
+        title: string;
+        body: string;
+        tag: string;
+        url: string;
+    }
+  ActionNotifier (packages/ui-server/src/inbox/notify.ts)
+    export interface ActionNotifier {
+        enroll(now?: number): number;
+        beginAttempt(destination: {
+            endpoint: string;
+            principalId: string;
+        }, now?: number): ActionAttempt | null;
+        finishAttempt(attemptId: number, outcome: ActionAttemptOutcome, now?: number): void;
+        reportZone(client: NoticeClient, timeZone: unknown, endpoint?: string, now?: number): {
+            timeZone: string | null;
+        };
+        reportDeviceZone(principalId: string, endpoint: string, timeZone: unknown, now?: number): {
+            timeZone: string | null;
+        };
+        digest(client: NoticeClient, now?: number): ActionDigestState;
+        dismiss(client: NoticeClient, through?: number, now?: number): void;
+        generateDue(now?: number): number;
+    }
+  ActivityChange (packages/ui-server/src/activity/store.ts)
+    export type ActivityChange = {
+        changeId: number;
+        runId: string;
+        seq: number;
+        kind: "span";
+        span: SpanRow;
+    } | {
+        changeId: number;
+        runId: string;
+        seq: number;
+        kind: "event";
+        event: SpanEventRow;
+    };
+  ActivityNotifier (packages/ui-server/src/activity/notify.ts)
+    export interface ActivityNotifier {
+        tick(now?: number): void;
+        inbox(limit?: number): NotificationIntent[];
+        pending(limit?: number): NotificationIntent[];
+        markDelivered(id: number, status: "sent" | "send_failed"): void;
+        acknowledge(id: number): boolean;
+        acknowledgeAll(): number;
+        pruneAcknowledged(olderThanMs: number): number;
+    }
+  ActivityRuntime (packages/ui-server/src/ws/host.ts)
+    export interface ActivityRuntime {
+        store: ActivityStore;
+        stream: ActivityStream;
+        pushSender?: Pick<PushSender, "unbindPrincipal">;
+        query?: (query: import("@schlessera/brain-ui-sdk/server").ActivityQuery) => Record<string, unknown>;
+        runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven">>;
+    }
+  ActivityStore (packages/ui-server/src/activity/store.ts)
+    export interface ActivityStore {
+        readonly writer: string;
+        startSpan(input: StartSpanInput): SpanRow;
+        endSpan(spanId: string, input: EndSpanInput): boolean;
+        patchSpan(spanId: string, patch: {
+            principalId?: string;
+            attrs?: Record<string, unknown>;
+            usage?: SpanUsage;
+            waitUntil?: number;
+        }): boolean;
+        appendEvent(spanId: string, eventType: string, payload: unknown, ts?: number, cap?: number): SpanEventRow | null;
+        heartbeat(spanId: string, at?: number): void;
+        cascadeClose(runId: string, outcome: SpanOutcome, reason: string): number;
+        sweepOwnOrphans(): number;
+        sweepStale(staleAfterMs: number, now?: number): number;
+        findStuck(thresholdMs: number, now?: number): SpanRow[];
+        changesSince(changeCursor: number, limit?: number): ActivityChange[];
+        terminalRootChangesSince(changeCursor: number, limit?: number): Array<{
+            changeId: number;
+            span: SpanRow;
+        }>;
+        latestChangeCursor(): number;
+        snapshotRun(runId: string): RunSnapshot | null;
+        runHighWaterSeq(runId: string): number;
+        getSpan(spanId: string): SpanRow | null;
+        openRootSpans(): SpanRow[];
+        rollupRun(runId: string): void;
+        prune(options: PruneOptions): {
+            runsPruned: number;
+            spansDeleted: number;
+        };
+    }
+  ActivityStream (packages/ui-server/src/activity/stream.ts)
+    export interface ActivityStream {
+        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
+        handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
+        dropConnection(ws: WSContext): void;
+        dropFor(principalId: string): void;
+        pump(): void;
+        isWatched(scope: {
+            sessionId?: string;
+            runId?: string;
+        }): boolean;
+        subscriptionCount(): number;
+        close(): void;
+    }
   AgentConfig (packages/ui-server/src/config/env.ts)
     export interface AgentConfig {
         backend: string | null;
@@ -128,11 +200,16 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         modelDiscovery: boolean;
         modelTtlMs: number;
     }
-  AskUserFormLimits (packages/ui-sdk/src/tool-contracts/form.ts)
-    export interface AskUserFormLimits {
-        maxDepth: number;
-        maxNodes: number;
-        maxOptions: number;
+  AppRenderer (packages/ui-server/src/routes/render.ts)
+    export interface AppRenderer {
+        renderPng(options: {
+            html: string;
+            linkPolicy?: "visible-destinations";
+        }): Promise<Buffer | Uint8Array>;
+        renderPdf(options: {
+            html: string;
+            linkPolicy?: "visible-destinations";
+        }): Promise<Buffer | Uint8Array>;
     }
   AuthConfig (packages/ui-server/src/config/env.ts)
     export interface AuthConfig {
@@ -146,8 +223,228 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         dangerouslyDisableAuth: boolean;
         allowPassword: boolean;
     }
+  AuthFailure (packages/ui-server/src/activity/runtime-status.ts)
+    type AuthFailure = Extract<BackendActivityEvent, {
+        kind: "auth_failure";
+    }>;
+  AuthMode (packages/ui-server/src/middleware/auth.ts)
+    export type AuthMode = "password" | "tailscale" | "proxy" | "none";
   AuthModeName (packages/ui-server/src/config/env.ts)
     export type AuthModeName = "password" | "tailscale" | "proxy" | "none";
+  AuthorizationContext (packages/ui-server/src/ws/turns.ts)
+    export interface AuthorizationContext {
+        readonly [authorizationContextBrand]: true;
+        readonly principalId: string;
+        readonly expiresAt: number;
+        valid: boolean;
+        retain(): () => void;
+        release(): void;
+    }
+  BackendRegistry (packages/ui-server/src/agent/backend.ts)
+    export interface BackendRegistry {
+        getBackends(): Promise<AgentBackend[]>;
+        getBackendById(id: string): Promise<AgentBackend | undefined>;
+        getDefaultBackend(): Promise<AgentBackend>;
+        getDefaultBackendId(): Promise<string>;
+        getBackendForProfile(profileId: string): Promise<AgentBackend | undefined>;
+        getBackendForSession(backendId: string | null | undefined): Promise<AgentBackend>;
+        listAllProviders(options?: {
+            includeHidden?: boolean;
+        }): Promise<ProviderInfo[]>;
+        getPreferredProfileId(): Promise<string | null>;
+        getBackendsInfo(): Promise<Record<string, {
+            id: string;
+            capabilities: BackendCapabilities;
+        }>>;
+        getModelSource(): Promise<ModelDiscoverySource | null>;
+        invalidateProfiles(): void;
+    }
+  BrainAddResult (packages/ui-server/src/brain/types.ts)
+    export interface BrainAddResult {
+        action: "created" | "appended";
+        path: string;
+        title: string;
+        type: string;
+        indexed: boolean;
+        indexError?: string;
+    }
+  BrainClient (packages/ui-server/src/brain/client.ts)
+    export interface BrainClient {
+        cliCommand(): string[];
+        modules?(): Promise<{
+            enabled: ConfiguredModule[];
+            available: unknown[];
+        }>;
+        moduleSettings?(name: string, operation: "get" | "save" | "validate" | "preview" | "migrate" | "enable" | "disable" | "action", options?: {
+            values?: Record<string, unknown>;
+            revision?: string;
+            action?: string;
+        }): Promise<unknown>;
+        search(query: string, opts?: {
+            type?: string;
+            tag?: string;
+            limit?: number;
+            mode?: string;
+            signal?: AbortSignal;
+        }): Promise<BrainSearchResponse>;
+        briefing(): Promise<string>;
+        stats(): Promise<BrainStats>;
+        statsHistory(): Promise<BrainStatsHistory>;
+        list(opts?: {
+            type?: string;
+            tag?: string;
+            status?: string;
+            relevance?: string;
+            limit?: number;
+        }): Promise<BrainDocument[]>;
+        read(path: string): Promise<string>;
+        sync(): Promise<BrainSyncResult>;
+        add(content: string, opts?: {
+            type?: string;
+            title?: string;
+            tags?: string[];
+        }): Promise<BrainAddResult>;
+        index(opts?: {
+            force?: boolean;
+        }): Promise<void>;
+        validate(): Promise<string>;
+        skillsSync(): Promise<string>;
+        scratchPrune(opts?: {
+            signal?: AbortSignal;
+        }): Promise<string>;
+    }
+  BrainDbHandle (packages/ui-server/src/db/brain-db.ts)
+    export interface BrainDbHandle {
+        db: Database;
+        schemaVersion: number;
+    }
+  BrainDbUnavailableError (packages/ui-server/src/db/brain-db.ts)
+    export class BrainDbUnavailableError extends Error {
+        constructor(readonly reason: BrainDbUnavailableReason, readonly schemaVersion: number);
+    }
+  BrainDbUnavailableReason (packages/ui-server/src/db/brain-db.ts)
+    export type BrainDbUnavailableReason = "missing" | "schema";
+  BrainDocument (packages/ui-server/src/brain/types.ts)
+    export interface BrainDocument {
+        path: string;
+        title: string;
+        type: string;
+        status: string;
+        relevance: string;
+        tags: string | null;
+        updated: string;
+        summary: string | null;
+        deadline: string | null;
+        generatedFrom: string | null;
+        score: number;
+        snippet: string;
+    }
+  BrainSearchResponse (packages/ui-server/src/brain/types.ts)
+    export interface BrainSearchResponse {
+        results: BrainSearchResult[];
+        warnings: string[];
+    }
+  BrainSearchResult (packages/ui-server/src/brain/types.ts)
+    export interface BrainSearchResult {
+        path: string;
+        title: string;
+        type: string;
+        relevance: string;
+        score: number;
+        snippet: string;
+    }
+  BrainStats (packages/ui-server/src/brain/types.ts)
+    export interface BrainStats {
+        documents: number;
+        byType: Record<string, number>;
+        byStatus: Record<string, number>;
+        byRelevance: Record<string, number>;
+        tags: number;
+        links: number;
+        brokenLinks: number;
+        chunks: number;
+    }
+  BrainStatsHistory (packages/ui-server/src/brain/types.ts)
+    export interface BrainStatsHistory {
+        dates: string[];
+        documents: (number | null)[];
+        health: Record<string, (number | null)[]>;
+        [field: string]: unknown;
+    }
+  BrainSyncAgent (packages/ui-server/src/brain/sync-result.ts)
+    export type BrainSyncAgent = {
+        invoked: false;
+        reason: "not-needed" | "no-runner";
+    } | {
+        invoked: true;
+        runner: string;
+        outcome: "success" | "failed";
+        runtime: {
+            name: string;
+            version: string | null;
+        } | null;
+        text: string | null;
+        error?: string;
+    };
+  BrainSyncError (packages/ui-server/src/brain/client.ts)
+    export class BrainSyncError extends Error {
+        constructor(message: string, readonly result?: BrainSyncOutput);
+    }
+  BrainSyncOutput (packages/ui-server/src/brain/sync-result.ts)
+    export interface BrainSyncOutput {
+        run: {
+            status: "complete" | "needs-judgment" | "failed";
+            report: string;
+            [field: string]: unknown;
+        };
+        agent: BrainSyncAgent;
+    }
+  BrainSyncResult (packages/ui-server/src/brain/types.ts)
+    export interface BrainSyncResult {
+        message: string;
+        result?: BrainSyncOutput;
+    }
+  BrainUiApp (packages/ui-server/src/app.ts)
+    export interface BrainUiApp {
+        fetch: Hono["fetch"];
+        websocket: typeof websocket;
+        config: ServerConfig;
+        authMode: AuthMode;
+        db: Database;
+        wsHost: WsHost;
+        observability: Observability;
+        isTurnActive(): boolean;
+        cancelActiveTurns(): boolean;
+        close(): Promise<void>;
+    }
+  CapturedLog (packages/ui-server/src/observability/types.ts)
+    export interface CapturedLog {
+        scope: string;
+        severity: Severity;
+        body: string;
+        attributes: FlatAttributes;
+        timestamp: number;
+    }
+  ClientSet (packages/ui-server/src/ws/clients.ts)
+    export class ClientSet {
+        constructor(readonly maxConnections?: number, private readonly invalidateAuthorizations?: (principalIds: ReadonlySet<string>) => void);
+        add(ws: WSContext, principalId: string, options?: {
+            onRemove?: () => void;
+        }): boolean;
+        remove(ws: WSContext): void;
+        setCapabilities(ws: WSContext, capabilities: Readonly<Record<string, boolean>> | undefined): void;
+        declares(ws: WSContext, capability: string): boolean;
+        count(): number;
+        hasCapacity(): boolean;
+        hasClients(): boolean;
+        closeFor(principalId: string, code: number, reason: string): void;
+        closeAll(code: number, reason: string): void;
+        broadcast(msg: ServerMessage, onSendError?: (err: unknown) => void, requiredCapability?: string): void;
+    }
+  Clock (packages/ui-server/src/ws/rate-limit.ts)
+    export interface Clock {
+        now(): number;
+    }
   CoastlineConfig (packages/ui-server/src/config/env.ts)
     export interface CoastlineConfig {
         enabled: boolean;
@@ -156,15 +453,98 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         cacheDir: string;
         geo?: GeoConfigInput;
     }
-  ConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
-    export interface ConfirmPattern {
-        pattern: string;
-        effect: string;
+  ConnectionState (packages/ui-server/src/ws/dispatch.ts)
+    export interface ConnectionState {
+        closed?: boolean;
+        principal: import("../db/principals.js").Principal;
+        authorization: AuthorizationContext;
+        protocolRev?: number;
+        capabilities?: Readonly<Record<string, boolean>>;
     }
-  ConfirmPatternSource (packages/ui-sdk/src/server/confirm-patterns.ts)
-    export type ConfirmPatternSource = string | ConfirmPattern;
-  GeoConfigInput (packages/geo/src/config.ts)
-    export type GeoConfigInput = z.input<typeof geoConfigSchema>;
+  ConsoleLoggerProviderOptions (packages/ui-server/src/observability/loggers.ts)
+    export interface ConsoleLoggerProviderOptions {
+        minSeverity?: Severity;
+        write?: LogWriter;
+    }
+  ConversationHost (packages/ui-server/src/ws/conversation.ts)
+    export class ConversationHost {
+        constructor(private readonly host: WsHost, readonly provider: LiveConversationProvider);
+        start(ws: WSContext, connection: ConnectionState, msg: ClientConversationStart): Promise<void>;
+        audio(ws: WSContext, connection: ConnectionState, msg: ClientConversationAudio): void;
+        endpoint(ws: WSContext, connection: ConnectionState, msg: ClientConversationEndpoint): void;
+        commit(ws: WSContext, connection: ConnectionState, msg: ClientConversationCommit): void;
+        playback(ws: WSContext, connection: ConnectionState, msg: ClientConversationPlayback): void;
+        stop(ws: WSContext, connection: ConnectionState, msg: ClientConversationStop): void;
+        dropConnection(connection: ConnectionState): void;
+        approvalRaised(request: {
+            sessionId: string;
+            turnId: string;
+            toolUseId: string;
+            toolName: string;
+        }): void;
+        frameDropped(connection: ConnectionState): void;
+        sessionCancelled(sessionId: string): void;
+        closeAll(): void;
+        get size(): number;
+    }
+  CreateAppOptions (packages/ui-server/src/app.ts)
+    export interface CreateAppOptions {
+        versionRequirements?: HostVersionRequirements;
+        config?: ServerConfig;
+        staticRoot?: string;
+        appName?: string;
+        dbPath?: string;
+        renderer?: AppRenderer;
+        speechProvider?: SpeechProvider;
+        conversationProvider?: LiveConversationProvider;
+        turnTimeoutMs?: number;
+        registry?: BackendRegistry;
+        observability?: Observability;
+    }
+  ENV_VARS (packages/ui-server/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarDescriptor[];
+  EndSpanInput (packages/ui-server/src/activity/store.ts)
+    export interface EndSpanInput {
+        outcome: SpanOutcome;
+        reason?: string;
+        endedAt?: number;
+        usage?: SpanUsage;
+        attrs?: Record<string, unknown>;
+    }
+  EnvRecord (packages/ui-server/src/config/env.ts)
+    type EnvRecord = Record<string, string | undefined>;
+  EnvVarDescriptor (packages/ui-server/src/config/env.ts)
+    export interface EnvVarDescriptor {
+        name: string;
+        description: string;
+        default: string | null;
+        required: false | string;
+    }
+  FailureReplay (packages/ui-server/src/ws/turn-failures.ts)
+    export class FailureReplay {
+        constructor(private readonly catalog: SessionCatalog, private readonly log: Logger);
+        wait(sessionId: string): Promise<void>;
+        begin(backend: AgentBackend, sessionId: string | undefined, turnId: string, signal: AbortSignal): Promise<{
+            observe: (sessionId: string, failure: TurnFailure) => void;
+            finish: () => Promise<void>;
+        }>;
+    }
+  FlatAttributes (packages/ui-server/src/observability/types.ts)
+    export type FlatAttributes = Record<string, string | number | boolean>;
+  FrameRateLimiter (packages/ui-server/src/ws/rate-limit.ts)
+    export class FrameRateLimiter {
+        constructor(options: RateLimitOptions);
+        take(): RateLimitDecision;
+        get rejectedCount(): number;
+    }
+  HostVersionRequirements (packages/ui-server/src/app.ts)
+    export interface HostVersionRequirements {
+        brainCli?: string;
+        backends?: Readonly<Record<string, BackendVersionRequirements>>;
+    }
+  InMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
+    export interface InMemoryMeterProvider extends MeterProvider, MetricsReader {
+    }
   InboxBudgetConfig (packages/ui-server/src/inbox/budget.ts)
     export interface InboxBudgetConfig {
         spendUsd: number;
@@ -174,8 +554,243 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         timeZone: string;
         unpricedUsdPerToken: number;
     }
+  InboxStream (packages/ui-server/src/inbox/stream.ts)
+    export interface InboxStream {
+        handleSubscribe(ws: WSContext, msg: ClientInboxSubscribe, authorization: AuthorizationContext): void;
+        handleUnsubscribe(ws: WSContext, msg: ClientInboxUnsubscribe): void;
+        handleDecision?(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): void;
+        dropConnection(ws: WSContext): void;
+        dropFor(principalId: string): void;
+        pump(): void;
+        subscriptionCount(): number;
+        close(): void;
+    }
+  IntentKind (packages/ui-server/src/activity/notify.ts)
+    export type IntentKind = "failure" | "completion" | "stuck";
+  LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
+    export interface LocalExchangeRecord extends LocalExchange {
+        seq: number;
+        delivered: boolean;
+    }
+  LogQuery (packages/ui-server/src/observability/types.ts)
+    export interface LogQuery {
+        scope?: string;
+        severity?: Severity;
+        minSeverity?: Severity;
+        body?: string;
+        attributes?: FlatAttributes;
+    }
+  LogReader (packages/ui-server/src/observability/loggers.ts)
+    export interface LogReader {
+        records(): CapturedLog[];
+        find(query?: LogQuery): CapturedLog[];
+        count(query?: LogQuery): number;
+        clear(): void;
+    }
+  LogWriter (packages/ui-server/src/observability/loggers.ts)
+    export interface LogWriter {
+        (severity: Severity, line: string): void;
+    }
+  MAX_ARCHIVE_BYTES (packages/ui-server/src/skills/install.ts)
+    const MAX_ARCHIVE_BYTES: number;
+  MIN_BRAIN_CLI_VERSION (packages/ui-server/src/brain/client.ts)
+    const MIN_BRAIN_CLI_VERSION: "0.33.0";
+  MIN_BRAIN_SCHEMA_VERSION (packages/ui-server/src/db/brain-db.ts)
+    const MIN_BRAIN_SCHEMA_VERSION: 3;
+  MetricPoint (packages/ui-server/src/observability/types.ts)
+    export interface MetricPoint {
+        name: string;
+        attributes: FlatAttributes;
+        value: number;
+        kind: "counter" | "updowncounter" | "histogram" | "gauge";
+    }
+  MetricSnapshot (packages/ui-server/src/observability/types.ts)
+    export type MetricSnapshot = MetricPoint[];
+  MetricsReader (packages/ui-server/src/observability/meter.ts)
+    export interface MetricsReader {
+        snapshot(): MetricSnapshot;
+        value(name: string, attributes?: Attributes): number | undefined;
+        total(name: string): number;
+        reset(): void;
+    }
+  ModelDiscoverySource (packages/ui-server/src/agent/backend.ts)
+    export type ModelDiscoverySource = BackendModelSource;
+  NoticeClient (packages/ui-server/src/inbox/notify.ts)
+    export interface NoticeClient {
+        principalId: string;
+        clientId: string;
+    }
+  NotificationIntent (packages/ui-server/src/activity/notify.ts)
+    export interface NotificationIntent {
+        id: number;
+        runId: string;
+        spanId: string | null;
+        kind: IntentKind;
+        tag: string;
+        title: string;
+        body: string;
+        status: "pending" | "sent" | "send_failed" | "suppressed";
+        acknowledged: boolean;
+        createdAt: number;
+    }
+  Observability (packages/ui-server/src/observability/index.ts)
+    export interface Observability {
+        logger(scope: string): Logger;
+        meter(scope: string): Meter;
+        metrics?: MetricsReader;
+        logs?: LogReader;
+        installGlobally(): () => void;
+    }
+  ObservabilityOptions (packages/ui-server/src/observability/index.ts)
+    export interface ObservabilityOptions {
+        loggerProvider?: LoggerProvider;
+        meterProvider?: MeterProvider;
+        minSeverity?: Severity;
+    }
+  OpenBrainDbOptions (packages/ui-server/src/db/brain-db.ts)
+    export interface OpenBrainDbOptions {
+        minSchemaVersion?: number;
+    }
+  Principal (packages/ui-server/src/db/principals.ts)
+    export interface Principal {
+        id: string;
+        kind: PrincipalKind;
+        authMethod: PrincipalAuthMethod;
+        label: string;
+        credentialId: string | null;
+        createdBy: string | null;
+        createdAt: number;
+        expiresAt: number;
+        lastSeenAt: number | null;
+        revokedAt: number | null;
+    }
+  PrincipalAuthMethod (packages/ui-server/src/db/principals.ts)
+    export type PrincipalAuthMethod = "password" | "passkey" | "delegated" | "ambient";
+  PrincipalKind (packages/ui-server/src/db/principals.ts)
+    export type PrincipalKind = "owner" | "agent" | "ambient" | "system";
+  PruneOptions (packages/ui-server/src/activity/store.ts)
+    export interface PruneOptions {
+        digestFloorAt: number;
+        detailRetentionMs: number;
+        hardCeilingMs: number;
+        now?: number;
+        batch?: number;
+    }
+  PushSender (packages/ui-server/src/activity/push-sender.ts)
+    export interface PushSender {
+        publicKey(): string;
+        subscribe(sub: {
+            endpoint: string;
+            keys: {
+                p256dh: string;
+                auth: string;
+            };
+        }, principalId: string, label?: string): boolean;
+        unsubscribe(endpoint: string, principalId: string): boolean;
+        subscriptions(principalId?: string): PushSubscriptionRow[];
+        unbindPrincipal(principalId: string): number;
+        deliverPending(notifier: ActivityNotifier): Promise<number>;
+        deliverActions(notices: ActionNotifier, now?: number): Promise<number>;
+    }
+  PushSubscriptionRow (packages/ui-server/src/activity/push-sender.ts)
+    export interface PushSubscriptionRow {
+        endpoint: string;
+        p256dh: string;
+        auth: string;
+        label: string | null;
+        createdAt: number;
+        lastUsedAt: number | null;
+        principalId: string | null;
+        timeZone: string | null;
+    }
+  RateLimitDecision (packages/ui-server/src/ws/rate-limit.ts)
+    export interface RateLimitDecision {
+        allowed: boolean;
+        remaining: number;
+    }
+  RateLimitOptions (packages/ui-server/src/ws/rate-limit.ts)
+    export interface RateLimitOptions {
+        ratePerSecond: number;
+        burst: number;
+        clock?: Clock;
+    }
+  RecordedAuthFailure (packages/ui-server/src/activity/runtime-status.ts)
+    export type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
+        runId: string;
+        at: string;
+        action?: SubscriptionAuthAction;
+        policy?: BillingMode;
+    };
+  RecordedTurnFailure (packages/ui-server/src/ws/turn-failures.ts)
+    export interface RecordedTurnFailure {
+        turnId: string;
+        assistantOrdinal: number;
+        prefixDigest: string;
+        failure: TurnFailure;
+    }
+  RecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
+    export interface RecordingLoggerProvider extends LoggerProvider, LogReader {
+    }
+  RecordingLoggerProviderOptions (packages/ui-server/src/observability/loggers.ts)
+    export interface RecordingLoggerProviderOptions {
+        limit?: number;
+    }
+  RecordingObservability (packages/ui-server/src/observability/index.ts)
+    export interface RecordingObservability extends Observability {
+        metrics: InMemoryMeterProvider;
+        logs: RecordingLoggerProvider;
+        reset(): void;
+    }
+  RetainedRetry (packages/ui-server/src/ws/retry-requests.ts)
+    export interface RetainedRetry {
+        turnId: string;
+        principalId: string;
+        request: ClientChatMessage;
+        failureMessage: string;
+        prompt: string;
+    }
+  RunSnapshot (packages/ui-server/src/activity/store.ts)
+    export interface RunSnapshot {
+        runId: string;
+        spans: SpanRow[];
+        events: SpanEventRow[];
+        highWaterSeq: number;
+        changeCursor: number;
+    }
+  RuntimeObserved (packages/ui-server/src/activity/runtime-status.ts)
+    type RuntimeObserved = Extract<BackendActivityEvent, {
+        kind: "runtime_observed";
+    }>;
+  RuntimeStatus (packages/ui-server/src/activity/runtime-status.ts)
+    export interface RuntimeStatus {
+        setBoot(probes: Array<{
+            backendId: string;
+            report: BackendRuntimeReport;
+        }>): void;
+        observe(event: RuntimeObserved, runId: string): void;
+        authFailure(event: AuthFailure, runId: string, policy?: BillingMode): void;
+        subscriptionAuthFailure(): (RecordedAuthFailure & {
+            action: SubscriptionAuthAction;
+        }) | undefined;
+        subscriptionProven(at: number): void;
+        snapshot(): RuntimeStatusSnapshot;
+    }
+  RuntimeStatusSnapshot (packages/ui-server/src/activity/runtime-status.ts)
+    export interface RuntimeStatusSnapshot {
+        boot: Array<{
+            backendId: string;
+        } & BackendRuntimeReport>;
+        lastObserved?: Omit<RuntimeObserved, "kind"> & {
+            runId: string;
+            at: string;
+        };
+        lastAuthFailure?: RecordedAuthFailure;
+        sync?: SyncRuntimeStatus;
+    }
   SEVERITIES (packages/ui-server/src/observability/types.ts)
     const SEVERITIES: readonly ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
+  SPAN_OUTCOMES (packages/ui-server/src/activity/store.ts)
+    const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
         askUserFormLimits?: AskUserFormLimits;
@@ -215,15 +830,150 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         };
         subscription: SubscriptionConfig;
     }
+  SessionCatalog (packages/ui-server/src/ws/session-catalog.ts)
+    export interface SessionCatalog {
+        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+        attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        getStoredProviderId(sessionId: string): string | null;
+        saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;
+        clearRetryRequest?(sessionId: string): void;
+        peekRetry?(sessionId: string): retries.RetainedRetry | null;
+        reserveRetry?(sessionId: string, failedTurnId: string, requestId: string, principalId: string, expectedPrompt?: string): {
+            receipt: ServerRetryReceipt;
+            request?: ClientChatMessage;
+            prompt?: string;
+        };
+        refuseRetry?(sessionId: string, requestId: string, principalId: string, message: string): ServerRetryReceipt;
+        retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
+        attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        getStoredBackendId(sessionId: string): string | null;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
+        recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
+            thinkingLevel?: ThinkingLevel;
+            turnId: string;
+            files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+        }): void;
+        recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
+        attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        recordLocalExchange?(sessionId: string, exchange: LocalExchange, delivered: boolean): boolean;
+        takePendingLocalExchanges?(sessionId: string): LocalExchange[];
+        loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
+        recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
+        findHandoff?(handoffId: string): string | null;
+        addSessionCost?(sessionId: string, costUsd: number): void;
+    }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
+  SpanEventRow (packages/ui-server/src/activity/store.ts)
+    export interface SpanEventRow {
+        spanId: string;
+        eventIndex: number;
+        ts: number;
+        eventType: string;
+        payload: unknown;
+        truncated: boolean;
+    }
+  SpanKind (packages/ui-server/src/activity/store.ts)
+    export type SpanKind = "turn" | "tool" | "subagent" | "cron";
+  SpanOrigin (packages/ui-server/src/activity/store.ts)
+    export type SpanOrigin = "session" | "cron" | "autonomous";
+  SpanOutcome (packages/ui-server/src/activity/store.ts)
+    export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
+  SpanRow (packages/ui-server/src/activity/store.ts)
+    export interface SpanRow {
+        spanId: string;
+        runId: string;
+        parentSpanId: string | null;
+        name: string;
+        kind: SpanKind;
+        origin: SpanOrigin;
+        sessionId: string | null;
+        jobName: string | null;
+        principalId: string | null;
+        attrs: Record<string, unknown>;
+        startedAt: number;
+        waitUntil: number | null;
+        endedAt: number | null;
+        outcome: SpanOutcome | null;
+        outcomeReason: string | null;
+        usage: SpanUsage;
+        writer: string;
+        lastHeartbeatAt: number | null;
+    }
+  SpanUsage (packages/ui-server/src/activity/store.ts)
+    export interface SpanUsage {
+        inputTokens?: number;
+        outputTokens?: number;
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
+        costUsd?: number;
+        model?: string;
+    }
+  StartSpanInput (packages/ui-server/src/activity/store.ts)
+    export interface StartSpanInput {
+        spanId: string;
+        runId: string;
+        parentSpanId?: string;
+        name: string;
+        kind: SpanKind;
+        origin: SpanOrigin;
+        sessionId?: string;
+        jobName?: string;
+        principalId?: string;
+        attrs?: Record<string, unknown>;
+        startedAt?: number;
+    }
   SubscriptionConfig (packages/ui-server/src/config/env.ts)
     export interface SubscriptionConfig {
         tokenSet: boolean;
         mintedAt: string | null;
     }
-  ThinkingLevel (packages/ui-sdk/src/protocol.ts)
-    export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  SyncAgentState (packages/ui-server/src/activity/sync-runtime.ts)
+    export type SyncAgentState = "pending" | "not-invoked" | "invoked" | "unknown";
+  SyncRunRuntime (packages/ui-server/src/activity/sync-runtime.ts)
+    export interface SyncRunRuntime {
+        runId: string;
+        startedAt: string;
+        endedAt: string | null;
+        outcome: SpanOutcome | null;
+        agent: SyncAgentState;
+        runtime: {
+            name: string;
+            version: string | null;
+        } | null;
+    }
+  SyncRuntimeStatus (packages/ui-server/src/activity/sync-runtime.ts)
+    export interface SyncRuntimeStatus {
+        latest: SyncRunRuntime | null;
+        lastObserved: {
+            runId: string;
+            startedAt: string;
+            endedAt: string | null;
+            runtime: {
+                name: string;
+                version: string;
+            };
+            latestRun: boolean;
+        } | null;
+    }
+  ToolPermissions (packages/ui-server/src/ws/host.ts)
+    export interface ToolPermissions {
+        isAutoAllowed(toolName: string): boolean;
+        add(toolName: string): void;
+    }
+  TurnClassifier (packages/ui-server/src/classification/classify-turn.ts)
+    export interface TurnClassifier {
+        readonly enabled: boolean;
+        run(sessionId: string, textParts: readonly string[]): Promise<MessageBlock[]>;
+        attach(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+    }
+  TurnLogContext (packages/ui-server/src/ws/host.ts)
+    export interface TurnLogContext {
+        sessionId?: string | null;
+        turnId?: string | null;
+        providerId?: string | null;
+    }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
@@ -231,6 +981,12 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         keytermLimit: number;
         cacheDir: string;
     }
+  WSContext (packages/ui-server/src/ws/clients.ts)
+    export type WSContext = {
+        send: (data: string) => void;
+        close?: (code?: number, reason?: string) => void;
+        raw?: unknown;
+    };
   WebAuthnConfig (packages/ui-server/src/config/env.ts)
     export interface WebAuthnConfig {
         rpName: string;
@@ -240,62 +996,109 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         origins: string[];
         allowLoopbackOrigin: boolean;
     }
-  geoConfigSchema (packages/geo/src/config.ts)
-    const geoConfigSchema: z.ZodObject<{
-        userAgent: z.ZodDefault<z.ZodString>;
-        cacheDir: z.ZodOptional<z.ZodString>;
-        timeoutMs: z.ZodDefault<z.ZodNumber>;
-        admissionWaitMs: z.ZodDefault<z.ZodNumber>;
-        minimumIntervalMs: z.ZodDefault<z.ZodNumber>;
-        cacheTtlMs: z.ZodDefault<z.ZodNumber>;
-        geocoding: z.ZodDefault<z.ZodObject<{
-            enabled: z.ZodDefault<z.ZodBoolean>;
-            url: z.ZodOptional<z.ZodString>;
-            publicServiceEligible: z.ZodDefault<z.ZodBoolean>;
-        }, z.core.$strict>>;
-        routing: z.ZodDefault<z.ZodObject<{
-            endpoints: z.ZodDefault<z.ZodObject<{
-                car: z.ZodOptional<z.ZodObject<{
-                    url: z.ZodString;
-                    profile: z.ZodString;
-                    preparedMode: z.ZodEnum<{
-                        car: "car";
-                        foot: "foot";
-                        bike: "bike";
-                    }>;
-                    dataset: z.ZodString;
-                    verification: z.ZodString;
-                }, z.core.$strict>>;
-                foot: z.ZodOptional<z.ZodObject<{
-                    url: z.ZodString;
-                    profile: z.ZodString;
-                    preparedMode: z.ZodEnum<{
-                        car: "car";
-                        foot: "foot";
-                        bike: "bike";
-                    }>;
-                    dataset: z.ZodString;
-                    verification: z.ZodString;
-                }, z.core.$strict>>;
-                bike: z.ZodOptional<z.ZodObject<{
-                    url: z.ZodString;
-                    profile: z.ZodString;
-                    preparedMode: z.ZodEnum<{
-                        car: "car";
-                        foot: "foot";
-                        bike: "bike";
-                    }>;
-                    dataset: z.ZodString;
-                    verification: z.ZodString;
-                }, z.core.$strict>>;
-            }, z.core.$strict>>;
-            demo: z.ZodDefault<z.ZodObject<{
-                enabled: z.ZodDefault<z.ZodBoolean>;
-                noncommercialLightUse: z.ZodDefault<z.ZodBoolean>;
-            }, z.core.$strict>>;
-        }, z.core.$strict>>;
-        overpass: z.ZodDefault<z.ZodObject<{
-            enabled: z.ZodDefault<z.ZodBoolean>;
-            endpoints: z.ZodDefault<z.ZodArray<z.ZodString>>;
-        }, z.core.$strict>>;
-    }, z.core.$strict>;
+  WsHost (packages/ui-server/src/ws/host.ts)
+    export class WsHost {
+        readonly brainPath?: string;
+        readonly failureReplay: FailureReplay;
+        readonly askUserFormLimits: AskUserFormLimits;
+        readonly clients: ClientSet;
+        readonly registry: BackendRegistry;
+        catalog: SessionCatalog;
+        appName: string;
+        turnTimeoutMs: number;
+        maxConcurrentSessions: () => number;
+        readonly observability: Observability;
+        readonly wsRate: {
+            ratePerSecond: number;
+            burst: number;
+        } | null;
+        readonly isPrincipalValid: (principal: Principal) => boolean;
+        readonly activity: ActivityRuntime | null;
+        readonly inbox: InboxStream | null;
+        readonly toolPermissions: ToolPermissions | null;
+        readonly conversations: ConversationHost | null;
+        readonly classifier: TurnClassifier | null;
+        readonly scratchPrune?: () => Promise<void>;
+        readonly log: ReturnType<Observability["logger"]>;
+        constructor(options: WsHostOptions);
+        newRateLimiter(): FrameRateLimiter | null;
+        reportDroppedFrame(reason: string, detail?: string): void;
+        reportRefusedConnection(): void;
+        reportTurnStarted(turn: TurnLogContext): void;
+        attachMessageBlocks(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        prepareHistory(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
+        reportTurnCompleted(turn: TurnLogContext, durationMs: number): void;
+        reportTurnFailed(code: string, turn: TurnLogContext, error?: string): void;
+        reportAbnormalClose(code: number): void;
+        sendToClients(msg: ServerMessage): void;
+        sendToCapable(capability: string, msg: ServerMessage): void;
+        revokePrincipals(principalIds: readonly string[], code: number, reason: string): void;
+        expireAuthorizationContexts(now?: number): void;
+        close(): void;
+        sendMessage(ws: WSContext, msg: ServerMessage): void;
+    }
+  WsHostOptions (packages/ui-server/src/ws/host.ts)
+    export interface WsHostOptions {
+        brainPath?: string;
+        askUserFormLimits?: Partial<AskUserFormLimits>;
+        registry: BackendRegistry;
+        catalog: SessionCatalog;
+        classifier?: TurnClassifier | null;
+        scratchPrune?: () => Promise<void>;
+        appName?: string;
+        turnTimeoutMs?: number;
+        maxConcurrentSessions?: () => number;
+        observability?: Observability;
+        wsRate?: {
+            ratePerSecond: number;
+            burst: number;
+        };
+        wsMaxConnections?: number;
+        isPrincipalValid?: (principal: Principal) => boolean;
+        activity?: ActivityRuntime;
+        inbox?: InboxStream;
+        toolPermissions?: ToolPermissions;
+        conversationProvider?: LiveConversationProvider;
+    }
+  assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
+    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+  createApp (packages/ui-server/src/app.ts)
+    export function createApp(options?: CreateAppOptions): Promise<BrainUiApp>;
+  createBrainClient (packages/ui-server/src/brain/client.ts)
+    export function createBrainClient(opts: {
+        brainPath: string;
+        searchTimeoutMs?: number;
+        minimumVersion?: string;
+        log?: Logger;
+    }): BrainClient;
+  createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
+    export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
+  createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
+    export function createInMemoryMeterProvider(): InMemoryMeterProvider;
+  createObservability (packages/ui-server/src/observability/index.ts)
+    export function createObservability(options?: ObservabilityOptions): Observability;
+  createRecordingLoggerProvider (packages/ui-server/src/observability/loggers.ts)
+    export function createRecordingLoggerProvider(options?: RecordingLoggerProviderOptions): RecordingLoggerProvider;
+  createRecordingObservability (packages/ui-server/src/observability/index.ts)
+    export function createRecordingObservability(): RecordingObservability;
+  createSessionCatalog (packages/ui-server/src/ws/session-catalog.ts)
+    export function createSessionCatalog(db: () => Database, log?: Logger): SessionCatalog;
+  createSilentLoggerProvider (packages/ui-server/src/observability/loggers.ts)
+    export function createSilentLoggerProvider(): LoggerProvider;
+  createSilentObservability (packages/ui-server/src/observability/index.ts)
+    export function createSilentObservability(): Observability;
+  createStaticBackendRegistry (packages/ui-server/src/agent/backend.ts)
+    export function createStaticBackendRegistry(entries: Array<AgentBackend | ResolvedBackendModule>, defaultBackendId?: string, options?: {
+        getHiddenModelIds?: () => string[];
+        getDefaultModelId?: () => string | null;
+        getBillingOverrides?: () => Record<string, BillingMode>;
+        modelSource?: BackendModelSource | null;
+        log?: Logger;
+    }): BackendRegistry;
+  openBrainDb (packages/ui-server/src/db/brain-db.ts)
+    export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
+  resolveServerConfig (packages/ui-server/src/config/env.ts)
+    export function resolveServerConfig(env?: EnvRecord): ServerConfig;
+  websocket re-exported from hono
+  withBrainDb (packages/ui-server/src/db/brain-db.ts)
+    export function withBrainDb<T>(brainPath: string, options: OpenBrainDbOptions, fn: (db: Database, schemaVersion: number) => T): T;

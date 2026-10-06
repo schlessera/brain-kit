@@ -4,35 +4,14 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  DEFAULT_MODEL
   ENV_VARS
   type EnvVarSpec
-  type GeneratedImage
-  IMAGE_QUALITIES
-  type ImageInput
-  ImageProviderError
-  type ImageQuality
-  type ImageRequest
-  type ImageResult
   type ImagesConfig
   type ImagesEnv
-  type ModelCapabilities
-  PROVIDERS
-  type Provider
-  type ProviderId
-  RETIRED_MODELS
-  type RoutingDecision
-  type RoutingInput
-  availableModels
   configSchema
-  estimateGeminiCost
-  isRetiredModel
   manifest
-  openAiCostFromUsage
-  providerFor
   readEnvVar
   resolveEnv
-  route
 
 export "./module" (./src/module.ts)
   type ImagesConfig
@@ -40,3 +19,35 @@ export "./module" (./src/module.ts)
   default
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  ENV_VARS (packages/module-images/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnvVarSpec (packages/module-images/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  ImagesConfig (packages/module-images/src/module.ts)
+    export type ImagesConfig = z.infer<typeof configSchema>;
+  ImagesEnv (packages/module-images/src/config/env.ts)
+    export interface ImagesEnv {
+        openaiBaseUrl: string;
+        geminiBaseUrl: string;
+    }
+  configSchema (packages/module-images/src/module.ts)
+    const configSchema: z.ZodObject<{
+        disabledModels: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        imagesDir: z.ZodDefault<z.ZodString>;
+        preferredModels: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  default (packages/module-images/src/module.ts) exported name of imagesModule
+  imagesModule (packages/module-images/src/module.ts)
+    const imagesModule: ModuleManifest<ImagesConfig>;
+  manifest (packages/module-images/src/module.ts) exported name of imagesModule
+  readEnvVar (packages/module-images/src/config/env-core.ts)
+    export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
+  resolveEnv (packages/module-images/src/config/env.ts)
+    export function resolveEnv(env?: NodeJS.ProcessEnv): ImagesEnv;

@@ -49,15 +49,12 @@ export { BackendProfileConfigError, defineBackendModule } from "./backend-module
 
 export type { ExecWrapperConfig, KillableProcess, WrappedKillOptions } from "./exec-wrapper.js";
 export {
-  EXEC_KILLER_ENV,
-  EXEC_WRAPPER_ENV,
   execWrapperSpawnOptions,
   killWrapped,
-  validateExecWrapper,
   wrapCommand,
 } from "./exec-wrapper.js";
 
-export { probeVersionCommand, VERSION_PROBE_TIMEOUT_MS } from "./version-probe.js";
+export { probeVersionCommand } from "./version-probe.js";
 export type { VersionProbeOptions, VersionProbeResult } from "./version-probe.js";
 
 export type { WriteLock } from "./write-lock.js";
@@ -115,18 +112,7 @@ export {
 export { BRAIN_UI_SYSTEM_PROMPT_APPEND, buildSystemPromptAppend } from "./system-prompt.js";
 export type { SurfaceTools, ExecutionBrief } from "./system-prompt.js";
 
-export {
-  WEB_SEARCH_PROVIDERS,
-  WEB_SEARCH_FALLBACK_ON,
-  WEB_SEARCH_PROVIDER_KEYS,
-  webSearchProvider,
-  resolveWebSearchConfigPath,
-  hasWebSearchCredential,
-  readWebSearchRouting,
-  readWebSearchOverride,
-  webSearchBrief,
-} from "./web-search.js";
-export type { WebSearchProviderSpec, WebSearchBrief } from "./web-search.js";
+export type { WebSearchBrief } from "./web-search.js";
 
 export type {
   CompiledConfirmPattern,
@@ -154,17 +140,28 @@ export { reverseGeocode } from "./reverse-geocode.js";
 export { geoConfigSchema } from "@schlessera/brain-geo";
 export type { GeoConfig, GeoConfigInput } from "@schlessera/brain-geo";
 
-export * from "./bridge-tools/index.js";
+export {
+  handleAskUser,
+  handleAskUserForm,
+  handleAskUserList,
+  handleAskUserRank,
+  handleGetCurrentLocation,
+  handleQueryActivity,
+  handleRequestImageMask,
+  handleShowBlock,
+} from "./bridge-tools/index.js";
+export type {
+  ImageMaskHandlerOptions,
+  LocationHandlerOptions,
+} from "./bridge-tools/index.js";
 
 // The declarative half of the same tools — names, descriptions, input and
 // payload schemas, prompt briefs. Server-side importers get both halves from
 // this one module; the browser imports the contracts alone.
 export * from "../tool-contracts/index.js";
-export * from "../classification/index.js";
 
-export { rtkAvailable, rtkRewriteCommand, resetRtkProbe } from "./rtk.js";
 
-export { GIT_LOCK_KEY, BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
+
 
 export type { TranscriptStore } from "./transcript-store.js";
 export { createTranscriptStore } from "./transcript-store.js";

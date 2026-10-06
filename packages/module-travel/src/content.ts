@@ -2,8 +2,10 @@ import { z } from "zod";
 import yaml from "js-yaml";
 import { readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
-import { buildTaxonomy, getMarkdownFiles, repoRelativePathSchema, safeResolve } from "@schlessera/brain";
-import type { Taxonomy, ValidationIssue } from "@schlessera/brain";
+import { repoRelativePathSchema } from "@schlessera/brain";
+import { buildTaxonomy, getMarkdownFiles, safeResolve } from "@schlessera/brain/internal";
+import type { Taxonomy } from "@schlessera/brain";
+import type { ValidationIssue } from "@schlessera/brain/internal";
 import { parseFrontmatter } from "./lib/frontmatter-parse.js";
 
 function parseYaml(text: string): object {

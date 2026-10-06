@@ -27,6 +27,7 @@ import {
   openDatabase,
 } from "@schlessera/brain/internal";
 import { listIndexDocuments, readLinkWalk, type QueryCode, type QueryResult } from "@schlessera/brain/queries";
+import { type EmbeddingProvider } from "@schlessera/brain";
 import {
   estimateTokens,
   initContext,
@@ -37,13 +38,12 @@ import {
   updateDocument,
   type ArchiveResult,
   type BrainContext,
-  type EmbeddingProvider,
   type FrontmatterValue,
   type SearchOptions,
   type SearchResponse,
   type IngestInput,
   type IngestOutcome,
-} from "@schlessera/brain";
+} from "@schlessera/brain/internal";
 
 export interface BrainAccess {
   readonly root: string;

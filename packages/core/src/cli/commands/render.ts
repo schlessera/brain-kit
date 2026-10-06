@@ -4,11 +4,10 @@ import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
 import {
   buildHtmlDocument,
   DOCUMENT_BLOCKS,
-  documentTitle,
-  isFullDocument,
   lintDocument,
   type RenderContentType,
 } from "@schlessera/brain-render-template";
+import { documentTitle, isFullDocument } from "@schlessera/brain-render-template/internal";
 import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
 
 import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";

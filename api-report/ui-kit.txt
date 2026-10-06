@@ -4,7 +4,6 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  ASK_LIST_COLLAPSE_AT
   ActionCard
   type ActionCardProps
   type ActionEmphasis
@@ -113,7 +112,6 @@ export "." (./src/index.ts)
   type GraphNode
   GraphView
   type GraphViewProps
-  HATCH_GLYPH
   ICONS
   Icon
   type IconName
@@ -122,7 +120,6 @@ export "." (./src/index.ts)
   InlineToast
   type InlineToastProps
   LIGHT_TOKENS
-  LINK_URL_MAX
   Label
   type LabelProps
   type LabelTone
@@ -133,14 +130,9 @@ export "." (./src/index.ts)
   type LaneSegment
   LinkPreviewCard
   type LinkPreviewCardProps
-  type LinkRefusal
-  type LinkRefusalReason
-  type LinkVerdict
   ListRow
   type ListRowProps
   type ListRowVariant
-  MAILTO_ADDRESSES_MAX
-  type MailVerdict
   type MapCluster
   type MapLand
   type MapPath
@@ -158,9 +150,6 @@ export "." (./src/index.ts)
   NotificationCard
   type NotificationCardProps
   type OrbitAgent
-  PLACE_MAP_NO_GEOMETRY
-  PLACE_MAP_POSITIONS_LINE
-  PRINT_TOKENS
   type PaletteGroup
   type PaletteItem
   PathRef
@@ -252,19 +241,12 @@ export "." (./src/index.ts)
   type ValueTone
   type ViewState
   canvas
-  classifyLink
-  classifyMailto
-  clusterLetter
   color
-  fillOpen
   font
-  groupAnswers
+
+export "./internal" (./src/internal.ts)
   mapViewBounds
-  moveRankItem
-  narrowColumns
   printThemeCss
-  refusalSentence
-  submitLabel
 
 export "./links" (./src/links.ts)
   LINK_URL_MAX
@@ -286,3 +268,1977 @@ export "./styles.css" (./dist/styles.css) [asset]
 export "./theme.css" (./dist/theme.css) [asset]
 
 export "./tokens.css" (./dist/tokens.css) [asset]
+
+signatures (every public export and the types it is made of)
+  ActionCard (packages/ui-kit/src/decisions/ActionCard.tsx)
+    export function ActionCard(p: ActionCardProps): import("react").JSX.Element;
+  ActionCardProps (packages/ui-kit/src/decisions/ActionCard.tsx)
+    export interface ActionCardProps {
+        state?: ViewState;
+        kind?: ActionKind;
+        title?: string;
+        body?: string;
+        icon?: IconName;
+        kindLabel?: string;
+        emphasis?: ActionEmphasis;
+        rightChip?: string;
+        rightChipTone?: Tone;
+        rightMeta?: string;
+        rightMetaTone?: "neutral" | "red";
+        footMeta?: string;
+        footDot?: Tone;
+        footPulse?: boolean;
+        chevron?: boolean;
+        struck?: boolean;
+        stateMessage?: string;
+        stateDetail?: string;
+        stateAction?: string;
+        onStateAction?: () => void;
+        children?: ReactNode;
+        onClick?: () => void;
+    }
+  ActionEmphasis (packages/ui-kit/src/types.ts)
+    export type ActionEmphasis = "bold" | "tinted" | "dashed" | "plain";
+  ActionKind (packages/ui-kit/src/types.ts)
+    export type ActionKind = "approval" | "choose" | "dead-letter" | "quarantined" | "unverified" | "fyi" | "suggestion";
+  AgentOrbit (packages/ui-kit/src/agents/AgentOrbit.tsx)
+    export function AgentOrbit(p: AgentOrbitProps): import("react").JSX.Element;
+  AgentOrbitProps (packages/ui-kit/src/agents/AgentOrbit.tsx)
+    export interface AgentOrbitProps {
+        agents?: OrbitAgent[];
+        coreIcon?: IconName;
+        coreMeta?: string;
+        width?: number;
+        height?: number;
+    }
+  AgentRunCard (packages/ui-kit/src/agents/AgentRunCard.tsx)
+    export function AgentRunCard(p: AgentRunCardProps): import("react").JSX.Element;
+  AgentRunCardProps (packages/ui-kit/src/agents/AgentRunCard.tsx)
+    export interface AgentRunCardProps {
+        agent?: string;
+        state?: RunState;
+        meta?: string;
+        task?: string;
+        progress?: number | null;
+        tools?: AgentRunTool[];
+    }
+  AgentRunTool (packages/ui-kit/src/agents/AgentRunCard.tsx)
+    export interface AgentRunTool {
+        label: string;
+        state?: RunToolState;
+    }
+  ApprovalCard (packages/ui-kit/src/decisions/ApprovalCard.tsx)
+    export function ApprovalCard(p: ApprovalCardProps): import("react").JSX.Element;
+  ApprovalCardProps (packages/ui-kit/src/decisions/ApprovalCard.tsx)
+    export interface ApprovalCardProps {
+        tool?: string;
+        target?: string;
+        toolIcon?: IconName;
+        badge?: string;
+        diff?: string;
+        risk?: string;
+        allowLabel?: string;
+        denyLabel?: string;
+        allowEffect?: string;
+        onAllow?: () => void;
+        onDeny?: () => void;
+    }
+  AskUserCard (packages/ui-kit/src/decisions/AskUserCard.tsx)
+    export function AskUserCard(p: AskUserCardProps): import("react").JSX.Element;
+  AskUserCardProps (packages/ui-kit/src/decisions/AskUserCard.tsx)
+    export interface AskUserCardProps {
+        state?: AskUserState;
+        multi?: boolean;
+        prompt?: string;
+        question?: string;
+        tag?: string;
+        tone?: "teal" | "amber" | "purple";
+        options?: AskUserOption[];
+        otherOpen?: boolean;
+        otherPlaceholder?: string;
+        onOtherSubmit?: (text: string) => void;
+        answer?: string;
+        answers?: string[];
+        answerMeta?: string;
+        lapsedNote?: string;
+        onAskAgain?: () => void;
+        showActions?: boolean;
+        primaryLabel?: string;
+        secondaryLabel?: string;
+        onPrimary?: () => void;
+        onSecondary?: () => void;
+        id?: string;
+    }
+  AskUserFormCard (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export function AskUserFormCard(p: AskUserFormCardProps): import("react").JSX.Element;
+  AskUserFormCardProps (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export interface AskUserFormCardProps {
+        id?: string;
+        state?: "pending" | "answered" | "dismissed";
+        prompt?: string;
+        question: string;
+        nodes: FormNode[];
+        answers?: FormAnswers;
+        answerMeta?: string;
+        lapsedNote?: string;
+        singleKeys?: boolean;
+        onSubmit?: (result: AskUserFormSubmission) => void;
+        onDismiss?: () => void;
+        onAskAgain?: () => void;
+    }
+  AskUserFormSubmission (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export interface AskUserFormSubmission {
+        answers: FormAnswers;
+        visibleNodes: string[];
+    }
+  AskUserGroupCard (packages/ui-kit/src/decisions/AskUserGroupCard.tsx)
+    export function AskUserGroupCard(p: AskUserGroupCardProps): import("react").JSX.Element;
+  AskUserGroupCardProps (packages/ui-kit/src/decisions/AskUserGroupCard.tsx)
+    export interface AskUserGroupCardProps {
+        id: string;
+        questions: AskUserGroupQuestion[];
+        state?: "pending" | "answered" | "dismissed";
+        prompt?: string;
+        answerMeta?: string;
+        lapsedNote?: string;
+        onSubmit?: (answers: Record<string, string>, annotations?: Record<string, {
+            preview: string;
+        }>) => void;
+        onDismiss?: () => void;
+        onAskAgain?: () => void;
+    }
+  AskUserGroupQuestion (packages/ui-kit/src/decisions/AskUserGroupCard.tsx)
+    export interface AskUserGroupQuestion {
+        header: string;
+        question: string;
+        multi?: boolean;
+        options: AskUserOption[];
+        answer?: string;
+        annotation?: {
+            preview: string;
+        };
+        otherOpen?: boolean;
+        otherText?: string;
+        onOtherChange?: (value: string) => void;
+        onOtherSubmit?: (value: string) => void;
+        preview?: ReactNode;
+    }
+  AskUserListCard (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export function AskUserListCard(p: AskUserListCardProps): import("react").JSX.Element;
+  AskUserListCardProps (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export interface AskUserListCardProps {
+        state?: AskUserListState;
+        prompt?: string;
+        question: string;
+        scale: AskUserListOption[];
+        items: AskUserListItem[];
+        allowSkip?: boolean;
+        notes?: boolean;
+        noun?: string;
+        answers?: Record<string, string>;
+        itemNotes?: Record<string, string>;
+        answerMeta?: string;
+        lapsedNote?: string;
+        onAskAgain?: () => void;
+        onSubmit?: (submission: AskUserListSubmission) => void;
+        onDismiss?: () => void;
+        singleKeys?: boolean;
+        id?: string;
+    }
+  AskUserListItem (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export interface AskUserListItem {
+        id: string;
+        label: string;
+        detail?: string;
+        link?: string;
+    }
+  AskUserListOption (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export interface AskUserListOption {
+        label: string;
+        description?: string;
+    }
+  AskUserListState (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export type AskUserListState = "pending" | "answered" | "dismissed";
+  AskUserListSubmission (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export interface AskUserListSubmission {
+        answers: Record<string, string>;
+        notes: Record<string, string>;
+    }
+  AskUserOption (packages/ui-kit/src/decisions/AskUserCard.tsx)
+    export interface AskUserOption {
+        title: string;
+        subtitle?: string;
+        selected?: boolean;
+        mono?: boolean;
+        italic?: boolean;
+        dim?: boolean;
+        onClick?: () => void;
+        onFocus?: () => void;
+    }
+  AskUserRankCard (packages/ui-kit/src/decisions/AskUserRankCard.tsx)
+    export function AskUserRankCard(p: AskUserRankCardProps): import("react").JSX.Element;
+  AskUserRankCardProps (packages/ui-kit/src/decisions/AskUserRankCard.tsx)
+    export interface AskUserRankCardProps {
+        id?: string;
+        state?: "pending" | "answered" | "dismissed";
+        prompt?: string;
+        question: string;
+        items: AskUserListItem[];
+        cutoff?: number;
+        order?: string[];
+        unchanged?: boolean;
+        answerMeta?: string;
+        lapsedNote?: string;
+        singleKeys?: boolean;
+        onSubmit?: (result: AskUserRankSubmission) => void;
+        onDismiss?: () => void;
+        onAskAgain?: () => void;
+    }
+  AskUserRankSubmission (packages/ui-kit/src/decisions/AskUserRankCard.tsx)
+    export interface AskUserRankSubmission {
+        order: string[];
+        unchanged: boolean;
+    }
+  AskUserState (packages/ui-kit/src/decisions/AskUserCard.tsx)
+    export type AskUserState = "pending" | "answered" | "typed" | "dismissed";
+  AttachmentKind (packages/ui-kit/src/types.ts)
+    export type AttachmentKind = "image" | "audio" | "doc" | "link";
+  AttachmentRow (packages/ui-kit/src/conversation/AttachmentRow.tsx)
+    export function AttachmentRow(p: AttachmentRowProps): import("react").JSX.Element;
+  AttachmentRowProps (packages/ui-kit/src/conversation/AttachmentRow.tsx)
+    export interface AttachmentRowProps {
+        kind?: AttachmentKind;
+        label?: string;
+        duration?: string;
+        seconds?: number;
+        played?: number;
+        meta?: string;
+        extract?: string;
+        trust?: string;
+        actionIcon?: IconName | "";
+        tone?: AttachmentTone;
+        thumbSize?: number;
+        waveBars?: number;
+        onClick?: () => void;
+    }
+  AttachmentTone (packages/ui-kit/src/types.ts)
+    export type AttachmentTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  BarList (packages/ui-kit/src/evidence/BarList.tsx)
+    export function BarList(p: BarListProps): import("react").JSX.Element;
+  BarListProps (packages/ui-kit/src/evidence/BarList.tsx)
+    export interface BarListProps {
+        rows?: BarListRow[];
+        barWidth?: number;
+        valueWidth?: number;
+    }
+  BarListRow (packages/ui-kit/src/evidence/BarList.tsx)
+    export interface BarListRow {
+        label: string;
+        pct: number;
+        value: string;
+        tone?: Tone;
+    }
+  BottomSheet (packages/ui-kit/src/chrome/BottomSheet.tsx)
+    export function BottomSheet(p: BottomSheetProps): import("react").JSX.Element;
+  BottomSheetProps (packages/ui-kit/src/chrome/BottomSheet.tsx)
+    export interface BottomSheetProps {
+        title?: string;
+        subtitle?: string;
+        meta?: string;
+        icon?: IconName;
+        docked?: boolean;
+        titleSize?: number;
+        children?: ReactNode;
+    }
+  Button (packages/ui-kit/src/primitives/Button.tsx)
+    export function Button(p: ButtonProps): import("react").JSX.Element;
+  ButtonProps (packages/ui-kit/src/primitives/Button.tsx)
+    export interface ButtonProps {
+        label?: string;
+        tone?: ButtonTone;
+        size?: "sm" | "md" | "lg";
+        icon?: IconName;
+        effect?: string;
+        subtitle?: string;
+        disabled?: boolean;
+        ariaDisabled?: boolean;
+        block?: boolean;
+        center?: boolean;
+        onClick?: () => void;
+        radius?: number;
+        style?: CSSProperties;
+    }
+  ButtonTone (packages/ui-kit/src/types.ts)
+    export type ButtonTone = "primary" | "affirm" | "ghost" | "quiet" | "danger" | "suggest";
+  Callout (packages/ui-kit/src/primitives/Callout.tsx)
+    export function Callout(p: CalloutProps): import("react").JSX.Element;
+  CalloutProps (packages/ui-kit/src/primitives/Callout.tsx)
+    export interface CalloutProps {
+        text?: string;
+        tone?: Tone;
+        variant?: CalloutVariant;
+        icon?: IconName;
+        italic?: boolean;
+        mono?: boolean;
+        trailing?: string;
+        children?: ReactNode;
+    }
+  CalloutVariant (packages/ui-kit/src/types.ts)
+    export type CalloutVariant = "accent" | "boxed" | "banner" | "plain";
+  Chip (packages/ui-kit/src/primitives/Chip.tsx)
+    export function Chip(p: ChipProps): import("react").JSX.Element;
+  ChipProps (packages/ui-kit/src/primitives/Chip.tsx)
+    export interface ChipProps {
+        label?: string;
+        variant?: ChipVariant;
+        tone?: Tone;
+        icon?: IconName;
+        selected?: boolean;
+        caps?: boolean;
+        mono?: boolean;
+        radius?: number;
+        fontSize?: number;
+        iconSize?: number;
+    }
+  ChipVariant (packages/ui-kit/src/types.ts)
+    export type ChipVariant = "outline" | "soft" | "solid" | "pill" | "kv" | "effect" | "mono" | "count" | "ghost";
+  ChoiceOption (packages/ui-kit/src/rows/ChoiceOption.tsx)
+    export function ChoiceOption(p: ChoiceOptionProps): import("react").JSX.Element;
+  ChoiceOptionProps (packages/ui-kit/src/rows/ChoiceOption.tsx)
+    export interface ChoiceOptionProps {
+        title?: string;
+        subtitle?: string;
+        selected?: boolean;
+        mono?: boolean;
+        mark?: boolean;
+        italic?: boolean;
+        dim?: boolean;
+        multiple?: boolean;
+        tabStop?: boolean;
+        radius?: number;
+        onClick?: () => void;
+        onFocus?: () => void;
+    }
+  CodeBlock (packages/ui-kit/src/blocks/CodeBlock.tsx)
+    export function CodeBlock(p: CodeBlockProps): import("react").JSX.Element;
+  CodeBlockProps (packages/ui-kit/src/blocks/CodeBlock.tsx)
+    export interface CodeBlockProps {
+        code?: string;
+        lang?: string;
+        caption?: string;
+        head?: boolean;
+        wrap?: boolean;
+        fontSize?: number;
+        radius?: number;
+        pad?: number;
+    }
+  CommandPalette (packages/ui-kit/src/desktop/CommandPalette.tsx)
+    export function CommandPalette(p: CommandPaletteProps): import("react").JSX.Element;
+  CommandPaletteProps (packages/ui-kit/src/desktop/CommandPalette.tsx)
+    export interface CommandPaletteProps {
+        query?: string;
+        placeholder?: string;
+        groups?: PaletteGroup[];
+        selected?: number;
+        footMeta?: string;
+        footHint?: string;
+        maxHeight?: number;
+        onQueryChange?: (query: string) => void;
+        onSelect?: (index: number) => void;
+        onClose?: () => void;
+    }
+  ComparisonCell (packages/ui-kit/src/conversation/ComparisonTable.tsx)
+    export type ComparisonCell = string | {
+        v: string;
+        tone?: ValueTone;
+    };
+  ComparisonColumn (packages/ui-kit/src/conversation/ComparisonTable.tsx)
+    export interface ComparisonColumn {
+        label: string;
+        note?: string;
+        tone?: ValueTone;
+        recommended?: boolean;
+    }
+  ComparisonRow (packages/ui-kit/src/conversation/ComparisonTable.tsx)
+    export interface ComparisonRow {
+        label: string;
+        cells: ComparisonCell[];
+    }
+  ComparisonTable (packages/ui-kit/src/conversation/ComparisonTable.tsx)
+    export function ComparisonTable(p: ComparisonTableProps): import("react").JSX.Element;
+  ComparisonTableProps (packages/ui-kit/src/conversation/ComparisonTable.tsx)
+    export interface ComparisonTableProps {
+        columns?: ComparisonColumn[];
+        rows?: ComparisonRow[];
+        corner?: string;
+        footnote?: string;
+        labelWidth?: number;
+    }
+  Composer (packages/ui-kit/src/chrome/Composer.tsx)
+    export function Composer(p: ComposerProps): import("react").JSX.Element;
+  ComposerProps (packages/ui-kit/src/chrome/Composer.tsx)
+    export interface ComposerProps {
+        placeholder?: string;
+        variant?: ComposerVariant;
+        state?: ComposerState;
+        hint?: string;
+        blockedWhy?: string;
+        provider?: string;
+        providerDetail?: string;
+        providerDetailExplanation?: string;
+        providerExpanded?: boolean;
+        providerControls?: string;
+        onProvider?: () => void;
+        recall?: ComposerRecall[];
+        onRecallRemove?: (index: number) => void;
+        attach?: boolean;
+        value?: string;
+        onChange?: (value: string) => void;
+        onSend?: (value: string) => void;
+        onStop?: () => void;
+        onAttach?: () => void;
+        onMic?: () => void;
+        maxRows?: number;
+    }
+  ComposerRecall (packages/ui-kit/src/chrome/Composer.tsx)
+    export interface ComposerRecall {
+        label: string;
+        icon?: IconName;
+        tone?: Tone;
+    }
+  ComposerState (packages/ui-kit/src/chrome/Composer.tsx)
+    export type ComposerState = "ready" | "streaming" | "reconnecting" | "offline" | "dictating";
+  ComposerVariant (packages/ui-kit/src/types.ts)
+    export type ComposerVariant = "send" | "voice" | "plain";
+  ContactAction (packages/ui-kit/src/blocks/ContactCard.tsx)
+    export interface ContactAction {
+        label: string;
+        icon?: IconName;
+        tone?: ButtonTone;
+        onClick?: () => void;
+    }
+  ContactCard (packages/ui-kit/src/blocks/ContactCard.tsx)
+    export function ContactCard(p: ContactCardProps): import("react").JSX.Element;
+  ContactCardProps (packages/ui-kit/src/blocks/ContactCard.tsx)
+    export interface ContactCardProps {
+        label?: string;
+        role?: string;
+        kind?: ContactKind;
+        badge?: string;
+        tone?: ContactTone;
+        facts?: ContactFact[];
+        actions?: ContactAction[];
+        initials?: string;
+        keyWidth?: number;
+    }
+  ContactFact (packages/ui-kit/src/blocks/ContactCard.tsx)
+    export interface ContactFact {
+        k: string;
+        v: string;
+        tone?: ValueTone;
+    }
+  ContactKind (packages/ui-kit/src/types.ts)
+    export type ContactKind = "person" | "company" | "project";
+  ContactTone (packages/ui-kit/src/types.ts)
+    export type ContactTone = "teal" | "blue" | "purple" | "amber" | "neutral";
+  DataTable (packages/ui-kit/src/evidence/DataTable.tsx)
+    export function DataTable(p: DataTableProps): import("react").JSX.Element;
+  DataTableCell (packages/ui-kit/src/evidence/DataTable.tsx)
+    export interface DataTableCell {
+        v: string;
+        tone?: Tone;
+        mono?: boolean;
+        bold?: boolean;
+    }
+  DataTableColumn (packages/ui-kit/src/evidence/DataTable.tsx)
+    export interface DataTableColumn {
+        label: string;
+        w?: number;
+        align?: "left" | "right";
+    }
+  DataTableProps (packages/ui-kit/src/evidence/DataTable.tsx)
+    export interface DataTableProps {
+        columns?: DataTableColumn[];
+        rows?: DataTableRow[];
+    }
+  DataTableRow (packages/ui-kit/src/evidence/DataTable.tsx)
+    export interface DataTableRow {
+        cells: DataTableCell[];
+    }
+  DeltaTone (packages/ui-kit/src/types.ts)
+    export type DeltaTone = "teal" | "red";
+  DiffBlock (packages/ui-kit/src/primitives/DiffBlock.tsx)
+    export function DiffBlock(p: DiffBlockProps): import("react").JSX.Element;
+  DiffBlockProps (packages/ui-kit/src/primitives/DiffBlock.tsx)
+    export interface DiffBlockProps {
+        text?: string;
+        variant?: "inset" | "boxed";
+        tinted?: boolean;
+        fontSize?: number;
+        pad?: number;
+        radius?: number;
+    }
+  DigestCard (packages/ui-kit/src/conversation/DigestCard.tsx)
+    export function DigestCard(p: DigestCardProps): import("react").JSX.Element;
+  DigestCardProps (packages/ui-kit/src/conversation/DigestCard.tsx)
+    export interface DigestCardProps {
+        title?: string;
+        subtitle?: string;
+        spend?: string;
+        groups?: DigestGroup[];
+        footnote?: string;
+        footIcon?: IconName;
+        titleSize?: number;
+    }
+  DigestGroup (packages/ui-kit/src/conversation/DigestCard.tsx)
+    export interface DigestGroup {
+        label: string;
+        icon?: IconName;
+        tone?: Tone;
+        count?: string;
+        items: DigestItem[];
+    }
+  DigestItem (packages/ui-kit/src/conversation/DigestCard.tsx)
+    export interface DigestItem {
+        text: string;
+        meta?: string;
+    }
+  Disclosure (packages/ui-kit/src/blocks/Disclosure.tsx)
+    export function Disclosure(p: DisclosureProps): import("react").JSX.Element;
+  DisclosureProps (packages/ui-kit/src/blocks/Disclosure.tsx)
+    export interface DisclosureProps {
+        label?: string;
+        meta?: string;
+        icon?: IconName;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
+        children?: ReactNode;
+    }
+  Emphasis (packages/ui-kit/src/types.ts)
+    export type Emphasis = "hairline" | "strong" | "bold" | "dashed" | "none";
+  EmptyState (packages/ui-kit/src/conversation/EmptyState.tsx)
+    export function EmptyState(p: EmptyStateProps): import("react").JSX.Element;
+  EmptyStateProps (packages/ui-kit/src/conversation/EmptyState.tsx)
+    export interface EmptyStateProps {
+        variant?: EmptyVariant;
+        title?: string;
+        body?: string;
+        meta?: string;
+        primaryLabel?: string;
+        primaryIcon?: IconName;
+        primaryTone?: ButtonTone;
+        secondaryLabel?: string;
+        icon?: IconName;
+        tone?: EmptyTone;
+        minHeight?: number;
+        pad?: number;
+        titleSize?: number;
+        focusTitle?: boolean;
+        onPrimary?: () => void;
+        onSecondary?: () => void;
+    }
+  EmptyTone (packages/ui-kit/src/types.ts)
+    export type EmptyTone = "amber" | "gold" | "teal" | "purple" | "red" | "neutral";
+  EmptyVariant (packages/ui-kit/src/types.ts)
+    export type EmptyVariant = "caught_up" | "no-results" | "offline" | "first-run" | "quiet";
+  FeedbackRow (packages/ui-kit/src/blocks/FeedbackRow.tsx)
+    export function FeedbackRow(p: FeedbackRowProps): import("react").JSX.Element;
+  FeedbackRowProps (packages/ui-kit/src/blocks/FeedbackRow.tsx)
+    export interface FeedbackRowProps {
+        question?: string;
+        value?: FeedbackValue;
+        onUp?: () => void;
+        onDown?: () => void;
+        gap?: number;
+    }
+  FeedbackValue (packages/ui-kit/src/types.ts)
+    export type FeedbackValue = "up" | "down" | null;
+  FileKind (packages/ui-kit/src/types.ts)
+    export type FileKind = "folder" | "open" | "file" | "image";
+  FileRow (packages/ui-kit/src/rows/FileRow.tsx)
+    export function FileRow(p: FileRowProps): import("react").JSX.Element;
+  FileRowProps (packages/ui-kit/src/rows/FileRow.tsx)
+    export interface FileRowProps {
+        view?: ViewState;
+        label?: string;
+        kind?: FileKind;
+        depth?: number;
+        badge?: string;
+        meta?: string;
+        metaTone?: Tone;
+        flag?: Tone;
+        active?: boolean;
+        tone?: Tone;
+        stateMessage?: string;
+        stateDetail?: string;
+        stateAction?: string;
+        onStateAction?: () => void;
+        onClick?: () => void;
+        onFold?: (open: boolean) => void;
+    }
+  FilterItem (packages/ui-kit/src/rows/FilterRow.tsx)
+    export interface FilterItem {
+        label: string;
+        onClick?: () => void;
+    }
+  FilterRow (packages/ui-kit/src/rows/FilterRow.tsx)
+    export function FilterRow(p: FilterRowProps): import("react").JSX.Element;
+  FilterRowProps (packages/ui-kit/src/rows/FilterRow.tsx)
+    export interface FilterRowProps {
+        items?: FilterItem[];
+        active?: number;
+        mono?: boolean;
+    }
+  FormAnswer (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export type FormAnswer = {
+        value: string;
+        other?: boolean;
+    } | {
+        values: string[];
+        other?: string;
+    } | {
+        answers: Record<string, string>;
+        skipped: string[];
+        notes?: Record<string, string>;
+    } | {
+        order: string[];
+        unchanged: boolean;
+    } | string;
+  FormAnswers (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export type FormAnswers = Record<string, FormAnswer>;
+  FormNode (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export type FormNode = FormNodeBase & ({
+        kind: "single" | "multi";
+        options: FormOption[];
+    } | {
+        kind: "scale";
+        scale: AskUserListOption[];
+        items: AskUserListItem[];
+        notes?: boolean;
+    } | {
+        kind: "rank";
+        items: AskUserListItem[];
+        cutoff?: number;
+    } | {
+        kind: "text";
+    });
+  FormNodeBase (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export interface FormNodeBase {
+        id: string;
+        prompt: string;
+        header?: string;
+        required?: boolean;
+        showIf?: {
+            node: string;
+            anyOf: string[];
+        };
+    }
+  FormOption (packages/ui-kit/src/decisions/AskUserFormCard.tsx)
+    export interface FormOption {
+        label: string;
+        description?: string;
+        preview?: string;
+    }
+  GraphEdge (packages/ui-kit/src/agents/GraphView.tsx)
+    export type GraphEdge = [
+        number,
+        number
+    ];
+  GraphLegendItem (packages/ui-kit/src/agents/GraphView.tsx)
+    export interface GraphLegendItem {
+        label: string;
+        tone?: Tone;
+    }
+  GraphNode (packages/ui-kit/src/agents/GraphView.tsx)
+    export interface GraphNode {
+        label: string;
+        tone?: Tone;
+        x: number;
+        y: number;
+        focus?: boolean;
+    }
+  GraphView (packages/ui-kit/src/agents/GraphView.tsx)
+    export function GraphView(p: GraphViewProps): import("react").JSX.Element;
+  GraphViewProps (packages/ui-kit/src/agents/GraphView.tsx)
+    export interface GraphViewProps {
+        nodes?: GraphNode[];
+        edges?: GraphEdge[];
+        legend?: GraphLegendItem[];
+        label?: string;
+        meta?: string;
+        minHeight?: number;
+        minWidth?: number;
+    }
+  ICONS (packages/ui-kit/src/primitives/Icon.tsx)
+    const ICONS: {
+        readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly activity: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly add: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly agent: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly approval: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly ask: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly attach: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly back: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly battery: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly bell: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly bookmark: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly brain: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly calendar: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly cancel: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly capability: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly chat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly choose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly collapse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly compose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly confirm: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly copy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly deadline: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly dedupe: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly deny: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly digest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly dismiss: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly down: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly edit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly expand: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly failed: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly file: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly filer: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly files: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly filter: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly folder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly fyi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly graph: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly hand: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly health: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly history: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly image: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly install: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly later: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly link: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly menu: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly mic: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly model: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly more: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly next: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly passkey: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly pause: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly policy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly quarantined: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly reorder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly repeat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly researcher: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly resolved: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly retry: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly revert: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly run: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly scope: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly search: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly secure: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly send: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly settings: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly share: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly steps: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly sunrise: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly thread: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly trust: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly unverified: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly up: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly wallet: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly watcher: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly wifi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+    };
+  Icon (packages/ui-kit/src/primitives/Icon.tsx)
+    export function Icon({ icon = "brain", size = 16, color, strokeWidth = 2 }: IconProps): import("react").JSX.Element;
+  IconName (packages/ui-kit/src/primitives/Icon.tsx)
+    export type IconName = keyof typeof ICONS;
+  IconProps (packages/ui-kit/src/primitives/Icon.tsx)
+    export interface IconProps {
+        icon?: IconName;
+        size?: number;
+        color?: string;
+        strokeWidth?: number;
+    }
+  InkTone (packages/ui-kit/src/types.ts)
+    export type InkTone = "ink" | "dim";
+  InlineToast (packages/ui-kit/src/conversation/InlineToast.tsx)
+    export function InlineToast(p: InlineToastProps): import("react").JSX.Element;
+  InlineToastProps (packages/ui-kit/src/conversation/InlineToast.tsx)
+    export interface InlineToastProps {
+        text?: string;
+        target?: string;
+        effect?: string;
+        tone?: ToastTone;
+        undoLabel?: string;
+        pending?: boolean;
+        icon?: IconName;
+        onUndo?: () => void;
+        announce?: boolean;
+    }
+  LIGHT_TOKENS (packages/ui-kit/src/tokens.ts)
+    const LIGHT_TOKENS: Record<TokenName, string>;
+  LINK_URL_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  Label (packages/ui-kit/src/primitives/Label.tsx)
+    export function Label(p: LabelProps): import("react").JSX.Element;
+  LabelProps (packages/ui-kit/src/primitives/Label.tsx)
+    export interface LabelProps {
+        text?: string;
+        meta?: string;
+        icon?: IconName;
+        tone?: LabelTone;
+        caps?: boolean;
+        size?: number;
+        metaRight?: boolean;
+    }
+  LabelTone (packages/ui-kit/src/types.ts)
+    export type LabelTone = Tone | "ink";
+  Lane (packages/ui-kit/src/agents/LaneChart.tsx)
+    export interface Lane {
+        name: string;
+        tone?: Tone;
+        segments: LaneSegment[];
+    }
+  LaneChart (packages/ui-kit/src/agents/LaneChart.tsx)
+    export function LaneChart(p: LaneChartProps): import("react").JSX.Element;
+  LaneChartProps (packages/ui-kit/src/agents/LaneChart.tsx)
+    export interface LaneChartProps {
+        lanes?: Lane[];
+        ticks?: string[];
+        legend?: LaneLegendItem[];
+        labelWidth?: number;
+    }
+  LaneLegendItem (packages/ui-kit/src/agents/LaneChart.tsx)
+    export interface LaneLegendItem {
+        label: string;
+        tone?: Tone;
+        glyph?: string;
+    }
+  LaneSegment (packages/ui-kit/src/agents/LaneChart.tsx)
+    export interface LaneSegment {
+        start: number;
+        width: number;
+        hatch?: boolean;
+        fade?: boolean;
+    }
+  LinkPreviewCard (packages/ui-kit/src/blocks/LinkPreviewCard.tsx)
+    export function LinkPreviewCard(p: LinkPreviewCardProps): import("react").JSX.Element;
+  LinkPreviewCardProps (packages/ui-kit/src/blocks/LinkPreviewCard.tsx)
+    export interface LinkPreviewCardProps {
+        url?: string;
+        description?: string;
+        expanded?: boolean;
+        onExpandedChange?: (expanded: boolean) => void;
+        onCopy?: (href: string) => void;
+        title?: string;
+        meta?: string;
+        trust?: string;
+        clamp?: boolean;
+        thumbSize?: number;
+        onClick?: () => void;
+    }
+  LinkRefusal (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  LinkRefusalReason (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  LinkVerdict (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  ListRow (packages/ui-kit/src/rows/ListRow.tsx)
+    export function ListRow(p: ListRowProps): import("react").JSX.Element;
+  ListRowProps (packages/ui-kit/src/rows/ListRow.tsx)
+    export interface ListRowProps {
+        title?: string;
+        subtitle?: string;
+        value?: string;
+        valueTone?: Tone;
+        icon?: IconName;
+        iconTone?: Tone;
+        variant?: ListRowVariant;
+        selected?: boolean;
+        chevron?: boolean;
+        actionLabel?: string;
+        toggle?: boolean;
+        toggleTone?: ToggleTone;
+        last?: boolean;
+        mono?: boolean;
+        dim?: boolean;
+        subMono?: boolean;
+        valueMono?: boolean;
+        iconSize?: number;
+        onClick?: () => void;
+    }
+  ListRowVariant (packages/ui-kit/src/types.ts)
+    export type ListRowVariant = "group" | "card" | "launcher" | "plain";
+  MAILTO_ADDRESSES_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  MailVerdict (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  MapCluster (packages/ui-kit/src/blocks/MapView.tsx)
+    export interface MapCluster {
+        letter: string;
+        members: number[];
+    }
+  MapLand (packages/ui-kit/src/blocks/MapView.tsx)
+    export interface MapLand {
+        rings: [
+            number,
+            number
+        ][][];
+    }
+  MapPath (packages/ui-kit/src/blocks/MapView.tsx)
+    export interface MapPath {
+        coords: [
+            number,
+            number
+        ][];
+        tone?: Tone;
+        width?: number;
+    }
+  MapPin (packages/ui-kit/src/blocks/MapView.tsx)
+    export interface MapPin {
+        lat: number;
+        lon: number;
+        label?: string;
+        meta?: string;
+        tone?: Tone;
+        n?: number;
+        marker?: "start" | "end" | "start_end";
+    }
+  MapView (packages/ui-kit/src/blocks/MapView.tsx)
+    export function MapView(p: MapViewProps): import("react").JSX.Element;
+  MapViewProps (packages/ui-kit/src/blocks/MapView.tsx)
+    export interface MapViewProps {
+        lat?: number;
+        lon?: number;
+        pinLabel?: string;
+        pins?: MapPin[];
+        paths?: MapPath[];
+        fitPoints?: {
+            lat: number;
+            lon: number;
+        }[];
+        spanKm?: number;
+        accuracyM?: number;
+        note?: string;
+        maxWidth?: number;
+        clusterPx?: number;
+        title?: string;
+        subtitle?: string;
+        meta?: string;
+        icon?: IconName;
+        height?: number;
+        width?: number;
+        attribution?: string;
+        land?: MapLand;
+        pinMode?: "label" | "number";
+        onClusters?: (clusters: MapCluster[]) => void;
+        letterFrom?: number;
+        coordChip?: boolean;
+        describe?: {
+            label: string;
+            describedBy?: string;
+        };
+        framed?: boolean;
+    }
+  MessageBubble (packages/ui-kit/src/chrome/MessageBubble.tsx)
+    export function MessageBubble(p: MessageBubbleProps): import("react").JSX.Element;
+  MessageBubbleProps (packages/ui-kit/src/chrome/MessageBubble.tsx)
+    export interface MessageBubbleProps {
+        role?: MessageRole;
+        text?: string;
+        trace?: string;
+        actions?: boolean;
+        children?: ReactNode;
+    }
+  MessageRole (packages/ui-kit/src/types.ts)
+    export type MessageRole = "user" | "brain";
+  Meter (packages/ui-kit/src/primitives/Meter.tsx)
+    export function Meter(p: MeterProps): import("react").JSX.Element;
+  MeterProps (packages/ui-kit/src/primitives/Meter.tsx)
+    export interface MeterProps {
+        value?: number;
+        reserve?: number;
+        tone?: Tone;
+        variant?: "bar" | "row";
+        label?: string;
+        valueText?: string;
+        height?: number;
+        gradient?: boolean;
+        labelWidth?: number;
+    }
+  ModelPicker (packages/ui-kit/src/chrome/ModelPicker.tsx)
+    export function ModelPicker(p: ModelPickerProps): import("react").JSX.Element;
+  ModelPickerProps (packages/ui-kit/src/chrome/ModelPicker.tsx)
+    export interface ModelPickerProps {
+        id?: string;
+        models: {
+            id: string;
+            label: string;
+        }[];
+        selectedModelId: string | null;
+        modelLocked?: boolean;
+        defaultEffort?: string;
+        effortLevels?: readonly string[];
+        selectedEffort?: string | null;
+        phone?: boolean;
+        lockedAction?: {
+            label: string;
+            detail?: string;
+            why?: string;
+            onSelect: () => void;
+        };
+        containerRef?: RefObject<HTMLDivElement | null>;
+        onModel: (id: string) => void;
+        onEffort: (level: string | null) => void;
+        onDismiss: () => void;
+    }
+  NotificationAction (packages/ui-kit/src/decisions/NotificationCard.tsx)
+    export interface NotificationAction {
+        label: string;
+        tone?: ButtonTone;
+        onClick?: () => void;
+    }
+  NotificationCard (packages/ui-kit/src/decisions/NotificationCard.tsx)
+    export function NotificationCard(p: NotificationCardProps): import("react").JSX.Element;
+  NotificationCardProps (packages/ui-kit/src/decisions/NotificationCard.tsx)
+    export interface NotificationCardProps {
+        variant?: "rich" | "compact" | "dim";
+        tone?: Tone;
+        app?: string;
+        time?: string;
+        lead?: string;
+        body?: string;
+        meta?: string;
+        icon?: IconName;
+        actions?: NotificationAction[];
+    }
+  OrbitAgent (packages/ui-kit/src/agents/AgentOrbit.tsx)
+    export interface OrbitAgent {
+        name: string;
+        icon?: IconName;
+        tone?: Tone;
+        meta?: string;
+        state?: RunState;
+        orbit?: number;
+        angle?: number;
+    }
+  PaletteGroup (packages/ui-kit/src/desktop/CommandPalette.tsx)
+    export interface PaletteGroup {
+        label: string;
+        items: PaletteItem[];
+    }
+  PaletteItem (packages/ui-kit/src/desktop/CommandPalette.tsx)
+    export interface PaletteItem {
+        label: string;
+        icon?: IconName;
+        tone?: Tone;
+        effect?: string;
+        cost?: string;
+        why?: string;
+        shortcut?: string;
+        onClick?: () => void;
+    }
+  PathRef (packages/ui-kit/src/primitives/PathRef.tsx)
+    export function PathRef(p: PathRefProps): import("react").JSX.Element;
+  PathRefProps (packages/ui-kit/src/primitives/PathRef.tsx)
+    export interface PathRefProps {
+        text?: string;
+        tone?: Tone;
+        variant?: "chip" | "inline" | "link" | "plain";
+        icon?: IconName;
+        meta?: string;
+        fontSize?: number;
+    }
+  PlaceList (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export function PlaceList(p: PlaceListProps): import("react").JSX.Element;
+  PlaceListProps (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export interface PlaceListProps {
+        rows: PlaceListRow[];
+        collapseAfter?: number;
+        open?: boolean;
+        onOpenChange?: (open: boolean) => void;
+        drawn?: Record<number, string>;
+        id?: string;
+    }
+  PlaceListRow (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export interface PlaceListRow {
+        n: number;
+        label: string;
+        meta?: string;
+        source?: string;
+        coord?: string;
+        precision?: string;
+        accuracy?: string;
+        pinned: boolean;
+        unpinnedWhy?: string;
+    }
+  PlaceMap (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export function PlaceMap(p: PlaceMapProps): import("react").JSX.Element;
+  PlaceMapFrame (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export interface PlaceMapFrame {
+        pins: {
+            n: number;
+            lat: number;
+            lon: number;
+        }[];
+        height: number;
+        spanKm?: number;
+        accuracyM?: number;
+        acrossKm?: number;
+        caption?: string;
+        geometry: "pending" | "none" | {
+            paths: MapPath[];
+            land?: MapLand;
+            attribution?: string;
+        };
+    }
+  PlaceMapProps (packages/ui-kit/src/blocks/PlaceMap.tsx)
+    export interface PlaceMapProps {
+        title?: string;
+        rows: PlaceListRow[];
+        mode: "map" | "pair" | "list";
+        reason?: string;
+        frames: PlaceMapFrame[];
+        onMapLabels?: boolean;
+        listOpen?: boolean;
+    }
+  Placeholder (packages/ui-kit/src/states/Placeholder.tsx)
+    export function Placeholder(p: PlaceholderProps): import("react").JSX.Element;
+  PlaceholderProps (packages/ui-kit/src/states/Placeholder.tsx)
+    export interface PlaceholderProps {
+        variant?: "loading" | "empty" | "error";
+        message?: string;
+        detail?: string;
+        actionLabel?: string;
+        icon?: IconName;
+        tone?: Tone;
+        lines?: number;
+        bordered?: boolean;
+        animate?: boolean;
+        pad?: number;
+        onAction?: () => void;
+        iconSize?: number;
+        barHeight?: number;
+        gap?: number;
+        radius?: number;
+    }
+  QueueItemRow (packages/ui-kit/src/rows/QueueItemRow.tsx)
+    export function QueueItemRow(p: QueueItemRowProps): import("react").JSX.Element;
+  QueueItemRowProps (packages/ui-kit/src/rows/QueueItemRow.tsx)
+    export interface QueueItemRowProps {
+        view?: ViewState;
+        state?: QueueState;
+        subject?: string;
+        meta?: string;
+        note?: string;
+        link?: string;
+        stateMessage?: string;
+        stateDetail?: string;
+        stateAction?: string;
+        onStateAction?: () => void;
+        onClick?: () => void;
+    }
+  QueueState (packages/ui-kit/src/types.ts)
+    export type QueueState = "claimed" | "blocked" | "ready" | "scheduled" | "failed" | "superseded";
+  QuoteCard (packages/ui-kit/src/blocks/QuoteCard.tsx)
+    export function QuoteCard(p: QuoteCardProps): import("react").JSX.Element;
+  QuoteCardProps (packages/ui-kit/src/blocks/QuoteCard.tsx)
+    export interface QuoteCardProps {
+        quote?: string;
+        source?: string;
+        locator?: string;
+        note?: string;
+        tone?: QuoteTone;
+        italic?: boolean;
+        serif?: boolean;
+        icon?: IconName;
+    }
+  QuoteTone (packages/ui-kit/src/types.ts)
+    export type QuoteTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  RailItem (packages/ui-kit/src/desktop/SideRail.tsx)
+    export interface RailItem {
+        icon: IconName;
+        label: string;
+        badge?: string;
+        shortcut?: string;
+        onClick?: () => void;
+    }
+  RankList (packages/ui-kit/src/decisions/AskUserRankCard.tsx)
+    export function RankList(p: RankListProps): import("react").JSX.Element;
+  RankListProps (packages/ui-kit/src/decisions/AskUserRankCard.tsx)
+    export interface RankListProps extends AskUserRankCardProps {
+        embedded?: boolean;
+        onChange?: (value: AskUserRankSubmission) => void;
+        onMoveChange?: (label: string | null) => void;
+    }
+  Receipt (packages/ui-kit/src/evidence/Receipt.tsx)
+    export function Receipt(p: ReceiptProps): import("react").JSX.Element;
+  ReceiptProps (packages/ui-kit/src/evidence/Receipt.tsx)
+    export interface ReceiptProps {
+        bare?: boolean;
+        title?: string;
+        titleIcon?: IconName;
+        titleTone?: Tone;
+        rows?: ReceiptRow[];
+        diff?: string;
+        footnote?: string;
+        footIcon?: IconName;
+        footTone?: Tone;
+        keyWidth?: number;
+        radius?: number;
+    }
+  ReceiptRow (packages/ui-kit/src/evidence/Receipt.tsx)
+    export interface ReceiptRow {
+        k: string;
+        v: string;
+        tone?: ValueTone;
+    }
+  RelatedFileItem (packages/ui-kit/src/conversation/RelatedFiles.tsx)
+    export interface RelatedFileItem {
+        path: string;
+        reason?: string;
+        score?: string;
+        icon?: IconName;
+        tone?: Tone;
+        onClick?: () => void;
+    }
+  RelatedFiles (packages/ui-kit/src/conversation/RelatedFiles.tsx)
+    export function RelatedFiles(p: RelatedFilesProps): import("react").JSX.Element;
+  RelatedFilesProps (packages/ui-kit/src/conversation/RelatedFiles.tsx)
+    export interface RelatedFilesProps {
+        label?: string;
+        meta?: string;
+        items?: RelatedFileItem[];
+    }
+  RunState (packages/ui-kit/src/types.ts)
+    export type RunState = "running" | "waiting" | "done" | "failed";
+  RunToolState (packages/ui-kit/src/types.ts)
+    export type RunToolState = "done" | "active" | "failed" | "idle";
+  ScaleList (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export function ScaleList(p: ScaleListProps): import("react").JSX.Element;
+  ScaleListProps (packages/ui-kit/src/decisions/AskUserListCard.tsx)
+    export interface ScaleListProps extends AskUserListCardProps {
+        embedded?: boolean;
+        flagged?: boolean;
+        onChange?: (value: AskUserListSubmission) => void;
+        onComplete?: () => void;
+    }
+  ScheduleGroup (packages/ui-kit/src/blocks/ScheduleList.tsx)
+    export interface ScheduleGroup {
+        day: string;
+        meta?: string;
+        items: ScheduleItem[];
+    }
+  ScheduleItem (packages/ui-kit/src/blocks/ScheduleList.tsx)
+    export interface ScheduleItem {
+        time: string;
+        title: string;
+        detail?: string;
+        tag?: string;
+        tone?: Tone;
+    }
+  ScheduleList (packages/ui-kit/src/blocks/ScheduleList.tsx)
+    export function ScheduleList(p: ScheduleListProps): import("react").JSX.Element;
+  ScheduleListProps (packages/ui-kit/src/blocks/ScheduleList.tsx)
+    export interface ScheduleListProps {
+        groups?: ScheduleGroup[];
+        timeWidth?: number;
+    }
+  ScreenBody (packages/ui-kit/src/chrome/ScreenBody.tsx)
+    export function ScreenBody(p: ScreenBodyProps): import("react").JSX.Element;
+  ScreenBodyProps (packages/ui-kit/src/chrome/ScreenBody.tsx)
+    export interface ScreenBodyProps {
+        children?: ReactNode;
+        padding?: number | string;
+        gap?: number;
+        overflow?: "hidden" | "auto";
+        style?: CSSProperties;
+    }
+  ScreenHeader (packages/ui-kit/src/chrome/ScreenHeader.tsx)
+    export function ScreenHeader(p: ScreenHeaderProps): import("react").JSX.Element;
+  ScreenHeaderProps (packages/ui-kit/src/chrome/ScreenHeader.tsx)
+    export interface ScreenHeaderProps {
+        title?: string;
+        variant?: ScreenHeaderVariant;
+        subtitle?: string;
+        subTone?: SubtitleTone;
+        subDot?: Tone;
+        subPulse?: boolean;
+        meta?: string;
+        metaTone?: "neutral" | "teal";
+        description?: string;
+        avatarIcon?: IconName;
+        trailingIcon?: IconName;
+        trailingDot?: Tone;
+        back?: boolean;
+        divider?: boolean;
+        titleSize?: number;
+        filament?: boolean;
+    }
+  ScreenHeaderVariant (packages/ui-kit/src/types.ts)
+    export type ScreenHeaderVariant = "title" | "nav" | "hero";
+  SearchResultCard (packages/ui-kit/src/evidence/SearchResultCard.tsx)
+    export function SearchResultCard(p: SearchResultCardProps): import("react").JSX.Element;
+  SearchResultCardProps (packages/ui-kit/src/evidence/SearchResultCard.tsx)
+    export interface SearchResultCardProps {
+        view?: ViewState;
+        path?: string;
+        score?: string;
+        before?: string;
+        highlight?: string;
+        after?: string;
+        icon?: IconName;
+        stateMessage?: string;
+        stateDetail?: string;
+        stateAction?: string;
+        onStateAction?: () => void;
+        onClick?: () => void;
+    }
+  SideRail (packages/ui-kit/src/desktop/SideRail.tsx)
+    export function SideRail(p: SideRailProps): import("react").JSX.Element;
+  SideRailProps (packages/ui-kit/src/desktop/SideRail.tsx)
+    export interface SideRailProps {
+        items?: RailItem[];
+        active?: number;
+        expanded?: boolean;
+        status?: string;
+        statusTone?: "teal" | "amber" | "red";
+        spendPct?: number | null;
+        spendText?: string;
+        hint?: string | null;
+        width?: number;
+    }
+  StatTile (packages/ui-kit/src/blocks/StatTiles.tsx)
+    export interface StatTile {
+        label: string;
+        value: string;
+        meta?: string;
+        icon?: IconName;
+        tone?: ValueTone;
+    }
+  StatTiles (packages/ui-kit/src/blocks/StatTiles.tsx)
+    export function StatTiles(p: StatTilesProps): import("react").JSX.Element;
+  StatTilesProps (packages/ui-kit/src/blocks/StatTiles.tsx)
+    export interface StatTilesProps {
+        tiles?: StatTile[];
+        minTile?: number;
+    }
+  StatusDot (packages/ui-kit/src/primitives/StatusDot.tsx)
+    export function StatusDot(p: StatusDotProps): import("react").JSX.Element;
+  StatusDotProps (packages/ui-kit/src/primitives/StatusDot.tsx)
+    export interface StatusDotProps {
+        tone?: Tone;
+        pulse?: boolean;
+        size?: number;
+    }
+  Step (packages/ui-kit/src/blocks/StepList.tsx)
+    export interface Step {
+        title: string;
+        detail?: string;
+        meta?: string;
+        code?: string;
+        state?: StepState;
+    }
+  StepList (packages/ui-kit/src/blocks/StepList.tsx)
+    export function StepList(p: StepListProps): import("react").JSX.Element;
+  StepListProps (packages/ui-kit/src/blocks/StepList.tsx)
+    export interface StepListProps {
+        steps?: Step[];
+        variant?: StepListVariant;
+        pulse?: boolean;
+    }
+  StepListVariant (packages/ui-kit/src/types.ts)
+    export type StepListVariant = "numbered" | "checklist" | "progress";
+  StepState (packages/ui-kit/src/types.ts)
+    export type StepState = "done" | "current" | "todo";
+  StreamPhase (packages/ui-kit/src/types.ts)
+    export type StreamPhase = "thinking" | "searching" | "reading" | "fetching" | "writing";
+  StreamingAnswer (packages/ui-kit/src/conversation/StreamingAnswer.tsx)
+    export function StreamingAnswer(p: StreamingAnswerProps): import("react").JSX.Element;
+  StreamingAnswerProps (packages/ui-kit/src/conversation/StreamingAnswer.tsx)
+    export interface StreamingAnswerProps {
+        phase?: StreamPhase;
+        phaseLabel?: string;
+        target?: string;
+        elapsed?: string;
+        text?: string;
+        cost?: string;
+        lines?: number;
+        bars?: boolean;
+        stoppable?: boolean;
+        onStop?: () => void;
+    }
+  SubtitleTone (packages/ui-kit/src/types.ts)
+    export type SubtitleTone = "neutral" | "teal" | "red";
+  SuggestionChips (packages/ui-kit/src/conversation/SuggestionChips.tsx)
+    export function SuggestionChips(p: SuggestionChipsProps): import("react").JSX.Element;
+  SuggestionChipsProps (packages/ui-kit/src/conversation/SuggestionChips.tsx)
+    export interface SuggestionChipsProps {
+        label?: string;
+        items?: SuggestionItem[];
+        wrap?: boolean;
+    }
+  SuggestionItem (packages/ui-kit/src/conversation/SuggestionChips.tsx)
+    export interface SuggestionItem {
+        label: string;
+        icon?: IconName;
+        tone?: SuggestionTone;
+        onClick?: () => void;
+    }
+  SuggestionTone (packages/ui-kit/src/types.ts)
+    export type SuggestionTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  Surface (packages/ui-kit/src/primitives/Surface.tsx)
+    export function Surface(p: SurfaceProps): import("react").JSX.Element;
+  SurfaceProps (packages/ui-kit/src/primitives/Surface.tsx)
+    export interface SurfaceProps {
+        tone?: Tone;
+        emphasis?: Emphasis;
+        label?: string;
+        labelIcon?: IconName;
+        meta?: string;
+        pad?: number;
+        radius?: number;
+        tint?: boolean;
+        children?: ReactNode;
+        onClick?: () => void;
+    }
+  TOKENS (packages/ui-kit/src/tokens.ts)
+    const TOKENS: {
+        readonly "action-border-bold-amber": "rgba(224,159,62,0.4)";
+        readonly "action-border-bold-gold": "rgba(234,179,84,0.4)";
+        readonly "action-border-bold-neutral": "rgba(154,150,161,0.4)";
+        readonly "action-border-bold-red": "rgba(248,113,113,0.4)";
+        readonly "action-border-bold-teal": "rgba(91,181,162,0.4)";
+        readonly "action-border-dashed-amber": "rgba(224,159,62,0.45)";
+        readonly "action-border-dashed-gold": "rgba(234,179,84,0.45)";
+        readonly "action-border-dashed-neutral": "rgba(154,150,161,0.45)";
+        readonly "action-border-dashed-red": "rgba(248,113,113,0.45)";
+        readonly "action-border-dashed-teal": "rgba(91,181,162,0.45)";
+        readonly "action-border-tinted-amber": "rgba(224,159,62,0.35)";
+        readonly "action-border-tinted-gold": "rgba(234,179,84,0.35)";
+        readonly "action-border-tinted-neutral": "rgba(154,150,161,0.35)";
+        readonly "action-border-tinted-red": "rgba(248,113,113,0.35)";
+        readonly "action-border-tinted-teal": "rgba(91,181,162,0.35)";
+        readonly "action-tint-amber": "rgba(224,159,62,0.05)";
+        readonly "action-tint-gold": "rgba(234,179,84,0.05)";
+        readonly "action-tint-neutral": "rgba(154,150,161,0.05)";
+        readonly "action-tint-red": "rgba(248,113,113,0.05)";
+        readonly "action-tint-teal": "rgba(91,181,162,0.05)";
+        readonly "amber-fill": "#e09f3e";
+        readonly "amber-ink": "#e09f3e";
+        readonly "amber-mark": "#e09f3e";
+        readonly "ask-answer-border-amber": "rgba(224,159,62,0.25)";
+        readonly "ask-answer-border-purple": "rgba(177,151,212,0.25)";
+        readonly "ask-answer-border-teal": "rgba(91,181,162,0.25)";
+        readonly "ask-border-amber": "rgba(224,159,62,0.3)";
+        readonly "ask-border-gold": "rgba(234,179,84,0.3)";
+        readonly "ask-border-neutral": "rgba(154,150,161,0.35)";
+        readonly "ask-border-purple": "rgba(177,151,212,0.3)";
+        readonly "ask-border-teal": "rgba(91,181,162,0.3)";
+        readonly "ask-lapsed-border": "rgba(234,179,84,0.35)";
+        readonly "ask-lapsed-tint": "rgba(234,179,84,0.06)";
+        readonly "attach-thumb-border-amber": "rgba(224,159,62,0.19)";
+        readonly "attach-thumb-border-blue": "rgba(103,184,227,0.19)";
+        readonly "attach-thumb-border-neutral": "rgba(154,150,161,0.19)";
+        readonly "attach-thumb-border-purple": "rgba(177,151,212,0.19)";
+        readonly "attach-thumb-border-teal": "rgba(91,181,162,0.19)";
+        readonly "attach-thumb-tint-amber": "rgba(224,159,62,0.08)";
+        readonly "attach-thumb-tint-blue": "rgba(103,184,227,0.08)";
+        readonly "attach-thumb-tint-neutral": "rgba(154,150,161,0.08)";
+        readonly "attach-thumb-tint-purple": "rgba(177,151,212,0.08)";
+        readonly "attach-thumb-tint-teal": "rgba(91,181,162,0.08)";
+        readonly "avatar-border-amber": "rgba(224,159,62,0.35)";
+        readonly "avatar-border-blue": "rgba(103,184,227,0.35)";
+        readonly "avatar-border-neutral": "rgba(154,150,161,0.35)";
+        readonly "avatar-border-purple": "rgba(177,151,212,0.35)";
+        readonly "avatar-border-teal": "rgba(91,181,162,0.35)";
+        readonly "avatar-tint-amber": "rgba(224,159,62,0.12)";
+        readonly "avatar-tint-blue": "rgba(103,184,227,0.12)";
+        readonly "avatar-tint-neutral": "rgba(154,150,161,0.12)";
+        readonly "avatar-tint-purple": "rgba(177,151,212,0.12)";
+        readonly "avatar-tint-teal": "rgba(91,181,162,0.12)";
+        readonly "blue-fill": "#67b8e3";
+        readonly "blue-ink": "#67b8e3";
+        readonly "blue-mark": "#67b8e3";
+        readonly "breathe-glow": "rgba(224,159,62,0.15)";
+        readonly "button-border-affirm": "var(--bk-teal-fill)";
+        readonly "button-border-danger": "rgba(248,113,113,0.35)";
+        readonly "button-border-primary": "var(--bk-amber-fill)";
+        readonly "button-border-suggest": "rgba(224,159,62,0.3)";
+        readonly "button-effect-bg-on-solid": "rgba(255,255,255,0.28)";
+        readonly "button-hover-bg-affirm": "var(--bk-color-teal-lift)";
+        readonly "button-hover-bg-danger": "rgba(248,113,113,0.1)";
+        readonly "button-hover-bg-ghost": "var(--bk-color-raised)";
+        readonly "button-hover-bg-primary": "var(--bk-color-amber-lift)";
+        readonly "button-hover-bg-quiet": "var(--bk-color-raised)";
+        readonly "button-hover-bg-suggest": "rgba(224,159,62,0.12)";
+        readonly "button-hover-border-affirm": "var(--bk-color-teal-lift)";
+        readonly "button-hover-border-danger": "rgba(248,113,113,0.6)";
+        readonly "button-hover-border-ghost": "var(--bk-hover-border)";
+        readonly "button-hover-border-primary": "var(--bk-color-amber-lift)";
+        readonly "button-hover-border-quiet": "var(--bk-hover-border)";
+        readonly "button-hover-border-suggest": "rgba(224,159,62,0.5)";
+        readonly "button-hover-fg-affirm": "var(--bk-color-canvas)";
+        readonly "button-hover-fg-danger": "var(--bk-red-ink)";
+        readonly "button-hover-fg-ghost": "var(--bk-color-ink)";
+        readonly "button-hover-fg-primary": "var(--bk-color-canvas)";
+        readonly "button-hover-fg-quiet": "var(--bk-color-ink-dim)";
+        readonly "button-hover-fg-suggest": "var(--bk-amber-ink)";
+        readonly "button-ink-on-solid": "#0c0e12";
+        readonly "button-tint-suggest": "rgba(224,159,62,0.06)";
+        readonly "callout-border-amber": "rgba(224,159,62,0.3)";
+        readonly "callout-border-blue": "rgba(103,184,227,0.4)";
+        readonly "callout-border-gold": "rgba(234,179,84,0.4)";
+        readonly "callout-border-neutral": "#1f2229";
+        readonly "callout-border-purple": "rgba(177,151,212,0.4)";
+        readonly "callout-border-red": "rgba(248,113,113,0.35)";
+        readonly "callout-border-teal": "rgba(91,181,162,0.4)";
+        readonly "callout-tint-amber": "rgba(224,159,62,0.06)";
+        readonly "callout-tint-blue": "rgba(103,184,227,0.07)";
+        readonly "callout-tint-gold": "rgba(234,179,84,0.06)";
+        readonly "callout-tint-neutral": "#141619";
+        readonly "callout-tint-purple": "rgba(177,151,212,0.07)";
+        readonly "callout-tint-red": "rgba(248,113,113,0.06)";
+        readonly "callout-tint-teal": "rgba(91,181,162,0.08)";
+        readonly "canvas-lens-broken": "#d03b3b";
+        readonly "canvas-lens-orphan": "#fab219";
+        readonly "canvas-lens-stale": "#86b6ef";
+        readonly "canvas-lens-unreachable": "#ec835a";
+        readonly "canvas-other": "#565b66";
+        readonly "canvas-ramp-1": "#b7d3f6";
+        readonly "canvas-ramp-2": "#86b6ef";
+        readonly "canvas-ramp-3": "#5598e7";
+        readonly "canvas-ramp-4": "#2a78d6";
+        readonly "canvas-ramp-5": "#184f95";
+        readonly "canvas-root": "#e09f3e";
+        readonly "canvas-slot-1": "#3987e5";
+        readonly "canvas-slot-2": "#d95926";
+        readonly "canvas-slot-3": "#199e70";
+        readonly "canvas-slot-4": "#c98500";
+        readonly "canvas-slot-5": "#d55181";
+        readonly "canvas-slot-6": "#008300";
+        readonly "canvas-slot-7": "#9085e9";
+        readonly "canvas-slot-8": "#e66767";
+        readonly "chip-border-amber": "rgba(224,159,62,0.4)";
+        readonly "chip-border-blue": "rgba(103,184,227,0.4)";
+        readonly "chip-border-gold": "rgba(234,179,84,0.45)";
+        readonly "chip-border-neutral": "#2a2d35";
+        readonly "chip-border-purple": "rgba(177,151,212,0.4)";
+        readonly "chip-border-red": "rgba(248,113,113,0.4)";
+        readonly "chip-border-teal": "rgba(91,181,162,0.4)";
+        readonly "chip-count-ink": "var(--bk-on-fill)";
+        readonly "chip-tint-amber": "rgba(224,159,62,0.1)";
+        readonly "chip-tint-blue": "rgba(103,184,227,0.09)";
+        readonly "chip-tint-gold": "rgba(234,179,84,0.1)";
+        readonly "chip-tint-neutral": "rgba(255,255,255,0.04)";
+        readonly "chip-tint-purple": "rgba(177,151,212,0.09)";
+        readonly "chip-tint-red": "rgba(248,113,113,0.09)";
+        readonly "chip-tint-teal": "rgba(91,181,162,0.1)";
+        readonly "choice-border-selected": "rgba(91,181,162,0.6)";
+        readonly "choice-mark-bg": "var(--bk-teal-fill)";
+        readonly "choice-tint-selected": "rgba(91,181,162,0.1)";
+        readonly "color-amber": "#e09f3e";
+        readonly "color-amber-lift": "#eab354";
+        readonly "color-blue": "#67b8e3";
+        readonly "color-canvas": "#0c0e12";
+        readonly "color-edge": "#2a2d35";
+        readonly "color-gold": "#eab354";
+        readonly "color-ink": "#e8e4df";
+        readonly "color-ink-dim": "#c0bcb5";
+        readonly "color-ink-mute": "#9a96a1";
+        readonly "color-line": "#1f2229";
+        readonly "color-purple": "#b197d4";
+        readonly "color-raised": "#1a1d22";
+        readonly "color-red": "#f87171";
+        readonly "color-surface": "#141619";
+        readonly "color-teal": "#5bb5a2";
+        readonly "color-teal-lift": "#7fd0be";
+        readonly "compare-recommended-cell": "rgba(91,181,162,0.06)";
+        readonly "compare-recommended-head": "rgba(91,181,162,0.08)";
+        readonly "composer-voice-glow": "rgba(224,159,62,0.35)";
+        readonly "diagram-bg": "#141619";
+        readonly "diagram-cluster": "#0c0e12";
+        readonly "diagram-cluster-border": "#2a2d35";
+        readonly "diagram-line": "#9a96a1";
+        readonly "diagram-node": "#1e2128";
+        readonly "diagram-text": "#e8e4df";
+        readonly "diff-tint-red": "rgba(248,113,113,0.1)";
+        readonly "diff-tint-teal": "rgba(91,181,162,0.1)";
+        readonly "filament-core": "var(--bk-gold-ink)";
+        readonly "filament-edge": "var(--bk-amber-ink)";
+        readonly "file-icon-open": "rgba(224,159,62,0.8)";
+        readonly "focus-ring": "var(--bk-color-ink)";
+        readonly "gold-fill": "#eab354";
+        readonly "gold-ink": "#eab354";
+        readonly "gold-mark": "#eab354";
+        readonly "graph-canvas-bg": "#0e1014";
+        readonly "graph-node-focus-tint": "rgba(224,159,62,0.14)";
+        readonly "hatch-stripe": "#22262c";
+        readonly "hover-border": "#3a3e47";
+        readonly "hover-veil": "rgba(255,255,255,0.035)";
+        readonly "hover-veil-firm": "rgba(255,255,255,0.04)";
+        readonly "hover-veil-soft": "rgba(255,255,255,0.03)";
+        readonly "hover-veil-strong": "rgba(255,255,255,0.05)";
+        readonly "inset-well-bg": "rgba(12,14,18,0.7)";
+        readonly "lane-fade-amber": "rgba(224,159,62,0.55)";
+        readonly "lane-fade-blue": "rgba(103,184,227,0.55)";
+        readonly "lane-fade-gold": "rgba(234,179,84,0.55)";
+        readonly "lane-fade-neutral": "rgba(154,150,161,0.55)";
+        readonly "lane-fade-purple": "rgba(177,151,212,0.55)";
+        readonly "lane-fade-red": "rgba(248,113,113,0.55)";
+        readonly "lane-fade-teal": "rgba(91,181,162,0.55)";
+        readonly "lane-hatch-amber": "rgba(224,159,62,0.5)";
+        readonly "lane-hatch-blue": "rgba(103,184,227,0.5)";
+        readonly "lane-hatch-gold": "rgba(234,179,84,0.5)";
+        readonly "lane-hatch-neutral": "rgba(154,150,161,0.5)";
+        readonly "lane-hatch-purple": "rgba(177,151,212,0.5)";
+        readonly "lane-hatch-red": "rgba(248,113,113,0.5)";
+        readonly "lane-hatch-teal": "rgba(91,181,162,0.5)";
+        readonly "listrow-border-selected": "rgba(91,181,162,0.5)";
+        readonly "listrow-tint-selected": "rgba(91,181,162,0.08)";
+        readonly "map-accuracy-fill": "rgba(224,159,62,0.1)";
+        readonly "map-accuracy-ring": "rgba(224,159,62,0.45)";
+        readonly "map-coord-bg": "rgba(12,14,18,0.6)";
+        readonly "map-graticule": "rgba(91,181,162,0.13)";
+        readonly "map-halo": "rgba(12,14,18,0.8)";
+        readonly "map-label-bg": "rgba(12,14,18,0.86)";
+        readonly "map-land": "rgba(232,228,223,0.06)";
+        readonly "map-pin-border-amber": "rgba(224,159,62,0.35)";
+        readonly "map-pin-border-blue": "rgba(103,184,227,0.35)";
+        readonly "map-pin-border-gold": "rgba(234,179,84,0.35)";
+        readonly "map-pin-border-neutral": "rgba(154,150,161,0.35)";
+        readonly "map-pin-border-purple": "rgba(177,151,212,0.35)";
+        readonly "map-pin-border-red": "rgba(248,113,113,0.35)";
+        readonly "map-pin-border-teal": "rgba(91,181,162,0.35)";
+        readonly "map-pin-ring-amber": "rgba(224,159,62,0.2)";
+        readonly "map-pin-ring-blue": "rgba(103,184,227,0.2)";
+        readonly "map-pin-ring-gold": "rgba(234,179,84,0.2)";
+        readonly "map-pin-ring-neutral": "rgba(154,150,161,0.2)";
+        readonly "map-pin-ring-purple": "rgba(177,151,212,0.2)";
+        readonly "map-pin-ring-red": "rgba(248,113,113,0.2)";
+        readonly "map-pin-ring-teal": "rgba(91,181,162,0.2)";
+        readonly "map-scale-bar": "rgba(232,228,223,0.5)";
+        readonly "map-scale-cap": "rgba(232,228,223,0.8)";
+        readonly "map-sky-inner": "#101318";
+        readonly "map-sky-outer": "#0b0d11";
+        readonly "mask-region-fill": "rgba(91,181,162,0.28)";
+        readonly "medallion-border-amber": "rgba(224,159,62,0.24)";
+        readonly "medallion-border-gold": "rgba(234,179,84,0.24)";
+        readonly "medallion-border-neutral": "rgba(154,150,161,0.24)";
+        readonly "medallion-border-purple": "rgba(177,151,212,0.24)";
+        readonly "medallion-border-red": "rgba(248,113,113,0.24)";
+        readonly "medallion-border-teal": "rgba(91,181,162,0.24)";
+        readonly "medallion-tint-amber": "rgba(224,159,62,0.08)";
+        readonly "medallion-tint-gold": "rgba(234,179,84,0.08)";
+        readonly "medallion-tint-neutral": "rgba(154,150,161,0.08)";
+        readonly "medallion-tint-purple": "rgba(177,151,212,0.08)";
+        readonly "medallion-tint-red": "rgba(248,113,113,0.08)";
+        readonly "medallion-tint-teal": "rgba(91,181,162,0.08)";
+        readonly "neutral-fill": "#9a96a1";
+        readonly "neutral-ink": "#9a96a1";
+        readonly "neutral-mark": "#9a96a1";
+        readonly "notification-bg-compact": "rgba(20,22,25,0.9)";
+        readonly "notification-bg-dim": "rgba(20,22,25,0.72)";
+        readonly "notification-bg-rich": "rgba(26,29,34,0.92)";
+        readonly "on-fill": "#0c0e12";
+        readonly "on-ink-solid": "#0c0e12";
+        readonly "orbit-border-done": "var(--bk-color-edge)";
+        readonly "orbit-border-failed": "var(--bk-surface-border-red)";
+        readonly "orbit-border-running": "var(--bk-chip-border-amber)";
+        readonly "orbit-border-waiting": "rgba(91,181,162,0.45)";
+        readonly "orbit-glow": "rgba(224,159,62,0.09)";
+        readonly "orbit-ring-inner": "rgba(224,159,62,0.14)";
+        readonly "orbit-ring-mid": "rgba(224,159,62,0.2)";
+        readonly "orbit-ring-outer": "rgba(224,159,62,0.1)";
+        readonly "palette-foot-bg": "rgba(12,14,18,0.5)";
+        readonly "palette-shadow": "rgba(0,0,0,0.55)";
+        readonly "palette-tint-selected": "rgba(224,159,62,0.09)";
+        readonly "palette-tint-selected-hover": "rgba(224,159,62,0.12)";
+        readonly "placeholder-action-border-amber": "rgba(224,159,62,0.35)";
+        readonly "placeholder-action-border-blue": "rgba(103,184,227,0.35)";
+        readonly "placeholder-action-border-gold": "rgba(234,179,84,0.35)";
+        readonly "placeholder-action-border-neutral": "rgba(154,150,161,0.35)";
+        readonly "placeholder-action-border-purple": "rgba(177,151,212,0.35)";
+        readonly "placeholder-action-border-red": "rgba(248,113,113,0.35)";
+        readonly "placeholder-action-border-teal": "rgba(91,181,162,0.35)";
+        readonly "placeholder-error-border": "rgba(248,113,113,0.35)";
+        readonly "placeholder-error-tint": "rgba(248,113,113,0.05)";
+        readonly "provenance-border": "rgba(177,151,212,0.35)";
+        readonly "purple-fill": "#b197d4";
+        readonly "purple-ink": "#b197d4";
+        readonly "purple-mark": "#b197d4";
+        readonly "queue-border-blocked": "rgba(224,159,62,0.35)";
+        readonly "queue-border-failed": "rgba(248,113,113,0.3)";
+        readonly "queue-tint-blocked": "rgba(224,159,62,0.04)";
+        readonly "quote-tint-amber": "rgba(224,159,62,0.06)";
+        readonly "quote-tint-blue": "rgba(103,184,227,0.06)";
+        readonly "quote-tint-neutral": "rgba(154,150,161,0.06)";
+        readonly "quote-tint-purple": "rgba(177,151,212,0.06)";
+        readonly "quote-tint-teal": "rgba(91,181,162,0.06)";
+        readonly "rail-bg": "#101216";
+        readonly "rail-tint-active": "rgba(224,159,62,0.1)";
+        readonly "rail-tint-active-hover": "rgba(224,159,62,0.14)";
+        readonly "red-fill": "#f87171";
+        readonly "red-ink": "#f87171";
+        readonly "red-mark": "#f87171";
+        readonly "schedule-tag-border-accent-neutral": "rgba(154,150,161,0.4)";
+        readonly "schedule-tag-border-amber": "rgba(224,159,62,0.4)";
+        readonly "schedule-tag-border-blue": "rgba(103,184,227,0.4)";
+        readonly "schedule-tag-border-gold": "rgba(234,179,84,0.4)";
+        readonly "schedule-tag-border-neutral": "rgba(42,45,53,0.4)";
+        readonly "schedule-tag-border-purple": "rgba(177,151,212,0.4)";
+        readonly "schedule-tag-border-red": "rgba(248,113,113,0.4)";
+        readonly "schedule-tag-border-teal": "rgba(91,181,162,0.4)";
+        readonly "search-mark-bg": "rgba(224,159,62,0.22)";
+        readonly "step-bubble-done-bg": "var(--bk-teal-fill)";
+        readonly "step-bubble-tint-current": "rgba(224,159,62,0.14)";
+        readonly "step-rail-done": "rgba(91,181,162,0.4)";
+        readonly "suggestion-border-amber": "rgba(224,159,62,0.3)";
+        readonly "suggestion-border-blue": "rgba(103,184,227,0.3)";
+        readonly "suggestion-border-neutral": "rgba(154,150,161,0.3)";
+        readonly "suggestion-border-purple": "rgba(177,151,212,0.3)";
+        readonly "suggestion-border-teal": "rgba(91,181,162,0.3)";
+        readonly "suggestion-hover-border-amber": "rgba(224,159,62,0.5)";
+        readonly "suggestion-hover-border-blue": "rgba(103,184,227,0.5)";
+        readonly "suggestion-hover-border-neutral": "rgba(154,150,161,0.5)";
+        readonly "suggestion-hover-border-purple": "rgba(177,151,212,0.5)";
+        readonly "suggestion-hover-border-teal": "rgba(91,181,162,0.5)";
+        readonly "suggestion-hover-tint-amber": "rgba(224,159,62,0.12)";
+        readonly "suggestion-hover-tint-blue": "rgba(103,184,227,0.12)";
+        readonly "suggestion-hover-tint-neutral": "rgba(154,150,161,0.12)";
+        readonly "suggestion-hover-tint-purple": "rgba(177,151,212,0.12)";
+        readonly "suggestion-hover-tint-teal": "rgba(91,181,162,0.12)";
+        readonly "suggestion-tint-amber": "rgba(224,159,62,0.05)";
+        readonly "suggestion-tint-blue": "rgba(103,184,227,0.05)";
+        readonly "suggestion-tint-neutral": "rgba(154,150,161,0.05)";
+        readonly "suggestion-tint-purple": "rgba(177,151,212,0.05)";
+        readonly "suggestion-tint-teal": "rgba(91,181,162,0.05)";
+        readonly "surface-border-amber": "rgba(224,159,62,0.4)";
+        readonly "surface-border-blue": "rgba(103,184,227,0.4)";
+        readonly "surface-border-gold": "rgba(234,179,84,0.45)";
+        readonly "surface-border-neutral": "#1f2229";
+        readonly "surface-border-purple": "rgba(177,151,212,0.4)";
+        readonly "surface-border-red": "rgba(248,113,113,0.35)";
+        readonly "surface-border-teal": "rgba(91,181,162,0.4)";
+        readonly "surface-hover-tint-amber": "rgba(224,159,62,0.09)";
+        readonly "surface-hover-tint-blue": "rgba(103,184,227,0.1)";
+        readonly "surface-hover-tint-gold": "rgba(234,179,84,0.09)";
+        readonly "surface-hover-tint-neutral": "var(--bk-color-raised)";
+        readonly "surface-hover-tint-purple": "rgba(177,151,212,0.1)";
+        readonly "surface-hover-tint-red": "rgba(248,113,113,0.09)";
+        readonly "surface-hover-tint-teal": "rgba(91,181,162,0.1)";
+        readonly "surface-tint-amber": "rgba(224,159,62,0.05)";
+        readonly "surface-tint-blue": "rgba(103,184,227,0.06)";
+        readonly "surface-tint-gold": "rgba(234,179,84,0.05)";
+        readonly "surface-tint-neutral": "#141619";
+        readonly "surface-tint-purple": "rgba(177,151,212,0.06)";
+        readonly "surface-tint-red": "rgba(248,113,113,0.05)";
+        readonly "surface-tint-teal": "rgba(91,181,162,0.06)";
+        readonly "teal-fill": "#5bb5a2";
+        readonly "teal-ink": "#5bb5a2";
+        readonly "teal-mark": "#5bb5a2";
+        readonly "toast-border-amber": "rgba(224,159,62,0.4)";
+        readonly "toast-border-neutral": "#2a2d35";
+        readonly "toast-border-purple": "rgba(177,151,212,0.4)";
+        readonly "toast-border-red": "rgba(248,113,113,0.35)";
+        readonly "toast-border-teal": "rgba(91,181,162,0.4)";
+        readonly "toast-tint-amber": "rgba(224,159,62,0.07)";
+        readonly "toast-tint-neutral": "#141619";
+        readonly "toast-tint-purple": "rgba(177,151,212,0.07)";
+        readonly "toast-tint-red": "rgba(248,113,113,0.06)";
+        readonly "toast-tint-teal": "rgba(91,181,162,0.08)";
+        readonly "toggle-knob-off": "var(--bk-color-ink-mute)";
+        readonly "toggle-knob-on": "var(--bk-color-canvas)";
+        readonly "trend-bar-amber": "rgba(224,159,62,0.45)";
+        readonly "trend-bar-blue": "rgba(103,184,227,0.45)";
+        readonly "trend-bar-gold": "rgba(234,179,84,0.45)";
+        readonly "trend-bar-neutral": "rgba(154,150,161,0.45)";
+        readonly "trend-bar-purple": "rgba(177,151,212,0.45)";
+        readonly "trend-bar-red": "rgba(248,113,113,0.45)";
+        readonly "trend-bar-teal": "rgba(91,181,162,0.45)";
+        readonly "trend-track": "rgba(31,34,41,0.55)";
+    };
+  TabBar (packages/ui-kit/src/chrome/TabBar.tsx)
+    export function TabBar(p: TabBarProps): import("react").JSX.Element;
+  TabBarProps (packages/ui-kit/src/chrome/TabBar.tsx)
+    export interface TabBarProps {
+        items?: TabItem[];
+        active?: number;
+    }
+  TabItem (packages/ui-kit/src/chrome/TabBar.tsx)
+    export interface TabItem {
+        icon: IconName;
+        label: string;
+        badge?: string;
+        onClick?: () => void;
+    }
+  TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
+    export interface TimelineItem {
+        time: string;
+        title: string;
+        detail?: string;
+        meta?: string;
+        tone?: Tone;
+        pulse?: boolean;
+    }
+  TimelineList (packages/ui-kit/src/blocks/TimelineList.tsx)
+    export function TimelineList(p: TimelineListProps): import("react").JSX.Element;
+  TimelineListProps (packages/ui-kit/src/blocks/TimelineList.tsx)
+    export interface TimelineListProps {
+        items?: TimelineItem[];
+        timeWidth?: number;
+    }
+  ToastTone (packages/ui-kit/src/types.ts)
+    export type ToastTone = "teal" | "amber" | "purple" | "red" | "neutral";
+  Toggle (packages/ui-kit/src/primitives/Toggle.tsx)
+    export function Toggle(p: ToggleProps): import("react").JSX.Element;
+  ToggleProps (packages/ui-kit/src/primitives/Toggle.tsx)
+    export interface ToggleProps {
+        on?: boolean;
+        tone?: ToggleTone;
+        label?: string;
+        labelledBy?: string;
+        disabled?: boolean;
+        onClick?: () => void;
+    }
+  ToggleTone (packages/ui-kit/src/types.ts)
+    export type ToggleTone = "amber" | "teal" | "purple";
+  TokenName (packages/ui-kit/src/tokens.ts)
+    export type TokenName = keyof typeof TOKENS;
+  Tone (packages/ui-kit/src/types.ts)
+    export type Tone = "amber" | "gold" | "teal" | "purple" | "blue" | "red" | "neutral";
+  TraceState (packages/ui-kit/src/types.ts)
+    export type TraceState = "done" | "active" | "paused" | "failed" | "skipped";
+  TraceStep (packages/ui-kit/src/evidence/TraceSteps.tsx)
+    export interface TraceStep {
+        state?: TraceState;
+        tool: string;
+        text?: string;
+        time?: string;
+        output?: string;
+    }
+  TraceSteps (packages/ui-kit/src/evidence/TraceSteps.tsx)
+    export function TraceSteps(p: TraceStepsProps): import("react").JSX.Element;
+  TraceStepsProps (packages/ui-kit/src/evidence/TraceSteps.tsx)
+    export interface TraceStepsProps {
+        variant?: "rail" | "list";
+        steps?: TraceStep[];
+    }
+  TrackMap (packages/ui-kit/src/blocks/TrackMap.tsx)
+    export function TrackMap(p: TrackMapProps): import("react").JSX.Element;
+  TrackMapProps (packages/ui-kit/src/blocks/TrackMap.tsx)
+    export interface TrackMapProps {
+        title: string;
+        format: string;
+        originalPath: string;
+        originalName: string;
+        originalHref?: string;
+        paths: MapPath[];
+        fitPoints: {
+            lat: number;
+            lon: number;
+        }[];
+        endpoints: MapPin[];
+        projectionReason?: string;
+        background?: {
+            paths: MapPath[];
+            land?: MapLand;
+            attribution?: string;
+        };
+        metrics: {
+            label: string;
+            value: string;
+            reason?: string;
+        }[];
+        evidence: string[];
+        waypoints: {
+            name: string;
+            coordinate: string;
+            elevation?: string;
+            time?: string;
+        }[];
+    }
+  TrendChart (packages/ui-kit/src/blocks/TrendChart.tsx)
+    export function TrendChart(p: TrendChartProps): import("react").JSX.Element;
+  TrendChartProps (packages/ui-kit/src/blocks/TrendChart.tsx)
+    export interface TrendChartProps {
+        label?: string;
+        value?: string;
+        delta?: string;
+        deltaTone?: DeltaTone;
+        values?: number[];
+        ticks?: string[];
+        tone?: Tone;
+        height?: number;
+    }
+  TurnErrorAction (packages/ui-kit/src/conversation/TurnErrorCard.tsx)
+    export interface TurnErrorAction {
+        label: string;
+        primary?: boolean;
+        disabled?: boolean;
+        onClick: () => void;
+    }
+  TurnErrorCard (packages/ui-kit/src/conversation/TurnErrorCard.tsx)
+    export function TurnErrorCard(p: TurnErrorCardProps): import("react").JSX.Element;
+  TurnErrorCardProps (packages/ui-kit/src/conversation/TurnErrorCard.tsx)
+    export interface TurnErrorCardProps {
+        headline: string;
+        explanation: ReactNode;
+        tone: "red" | "gold";
+        rows: ReceiptRow[];
+        providerMessage: string;
+        providerOpen?: boolean;
+        backend?: string;
+        operator?: boolean;
+        announce?: boolean;
+        actions: TurnErrorAction[];
+        notice?: string;
+        busy?: boolean;
+        retryWarning?: boolean;
+    }
+  ValueTone (packages/ui-kit/src/types.ts)
+    export type ValueTone = Tone | InkTone;
+  ViewState (packages/ui-kit/src/types.ts)
+    export type ViewState = "ready" | "loading" | "empty" | "error";
+  canvas (packages/ui-kit/src/tokens.ts)
+    const canvas: {
+        readonly diagram: {
+            readonly bg: string;
+            readonly cluster: string;
+            readonly clusterBorder: string;
+            readonly line: string;
+            readonly node: string;
+            readonly text: string;
+        };
+        readonly lens: {
+            readonly broken: string;
+            readonly orphan: string;
+            readonly stale: string;
+            readonly unreachable: string;
+        };
+        readonly other: string;
+        readonly ramp: string[];
+        readonly root: string;
+        readonly slots: string[];
+    };
+  classifyLink (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  classifyMailto (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  color (packages/ui-kit/src/tokens.ts)
+    const color: {
+        readonly canvas: string;
+        readonly edge: string;
+        readonly ink: string;
+        readonly inkDim: string;
+        readonly inkMute: string;
+        readonly line: string;
+        readonly onFill: string;
+        readonly onInkSolid: string;
+        readonly raised: string;
+        readonly surface: string;
+        readonly tealLift: string;
+    };
+  decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  font (packages/ui-kit/src/tokens.ts)
+    const font: {
+        readonly body: "'Plus Jakarta Sans',sans-serif";
+        readonly display: "'DM Serif Text',Georgia,serif";
+        readonly mono: "'JetBrains Mono',ui-monospace,monospace";
+    };
+  highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt

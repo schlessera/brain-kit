@@ -18,7 +18,7 @@
 import type {
   ClassificationAnswers,
   ClassificationRequest,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 import type { Logger } from "@opentelemetry/api-logs";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";

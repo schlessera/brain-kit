@@ -1,7 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { GeoRequestOptions } from "@schlessera/brain-ui-sdk";
 import {
-  BRIDGE_TOOL_POSTURE,
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME as SHARED_TOOL_NAME,
@@ -11,6 +10,7 @@ import {
   type LocationHandlerOptions,
   type ReverseGeocodeConfig,
 } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveEnv } from "./config/env.js";
 

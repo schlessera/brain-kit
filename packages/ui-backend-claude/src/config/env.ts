@@ -16,12 +16,12 @@
 
 import { envFlag } from "./env-core.js";
 import type { DynamicEnvReadSpec } from "./env-core.js";
+import { type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import {
   EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
   validateExecWrapper,
-  type ExecWrapperConfig,
-} from "@schlessera/brain-ui-sdk/server";
+} from "@schlessera/brain-ui-sdk/internal";
 import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/internal";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared

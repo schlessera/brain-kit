@@ -14,3 +14,18 @@ export "./module" (./src/module.ts)
   default
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  SpeakingConfig (packages/module-speaking/src/module.ts)
+    export type SpeakingConfig = z.infer<typeof configSchema>;
+  configSchema (packages/module-speaking/src/module.ts)
+    const configSchema: z.ZodObject<{
+        travelParty: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            requirementsDoc: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+  default (packages/module-speaking/src/module.ts) exported name of speakingModule
+  speakingModule (packages/module-speaking/src/module.ts)
+    const speakingModule: ModuleManifest<SpeakingConfig>;

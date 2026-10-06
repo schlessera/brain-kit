@@ -1,4 +1,5 @@
-import { ASK_USER_FORM_INPUT_SCHEMA, askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {

@@ -78,7 +78,7 @@ and configuration audience; the old plan's “full host environment” descripti
 is historical. Preserve subscription billing and the selected runtime identity.
 
 Pi disables built-in tools but currently loads resources and extensions
-(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:31-148`)
+(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:27-144`)
 and gates extension calls (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
@@ -93,7 +93,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:146-240`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:147-241`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

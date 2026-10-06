@@ -214,13 +214,12 @@ A custom value is used as-is: key handling and availability are its own
 business, after the same persistent opt-in as the built-in. `brain search
 --rerank jev` still names the built-in when you want to compare.
 
-For library search, prefer `rerankSetup(config.reranker, requestedMode)` and
-spread its `rerank` into search options and its `deps` into `SearchDeps`.
 `resolveReranker` only constructs a provider; it does not activate search.
-Direct `hybridSearch` injection requires `rerankerEnabled: true` alongside
-`reranker`; passing a provider or requesting `jev` alone leaves judgment off.
-Use the loaded canonical setting for that flag when embedding a configured
-brain. A preview callback may inspect the request while off, without a call.
+The engine's own search path (`hybridSearch`, reached by first-party code
+through the unsupported `@schlessera/brain/internal` entry) requires the
+persistent opt-in alongside the provider; passing a provider or requesting
+`jev` alone leaves judgment off. A preview callback may inspect the request
+while off, without a call.
 
 ## Reranking a fan-out
 
@@ -229,8 +228,8 @@ deep limit, tag every candidate with its `source`, and rerank the union once.
 Honor the same activation setting before calling a judgment over that union.
 Per-source reranking and then fusing is not comparable: a Choice's
 probabilities normalise within one call, so a mediocre candidate from a weak
-pool outranks a good one from a strong pool. The helpers `hybridSearch` uses
-are exported for exactly this — `partitionForRerank`, `mergeWithheld`,
+pool outranks a good one from a strong pool. The helpers the engine's own
+search uses are public for exactly this — `partitionForRerank`, `mergeWithheld`,
 `assertPermutation`, `buildPathMatcher` and `candidateKey`.
 
 ## See also

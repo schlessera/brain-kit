@@ -1,10 +1,8 @@
 import { useBrainUiRoot } from "../root-context.js";
 import { useCallback, useEffect, useRef } from "react";
 import { useVoiceStore } from "./voice-store.js";
-import {
-  speechUiHints,
-  type AsrClient,
-} from "@schlessera/brain-ui-sdk/client";
+import { type AsrClient } from "@schlessera/brain-ui-sdk/client";
+import { speechUiHints } from "@schlessera/brain-ui-sdk/internal/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
 import { registerAsrClients } from "./asr-clients.js";
 

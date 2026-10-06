@@ -522,7 +522,7 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
 
 export function createStaticBackendRegistry(
   entries: Array<AgentBackend | ResolvedBackendModule>,
-  defaultBackendId = entries[0]
+  defaultBackendId: string = entries[0]
     ? "backend" in entries[0]
       ? entries[0].backend.id
       : entries[0].id

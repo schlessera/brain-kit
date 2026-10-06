@@ -339,7 +339,7 @@ first-party tool gets a row.
 
 **The workflow it enables.** A brain owner has enabled `module-jobs` and uses
 the hosted PWA by voice. The daily cron has already scraped and scored
-(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:76`). They
+(`cron: [{ name: "scrape"`, `packages/module-jobs/src/module.ts:77`). They
 ask "anything new in my job queue above 70?". The voice turn calls
 `mcp__brain__jobs_review` with `{ min_score: 70 }` and reads back titles,
 companies and scores. The same call works from a desktop MCP client with no

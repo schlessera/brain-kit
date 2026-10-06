@@ -1,5 +1,6 @@
 import type { InboxBudgetConfig } from "../inbox/budget.js";
-import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
 /**
  * The package's ONLY `process.env` reader.
  *
@@ -23,13 +24,12 @@ import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag, type DynamicEnvReadSpec } from "./env-core.js";
 import {
-  validateExecWrapper,
   type ConfirmPatternSource,
   type ExecWrapperConfig,
-  WEB_SEARCH_PROVIDERS,
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
+import { validateExecWrapper, WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
 import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,

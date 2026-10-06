@@ -13,7 +13,6 @@
  * construct clients or expose a second bind lifecycle.
  */
 import {
-  hostOf,
   parseRssItems,
   stripHtml,
   type FetchOptions,
@@ -21,6 +20,7 @@ import {
   type AdapterRunOptions,
   type AdapterResult,
 } from "@schlessera/brain-scrape";
+import { hostOf } from "@schlessera/brain-scrape/internal";
 
 import type { RawJob, JobAdapter, Source, SourceStatus } from "../types.js";
 

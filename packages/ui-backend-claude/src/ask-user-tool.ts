@@ -10,11 +10,11 @@ import {
   ASK_USER_DESCRIPTION,
   ASK_USER_INPUT_SCHEMA,
   ASK_USER_TOOL_NAME as SHARED_TOOL_NAME,
-  BRIDGE_TOOL_POSTURE,
   handleAskUser,
   type AskUserResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";

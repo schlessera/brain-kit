@@ -130,11 +130,50 @@ function probeSubpaths(manifest: Manifest): string[] {
   );
 }
 
-function probeSource(manifest: Manifest): string {
+/**
+ * The names api-report/<dir>.txt records for one export subpath, split into
+ * runtime values and type-only exports. The report is generated from source;
+ * the probe below holds the emitted declarations to the same boundary.
+ */
+function reportedNames(dir: string, subpath: string): { values: string[]; types: string[] } {
+  const report = readFileSync(join(ROOT, "api-report", `${dir}.txt`), "utf8");
+  const values: string[] = [];
+  const types: string[] = [];
+  let current: string | undefined;
+  for (const line of report.split("\n")) {
+    if (line.startsWith("signatures (")) break;
+    const entry = /^export "([^"]+)"/.exec(line);
+    if (entry) {
+      current = entry[1];
+      continue;
+    }
+    if (current !== subpath) continue;
+    const name = /^  (type )?([\w$]+)$/.exec(line);
+    if (name) (name[1] ? types : values).push(name[2]);
+  }
+  return { values, types };
+}
+
+function probeSource(dir: string, manifest: Manifest): string {
   const lines = probeSubpaths(manifest).map((subpath, i) => {
     const specifier = subpath === "." ? manifest.name : manifest.name + subpath.slice(1);
-    return `import * as probe${i} from "${specifier}";\nprobe${i};`;
+    // The curated boundary, from the consumer's side: every runtime value the
+    // report lists and nothing else is a key of the emitted module, and every
+    // type-only export the report lists resolves. A name dropped from the
+    // source but left in dist, or a dist entry missing a curated name, fails.
+    const { values, types } = reportedNames(dir, subpath);
+    const keys = values.length > 0 ? values.map((v) => JSON.stringify(v)).join(" | ") : "never";
+    // Aliased, so subpaths re-exporting the same type do not collide; an
+    // import of a name the declarations lack fails with TS2305.
+    const typeImport = types.length > 0
+      ? `import type { ${types.map((t) => `${t} as Probe${i}_${t}`).join(", ")} } from "${specifier}";\n`
+      : "";
+    return `import * as probe${i} from "${specifier}";\nprobe${i};\n` +
+      `type ProbeKeys${i} = BoundaryAssert<BoundaryEqual<keyof typeof probe${i}, ${keys}>>;\n` +
+      typeImport;
   });
+  lines.unshift(`type BoundaryEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type BoundaryAssert<T extends true> = T;`);
   if (manifest.name === "@schlessera/brain-ui-react") {
     // Check the emitted public helper, not the source selected by the bun condition.
     // Exact keys make a restored phantom version or missing timestamp fail too.
@@ -165,7 +204,7 @@ function writeProbeProject(
   const dir = join(PROBE_ROOT, name);
   mkdirSync(dir, { recursive: true });
   for (const { dir: packageDir, manifest } of members) {
-    writeFileSync(join(dir, `${packageDir}.probe.ts`), probeSource(manifest));
+    writeFileSync(join(dir, `${packageDir}.probe.ts`), probeSource(packageDir, manifest));
   }
   writeFileSync(
     join(dir, "tsconfig.json"),

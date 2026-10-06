@@ -9,17 +9,15 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { BLOCK_SCHEMA, planPlaces, SHOW_BLOCK_INPUT_SCHEMA } from "../src/client/index.ts";
 import {
-  BLOCK_SCHEMA,
   drawnBounds,
   formatDistance,
   haversineKm,
   MAX_FRAME_DEGREES,
   numberRuns,
-  planPlaces,
-  SHOW_BLOCK_INPUT_SCHEMA,
-  type MapPlace,
-} from "../src/client/index.ts";
+} from "../src/places.js";
+import { type MapPlace } from "../src/tool-contracts/blocks.js";
 
 const VATHY = { label: "Vathy", lat: 38.3647, lon: 20.7202 };
 const TROY = { label: "Hisarlik", lat: 39.9575, lon: 26.2389 };

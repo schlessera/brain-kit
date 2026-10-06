@@ -5,7 +5,7 @@ chooses a small documented toolkit, including approval requests and edited-input
 validation, with all types reachable through its public signatures. Question 1
 requires incidental shared helpers to leave ordinary public entry points.
 This record defines the Q2 inventory; the package-wide boundary follows the
-same classification in #534.
+same classification in [the public export boundary](public-export-boundary.md).
 
 ## Inventory
 
@@ -31,9 +31,9 @@ only for first-party implementation sharing through an explicitly named
 | Pi `DEFAULT_PI_ALLOWED_TOOLS`, `TOOL_RISK` | Internal, Pi `/internal` | These are the pi runtime's default grant list and risk/lock classification. Pi has no separate exported voice list; voice uses the host-supplied restricted posture. |
 
 This inventory covers Q2's families, not every export of these packages. Other
-constructor, descriptor, transcript, lock, tool and profile APIs remain subject
-to the package-wide inventory in #534; sharing a server entry point with the
-toolkit does not classify them implicitly.
+constructor, descriptor, transcript, lock, tool and profile APIs are classified
+by the package-wide inventory in [the public export boundary](public-export-boundary.md);
+sharing a server entry point with the toolkit does not classify them implicitly.
 
 The public permission implementation is the gate (`decideToolPermission`,
 `packages/ui-sdk/src/server/permission-gate.ts:62-96`), request construction

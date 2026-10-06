@@ -1,9 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import {
-  resetToolRenderers,
-  resolveToolRenderer,
-  type ToolCallView,
-} from "@schlessera/brain-ui-sdk/client";
+import { type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import { resetToolRenderers, resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 import {
   registerBuiltinRenderers,
   GENERIC_RENDERER,

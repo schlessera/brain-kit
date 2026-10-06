@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll } from "bun:test";
-import { resolveToolRenderer } from "@schlessera/brain-ui-sdk/client";
+import { resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 import type { ToolCall } from "../src/stores/chat-store";
 import { riskHints, isInsideBrainRepo } from "../src/components/chat/risk-hints";
 import { registerBuiltinRenderers } from "../src/components/chat/renderers/index";

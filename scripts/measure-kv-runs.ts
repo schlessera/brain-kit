@@ -32,7 +32,7 @@
  * often a real answer holds one.
  */
 
-import { planClassification } from "@schlessera/brain-ui-sdk/server";
+import { planClassification } from "@schlessera/brain-ui-sdk/internal";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";

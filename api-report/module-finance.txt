@@ -4,26 +4,8 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  type AgingBuckets
-  type Allocation
-  type ClientLedger
-  type ClientReport
-  type ComputedInvoice
   type FinanceConfig
-  type FinanceOptions
-  type Invoice
-  type InvoiceStatus
-  type Payment
-  type Portfolio
-  type SyncResult
-  buildPortfolio
-  checkSync
-  computeClient
   configSchema
-  loadLedgers
-  money
-  renderReport
-  syncFiles
 
 export "./module" (./src/module.ts)
   type FinanceConfig
@@ -31,3 +13,17 @@ export "./module" (./src/module.ts)
   default
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  FinanceConfig (packages/module-finance/src/module.ts)
+    export type FinanceConfig = z.infer<typeof configSchema>;
+  configSchema (packages/module-finance/src/module.ts)
+    const configSchema: z.ZodObject<{
+        clientsDir: z.ZodDefault<z.ZodString>;
+        currency: z.ZodDefault<z.ZodString>;
+        feeTolerance: z.ZodDefault<z.ZodNumber>;
+        termsDays: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>;
+  default (packages/module-finance/src/module.ts) exported name of financeModule
+  financeModule (packages/module-finance/src/module.ts)
+    const financeModule: ModuleManifest<FinanceConfig>;

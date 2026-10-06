@@ -20,12 +20,14 @@ import { join } from "node:path";
 
 import {
   handleShowBlock,
-  SHIPPED_SHOW_BLOCK_SCHEMA_FORM,
   SHOW_BLOCK_DESCRIPTION,
   SHOW_BLOCK_TOOL_NAME,
+} from "@schlessera/brain-ui-sdk/server";
+import {
+  SHIPPED_SHOW_BLOCK_SCHEMA_FORM,
   showBlockInputSchema,
   type ShowBlockSchemaForm,
-} from "@schlessera/brain-ui-sdk/server";
+} from "../packages/ui-sdk/src/tool-contracts/blocks.js";
 
 import type { Json } from "./attribute-show-block-schema.ts";
 

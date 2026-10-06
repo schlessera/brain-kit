@@ -80,6 +80,11 @@
       "bun": "./src/internal.ts",
       "types": "./dist/internal.d.ts",
       "default": "./dist/internal.js"
+    },
+    "./internal/client": {
+      "bun": "./src/internal-client.ts",
+      "types": "./dist/internal-client.d.ts",
+      "default": "./dist/internal-client.js"
     }
   },
   "files": [

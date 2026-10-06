@@ -9,7 +9,7 @@
  */
 
 // Branding / copy configuration (module singleton, set once at boot).
-export { configureBrainUi, createBrainUiConfig, uiConfig, type BrainUiConfig } from "./config.js";
+export { configureBrainUi, type BrainUiConfig } from "./config.js";
 
 // Top-level surfaces the shell composes.
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
@@ -24,8 +24,6 @@ export { BrainMarkdown } from "./components/chat/brain-markdown.js";
 
 // Mermaid: standalone diagram block (streaming-safe) + the fence-to-SVG
 // inliner the share pipeline uses before handing markdown to the no-JS renderer.
-export { MermaidBlock } from "./components/chat/mermaid-block.js";
-export { inlineMermaidDiagrams, renderMermaidSvg } from "./lib/mermaid.js";
 
 // Stores + selectors the shell reads (service-worker busy check, deep links).
 export {
@@ -40,12 +38,9 @@ export {
   type MessageAttachment,
 } from "./stores/chat-store.js";
 export { useFileStore } from "./stores/file-store.js";
-export { useMaskStore, type MaskRequest } from "./stores/mask-store.js";
-export { MaskEditor } from "./components/images/mask-editor.js";
+export { type MaskRequest } from "./stores/mask-store.js";
 export { useUIStore, type ActiveView } from "./stores/ui-store.js";
-export { useGraphStore, type GraphMode } from "./stores/graph-store.js";
-export { useConnectionStore } from "./stores/connection-store.js";
-export { useProviderStore } from "./stores/provider-store.js";
+export { type GraphMode } from "./stores/graph-store.js";
 export { useVoiceStore } from "./voice/voice-store.js";
 
 // A stand-in for the system share sheet, so the share-target path can be
@@ -55,7 +50,6 @@ export { useVoiceStore } from "./voice/voice-store.js";
 export { ShareHarness } from "./components/dev/share-harness.js";
 
 // Connectivity probes.
-export { useVpnStatus } from "./hooks/use-vpn-status.js";
 export { useHashRoutes } from "./hooks/use-hash-routes.js";
 export {
   useServiceWorkerUpdates,
@@ -64,9 +58,6 @@ export {
 } from "./hooks/use-service-worker-updates.js";
 export {
   useWebSocket,
-  sendClientMessage,
-  handleServerMessage,
-  runStateForFrame,
 } from "./hooks/use-websocket.js";
 
 // Share intake. The shell needs `hasPendingShare` for its service-worker
@@ -76,11 +67,10 @@ export {
   hasPendingShare,
   type ShareIntakeState,
 } from "./stores/share-store.js";
-export { ShareIntake } from "./components/chat/share-card.js";
 
 // API surface (typed REST client + backend URL helpers).
-export { api, createBrainApi, type BrainApi } from "./lib/api-client.js";
-export { apiBase, apiBaseFor, getWsUrl, getWsUrlFor, getBackendUrl, getBackendUrlFor } from "./lib/backend.js";
+export { createBrainApi, type BrainApi } from "./lib/api-client.js";
+export { apiBase } from "./lib/backend.js";
 
 // Independent UI roots; connection handlers close over the root they belong to.
 export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions } from "./root.js";

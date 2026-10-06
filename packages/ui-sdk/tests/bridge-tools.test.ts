@@ -3,12 +3,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { isAbsolute, join } from "path";
 
-import {
-  BRIDGE_TOOL_POSTURE,
-  piMaskFilename,
-  resolveInRepo,
-  wrapUntrustedData,
-} from "../src/server";
+import { BRIDGE_TOOL_POSTURE } from "../src/tool-contracts/bridge.js";
+import { piMaskFilename } from "../src/server/bridge-tools/mask.js";
+import { resolveInRepo } from "../src/server/bridge-tools/resolve-in-repo.js";
+import { wrapUntrustedData } from "../src/server/bridge-tools/activity.js";
 
 describe("bridge tool server primitives", () => {
   test("the posture names all eight tools and derives backend-visible names", () => {

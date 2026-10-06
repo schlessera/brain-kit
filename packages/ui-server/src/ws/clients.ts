@@ -45,7 +45,7 @@ export class ClientSet {
   private readonly clients = new Map<unknown, AttachedClient>();
 
   constructor(
-    readonly maxConnections = 32,
+    readonly maxConnections: number = 32,
     private readonly invalidateAuthorizations: (
       principalIds: ReadonlySet<string>
     ) => void = () => {}

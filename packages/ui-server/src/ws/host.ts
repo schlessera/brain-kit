@@ -1,4 +1,5 @@
-import { resolveAskUserFormLimits, type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
@@ -177,7 +178,8 @@ export class WsHost {
   readonly brainPath?: string;
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
-  readonly coordinator = new TurnCoordinator();
+  /** @internal Turn bookkeeping shared with the package's own connection and dispatch modules. */
+  readonly coordinator: TurnCoordinator = new TurnCoordinator();
   readonly clients: ClientSet;
   readonly registry: BackendRegistry;
   catalog: SessionCatalog;
@@ -444,7 +446,7 @@ export class WsHost {
   }
 
   /** Route expiry through the same full boundary as explicit revocation. */
-  expireAuthorizationContexts(now = Date.now()): void {
+  expireAuthorizationContexts(now: number = Date.now()): void {
     const expired = new Set<string>();
     this.coordinator.collectExpiredPrincipalIds(now, expired);
     this.revokePrincipals(

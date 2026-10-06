@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildTaxonomy } from "@schlessera/brain";
+import { buildTaxonomy } from "@schlessera/brain/internal";
 import { openDatabase } from "../../module-jobs/src/db";
 import jobsReview from "../../module-jobs/src/mcp/review";
 import { configSchema as jobsConfigSchema } from "../../module-jobs/src/module";

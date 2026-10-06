@@ -13,15 +13,15 @@
  */
 
 // Configuration (the package's single environment chokepoint).
-export { ENV_VARS, DEFAULT_USER_AGENT, resolveEnv } from "./config/env.js";
+export { ENV_VARS, resolveEnv } from "./config/env.js";
 export type { EnvVarSpec, ScrapeEnv } from "./config/env.js";
 
 // Polite HTTP.
-export { ScrapeClient, parseRetryAfterMs } from "./fetch/http.js";
+export { ScrapeClient } from "./fetch/http.js";
 export type { ScrapeClientOptions, FetchOptions, FetchedPage } from "./fetch/http.js";
 
 // Politeness primitives, exported so a caller can share one across clients.
-export { RateLimiter, hostOf } from "./politeness/rate-limit.js";
+export { RateLimiter } from "./politeness/rate-limit.js";
 export type { RateLimiterOptions, RateLimiterClock } from "./politeness/rate-limit.js";
 export { RobotsCache, RobotsDisallowedError } from "./politeness/robots.js";
 export type { RobotsRules, RobotsCacheOptions, RobotsFetcher } from "./politeness/robots.js";
@@ -29,18 +29,15 @@ export type { RobotsRules, RobotsCacheOptions, RobotsFetcher } from "./politenes
 // Headless Chrome (needs the optional peer `puppeteer-core`).
 export { createBrowserSession } from "./browser/session.js";
 export type { BrowserSession, BrowserSessionOptions, PageRequest } from "./browser/session.js";
-export { Semaphore } from "./browser/semaphore.js";
 
 // Parsing.
-export { parseHtml, stripHtml, absoluteUrl } from "./parse/html.js";
+export { parseHtml, stripHtml } from "./parse/html.js";
 export type { CheerioAPI } from "./parse/html.js";
 export { parseRssItems } from "./parse/feed.js";
 export type { FeedItem } from "./parse/feed.js";
 export {
   extractJsonLd,
   jsonLdNodes,
-  jsonLdTypes,
-  hasJsonLdType,
   jsonLdByType,
   itemListEntries,
 } from "./parse/jsonld.js";
@@ -55,7 +52,7 @@ export type {
   AdapterResult,
   AdapterStatus,
 } from "./adapter/types.js";
-export { extractCards, readField } from "./adapter/selectors.js";
+export { extractCards } from "./adapter/selectors.js";
 export type { SiteSelectors, FieldSelector } from "./adapter/selectors.js";
 export { runAdapters } from "./adapter/runner.js";
 export type { RunAdaptersOptions, AdapterOutcome } from "./adapter/runner.js";

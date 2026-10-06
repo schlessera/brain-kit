@@ -33,31 +33,18 @@ export {
 // log the resolved auth mode).
 export {
   assertBackendResolvable,
-  createBackendRegistry,
   createStaticBackendRegistry,
-  type BackendLogFn,
   type BackendRegistry,
   type ModelDiscoverySource,
-  type ModelDiscoveryState,
 } from "./agent/backend.js";
 export {
-  authGuard,
-  isWsAuthorized,
-  resolveCookiePrincipal,
-  resolveAuthMode,
-  revokeAllSessions,
   type AuthMode,
-  type AuthRuntime,
 } from "./middleware/auth.js";
 
 export { type Principal } from "./db/principals.js";
-export { type AppEnv } from "./app-env.js";
-
-// The app's own SQLite database (sessions, passkeys, settings).
-export { createUiDb } from "./db/client.js";
 
 // Brain database access (read-only, schema-gated) for embedders adding
-// their own readers.
+// their own readers, under the integration contract's direct-SQL guarantees.
 export {
   openBrainDb,
   withBrainDb,
@@ -65,16 +52,10 @@ export {
   MIN_BRAIN_SCHEMA_VERSION,
 } from "./db/brain-db.js";
 
-// WebSocket internals for embedders and tests.
+// WebSocket host for embedders.
 export { WsHost, type WsHostOptions } from "./ws/host.js";
-export { createWsUpgrade, createWsHandlers, websocket } from "./ws/connection.js";
-export {
-  handleClientMessage,
-  turnIdMatches,
-  type ConnectionState,
-} from "./ws/dispatch.js";
+export { websocket } from "./ws/connection.js";
 export { type AuthorizationContext } from "./ws/turns.js";
-export { resolveTurnTarget } from "./ws/routing.js";
 export {
   createSessionCatalog,
   type SessionCatalog,
@@ -89,56 +70,22 @@ export {
   type BrainClient,
 } from "./brain/client.js";
 export {
-  parseSyncResult,
-  syncActivityAttrs,
-  syncMessage,
   type BrainSyncAgent,
   type BrainSyncOutput,
 } from "./brain/sync-result.js";
-
-// Cron run history. Scheduling belongs to the deployment (container crontab);
-// an external scheduler's wrapper records each run here so /api/status's
-// `cronJobs` reflects what actually ran.
-export { recordCronRun, type CronRunRecord } from "./cron/scheduler.js";
 
 // The activity record. The cron wrapper is a second PROCESS writing spans
 // into the same store (root span + heartbeat + span-sink ingest); everything
 // else consumes it through the app.
 export {
-  createActivityStore,
-  SPAN_OUTCOMES,
   type ActivityStore,
   type SpanRow,
   type SpanEventRow,
   type SpanOutcome,
   type SpanUsage,
   type ActivityChange,
-  type RollupPricing,
 } from "./activity/store.js";
-export { createActivityStream, type ActivityStream } from "./activity/stream.js";
-export { ingestSpanSink } from "./activity/span-sink.js";
-export {
-  generateActivityDigest,
-  latestActivityDigest,
-  DIGEST_JOB_NAME,
-  type ActivityDigest,
-} from "./activity/digest.js";
-
-// The classification pass's confidence record (D42): the read side, so a
-// deployment can pull the distribution its swap thresholds should be tuned on.
-// The write side is internal to the pass.
-export {
-  CONFIDENCE_BUCKETS,
-  CONFIDENCE_BUCKET_WIDTH,
-  CONFIDENCE_RETENTION_MS,
-  confidenceDistribution,
-  type ConfidenceBucket,
-  type ConfidenceReadOptions,
-} from "./classification/confidence-store.js";
-
-// Share staging: a deployment can sweep expired staging dirs at boot; the
-// intake route also sweeps opportunistically on every share.
-export { pruneShareStaging, shareStagingRoot } from "./share/staging.js";
+export { type ActivityStream } from "./activity/stream.js";
 
 // Skill archive transport sizing for deployment shells. The route keeps the
 // application-level check; consumers use this value only to avoid setting a
@@ -157,8 +104,6 @@ export {
   createSilentLoggerProvider,
   createInMemoryMeterProvider,
   SEVERITIES,
-  severityRank,
-  seriesKey,
 } from "./observability/index.js";
 export type {
   Observability,
@@ -175,10 +120,3 @@ export type {
   MetricPoint,
   MetricSnapshot,
 } from "./observability/index.js";
-
-// Voice keyterm cache rebuild (used by deployments after `brain sync`).
-export {
-  buildKeyterms,
-  writeCache,
-  type KeytermSettings,
-} from "./voice/keyterm-builder.js";

@@ -11,13 +11,12 @@ import type { ReactElement } from "react";
 import {
   SHOW_BLOCK_CONTRACT,
   parseToolPayload,
-  resetToolRenderers,
   planPlaces,
-  resolveToolRenderer,
   visibleToolName,
   type Block,
   type ToolCallView,
 } from "@schlessera/brain-ui-sdk/client";
+import { resetToolRenderers, resolveToolRenderer } from "../../../ui-sdk/src/client/renderers.js";
 
 import {
   BlockCard,

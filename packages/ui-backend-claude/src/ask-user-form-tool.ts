@@ -4,12 +4,12 @@ import {
   ASK_USER_FORM_DESCRIPTION,
   ASK_USER_FORM_INPUT_SCHEMA,
   ASK_USER_FORM_TOOL_NAME as SHARED_TOOL_NAME,
-  BRIDGE_TOOL_POSTURE,
   handleAskUserForm,
   type AskUserFormResult,
   type BackendBridge,
   type AskUserFormLimits,
 } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
 
 /** Bridges the tool to the host's ranking provider (`BackendBridge.askUserForm`). */
 export type AskUserFormHandler = (

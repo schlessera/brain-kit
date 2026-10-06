@@ -28,7 +28,7 @@ export { color, font } from "./tokens.js";
 // the DOM — a WebGL graph, a diagram theme — and has to READ a token rather
 // than reference it: the stylesheet's declaration first, these as the value
 // where there is no document. Never a rendered value inside the kit itself.
-export { LIGHT_TOKENS, PRINT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";
+export { LIGHT_TOKENS, TOKENS, canvas, type TokenName } from "./tokens.js";
 export type {
   ActionEmphasis,
   ActionKind,
@@ -108,11 +108,6 @@ export { AskUserCard, type AskUserCardProps, type AskUserOption, type AskUserSta
 export { AskUserGroupCard, type AskUserGroupCardProps, type AskUserGroupQuestion } from "./decisions/AskUserGroupCard.js";
 export {
   AskUserListCard,
-  ASK_LIST_COLLAPSE_AT,
-  fillOpen,
-  groupAnswers,
-  narrowColumns,
-  submitLabel,
   type AskUserListCardProps,
   type AskUserListItem,
   type AskUserListOption,
@@ -134,25 +129,12 @@ export { ContactCard, type ContactAction, type ContactCardProps, type ContactFac
 export { Disclosure, type DisclosureProps } from "./blocks/Disclosure.js";
 export { FeedbackRow, type FeedbackRowProps } from "./blocks/FeedbackRow.js";
 export { LinkPreviewCard, type LinkPreviewCardProps } from "./blocks/LinkPreviewCard.js";
-export {
-  classifyLink,
-  classifyMailto,
-  refusalSentence,
-  LINK_URL_MAX,
-  MAILTO_ADDRESSES_MAX,
-  type LinkRefusal,
-  type LinkRefusalReason,
-  type LinkVerdict,
-  type MailVerdict,
-} from "./links.js";
 /* `mercY` and `step` are exported from the module but deliberately NOT from
  * here: they are the projection's internals, `tests/mapview-projection.test.ts`
  * imports them directly, and `step` is far too generic a name to put into a
  * published package's top-level namespace. */
 export {
   MapView,
-  clusterLetter,
-  mapViewBounds,
   type MapCluster,
   type MapLand,
   type MapPath,
@@ -160,8 +142,6 @@ export {
   type MapViewProps,
 } from "./blocks/MapView.js";
 export {
-  PLACE_MAP_NO_GEOMETRY,
-  PLACE_MAP_POSITIONS_LINE,
   PlaceList,
   PlaceMap,
   type PlaceListProps,
@@ -234,7 +214,6 @@ export {
   type GraphViewProps,
 } from "./agents/GraphView.js";
 export {
-  HATCH_GLYPH,
   LaneChart,
   type Lane,
   type LaneChartProps,
@@ -261,7 +240,7 @@ export {
   type PaletteItem,
 } from "./desktop/CommandPalette.js";
 export { SideRail, type RailItem, type SideRailProps } from "./desktop/SideRail.js";
-export { AskUserRankCard, moveRankItem } from "./decisions/AskUserRankCard.js";
+export { AskUserRankCard } from "./decisions/AskUserRankCard.js";
 export type { AskUserRankCardProps, AskUserRankSubmission } from "./decisions/AskUserRankCard.js";
 
 export { ScaleList } from "./decisions/AskUserListCard.js";

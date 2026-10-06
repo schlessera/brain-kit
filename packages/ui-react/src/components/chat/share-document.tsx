@@ -13,7 +13,7 @@
  * its `content`, mermaid diagrams inlined. Nothing about the common case moves.
  */
 import type { TrackDisplay } from "../../lib/track-display.js";
-import { printThemeCss } from "@schlessera/brain-ui-kit";
+import { printThemeCss } from "@schlessera/brain-ui-kit/internal";
 import { SHOW_BLOCK_CONTRACT, parseToolPayload, type Block } from "@schlessera/brain-ui-sdk/client";
 
 import { isShowBlockTool } from "../../lib/tool-names.js";

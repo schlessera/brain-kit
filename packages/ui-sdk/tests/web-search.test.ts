@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { buildSystemPromptAppend } from "../src/server/index.js";
 import {
   WEB_SEARCH_PROVIDERS,
-  buildSystemPromptAppend,
   hasWebSearchCredential,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   webSearchBrief,
   webSearchProvider,
-} from "../src/server/index.js";
+} from "../src/server/web-search.js";
 
 describe("web-search config path", () => {
   test("mirrors the extension's own precedence", () => {

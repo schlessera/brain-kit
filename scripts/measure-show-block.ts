@@ -88,13 +88,12 @@ import { basename, dirname, join } from "node:path";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import {
   BRIDGE_TOOL_CONTRACTS,
-  BRIDGE_TOOL_POSTURE,
   buildSystemPromptAppend,
-  planClassification,
   SHOW_BLOCK_CONTRACT,
   type BridgeToolName,
   type ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_POSTURE, planClassification } from "@schlessera/brain-ui-sdk/internal";
 
 // The backend's own tool factory and visible name, so the description the
 // model reads here is the one it reads in production rather than a copy that
@@ -106,7 +105,7 @@ import {
   SHOW_BLOCK_TOOL_NAME as BLOCK_TOOL,
 } from "../packages/ui-backend-claude/src/show-block-tool.js";
 import { createAgentHook } from "../packages/ui-backend-claude/src/input-rewrite-hooks.js";
-import { showBlockInputSchema } from "@schlessera/brain-ui-sdk/server";
+import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.js";
 import {
   liveCredential,
   listedShowBlock,

@@ -339,8 +339,8 @@ an unexplained regression blocks migration until diagnosed. Record host/runtime,
 corpus size and methodology so a reviewer can compare. No network/paid models.
 
 Verification must use the actual CLI-produced fixture index, not a handcrafted
-schema that copies the reader's assumptions (`ui-server's readers run`, `tests/brain-db-contract.test.ts:213-256`). Existing table
-assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:61-74`) stay until final retirement.
+schema that copies the reader's assumptions (`ui-server's readers run`, `tests/brain-db-contract.test.ts:211-254`). Existing table
+assertions (`REQUIRED_COLUMNS`, `tests/brain-db-contract.test.ts:59-72`) stay until final retirement.
 
 Verification ownership is explicit; documenting a requirement completes none
 of these implementation criteria:

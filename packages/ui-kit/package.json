@@ -40,7 +40,12 @@
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css",
     "./tokens.css": "./dist/tokens.css",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal": {
+      "bun": "./src/internal.ts",
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    }
   },
   "imports": {
     "#*": [

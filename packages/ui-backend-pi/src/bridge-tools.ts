@@ -32,14 +32,13 @@ import {
   handleQueryActivity,
   handleRequestImageMask,
   handleShowBlock,
-  piMaskFilename,
-  piReportedMaskPath,
   toolInputJsonSchema,
   type ToolContract,
   type AskUserResult,
   type LocationHandlerOptions,
   type ReverseGeocodeConfig,
 } from "@schlessera/brain-ui-sdk/server";
+import { piMaskFilename, piReportedMaskPath } from "@schlessera/brain-ui-sdk/internal";
 import { z } from "zod";
 
 import { resolveEnv } from "./config/env.js";

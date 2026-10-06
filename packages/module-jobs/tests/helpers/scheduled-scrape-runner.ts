@@ -1,7 +1,7 @@
 // Isolate the fake adapter execution from the rest of the jobs suite. Keep the
 // actual module contribution, CLI argument handling, runner and SQLite log.
 import { spyOn } from "bun:test";
-import { buildTaxonomy } from "@schlessera/brain";
+import { buildTaxonomy } from "@schlessera/brain/internal";
 import type { LoadedModule } from "@schlessera/brain";
 import type { AdapterResult } from "@schlessera/brain-scrape";
 import { BaseAdapter } from "../../src/adapters/base.js";

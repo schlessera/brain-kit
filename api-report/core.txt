@@ -4,55 +4,27 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  ASSET_EXTENSIONS
   type AgentRunner
   type AgentRuntime
-  type ArchiveOptions
-  type ArchiveResult
-  type AssembleOptions
-  type Asset
   type AssetTitleRule
   type AuditIssue
-  type AuditOptions
   BUILTIN_EMITTERS
   type BrainConfig
-  type BrainContext
   type BrainStats
-  CORE_TYPES
-  type Chunk
   type ChunkMatch
-  type Classification
   type CollectStatsOptions
   type CommandContext
   type CommandModule
   type CompletionProvider
   type ContentIndexQueries
   type ContentPart
-  type CoreEnv
-  DEFAULT_CANONICAL
-  DEFAULT_DIR_ANCHORS
-  DEFAULT_EXCLUDE
-  DEFAULT_STALENESS
   DYNAMIC_ENV_READS
-  type Document
-  type DocumentRelevance
-  type DocumentStatus
-  type DocumentType
   type DynamicEnvReadSpec
   ENV_VARS
   type EmbeddingProvider
   type Enrichment
   type EnvVarSpec
-  type FrontmatterValue
   type HygieneContext
-  type IndexOptions
-  type IndexStats
-  type IngestContext
-  type IngestInput
-  type IngestOutcome
-  type InitContextOptions
-  type JevRerankerConfig
-  type LoadedConfig
   type LoadedModule
   type ModuleContribution
   type ModuleCronEntry
@@ -62,43 +34,15 @@ export "." (./src/index.ts)
   type ModuleSettingsMigrationPlan
   type ModuleSettingsOption
   type ModuleTool
-  type OkfCheckIssue
-  type OkfCheckReport
-  type OkfDegradedLink
-  OkfExportError
-  type OkfExportOptions
-  type OkfExportReport
   type PropagationRule
-  RERANK_MODES
   type Ranked
-  type ReadPartOptions
-  type RegistryRun
-  type RegistrySpec
   type RerankCandidate
-  type RerankMode
   type RerankRequest
-  type RerankSetup
   type Reranker
-  type RerankerConfig
-  type RerankerSelection
   type ResolvedTypeSpec
   SCHEMA_VERSION
-  SCRATCH_DIR
-  SCRATCH_MAX_BYTES
-  SCRATCH_TTL_MS
-  SEARCH_SORTS
-  type SchemaOptions
-  type ScratchFailure
-  ScratchNotIgnoredError
-  ScratchRedirectedError
-  type ScratchRemoval
-  type ScratchReport
-  type SearchDeps
   type SearchMode
-  type SearchOptions
-  type SearchResponse
   type SearchResult
-  SectionNotFoundError
   type Severity
   type SkillEmitter
   type SkillManifest
@@ -108,27 +52,9 @@ export "." (./src/index.ts)
   type TaxonomyConfig
   type ToolContext
   type TypeSpec
-  VALID_RELEVANCES
-  VALID_STATUSES
-  type ValidationIssue
-  type VecSupport
-  type VecUnavailableReason
-  WriteRefusedError
-  archiveDocument
-  assembleContext
   assertPermutation
-  assertScratchWritable
-  audit
-  brainConfigSchema
   buildPathMatcher
-  buildTaxonomy
   candidateKey
-  checkIndexDrift
-  checkOkfBundle
-  chunkDocument
-  chunkTextForEmbedding
-  classifyContent
-  cleanScratch
   collectStats
   createEnrichment
   defineAgentRunner
@@ -139,85 +65,54 @@ export "." (./src/index.ts)
   defineModuleTool
   defineReranker
   defineSkillEmitter
-  discoverSkills
-  editFrontmatter
-  ensureScratch
+  mergeWithheld
+  partitionForRerank
+  repoRelativePathSchema
+  resolveReranker
+  syncSkills
+
+export "./internal" (./src/internal.ts)
+  type ArchiveResult
+  type BrainContext
+  type FrontmatterValue
+  type IngestInput
+  type IngestOutcome
+  SCRATCH_DIR
+  SEARCH_SORTS
+  type SearchOptions
+  type SearchResponse
+  type ValidationIssue
+  WriteRefusedError
+  archiveDocument
+  assembleContext
+  assertScratchWritable
+  buildTaxonomy
   estimateTokens
-  exportOkfBundle
-  extractWikiLinks
-  filterSearch
-  formatConfigError
-  getAssetFiles
-  getContext
-  getDefaultRerankerMode
   getMarkdownFiles
-  getMeta
-  hasVecSupport
   hybridSearch
-  ignoreScratch
   indexAll
   inertGeneratedText
   ingest
   initContext
-  installBinLinks
   isInScratch
   isIsoDate
   isWriteRefusal
-  jevReranker
-  lintSkills
-  loadModules
-  loadUserConfig
   loadVecSupport
-  mergeWithheld
-  migrateVecSchema
-  normalizeFrontmatterDates
   openDatabase
-  partitionForRerank
   pruneScratch
   readDocumentPart
-  readEnvVar
-  readGeneratedRegion
-  registrySpecSchema
   relevanceOnArchive
-  replaceGeneratedRegion
-  repoRelativePathSchema
-  rerank
   rerankSetup
-  rerankerKeyEnv
-  resolveAgentRunner
-  resolveCompletionProvider
   resolveEmbeddingProvider
-  resolveEnv
-  resolveReranker
-  resolveRoot
-  resolveWikiLink
   resolveWritable
   rewriteGeneratedRegion
   runRegistry
   safeResolve
-  scratchDir
-  scratchIgnored
   scratchName
-  selectReranker
-  setContext
-  setMeta
   splitFrontmatterBlock
-  storedVectorWidth
-  stringifyDocument
-  syncSkills
   updateDocument
-  validate
   writeFileSafely
   writeScratchFile
-
-export "./internal" (./src/internal.ts)
-  archiveDocument
-  assembleContext
-  hybridSearch
-  indexAll
-  ingest
-  loadVecSupport
-  openDatabase
 
 export "./package.json" (./package.json) [asset]
 
@@ -262,7 +157,7 @@ export "./testing" (./src/testing/index.ts)
   runRerankerContract
   runSkillEmitterContract
 
-signatures (the seams in docs/extending/README.md and the types they are made of)
+signatures (every public export and the types it is made of)
   AgentRunner (packages/core/src/lib/seams.ts)
     export interface AgentRunner {
         id: string;
@@ -284,13 +179,74 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             onRuntime?: (runtime: AgentRuntime) => void;
         }): Promise<string>;
     }
+  AgentRunnerContractHarness (packages/core/src/testing/agent-runners.ts)
+    export interface AgentRunnerContractHarness {
+        name: string;
+        echoing(): AgentRunner;
+        hanging(): AgentRunner;
+    }
   AgentRuntime (packages/core/src/lib/seams.ts)
     export interface AgentRuntime {
         name: string;
         version?: string;
     }
+  AssetTitleRule (packages/core/src/lib/config.ts)
+    export type AssetTitleRule = z.infer<typeof assetTitleRuleSchema>;
+  AuditIssue (packages/core/src/lib/types.ts)
+    export interface AuditIssue {
+        path: string;
+        severity: "error" | "warning" | "info";
+        category: string;
+        message: string;
+        suggestion?: string;
+        count?: number;
+        examples?: string[];
+        target?: string;
+    }
+  BUILTIN_EMITTERS (packages/core/src/lib/skills/index.ts)
+    const BUILTIN_EMITTERS: Record<string, SkillEmitter>;
   Bound (packages/core/src/queries/bound.ts)
     type Bound<F extends (opts: never) => unknown> = Omit<Parameters<F>[0], "brainPath">;
+  BrainConfig (packages/core/src/lib/config.ts)
+    export type BrainConfig = z.input<typeof brainConfigSchema>;
+  BrainStats (packages/core/src/lib/stats.ts)
+    export interface BrainStats {
+        trends?: StatsTrends;
+        documents: number;
+        byType: Record<string, number>;
+        byStatus: Record<string, number>;
+        byRelevance: Record<string, number>;
+        tags: number;
+        links: number;
+        brokenLinks: number;
+        chunks: number;
+        embeddings: number | null;
+        health: {
+            brokenLinkRate: number | null;
+            embeddingCoverage: number | null;
+            stale: number;
+            orphans: number;
+            untagged: number;
+            thresholds: StatsThresholds;
+        };
+        size: {
+            corpus: {
+                bytes: number;
+                files: number;
+            } | null;
+            db: {
+                bytes: number | null;
+                tables: Record<string, number>;
+                vectorSlots: VectorSlots;
+            };
+            freeBytes: number | null;
+        };
+    }
+  CanonicalPolicy (packages/core/src/lib/taxonomy.ts)
+    export interface CanonicalPolicy {
+        maxTokens?: number;
+        reviewDays?: number;
+    }
   ChunkMatch (packages/core/src/lib/types.ts)
     export interface ChunkMatch {
         path: string;
@@ -298,6 +254,37 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         heading: string;
         content: string;
         score: number;
+    }
+  ClassifierRule (packages/core/src/lib/taxonomy.ts)
+    interface ClassifierRule {
+        type: string;
+        regex: RegExp;
+    }
+  CollectStatsOptions (packages/core/src/lib/stats.ts)
+    export interface CollectStatsOptions {
+        root: string;
+        dbPath: string;
+        taxonomy: Taxonomy;
+        config: BrainConfig | null;
+        now?: Date;
+        embeddingsConfigured?: boolean;
+        statfs?: (path: string) => {
+            bavail: number | bigint;
+            bsize: number | bigint;
+        };
+    }
+  CommandContext (packages/core/src/lib/module-types.ts)
+    export interface CommandContext<C = unknown> {
+        root: string;
+        json: boolean;
+        config: C;
+        taxonomy: import("./taxonomy.js").Taxonomy;
+    }
+  CommandModule (packages/core/src/lib/module-types.ts)
+    export interface CommandModule<C = unknown> {
+        summary: string;
+        helpBlock?: string;
+        run(args: string[], ctx: CommandContext<C>): Promise<number | void>;
     }
   Community (packages/core/src/queries/types.ts)
     export interface Community {
@@ -318,6 +305,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             parts?: ContentPart[];
             maxTokens?: number;
         }): Promise<string>;
+    }
+  CompletionProviderContractHarness (packages/core/src/testing/completions.ts)
+    export interface CompletionProviderContractHarness {
+        name: string;
+        answering(text: string): CompletionProvider;
     }
   ContentIndexQueries (packages/core/src/queries/bound.ts)
     export interface ContentIndexQueries {
@@ -343,13 +335,38 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         kind: "pdf";
         data: Uint8Array;
     };
+  ContractMatchers (packages/core/src/testing/primitives.ts)
+    interface ContractMatchers {
+        toBe(expected: unknown): void;
+        toEqual(expected: unknown): void;
+        toBeGreaterThan(expected: number): void;
+    }
+  ContractTestPrimitives (packages/core/src/testing/primitives.ts)
+    export interface ContractTestPrimitives {
+        describe(name: string, fn: () => void): void;
+        test(name: string, fn: () => void | Promise<void>): void;
+        expect(actual: unknown): ContractMatchers;
+    }
+  DYNAMIC_ENV_READS (packages/core/src/config/env.ts)
+    const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
   Direction (packages/core/src/queries/types.ts)
     export type Direction = "in" | "out" | "both";
+  DiscoverOptions (packages/core/src/lib/skills/discover.ts)
+    export interface DiscoverOptions {
+        coreSkillsDir?: string;
+    }
   DocumentCandidate (packages/core/src/queries/types.ts)
     export interface DocumentCandidate {
         path: string;
         updated: string | null;
     }
+  DynamicEnvReadSpec (packages/core/src/config/env-core.ts)
+    export interface DynamicEnvReadSpec {
+        source: string;
+        description: string;
+    }
+  ENV_VARS (packages/core/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
   Edge (packages/core/src/queries/types.ts)
     export interface Edge {
         source: number;
@@ -366,6 +383,26 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         embedImage?(buffer: Uint8Array, mimeType: string, description: string): Promise<Float32Array>;
         embedPdf?(buffer: Uint8Array, description: string): Promise<Float32Array>;
     }
+  EmbeddingProviderContractHarness (packages/core/src/testing/embeddings.ts)
+    export interface EmbeddingProviderContractHarness {
+        name: string;
+        provider(): EmbeddingProvider;
+        hanging?(): EmbeddingProvider;
+    }
+  Enrichment (packages/core/src/lib/enrichment.ts)
+    export interface Enrichment {
+        describeAsset(buffer: Uint8Array, mimeType: string, context: string): Promise<string | null>;
+        generateChunkContext(docTitle: string, docText: string, chunkHeading: string, chunkContent: string, docSummary?: string | null): Promise<string>;
+    }
+  EnvVarSpec (packages/core/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  FactRule (packages/core/src/lib/config.ts)
+    export type FactRule = z.infer<typeof factRuleSchema>;
   GraphMeta (packages/core/src/queries/types.ts)
     export interface GraphMeta {
         available: boolean;
@@ -381,6 +418,16 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             virtual: boolean;
         } | null;
         layoutSkipped?: boolean;
+    }
+  HygieneCheck (packages/core/src/lib/module-types.ts)
+    export type HygieneCheck<C = unknown> = {
+        bivariantHygieneCheck(ctx: HygieneContext<C>): AuditIssue[] | Promise<AuditIssue[]>;
+    }["bivariantHygieneCheck"];
+  HygieneContext (packages/core/src/lib/module-types.ts)
+    export interface HygieneContext<C = unknown> {
+        queries: ContentIndexQueries;
+        root: string;
+        config: C;
     }
   LinkWalk (packages/core/src/queries/types.ts)
     export interface LinkWalk {
@@ -406,6 +453,16 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         status: string | null;
         tags: string | null;
     }
+  LoadedModule (packages/core/src/lib/module-types.ts)
+    export interface LoadedModule<C = unknown> {
+        key: string;
+        manifest: ResolvedManifest<C>;
+        dir: string;
+        config: C;
+        state?: "active" | "dormant";
+        declaration?: ModuleManifest<C>;
+        configInput?: unknown;
+    }
   Maintenance (packages/core/src/queries/types.ts)
     export interface Maintenance {
         orphans: Node[];
@@ -418,6 +475,140 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             updated: string;
         })[];
         staleDays: number;
+    }
+  ModuleContribution (packages/core/src/lib/module-types.ts)
+    export interface ModuleContribution<C = unknown> {
+        taxonomy?: {
+            types?: Record<string, TypeSpec>;
+            classifierHints?: Record<string, string[]>;
+            assetTitleRules?: import("./config.js").AssetTitleRule[];
+            propagation?: import("./config.js").PropagationRule[];
+        };
+        skills?: string;
+        instructions?: {
+            text: string;
+        };
+        commands?: Record<string, () => Promise<{
+            default: CommandModule<C>;
+        } | CommandModule<C>>>;
+        tools?: Record<string, () => Promise<{
+            default: ModuleTool<C>;
+        } | ModuleTool<C>>>;
+        hygieneChecks?: HygieneCheck<C>[];
+        indexRules?: {
+            dirAnchors?: string[];
+        };
+        exclude?: {
+            segments?: string[];
+        };
+        cron?: ModuleCronEntry[];
+    }
+  ModuleCronEntry (packages/core/src/lib/module-types.ts)
+    export interface ModuleCronEntry {
+        name: string;
+        schedule: string;
+        command: string;
+    }
+  ModuleManifest (packages/core/src/lib/module-types.ts)
+    export interface ModuleManifest<C = unknown> {
+        name: string;
+        canBeDormant?: boolean;
+        dormancyReason?: string;
+        configSchema?: {
+            parse(input: unknown): C;
+        };
+        settings?: ModuleSettings<C>;
+        setup(config: C): ModuleContribution<C>;
+    }
+  ModuleSettings (packages/core/src/lib/module-settings-types.ts)
+    export interface ModuleSettings<C = unknown> {
+        fields: ModuleSettingsField[];
+        actions?: Array<{
+            id: string;
+            label: string;
+            help: string;
+            command: string[];
+            confirm: string;
+        }>;
+        notes?(config: C): Array<{
+            key: string;
+            text: string;
+        }>;
+        migration?: {
+            label: string;
+            help?: string;
+            target?: string;
+            plan(root: string, config: C): ModuleSettingsMigrationPlan;
+        };
+    }
+  ModuleSettingsField (packages/core/src/lib/module-settings-types.ts)
+    export interface ModuleSettingsField {
+        key: string;
+        kind?: "text" | "number" | "toggle" | "choice" | "multichoice" | "tags" | "weights" | "record" | "list" | "variant";
+        label: string;
+        help?: string;
+        group?: string;
+        order?: number;
+        unit?: string;
+        currency?: string;
+        minorUnits?: boolean;
+        min?: number;
+        max?: number;
+        step?: number;
+        appliesAt?: "next-run" | "restart";
+        readOnly?: {
+            reason: string;
+            whenInherited?: boolean;
+        };
+        options?: ModuleSettingsOption[];
+        fields?: ModuleSettingsField[];
+        itemTitle?: string;
+        collapsible?: boolean;
+        orderMatters?: boolean;
+        minItems?: number;
+        uniqueBy?: string;
+        addLabel?: string;
+        variants?: Array<{
+            key: string;
+            label: string;
+            fields: ModuleSettingsField[];
+        }>;
+        optional?: {
+            label: string;
+            presentLabel?: string;
+        };
+        default?: unknown;
+    }
+  ModuleSettingsMigrationPlan (packages/core/src/lib/module-settings-types.ts)
+    export interface ModuleSettingsMigrationPlan {
+        values: Record<string, unknown>;
+        changes: Array<{
+            path: string;
+            before: string;
+            after: string;
+        }>;
+        details: Record<string, unknown>;
+    }
+  ModuleSettingsOption (packages/core/src/lib/module-settings-types.ts)
+    export interface ModuleSettingsOption {
+        value: string;
+        label: string;
+        disabled?: boolean;
+        help?: string;
+    }
+  ModuleTool (packages/core/src/lib/module-types.ts)
+    export interface ModuleTool<C = unknown, I = unknown, O = unknown> {
+        title?: string;
+        description: string;
+        inputSchema: z.ZodObject;
+        outputSchema: z.ZodObject;
+        annotations: {
+            readOnlyHint: boolean;
+            destructiveHint?: boolean;
+            idempotentHint?: boolean;
+            openWorldHint: boolean;
+        };
+        run(input: I, ctx: ToolContext<C>): Promise<O>;
     }
   Node (packages/core/src/queries/types.ts)
     export interface Node {
@@ -434,6 +625,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         distance?: number;
         virtual?: boolean;
     }
+  PropagationRule (packages/core/src/lib/config.ts)
+    export type PropagationRule = z.infer<typeof propagationRuleSchema>;
   QueryCode (packages/core/src/queries/types.ts)
     export type QueryCode = "missing_index" | "incompatible_index" | "corrupt_index" | "busy_index" | "unavailable_index" | "not_computed" | "not_found" | "invalid_input";
   QueryResult (packages/core/src/queries/types.ts)
@@ -448,6 +641,11 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             retryable: boolean;
         };
     };
+  Ranked (packages/core/src/lib/seams.ts)
+    export interface Ranked<C extends RerankCandidate = RerankCandidate> {
+        item: C;
+        score: number;
+    }
   RerankCandidate (packages/core/src/lib/seams.ts)
     export interface RerankCandidate {
         id: string;
@@ -460,10 +658,58 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         attributes?: Readonly<Record<string, string | number | boolean | null>>;
         score?: number;
     }
+  RerankPartition (packages/core/src/lib/reranker.ts)
+    export interface RerankPartition<T> {
+        sendable: T[];
+        withheld: Map<number, T>;
+    }
+  RerankRequest (packages/core/src/lib/seams.ts)
+    export interface RerankRequest<C extends RerankCandidate = RerankCandidate> {
+        query: string;
+        candidates: readonly C[];
+        mode?: SearchMode;
+        signal?: AbortSignal;
+    }
+  Reranker (packages/core/src/lib/seams.ts)
+    export interface Reranker {
+        id: string;
+        capabilities: {
+            modes: readonly SearchMode[];
+            network: boolean;
+        };
+        rerank<C extends RerankCandidate>(req: RerankRequest<C>): Promise<Ranked<C>[]>;
+        preview?<C extends RerankCandidate>(req: Omit<RerankRequest<C>, "signal">): unknown;
+    }
+  RerankerContractHarness (packages/core/src/testing/rerankers.ts)
+    export interface RerankerContractHarness {
+        name: string;
+        reranker(): Reranker;
+        hanging?(): Reranker;
+        sent?(): number;
+    }
+  RerankerSettings (packages/core/src/lib/registry.ts)
+    type RerankerSettings = NonNullable<BrainConfig["reranker"]>;
+  ResolvedManifest (packages/core/src/lib/module-types.ts)
+    export type ResolvedManifest<C = unknown> = ModuleContribution<C> & {
+        name: string;
+        canBeDormant?: boolean;
+        dormancyReason?: string;
+    };
+  ResolvedTypeSpec (packages/core/src/lib/taxonomy.ts)
+    export interface ResolvedTypeSpec extends TypeSpec {
+        owner: "core" | `module:${string}` | "user";
+        prefixes: string[];
+    }
   Root (packages/core/src/queries/types.ts)
     export interface Root {
         brainPath: string;
     }
+  SCHEMA_VERSION (packages/core/src/lib/db.ts)
+    const SCHEMA_VERSION: 15;
+  SearchLanguage (packages/core/src/lib/search-language.ts)
+    export type SearchLanguage = "english" | "none";
+  SearchMode (packages/core/src/lib/seams.ts)
+    export type SearchMode = "fts" | "vector" | "hybrid";
   SearchResult (packages/core/src/lib/types.ts)
     export interface SearchResult {
         path: string;
@@ -481,6 +727,8 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         snippet: string;
         chunks?: ChunkMatch[];
     }
+  Severity (packages/core/src/lib/taxonomy.ts)
+    export type Severity = "error" | "warning" | "info";
   SkillEmitter (packages/core/src/lib/seams.ts)
     export interface SkillEmitter {
         agent: string;
@@ -490,6 +738,12 @@ signatures (the seams in docs/extending/README.md and the types they are made of
             warnings?: string[];
         };
     }
+  SkillEmitterContractHarness (packages/core/src/testing/skill-emitters.ts)
+    export interface SkillEmitterContractHarness {
+        name: string;
+        emitter(): SkillEmitter;
+        readsCanonicalHome?: boolean;
+    }
   SkillManifest (packages/core/src/lib/seams.ts)
     export interface SkillManifest {
         name: string;
@@ -498,10 +752,50 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         source: "core" | "module" | "local";
         frontmatter: Record<string, unknown>;
     }
+  SkillSources (packages/core/src/lib/skills/discover.ts)
+    export interface SkillSources {
+        root: string;
+        modules: LoadedModule[];
+    }
   Snapshot (packages/core/src/queries/types.ts)
     export interface Snapshot {
         schemaVersion: number;
         newestIndexedAt: string | null;
+    }
+  StalenessVerdict (packages/core/src/lib/taxonomy.ts)
+    export interface StalenessVerdict {
+        days: number;
+        severity: Severity;
+    }
+  StatsThresholds (packages/core/src/lib/stats.ts)
+    export interface StatsThresholds {
+        coverageFloor: number;
+        brokenLinkCeiling: number;
+    }
+  StatsTrend (packages/core/src/lib/stats-trends.ts)
+    export interface StatsTrend {
+        metric: TrendMetric;
+        state: TrendState;
+        baseline: TrendWindow;
+        recent: TrendWindow;
+        latestAt: string | null;
+        change: number | null;
+        countChange: number | null;
+        relativeChange: number | null;
+        rule: {
+            minimumSamples: number;
+            maximumAgeHours: number;
+            minimumChange: number;
+            minimumCountChange: number | null;
+            minimumRelativeChange: number | null;
+            currentThreshold: number | null;
+        };
+        message: string;
+    }
+  StatsTrends (packages/core/src/lib/stats-trends.ts)
+    export interface StatsTrends {
+        evaluatedAt: string;
+        verdicts: StatsTrend[];
     }
   Subgraph (packages/core/src/queries/types.ts)
     export interface Subgraph {
@@ -511,11 +805,363 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         reachableCount?: number;
         unreachableCount?: number;
     }
+  SyncOptions (packages/core/src/lib/skills/sync.ts)
+    export interface SyncOptions extends DiscoverOptions {
+        emitters?: SkillEmitter[];
+    }
+  SyncResult (packages/core/src/lib/skills/sync.ts)
+    export interface SyncResult {
+        materialized: string[];
+        pruned: string[];
+        warnings: string[];
+        emitters: {
+            agent: string;
+            written: string[];
+            removed: string[];
+        }[];
+    }
+  TOOL_EVENT_SEEN_FILE (packages/core/src/testing/agent-runners.ts)
+    const TOOL_EVENT_SEEN_FILE: ".brain-contract-tool-event-seen";
+  TagsConfig (packages/core/src/lib/config.ts)
+    export type TagsConfig = z.infer<typeof tagsConfigSchema>;
+  Taxonomy (packages/core/src/lib/taxonomy.ts)
+    export class Taxonomy {
+        readonly types: Record<string, ResolvedTypeSpec>;
+        readonly dirAnchors: string[];
+        readonly canonical: Record<string, string>;
+        readonly canonicalPolicy: Record<string, CanonicalPolicy>;
+        readonly propagation: PropagationRule[];
+        readonly facts: Record<string, FactRule>;
+        readonly assetTitleRules: AssetTitleRule[];
+        readonly exclude: {
+            dirs: string[];
+            files: string[];
+            segments: string[];
+        };
+        readonly defaultStaleness: StalenessVerdict;
+        readonly graphRoot: string | null;
+        readonly tags: TagsConfig | null;
+        readonly searchLanguage: SearchLanguage;
+        constructor(args: {
+            types: Record<string, ResolvedTypeSpec>;
+            dirAnchors: string[];
+            canonical: Record<string, string>;
+            canonicalPolicy?: Record<string, CanonicalPolicy>;
+            propagation: PropagationRule[];
+            facts?: Record<string, FactRule>;
+            assetTitleRules: AssetTitleRule[];
+            classifierRules: ClassifierRule[];
+            exclude: {
+                dirs: string[];
+                files: string[];
+                segments: string[];
+            };
+            defaultStaleness: StalenessVerdict;
+            graphRoot?: string | null;
+            tags?: TagsConfig | null;
+            searchLanguage?: SearchLanguage;
+        });
+        validTypes(): string[];
+        isValidType(type: string): boolean;
+        dirForType(type: string): string | null;
+        typeForPath(path: string): string;
+        expectedPrefixesFor(type: string): string[] | null;
+        stalenessFor(path: string): StalenessVerdict;
+        assetTitleFor(path: string): string;
+        isExcludedPath(path: string): boolean;
+        isExcludedDirectory(path: string): boolean;
+        inboxType(): string;
+        appendMatchTypes(): string[];
+        isOrphanExempt(type: string): boolean;
+        classify(content: string): string | null;
+        canonicalPath(key: string): string | null;
+    }
+  TaxonomyConfig (packages/core/src/lib/config.ts)
+    export type TaxonomyConfig = z.infer<typeof taxonomyConfigSchema>;
+  ToolContext (packages/core/src/lib/module-types.ts)
+    export interface ToolContext<C = unknown> {
+        root: string;
+        config: C;
+        taxonomy: import("./taxonomy.js").Taxonomy;
+        signal: AbortSignal;
+    }
+  TrendMetric (packages/core/src/lib/stats-trends.ts)
+    export type TrendMetric = "embeddingCoverage" | "brokenLinks" | "orphans";
+  TrendState (packages/core/src/lib/stats-trends.ts)
+    export type TrendState = "warning" | "measured-no-warning" | "insufficient" | "stale" | "incomparable";
+  TrendWindow (packages/core/src/lib/stats-trends.ts)
+    export interface TrendWindow {
+        start: string;
+        end: string;
+        dates: string[];
+        samples: number;
+        median: number | null;
+        countMedian: number | null;
+        versions: string[];
+    }
+  TypeSpec (packages/core/src/lib/config.ts)
+    export type TypeSpec = z.infer<typeof typeSpecSchema>;
+  VectorSlots (packages/core/src/lib/indexer/compact.ts)
+    export interface VectorSlots {
+        live: number | null;
+        allocated: number | null;
+    }
   VoiceVocabulary (packages/core/src/queries/types.ts)
     export interface VoiceVocabulary {
         terms: string[];
         extractorVersion: number;
     }
+  assertPermutation (packages/core/src/lib/reranker.ts)
+    export function assertPermutation<C extends RerankCandidate>(input: readonly C[], output: readonly Ranked<C>[]): void;
+  assetTitleRuleSchema (packages/core/src/lib/config.ts)
+    const assetTitleRuleSchema: z.ZodUnion<readonly [z.ZodObject<{
+        label: z.ZodString;
+        prefix: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        label: z.ZodString;
+        pattern: z.ZodString;
+        slugFrom: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>]>;
+  brainConfigSchema (packages/core/src/lib/config.ts)
+    const brainConfigSchema: z.ZodObject<{
+        agentRunner: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodCustom<AgentRunner, AgentRunner>]>>;
+        completions: z.ZodOptional<z.ZodObject<{
+            apiKeyEnv: z.ZodOptional<z.ZodString>;
+            fallback: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodCustom<CompletionProvider, CompletionProvider>]>>;
+            fallbackApiKeyEnv: z.ZodOptional<z.ZodString>;
+            provider: z.ZodUnion<readonly [z.ZodString, z.ZodCustom<CompletionProvider, CompletionProvider>]>;
+        }, z.core.$strict>>;
+        embeddings: z.ZodOptional<z.ZodObject<{
+            apiKeyEnv: z.ZodOptional<z.ZodString>;
+            dimensions: z.ZodOptional<z.ZodNumber>;
+            model: z.ZodOptional<z.ZodString>;
+            provider: z.ZodUnion<readonly [z.ZodString, z.ZodCustom<EmbeddingProvider, EmbeddingProvider>]>;
+        }, z.core.$strict>>;
+        exclude: z.ZodOptional<z.ZodObject<{
+            dirs: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            files: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            segments: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        geo: z.ZodOptional<z.ZodObject<{
+            admissionWaitMs: z.ZodDefault<z.ZodNumber>;
+            cacheDir: z.ZodOptional<z.ZodString>;
+            cacheTtlMs: z.ZodDefault<z.ZodNumber>;
+            geocoding: z.ZodDefault<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                publicServiceEligible: z.ZodDefault<z.ZodBoolean>;
+                url: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>;
+            minimumIntervalMs: z.ZodDefault<z.ZodNumber>;
+            overpass: z.ZodDefault<z.ZodObject<{
+                enabled: z.ZodDefault<z.ZodBoolean>;
+                endpoints: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            routing: z.ZodDefault<z.ZodObject<{
+                demo: z.ZodDefault<z.ZodObject<{
+                    enabled: z.ZodDefault<z.ZodBoolean>;
+                    noncommercialLightUse: z.ZodDefault<z.ZodBoolean>;
+                }, z.core.$strict>>;
+                endpoints: z.ZodDefault<z.ZodObject<{
+                    bike: z.ZodOptional<z.ZodObject<{
+                        dataset: z.ZodString;
+                        preparedMode: z.ZodEnum<{
+                            bike: "bike";
+                            car: "car";
+                            foot: "foot";
+                        }>;
+                        profile: z.ZodString;
+                        url: z.ZodString;
+                        verification: z.ZodString;
+                    }, z.core.$strict>>;
+                    car: z.ZodOptional<z.ZodObject<{
+                        dataset: z.ZodString;
+                        preparedMode: z.ZodEnum<{
+                            bike: "bike";
+                            car: "car";
+                            foot: "foot";
+                        }>;
+                        profile: z.ZodString;
+                        url: z.ZodString;
+                        verification: z.ZodString;
+                    }, z.core.$strict>>;
+                    foot: z.ZodOptional<z.ZodObject<{
+                        dataset: z.ZodString;
+                        preparedMode: z.ZodEnum<{
+                            bike: "bike";
+                            car: "car";
+                            foot: "foot";
+                        }>;
+                        profile: z.ZodString;
+                        url: z.ZodString;
+                        verification: z.ZodString;
+                    }, z.core.$strict>>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            timeoutMs: z.ZodDefault<z.ZodNumber>;
+            userAgent: z.ZodDefault<z.ZodString>;
+        }, z.core.$strict>>;
+        graph: z.ZodOptional<z.ZodObject<{
+            root: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        hooks: z.ZodOptional<z.ZodObject<{
+            embedOnCommit: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$strict>>;
+        instructions: z.ZodOptional<z.ZodObject<{
+            maxTokens: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>;
+        media: z.ZodOptional<z.ZodObject<{
+            ignore: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            maxTrackedBytes: z.ZodOptional<z.ZodNumber>;
+            track: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        modules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        profile: z.ZodOptional<z.ZodObject<{
+            cliTitle: z.ZodOptional<z.ZodString>;
+            name: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>;
+        reranker: z.ZodOptional<z.ZodObject<{
+            apiKeyEnv: z.ZodOptional<z.ZodString>;
+            depth: z.ZodOptional<z.ZodNumber>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            exclude: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            model: z.ZodOptional<z.ZodString>;
+            provider: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodCustom<Reranker, Reranker>]>>;
+            skipMargin: z.ZodOptional<z.ZodNumber>;
+            timeoutMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>;
+        search: z.ZodOptional<z.ZodObject<{
+            language: z.ZodOptional<z.ZodEnum<{
+                english: "english";
+                none: "none";
+            }>>;
+        }, z.core.$strict>>;
+        skills: z.ZodOptional<z.ZodObject<{
+            emitters: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        stats: z.ZodOptional<z.ZodObject<{
+            brokenLinkCeiling: z.ZodOptional<z.ZodNumber>;
+            coverageFloor: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>;
+        sync: z.ZodOptional<z.ZodObject<{
+            judge: z.ZodOptional<z.ZodEnum<{
+                jev: "jev";
+                off: "off";
+            }>>;
+            pull: z.ZodOptional<z.ZodEnum<{
+                merge: "merge";
+                rebase: "rebase";
+            }>>;
+        }, z.core.$strict>>;
+        taxonomy: z.ZodOptional<z.ZodObject<{
+            assetTitleRules: z.ZodOptional<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+                label: z.ZodString;
+                prefix: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                label: z.ZodString;
+                pattern: z.ZodString;
+                slugFrom: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>]>>>;
+            canonical: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodLiteral<"">, z.ZodString]>>>;
+            canonicalPolicy: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxTokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                reviewDays: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            }, z.core.$strict>>>;
+            classifierHints: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodArray<z.ZodString>>>;
+            defaultStaleness: z.ZodOptional<z.ZodObject<{
+                days: z.ZodNumber;
+                severity: z.ZodEnum<{
+                    error: "error";
+                    info: "info";
+                    warning: "warning";
+                }>;
+            }, z.core.$strict>>;
+            dirAnchors: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            facts: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                patterns: z.ZodArray<z.ZodString>;
+                source: z.ZodString;
+            }, z.core.$strict>>>;
+            propagation: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                derivatives: z.ZodString;
+                severity: z.ZodOptional<z.ZodEnum<{
+                    error: "error";
+                    info: "info";
+                    warning: "warning";
+                }>>;
+                source: z.ZodString;
+            }, z.core.$strict>>>;
+            tags: z.ZodOptional<z.ZodObject<{
+                aliases: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+                inflection: z.ZodOptional<z.ZodEnum<{
+                    en: "en";
+                    off: "off";
+                }>>;
+                redundant: z.ZodOptional<z.ZodEnum<{
+                    off: "off";
+                    warn: "warn";
+                }>>;
+                vocabulary: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            types: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+                appendMatch: z.ZodOptional<z.ZodBoolean>;
+                dir: z.ZodNullable<z.ZodString>;
+                embed: z.ZodOptional<z.ZodBoolean>;
+                halfLifeDays: z.ZodOptional<z.ZodNumber>;
+                inbox: z.ZodOptional<z.ZodBoolean>;
+                match: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                mergeStrategy: z.ZodOptional<z.ZodEnum<{
+                    "cache-union": "cache-union";
+                    "code-merge": "code-merge";
+                    "keep-both": "keep-both";
+                    "latest-wins-additive": "latest-wins-additive";
+                    "table-union": "table-union";
+                    "timeline-append": "timeline-append";
+                    synthesize: "synthesize";
+                }>>;
+                orphanExempt: z.ZodOptional<z.ZodBoolean>;
+                staleDays: z.ZodOptional<z.ZodNumber>;
+                staleSeverity: z.ZodOptional<z.ZodEnum<{
+                    error: "error";
+                    info: "info";
+                    warning: "warning";
+                }>>;
+            }, z.core.$strict>>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
+  buildPathMatcher (packages/core/src/lib/reranker.ts)
+    export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
+  candidateKey (packages/core/src/lib/reranker.ts)
+    export function candidateKey(c: RerankCandidate): string;
+  collectStats (packages/core/src/lib/stats.ts)
+    export function collectStats(db: Database, opts: CollectStatsOptions): Promise<BrainStats>;
+  createEnrichment (packages/core/src/lib/enrichment.ts)
+    export function createEnrichment(provider: CompletionProvider): Enrichment;
+  defineAgentRunner (packages/core/src/lib/seams.ts)
+    export function defineAgentRunner(runner: AgentRunner): AgentRunner;
+  defineCompletionProvider (packages/core/src/lib/seams.ts)
+    export function defineCompletionProvider(provider: CompletionProvider): CompletionProvider;
+  defineConfig (packages/core/src/lib/config.ts)
+    export function defineConfig(config: BrainConfig): BrainConfig;
+  defineEmbeddingProvider (packages/core/src/lib/seams.ts)
+    export function defineEmbeddingProvider(provider: EmbeddingProvider): EmbeddingProvider;
+  defineModule (packages/core/src/lib/module-types.ts)
+    export function defineModule<C = unknown>(manifest: ModuleManifest<C>): ModuleManifest<C>;
+  defineModuleTool (packages/core/src/lib/module-types.ts)
+    export function defineModuleTool<C = unknown, Input extends z.ZodObject = z.ZodObject, Output extends z.ZodObject = z.ZodObject>(tool: ModuleTool<C, z.output<Input>, z.output<Output>> & {
+        inputSchema: Input;
+        outputSchema: Output;
+    }): ModuleTool<C, z.output<Input>, z.output<Output>> & {
+        inputSchema: Input;
+        outputSchema: Output;
+    };
+  defineReranker (packages/core/src/lib/seams.ts)
+    export function defineReranker(reranker: Reranker): Reranker;
+  defineSkillEmitter (packages/core/src/lib/seams.ts)
+    export function defineSkillEmitter(emitter: SkillEmitter): SkillEmitter;
+  factRuleSchema (packages/core/src/lib/config.ts)
+    const factRuleSchema: z.ZodObject<{
+        patterns: z.ZodArray<z.ZodString>;
+        source: z.ZodString;
+    }, z.core.$strict>;
   findIndexDocuments (packages/core/src/queries/index.ts)
     export function findIndexDocuments(opts: Root & {
         type?: string;
@@ -530,6 +1176,20 @@ signatures (the seams in docs/extending/README.md and the types they are made of
         relevance?: string;
         limit?: number;
     }): QueryResult<ListedDocument[]>;
+  mergeWithheld (packages/core/src/lib/reranker.ts)
+    export function mergeWithheld<T>(ranked: readonly T[], withheld: Map<number, T>, total: number): T[];
+  partitionForRerank (packages/core/src/lib/reranker.ts)
+    export function partitionForRerank<T>(candidates: readonly T[], isExcluded: ((candidate: T) => boolean) | undefined): RerankPartition<T>;
+  propagationRuleSchema (packages/core/src/lib/config.ts)
+    const propagationRuleSchema: z.ZodObject<{
+        derivatives: z.ZodString;
+        severity: z.ZodOptional<z.ZodEnum<{
+            error: "error";
+            info: "info";
+            warning: "warning";
+        }>>;
+        source: z.ZodString;
+    }, z.core.$strict>;
   readGraphClusters (packages/core/src/queries/index.ts)
     export function readGraphClusters(opts: Root & {
         community?: number;
@@ -564,3 +1224,132 @@ signatures (the seams in docs/extending/README.md and the types they are made of
     export function readVoiceVocabulary(opts: Root & {
         limit: number;
     }): QueryResult<VoiceVocabulary>;
+  repoRelativePathSchema (packages/core/src/lib/config.ts)
+    const repoRelativePathSchema: z.ZodString;
+  resolveReranker (packages/core/src/lib/registry.ts)
+    export function resolveReranker(config?: RerankerSettings): Reranker | undefined;
+  runAgentRunnerContract (packages/core/src/testing/agent-runners.ts)
+    export function runAgentRunnerContract(harness: AgentRunnerContractHarness, primitives: ContractTestPrimitives): void;
+  runCompletionProviderContract (packages/core/src/testing/completions.ts)
+    export function runCompletionProviderContract(harness: CompletionProviderContractHarness, primitives: ContractTestPrimitives): void;
+  runEmbeddingProviderContract (packages/core/src/testing/embeddings.ts)
+    export function runEmbeddingProviderContract(harness: EmbeddingProviderContractHarness, primitives: ContractTestPrimitives): void;
+  runRerankerContract (packages/core/src/testing/rerankers.ts)
+    export function runRerankerContract(harness: RerankerContractHarness, primitives: ContractTestPrimitives): void;
+  runSkillEmitterContract (packages/core/src/testing/skill-emitters.ts)
+    export function runSkillEmitterContract(harness: SkillEmitterContractHarness, primitives: ContractTestPrimitives): void;
+  syncSkills (packages/core/src/lib/skills/sync.ts)
+    export function syncSkills(ctx: SkillSources, opts?: SyncOptions): SyncResult;
+  tagsConfigSchema (packages/core/src/lib/config.ts)
+    const tagsConfigSchema: z.ZodObject<{
+        aliases: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        inflection: z.ZodOptional<z.ZodEnum<{
+            en: "en";
+            off: "off";
+        }>>;
+        redundant: z.ZodOptional<z.ZodEnum<{
+            off: "off";
+            warn: "warn";
+        }>>;
+        vocabulary: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
+  taxonomyConfigSchema (packages/core/src/lib/config.ts)
+    const taxonomyConfigSchema: z.ZodObject<{
+        assetTitleRules: z.ZodOptional<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+            label: z.ZodString;
+            prefix: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            label: z.ZodString;
+            pattern: z.ZodString;
+            slugFrom: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>]>>>;
+        canonical: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodLiteral<"">, z.ZodString]>>>;
+        canonicalPolicy: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+            maxTokens: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            reviewDays: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        }, z.core.$strict>>>;
+        classifierHints: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodArray<z.ZodString>>>;
+        defaultStaleness: z.ZodOptional<z.ZodObject<{
+            days: z.ZodNumber;
+            severity: z.ZodEnum<{
+                error: "error";
+                info: "info";
+                warning: "warning";
+            }>;
+        }, z.core.$strict>>;
+        dirAnchors: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        facts: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+            patterns: z.ZodArray<z.ZodString>;
+            source: z.ZodString;
+        }, z.core.$strict>>>;
+        propagation: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            derivatives: z.ZodString;
+            severity: z.ZodOptional<z.ZodEnum<{
+                error: "error";
+                info: "info";
+                warning: "warning";
+            }>>;
+            source: z.ZodString;
+        }, z.core.$strict>>>;
+        tags: z.ZodOptional<z.ZodObject<{
+            aliases: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+            inflection: z.ZodOptional<z.ZodEnum<{
+                en: "en";
+                off: "off";
+            }>>;
+            redundant: z.ZodOptional<z.ZodEnum<{
+                off: "off";
+                warn: "warn";
+            }>>;
+            vocabulary: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        types: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodObject<{
+            appendMatch: z.ZodOptional<z.ZodBoolean>;
+            dir: z.ZodNullable<z.ZodString>;
+            embed: z.ZodOptional<z.ZodBoolean>;
+            halfLifeDays: z.ZodOptional<z.ZodNumber>;
+            inbox: z.ZodOptional<z.ZodBoolean>;
+            match: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            mergeStrategy: z.ZodOptional<z.ZodEnum<{
+                "cache-union": "cache-union";
+                "code-merge": "code-merge";
+                "keep-both": "keep-both";
+                "latest-wins-additive": "latest-wins-additive";
+                "table-union": "table-union";
+                "timeline-append": "timeline-append";
+                synthesize: "synthesize";
+            }>>;
+            orphanExempt: z.ZodOptional<z.ZodBoolean>;
+            staleDays: z.ZodOptional<z.ZodNumber>;
+            staleSeverity: z.ZodOptional<z.ZodEnum<{
+                error: "error";
+                info: "info";
+                warning: "warning";
+            }>>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+  typeSpecSchema (packages/core/src/lib/config.ts)
+    const typeSpecSchema: z.ZodObject<{
+        appendMatch: z.ZodOptional<z.ZodBoolean>;
+        dir: z.ZodNullable<z.ZodString>;
+        embed: z.ZodOptional<z.ZodBoolean>;
+        halfLifeDays: z.ZodOptional<z.ZodNumber>;
+        inbox: z.ZodOptional<z.ZodBoolean>;
+        match: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        mergeStrategy: z.ZodOptional<z.ZodEnum<{
+            "cache-union": "cache-union";
+            "code-merge": "code-merge";
+            "keep-both": "keep-both";
+            "latest-wins-additive": "latest-wins-additive";
+            "table-union": "table-union";
+            "timeline-append": "timeline-append";
+            synthesize: "synthesize";
+        }>>;
+        orphanExempt: z.ZodOptional<z.ZodBoolean>;
+        staleDays: z.ZodOptional<z.ZodNumber>;
+        staleSeverity: z.ZodOptional<z.ZodEnum<{
+            error: "error";
+            info: "info";
+            warning: "warning";
+        }>>;
+    }, z.core.$strict>;

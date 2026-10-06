@@ -4,14 +4,11 @@
 # Names marked `type` are type-only exports; the rest are runtime values.
 
 export "." (./src/index.ts)
-  type AliasChecks
   type BackendLogFn
   type ClaudeBackendEnv
   type ClaudeBackendOptions
   DEFAULT_PROFILES
   DYNAMIC_ENV_READS
-  type DiscoverOptions
-  type DiscoverResult
   type DynamicEnvReadSpec
   ENV_VARS
   type EnvVarSpec
@@ -22,12 +19,9 @@ export "." (./src/index.ts)
   type ModelSourceOptions
   type ModelSourceState
   backendModule
-  canonicalModelId
   createClaudeBackend
   createModelSource
   defineProfiles
-  discoverAnthropicModels
-  modelCachePath
   readEnvVar
   resolveEnv
 
@@ -36,3 +30,123 @@ export "./internal" (./src/internal.ts)
   VOICE_ALLOWED_TOOLS
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  BackendLogFn (packages/ui-backend-claude/src/options.ts)
+    export type BackendLogFn = (level: "debug" | "info" | "warn" | "error", message: string, attrs?: Record<string, string | number | boolean>) => void;
+  ClaudeBackendEnv (packages/ui-backend-claude/src/config/env.ts)
+    export interface ClaudeBackendEnv {
+        anthropicApiKey: string | undefined;
+        claudeCodeOauthToken: string | undefined;
+        reverseGeocodeEnabled: boolean;
+        nominatimUrl: string;
+        nominatimUserAgent: string;
+        nominatimPublicServiceEligible: boolean;
+    }
+  ClaudeBackendOptions (packages/ui-backend-claude/src/options.ts)
+    export interface ClaudeBackendOptions {
+        versionRequirements?: BackendVersionRequirements;
+        brainPath: string;
+        claudeCodePath?: string;
+        profiles?: InferenceProfile[] | (() => InferenceProfile[]);
+        defaultTimeoutMs?: number;
+        allowedTools?: string[];
+        confirmBashPatterns?: readonly ConfirmPatternSource[];
+        log?: BackendLogFn;
+        systemPromptAppend?: string;
+        writeLock?: KeyedLock;
+        lockWaitMs?: number;
+    }
+  DEFAULT_PROFILES (packages/ui-backend-claude/src/profiles.ts)
+    const DEFAULT_PROFILES: InferenceProfile[];
+  DYNAMIC_ENV_READS (packages/ui-backend-claude/src/config/env.ts)
+    const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
+  DynamicEnvReadSpec (packages/ui-backend-claude/src/config/env-core.ts)
+    export interface DynamicEnvReadSpec {
+        source: string;
+        description: string;
+    }
+  ENV_VARS (packages/ui-backend-claude/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
+  EnvVarSpec (packages/ui-backend-claude/src/config/env.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string;
+        required: boolean;
+    }
+  InferenceProfile (packages/ui-backend-claude/src/profiles.ts)
+    export interface InferenceProfile {
+        id: string;
+        label: string;
+        vendor?: string;
+        model?: string;
+        thinkingLevel?: ThinkingLevel;
+        supportedThinkingLevels?: ThinkingLevel[];
+        allowedTools?: string[];
+        contextWindow?: number;
+        source?: "builtin" | "declared" | "discovered";
+        requiredEnvKeys: string[];
+        billing?: "subscription" | "api";
+        buildEnv(): Record<string, string>;
+    }
+  InferenceProfileInput (packages/ui-backend-claude/src/profiles.ts)
+    export interface InferenceProfileInput {
+        id: string;
+        label: string;
+        vendor?: string;
+        model?: string;
+        thinkingLevel?: ThinkingLevel;
+        supportedThinkingLevels?: ThinkingLevel[];
+        baseUrl?: string;
+        authTokenEnv?: string;
+        apiKeyEnv?: string;
+        modelAliases?: boolean;
+        allowedTools?: string[];
+        contextWindow?: number;
+        source?: "builtin" | "declared" | "discovered";
+    }
+  MEASURED_RUNTIME (packages/ui-backend-claude/src/measured-runtime.ts)
+    const MEASURED_RUNTIME: Readonly<{
+        agentSdk: "0.3.283";
+        claudeCode: "2.1.283";
+        measuredOn: "2026-09-28";
+    }>;
+  ModelSource (packages/ui-backend-claude/src/model-discovery.ts)
+    export interface ModelSource {
+        list(): InferenceProfileInput[];
+        state(): ModelSourceState;
+        ensureFresh(): Promise<void>;
+        refresh(): Promise<void>;
+    }
+  ModelSourceOptions (packages/ui-backend-claude/src/model-discovery.ts)
+    export interface ModelSourceOptions {
+        brainPath: string;
+        ttlMs?: number;
+        enabled?: boolean;
+        log?: BackendLogFn;
+    }
+  ModelSourceState (packages/ui-backend-claude/src/model-discovery.ts)
+    export interface ModelSourceState {
+        enabled: boolean;
+        refreshedAt: number | null;
+        stale: boolean;
+        error?: string;
+        subscriptionProvenAt?: number;
+        subscriptionRefused?: {
+            status: number;
+            at: number;
+        };
+    }
+  backendModule (packages/ui-backend-claude/src/module.ts)
+    const backendModule: BackendModule;
+  createClaudeBackend (packages/ui-backend-claude/src/backend.ts)
+    export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend;
+  createModelSource (packages/ui-backend-claude/src/model-discovery.ts)
+    export function createModelSource(options: ModelSourceOptions): ModelSource;
+  defineProfiles (packages/ui-backend-claude/src/profiles.ts)
+    export function defineProfiles(inputs: InferenceProfileInput[]): InferenceProfile[];
+  readEnvVar (packages/ui-backend-claude/src/config/env-core.ts)
+    export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
+  resolveEnv (packages/ui-backend-claude/src/config/env.ts)
+    export function resolveEnv(env?: NodeJS.ProcessEnv): ClaudeBackendEnv;

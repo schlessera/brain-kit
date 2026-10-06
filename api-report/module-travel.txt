@@ -28,3 +28,171 @@ export "./module" (./src/module.ts)
   default
 
 export "./package.json" (./package.json) [asset]
+
+signatures (every public export and the types it is made of)
+  Journey (packages/module-travel/src/content.ts)
+    export type Journey = z.infer<typeof journeySchema>;
+  Place (packages/module-travel/src/content.ts)
+    export type Place = z.infer<typeof placeSchema>;
+  PlaceVisitSummary (packages/module-travel/src/content.ts)
+    export interface PlaceVisitSummary {
+        path: string;
+        visit_count: number;
+        first_visit: string | null;
+        last_visit: string | null;
+        visits: {
+            document: string;
+            visit: string;
+            date: string | null;
+        }[];
+    }
+  TravelConfig (packages/module-travel/src/module.ts)
+    export type TravelConfig = z.infer<typeof configSchema>;
+  TravelCorpus (packages/module-travel/src/content.ts)
+    export interface TravelCorpus {
+        documents: Map<string, TravelDocument>;
+        issues: ValidationIssue[];
+    }
+  TravelDocument (packages/module-travel/src/content.ts)
+    export type TravelDocument = Journey | Trip | Place;
+  Trip (packages/module-travel/src/content.ts)
+    export type Trip = z.infer<typeof tripSchema>;
+  ValidationIssue (packages/core/src/lib/validate.ts)
+    export interface ValidationIssue {
+        file: string;
+        level: "error" | "warning";
+        message: string;
+    }
+  configSchema (packages/module-travel/src/module.ts)
+    const configSchema: z.ZodObject<{
+        travelParty: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            requirementsDoc: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+  default (packages/module-travel/src/module.ts) exported name of travelModule
+  journeySchema (packages/module-travel/src/content.ts)
+    const journeySchema: z.ZodObject<{
+        places: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"travel">;
+        visits: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            actual: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                ascent_m: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                distance_km: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                duration_s: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            }, z.core.$loose>>>;
+            date: z.ZodOptional<z.ZodNullable<z.ZodPreprocess<z.ZodString, unknown>>>;
+            id: z.ZodString;
+            party: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+            photos: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            places: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            route: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            track: z.ZodOptional<z.ZodString>;
+            verdict: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>;
+  parseTravelDocument (packages/module-travel/src/content.ts)
+    export function parseTravelDocument(source: string): TravelDocument;
+  placeSchema (packages/module-travel/src/content.ts)
+    const placeSchema: z.ZodObject<{
+        coordinates: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            lat: z.ZodNumber;
+            lon: z.ZodNumber;
+        }, z.core.$strict>>>;
+        first_visit: z.ZodOptional<z.ZodNullable<z.ZodPreprocess<z.ZodString, unknown>>>;
+        last_visit: z.ZodOptional<z.ZodNullable<z.ZodPreprocess<z.ZodString, unknown>>>;
+        parent_place: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        place_kind: z.ZodEnum<{
+            city: "city";
+            country: "country";
+            spot: "spot";
+            town: "town";
+        }>;
+        title: z.ZodString;
+        type: z.ZodLiteral<"place">;
+        visit_count: z.ZodOptional<z.ZodNumber>;
+        visits: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            document: z.ZodString;
+            visit: z.ZodString;
+        }, z.core.$strict>>>;
+    }, z.core.$loose>;
+  readTravelCorpus (packages/module-travel/src/content.ts)
+    export function readTravelCorpus(root: string, taxonomy?: Taxonomy): TravelCorpus;
+  routeSchema (packages/module-travel/src/content.ts)
+    const routeSchema: z.ZodObject<{
+        ascent_m: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        distance_km: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        gpx: z.ZodOptional<z.ZodString>;
+        kind: z.ZodEnum<{
+            planned: "planned";
+            recorded: "recorded";
+            reference: "reference";
+        }>;
+        label: z.ZodString;
+        primary: z.ZodOptional<z.ZodBoolean>;
+        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        url: z.ZodOptional<z.ZodURL>;
+    }, z.core.$loose>;
+  summarizePlaceVisits (packages/module-travel/src/content.ts)
+    export function summarizePlaceVisits(corpus: TravelCorpus, path: string): PlaceVisitSummary;
+  travelModule (packages/module-travel/src/module.ts)
+    const travelModule: ModuleManifest<TravelConfig>;
+  tripSchema (packages/module-travel/src/content.ts)
+    const tripSchema: z.ZodObject<{
+        cover: z.ZodOptional<z.ZodString>;
+        places: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        routes: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            ascent_m: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            distance_km: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            gpx: z.ZodOptional<z.ZodString>;
+            kind: z.ZodEnum<{
+                planned: "planned";
+                recorded: "recorded";
+                reference: "reference";
+            }>;
+            label: z.ZodString;
+            primary: z.ZodOptional<z.ZodBoolean>;
+            source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            url: z.ZodOptional<z.ZodURL>;
+        }, z.core.$loose>>>;
+        title: z.ZodString;
+        trip_status: z.ZodEnum<{
+            dismissed: "dismissed";
+            done: "done";
+            proposed: "proposed";
+        }>;
+        type: z.ZodLiteral<"trip">;
+        visits: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            actual: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                ascent_m: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                distance_km: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                duration_s: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            }, z.core.$loose>>>;
+            date: z.ZodOptional<z.ZodNullable<z.ZodPreprocess<z.ZodString, unknown>>>;
+            id: z.ZodString;
+            party: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+            photos: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            places: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            route: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            track: z.ZodOptional<z.ZodString>;
+            verdict: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>;
+  visitSchema (packages/module-travel/src/content.ts)
+    const visitSchema: z.ZodObject<{
+        actual: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            ascent_m: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            distance_km: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            duration_s: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        }, z.core.$loose>>>;
+        date: z.ZodOptional<z.ZodNullable<z.ZodPreprocess<z.ZodString, unknown>>>;
+        id: z.ZodString;
+        party: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+        photos: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        places: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        route: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        track: z.ZodOptional<z.ZodString>;
+        verdict: z.ZodOptional<z.ZodString>;
+    }, z.core.$loose>;

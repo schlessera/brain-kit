@@ -7,25 +7,18 @@ export type {
 } from "./renderers.js";
 export {
   createToolRendererRegistry,
-  defaultToolRendererRegistry,
   registerToolRenderers,
-  resolveToolRenderer,
-  resetToolRenderers,
 } from "./renderers.js";
 
 export type { AsrClient, AsrClientFactory, AsrClientOptions, AsrClientRegistry } from "./asr.js";
 export {
   createAsrClientRegistry,
-  defaultAsrClientRegistry,
   registerAsrClient,
   createAsrClient,
-  speechUiHints,
-  resetAsrClients,
 } from "./asr.js";
 
 export {
   BrainUiClient,
-  createBrainUiClient,
 } from "./ws-client.js";
 export type {
   BrainUiClientOptions,
@@ -43,4 +36,15 @@ export * from "../protocol.js";
 
 // How a `map` block is drawn (#44): a pure plan from its places, so the
 // renderer only fetches geometry and hands the kit literal data.
-export * from "../places.js";
+export {
+  planPlaces,
+} from "../places.js";
+export type {
+  PlaceFrame,
+  PlaceFrameHeight,
+  PlaceFramePin,
+  PlaceMode,
+  PlacePlan,
+  PlaceRow,
+  UnpinnedReason,
+} from "../places.js";

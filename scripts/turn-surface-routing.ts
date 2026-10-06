@@ -4,7 +4,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
-import { BRIDGE_TOOL_CONTRACTS, type ClassificationRequest, type ClassificationAnswers } from "@schlessera/brain-ui-sdk/server";
+import { BRIDGE_TOOL_CONTRACTS } from "@schlessera/brain-ui-sdk/server";
+import { type ClassificationRequest, type ClassificationAnswers } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeSdkTurn, type ClaudeSdkTurn } from "../packages/ui-backend-claude/src/sdk-options.js";
 import type { JevClient, JevOutcome } from "../packages/ui-server/src/classification/jev-client.js";
 
