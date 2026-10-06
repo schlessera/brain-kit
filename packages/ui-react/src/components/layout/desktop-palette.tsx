@@ -162,7 +162,10 @@ export function DesktopPalette() {
     <div
       className="fixed inset-0 z-50 hidden tablet:block bg-black/60"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) dismiss();
+        if (e.target !== e.currentTarget) return;
+        // The press's own default would focus the document after the return.
+        e.preventDefault();
+        dismiss();
       }}
     >
       <div ref={boxRef} className="mx-auto mt-[110px] w-[560px] max-w-[calc(100vw-2rem)]" onKeyDown={onKeyDown}>

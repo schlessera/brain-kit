@@ -237,6 +237,23 @@ for (const theme of ["dark", "light"] as const) {
       await userEvent.keyboard(" ");
       await expect.poll(dialog, { message: "space opens" }).not.toBeNull();
       await userEvent.keyboard("{Escape}");
+      // A real press on the scrim, outside the box, is a dismissal too, and
+      // the browser's own mousedown focus must not undo the return.
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(dialog, { message: "reopens" }).not.toBeNull();
+      const scrim = dialog()!.closest<HTMLElement>(".fixed")!;
+      const corner = { x: 12, y: innerHeight - 12 };
+      expect(document.elementFromPoint(corner.x, corner.y), "the corner is the scrim").toBe(scrim);
+      if (mode === "fine") {
+        await userEvent.hover(scrim, { position: corner });
+        await commands.buttonPointer("down");
+        await commands.buttonPointer("up");
+      } else {
+        await commands.rankTouch("touchStart", [corner]);
+        await commands.rankTouch("touchEnd", []);
+      }
+      await expect.poll(dialog, { message: "the scrim dismisses" }).toBeNull();
+      expect(document.activeElement, "the scrim returns focus to All commands").toBe(all);
       await userEvent.keyboard("{Control>}k{/Control}");
       await expect.poll(dialog, { message: "Ctrl+K opens" }).not.toBeNull();
       // A Graph row, reached through the visibly opened palette.
