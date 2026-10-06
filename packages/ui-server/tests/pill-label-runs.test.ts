@@ -173,7 +173,8 @@ describe("pill label runs (#1083)", () => {
       r.labeller.label("session:sess-scheria", TEXTS[0]!, "sess-scheria"),
     ])).toEqual(["Bag of winds", "Bag of winds"]);
     expect(await r.labeller.label("session:sess-scheria", TEXTS[0]!, "sess-scheria")).toBe("Bag of winds");
-    expect(r.runs().map((run) => [run.sessionId, run.outcome])).toEqual([[SESSION, "error"], [SESSION, "success"]]);
+    // Both runs can start in the same millisecond, so their order is not asserted.
+    expect(r.runs().map((run) => [run.sessionId, run.outcome]).sort()).toEqual([[SESSION, "error"], [SESSION, "success"]]);
   });
 
   test("an activity store that fails to write never costs the pill its label", async () => {
