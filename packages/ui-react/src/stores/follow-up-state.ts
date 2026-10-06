@@ -63,6 +63,8 @@ export interface StartedFollowUp {
   attachments?: MessageAttachment[];
   attachmentCount?: number;
   files?: SharedFileMeta[];
+  /** Shared files the host counted; their metadata comes from the sender or history. */
+  fileCount?: number;
   thinkingLevel?: ThinkingLevel;
 }
 
@@ -109,6 +111,20 @@ function merge(reported: QueuedFollowUpView[] = [], local: LocalFollowUp[] = [])
         confirmed: false,
       })),
   ];
+}
+
+/**
+ * Release the image previews of local entries that will never reach the
+ * transcript. Once the host accepted a send, the composer let go of its
+ * previews and only the entry holds them; a started entry hands them to its
+ * transcript message instead, which the chat store releases.
+ */
+function releasePreviews(entries: readonly LocalFollowUp[]): void {
+  for (const entry of entries) {
+    for (const attachment of entry.attachments ?? []) {
+      if (attachment.previewUrl.startsWith("blob:")) URL.revokeObjectURL(attachment.previewUrl);
+    }
+  }
 }
 
 function withSession<T>(map: Record<string, T[]>, sessionId: string, value: T[]): Record<string, T[]> {
@@ -162,6 +178,8 @@ export function createFollowUpStore() {
         // host reports it the merge hides it, but its previews are still what
         // the transcript draws when it starts.
         const local = before.filter((entry) => !leftIds.has(entry.requestId));
+        const droppedIds = new Set((frame.dropped ?? []).map((entry) => entry.requestId).filter(Boolean));
+        releasePreviews(before.filter((entry) => droppedIds.has(entry.requestId)));
         const mine = frame.started?.requestId ? before.find((entry) => entry.requestId === frame.started!.requestId) : undefined;
         const wasShown = (requestId?: string, id?: string) =>
           (state.pending[sessionId] ?? []).some((entry) => (requestId && entry.requestId === requestId) || entry.id === id);
@@ -182,6 +200,7 @@ export function createFollowUpStore() {
           ...(started.source ? { source: started.source } : mine ? { source: mine.source } : {}),
           ...(mine?.attachments?.length ? { attachments: mine.attachments } : {}),
           ...(started.attachmentCount ? { attachmentCount: started.attachmentCount } : {}),
+          ...(started.fileCount ? { fileCount: started.fileCount } : {}),
           ...(mine?.files?.length ? { files: mine.files } : {}),
           ...(mine?.thinkingLevel !== undefined ? { thinkingLevel: mine.thinkingLevel } : {}),
         };
@@ -220,6 +239,13 @@ export function createFollowUpStore() {
       },
 
       reset() {
+        // An entry the host had reported was accepted, so its previews are the
+        // entry's alone. One it never reported is still the composer's draft.
+        const state = get();
+        for (const [sessionId, entries] of Object.entries(state.local)) {
+          const accepted = new Set((state.reported[sessionId] ?? []).map((entry) => entry.requestId));
+          releasePreviews(entries.filter((entry) => accepted.has(entry.requestId)));
+        }
         set({ reported: {}, local: {}, pending: {}, announcement: null });
       },
     };

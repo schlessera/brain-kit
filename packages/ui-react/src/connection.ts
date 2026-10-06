@@ -242,6 +242,9 @@ export function createWebSocketClient(root: BrainUiServices) {
       root.stores.chat.setState({ buffers: { ...root.stores.chat.getState().buffers, [started.sessionId]: { ...current, messages } } });
     }
     chat.startAssistantMessage(started.sessionId, started.turnId, started.requestId);
+    // Another client's message: the report counts its files but cannot carry
+    // what they are. History can, so it is read again once this turn ends.
+    if (started.fileCount && !started.files?.length && resyncSessionId === null) resyncSessionId = started.sessionId;
   }
 
   /**

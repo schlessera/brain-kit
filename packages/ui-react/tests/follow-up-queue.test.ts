@@ -168,3 +168,39 @@ test("a new connection clears the old stack and the host's reports rebuild it", 
   socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag] });
   expect(pending(root).map((f) => f.id)).toEqual(["fu-bag"]);
 });
+
+test("previews nobody will draw are released: a dropped entry's, and an accepted one's on a new connection", () => {
+  const revoked: string[] = [];
+  const original = URL.revokeObjectURL;
+  URL.revokeObjectURL = (url: string) => { revoked.push(url); };
+  try {
+    const { root, socket } = busy();
+    const image = (name: string) => [{ previewUrl: `blob:ithaca/${name}`, mediaType: "image/png" }];
+    const followUps = root.stores.followUp.getState();
+    followUps.addLocal(S, { requestId: "req-winds", text: winds.text, source: "typed", attachments: image("chart"), queuedAt: 1 });
+    followUps.addLocal(S, { requestId: "req-bag", text: bag.text, source: "typed", attachments: image("bag"), queuedAt: 2 });
+    followUps.addLocal(S, { requestId: "req-oars", text: "Count the oars", source: "typed", attachments: image("oars"), queuedAt: 3 });
+    socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, bag] });
+    socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag], dropped: [{ id: "fu-winds", requestId: "req-winds", reason: "Cancelled by user" }] });
+    expect(revoked).toEqual(["blob:ithaca/chart"]);
+    // A new connection: `bag` was accepted, `oars` was never confirmed and is
+    // still the composer's draft.
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { followUpQueue: true } });
+    expect(revoked).toEqual(["blob:ithaca/chart", "blob:ithaca/bag"]);
+  } finally {
+    URL.revokeObjectURL = original;
+  }
+});
+
+test("another client's follow-up with files is read again from history once its turn ends", () => {
+  const { root, socket } = busy();
+  const resumes = () => socket.sent.map((raw) => JSON.parse(raw)).filter((f) => f.type === "session_resume");
+  const shared = { id: "fu-log", requestId: "req-log", text: "", fileCount: 1, queuedAt: 3 };
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [shared] });
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-1", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [], started: { ...shared, turnId: "turn-2" } });
+  expect(resumes()).toEqual([]);
+  socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  expect(resumes()).toEqual([{ type: "session_resume", sessionId: S }]);
+  expect(root.stores.followUp.getState().pending[S]).toBeUndefined();
+});
