@@ -483,7 +483,7 @@ phrase that produced it.
 
 The mechanism is the one the repo already has: a declared tool allowlist bound
 to a turn — `InferenceProfile.allowedTools`
-(`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:26`) and
+(`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:27`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:84`, and what it
@@ -573,7 +573,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:347`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:362`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

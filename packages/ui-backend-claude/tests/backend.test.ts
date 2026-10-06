@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test";
 import type { query, Options } from "@anthropic-ai/claude-agent-sdk";
-import type { ServerMessage } from "@schlessera/brain-ui-sdk";
+import type { ProviderInfo, ServerMessage } from "@schlessera/brain-ui-sdk";
 import type {
   BackendBridge,
   PermissionDecision,
@@ -301,6 +301,34 @@ describe("createClaudeBackend identity + profiles", () => {
     expect(backend.listProfiles()).toEqual([
       { id: "claude", label: "Claude", vendor: "anthropic", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
     ]);
+  });
+
+  test("a profile missing its required key is reported unavailable, with no key name (#1044)", () => {
+    const keyName = "ITHACA_PROXY_TOKEN";
+    const previous = process.env[keyName];
+    delete process.env[keyName];
+    try {
+      const backend = createClaudeBackend({
+        brainPath: "/brain",
+        profiles: defineProfiles([
+          { id: "claude", label: "Claude", vendor: "anthropic" },
+          { id: "ithaca-proxy", label: "Ithaca proxy", baseUrl: "https://proxy.example/api", authTokenEnv: keyName },
+        ]),
+      });
+      expect((backend.listProfiles() as ProviderInfo[]).map((p) => p.id)).toEqual(["claude"]);
+      const unavailable = backend.listUnavailableProfiles?.();
+      expect(unavailable).toEqual([
+        { id: "ithaca-proxy", label: "Ithaca proxy", reason: "needs-credentials" },
+      ]);
+      expect(JSON.stringify(unavailable)).not.toContain(keyName);
+
+      process.env[keyName] = "test-token";
+      expect((backend.listProfiles() as ProviderInfo[]).map((p) => p.id)).toEqual(["claude", "ithaca-proxy"]);
+      expect(backend.listUnavailableProfiles?.()).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env[keyName];
+      else process.env[keyName] = previous;
+    }
   });
 
   test("profile-declared auth and API key names reach the Agent SDK subprocess environment", async () => {

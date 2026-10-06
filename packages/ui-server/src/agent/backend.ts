@@ -1,5 +1,6 @@
 import type { Logger } from "@opentelemetry/api-logs";
-import type { BillingMode, ProviderInfo } from "@schlessera/brain-ui-sdk";
+import type { BillingMode, ProviderInfo, UnavailableProfileInfo } from "@schlessera/brain-ui-sdk";
+import { isProfileUnavailableReason } from "@schlessera/brain-ui-sdk";
 import type {
   AgentBackend,
   BackendCapabilities,
@@ -61,6 +62,12 @@ export interface BackendRegistry {
   /** Null/empty is a legacy session; an unknown non-empty id is an error. */
   getBackendForSession(backendId: string | null | undefined): Promise<AgentBackend>;
   listAllProviders(options?: { includeHidden?: boolean }): Promise<ProviderInfo[]>;
+  /**
+   * Profiles the backends are configured with but cannot run now (#1044),
+   * apart from the runnable roster and never routed to. Each entry carries
+   * only id, label, a closed-enum reason and the reporting backend's id.
+   */
+  listUnavailableProviders(): Promise<UnavailableProfileInfo[]>;
   getPreferredProfileId(): Promise<string | null>;
   getBackendsInfo(): Promise<
     Record<string, { id: string; capabilities: BackendCapabilities }>
@@ -692,6 +699,40 @@ function makeRegistry(
         if (index > 0) providers.unshift(...providers.splice(index, 1));
       }
       return providers;
+    },
+    async listUnavailableProviders() {
+      const registry = await getRegistry();
+      const hidden = hiddenIds();
+      const unavailable: UnavailableProfileInfo[] = [];
+      for (const backend of registry.backends) {
+        if (typeof backend.listUnavailableProfiles !== "function") continue;
+        let reported: unknown;
+        try {
+          reported = await backend.listUnavailableProfiles();
+        } catch (error) {
+          // Presentation only: a failing report never takes the roster down.
+          options.log?.emit({
+            severityText: "WARN",
+            body: "could not list unavailable profiles; reporting none for this backend",
+            attributes: {
+              backend: backend.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+          continue;
+        }
+        if (!Array.isArray(reported)) continue;
+        for (const entry of reported) {
+          if (!entry || typeof entry !== "object") continue;
+          const { id, label, reason } = entry as Record<string, unknown>;
+          // Only the closed enum crosses the wire, and only these fields:
+          // free text in `reason` drops the entry rather than reaching a client.
+          if (typeof id !== "string" || !id || typeof label !== "string") continue;
+          if (!isProfileUnavailableReason(reason) || hidden.has(id)) continue;
+          unavailable.push({ id, label, reason, backendId: backend.id });
+        }
+      }
+      return unavailable;
     },
     getPreferredProfileId,
     async getBackendsInfo() {

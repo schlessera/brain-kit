@@ -1,11 +1,16 @@
 import type { StoreEnvironment } from "./store-environment.js";
 import { createStore } from "zustand/vanilla";
-import type { ProviderInfo } from "@schlessera/brain-ui-sdk/protocol";
+import type { ProviderInfo, UnavailableProfileInfo } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendInfo } from "../lib/api-client.js";
 
 export interface ProviderState {
   /** Provider combos the server currently offers (metadata only). */
   available: ProviderInfo[];
+  /**
+   * Profiles the host is configured with but cannot run now, with a closed
+   * reason (#1044). Never selectable: only presentation, apart from `available`.
+   */
+  unavailable: UnavailableProfileInfo[];
   /** User's chosen combo for the next new conversation. Persisted. */
   selectedId: string;
   /**
@@ -35,6 +40,7 @@ export function createProviderStore(env: StoreEnvironment) {
 
   return createStore<ProviderState>((set, get) => ({
     available: [],
+    unavailable: [],
     selectedId: readSelectedId(),
     pinnedId: null,
     backends: {},
@@ -42,7 +48,7 @@ export function createProviderStore(env: StoreEnvironment) {
 
     loadProviders: async () => {
       try {
-        const { providers, backends } = await api.providers();
+        const { providers, backends, unavailable } = await api.providers();
         set((s) => {
           // Keep the persisted choice if it's still on offer; otherwise fall
           // back to the first available combo. This runs on every reload of the
@@ -64,6 +70,7 @@ export function createProviderStore(env: StoreEnvironment) {
           }
           return {
             available: providers,
+            unavailable: unavailable ?? [],
             selectedId,
             backends: backends ?? {},
             loaded: true,

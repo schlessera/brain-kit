@@ -1348,6 +1348,33 @@ export interface ProviderInfo {
   pricingRoute?: PricingRoute;
 }
 
+/**
+ * Why a configured profile cannot run now (additive, #1044). A closed set: the
+ * client owns the copy (`needs-credentials` reads `needs credentials`), so a
+ * backend never sends free text and no configuration detail, such as an
+ * environment key name, leaves the host. A new reason is an additive contract
+ * change; a client shows a reason it does not know as a generic one.
+ */
+export const PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"] as const;
+export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
+
+export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason {
+  return typeof value === "string" && (PROFILE_UNAVAILABLE_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * A profile that is configured but cannot run now (additive, #1044). Listed
+ * apart from the runnable roster (`GET /api/providers`' `unavailable`), so the
+ * roster keeps meaning "runnable now"; it is never a valid `providerId`.
+ */
+export interface UnavailableProfileInfo {
+  id: string;
+  label: string;
+  reason: ProfileUnavailableReason;
+  /** Which AgentBackend reported it; set by the aggregating host, as on ProviderInfo. */
+  backendId?: string;
+}
+
 // --- Model catalog (HTTP: /api/models) ---
 
 /** One row of the settings-screen model catalog: a profile plus its visibility. */

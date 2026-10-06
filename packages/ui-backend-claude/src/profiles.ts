@@ -1,4 +1,5 @@
 import type { ProviderInfo, ThinkingLevel } from "@schlessera/brain-ui-sdk";
+import type { UnavailableProfile } from "@schlessera/brain-ui-sdk/server";
 import { claudeEffort, supportedClaudeEffort } from "./effort.js";
 
 import { readEnvVar } from "./config/env.js";
@@ -168,4 +169,15 @@ export function listProfiles(profiles: InferenceProfile[]): ProviderInfo[] {
         ...(profile.source !== undefined ? { source: profile.source } : {}),
       };
     });
+}
+
+/**
+ * The profiles {@link listProfiles} leaves out because a required environment
+ * key is missing (#1044). Only id, label and the `needs-credentials` reason:
+ * the key's name stays on the host.
+ */
+export function listUnavailableProfiles(profiles: InferenceProfile[]): UnavailableProfile[] {
+  return profiles
+    .filter((profile) => !isAvailable(profile))
+    .map((profile) => ({ id: profile.id, label: profile.label, reason: "needs-credentials" }));
 }

@@ -94,6 +94,8 @@ export interface AgentBackend {
   capabilities: BackendCapabilities;
   /** Model/endpoint profiles this backend can run. Never exposes keys. */
   listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
+  /** Configured profiles that cannot run now, with a closed reason (#1044). */
+  listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
   startTurn(req: StartTurnRequest): Promise<void>;
   /** Inject a user message into a RUNNING turn (only when capabilities.followUp). */
   followUp?(req: FollowUpRequest): Promise<void>;
@@ -110,6 +112,17 @@ export interface AgentBackend {
 never advertise a capability you do not implement (a backend that claims
 `permissions: true` over a no-op gate lets mutations execute unapproved —
 that is the failure mode this flag guards).
+
+`listProfiles()` lists only what can run now; routing and the picker rely on
+that. A backend that leaves a configured profile out (Claude, when a profile's
+required environment key is missing) may also implement
+`listUnavailableProfiles()`, returning `{ id, label, reason }` with `reason`
+from the closed `ProfileUnavailableReason` enum (`needs-credentials`). The
+host lists those apart, for presentation only, and drops any entry whose
+reason is not in the enum, so never put configuration detail such as a key
+name in it. A backend that lists every configured profile, as pi does, omits
+the member. See
+[the integration contract](../integration-contract.md#unavailable-profiles-additive-1044).
 
 Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:

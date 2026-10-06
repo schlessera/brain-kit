@@ -17,6 +17,7 @@ export type {
   AskUserFormResult,
   LocationFix,
   SubscriptionAuthAction,
+  UnavailableProfile,
 } from "./backend.js";
 export {
   BackendBusyError,

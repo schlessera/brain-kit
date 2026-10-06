@@ -112,6 +112,9 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     id: PI_BACKEND_ID,
     capabilities: { ...CAPABILITIES, autonomous: !options.sessionFactory },
     listProfiles: () => listPiProfiles(options),
+    // `listUnavailableProfiles` is deliberately omitted (#1044): pi lists every
+    // configured profile and checks its credential when a session starts, so
+    // it never leaves a configured profile out and has none to report.
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {
       // Follow-up only lands in a RUNNING turn; the host queues it as the

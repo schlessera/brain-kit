@@ -279,6 +279,7 @@ signatures (every public export and the types it is made of)
         listAllProviders(options?: {
             includeHidden?: boolean;
         }): Promise<ProviderInfo[]>;
+        listUnavailableProviders(): Promise<UnavailableProfileInfo[]>;
         getPreferredProfileId(): Promise<string | null>;
         getBackendsInfo(): Promise<Record<string, {
             id: string;
