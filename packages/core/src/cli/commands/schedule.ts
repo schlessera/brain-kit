@@ -78,6 +78,7 @@ const schemas = {
   list: z.strictObject({ ok: z.literal(true), tasks: z.array(task), nextCursor: cursor }),
   cancel: z.strictObject({ ok: z.literal(true), changed: z.boolean(), task,
     runningOccurrences: z.array(occurrence).max(1) }),
+  reconcile: z.strictObject({ ok: z.literal(true), changed: z.boolean(), task }),
   due: z.strictObject({ ok: z.literal(true), evaluatedAt: iso, nextCursor: cursor, due: z.array(z.strictObject({
     taskId: id, occurrenceId: id, dueAt: iso, expiresAt: iso, admittable: z.boolean(), blockedReason: blockedReason.nullable(),
   })) }),
@@ -104,6 +105,7 @@ const ALLOWED: Record<string, string[]> = {
     "attempt-timeout-ms", "max-operations", "notify-success", "approve"],
   list: [...COMMON, "id", "state", "limit", "cursor"],
   cancel: [...COMMON, "key"],
+  reconcile: [...COMMON, "key"],
   due: [...COMMON, "limit", "cursor"],
 };
 const BOOLEAN = new Set(["json", "human", "notify-success", "approve"]);
@@ -198,22 +200,38 @@ function query(values: Record<string, string | undefined>): string {
  * credential check is the authority.
  */
 async function confirmApproval(review: z.infer<typeof proposal>): Promise<boolean> {
-  if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
-  process.stderr.write([
+  return confirm([
     "Review this scheduled task before approving it.",
     "It will run without you, within exactly this envelope, until cancelled or ended.",
     JSON.stringify({ taskId: review.taskId, definition: review.definition, zoneSource: review.zoneSource,
       executionPolicy: review.executionPolicy }, null, 2),
     `Fingerprint: ${review.fingerprint}`,
     "Type \"approve\" to grant it, anything else to stop: ",
-  ].join("\n"));
+  ], "approve");
+}
+
+/** The operator states that the restore or unknown effect was investigated. */
+async function confirmReconciliation(current: z.infer<typeof task>): Promise<boolean> {
+  return confirm([
+    `Scheduled task ${current.id} is ${current.state}${current.blockedReason ? ` (${current.blockedReason})` : ""}.`,
+    "Reopening it lets future occurrences run again within the approved envelope below.",
+    "Only reopen it once you have checked what its last occurrence actually did:",
+    "an unknown occurrence is never replayed, and reopening does not undo or confirm it.",
+    JSON.stringify({ definition: current.definition, lastOccurrence: current.lastOccurrence }, null, 2),
+    "Type \"reopen\" to reopen it, anything else to stop: ",
+  ], "reopen");
+}
+
+async function confirm(lines: string[], word: string): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
+  process.stderr.write(lines.join("\n"));
   const rl = createInterface({ input: process.stdin, terminal: false });
   try {
     const answer = await new Promise<string>((resolve) => {
       rl.once("line", resolve);
       rl.once("close", () => resolve(""));
     });
-    return answer.trim() === "approve";
+    return answer.trim() === word;
   } finally { rl.close(); }
 }
 
@@ -264,6 +282,7 @@ export const scheduleCommand: CoreCommand = {
     "      [--attempt-timeout-ms N] [--max-operations N] [--notify-success] [--approve] [--json]",
     "  brain schedule list --server ORIGIN [--credential-file FILE] [--id ID] [--state STATE] [--limit N] [--cursor CURSOR] [--json]",
     "  brain schedule cancel ID --server ORIGIN [--credential-file FILE] --key KEY [--json]",
+    "  brain schedule reconcile ID --server ORIGIN [--credential-file FILE] --key KEY [--json]",
     "  brain schedule due --server ORIGIN [--credential-file FILE] [--limit N] [--cursor CURSOR] [--json]",
   ].join("\n"),
   async run(rest, cli) {
@@ -274,7 +293,7 @@ export const scheduleCommand: CoreCommand = {
     try {
       const { args, flags } = parseArgs(rest);
       const [verb, ...positional] = args;
-      if (!verb || !Object.hasOwn(ALLOWED, verb)) throw new UsageError("Usage: brain schedule add|list|cancel|due --server ORIGIN ...");
+      if (!verb || !Object.hasOwn(ALLOWED, verb)) throw new UsageError("Usage: brain schedule add|list|cancel|reconcile|due --server ORIGIN ...");
       const values = strictFlags(verb, flags);
       if (!values.server) throw new UsageError("--server is required");
       const host: Host = { origin: serverOrigin(values.server) };
@@ -311,6 +330,20 @@ export const scheduleCommand: CoreCommand = {
             if (result.runningOccurrences.length) console.log("An attempt that already started keeps running within its limits; cancellation does not stop or undo it.");
             if (result.task.compensationPending) console.log("Retiring the definition file is still pending on the host.");
           });
+          return 0;
+        }
+        case "reconcile": {
+          if (positional.length !== 1 || !KEY.test(positional[0]!)) throw new UsageError("Usage: brain schedule reconcile ID --key KEY");
+          if (!values.key || !KEY.test(values.key)) throw new UsageError("--key must be a 1–128 character key (letters, digits, . _ : -)");
+          const [current] = (await call(host, "GET", `/api/schedules${query({ id: positional[0] })}`, schemas.list)).tasks;
+          if (!current) throw new ScheduleCliError("not_found", "No such scheduled task.");
+          if (!(await confirmReconciliation(current)))
+            throw new ScheduleCliError("approval_required", `Reconciling ${current.id} needs confirmation on an operator terminal.`);
+          const result = await call(host, "POST", `/api/schedules/${encodeURIComponent(current.id)}/reconcile`, schemas.reconcile,
+            { key: values.key, decision: "reopen" });
+          emit(cli.json, result, () => console.log(result.changed
+            ? `Reopened ${result.task.id} (${result.task.state}).`
+            : `Nothing to reconcile: ${result.task.id} is ${result.task.state}${result.task.blockedReason ? ` (${result.task.blockedReason})` : ""}.`));
           return 0;
         }
         case "due": {

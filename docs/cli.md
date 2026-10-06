@@ -348,6 +348,7 @@ brain schedule add --server https://scheduler.example --credential-file ./operat
 brain schedule list --server https://scheduler.example --credential-file ./operator.json --json
 brain schedule due --server https://scheduler.example --credential-file ./operator.json --json
 brain schedule cancel task_ithaca_review --key ithaca-cancel-01 --server https://scheduler.example --credential-file ./operator.json --json
+brain schedule reconcile task_ithaca_review --key ithaca-reopen-01 --server https://scheduler.example --credential-file ./operator.json --json
 ```
 
 `add` takes exactly one of `--at` (a future ISO instant with `Z` or an offset)
@@ -363,5 +364,12 @@ publishes. Retry any write with the same `--key`.
 `list` pages with `--limit`/`--cursor` and filters with `--state` or `--id`;
 cancelled tasks stay listed. `due` is read-only. `cancel` stops future and
 unstarted work; it never stops or undoes an attempt that already started.
+`reconcile` is the operator's answer to a task paused as `restore_pending`
+(after an operational restore) or `unknown_effect` (an attempt that may have
+acted without recording it). It shows the task and its last occurrence on an
+interactive terminal and reopens the task only when the operator types
+`reopen`; without a terminal it exits 1 with `approval_required`. A delegated
+credential cannot reconcile. Reopening never replays the unknown occurrence,
+and a one-off with nothing left to run ends `expired`.
 The credential file and transport rules are the same as `brain queue`'s.
 See the [schedule contract](integration-contract.md#scheduled-tasks-additive-914).

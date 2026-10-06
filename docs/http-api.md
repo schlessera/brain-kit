@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 104 unique declared
+The inventory includes the additive Queue intake, poke and scheduled-task routes mounted by `createApp`: 105 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -104,6 +104,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/schedules` | S | Publish an approved schedule proposal | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/schedules/:id/cancel` | S | Cancel future and unstarted work of one task | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
+| POST | `/api/schedules/:id/reconcile` | S | Reopen a task paused by a restore or an unknown effect | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | GET | `/api/schedules/due` | S | Read due candidates without claiming them | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/schedules/proposals` | S | Store a schedule proposal for review | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
 | POST | `/api/schedules/proposals/:id/approve` | S | Record a verified operator approval | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -137,7 +138,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 104 declared endpoints are mounted regardless of backend, renderer or
+All 105 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -707,7 +708,7 @@ production autonomous work before its containment/system gates.
 
 ## Scheduled tasks (additive, #914)
 
-Six protected routes store and inspect scheduled tasks for `brain schedule`
+Seven protected routes store and inspect scheduled tasks for `brain schedule`
 and other clients. None of them runs work: no dispatcher is wired, and the
 stored task reports `executionAvailable: false` / `dispatch_disabled`. Request
 bodies must be `application/json`, at most 64 KiB of valid UTF-8, with no NUL
@@ -732,7 +733,12 @@ the proposal's creator; it answers 201 `{ ok: true, created: true, task }` once
 the ledger and the definition file agree, and 200 `created: false` when a
 receipt already exists. **GET /api/schedules** accepts `limit`, `cursor`,
 `state` and `id`. **POST /api/schedules/:id/cancel** takes `{ key }` and
-answers 200 `{ ok: true, changed, task, runningOccurrences }`. **GET
+answers 200 `{ ok: true, changed, task, runningOccurrences }`. **POST
+/api/schedules/:id/reconcile** takes `{ key, decision: "reopen" }` from an
+operator principal and answers 200 `{ ok: true, changed, task }`: it reopens a
+task paused as `restore_pending` or `unknown_effect` once its file still
+matches the approved bytes, and `changed: false` for a matched replay or a task
+with nothing to reconcile. **GET
 /api/schedules/due** accepts `limit` and `cursor`; it is read-only. Cursors are
 host-signed, bound to the caller, filters and evaluation time, and expire after
 15 minutes. Responses stay under 512 KiB.

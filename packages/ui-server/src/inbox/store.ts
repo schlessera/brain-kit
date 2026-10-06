@@ -6,6 +6,7 @@ import type {
   InboxDismissReason,
   InboxItem,
   InboxOperation,
+  InboxQueueItem,
   InboxQueueStatus,
   InboxSnapshot,
   InboxThread,
@@ -437,6 +438,26 @@ export class InboxStore {
       );
     this.change(item.threadId, { kind: "upsert_item", itemId: item.id, item });
     recordActionEpisode(this.db, item, null, this.now());
+  }
+
+  /**
+   * Open a trusted thread holding one server-built execute item. Only the
+   * schedule admission code calls this, inside its own immediate transaction:
+   * the operator-approved snapshot is the work's authority, so its thread
+   * takes the trusted (`cli`) provenance pairing, never an untrusted share.
+   */
+  openTrustedWork(input: { threadId: string; item: InboxQueueItem & { type: "execute" } }): void {
+    assertId(input.threadId);
+    if (input.item.threadId !== input.threadId) throw new Error("Work belongs to another thread");
+    const now = this.now();
+    assertTime(now);
+    this.db
+      .query(
+        "INSERT INTO inbox_threads (id, trust_class, source, status, stakes, deadline, created_at, last_seen_at) VALUES (?, 'trusted', 'cli', 'open', 1, ?, ?, ?)"
+      )
+      .run(input.threadId, input.item.expiresAt, now, now);
+    this.threadChange(this.threadRow(input.threadId));
+    this.insertItem(input.item);
   }
 
   /** Source is supplied by authenticated intake code; trust is derived, never supplied. */

@@ -4065,11 +4065,11 @@ support does not enable autonomous execution.
 
 ## Scheduled tasks (additive, #914)
 
-`brain schedule add|list|cancel|due` and the authenticated host routes below
-store and inspect scheduled tasks. **They never run one.** No dispatcher is
-wired: every stored task reports `executionAvailable: false` with
-`blockedReason: "dispatch_disabled"` until the Queue runtime (#915) exists and
-[#689](https://github.com/schlessera/brain-kit/issues/689) enables it.
+`brain schedule add|list|cancel|reconcile|due` and the authenticated host
+routes below store and inspect scheduled tasks. **They never run one.** No
+dispatcher is wired: every stored task reports `executionAvailable: false` with
+`blockedReason: "dispatch_disabled"` until the Queue runtime trigger (#915)
+exists and [#689](https://github.com/schlessera/brain-kit/issues/689) enables it.
 Bridge tools (#916) and PWA review (#917) remain prepared below, not shipped.
 Types, bounds and receipts are the ones in the
 [prepared contract](#scheduled-task-contract-preparation-913), with the
@@ -4087,7 +4087,8 @@ quarantines the task (`definition_drift`); the host never rewrites it. The
 approved snapshot, fingerprint, approval, receipts and occurrences live in the
 UI operational database and travel with the [operational backup](inbox-recovery.md).
 A restore pauses every enabled task as `restore_pending` and marks each
-outstanding occurrence `unknown`; no shipped command reopens them yet.
+outstanding occurrence `unknown`; only operator reconciliation (below) reopens
+them.
 Publication is refused (`unsupported_capability`) when Git would ignore the
 definition path.
 
@@ -4129,6 +4130,50 @@ mode, argument errors are `{ok:false,error:{code:"invalid_request",...}}`, exit
 `unsupported_capability` and `invalid_response` (including any redirect, which
 is never followed) exit 2. Every success envelope is schema-checked before it
 is printed.
+
+**Operator reconciliation.** `POST /api/schedules/:id/reconcile` takes
+`{key, decision: "reopen"}` and answers 200 `{ok: true, changed, task}`. It is
+the verified operator decision the record requires before a task paused as
+`restore_pending` or `unknown_effect` may run again: only an operator
+principal (the same rule as approval) may make it; a delegated `agent` gets
+`unauthorized`, or `not_found` for a task it cannot see. The host still
+requires the definition file to match the approved bytes and the host's
+execution policy to match the approved one (otherwise `definition_conflict`),
+and a usable creator (otherwise `unauthorized`). It refuses while the operational restore marker is pending
+(`unsupported_capability`). When a completed restore named a different brain
+directory, the first reconciliation binds the ledger to it; the root identity
+and every fingerprint are unchanged. Unknown occurrences keep their outcome
+and their due instants stay consumed, so nothing is replayed; a one-off with
+nothing left to run, or a recurrence past its `endAt`, becomes `expired`
+instead of `active`. Keys are receipts as for cancel: a matched replay, or a
+task with nothing to reconcile, answers `changed: false`; a key reused for
+another task is `key_conflict`. `brain schedule reconcile ID --key KEY` shows
+the task and its last occurrence on stderr and sends the decision only when the
+operator types `reopen` on an interactive terminal; otherwise it exits 1 with
+`approval_required`. Its JSON is the route's envelope.
+
+**Occurrence admission (not wired).** The UI server package contains the
+private admission boundary #915 will drive. It turns a task's latest fresh due
+instant into one occurrence and its first Queue item in one immediate
+transaction; concurrent callers in any process admit it once, and instants
+arriving while work is outstanding are skipped as busy. Admission and every
+start require the creator and the approving operator to still be usable
+(otherwise `blockedReason: "authority_unusable"`) and the host's current
+execution policy to equal the approved one (otherwise `"backend_unavailable"`,
+which `list` and `due` also report). A start refused for one of these reasons
+makes no model call and ends that occurrence `failed`, so a later due instant
+can run once the cause is fixed. At or after an approved `endAt`, queued
+or retrying work expires instead of starting. The Queue claim reserves
+budget as for any autonomous work, and the start transaction is the
+cancel-versus-start boundary. Each attempt gets the approved
+`attemptTimeoutMs` (at most 600000 ms, never past the occurrence's 24-hour
+expiry), and its claim is released only after the backend unwinds. Retries,
+yields and continuation items share the occurrence's `maxOperations`. An
+attempt that died before its backend acquired the reservation retries; one
+that died after it is `unknown`, is never replayed, and pauses its task as
+`unknown_effect`. A one-off ends `completed`, `failed` or `expired` with its
+occurrence. No route, CLI command or core runner reaches this code, and the
+production app constructs none of it.
 
 ## Scheduled-task contract preparation (#913)
 

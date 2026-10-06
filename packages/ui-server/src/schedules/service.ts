@@ -13,6 +13,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpathSync } from "node:fs";
 
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
+import { dropUnstartedItems } from "./queue-items.js";
 import { canonicalJson, scheduleFingerprint, sha256Hex } from "./canonical.js";
 import {
   DEFINITIONS_DIR,
@@ -99,17 +100,17 @@ interface ApprovalRow {
   id: string; proposal_id: string; approver_principal_id: string; approver_kind: string;
   fingerprint: string; approved_at: number; consumed_at: number | null;
 }
-interface TaskRow {
+export interface TaskRow {
   id: string; proposal_id: string; approval_id: string; creator_principal_id: string; root_identity: string;
   definition_json: string; execution_policy_json: string; fingerprint: string; file_sha256: string;
   zone_source: ZoneSource; created_at: number; state: TaskState; blocked_reason: BlockedReason | null;
   publication: "pending" | "published" | "quarantined"; retirement: "none" | "pending" | "retired";
   cancelled_at: number | null; evaluated_through: number; updated_at: number;
 }
-interface OccurrenceRow {
+export interface OccurrenceRow {
   id: string; task_id: string; due_at: number; expires_at: number; state: OccurrenceState;
-  operations_used: number; max_operations: number; run_ids_json: string; result_state: "available" | "pruned" | "unavailable";
-  result_text: string | null;
+  operations_used: number; max_operations: number; run_ids_json: string; attempt_deadline_at: number | null;
+  result_state: "available" | "pruned" | "unavailable"; result_text: string | null;
 }
 
 export interface ScheduleServiceOptions {
@@ -189,7 +190,12 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   }
 
   function restorePending(): boolean {
-    if (!rootInfo().matches) return true;
+    const info = rootInfo();
+    // Never trust a cached answer: another process's reconciliation may have
+    // bound the ledger to a different directory since this one started.
+    const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
+    info.matches = bound?.root_path === info.path;
+    if (!info.matches) return true;
     return Boolean(db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get());
   }
   function assertWritable(): void {
@@ -293,12 +299,32 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     return latestCronInstant(parseCron(when.cron), when.timeZone, lower, at);
   }
 
-  function blockedReason(row: TaskRow, drifted: boolean): BlockedReason | null {
+  /**
+   * The recurring capability is the approved envelope intersected with
+   * current authority: both the creator and the approving operator must
+   * still be usable, and the approver must still be an operator.
+   */
+  function authorized(row: TaskRow): boolean {
+    if (!usable(row.creator_principal_id)) return false;
+    const approval = db.query("SELECT approver_principal_id, approver_kind FROM schedule_approvals WHERE id = ?")
+      .get(row.approval_id) as { approver_principal_id: string; approver_kind: string } | null;
+    const approver = approval ? usable(approval.approver_principal_id) : null;
+    return Boolean(approver && isOperator(approver) && approver.kind === approval!.approver_kind);
+  }
+
+  /** The host's current execution policy as canonical JSON, or null when it has none. */
+  async function hostPolicy(): Promise<string | null> {
+    try { return canonicalJson(await currentPolicy()); } catch { return null; }
+  }
+
+  /** `policy` is the host's current policy (hostPolicy); work runs only under the approved one. */
+  function blockedReason(row: TaskRow, drifted: boolean, policy: string | null): BlockedReason | null {
     if (!["active", "paused"].includes(row.state)) return null;
     if (drifted) return "definition_drift";
     if (row.blocked_reason) return row.blocked_reason;
     if (restorePending()) return "restore_pending";
-    if (!usable(row.creator_principal_id)) return "authority_unusable";
+    if (!authorized(row)) return "authority_unusable";
+    if (policy !== row.execution_policy_json) return "backend_unavailable";
     if (!dispatchAvailable()) return "dispatch_disabled";
     return null;
   }
@@ -306,7 +332,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   async function taskView(row: TaskRow): Promise<ScheduleTask> {
     const at = now();
     const drifted = await fileDrifted(row);
-    const reason = blockedReason(row, drifted);
+    const reason = blockedReason(row, drifted, await hostPolicy());
     const last = db.query("SELECT * FROM schedule_occurrences WHERE task_id = ? ORDER BY due_at DESC LIMIT 1").get(row.id) as OccurrenceRow | null;
     const next = nextDue(row, at);
     return {
@@ -668,8 +694,9 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     candidates.sort((a, b) => a.dueAt - b.dueAt || (a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0));
     const remaining = after ? candidates.filter((c) => c.dueAt > after![0] || (c.dueAt === after![0] && c.row.id > after![1])) : candidates;
     const views: (DueCandidate & { _row: TaskRow })[] = [];
+    const policy = await hostPolicy();
     for (const { dueAt, row } of remaining.slice(0, limit + 1)) {
-      const reason = blockedReason(row, await fileDrifted(row));
+      const reason = blockedReason(row, await fileDrifted(row), policy);
       views.push({ taskId: row.id, occurrenceId: occurrenceId(row.id, dueAt), dueAt: isoInstant(dueAt),
         expiresAt: isoInstant(dueAt + SCHEDULE_FRESHNESS_MS), admittable: row.state === "active" && reason === null,
         blockedReason: reason, _row: row });
@@ -709,6 +736,9 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
         // A started attempt keeps its bounded snapshot; this is not a live stop.
         db.query(`UPDATE schedule_occurrences SET state = 'cancelled', updated_at = ?
           WHERE task_id = ? AND state IN ('queued', 'retrying', 'waiting_for_action')`).run(at, row.id);
+        // Their unclaimed Queue items go with them. A claim that has not
+        // started yet is refused by admission's start check instead.
+        dropUnstartedItems(db, row.id, at);
       }
       db.query("INSERT INTO schedule_cancel_receipts (principal_id, request_key, task_id, changed, created_at) VALUES (?, ?, ?, ?, ?)")
         .run(actor.id, key, row.id, cancellable ? 1 : 0, at);
@@ -720,6 +750,123 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
     return { ok: true as const, changed, task: await taskView(taskRow(row.id)!), runningOccurrences: running };
   }
 
+  /**
+   * Bind the ledger to the brain root a completed restore named. The restore
+   * command recorded that canonical directory itself, so this is the
+   * operator's own statement rather than a claimed matching fingerprint. The
+   * root identity, and with it every approval fingerprint, is unchanged.
+   */
+  function adoptRestoredRoot(): void {
+    const info = rootInfo();
+    db.transaction(() => {
+      const bound = db.query("SELECT root_path FROM schedule_root WHERE id = 1").get() as { root_path: string } | null;
+      if (bound?.root_path === info.path) return;
+      const restored = db.query("SELECT status, brain_root FROM inbox_recovery_state WHERE id = 1").get() as
+        { status: string; brain_root: string } | null;
+      if (restored?.status !== "ready" || restored.brain_root !== info.path)
+        throw new ScheduleError("unsupported_capability", "Schedule storage belongs to another brain root; no restore named this one.");
+      db.query("UPDATE schedule_root SET root_path = ? WHERE id = 1").run(info.path);
+    }).immediate();
+    info.matches = true;
+  }
+
+  /** The one-off or ended recurrence has nothing left to run. */
+  function finished(row: TaskRow, at: number): boolean {
+    const { when } = definitionOf(row);
+    if (when.kind === "at") {
+      const due = parseInstant(when.at)!;
+      return due + SCHEDULE_FRESHNESS_MS <= at ||
+        Boolean(db.query("SELECT 1 FROM schedule_occurrences WHERE task_id = ? LIMIT 1").get(row.id));
+    }
+    return when.endAt !== null && parseInstant(when.endAt)! <= at;
+  }
+
+  /**
+   * Verified operator reconciliation of a task paused by a restore or by an
+   * unknown effect. The operator states that the uncertainty was investigated;
+   * the host still requires the approved file bytes, a usable creator and the
+   * approved execution policy. Unknown occurrences keep their outcome and are
+   * never replayed: their due instants stay consumed.
+   */
+  async function reopen(principal: Principal, taskId: string, body: unknown) {
+    const actor = caller(principal);
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new ScheduleError("invalid_request", "Expected a JSON object.");
+    const { key, decision, ...extra } = body as Record<string, unknown>;
+    if (Object.keys(extra).length > 0 || decision !== "reopen" || typeof key !== "string" || !SCHEDULE_ID.test(key))
+      throw new ScheduleError("invalid_request", "Reconciliation needs {key, decision: \"reopen\"}.");
+    const row = SCHEDULE_ID.test(taskId) ? taskRow(taskId) : null;
+    if (!row || !canSee(actor, row.creator_principal_id)) throw new ScheduleError("not_found", "No such scheduled task.");
+    if (!isOperator(actor)) throw new ScheduleError("unauthorized", "Only the operator can reconcile a schedule.");
+    const replay = () => {
+      const receipt = db.query("SELECT task_id FROM schedule_reconciliations WHERE principal_id = ? AND request_key = ?")
+        .get(actor.id, key) as { task_id: string } | null;
+      if (receipt && receipt.task_id !== row.id) throw new ScheduleError("key_conflict", "This key was already used to reconcile a different task.");
+      return receipt !== null;
+    };
+    // A matched receipt answers first, like every other schedule receipt.
+    if (replay()) return { ok: true as const, changed: false, task: await taskView(taskRow(row.id)!) };
+    if (db.query("SELECT 1 FROM inbox_recovery_state WHERE status = 'pending'").get())
+      throw new ScheduleError("unsupported_capability", "The operational restore has not finished.");
+    adoptRestoredRoot();
+    // Journals frozen by the restore can finish now; this never dispatches.
+    await reconcile();
+    // Only a reopening needs the host policy; a no-op still records its receipt.
+    const policy = await currentPolicy().catch((error: unknown) => error as Error);
+    const before = taskRow(row.id)!;
+    const drifted = await fileDrifted(before);
+    const changed = db.transaction(() => {
+      const at = now();
+      caller(actor);
+      if (replay()) return false;
+      const current = taskRow(row.id)!;
+      const reason = current.state === "paused" ? current.blocked_reason : null;
+      const resolvable = reason === "restore_pending" || reason === "unknown_effect";
+      if (resolvable) {
+        if (drifted || current.updated_at !== before.updated_at || current.publication !== "published")
+          throw new ScheduleError("definition_conflict", "The definition file does not match the approved snapshot; cancel and create a new schedule.");
+        if (current.root_identity !== rootInfo().identity)
+          throw new ScheduleError("definition_conflict", "The task belongs to another brain root.");
+        if (!authorized(current)) throw new ScheduleError("unauthorized", "The schedule's creator or approving operator is no longer usable.");
+        if (policy instanceof Error) throw policy;
+        if (canonicalJson(policy) !== current.execution_policy_json)
+          throw new ScheduleError("definition_conflict", "The host execution policy changed since approval; cancel and create a new schedule.");
+        if (db.query(`SELECT 1 FROM schedule_occurrences WHERE task_id = ? AND state IN
+          ('queued', 'running', 'unwinding', 'waiting_for_action', 'retrying')`).get(current.id))
+          throw new ScheduleError("definition_conflict", "The task still has outstanding work.");
+        db.query("UPDATE schedule_tasks SET state = ?, blocked_reason = NULL, updated_at = ? WHERE id = ?")
+          .run(finished(current, at) ? "expired" : "active", at, current.id);
+      }
+      db.query(`INSERT INTO schedule_reconciliations (principal_id, request_key, task_id, approver_kind, resolved_reason, changed, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(actor.id, key, row.id, actor.kind, resolvable ? reason : null, resolvable ? 1 : 0, at);
+      return resolvable;
+    }).immediate();
+    return { ok: true as const, changed, task: await taskView(taskRow(row.id)!) };
+  }
+
+  /** Admission internals (admission.ts). No route reaches these. */
+  const internal = {
+    taskRow,
+    definitionOf,
+    restorePending,
+    authorized,
+    latestDue,
+    finished,
+    occurrenceView,
+    /** Whether an approved recurrence's end has passed: nothing new may start. */
+    ended(row: TaskRow, at: number): boolean {
+      const { when } = definitionOf(row);
+      return when.kind === "cron" && when.endAt !== null && parseInstant(when.endAt)! <= at;
+    },
+    /**
+     * Why work cannot start on this task now. Checks the file and the host's
+     * current execution policy, which must still be the approved one.
+     */
+    async refusal(row: TaskRow): Promise<BlockedReason | null> {
+      if (row.state !== "active" || row.publication !== "published") return row.blocked_reason ?? "dispatch_disabled";
+      return blockedReason(row, await fileDrifted(row), await hostPolicy());
+    },
+  };
+
   const ready = Promise.resolve().then(() => { rootInfo(); return reconcile(); });
   // Operations wait for boot reconciliation, so one instance never races its
   // own journal recovery. Other processes may still race; journals tolerate it.
@@ -729,7 +876,7 @@ export function createScheduleService(db: Database, options: ScheduleServiceOpti
   return {
     ready,
     propose: gated(propose), approve: gated(approve), publish: gated(publish),
-    list: gated(list), due: gated(due), cancel: gated(cancel), reconcile,
+    list: gated(list), due: gated(due), cancel: gated(cancel), reopen: gated(reopen), reconcile, internal,
   };
 }
 
