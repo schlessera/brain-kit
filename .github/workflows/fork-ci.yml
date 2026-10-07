@@ -16,11 +16,11 @@ on:
 permissions:
   contents: read
 
-# A superseded PR push keeps its obsolete run burning runners to the end
-# without this. Main is never cancelled: every push to main must keep its
-# complete record, and a cancelled main run looks like a failure.
+# Superseded PR heads share a ref and cancel obsolete work. Main commits get
+# separate groups: cancel-in-progress:false protects running work, but does
+# not stop a new pending run from replacing an old one in a shared group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Every job carries the same `if:`: Depot runs pushes and same-repository

@@ -138,6 +138,23 @@ If no matching run is found, use check links/help to identify the exact run;
 do not substitute latest-main CI. Missing Depot access/dispatch is a handoff
 prerequisite when it prevents verification of enabled Depot checks.
 
+CI groups main pushes by commit SHA and PR executions by their merge ref.
+`cancel-in-progress: false` protects running work; it does not preserve an
+older pending workflow in a shared group. A cancelled main workflow is still
+unfinished verification. Inspect its execution history before recovery:
+
+```sh
+rtk proxy depot ci workflow show <workflow-id> --output json
+rtk proxy depot ci retry <run-id> --failed --workflow <workflow-id> --output json
+```
+
+A concurrency cancellation with no started execution or job attempts can be
+recovered by retrying its cancelled jobs. Verify every current attempt and
+actual checkout against the original squash SHA afterward. Record recovery
+separately from proof of a scheduling correction; retries and local API runs
+do not prove that future automatic main pushes retain independent records.
+Keep real test failures in the diagnosis loop below.
+
 Identify each failing step/assertion and distinguish an issue regression
 from an unrelated base failure or infrastructure problem. Fix related
 code/check omissions within scope, reproduce locally where meaningful,
