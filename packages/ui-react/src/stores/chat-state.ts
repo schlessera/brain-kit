@@ -523,7 +523,7 @@ export interface ChatState {
   /** Concatenate a continuation chunk of replayed history. Creates the buffer. */
   appendMessages: (key: ChatKey, messages: ChatMessage[]) => void;
   /** @internal The host's status after history settles a chunked replay. */
-  finishHistoryReplay: (key: ChatKey) => void;
+  finishHistoryReplay: (key: ChatKey, keepRunning?: boolean) => void;
 
   // Session lifecycle
   /**
@@ -1748,8 +1748,11 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           };
         }),
 
-      finishHistoryReplay: (key) => mutateBuffer(key, (existing) => {
+      finishHistoryReplay: (key, keepRunning) => mutateBuffer(key, (existing) => {
         if (!existing.replay) return {};
+        // Running status cannot make a lagging replay authoritative over
+        // the live answer and its already drawn prefix.
+        if (keepRunning && existing.isStreaming) return { replay: undefined };
         const { base, received } = existing.replay;
         const now = existing.messages.at(-1);
         const live = base.messages.at(-1);

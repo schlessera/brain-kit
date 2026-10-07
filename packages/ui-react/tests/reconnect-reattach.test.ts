@@ -411,15 +411,20 @@ describe("a reconnect while the turn in view runs", () => {
     next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound to the mast." });
     expect(buffer(root).messages.map((m) => m.content)).toEqual([history(SIRENS)[0].content, SIRENS, "Bound to the mast."]);
   });
-  test("an ordinary background resume failure does not leave its old answer streaming", () => {
+  test("an ordinary background history failure keeps the correlated live answer", () => {
     const { root, socket } = running();
     root.stores.chat.getState().stampTurn("s1", "turn-1");
     root.stores.chat.getState().setActiveSession("s2");
     const next = reconnect(root, socket);
     root.stores.chat.getState().setActiveSession("s1");
     root.connection.send({ type: "session_resume", sessionId: "s1" });
+    const answer = buffer(root).messages.at(-1)!;
     next.deliver({ type: "error", sessionId: "s1", code: "SESSION_LOAD_ERROR", message: "The harbour did not answer." });
-    expect(buffer(root).isStreaming, "ordinary failed resume ends the stream").toBe(false);
+    expect(buffer(root).isStreaming, "a quiet failed history read cannot end the answer").toBe(true);
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-1", text: " Rope held." });
+    expect(buffer(root).messages.at(-1)!.id).toBe(answer.id);
+    next.deliver({ type: "status", sessionId: "s1", turnId: "turn-1", status: "idle" });
+    expect(buffer(root).isStreaming, "the host's terminal evidence ends the answer").toBe(false);
   });
   test("bounded part arrays keep new trailing text carried by the aggregate", () => {
     const { root, socket } = running();
@@ -682,6 +687,8 @@ describe("a reconnect while the turn in view runs", () => {
       next.deliver({ type: "status", sessionId: "s1", turnId: "turn-1", status });
       expect(buffer(root).isStreaming, "stale snapshot status cannot end the newer answer").toBe(true);
       expect(root.stores.chat.getState().runStates.s1, "stale status cannot settle newer work").toBe("streaming");
+      next.deliver({ type: "status", sessionId: "s1", turnId: "turn-2", status: "thinking" });
+      expect(buffer(root).isStreaming, "a running status cannot prune an empty lagging replay").toBe(true);
       next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rope held." });
       expect(buffer(root).messages.at(-1)!.id, "the subsequent delta reaches the same newer answer").toBe(answer.id);
       expect(buffer(root).messages.at(-1)!.content).toBe("Bound. Rope held.");
@@ -716,7 +723,7 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).isStreaming, "turn-1's answer is over").toBe(false);
   });
 
-  test("a resume the host could not serve does not leave the stream open forever", () => {
+  test("a quiet reattach history error waits for terminal evidence", () => {
     const { root, socket } = running();
     // An answer that knows its turn: a turnless load error is not drawn on it.
     root.stores.chat.getState().finishAssistantMessage("s1");
@@ -725,7 +732,12 @@ describe("a reconnect while the turn in view runs", () => {
     const next = reconnect(root, socket);
     next.deliver({ type: "status", status: "idle", detail: "Connected to Brain" });
     expect(buffer(root).isStreaming).toBe(true);
+    const answer = buffer(root).messages.at(-1)!;
     next.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: "Failed to load session", sessionId: "s1" });
+    expect(buffer(root).isStreaming, "a failed quiet reattach cannot end its answer").toBe(true);
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-1", text: " Rope held." });
+    expect(buffer(root).messages.at(-1)!.id).toBe(answer.id);
+    next.deliver({ type: "result", sessionId: "s1", turnId: "turn-1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
     expect(buffer(root).isStreaming).toBe(false);
   });
 

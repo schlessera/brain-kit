@@ -503,7 +503,7 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
-  for (const mode of ["empty", "failed"] as const) test(`single running session: a captured ${mode} history snapshot cannot end a newer turn`, async () => {
+  for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
     const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const page = await context.newPage();
@@ -536,15 +536,19 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       const readDeadline = Date.now() + 5_000;
       while (!waiting.reads && Date.now() < readDeadline) await Bun.sleep(10);
       expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
-      expect(gates.has(first)).toBe(true); gates.get(first)!(); gates.delete(first);
-      await until(page, `!p.streaming(${JSON.stringify(sessionId)})`); await settle(page);
-      // A different client starts a new slot after the captured turn ended.
-      // Queued turns reuse the original slot, so its turnId mutates in place.
-      peer = new HeaderWebSocket(socketUrl, { headers: { Origin: origin } });
-      await new Promise<void>((done, reject) => { peer!.onopen = () => done(); peer!.onerror = reject; });
-      peer.send(JSON.stringify({ type: "chat_message", sessionId, text: second }));
-      await page.getByText("Setting out: Then bind me to the mast").first().waitFor(); await settle(page);
-      expect(gates.has(second), "a new host turn is really running before history answers").toBe(true);
+      expect(gates.has(first)).toBe(true);
+      if (newer) { gates.get(first)!(); gates.delete(first); }
+      if (newer) {
+        await until(page, `!p.streaming(${JSON.stringify(sessionId)})`); await settle(page);
+        // A different client starts a new slot after the captured turn ended.
+        // Queued turns reuse the original slot, so its turnId mutates in place.
+        peer = new HeaderWebSocket(socketUrl, { headers: { Origin: origin } });
+        await new Promise<void>((done, reject) => { peer!.onopen = () => done(); peer!.onerror = reject; });
+        peer.send(JSON.stringify({ type: "chat_message", sessionId, text: second }));
+        await page.getByText("Setting out: Then bind me to the mast").first().waitFor(); await settle(page);
+      }
+      const activePrompt = newer ? second : first;
+      expect(gates.has(activePrompt), "the actual host turn runs before history answers").toBe(true);
       await composer(page).focus();
       await page.evaluate(() => {
         const field = document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
@@ -557,8 +561,8 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await Bun.sleep(10);
       expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
       await settle(page);
-      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), "the captured old snapshot cannot end the newer answer").toBe(true);
-      expect(advance.has(second)).toBe(true); advance.get(second)!();
+      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the captured old snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
+      expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
       expect(await page.evaluate(() => {
         const { field, answer } = (window as unknown as { __snapshotMarks: { field: HTMLTextAreaElement; answer: Element } }).__snapshotMarks;
@@ -567,7 +571,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           value: field.value, selection: [field.selectionStart, field.selectionEnd] };
       })).toEqual({ sameAnswer: true, sameField: true, focused: true, value: draft, selection: [6, 12] });
       expect(net.sent.slice(sentBefore).filter((t) => t === "chat_message"), "snapshot recovery sends no further chat request").toEqual([]);
-      gates.get(second)!(); gates.delete(second); await until(page, `!p.streaming(${JSON.stringify(sessionId)})`);
+      gates.get(activePrompt)!(); gates.delete(activePrompt); await until(page, `!p.streaming(${JSON.stringify(sessionId)})`);
     } finally {
       release?.(); peer?.close(); historyWaiters.delete(sessionId); await context.close();
     }
