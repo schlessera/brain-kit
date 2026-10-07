@@ -187,6 +187,12 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const pending = { cancelled: false, stop, done: new Promise<void>((resolve) => { completed = resolve; }) };
         beginning = pending;
         notify();
+        // Capture is already live. Storage initialization must not delay the
+        // deadline; stop the microphone while the queued prefix still drains.
+        const timers = [
+          setTimeout(() => emit("warning", "1 minute left in this recording", session?.row.savedThroughMs ?? 0), 540_000),
+          setTimeout(() => { void (stop ? stop("limit") : store.stop("limit")); }, RECORDING_MAX_MS),
+        ];
         let release: (() => Promise<void>) | undefined;
         const checkStart = () => {
           preflight?.signal.throwIfAborted();
@@ -208,12 +214,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             await handle.write([{ delete: indexKey(row.id) }]).catch(() => {});
             throw error;
           }
-          session = { row, partition, blobs: [], release, timers: [], capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
+          session = { row, partition, blobs: [], release, timers, capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
           running = session;
           notify();
-          session.timers.push(setTimeout(() => emit("warning", "1 minute left in this recording", session!.row.savedThroughMs), 540_000));
-          session.timers.push(setTimeout(() => { void store.stop("limit"); }, RECORDING_MAX_MS));
-        } catch (error) { await release?.(); throw error; }
+        } catch (error) { for (const timer of timers) clearTimeout(timer); await release?.(); throw error; }
         finally { if (beginning === pending) beginning = null; completed(); notify(); }
       },
       async chunk(chunk) {
@@ -267,8 +271,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const applyAuth = () => {
         if (s.authInterrupted && row.state !== "interrupted") row = { ...row, state: "interrupted", interruptedAt: row.savedThroughMs };
       };
+      let durable = s.row;
       try {
         await partitions.open(s.partition).put(indexKey(row.id), row);
+        durable = row;
         if (s.authInterrupted && row.state !== "interrupted") {
           // Auth can arrive while a user stop's final metadata is committing.
           // The capture keeps its first stop reason; the stored outcome does not.
@@ -277,7 +283,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         }
       } catch {
         applyAuth();
-        if (s.partition === "unassigned" || s.partition === heldPartition()) repaired.set(identity(s.partition, row.id), { source: fingerprint(s.row), value: row });
+        if (s.partition === "unassigned" || s.partition === heldPartition()) repaired.set(identity(s.partition, row.id), { source: fingerprint(durable), value: row });
         // Full disk or auth already cleared: the committed index and chunks
         // survive. Recovery classifies its recording state as interrupted.
       }
@@ -378,7 +384,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         let removedCount = (await handle.get(REMOVED) as number | undefined) ?? 0;
         const recovered: Recording[] = [];
         const removed: Array<{ index: Index; audio: LocalCaptureChunk[] }> = [];
-        // Use durable headers here, even if this page already has a repair view.
+        // Durable headers remain loss witnesses; a matching repair also carries
+        // known auth corrections that a full device could not yet commit.
         for (const entry of await handle.list(INDEX)) {
           const index = entry.value as Index;
           const all = await chunks(partition, index.id);
@@ -388,7 +395,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             removed.push({ index, audio: all });
             repaired.set(identity(partition, index.id), { source: fingerprint(index), value: null });
           } else {
-            const shown = await recoveredIndex(index, kept, all.length);
+            const shown = await recoveredIndex(present(partition, index) ?? index, kept, all.length);
             if (shown !== index) {
               try {
                 await handle.write([{ put: indexKey(index.id), value: shown }, ...all.slice(kept.length).map((c) => ({ delete: chunkKey(index.id, c.index) }))]);

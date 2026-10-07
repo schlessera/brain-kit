@@ -606,7 +606,7 @@ for (const phase of ["chunk-drain", "final-index"] as const) {
     const c = cell(ctx);
     const capture = await c.store.start({ timesliceMs: 250 });
     await expect.poll(() => c.events.some((e) => e.kind === "committed")).toBe(true);
-    const hold = holdIndexedDbWrite((key) => Array.isArray(key) && String(key[1]).startsWith(phase === "chunk-drain" ? "recording:chunk:" : "recording:index:"));
+    const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]).startsWith(phase === "chunk-drain" ? "recording:chunk:" : "recording:index:") && (phase === "chunk-drain" || (value as { state?: string }).state === "saved"));
     c.cleanup.push(() => hold.restore());
     if (phase === "chunk-drain") { await hold.started; await wait(600); }
     const userStop = capture.stop("user");
@@ -620,4 +620,75 @@ for (const phase of ["chunk-drain", "final-index"] as const) {
     expect(c.events.at(-1)?.message).toBe(`Recording stopped. Saved up to ${Math.floor(row.savedThroughMs / 60000)}:${(Math.floor(row.savedThroughMs / 1000) % 60).toString().padStart(2, "0")}; the end may be missing.`);
     expect(await capture.ended).toBe("user");
   });
+}
+
+test("failed auth correction stays interrupted and recovery retries the known metadata repair", async (ctx) => {
+  const c = cell(ctx);
+  const capture = await c.store.start({ timesliceMs: 250 });
+  await expect.poll(() => c.events.some((e) => e.kind === "committed")).toBe(true);
+  const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]).startsWith("recording:index:") && (value as { state?: string }).state === "saved");
+  c.cleanup.push(() => hold.restore());
+  const userStop = capture.stop("user");
+  await hold.started;
+  const fault = failIndexedDbWrites({ next: true });
+  c.cleanup.push(() => fault.restore());
+  const authStop = c.store.stop("auth");
+  hold.release();
+  await Promise.all([userStop, authStop]);
+  expect(fault.failures).toBe(1);
+  const row = (await c.store.list("account:odysseus"))[0]!;
+  expect(row.state, "failed auth correction overrides the last durable saved header").toBe("interrupted");
+  fault.restore();
+  expect((await c.store.recover(row.partition)).recordings[0]?.state, "recovery retries the known auth correction").toBe("interrupted");
+  expect(await c.partitions.open(row.partition).get(`recording:index:${row.id}`)).toMatchObject({ state: "interrupted", savedThroughMs: row.savedThroughMs, contentHash: row.contentHash });
+});
+
+for (const owner of ["store", "caller"] as const) {
+  for (const phase of ["budget", "initial-index"] as const) {
+    test(`${owner} capture stops at its deadline while ${phase} initialization is pending`, async (ctx) => {
+      const c = cell(ctx);
+      const microphone = watchMicrophone();
+      c.cleanup.push(() => microphone.restore());
+      let deadline: (() => void) | undefined;
+      const originalTimeout = globalThis.setTimeout;
+      const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
+        if (ms === 600_000 && typeof handler === "function") deadline = () => handler(...args);
+        return originalTimeout(handler, ms, ...args);
+      });
+      c.cleanup.push(() => timer.mockRestore());
+      let release!: () => void;
+      let waiting: Promise<void>;
+      if (phase === "initial-index") {
+        const hold = holdIndexedDbWrite((key) => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
+        waiting = hold.started;
+        release = () => hold.release();
+        c.cleanup.push(() => hold.restore());
+      } else {
+        let entered!: () => void;
+        waiting = new Promise<void>((resolve) => { entered = resolve; });
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const sizes = c.partitions.sizes;
+        let calls = 0;
+        const held = vi.spyOn(c.partitions, "sizes").mockImplementation(async (...args) => {
+          if (++calls === (owner === "store" ? 2 : 1)) { entered(); await gate; }
+          return sizes(...args);
+        });
+        c.cleanup.push(() => { release(); held.mockRestore(); });
+      }
+      const pending = owner === "store" ? c.store.start({ timesliceMs: 250 }) : startLocalCapture({ sink: c.store.sink(), timesliceMs: 250 });
+      // Teardown cancels a still-pending start after a failing assertion.
+      // Observe its rejection immediately; the successful path awaits it below.
+      void pending.catch(() => {});
+      await waiting;
+      deadline?.();
+      await wait(0);
+      expect(microphone.streams[0]!.getAudioTracks()[0]!.readyState, "deadline stops the microphone before initialization settles").toBe("ended");
+      expect(updateHeld(c.root), "initialization still drains under the update hold").toBe(true);
+      release();
+      const capture = await pending;
+      expect(await capture.ended).toBe("limit");
+      expect(c.store.busy()).toBe(false);
+      expect(updateHeld(c.root)).toBe(false);
+    });
+  }
 }

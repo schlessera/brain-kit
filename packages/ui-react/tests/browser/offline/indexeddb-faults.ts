@@ -139,7 +139,7 @@ export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
 }
 
 /** Keep the next matching write transaction alive, after request success but before commit. */
-export function holdIndexedDbWrite(matches: (key: IDBValidKey | undefined) => boolean): { started: Promise<void>; release(): void; restore(): void } {
+export function holdIndexedDbWrite(matches: (key: IDBValidKey | undefined, value: unknown) => boolean): { started: Promise<void>; release(): void; restore(): void } {
   const proto = IDBObjectStore.prototype;
   const put = proto.put;
   let held = false;
@@ -148,7 +148,7 @@ export function holdIndexedDbWrite(matches: (key: IDBValidKey | undefined) => bo
   const waiting = new Promise<void>((resolve) => { started = resolve; });
   proto.put = function(value: unknown, key?: IDBValidKey) {
     const req = put.call(this, value, key);
-    if (!held && matches(key)) {
+    if (!held && matches(key, value)) {
       held = true;
       const read = () => this.get(key!);
       req.addEventListener("success", () => {
