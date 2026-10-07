@@ -147,6 +147,31 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).isStreaming).toBe(false);
   });
 
+  test("a history that stops before the answer being written keeps it, and the turn's end replays the whole", () => {
+    const { root, socket } = running();
+    const next = reconnect(root, socket);
+    const before = buffer(root).messages.map((m) => m.id);
+    // A backend that keeps an answer only once it ends: the history so far is the question.
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS).slice(0, 1) });
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    expect(buffer(root).messages.map((m) => m.id), "the answer on screen stays").toEqual(before);
+    expect(buffer(root).messages.at(-1)).toMatchObject({ content: SIRENS, isStreaming: true });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    next.deliver({ type: "result", sessionId: "s1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+    expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", `${SIRENS} Landed.`]);
+    expect(next.frames().filter((f) => f.type === "session_resume"), "the reattach, then the turn's end").toHaveLength(2);
+  });
+
+  test("a refusal of another request while reattaching is not the resume failing", () => {
+    const { root, socket } = running();
+    const next = reconnect(root, socket);
+    next.deliver({ type: "status", status: "idle", detail: "Connected to Brain" });
+    next.deliver({ type: "error", code: "ATTACHMENT_REJECTED", message: "Too large", sessionId: "s1", requestId: "req-1" });
+    expect(buffer(root).isStreaming, "the answer still runs").toBe(true);
+    next.deliver({ type: "status", status: "idle", detail: "Connected to Brain" });
+    expect(buffer(root).isStreaming, "and the greeting is still not its idle").toBe(true);
+  });
+
   test("once the host has answered, a later unscoped idle is the session in view's again", () => {
     const { root, socket } = running();
     const next = reconnect(root, socket);

@@ -600,6 +600,14 @@ function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<Ses
     }
     return { ...m, id: old.id, timestamp: old.timestamp };
   });
+  // A backend may keep an answer only once it ends, so a replay mid-turn can
+  // stop just before the answer on screen. Everything else repeated: the
+  // answer is still being written, and stays (the turn's end replays again).
+  const live = previous.messages.at(-1);
+  if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
+    && next.length === previous.messages.length - 1 && messages.every((m, i) => m.id === previous.messages[i]!.id)) {
+    return { messages: [...messages, live], isStreaming: true };
+  }
   return { messages, isStreaming: streaming };
 }
 

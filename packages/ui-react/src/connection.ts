@@ -415,7 +415,8 @@ export function createWebSocketClient(root: BrainUiServices) {
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
     // A resume the host could not serve answers with an error and no status:
     // nothing will say whether the turn still runs (#1013).
-    const failedReattach = msg.type === "error" && reattachSessionId !== null && frameSessionId === reattachSessionId;
+    const failedReattach = msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && !msg.requestId
+      && reattachSessionId !== null && frameSessionId === reattachSessionId;
     if (failedReattach) reattachSessionId = null;
     if (msg.type === "status" && reattachSessionId !== null) {
       // The host's own answer for the session being reattached settles it.
@@ -639,7 +640,9 @@ export function createWebSocketClient(root: BrainUiServices) {
   let reattachSessionId: string | null = null;
 
   function markHistoryReplaced(key: ChatKey): void {
-    if (key !== null && key === resyncSessionId) resyncSessionId = null;
+    // A replay while the turn still runs is not the whole answer yet (a
+    // backend may keep it only once it ends): the turn's end replays again.
+    if (key !== null && key === resyncSessionId && !root.stores.chat.getState().buffers[key]?.isStreaming) resyncSessionId = null;
     coldResumedSessionId = key;
   }
 
@@ -692,8 +695,8 @@ export function createWebSocketClient(root: BrainUiServices) {
           // Mid-stream: reattach. Only the host knows whether the turn is
           // still running or ended while this page was away, and its answer
           // to a resume says which (a scoped `thinking` or `idle`) after a
-          // history that keeps the messages already drawn (#1013).
-          resyncSessionId = null;
+          // history that keeps the messages already drawn (#1013). The
+          // resync flag stays: the turn's end replays the finished answer.
           reattachSessionId = chat.activeSessionId;
           wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
         }
