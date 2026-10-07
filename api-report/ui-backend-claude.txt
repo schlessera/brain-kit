@@ -108,9 +108,9 @@ signatures (every public export and the types it is made of)
     }
   MEASURED_RUNTIME (packages/ui-backend-claude/src/measured-runtime.ts)
     const MEASURED_RUNTIME: Readonly<{
-        agentSdk: "0.3.283";
-        claudeCode: "2.1.283";
-        measuredOn: "2026-09-28";
+        agentSdk: "0.3.292";
+        claudeCode: "2.1.292";
+        measuredOn: "2026-10-07";
     }>;
   ModelSource (packages/ui-backend-claude/src/model-discovery.ts)
     export interface ModelSource {

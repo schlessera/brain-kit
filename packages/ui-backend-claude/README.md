@@ -285,6 +285,11 @@ when that guarantee matters. The running CLI's `system/init` is an observation
 after input release; a missing, incompatible or contradictory version aborts
 a constrained turn through its normal error terminal. It cannot unsend input.
 
+The package requires SDK `^0.3.292`; the current measured bundled pair is
+SDK 0.3.292 / Claude Code 2.1.292. Turns explicitly request the default
+permission mode to preserve manual approvals when the SDK leaves an omitted
+mode to the CLI. The existing enforcement and no-grant hooks remain required.
+
 Compatibility does not imply measurement. Supported unmeasured pairs continue
 with the existing warning and actual SDK/runtime provenance. `MEASURED_RUNTIME`
 and its keyless permission/billing probes remain separate evidence.

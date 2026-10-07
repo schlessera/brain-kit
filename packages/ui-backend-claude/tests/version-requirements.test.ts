@@ -47,7 +47,7 @@ function options(f: ReturnType<typeof fixture>, h: ReturnType<typeof harness>) {
     log: () => {}, versionRequirements: { runtime: "2.1.283" } } as ClaudeBackendOptions;
 }
 test("direct factory enforces the owning SDK upper bound against a conflicting host floor", () => {
-  expect(() => createClaudeBackend({ brainPath: "/unused", versionRequirements: { sdk: "0.4.0" } } as ClaudeBackendOptions)).toThrow(/No version satisfies.*0\.3\.241.*0\.4\.0/);
+  expect(() => createClaudeBackend({ brainPath: "/unused", versionRequirements: { sdk: "0.4.0" } } as ClaudeBackendOptions)).toThrow(/No version satisfies.*0\.3\.292.*0\.4\.0/);
 });
 for (const js of [false, true]) for (const resume of [false, true]) {
   test(`${js ? "JS" : "native"} changed override refuses ${resume ? "resume" : "start"} before user prompt release`, async () => {

@@ -141,6 +141,10 @@ export function createClaudeSdkTurn(options: {
       preset: "claude_code",
       ...(append ? { append } : {}),
     },
+    // Preserve manual approvals across SDK versions that leave an omitted
+    // mode to the CLI (claude-code-runtime.md, #1213). Enforcement hooks
+    // remain the every-call boundary, including no-grant and voice turns.
+    permissionMode: "default",
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.

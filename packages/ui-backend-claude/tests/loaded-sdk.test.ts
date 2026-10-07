@@ -52,7 +52,7 @@ for (const descriptor of [false, true]) {
       expect(result.ok).toBe(false);
       expect(result.error).toContain(expected);
       expect(result.error).toContain("@schlessera/brain-backend-claude");
-      expect(result.error).toContain("^0.3.241");
+      expect(result.error).toContain("^0.3.292");
       expect(result.error).toContain("backend construction");
       expect(result.error).toContain("Install");
     });
@@ -72,7 +72,7 @@ test("startup probe rejects the loaded SDK before checking a runtime", async () 
   const result = await run(f, undefined, "probe");
   expect(result.ok).toBe(false);
   expect(result.error).toContain('detected "0.4.0"');
-  expect(result.error).toContain('range "^0.3.241"');
+  expect(result.error).toContain('range "^0.3.292"');
   expect(result.error).toContain("startup probe");
 });
 test("compatible unmeasured imported SDK passes startup while reporting its true identity", async () => {
