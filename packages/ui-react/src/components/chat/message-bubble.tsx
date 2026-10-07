@@ -69,8 +69,11 @@ export const MessageBubble = memo(function MessageBubble({
   onAskUserRankSubmit,
   onAskUserFormSubmit,
   closing = false,
+  anchor,
 }: {
   message: ChatMessage;
+  /** Its place in the transcript, which a reload keeps (#1014): where the reader was is restored by it. */
+  anchor?: string;
   onToolApproval: (toolUseId: string, approved: boolean) => void;
   onAskUserSubmit: (
     requestId: string,
@@ -106,6 +109,7 @@ export const MessageBubble = memo(function MessageBubble({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
       className="py-4"
+      data-transcript-anchor={anchor}
     >
       <TurnHeader
         who={isUser ? "You" : root.config.assistantName}

@@ -17,6 +17,7 @@ import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 import { useNow } from "../../hooks/use-now.js";
 import { useWorkingSessions } from "../../hooks/use-working-sessions.js";
 import type { ListedSession } from "../../stores/session-list-state.js";
+import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 
 interface GroupedSessions {
   label: string;
@@ -59,6 +60,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const limits = useRootStore("drafts", (s) => s.limits);
 
   const staged = useStagedTracks();
+  const localFailed = useLocalWorkStatus((s) => s.failed);
 
   // Drafts (D52 §5): unbound ones are entries of their own; a session's own
   // marks its row. Content stays in the draft store; only words come here.
@@ -71,13 +73,13 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
       const title = draftTitle({ text: "", attachments: [], tracks: tracks!.count });
       return { id, title, state: `draft · ${trackWord}`, name: `Draft: ${title}, ${trackWord}. Open draft.`, current };
     }
-    const word = draftEntryWord(d, { supported, limits }, now);
+    const word = draftEntryWord(d, { supported, limits, localFailed }, now);
     const title = draftTitle({ ...d, tracks: tracks?.count ?? 0 });
     if (trackWord) return { id, title, state: `draft · ${word} · ${trackWord}`, name: `Draft: ${title}, ${word}, ${trackWord}. Open draft.`, current };
-    const view = draftSaveView(d, { supported, limits }, now);
+    const view = draftSaveView(d, { supported, limits, localFailed }, now);
     const state = view.state === "none" ? "draft · not saved yet" : view.copy;
     return { id, title, state, name: `Draft: ${title}, ${word}. Open draft.`, current };
-  }), [drafts, staged, root, supported, limits, now, currentSessionId, fresh]);
+  }), [drafts, staged, root, supported, limits, localFailed, now, currentSessionId, fresh]);
   const sessionDrafts = useMemo(() => boundDrafts(drafts), [drafts]);
 
   useEffect(() => {

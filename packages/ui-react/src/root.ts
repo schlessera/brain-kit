@@ -7,9 +7,14 @@ import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
-import { disposeTracks } from "./lib/draft-tracks.js";
+import { disposeTracks, subscribeAllTracks, trackKey, trackRefs } from "./lib/draft-tracks.js";
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 import type { LocalCaptureSink } from "./voice/local-capture.js";
+import { createLocalPartitions, type LocalPartitions } from "./lib/local-partitions.js";
+import { createLocalWork, type LocalWork } from "./lib/local-work.js";
+
+/** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
+const LOCAL_PARTITIONS_DB = "brain-ui-local";
 
 /** Recording on the device while the host is unreachable (#1012). */
 export interface LocalCaptureOptions {
@@ -62,6 +67,14 @@ export interface BrainUiServices {
   answerTabs: TabCoordinator | null;
   /** Local recording, or null when this root does not offer it. */
   localCapture: LocalCaptureOptions | null;
+  /**
+   * @internal Device-local partitions (#1014), one per account plus
+   * `unassigned`. Null for a root without persistence: an ephemeral one, or
+   * a page without IndexedDB.
+   */
+  partitions: LocalPartitions | null;
+  /** @internal The work context kept in the signed-in account's partition (#1014). */
+  localWork: LocalWork | null;
   registerVpnRecheck: (callback: () => void) => () => void;
 }
 
@@ -109,8 +122,19 @@ export function createRoot(
   const answerTabs = options.answerTabs !== undefined
     ? options.answerTabs
     : persistent ? createBrowserTabCoordinator(`${prefix}:answers`) : null;
+  // The work context needs a root that is the same one after a reload: an
+  // ephemeral root (no prefix given) would only leave records nothing reads.
+  // A page without IndexedDB still gets one: its writes fail, and say so.
+  const partitions = options.storage !== null && options.storagePrefix !== undefined && typeof document !== "undefined"
+    ? createLocalPartitions({
+      name: LOCAL_PARTITIONS_DB,
+      heldAccountKey: () => stores.connection.getState().accountKey,
+      // Asked once; whatever the browser answers, nothing is promised from it.
+      persist: () => { void navigator.storage?.persist?.().catch(() => {}); },
+    })
+    : null;
   const services: BrainUiServices = {
-    answerStorage, answerTabs,
+    answerStorage, answerTabs, partitions, localWork: null,
     localCapture: options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
     backendUrl: (path) => getBackendUrlFor(config, path),
@@ -123,12 +147,21 @@ export function createRoot(
   };
   // What a service-worker update reload must wait for (#1015).
   registerBuiltInUpdateHolds(services);
+  if (partitions) {
+    services.localWork = createLocalWork({
+      stores, partitions,
+      scope: `root:${prefix}`,
+      tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
+      watchTracks: (fn) => subscribeAllTracks(services, fn),
+    });
+  }
   const connection = createWebSocketClient(services);
   return Object.assign(services, {
     connection,
     answers: connection.answers,
     dispose() {
       connection.dispose();
+      services.localWork?.dispose();
       // Previews of images still in a draft or a held send: nothing else will release them.
       stores.drafts.getState().release();
       disposeTracks(services);

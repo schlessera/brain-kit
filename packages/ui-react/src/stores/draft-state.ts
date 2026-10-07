@@ -106,6 +106,19 @@ export interface DraftSend {
 
 export type DraftConflictChoice = "mine" | "other" | "both";
 
+/**
+ * A draft as this device kept it (#1014): its content, and the host
+ * revision it last knew. `clean` says the content is that revision.
+ */
+export interface LocalDraft {
+  draftId: string;
+  sessionId: string | null;
+  text: string;
+  attachments: PendingAttachment[];
+  editedAt: number;
+  host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
+}
+
 export interface DraftStoreState {
   drafts: Record<string, ComposerDraft>;
   /** The draft the new-chat view shows. Not stored until it has content. */
@@ -137,6 +150,13 @@ export interface DraftStoreState {
   newChat(): void;
   /** Open an unbound draft in the new-chat view (a Sessions Draft entry). */
   openUnbound(draftId: string): void;
+  /**
+   * Drafts this device kept, after a reload (#1014). Anything this page
+   * already holds is newer and stays: a kept draft only fills a gap. One
+   * the host had acknowledged keeps that revision, so the host's newer
+   * version replaces a clean one and meets a dirty one as a conflict.
+   */
+  restoreLocal(drafts: readonly LocalDraft[]): void;
 
   /**
    * A send left the composer: the snapshot is kept, and the draft's content
@@ -407,6 +427,32 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const { id, owner } = follow(draftId);
         if (owner !== null || (get().drafts[id] && get().drafts[id]!.sessionId !== null)) return;
         set({ fresh: id });
+      },
+
+      restoreLocal(kept) {
+        for (const k of kept) {
+          const state = get();
+          if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
+          // An emptied draft comes back only while its deletion is owed to the host.
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean)) continue;
+          // A session whose draft this page already holds keeps that one.
+          if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
+          // An id handed to the session before this arrived goes to it, as in
+          // `restore`: work begun on it (an image decoding) lands here.
+          if (k.sessionId !== null) {
+            const handed = minted.get(k.sessionId);
+            if (handed && !state.drafts[handed]) { successors.set(handed, k.draftId); minted.delete(k.sessionId); }
+          }
+          const edit = 1;
+          put({
+            ...blank(k.draftId, k.sessionId, k.editedAt),
+            text: k.text,
+            attachments: k.attachments,
+            edit,
+            // Its images upload again before the next save: the ids they had are not kept.
+            host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
+          });
+        }
       },
 
       beginSend(input, consumedText) {

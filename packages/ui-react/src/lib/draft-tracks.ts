@@ -1,6 +1,7 @@
 import type { BrainUiServices } from "../root.js";
 import { apiBaseFor } from "./backend.js";
-import { createTrackUploads } from "./track-uploads.js";
+import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import { createTrackUploads, trackReady } from "./track-uploads.js";
 
 /**
  * Track files staged for a message, per draft view and per root (#951): a
@@ -118,6 +119,17 @@ export function stagedTrackViews(root: BrainUiServices): StagedTracks[] {
   }
   reg.snapshot = { version: reg.version, views };
   return views;
+}
+
+/**
+ * The uploaded tracks a view holds, by reference (#1014): the host paths a
+ * message would name, never the files. A snapshot of the work context
+ * keeps these; a reload does not bring the queue back (`tracks in this tab
+ * only`, #1112).
+ */
+export function trackRefs(root: BrainUiServices, key: string): SharedFileMeta[] {
+  const entry = registry(root).entries.get(key);
+  return entry ? entry.uploads.files.filter(trackReady).map((t) => t.meta!) : [];
 }
 
 /** Any queue of this root holds a track: a reload would lose it. */

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { BottomSheet, Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
+import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import type { DraftConflictChoice } from "../../stores/draft-state.js";
 
 /**
@@ -17,6 +18,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
+  const localFailed = useLocalWorkStatus((s) => s.failed);
   const [, tick] = useState(0);
   const [comparing, setComparing] = useState(false);
   const compareRef = useRef<HTMLButtonElement>(null);
@@ -30,7 +32,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   }, [draft?.savingSince]);
   useEffect(() => { if (!draft?.conflict) setComparing(false); }, [draft?.conflict]);
 
-  const view = draftSaveView(draft, { supported, limits }, Date.now());
+  const view = draftSaveView(draft, { supported, limits, localFailed }, Date.now());
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";

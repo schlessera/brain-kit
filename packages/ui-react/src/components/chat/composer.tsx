@@ -1,6 +1,6 @@
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
-import { useState, useRef, useEffect, useImperativeHandle, useReducer, type Ref } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
@@ -28,6 +28,10 @@ import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
+import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
+
+/** The hint when the work context could not be written to this device (#1014). */
+const LOCAL_SAVE_FAILED = "Couldn't save your draft on this device.";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -83,6 +87,28 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const current = store.drafts[draftId]?.text ?? "";
     store.edit(draftId, sessionId, { text: typeof value === "function" ? value(current) : value });
   };
+  // The work context kept on this device (#1014): where the caret was goes
+  // into each snapshot, and a restore after reload puts it back once the
+  // restored text is in the field.
+  const localSaveFailed = useLocalWorkStatus((s) => s.failed);
+  const restoreSelection = useWorkRestore((s) => s.selection);
+  const restoreFocus = useWorkRestore((s) => s.focusId);
+  useEffect(() => root.localWork?.register(() => {
+    const field = frameRef.current?.querySelector("textarea");
+    return field ? { selectionStart: field.selectionStart, selectionEnd: field.selectionEnd } : {};
+  }), [root]);
+  useLayoutEffect(() => {
+    const work = root.localWork;
+    if (!work || !restoreSelection || restoreSelection.draftId !== draftId) return;
+    const field = frameRef.current?.querySelector("textarea");
+    if (!field || field.value !== input) return;
+    const { start, end } = restoreSelection;
+    if (end <= input.length && start <= end) {
+      if (restoreFocus === "composer") field.focus({ preventScroll: true });
+      field.setSelectionRange(start, end);
+    }
+    work.restore.setState({ selection: null, ...(restoreFocus === "composer" ? { focusId: null } : {}) });
+  }, [root, restoreSelection, restoreFocus, draftId, input]);
   const [lastPrompt, setLastPrompt] = useState("");
   const [effort, setEffort] = useState<DraftEffort>({ key: null });
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
@@ -686,7 +712,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }

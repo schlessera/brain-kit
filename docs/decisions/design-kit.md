@@ -4486,7 +4486,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:270`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:274`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4968,7 +4968,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:90-96`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:103-109`).
 There is no global key.
 
 ```ts
@@ -5035,7 +5035,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:227-231`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:233-237`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5310,6 +5310,32 @@ question-answer rules are independent.
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
 
+> **2026-10-07 — Drafts kept on this device across a reload, implemented by
+> #1014.** Every draft in the root's store, with its images, and the work
+> context around it (the voice review text, the uploaded tracks of the view
+> by reference, the selection, the focused element and the first transcript
+> message in view with its offset) are written to IndexedDB a moment after
+> each change, in the signed-in account's partition. The partition is named
+> by the host's `accountKey` on `/api/vpn-check`, which every sign-in as the
+> same owner shares (the
+> [contract](../integration-contract.md#account-partition-key-additive-1014)
+> has the table per auth mode); the client opens it only while it holds that
+> key, and never writes one account's work into another's. After an
+> authenticated boot as the same account the drafts come back first, before
+> the host's list is read, so a host version meets them as it would meet
+> the page that wrote them; then the selection and focus, then the
+> transcript's place. *Kept on this device* now holds across a reload. A
+> write the browser refuses (quota, private mode, no storage) puts `Couldn't
+> save your draft on this device.` in the composer's hint and takes the words
+> `kept on this device` off the save line until a write succeeds; editing
+> goes on in memory. The store asks once for persistent storage and promises
+> nothing from the answer. Staged tracks keep #1112's lifetime: their
+> references are in the snapshot, and a reload does not bring the queue back.
+> This is not encryption and not protection against someone with access to
+> the device. The modules are `lib/local-partitions.ts` (the partition
+> primitive) and `lib/local-work.ts` (the snapshot, and `snapshotNow`, which
+> resolves only once its transaction has committed).
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
@@ -5432,12 +5458,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:619-627`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:701-709`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:625-632`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears

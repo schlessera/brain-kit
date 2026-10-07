@@ -1693,6 +1693,39 @@ real-Chrome test fails on it. `GET /api/files/content?raw=1` and its CSP are
 unchanged. The SDK's default service-worker policy never answers an `/api`
 navigation from the app shell.
 
+### Account partition key (additive, #1014)
+
+```
+GET /api/vpn-check → 200 { vpn: true, accountKey?: string }
+```
+
+The authenticated connectivity probe now also names the account the caller
+is signed in as, for device-local partitions. `accountKey` is an opaque
+22-character base64url digest. It is the same for every sign-in as the same
+account on the same host and root, and differs between hosts (each UI
+database has its own random seed) and between brain roots. It is a partition
+name, not a credential: holding it grants nothing on the host. A client must
+not parse it, and must not use `server_hello.principalKey` in its place,
+because that one changes at every sign-in.
+
+| Auth mode | Who gets a key | Same key across sign-out and sign-in |
+| --- | --- | --- |
+| `password`, with a password or a passkey | every owner login, one key | yes: every owner login is the one owner |
+| `tailscale` | every admitted client, the owner's key | yes: the mode has no sign-in |
+| `proxy` | each upstream user, its own key | yes, per upstream user |
+| `none` | every client, the owner's key | yes: the mode has no sign-in |
+| any mode, an agent principal | nobody: the field is absent | — |
+
+A refused probe (401, 403) carries no key. A host older than this field
+sends none, and the client then keeps nothing in an account partition.
+
+`@schlessera/brain-ui-react` uses the key to keep the composer's work
+context (drafts, images, voice review text, selection, focus and transcript
+position) in IndexedDB, in a partition it opens only while it holds the same
+key. That storage layout is client behaviour, not wire contract. It is a
+boundary inside the client, not encryption, and not protection against
+someone with access to the device.
+
 ### Corpus stats history (`GET /api/brain/stats/history`, additive in 0.40.0)
 
 Passes `brain stats --history --json` through untouched, behind the auth

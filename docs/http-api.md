@@ -134,7 +134,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/voice/overrides` | S | Read pronunciation replacements | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/session` | S | Mint active-provider dictation session | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/token` | S | Mint deprecated Deepgram token response | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
-| GET | `/api/vpn-check` | I | Probe authenticated reachability | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. |
+| GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
