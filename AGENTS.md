@@ -186,7 +186,7 @@ on, links to or describes them.
 
 A green test is evidence only if it could have been red. Each of these shapes
 shipped with a green suite. The numbers are the PRs that found them, except
-#192, which is an issue:
+#192 and #974, which are issues:
 
 - **An assertion that is not about the behaviour.** The test for whether pi
   tools load eagerly asserted that `Object.keys(tool)` does *not* contain
@@ -210,6 +210,12 @@ shipped with a green suite. The numbers are the PRs that found them, except
   a whole structure is only as strong as its emptiest field. When a test builds
   the input and asserts the output, also assert that the part it covers is
   non-empty.
+- **An expected value derived from the implementation under test.** The
+  Button hover test resolved the same hover tokens the Button paints with.
+  Pale text on amber still matched those tokens at 1.54:1 contrast, so green
+  proved wiring without proving readability. Keep a wiring check explicit
+  about that boundary; the independent browser contrast assertion holds the
+  computed colours to 4.5:1 (#974, PR #1105).
 - **An earlier assertion masks the one under test.** An `overflowing(card)`
   assertion fired before the document-overflow check it sat above (#102). A
   change meant to break the kind-naming assertion tripped the character budget

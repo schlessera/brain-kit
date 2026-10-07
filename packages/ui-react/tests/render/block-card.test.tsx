@@ -123,7 +123,16 @@ describe("BlockCard", () => {
     ];
     for (const block of sparse) {
       const { container } = render(<BlockCard block={block} />);
+      expect(container.querySelector(`[data-block="${block.kind}"]`)).not.toBeNull();
       const shown = container.textContent ?? "";
+      if (block.kind === "trend") {
+        const bars = [...container.querySelectorAll<HTMLElement>("span")].filter((node) => node.style.width === "100%");
+        expect(bars.map((node) => node.style.height)).toEqual(["21px", "41px", "62px"]);
+      }
+      else if (block.kind === "quote") expect(shown).toContain("Only these words.");
+      else if (block.kind === "contact") expect(shown).toContain("Eurycleia");
+      else if (block.kind === "receipt") expect(shown).toContain("k");
+      else if (block.kind === "comparison") expect(shown).toContain("r");
       expect(shown).not.toContain("teiresias");
       expect(shown).not.toContain("line 12");
       expect(shown).not.toContain("Penelope");

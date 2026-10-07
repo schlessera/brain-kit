@@ -18,12 +18,15 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 import { audit } from "../src/lib/auditor";
-import { brainConfigSchema, DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "../src/lib/config";
+import { brainConfigSchema, type BrainConfig } from "../src/lib/config";
 import { initContext } from "../src/lib/context";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
 import { collectStats, freeSpaceBytes, resolveStatsThresholds } from "../src/lib/stats";
 import { buildTaxonomy, type Taxonomy } from "../src/lib/taxonomy";
+
+// Independent oracle for the documented defaults, rather than config.ts's values.
+const DOCUMENTED_STATS_THRESHOLDS = { coverageFloor: 0.9, brokenLinkCeiling: 0.05 };
 
 const CORE_ROOT = resolve(import.meta.dir, "..");
 const FIXTURE_CORPUS = join(CORE_ROOT, "fixtures/corpus");
@@ -118,7 +121,7 @@ describe("collectStats over fixtures/corpus", () => {
     // Indexed without embeddings: no vec_chunks at all, so coverage is
     // unknown rather than 0%.
     expect(health.embeddingCoverage).toBeNull();
-    expect(health.thresholds).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(health.thresholds).toEqual(DOCUMENTED_STATS_THRESHOLDS);
   });
 
   test("stale and orphan counts are the audit's, not a second definition", async () => {
@@ -825,10 +828,10 @@ describe("the stats config block", () => {
   });
 
   test("the documented defaults apply when the block is missing", () => {
-    expect(resolveStatsThresholds(null)).toEqual(DEFAULT_STATS_THRESHOLDS);
-    expect(resolveStatsThresholds(brainConfigSchema.parse({}))).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(resolveStatsThresholds(null)).toEqual(DOCUMENTED_STATS_THRESHOLDS);
+    expect(resolveStatsThresholds(brainConfigSchema.parse({}))).toEqual(DOCUMENTED_STATS_THRESHOLDS);
     expect(resolveStatsThresholds(brainConfigSchema.parse({ stats: {} }))).toEqual(
-      DEFAULT_STATS_THRESHOLDS
+      DOCUMENTED_STATS_THRESHOLDS
     );
   });
 
@@ -842,15 +845,15 @@ describe("the stats config block", () => {
     expect(Object.keys(config.stats!)).toContain("coverageFloor");
 
     const resolved = resolveStatsThresholds(config);
-    expect(resolved).toEqual(DEFAULT_STATS_THRESHOLDS);
-    expect(JSON.parse(JSON.stringify(resolved))).toEqual(DEFAULT_STATS_THRESHOLDS);
+    expect(resolved).toEqual(DOCUMENTED_STATS_THRESHOLDS);
+    expect(JSON.parse(JSON.stringify(resolved))).toEqual(DOCUMENTED_STATS_THRESHOLDS);
   });
 
   test("a configured level overrides only itself", async () => {
     const config = brainConfigSchema.parse({ stats: { coverageFloor: 0.5 } });
     expect(resolveStatsThresholds(config)).toEqual({
       coverageFloor: 0.5,
-      brokenLinkCeiling: DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling,
+      brokenLinkCeiling: DOCUMENTED_STATS_THRESHOLDS.brokenLinkCeiling,
     });
 
     const root = tempDir();
@@ -864,7 +867,7 @@ describe("the stats config block", () => {
     });
     expect(stats.health.thresholds.coverageFloor).toBe(0.5);
     expect(stats.health.thresholds.brokenLinkCeiling).toBe(
-      DEFAULT_STATS_THRESHOLDS.brokenLinkCeiling
+      DOCUMENTED_STATS_THRESHOLDS.brokenLinkCeiling
     );
     db.close();
   });

@@ -28,6 +28,10 @@ class FakeBrowser {
   }
 
   /** Test helper: what Chrome dying looks like from puppeteer's side. */
+  disconnectedHandlers() {
+    return [...(this.handlers.get("disconnected") ?? [])];
+  }
+
   crash() {
     for (const fn of this.handlers.get("disconnected") ?? []) fn();
     this.handlers.delete("disconnected");
@@ -125,7 +129,7 @@ describe("a crashed browser", () => {
   });
 
   test("a stale crash handler cannot kill the browser that replaced it", async () => {
-    // The `browserPromise === launched` identity guard. Browser A crashes
+    // The `currentLaunch === launch` identity guard. Browser A crashes
     // AFTER B is already serving; without the guard A's handler would null the
     // cache and discard a perfectly good B — a self-inflicted relaunch on
     // every crash, forever.
@@ -134,12 +138,15 @@ describe("a crashed browser", () => {
 
     await r.renderPng({ html: "<p>a</p>" });
     const first = l.browsers[0];
+    const lateHandlers = first.disconnectedHandlers();
+    expect(lateHandlers).toHaveLength(1);
     first.crash();
     await r.renderPng({ html: "<p>b</p>" }); // B launches
     expect(l.count).toBe(2);
 
-    // A's handler fires again, late. It must be a no-op.
-    first.crash();
+    // Replay the consumed `once` callback against B, rather than emitting
+    // another event after the fake has already removed every listener.
+    for (const handler of lateHandlers) handler();
     await r.renderPng({ html: "<p>c</p>" });
     expect(l.count).toBe(2);
 

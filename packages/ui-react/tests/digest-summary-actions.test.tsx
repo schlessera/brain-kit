@@ -38,6 +38,8 @@ test("activity and Actions share one card, with the decisions last", () => {
     <DigestSummary digest={digest} actions={actions} windowLabel="Jul 11 – Jul 12" costClause={null} onDismiss={noop} onOpen={noop} />
   );
   expect(html.indexOf("Ran")).toBeGreaterThan(-1);
+  expect(html).toContain("Updates");
+  expect(html).toContain("Waiting on you");
   expect(html.indexOf("Waiting on you")).toBeGreaterThan(html.indexOf("Updates"));
   expect(html).toContain("Jul 11 – Jul 12 · 4 runs · 2 waiting");
 });

@@ -97,6 +97,8 @@ describe("radialLayout", () => {
       { id: 9, distance: 1 },
       { id: 5, distance: 1 },
     ]);
+    expect([...a.keys()].sort()).toEqual([5, 9]);
+    expect([...b.keys()].sort()).toEqual([5, 9]);
     expect(a.get(5)).toEqual(b.get(5));
     expect(a.get(9)).toEqual(b.get(9));
   });
@@ -153,6 +155,8 @@ describe("palette", () => {
   });
 
   test("distance 0 is the root, far distances clamp to the ramp end", () => {
+    expect(dark.ramp).toHaveLength(5);
+    expect(paper.ramp).toHaveLength(5);
     expect(distanceColor(0, dark)).toBe(dark.root);
     expect(distanceColor(1, dark)).toBe(dark.ramp[0]);
     expect(distanceColor(99, dark)).toBe(dark.ramp[dark.ramp.length - 1]);

@@ -97,9 +97,9 @@ describe("published backend conformance assertions", () => {
   test("a conforming backend passes each mandatory permission/posture case", async () => {
     const cases = new Map<string, () => void | Promise<void>>();
     runBackendContract(fakeHarness("none"), { describe: (_name, fn) => fn(), test: (name, fn) => { cases.set(name, fn); }, expect });
-    for (const [name, fn] of cases) {
-      if (/^(permissions:|enforceAllowedTools:|noGrantSurface)/.test(name)) await fn();
-    }
+    const permissionCases = [...cases].filter(([name]) => /^(permissions:|enforceAllowedTools:|noGrantSurface)/.test(name));
+    expect(permissionCases).toHaveLength(12);
+    for (const [, fn] of permissionCases) await fn();
   });
 });
 

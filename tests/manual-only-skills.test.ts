@@ -32,6 +32,7 @@ describe("shipped manual-only skills", () => {
   });
 
   test("each ships agents/openai.yaml with allow_implicit_invocation: false", () => {
+    expect(manualOnly.length, "manual-only skills reach the policy assertions").toBeGreaterThan(0);
     const missing = manualOnly.filter((file) => {
       const yaml = join(dirname(file), "agents", "openai.yaml");
       if (!existsSync(yaml)) return true;

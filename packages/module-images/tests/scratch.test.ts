@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlink
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildTaxonomy, SCRATCH_DIR } from "@schlessera/brain/internal";
-import { ignoreScratch, SCRATCH_TTL_MS } from "../../core/src/lib/scratch.js";
+import { ignoreScratch } from "../../core/src/lib/scratch.js";
 
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";
@@ -83,7 +83,8 @@ describe("brain image --scratch", () => {
     mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
     const stale = join(root, SCRATCH_DIR, "stale.png");
     writeFileSync(stale, "old");
-    const t = (Date.now() - SCRATCH_TTL_MS - 60_000) / 1000;
+    // Pin the documented seven-day lifetime independently of the pruner.
+    const t = (Date.now() - 7 * 24 * 60 * 60 * 1000 - 60_000) / 1000;
     utimesSync(stale, t, t);
     const provider = stubProvider();
     expect(await run(["a lighthouse", "--draft", "--scratch"])).toBe(0);

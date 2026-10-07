@@ -179,7 +179,26 @@ describe("activity digest", () => {
     expect(digest.runs).toBe(2);
   });
 
-  test("pruning respects the digest floor and the ceiling overrides a frozen one", () => {
+  test("the hard ceiling prunes an uncovered run while the digest floor is frozen", () => {
+    const db = createUiDb(":memory:");
+    try {
+      const store = createActivityStore(db, { writer: "test" });
+      const now = 1_800_000_000_000;
+      const day = 24 * 60 * 60 * 1000;
+      seedRun(store, "uncovered", { startedAt: now - 91 * day });
+      expect(digestRetentionFloor(db)).toBe(0);
+      const result = store.prune({
+        digestFloorAt: digestRetentionFloor(db), detailRetentionMs: 0,
+        hardCeilingMs: 90 * day, now,
+      });
+      expect(result.runsPruned).toBe(1);
+      expect(store.getSpan("uncovered:root")).toBeNull();
+      expect(db.query("SELECT failure_reason FROM activity_run_rollups WHERE run_id = 'uncovered'").get())
+        .toEqual({ failure_reason: "digest coverage gap" });
+    } finally { db.close(); }
+  });
+
+  test("pruning respects the digest floor", () => {
     const db = createUiDb(":memory:");
     const store = createActivityStore(db, { writer: "test" });
     const old = Date.now() - 10 * 24 * 60 * 60 * 1000;

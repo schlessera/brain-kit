@@ -41,7 +41,7 @@ function pointerScene() {
   return mode;
 }
 
-const THREE = "Ithaca proxy · gpt-5.5, Circe relay · o4-mini, Argo bridge · gemini-2.5-pro need credentials";
+const THREE = "Ithaca proxy · gpt-5.5, Circe relay · o4-mini, Argo bridge · gemini-2.5-pro need credentials before a new turn can start on the selected backend";
 const ONE = "Ithaca proxy · gpt-5.5 needs credentials";
 
 /** Each disabled shape beside its enabled twin, so a one-line row's height can
@@ -105,6 +105,9 @@ for (const theme of ["dark", "light"] as const) {
         if (!item.why) return;
         const why = spans(row, item.why)!;
         const reason = why.getBoundingClientRect();
+        if (item.why === THREE) {
+          expect(reason.height, `${name}: the long reason actually wraps`).toBeGreaterThanOrEqual(2 * parseFloat(getComputedStyle(why).lineHeight) - 0.5);
+        }
         expect(why.scrollWidth, `${name}: the reason is whole`).toBeLessThanOrEqual(why.clientWidth);
         expect(reason.right, `${name}: the reason ends inside its row`).toBeLessThanOrEqual(box.right + 0.5);
         if (item.why === THREE) {

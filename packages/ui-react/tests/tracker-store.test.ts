@@ -1072,23 +1072,40 @@ describe("recovery (Recovery A)", () => {
     expect(r.stores.trackers.getState().evidence[A]!.latest).toMatchObject({ requestId: "req-7", turnId: "turn-7", state: "running" });
   });
 
-  test("a read is bounded: a failed request frees the session's live frames", async () => {
+  test("a read is bounded: its deadline aborts the request and frees live frames", async () => {
+    const deadlines: number[] = [];
+    const timeout = AbortSignal.timeout;
+    // Keep the real abort mechanism, accelerate only the clock; pin its configured budget.
+    AbortSignal.timeout = (ms) => { deadlines.push(ms); return timeout(10); };
     let signal: AbortSignal | undefined;
-    const r = createBrainUiRoot({
-      storage: null,
-      request: async (_url, init) => { signal = init?.signal ?? undefined; throw new DOMException("The operation timed out.", "TimeoutError"); },
-    });
-    roots.push(r);
-    r.stores.connection.setState({ wsStatus: "connected" });
-    hello(r);
-    runningIn(r, A);
-    r.stores.chat.getState().setActiveSession(B);
-    await settle();
-    expect(signal).toBeInstanceOf(AbortSignal);
-    expect(r.stores.trackers.getState().reading[A]).toBeUndefined();
-    expect(views(r)[0]).toMatchObject({ state: "cant_check", cantCheck: "host_unreachable" });
-    frame(r, { type: "text_delta", sessionId: A, turnId: "turn-1", text: "Still rowing." });
-    expect(views(r)[0]!.state).toBe("running");
+    try {
+      const r = createBrainUiRoot({
+        storage: null,
+        request: async (_url, init) => {
+          signal = init?.signal ?? undefined;
+          return new Promise<Response>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal!.reason), { once: true });
+          });
+        },
+      });
+      roots.push(r);
+      r.stores.connection.setState({ wsStatus: "connected" });
+      hello(r);
+      runningIn(r, A);
+      r.stores.chat.getState().setActiveSession(B);
+      expect(deadlines).toEqual([10_000]);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal!.aborted).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(signal!.aborted).toBe(true);
+      expect(signal!.reason.name).toBe("TimeoutError");
+      expect(r.stores.trackers.getState().reading[A]).toBeUndefined();
+      expect(views(r)[0]).toMatchObject({ state: "cant_check", cantCheck: "host_unreachable" });
+      frame(r, { type: "text_delta", sessionId: A, turnId: "turn-1", text: "Still rowing." });
+      expect(views(r)[0]!.state).toBe("running");
+    } finally {
+      AbortSignal.timeout = timeout;
+    }
   });
 
   test("a read begun before the set was deleted cannot settle a newer read", async () => {

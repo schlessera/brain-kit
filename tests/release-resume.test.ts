@@ -86,6 +86,7 @@ describe("planRelease", () => {
 
     const plan = await planRelease(ENTRIES, isLive);
 
+    expect(plan).toHaveLength(ENTRIES.length);
     expect(plan.every((step) => step.action === "skip")).toBe(true);
   });
 
@@ -109,6 +110,7 @@ describe("planRelease", () => {
 
     const plan = await planRelease(ENTRIES, isLive);
 
+    expect(plan).toHaveLength(ENTRIES.length);
     expect(plan.every((step) => step.action === "publish")).toBe(true);
   });
 });
@@ -123,13 +125,14 @@ describe("awaitPublished", () => {
   const noSleep = async () => {};
 
   test("resolves once every version is seen, without sleeping first", async () => {
-    const { isLive } = registry(PUBLISHED.map((entry) => `${entry.name}@${entry.version}`));
+    const { isLive, asked } = registry(PUBLISHED.map((entry) => `${entry.name}@${entry.version}`));
     const slept: number[] = [];
 
     await awaitPublished(PUBLISHED, isLive, async (ms) => {
       slept.push(ms);
     });
 
+    expect(asked).toEqual(PUBLISHED.map((entry) => `${entry.name}@${entry.version}`));
     expect(slept).toEqual([]);
   });
 

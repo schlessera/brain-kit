@@ -232,10 +232,15 @@ describe("snapshot-then-delta (AE6 client half)", () => {
       runId: "r1",
       spans: [],
       events: [],
-      highWaterSeq: { r1: 7 },
+      highWaterSeq: { r1: 3 },
       append: true,
     });
     expect(useActivityStore.getState().highWater.r1).toBe(7);
+    s.applySnapshot({
+      type: "activity_snapshot", view: "run", runId: "r1",
+      spans: [], events: [], highWaterSeq: { r1: 9 }, append: true,
+    });
+    expect(useActivityStore.getState().highWater.r1).toBe(9);
   });
 });
 

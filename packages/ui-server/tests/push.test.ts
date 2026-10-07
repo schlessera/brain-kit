@@ -5,7 +5,7 @@
  * wire itself is mocked at the send boundary — keyless tests; the first
  * real send is a deployed-device check.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Hono } from "hono";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
@@ -125,7 +125,7 @@ describe("push sender", () => {
     expect(notifier.inbox()[0]!.status).toBe("sent");
   });
 
-  test("every-device failure marks send_failed; the intent is retried next pass", async () => {
+  test("every-device failure marks send_failed; the intent is retried after backoff", async () => {
     let fail = true;
     const { store, notifier, sender, sent, principal } = setup(async (sub, payload: any) => {
       if (fail) throw new Error("service down");
@@ -139,6 +139,17 @@ describe("push sender", () => {
     expect(notifier.pending()).toHaveLength(0);
     // A transient failure is not a dead device: the subscription row stays.
     expect(sender.subscriptions()).toHaveLength(1);
+    fail = false;
+    const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60 * 1000 + 1);
+    try {
+      expect(await sender.deliverPending(notifier)).toBe(1);
+      expect(sent.map((entry) => entry.endpoint)).toEqual([SUB(1).endpoint]);
+      expect(sent[0]!.payload.tag).toBe("brain-activity:run-1");
+      expect(notifier.inbox()[0]!.status).toBe("sent");
+      expect(notifier.pending()).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   test("a device pruned during one intent's pass is not attempted for the next intent", async () => {

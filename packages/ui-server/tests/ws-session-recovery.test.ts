@@ -442,7 +442,12 @@ describe("authorization and existence", () => {
       latest: { requestId: null, turnId: null, state: "unknown", outcome: null, startedAt: null, endedAt: null },
       pending: [],
     });
-    expect((await w.replay("odyssey-imported")).every((m) => m.turnId === undefined)).toBe(true);
+    const importedHistory = await w.replay("odyssey-imported");
+    expect(importedHistory.map((m) => [m.role, m.content])).toEqual([
+      ["user", "From the CLI"],
+      ["assistant", "Answered outside the host."],
+    ]);
+    expect(importedHistory.every((m) => m.turnId === undefined)).toBe(true);
     expect(await readSessionRecovery(w.host, "odyssey-nowhere", w.principal)).toEqual({ kind: "not_found" });
     w.breakHistory(true);
     await expect(readSessionRecovery(w.host, "odyssey-nowhere", w.principal)).rejects.toThrow("Fixture transcript unavailable");
@@ -542,6 +547,11 @@ describe("turn linkage", () => {
     // Rewriting the transcript before the answer breaks the proof.
     w.transcripts.get(sid)![0]!.content = "First watch, edited";
     history = await w.replay(sid);
+    expect(history.map((m) => [m.role, m.content])).toEqual([
+      ["user", "First watch, edited"],
+      ["assistant", "Answer to First watch."],
+      ["user", "Second watch"],
+    ]);
     expect(history.every((m) => m.turnId === undefined)).toBe(true);
   });
 });

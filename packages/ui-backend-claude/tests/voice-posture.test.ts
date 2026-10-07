@@ -123,6 +123,7 @@ describe("VOICE_ALLOWED_TOOLS", () => {
     // tool added to the default list later fails here until someone decides
     // which table it belongs in.
     expect(VOICE).toBeDefined();
+    expect(policy.DEFAULT_ALLOWED_TOOLS.length).toBeGreaterThan(0);
     for (const tool of policy.DEFAULT_ALLOWED_TOOLS) {
       expect(
         RECORD_ALLOWED.includes(tool) || RECORD_EXCLUDED.includes(tool),

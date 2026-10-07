@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_USER_AGENT, resolveEnv } from "../src/config/env";
+import { resolveEnv } from "../src/config/env";
 
 describe("config/env resolveEnv", () => {
   test("empty environment yields the documented defaults", () => {
     const env = resolveEnv({});
-    expect(env.userAgent).toBe(DEFAULT_USER_AGENT);
+    expect(env.userAgent).toBe("brain-scrape (+https://github.com/schlessera/brain-kit)");
     expect(env.chromeUrl).toBeUndefined();
     expect(env.chromePath).toBeUndefined();
     expect(env.noSandbox).toBe(false);

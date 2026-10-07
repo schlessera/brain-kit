@@ -9,7 +9,6 @@ import { createActivityStore, type ActivityStore } from "../src/activity/store";
 import { createActivityNotifier, type ActivityNotifier } from "../src/activity/notify";
 import { createUiDb } from "../src/db/client";
 import { setSetting } from "../src/db/settings";
-import { LABEL_RUN_NAME } from "../src/labels/labeller";
 
 function setup(options?: { watched?: boolean }): {
   db: ReturnType<typeof createUiDb>;
@@ -156,15 +155,18 @@ describe("activity notifier", () => {
     const { db, store, notifier } = setup();
     failCron(store, "run-1");
     failCron(store, "run-2", "other");
+    failCron(store, "young-acknowledged", "young");
     notifier.tick();
     notifier.acknowledge(notifier.inbox().find((i) => i.title.includes("sync"))!.id);
-    // Age the acknowledged row past the cutoff.
+    notifier.acknowledge(notifier.inbox().find((i) => i.runId === "young-acknowledged")!.id);
+    // Age both old rows past the cutoff; only the acknowledged row may be pruned.
     db.query(
-      "UPDATE notification_intents SET updated_at = ? WHERE acknowledged = 1"
+      "UPDATE notification_intents SET updated_at = ? WHERE run_id != 'young-acknowledged'"
     ).run(Date.now() - 31 * 24 * 60 * 60 * 1000);
     expect(notifier.pruneAcknowledged(30 * 24 * 60 * 60 * 1000)).toBe(1);
     // The unacknowledged intent survives regardless of age.
     expect(notifier.inbox()).toHaveLength(1);
+    expect(db.query("SELECT acknowledged FROM notification_intents WHERE run_id = 'young-acknowledged'").get()).toEqual({ acknowledged: 1 });
   });
 
   test("interrupted runs notify too; successes do not by default", () => {
@@ -214,9 +216,9 @@ describe("activity notifier", () => {
     setSetting(db, "activity.watchdog.thresholdMs", 10 * 60 * 1000);
     const root = (runId: string, name: string, startedAt?: number) =>
       store.startSpan({ spanId: `${runId}:root`, runId, name, kind: "turn", origin: "session", sessionId: "sess-ithaca", startedAt });
-    root("label-failed", LABEL_RUN_NAME);
+    root("label-failed", "pill label");
     store.endSpan("label-failed:root", { outcome: "error", reason: "vendor unavailable" });
-    root("label-stalled", LABEL_RUN_NAME, Date.now() - 20 * 60 * 1000);
+    root("label-stalled", "pill label", Date.now() - 20 * 60 * 1000);
     notifier.tick();
     expect(notifier.inbox()).toEqual([]);
 

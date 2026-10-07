@@ -39,9 +39,11 @@ beforeAll(async () => {
 
   await mkdir(join(root, ".git"));
   await writeFile(join(root, ".git/HEAD"), "ref");
+  await writeFile(join(root, ".git/git-internal.md"), "Internal repository metadata.");
 
   await mkdir(join(root, "node_modules"));
   await writeFile(join(root, "node_modules/pkg.txt"), "x");
+  await writeFile(join(root, "node_modules/dependency-readme.md"), "Dependency metadata.");
 
   await writeFile(join(root, "brain.db"), "x");
   await writeFile(join(root, "brain.db-wal"), "x");
@@ -340,6 +342,9 @@ describe("buildWikilinkMap", () => {
     const map = await buildWikilinkMap(root);
     // 'hidden' is inside .gitignore-d "secret/" dir
     expect(map["hidden"]).toBeUndefined();
+    expect(map["git-internal"]).toBeUndefined();
+    expect(map["dependency-readme"]).toBeUndefined();
+    expect(map["foo"]).toBe("notes/foo.md");
   });
 
   test("excludes non-markdown files", async () => {
@@ -350,9 +355,10 @@ describe("buildWikilinkMap", () => {
   });
 
   test("first sorted match wins on slug collisions", async () => {
+    await writeFile(join(root, "notes/README.md"), "A second README in the same tree.");
     const map = await buildWikilinkMap(root);
-    // README.md at root precedes any deeper README.md alphabetically by walk order
-    expect(map["readme"]).toBe("README.md");
+    // The sorted walk visits notes/ before README.md at the root.
+    expect(map["readme"]).toBe("notes/README.md");
   });
 });
 

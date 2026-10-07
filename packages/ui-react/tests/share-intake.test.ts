@@ -102,7 +102,7 @@ describe("uploadShare", () => {
       impl, "/api"
     );
 
-    expect(outcome.ok).toBe(true);
+    expect(outcome).toEqual({ ok: true, result: stagedResult({ title: "A page" }) });
     expect(calls[0]!.url).toContain("/api/share");
     const body = calls[0]!.init!.body as FormData;
     expect(body.get("title")).toBe("A page");

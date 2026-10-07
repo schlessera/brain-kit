@@ -41,6 +41,7 @@ async function fixtureSources(): Promise<[string, string][]> {
   for (const name of [...glob.scanSync({ cwd: FIXTURE_DIR })].sort()) {
     out.push([name, await Bun.file(join(FIXTURE_DIR, name)).text()]);
   }
+  expect(out.length, "fixture source scan is nonempty").toBeGreaterThan(0);
   return out;
 }
 
@@ -87,6 +88,7 @@ describe("the pinned clock", () => {
 
 describe("the geography", () => {
   test("every coordinate is inside the Mediterranean basin", () => {
+    expect(places.places.length).toBeGreaterThan(0);
     for (const p of places.places) {
       expect(p.lat).toBeGreaterThan(30);
       expect(p.lat).toBeLessThan(46);
@@ -96,6 +98,7 @@ describe("the geography", () => {
   });
 
   test("every place names the article its coordinate came from", () => {
+    expect(places.places.length).toBeGreaterThan(0);
     for (const p of places.places) expect(p.source).toMatch(/^Wikipedia: /);
   });
 
@@ -108,6 +111,7 @@ describe("the geography", () => {
     const visitOrder = places.places.filter((p) => p.day !== null);
     for (const p of visitOrder) expect(p.day!).toBeLessThanOrEqual(DAYS_SINCE_TROY);
     expect(days.length).toBeGreaterThan(0);
+    expect(days).toEqual([...days].sort((a, b) => a - b));
   });
 
   test("the voyage polyline is [lon, lat] and starts at Troy", () => {
@@ -132,6 +136,7 @@ describe("the geography", () => {
   });
 
   test("every map pin corresponds to a place in the world", () => {
+    expect(places.mapScenes.flatMap(scene => scene.pins).length).toBeGreaterThan(0);
     const known = places.places.map((p) => `${p.lat},${p.lon}`);
     for (const scene of places.mapScenes) {
       for (const pin of scene.pins) expect(known).toContain(`${pin.lat},${pin.lon}`);
@@ -168,6 +173,7 @@ describe("cross-references", () => {
     // have to agree -- a person page whose note is about somebody else is
     // exactly the kind of drift that renders fine and reads wrong.
     const byPath = new Map(notes.notes.map((n) => [n.path, n]));
+    expect(people.people.filter(person => byPath.has(person.path)).length).toBeGreaterThan(0);
     for (const person of people.people) {
       const note = byPath.get(person.path);
       if (!note) continue;
@@ -178,6 +184,7 @@ describe("cross-references", () => {
   });
 
   test("every wiki-link in a note resolves to a document that exists", () => {
+    expect(notes.notes.flatMap(note => note.links).length).toBeGreaterThan(0);
     const known = new Set([
       ...notes.notes.map((n) => n.path),
       ...people.people.map((p) => p.path),
@@ -191,6 +198,7 @@ describe("cross-references", () => {
   });
 
   test("no note is an orphan", () => {
+    expect(notes.notes.length).toBeGreaterThan(0);
     const linkedTo = new Set(notes.notes.flatMap((n) => n.links));
     for (const n of notes.notes) {
       const hasOut = n.links.length > 0;
@@ -200,6 +208,8 @@ describe("cross-references", () => {
   });
 
   test("every person and place a note names exists", () => {
+    expect(notes.notes.flatMap(note => note.people).length).toBeGreaterThan(0);
+    expect(notes.notes.flatMap(note => note.places).length).toBeGreaterThan(0);
     for (const n of notes.notes) {
       for (const id of n.people) expect(people.peopleById[id]).toBeDefined();
       for (const id of n.places) expect(places.placeById[id]).toBeDefined();
@@ -207,12 +217,16 @@ describe("cross-references", () => {
   });
 
   test("every person's location is a real place", () => {
+    expect(people.people.filter(person => person.at !== null).length).toBeGreaterThan(0);
     for (const p of people.people) {
       if (p.at !== null) expect(places.placeById[p.at]).toBeDefined();
     }
   });
 
   test("every project and thread points at things that exist", () => {
+    expect(projects.projects.flatMap(project => project.places).length).toBeGreaterThan(0);
+    expect(projects.projects.flatMap(project => project.people).length).toBeGreaterThan(0);
+    expect(projects.threads.length).toBeGreaterThan(0);
     for (const p of projects.projects) {
       for (const id of p.places) expect(places.placeById[id]).toBeDefined();
       for (const id of p.people) expect(people.peopleById[id]).toBeDefined();
@@ -221,12 +235,14 @@ describe("cross-references", () => {
   });
 
   test("every run's thread exists", () => {
+    expect(runs.runs.filter(run => run.thread !== null).length).toBeGreaterThan(0);
     for (const r of runs.runs) {
       if (r.thread !== null) expect(projects.threadById[r.thread]).toBeDefined();
     }
   });
 
   test("graph edges index real nodes", () => {
+    expect(search.graphEdges.length).toBeGreaterThan(0);
     for (const [a, b] of search.graphEdges) {
       expect(search.graphNodes[a]).toBeDefined();
       expect(search.graphNodes[b]).toBeDefined();
@@ -267,6 +283,7 @@ describe("cross-references", () => {
   });
 
   test("every note tag is in the world's tag vocabulary", () => {
+    expect(notes.notes.flatMap(note => note.tags).length).toBeGreaterThan(0);
     const vocabulary = new Set<string>(notes.tags);
     for (const n of notes.notes) for (const t of n.tags) expect(vocabulary.has(t)).toBe(true);
   });

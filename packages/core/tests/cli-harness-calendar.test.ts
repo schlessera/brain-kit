@@ -19,16 +19,17 @@ for (const { timezone, instant, expected } of [
     try {
       const clock = join(dir, "clock.ts");
       writeFileSync(clock, `
+        import { writeSync } from "node:fs";
         const NativeDate = Date;
         const instant = NativeDate.parse(${JSON.stringify(instant)});
         globalThis.Date = class extends NativeDate {
           constructor(...args) { super(...(args.length ? args : [instant])); }
           static now() { return instant; }
         };
-        process.on("exit", () => console.error("FIXTURE_ENV=" + JSON.stringify({
+        process.on("exit", () => writeSync(2, "FIXTURE_ENV=" + JSON.stringify({
           keys: ${JSON.stringify(PROVIDER_KEYS)}.filter(key => process.env[key] !== undefined),
           guarded: globalThis.fetch.name === "offlineFetch"
-        })));
+        }) + "\\n"));
       `);
       // Simulate a non-UTC machine's default without relying on the CI host.
       // The harness's explicit TZ must win; no fetch destination is rewritten.

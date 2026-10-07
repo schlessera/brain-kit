@@ -6,7 +6,6 @@ import { join } from "path";
 import { createUiDb } from "../src/db/client.js";
 import {
   createActivityStore,
-  MAX_EVENT_PAYLOAD_BYTES,
   rowToRunRollup,
   type ActivityStore,
   type RollupPricing,
@@ -124,11 +123,11 @@ describe("activity store: spans and ordering", () => {
     const { store } = freshStore();
     startTurn(store);
     store.appendEvent("run-1-root", "text", "hello");
-    const big = "x".repeat(MAX_EVENT_PAYLOAD_BYTES + 100);
+    const big = "x".repeat(16_384 + 100);
     const capped = store.appendEvent("run-1-root", "text", big)!;
     expect(capped.eventIndex).toBe(1);
     expect(capped.truncated).toBe(true);
-    expect((capped.payload as string).length).toBeLessThan(big.length);
+    expect(capped.payload).toBe("x".repeat(16_384));
     expect(store.appendEvent("nonexistent", "text", "x")).toBeNull();
 
     const snap = store.snapshotRun("run-1")!;
@@ -253,12 +252,24 @@ describe("activity store: rollups and retention", () => {
     // Prune candidates come from the rollups (every production terminal
     // path writes one); a bare endSpan in a test must roll up itself.
     store.rollupRun("old-run");
-    startTurn(store, "live-run"); // stays open
+    // An eligible old rollup with an open child exercises the pruning guard.
+    // A fresh root with no rollup is excluded before that guard can run.
+    store.startSpan({
+      spanId: "live-run-root", runId: "live-run", name: "cron sync",
+      kind: "cron", origin: "cron", startedAt: old,
+    });
+    store.endSpan("live-run-root", { outcome: "success", endedAt: old + 60_000 });
+    store.startSpan({
+      spanId: "live-child", runId: "live-run", parentSpanId: "live-run-root",
+      name: "execute_tool Read", kind: "tool", origin: "cron", startedAt: old + 1_000,
+    });
+    store.rollupRun("live-run");
+    expect(store.getSpan("live-child")!.outcome).toBeNull();
 
     // Digest floor far in the past (digest broken) — only the ceiling prunes.
     const res = store.prune({ digestFloorAt: 0, detailRetentionMs: 0, hardCeilingMs: 90 * 24 * 60 * 60 * 1000 });
-    expect(res.runsPruned).toBe(1);
     expect(store.snapshotRun("live-run")).not.toBeNull();
+    expect(res.runsPruned).toBe(1);
     const rollup = db
       .query("SELECT * FROM activity_run_rollups WHERE run_id = 'old-run'")
       .get() as any;

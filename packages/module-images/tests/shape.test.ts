@@ -5,7 +5,6 @@ import {
   aspectToOpenAiSize,
   GEMINI_ASPECTS,
   isGeminiAspect,
-  OPENAI_LIMITS,
   parseAspect,
   sizeToNearestGeminiAspect,
 } from "../src/shape";
@@ -13,6 +12,10 @@ import { route } from "../src/routing";
 import { availableModels } from "../src/providers/index";
 import { configSchema } from "../src/module";
 import type { ModelCapabilities } from "../src/types";
+
+// Independent supported-shape expectations: shared implementation constants
+// must not move the oracle together with the conversion or validation code.
+const GEMINI_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] as const;
 
 const cfg = configSchema.parse({});
 const ALL = availableModels(cfg, { OPENAI_API_KEY: "x", GEMINI_API_KEY: "y" } as NodeJS.ProcessEnv);
@@ -34,17 +37,17 @@ describe("parseAspect", () => {
 
 describe("aspectToOpenAiSize", () => {
   test("every Gemini-legal ratio maps to a size OpenAI accepts", () => {
-    for (const aspect of GEMINI_ASPECTS) {
+    for (const aspect of GEMINI_RATIOS) {
       for (const res of ["512px", "1K", "2K", "4K"] as const) {
         const size = aspectToOpenAiSize(aspect, res);
         expect(size).not.toBeNull();
         const { w, h, total } = dims(size!);
         // Every published constraint, asserted for every combination.
-        expect(w % OPENAI_LIMITS.grid).toBe(0);
-        expect(h % OPENAI_LIMITS.grid).toBe(0);
-        expect(Math.max(w, h)).toBeLessThanOrEqual(OPENAI_LIMITS.maxEdge);
-        expect(total).toBeGreaterThanOrEqual(OPENAI_LIMITS.minTotalPixels);
-        expect(total).toBeLessThanOrEqual(OPENAI_LIMITS.maxTotalPixels);
+        expect(w % 16).toBe(0);
+        expect(h % 16).toBe(0);
+        expect(Math.max(w, h)).toBeLessThanOrEqual(3840);
+        expect(total).toBeGreaterThanOrEqual(655_360);
+        expect(total).toBeLessThanOrEqual(8_294_400);
       }
     }
   });
@@ -61,7 +64,7 @@ describe("aspectToOpenAiSize", () => {
   test("512px is scaled UP to OpenAI's floor rather than rejected", () => {
     // 512x512 is 262,144 pixels — below the 655,360 minimum.
     const { total } = dims(aspectToOpenAiSize("1:1", "512px")!);
-    expect(total).toBeGreaterThanOrEqual(OPENAI_LIMITS.minTotalPixels);
+    expect(total).toBeGreaterThanOrEqual(655_360);
   });
 
   test("4K at an extreme ratio stays inside both the edge and pixel caps", () => {
@@ -99,7 +102,8 @@ describe("sizeToNearestGeminiAspect", () => {
 
 describe("isGeminiAspect", () => {
   test("accepts the documented ten", () => {
-    for (const a of GEMINI_ASPECTS) expect(isGeminiAspect(a)).toBe(true);
+    expect(GEMINI_ASPECTS).toEqual(GEMINI_RATIOS);
+    for (const a of GEMINI_RATIOS) expect(isGeminiAspect(a)).toBe(true);
   });
   test("rejects anything else", () => {
     for (const a of ["7:3", "1:2", "5:1"]) expect(isGeminiAspect(a)).toBe(false);

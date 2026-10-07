@@ -393,12 +393,13 @@ describe("live: openai image models", () => {
         OPENAI_KEY
       );
       expect(isPng(edited.images[0].data)).toBe(true);
+      expect(Buffer.from(edited.images[0].data).equals(Buffer.from(base.images[0].data))).toBe(false);
     },
     TIMEOUT * 2
   );
 
   live(
-    "inpaints the transparent region of a mask",
+    "returns a changed PNG from a masked edit request",
     async () => {
       const base = await openaiProvider.generate(
         "gpt-image-2.5-sunburst",
@@ -417,6 +418,7 @@ describe("live: openai image models", () => {
         OPENAI_KEY
       );
       expect(isPng(edited.images[0].data)).toBe(true);
+      expect(Buffer.from(edited.images[0].data).equals(Buffer.from(base.images[0].data))).toBe(false);
     },
     TIMEOUT * 2
   );

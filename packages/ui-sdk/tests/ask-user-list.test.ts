@@ -7,7 +7,6 @@ import {
   toolInputJsonSchema,
   type AskUserListInput,
 } from "../src/tool-contracts/index";
-import { ASK_USER_LIST_LIMITS } from "../src/tool-contracts/bridge.js";
 import { handleAskUserList } from "../src/server/bridge-tools/index";
 import type { AskUserListResult, BackendBridge } from "../src/server/backend";
 import type { AskUserListSpec } from "../src/protocol";
@@ -101,13 +100,13 @@ describe("ask_user_list: ten items, six options, one call", () => {
     const off = await handleAskUserList(TEN_FILMS, recordingBridge(result).bridge, "n2");
     expect(off.notes).toBeUndefined();
 
-    const long = "x".repeat(ASK_USER_LIST_LIMITS.maxNote + 50);
+    const long = "x".repeat(330);
     const capped = await handleAskUserList(
       { ...TEN_FILMS, notes: true },
       recordingBridge({ answers: {}, notes: { "film-1": long } }).bridge,
       "n3"
     );
-    expect(capped.notes?.["film-1"]).toHaveLength(ASK_USER_LIST_LIMITS.maxNote);
+    expect(capped.notes?.["film-1"]).toHaveLength(280);
   });
 
   test("duplicate ids and duplicate scale labels are refused before any card is drawn", async () => {

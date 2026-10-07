@@ -3,12 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } fro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  SHARE_MAX_FILES,
-  SHARE_MAX_STAGED,
-  SHARE_MAX_FILE_BYTES,
-  SHARE_MAX_TEXT_BYTES,
   SHARE_STAGING_DIR,
-  SHARE_STAGING_TTL_MS,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { createShareRoutes } from "../src/routes/share";
 import {
@@ -163,7 +158,7 @@ describe("POST /api/share", () => {
 
   test("too many files is refused with the limit", async () => {
     const form = new FormData();
-    for (let n = 0; n <= SHARE_MAX_FILES; n += 1) {
+    for (let n = 0; n <= 10; n += 1) {
       form.append("files", textFile(`f${n}.txt`, "x"));
     }
 
@@ -172,20 +167,20 @@ describe("POST /api/share", () => {
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({
       error: "too_many_files",
-      limit: SHARE_MAX_FILES,
+      limit: 10,
     });
   });
 
   test("oversize text is refused before anything is written", async () => {
     const form = new FormData();
-    form.set("text", "x".repeat(SHARE_MAX_TEXT_BYTES + 1));
+    form.set("text", "x".repeat(200_000 + 1));
 
     const response = await post(form);
 
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({
       error: "text_too_large",
-      limit: SHARE_MAX_TEXT_BYTES,
+      limit: 200_000,
     });
     await expect(readdir(shareStagingRoot(BRAIN_ROOT))).rejects.toThrow();
   });
@@ -471,7 +466,7 @@ describe("share staging", () => {
   });
 
   test("a part that lies about its size is caught on the decoded bytes", async () => {
-    const oversized = new Uint8Array(SHARE_MAX_FILE_BYTES + 1);
+    const oversized = new Uint8Array(25_000_000 + 1);
     const liar = {
       name: "small.bin",
       type: "application/octet-stream",
@@ -489,8 +484,23 @@ describe("share staging", () => {
   test("a share is only visible once it is whole", async () => {
     // Staged into `.<id>.partial` and renamed into place after meta.json, so a
     // crash mid-write cannot leave the agent a share with missing files.
-    const result = await stageShare(BRAIN_ROOT, { text: "atomic", files: [] });
+    let release!: () => void, started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    const file = {
+      name: "harbor.txt", type: "text/plain", size: 1,
+      arrayBuffer: async () => { started(); await held; return new Uint8Array([120]).buffer; },
+    } as unknown as File;
+    const staging = stageShare(BRAIN_ROOT, { text: "atomic", files: [file] });
+    try {
+      await reading;
+      const incomplete = await readdir(shareStagingRoot(BRAIN_ROOT));
+      expect(incomplete).toHaveLength(1);
+      expect(incomplete[0]).toMatch(/^\.[a-f0-9-]{36}\.partial$/);
+    } finally { release(); await staging; }
+    const result = await staging;
     const entries = await readdir(shareStagingRoot(BRAIN_ROOT));
+    expect(await readFile(join(BRAIN_ROOT, result.files[0]!.path), "utf8")).toBe("x");
 
     expect(entries).toEqual([result.id]);
     expect(entries.some((e) => e.includes("partial"))).toBe(false);
@@ -522,7 +532,7 @@ describe("share staging", () => {
   });
 
   test("the inbox refuses to grow without bound", async () => {
-    for (let n = 0; n < SHARE_MAX_STAGED; n += 1) {
+    for (let n = 0; n < 50; n += 1) {
       await mkdir(join(shareStagingRoot(BRAIN_ROOT), `share-${n}`), { recursive: true });
     }
 
@@ -591,7 +601,7 @@ describe("share staging", () => {
     const stale = await stageShare(BRAIN_ROOT, { text: "sweep me", files: [] });
 
     const staleDir = join(BRAIN_ROOT, stale.dir);
-    const expired = new Date(Date.now() - SHARE_STAGING_TTL_MS - 60_000);
+    const expired = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 - 60_000);
     await utimes(staleDir, expired, expired);
 
     expect(await pruneShareStaging(BRAIN_ROOT)).toBe(1);

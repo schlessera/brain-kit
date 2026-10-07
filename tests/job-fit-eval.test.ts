@@ -142,5 +142,6 @@ test("report measures scripted control outcomes while live comparison metrics re
   expect(result.scriptedRanking).toEqual(["literal", "paraphrase", "mixed-preference"]);
   expect(result.rows.find(r => r.id === "unsupported-prose")!.evidence.passage).toBeNull();
   expect(result.adoption).toBe("not measured"); expect(result.calibration).toBeNull(); expect(result.scoreTransport).toBe("not implemented");
+  expect(Object.keys(result.live)).toHaveLength(7);
   for (const metric of Object.values(result.live)) expect(metric).toBeNull();
 });

@@ -219,7 +219,13 @@ describe("safeSearchRegex", () => {
   test("unbalanced patterns fall back to literal without throwing", () => {
     for (const p of ["(", "*", "[", "a(b"]) {
       expect(() => safeSearchRegex(p)).not.toThrow();
-      expect(safeSearchRegex(p)).not.toBeNull();
+      const re = safeSearchRegex(p);
+      expect(re).not.toBeNull();
+      expect(splitMatches(`before ${p} after`, re!)).toEqual([
+        { text: "before ", match: false },
+        { text: p, match: true },
+        { text: " after", match: false },
+      ]);
     }
   });
 
@@ -241,6 +247,11 @@ describe("safeSearchRegex", () => {
     // `(a+)+$` would backtrack exponentially if compiled as a real regex; the
     // `+` forces the escaped-literal path, which is linear.
     const re = safeSearchRegex("(a+)+$")!;
+    expect(splitMatches("before (a+)+$ after", re)).toEqual([
+      { text: "before ", match: false },
+      { text: "(a+)+$", match: true },
+      { text: " after", match: false },
+    ]);
     const start = performance.now();
     splitMatches("a".repeat(40) + "X", re); // would hang for seconds if unsafe
     expect(performance.now() - start).toBeLessThan(100);
@@ -355,7 +366,9 @@ describe("EditDiffView text", () => {
   });
 
   test("rows carry no word tokens", () => {
-    for (const row of computeDiffRows("the quick brown fox", "the quick red fox")) {
+    const rows = computeDiffRows("the quick brown fox", "the quick red fox");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
       expect(Object.keys(row).sort()).toEqual(["kind", "line"]);
     }
   });

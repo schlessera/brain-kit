@@ -114,6 +114,7 @@ if (!childMode) {
 
     test("every built-in renderer and ASR provider resolves", () => {
       for (const pack of [harness.claudeToolPack, harness.piToolPack]) {
+        expect(pack.renderers.length).toBeGreaterThan(0);
         for (const renderer of pack.renderers) {
           expect(typeof renderer.match).toBe("string");
           if (typeof renderer.match !== "string") continue;

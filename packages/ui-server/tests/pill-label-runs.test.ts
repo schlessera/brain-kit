@@ -10,7 +10,6 @@ import { describe, expect, test } from "bun:test";
 import { createActivityStore, rowToRunRollup, summarizeRollups, type RunRollupRow } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import {
-  LABEL_RUN_NAME,
   createLabeller,
   type LabelCompletionProvider,
   type LabellerOptions,
@@ -82,7 +81,7 @@ describe("pill label runs (#1083)", () => {
     expect(plain).toEqual([]);
     for (const run of runs) {
       expect(run).toMatchObject({
-        name: LABEL_RUN_NAME,
+        name: "pill label",
         sessionId: SESSION,
         origin: "session",
         outcome: "success",
@@ -105,7 +104,7 @@ describe("pill label runs (#1083)", () => {
 
     const runs = r.runs();
     expect(runs.map((run) => [run.name, run.sessionId, run.outcome])).toEqual(
-      TEXTS.map(() => [LABEL_RUN_NAME, SESSION, "success"])
+      TEXTS.map(() => ["pill label", SESSION, "success"])
     );
     for (const run of runs) {
       expect(run.effectiveCostUsd).toBeNull();
@@ -122,7 +121,7 @@ describe("pill label runs (#1083)", () => {
     const runs = r.runs();
     expect(runs).toHaveLength(3);
     for (const run of runs) {
-      expect(run).toMatchObject({ name: LABEL_RUN_NAME, inputTokens: 100, outputTokens: 5, billingMode: null });
+      expect(run).toMatchObject({ name: "pill label", inputTokens: 100, outputTokens: 5, billingMode: null });
       expect(run.effectiveCostUsd).toBeNull();
     }
     expect(summarizeRollups(runs).unpricedRuns).toBe(3);
@@ -148,7 +147,7 @@ describe("pill label runs (#1083)", () => {
     const r = rig(reporting(answer).provider, "api");
     await r.labeller.label("follow-up:a", TEXTS[0]!, SESSION);
     const [run] = r.runs();
-    expect(run).toMatchObject({ name: LABEL_RUN_NAME, sessionId: SESSION });
+    expect(run).toMatchObject({ name: "pill label", sessionId: SESSION });
     expect(run!.effectiveCostUsd).toBeNull();
   });
 
@@ -164,7 +163,7 @@ describe("pill label runs (#1083)", () => {
     };
     const r = rig(provider, "api");
     expect(await r.labeller.label("follow-up:a", TEXTS[0]!, SESSION)).toBeNull();
-    expect(r.runs()).toEqual([expect.objectContaining({ name: LABEL_RUN_NAME, sessionId: SESSION, outcome: "error", effectiveCostUsd: null })]);
+    expect(r.runs()).toEqual([expect.objectContaining({ name: "pill label", sessionId: SESSION, outcome: "error", effectiveCostUsd: null })]);
 
     fail = false;
     // Two sessions ask for the same text at once: one call, on the first asker's session.

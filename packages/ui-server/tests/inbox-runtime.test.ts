@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { createActivityStore } from "../src/activity/store.js";
-import { createInboxRuntime, INBOX_STALE_MS, INBOX_TICK_MS } from "../src/inbox/runtime.js";
+import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInboxPokeAuth } from "../src/routes/internal.js";
 import { createApp } from "../src/app.js";
 import { resolveServerConfig } from "../src/config/env.js";
@@ -42,7 +42,7 @@ function seed(id = "odysseus") {
 function fakeTimers() {
   const callbacks = new Map<Timer, () => void>(); let id = 0;
   return { callbacks, setInterval(callback: () => void, ms: number) {
-    expect(ms).toBe(INBOX_TICK_MS);
+    expect(ms).toBe(60_000);
     const timer = ++id as unknown as Timer; callbacks.set(timer, callback); return timer;
   }, clearInterval(timer: Timer) { callbacks.delete(timer); } };
 }
@@ -130,7 +130,7 @@ describe("inbox drain lifecycle", () => {
     now += 1000; [...timers.callbacks.values()][0]!(); await Bun.sleep(0);
     expect(s.getItem("item-penelope")).toMatchObject({ status: "ready", attempts: 1 });
     expect(s.getItem("item-penelope")).not.toHaveProperty("leaseUntil");
-    timers.callbacks.clear(); now += INBOX_STALE_MS;
+    timers.callbacks.clear(); now += 180_000;
     expect(await r.poke()).toMatchObject({ rearmed: true }); expect(timers.callbacks.size).toBe(1);
     const heartbeat = db.query("SELECT tick_at, change_cursor FROM inbox_scheduler_heartbeats WHERE name = 'inbox-drain'").get();
     expect(heartbeat).toEqual({ tick_at: now, change_cursor: s.snapshot().cursor });

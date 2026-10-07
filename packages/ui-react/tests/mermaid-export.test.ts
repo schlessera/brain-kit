@@ -62,7 +62,9 @@ describe("mermaidThemeVariables", () => {
 
   test("no value is an unresolved light-dark() expression", () => {
     for (const theme of ["dark", "light"] as const) {
-      for (const value of Object.values(mermaidThemeVariables(theme))) {
+      const values = Object.values(mermaidThemeVariables(theme));
+      expect(values.length).toBeGreaterThan(0);
+      for (const value of values) {
         if (typeof value === "string") expect(value).not.toContain("light-dark(");
       }
     }
@@ -70,7 +72,9 @@ describe("mermaidThemeVariables", () => {
 
   test("every value is a plain string or boolean", () => {
     for (const theme of ["dark", "light"] as const) {
-      for (const [key, value] of Object.entries(mermaidThemeVariables(theme))) {
+      const entries = Object.entries(mermaidThemeVariables(theme));
+      expect(entries.length).toBeGreaterThan(0);
+      for (const [key, value] of entries) {
         expect(typeof value === "string" || typeof value === "boolean").toBe(true);
         expect(key).not.toContain(" ");
       }
@@ -81,8 +85,10 @@ describe("mermaidThemeVariables", () => {
     // A variable present in one theme and missing in the other would inherit
     // mermaid's own default for that surface — a stock-mermaid color leaking
     // into a share export is exactly the bug this palette exists to prevent.
-    expect(Object.keys(mermaidThemeVariables("dark")).sort()).toEqual(
-      Object.keys(mermaidThemeVariables("light")).sort()
-    );
+    const dark = Object.keys(mermaidThemeVariables("dark")).sort();
+    const light = Object.keys(mermaidThemeVariables("light")).sort();
+    expect(dark.length).toBeGreaterThan(0);
+    expect(light.length).toBeGreaterThan(0);
+    expect(dark).toEqual(light);
   });
 });

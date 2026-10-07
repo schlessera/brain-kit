@@ -9,7 +9,6 @@ import { unregisterTurnFailureDom } from "./turn-failure-dom.js";
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 import {
-  SUBSCRIPTION_AUTH_INSTRUCTIONS,
   type ServerMessage,
   type SessionHistoryMessage,
   type TurnFailure,
@@ -32,6 +31,24 @@ beforeEach(() => {
     runStates: {},
   });
 });
+
+// Independent copy of the user-facing instructions: importing the implementation
+// would let a changed instruction update both the output and its expectation.
+const EXPECTED_AUTH_INSTRUCTIONS = {
+  relogin:
+    "The Claude subscription token was rejected. " +
+    "Mint a new token with `claude setup-token` on a machine with a browser, put it in the host's secret store as " +
+    "CLAUDE_CODE_OAUTH_TOKEN with today's date as BRAIN_UI_CLAUDE_TOKEN_MINTED_AT, and redeploy " +
+    '(docs/hosting/README.md, "Claude subscription login").',
+  check_account:
+    "The Claude account itself was refused (organisation not allowed, account on hold, or billing). " +
+    "A new token will not help: check the account at claude.ai, then send a turn to confirm.",
+  check_config:
+    "Claude Code was not set to run on the subscription, so the turn was refused before anything was sent. " +
+    "Check that CLAUDE_CODE_OAUTH_TOKEN is set, and that no Claude settings on the host select another " +
+    "credential or provider (apiKeyHelper, policyHelper, a stored API key, a third-party provider). The " +
+    "refusal names which.",
+} as const;
 
 const noop = () => {};
 const SESSION = "s1";
@@ -205,11 +222,11 @@ describe("an auth failure says what to do, per the #254 split", () => {
       failLive({ errorClass, message: "Failed to authenticate.", authAction: action });
       const liveView = renderAssistant();
       const live = failureText(liveView);
-      const instruction = liveView.getByText(SUBSCRIPTION_AUTH_INSTRUCTIONS[action], { exact: true });
+      const instruction = liveView.getByText(EXPECTED_AUTH_INSTRUCTIONS[action], { exact: true });
       expect(instruction).toBeTruthy();
-      expect(live).toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS[action].slice(0, 60));
+      expect(live).toContain(EXPECTED_AUTH_INSTRUCTIONS[action].slice(0, 60));
       for (const [other] of cases) {
-        if (other !== action) expect(live).not.toContain(SUBSCRIPTION_AUTH_INSTRUCTIONS[other].slice(0, 60));
+        if (other !== action) expect(live).not.toContain(EXPECTED_AUTH_INSTRUCTIONS[other].slice(0, 60));
       }
       cleanup();
       replay([
@@ -222,7 +239,7 @@ describe("an auth failure says what to do, per the #254 split", () => {
         },
       ]);
       const replayView = renderAssistant();
-      expect(replayView.getByText(SUBSCRIPTION_AUTH_INSTRUCTIONS[action], { exact: true })).toBeTruthy();
+      expect(replayView.getByText(EXPECTED_AUTH_INSTRUCTIONS[action], { exact: true })).toBeTruthy();
       expect(replayView.queryAllByRole("alert")).toHaveLength(0);
     });
   }

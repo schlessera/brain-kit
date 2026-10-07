@@ -139,6 +139,7 @@ afterAll(async () => {
   await page.viewport(viewport.width, viewport.height);
 });
 afterEach(async () => {
+  await commands.htmlPreviewFixture(null);
   await commands.rankTouch("touchCancel", []);
   document.documentElement.dataset.theme = "dark";
   history.replaceState(null, "", location.pathname + location.search);
@@ -493,20 +494,46 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
 for (const width of [320, 900] as const) {
   test(`D52 N3 at ${width}: Files with an HTML preview loads it again at its top`, async (ctx) => {
     const mode = pointer();
+    const painted: Array<{ path: string; paragraphs: number; first: string; last: string; top: number }> = [];
+    let frame: HTMLIFrameElement | null = null;
+    const observe = (event: MessageEvent) => {
+      if (event.source === (frame ?? document.querySelector<HTMLIFrameElement>('iframe[title="HTML preview"]'))?.contentWindow && event.data?.type === "preview-position") painted.push(event.data);
+    };
+    window.addEventListener("message", observe);
+    ctx.onTestFinished(() => window.removeEventListener("message", observe));
+    // The sandboxed document reports its own painted content and scroll;
+    // parent access to its opaque-origin DOM remains forbidden.
+    await commands.htmlPreviewFixture(HTML_FILE, `${MAP}<script>
+      const report = () => parent.postMessage({type: 'preview-position', path: new URL(location.href).searchParams.get('path'), paragraphs: document.querySelectorAll('p').length, first: document.querySelector('p').textContent, last: document.querySelector('p:last-of-type').textContent, top: scrollY}, '*');
+      addEventListener('load', report);
+      addEventListener('message', event => {
+        if (event.source === parent && event.data === 'scroll-preview-to-end') {
+          scrollTo(0, document.documentElement.scrollHeight);
+          requestAnimationFrame(report);
+        }
+      });
+    </script>`);
     const s = await mount(ctx, "files", width, HEIGHT, "dark");
     await s.ui.stores.file.getState().openFile(HTML_FILE);
-    let frame: HTMLIFrameElement | null = null;
     await expect.poll(() => (frame = panel(s, "Files")?.querySelector<HTMLIFrameElement>('iframe[title="HTML preview"]') ?? null) !== null,
       { message: "the HTML preview is drawn" }).toBe(true);
     await expect.poll(() => moving(), { interval: 16, message: "entrances have settled" }).toBe(false);
     const src = frame!.getAttribute("src");
     expect(src, "the preview loads the sandboxed route").toContain("/files/html?path=");
+    expect(new URL(src!, location.href).searchParams.get("path"), "the preview requests the selected file").toBe("voyage-map.html");
+    await expect.poll(() => painted.length, { message: "the native preview document loaded" }).toBeGreaterThan(0);
+    expect(painted.at(-1)).toMatchObject({ path: "voyage-map.html", paragraphs: 120, first: "League 1 from Ithaca.", last: "League 120 from Ithaca.", top: 0 });
+    frame!.contentWindow!.postMessage("scroll-preview-to-end", "*");
+    await expect.poll(() => painted.at(-1)?.top ?? 0, { message: "the preview really scrolled away from its top" }).toBeGreaterThan(100);
+    const documentsBefore = painted.length;
     let loads = 0;
     frame!.addEventListener("load", () => { loads++; });
     await settle(s, 6);
     const before = loads;
     await press(s, SPECS.files, "pointer", mode);
     await expect.poll(() => loads, { message: "the press loads the preview again" }).toBeGreaterThan(before);
+    await expect.poll(() => painted.length, { message: "the reloaded native document reports" }).toBeGreaterThan(documentsBefore);
+    expect(painted.at(-1)).toMatchObject({ path: "voyage-map.html", paragraphs: 120, first: "League 1 from Ithaca.", last: "League 120 from Ithaca.", top: 0 });
     expect(s.ui.stores.file.getState().currentPath, "the file stays open").toBe(HTML_FILE);
     expect(panel(s, "Files")?.querySelector('iframe[title="HTML preview"]'), "the same frame, not a remount").toBe(frame);
     // Reloaded from the same route: an empty srcdoc would win over src and blank the file.

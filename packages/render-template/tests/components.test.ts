@@ -52,6 +52,7 @@ describe("the component contract (#530)", () => {
   describe("block snippets", () => {
     test("names are unique", () => {
       const names = DOCUMENT_BLOCKS.map((b) => b.name);
+      expect(names.length, "the block catalogue is populated").toBeGreaterThan(0);
       expect(new Set(names).size).toBe(names.length);
     });
 

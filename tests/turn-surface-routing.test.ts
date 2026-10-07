@@ -204,11 +204,13 @@ test("a production attachment stream preserves the turn instead of classifying a
 test("four arms share six frozen nonempty cases and expose scripted false-negative controls without live metrics", async () => {
   const report = await measureKeyless();
   expect(report.rows).toHaveLength(24);
+  expect([...new Set(report.rows.map(row => row.case))].sort()).toEqual(["missed-quote", "needed-quote", "needed-skill", "needless-skill", "prose-only", "wrong-skill"]);
   for (const arm of ["baseline", "hint", "load-set", "hard-prune"]) expect(report.rows.filter(row => row.arm === arm).map(row => row.case)).toEqual(report.rows.filter(row => row.arm === "baseline").map(row => row.case));
   const missed = report.rows.filter(row => row.case === "missed-quote");
   expect(missed.map(row => row.neededToolReachable)).toEqual([true, true, true, false]);
   expect(missed.map(row => row.scriptedValidCalls.length)).toEqual([1, 1, 1, 0]);
   expect(report.rows.filter(row => row.case === "wrong-skill" && row.arm !== "baseline").every(row => row.scriptedWrongSuggestion)).toBe(true);
   expect(report.rows.filter(row => row.case === "needless-skill" && row.arm !== "baseline").every(row => row.scriptedNeedlessSuggestion)).toBe(true);
+  expect(Object.keys(report.live)).toHaveLength(6);
   expect(Object.values(report.live).every(value => value === null)).toBe(true);
 });

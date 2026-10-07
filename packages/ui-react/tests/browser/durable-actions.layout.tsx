@@ -271,7 +271,9 @@ describe("durable Actions", () => {
     await click(button(card(d, "a-one"), "Approve: Edit finances/ithaca-port.md"));
     const applying = card(d, "a-one");
     expect(applying.textContent).toContain("Recording…");
-    for (const b of applying.querySelectorAll("[data-disposition-bar] [role='button']")) expect(b.getAttribute("aria-disabled")).toBe("true");
+    const applyingControls = applying.querySelectorAll("[data-disposition-bar] [role='button']");
+    expect(applyingControls.length, "applying keeps answer controls on screen").toBeGreaterThan(0);
+    for (const b of applyingControls) expect(b.getAttribute("aria-disabled")).toBe("true");
     expect(badges(d)).toEqual(["2", "2", "2", "2"]);
     expect(d.frames().filter((f) => f.type === "inbox_resolve")).toHaveLength(1);
     server.release("laptop");
@@ -420,7 +422,12 @@ describe("durable Actions", () => {
     const waitUntil = server.action("a-one").waitUntil!;
     expect(waitUntil).toBeGreaterThan(Date.now() + 2 * DAY);
     // The receipt stays where the card was and prints the server's time.
-    expect(d.host.querySelector("[data-decision-list] [data-decision-receipt='a-one']")!.textContent).toMatch(/^Snoozed until /);
+    const receiptText = d.host.querySelector("[data-decision-list] [data-decision-receipt='a-one']")!.textContent!;
+    expect(receiptText).toMatch(/^Snoozed until /);
+    // Derive date and local clock fields from the server value, without the UI formatter.
+    const serverTime = new Date(waitUntil);
+    expect(receiptText, "receipt carries the server's date").toContain(new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(serverTime));
+    expect(receiptText, "receipt carries the server's clock time").toContain(`${String(serverTime.getHours()).padStart(2, "0")}:${String(serverTime.getMinutes()).padStart(2, "0")}`);
     expect(document.activeElement).toBe(card(d, "a-two"));
     expect(badges(d)).toEqual(["1", "1", "1", "1"]);
     const later = d.host.querySelector<HTMLElement>("[data-later-section]")!;

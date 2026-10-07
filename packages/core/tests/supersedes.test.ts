@@ -163,7 +163,8 @@ describe("supersedes", () => {
     expect(r.code, r.stderr).toBe(0);
     const listed = JSON.parse(r.stdout).results as Hit[];
     expect(listed.find((h) => h.path === OLD)?.supersededBy).toBe(NEW);
-    expect(listed.find((h) => h.path === NEW)?.supersededBy).toBeUndefined();
+    expect(listed.find((h) => h.path === NEW)).toHaveProperty("path", NEW);
+    expect(listed.find((h) => h.path === NEW)).not.toHaveProperty("supersededBy");
 
     const client = new Client({ name: "supersedes-filter-test", version: "1.0.0" });
     await client.connect(new StdioClientTransport({ command: "bun", args: [BRAIN_BIN, "mcp"], env: keylessEnv(root) }));

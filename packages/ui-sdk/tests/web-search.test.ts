@@ -31,14 +31,17 @@ describe("web-search config path", () => {
 describe("provider catalog", () => {
   test("free providers sort ahead of paid ones", () => {
     const ranks = WEB_SEARCH_PROVIDERS.map((p) => p.costRank);
+    expect(ranks.length, "the provider catalogue is populated").toBeGreaterThan(0);
     expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
     const firstPaid = WEB_SEARCH_PROVIDERS.findIndex((p) => !p.keyless);
+    expect(firstPaid, "free providers precede at least one paid provider").toBeGreaterThan(0);
     expect(WEB_SEARCH_PROVIDERS.slice(0, firstPaid).every((p) => p.keyless)).toBe(true);
   });
 
   test("every paid provider is reachable by key or environment", () => {
-    for (const p of WEB_SEARCH_PROVIDERS) {
-      if (p.keyless) continue;
+    const paid = WEB_SEARCH_PROVIDERS.filter((p) => !p.keyless);
+    expect(paid.length, "paid providers reach the credential assertions").toBeGreaterThan(0);
+    for (const p of paid) {
       expect(p.keyField).toBeTruthy();
       expect(p.envVar).toBeTruthy();
     }
@@ -46,6 +49,7 @@ describe("provider catalog", () => {
 
   test("ids are unique", () => {
     const ids = WEB_SEARCH_PROVIDERS.map((p) => p.id);
+    expect(ids.length, "provider ids reach the uniqueness assertion").toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

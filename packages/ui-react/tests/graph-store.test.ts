@@ -162,6 +162,8 @@ describe("graph-store", () => {
     const calls = mockFetch({ "/graph/neighborhood": { body: SUBGRAPH } });
     useGraphStore.getState().setLocalParams({ center: "cache-test.md" });
     await settle();
+    expect(calls).toHaveLength(1);
+    expect(useGraphStore.getState().subgraph?.nodes).toHaveLength(2);
     const first = calls.length;
     // Same params again — served from cache, no second request.
     await useGraphStore.getState().fetchScene();
@@ -257,6 +259,8 @@ describe("graph-store", () => {
     const calls = mockFetch({ "/graph/clusters": { body: SUBGRAPH } });
     useGraphStore.getState().setMode("clusters");
     await settle();
+    expect(calls).toHaveLength(1);
+    expect(useGraphStore.getState().subgraph?.nodes).toHaveLength(2);
     const before = calls.length;
     useGraphStore.getState().setClustersSizeBy("pagerank");
     useGraphStore.getState().setDiscoveryColorBy("folder");

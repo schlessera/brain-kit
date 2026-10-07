@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
+import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
@@ -155,7 +156,7 @@ describe("on the socket", () => {
     // Opening the app: a resume, an environment report, a first message, then
     // a dozen approvals during a busy turn. If this ever trips, the defaults
     // are wrong — not the test.
-    const { db, handlers } = setup({ ratePerSecond: 20, burst: 60 });
+    const { db, handlers } = setup(resolveServerConfig({}).wsRate);
     const ws = fakeSocket();
     for (let i = 0; i < 40; i++) {
       handlers.onMessage(

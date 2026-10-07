@@ -92,6 +92,7 @@ describe("installSkillsFromZip", () => {
       { overwrite: true }
     );
     expect(outcomes[0]!.status).toBe("replaced");
+    expect(readFileSync(join(root, ".agents", "skills", "my-skill", "SKILL.md"), "utf8")).toBe(SKILL("my-skill") + "\nv2");
     // The replacement lands ENABLED and the disabled copy is gone.
     expect(existsSync(join(root, ".agents", "skills", "my-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(root, ".agents", "skills-disabled", "my-skill"))).toBe(false);

@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, unlinkSync } from "fs";
 
-// The raw-SQL tests below predate the factory and assert the row shapes
-// directly; recordCronRun is the exported writer of those same rows.
-import { recordCronRun } from "../src/cron/scheduler";
+// Drive the real writer and status reader; fixture SQL only seeds history.
+import type { BrainClient } from "../src/brain/client";
+import { recordCronRun, createCronScheduler } from "../src/cron/scheduler";
 
 const TEST_DB = `/tmp/brain-ui-cron-test-${process.pid}.db`;
 
@@ -40,14 +40,12 @@ describe("cron scheduler logic", () => {
 
   test("records a successful job run", () => {
     const startedAt = Date.now();
-    db.prepare(
-      "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'running')"
-    ).run("sync", startedAt);
-
-    const durationMs = 1500;
-    db.prepare(
-      "UPDATE cron_runs SET status = 'success', finished_at = ?, duration_ms = ? WHERE job_name = ? AND started_at = ?"
-    ).run(startedAt + durationMs, durationMs, "sync", startedAt);
+    const clock = spyOn(Date, "now").mockReturnValue(startedAt);
+    try {
+      const record = recordCronRun(db, "sync");
+      clock.mockReturnValue(startedAt + 1500);
+      record.finish();
+    } finally { clock.mockRestore(); }
 
     const row = db
       .query(
@@ -62,14 +60,8 @@ describe("cron scheduler logic", () => {
   });
 
   test("records a failed job run with error message", () => {
-    const startedAt = Date.now();
-    db.prepare(
-      "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'running')"
-    ).run("validate", startedAt);
-
-    db.prepare(
-      "UPDATE cron_runs SET status = 'error', finished_at = ?, duration_ms = ?, error_message = ? WHERE job_name = ? AND started_at = ?"
-    ).run(startedAt + 500, 500, "Connection refused", "validate", startedAt);
+    const record = recordCronRun(db, "validate");
+    record.finish("Connection refused");
 
     const row = db
       .query(
@@ -81,7 +73,7 @@ describe("cron scheduler logic", () => {
     expect(row.error_message).toBe("Connection refused");
   });
 
-  test("getCronStatus pattern returns latest run per job", () => {
+  test("getCronStatus returns latest run per job", () => {
     // Insert multiple runs for the same job
     for (let i = 0; i < 5; i++) {
       db.prepare(
@@ -89,13 +81,8 @@ describe("cron scheduler logic", () => {
       ).run("sync", 1000 + i * 100, 1000 + i * 100 + 50, 50);
     }
 
-    const lastRun = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1"
-      )
-      .get("sync") as any;
-
-    expect(lastRun.started_at).toBe(1400);
+    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    expect(status.find((job) => job.name === "sync")!.lastRunAt).toBe(1400);
   });
 
   test("handles multiple job types independently", () => {
@@ -106,29 +93,14 @@ describe("cron scheduler logic", () => {
       "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'error')"
     ).run("validate", 2000);
 
-    const syncRun = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'sync' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get() as any;
-    const validateRun = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'validate' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get() as any;
-
-    expect(syncRun.status).toBe("success");
-    expect(validateRun.status).toBe("error");
+    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    expect(status.find((job) => job.name === "sync")!.lastStatus).toBe("success");
+    expect(status.find((job) => job.name === "validate")!.lastStatus).toBe("error");
   });
 
-  test("no runs returns null from query", () => {
-    const row = db
-      .query(
-        "SELECT * FROM cron_runs WHERE job_name = 'nonexistent' ORDER BY started_at DESC LIMIT 1"
-      )
-      .get();
-
-    expect(row).toBeNull();
+  test("no runs returns a null lastRunAt", () => {
+    const status = createCronScheduler({ db, brain: {} as BrainClient }).getCronStatus();
+    expect(status.find((job) => job.name === "sync")!.lastRunAt).toBeNull();
   });
 });
 

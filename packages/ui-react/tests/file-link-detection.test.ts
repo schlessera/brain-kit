@@ -1,31 +1,14 @@
 import { describe, test, expect } from "bun:test";
 
-// Mirror of isInternalRepoPath from client/src/stores/file-store.ts.
-// Keep in sync — extracted here to avoid pulling in the full store (which
-// references import.meta.env and would fail in the bun test runner).
-const FILE_REF_RE = /^[a-z0-9_.-]+(\/[a-z0-9_.-]+)*\.[a-z0-9]{1,8}$/i;
-const URL_LIKE_RE = /^(?:https?:|mailto:|tel:|#|\/)/i;
-const VERSION_RE = /^\d+(\.\d+){1,3}$/;
+import React from "react";
+import { classifyRepoPath, isInternalRepoDir, isInternalRepoPath } from "../src/stores/file-state.js";
+import { DirLink, FileLink, renderBarePathsInText } from "../src/components/chat/brain-markdown-links.js";
+import { processChildText, renderEntityTags } from "../src/components/chat/brain-markdown-entities.js";
 
-function isInternalRepoPath(href: string | undefined): boolean {
-  if (!href) return false;
-  if (URL_LIKE_RE.test(href)) return false;
-  if (VERSION_RE.test(href)) return false;
-  if (href.includes(" ")) return false;
-  return FILE_REF_RE.test(href);
-}
-
-// Mirror of BARE_PATH_RE from brain-markdown.tsx
-const BARE_PATH_RE = /\b([a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\.[a-z0-9]{1,8})\b/gi;
-
+// Observe the production scanner's elements, rather than a copied regex.
 function extractBarePaths(text: string): string[] {
-  const out: string[] = [];
-  BARE_PATH_RE.lastIndex = 0;
-  let m;
-  while ((m = BARE_PATH_RE.exec(text)) !== null) {
-    if (isInternalRepoPath(m[1])) out.push(m[1]);
-  }
-  return out;
+  return renderBarePathsInText(text).flatMap((node) =>
+    React.isValidElement<{ path: string }>(node) && node.type === FileLink ? [node.props.path] : []);
 }
 
 describe("isInternalRepoPath", () => {
@@ -90,14 +73,8 @@ describe("bare-path extraction", () => {
     expect(extractBarePaths("see README.md please")).toEqual([]);
   });
 
-  test("matches the path-like tail of a raw URL when not autolinked", () => {
-    // Realistic note: in the rendered tree, URLs are wrapped in <a> by
-    // remarkGfm autolinker and we skip recursion into <a> — so this only
-    // hits raw text outside any link, where treating the path as internal
-    // is acceptable noise.
-    expect(extractBarePaths("see https://example.com/path.md")).toEqual([
-      "com/path.md",
-    ]);
+  test("does not salvage a path-like tail from a raw URL", () => {
+    expect(extractBarePaths("see https://example.com/path.md")).toEqual([]);
   });
 
   test("trailing punctuation is excluded by word boundary", () => {
@@ -105,39 +82,9 @@ describe("bare-path extraction", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Directory references (trailing slash)
-//
-// Mirrors DIR_REF_RE / isInternalRepoDir in file-store.ts and BARE_DIR_RE in
-// brain-markdown.tsx. Files and dirs use separate regexes; combined detection
-// picks the earlier match when ranges overlap.
-// ----------------------------------------------------------------------------
-
-const DIR_REF_RE = /^[a-z0-9_.-]+(\/[a-z0-9_.-]+)+\/$/i;
-const BARE_DIR_RE = /\b([a-z][a-z0-9_-]*(?:\/[a-z0-9._-]+)+\/)(?=$|[\s,;:!?)\]])/gi;
-
-function isInternalRepoDir(href: string | undefined): boolean {
-  if (!href) return false;
-  if (URL_LIKE_RE.test(href)) return false;
-  if (VERSION_RE.test(href)) return false;
-  if (href.includes(" ")) return false;
-  return DIR_REF_RE.test(href);
-}
-
-function classifyRepoPath(href: string | undefined): "file" | "dir" | null {
-  if (isInternalRepoPath(href)) return "file";
-  if (isInternalRepoDir(href)) return "dir";
-  return null;
-}
-
 function extractBareDirs(text: string): string[] {
-  const out: string[] = [];
-  BARE_DIR_RE.lastIndex = 0;
-  let m;
-  while ((m = BARE_DIR_RE.exec(text)) !== null) {
-    if (isInternalRepoDir(m[1])) out.push(m[1]);
-  }
-  return out;
+  return renderBarePathsInText(text).flatMap((node) =>
+    React.isValidElement<{ path: string }>(node) && node.type === DirLink ? [`${node.props.path}/`] : []);
 }
 
 describe("isInternalRepoDir", () => {
@@ -195,70 +142,26 @@ describe("bare-dir extraction", () => {
   });
 });
 
-// ----------------------------------------------------------------------------
-// Entity-tag + bare-path interaction
-//
-// Mirrors brain-markdown.tsx's transformTextString — when entity markers wrap
-// content, that content must still be scanned for bare paths so a tag like
-// `<f>notes/foo.md</f>` produces both an entity span AND a file-link inside.
-// ----------------------------------------------------------------------------
-
-const ENTITY_START = "\u200B\u200B";
-const ENTITY_SEP = "\u200B";
-const ENTITY_END = "\u200B\u200B\u200B";
-
-function renderEntityTags(md: string): string {
-  return md.replace(
-    /<(co|p|proj|ev|d|st|f)>([\s\S]*?)<\/\1>/g,
-    (_m, tag, content) => `${ENTITY_START}${tag}${ENTITY_SEP}${content}${ENTITY_END}`
-  );
-}
-
 type Token =
   | { type: "text"; value: string }
   | { type: "path"; value: string }
   | { type: "entity"; tag: string; inner: Token[] };
 
+// Translate real rendered nodes into assertions; no parsing/linkification
+// logic is duplicated here. Fragments only collect their existing children.
+function observedTokens(node: React.ReactNode): Token[] {
+  if (typeof node === "string") return [{ type: "text", value: node }];
+  if (Array.isArray(node)) return node.flatMap(observedTokens);
+  if (!React.isValidElement<{ path?: string; className?: string; children?: React.ReactNode }>(node)) return [];
+  if (node.type === FileLink) return [{ type: "path", value: node.props.path! }];
+  if (node.type === "span" && node.props.className?.startsWith("entity-")) {
+    return [{ type: "entity", tag: node.props.className.slice("entity-".length), inner: observedTokens(node.props.children) }];
+  }
+  return observedTokens(node.props.children);
+}
+
 function tokenize(text: string, fileLinks: boolean, entityTags: boolean): Token[] {
-  if (entityTags && text.includes(ENTITY_START)) {
-    const pattern = new RegExp(
-      `${ENTITY_START}(co|p|proj|ev|d|st|f)${ENTITY_SEP}(.*?)${ENTITY_END}`,
-      "g"
-    );
-    const tokens: Token[] = [];
-    let lastIndex = 0;
-    let m;
-    while ((m = pattern.exec(text)) !== null) {
-      if (m.index > lastIndex) {
-        tokens.push(...tokenize(text.slice(lastIndex, m.index), fileLinks, false));
-      }
-      tokens.push({
-        type: "entity",
-        tag: m[1],
-        inner: tokenize(m[2], fileLinks, false),
-      });
-      lastIndex = pattern.lastIndex;
-    }
-    if (lastIndex < text.length) {
-      tokens.push(...tokenize(text.slice(lastIndex), fileLinks, false));
-    }
-    return tokens;
-  }
-
-  if (!fileLinks) return [{ type: "text", value: text }];
-
-  const tokens: Token[] = [];
-  let lastIndex = 0;
-  let m;
-  BARE_PATH_RE.lastIndex = 0;
-  while ((m = BARE_PATH_RE.exec(text)) !== null) {
-    if (!isInternalRepoPath(m[1])) continue;
-    if (m.index > lastIndex) tokens.push({ type: "text", value: text.slice(lastIndex, m.index) });
-    tokens.push({ type: "path", value: m[1] });
-    lastIndex = BARE_PATH_RE.lastIndex;
-  }
-  if (lastIndex < text.length) tokens.push({ type: "text", value: text.slice(lastIndex) });
-  return tokens;
+  return observedTokens(processChildText(text, { fileLinks, entityTags }));
 }
 
 describe("entity-tag + bare-path interaction", () => {

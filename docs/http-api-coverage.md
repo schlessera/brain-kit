@@ -96,8 +96,8 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:78-84`)
-- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:685-700`)
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:77-83`)
+- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:684-699`)
 
 **T — Operational status.**
 
@@ -109,9 +109,9 @@ row's real mounting check. They do not establish mounting by themselves.
 **A — Password access and revocation.**
 
 - `real app password login issues a usable owner cookie and logout revokes it` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`real app password login issues a usable owner cookie and logout revokes it`, `packages/ui-server/tests/http-principal-boundaries.test.ts:55-76`)
-- `wrong password is rejected` ([source](../packages/ui-server/tests/auth.test.ts)), (`wrong password is rejected`, `packages/ui-server/tests/auth.test.ts:188-196`)
-- `login is rate limited per client IP` ([source](../packages/ui-server/tests/auth.test.ts)), (`login is rate limited per client IP`, `packages/ui-server/tests/auth.test.ts:320-333`)
-- `the live-principal cap returns 503 without creating a session` ([source](../packages/ui-server/tests/auth.test.ts)), (`the live-principal cap returns 503 without creating a session`, `packages/ui-server/tests/auth.test.ts:300-318`)
+- `wrong password is rejected` ([source](../packages/ui-server/tests/auth.test.ts)), (`wrong password is rejected`, `packages/ui-server/tests/auth.test.ts:183-191`)
+- `login is rate limited per client IP` ([source](../packages/ui-server/tests/auth.test.ts)), (`login is rate limited per client IP`, `packages/ui-server/tests/auth.test.ts:315-327`)
+- `the live-principal cap returns 503 without creating a session` ([source](../packages/ui-server/tests/auth.test.ts)), (`the live-principal cap returns 503 without creating a session`, `packages/ui-server/tests/auth.test.ts:295-313`)
 
 **P — Passkey ceremonies and metadata.**
 
@@ -129,18 +129,18 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **D — Delegated principal lifecycle.**
 
-- `mint returns a one-time Hono cookie without replacing the owner's session` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`mint returns a one-time Hono cookie without replacing the owner's session`, `packages/ui-server/tests/principal-routes.test.ts:119-178`)
-- `ttlDays validates its bounds and persists the default and maximum` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ttlDays validates its bounds and persists the default and maximum`, `packages/ui-server/tests/principal-routes.test.ts:218-261`)
-- `revocation rejects the cookie on the next request and leaves the owner live` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`revocation rejects the cookie on the next request and leaves the owner live`, `packages/ui-server/tests/principal-routes.test.ts:279-330`)
-- `self-revocation is a logout and missing or already-revoked ids are 404` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`self-revocation is a logout and missing or already-revoked ids are 404`, `packages/ui-server/tests/principal-routes.test.ts:332-378`)
-- `ambient modes return the same not-enabled response on all three routes` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ambient modes return the same not-enabled response on all three routes`, `packages/ui-server/tests/principal-routes.test.ts:380-397`)
+- `mint returns a one-time Hono cookie without replacing the owner's session` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`mint returns a one-time Hono cookie without replacing the owner's session`, `packages/ui-server/tests/principal-routes.test.ts:117-176`)
+- `ttlDays validates its bounds and persists the default and maximum` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ttlDays validates its bounds and persists the default and maximum`, `packages/ui-server/tests/principal-routes.test.ts:216-259`)
+- `revocation rejects the cookie on the next request and leaves the owner live` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`revocation rejects the cookie on the next request and leaves the owner live`, `packages/ui-server/tests/principal-routes.test.ts:277-328`)
+- `self-revocation is a logout and missing or already-revoked ids are 404` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`self-revocation is a logout and missing or already-revoked ids are 404`, `packages/ui-server/tests/principal-routes.test.ts:330-376`)
+- `ambient modes return the same not-enabled response on all three routes` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ambient modes return the same not-enabled response on all three routes`, `packages/ui-server/tests/principal-routes.test.ts:378-395`)
 
 **B — Corpus transport and CLI errors.**
 
-- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:114-138`)
-- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:201-211`)
-- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:57-83`)
-- ``stats history runs `brain stats --history` and the route passes its nulls through`` ([source](../packages/ui-server/tests/brain-client.test.ts)), (``stats history runs `brain stats --history` and the route passes its nulls through``, `packages/ui-server/tests/brain-client.test.ts:85-112`)
+- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:118-142`)
+- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:205-215`)
+- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:61-87`)
+- ``stats history runs `brain stats --history` and the route passes its nulls through`` ([source](../packages/ui-server/tests/brain-client.test.ts)), (``stats history runs `brain stats --history` and the route passes its nulls through``, `packages/ui-server/tests/brain-client.test.ts:89-116`)
 - `mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame` ([source](../packages/ui-server/tests/http-cli-errors.test.ts)), (`mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame`, `packages/ui-server/tests/http-cli-errors.test.ts:7-37`)
 
 **C — Capture and index recovery.**
@@ -159,10 +159,10 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **F — Content and byte ranges.**
 
-- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:204-210`)
-- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:229-234`)
-- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:96-98`)
-- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:240-253`)
+- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:206-212`)
+- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:231-236`)
+- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:98-100`)
+- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:242-255`)
 - `Safari's two-byte probe gets a 206 with its length, and the frame headers` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`Safari's two-byte probe gets a 206 with its length, and the frame headers`, `packages/ui-server/tests/files-raw-range.test.ts:222-231`)
 - `a range that starts past the end is a 416 naming the size` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a range that starts past the end is a 416 naming the size`, `packages/ui-server/tests/files-raw-range.test.ts:87-92`)
 - `a HEAD request ignores Range, which applies to GET only` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a HEAD request ignores Range, which applies to GET only`, `packages/ui-server/tests/files-raw-range.test.ts:102-107`)
@@ -172,9 +172,9 @@ row's real mounting check. They do not establish mounting by themselves.
 - `runs list splits live and history, newest first, with filters` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`runs list splits live and history, newest first, with filters`, `packages/ui-server/tests/routes-activity.test.ts:76-99`)
 - `run detail omits tool payload events unless ?include=payloads asks` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`run detail omits tool payload events unless ?include=payloads asks`, `packages/ui-server/tests/routes-activity.test.ts:113-143`)
 - `a pruned run resolves to its rollup; an unknown id 404s (R26)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`a pruned run resolves to its rollup; an unknown id 404s (R26)`, `packages/ui-server/tests/routes-activity.test.ts:145-171`)
-- `rollups aggregate per day/job/session from root accounting, in the configured zone` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups aggregate per day/job/session from root accounting, in the configured zone`, `packages/ui-server/tests/routes-activity.test.ts:173-192`)
-- `rollups route sums only priced runs and counts the NULLs at every group (AE3)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups route sums only priced runs and counts the NULLs at every group (AE3)`, `packages/ui-server/tests/routes-activity.test.ts:304-324`)
-- `GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90` ([source](../packages/ui-server/tests/activity-stats.test.ts)), (`GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90`, `packages/ui-server/tests/activity-stats.test.ts:497-529`)
+- `rollups aggregate per day/job/session from root accounting, in the configured zone` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups aggregate per day/job/session from root accounting, in the configured zone`, `packages/ui-server/tests/routes-activity.test.ts:173-201`)
+- `rollups route sums only priced runs and counts the NULLs at every group (AE3)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups route sums only priced runs and counts the NULLs at every group (AE3)`, `packages/ui-server/tests/routes-activity.test.ts:330-350`)
+- `GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90` ([source](../packages/ui-server/tests/activity-stats.test.ts)), (`GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90`, `packages/ui-server/tests/activity-stats.test.ts:499-531`)
 
 The six named `GROUP AXIS rounds the completed multi-run sum to four decimals`
 cases cover days/jobs/sessions and costUsd/effectiveCostUsd separately
@@ -215,8 +215,8 @@ checks both nonempty priced and mixed-knownness fixtures
 **U — Push ownership and SDK renewal.**
 
 - `SDK push renewal reaches the mounted subscribe handler and retains principal isolation` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`SDK push renewal reaches the mounted subscribe handler and retains principal isolation`, `packages/ui-server/tests/http-principal-boundaries.test.ts:78-135`)
-- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:312-321`)
-- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:323-332`)
+- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:323-332`)
+- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:334-343`)
 
 **Q — Authenticated intake.**
 
@@ -245,13 +245,13 @@ checks both nonempty priced and mixed-knownness fixtures
 - `two devices saving one revision get one success and one typed conflict carrying the host's version` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`two devices saving one revision get one success and one typed conflict carrying the host's version`, `packages/ui-server/tests/drafts-http.test.ts:172-190`)
 - `a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`a retried key returns its receipt, a changed payload under it is refused, and tombstones stop stale writes`, `packages/ui-server/tests/drafts-http.test.ts:192-234`)
 - `invalid, oversized and over-capacity requests leave the committed draft as it was` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`invalid, oversized and over-capacity requests leave the committed draft as it was`, `packages/ui-server/tests/drafts-http.test.ts:236-289`)
-- `draft text and images never reach the request log` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`draft text and images never reach the request log`, `packages/ui-server/tests/drafts-http.test.ts:291-303`)
+- `draft text and images never reach the request log` ([source](../packages/ui-server/tests/drafts-http.test.ts)), (`draft text and images never reach the request log`, `packages/ui-server/tests/drafts-http.test.ts:291-307`)
 - `server_hello advertises draft storage with its limits beside the boolean capabilities` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`server_hello advertises draft storage with its limits beside the boolean capabilities`, `packages/ui-server/tests/drafts-send.test.ts:84-91`)
 - `a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a delayed first-send acknowledgement keeps newer edits, and only that request can bind them to its session`, `packages/ui-server/tests/drafts-send.test.ts:93-126`)
 - `an accepted send consumes its current revision and that draft's images, nothing else` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`an accepted send consumes its current revision and that draft's images, nothing else`, `packages/ui-server/tests/drafts-send.test.ts:128-148`)
 - `a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a queued follow-up consumes its session's draft when queued; another session's draft and a stale ref stay`, `packages/ui-server/tests/drafts-send.test.ts:150-176`)
 - `a refused message consumes nothing` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`a refused message consumes nothing`, `packages/ui-server/tests/drafts-send.test.ts:178-186`)
-- `saving, listing, deleting and binding drafts never starts a turn` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`saving, listing, deleting and binding drafts never starts a turn`, `packages/ui-server/tests/drafts-send.test.ts:188-200`)
+- `draft storage operations and a refused bind never start a turn` ([source](../packages/ui-server/tests/drafts-send.test.ts)), (`draft storage operations and a refused bind never start a turn`, `packages/ui-server/tests/drafts-send.test.ts:188-200`)
 - `total host capacity refuses an upload or a growing save without dropping stored content` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`total host capacity refuses an upload or a growing save without dropping stored content`, `packages/ui-server/tests/drafts-store.test.ts:32-44`)
 - `a save that drops an image to make room for text is measured after the drop` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a save that drops an image to make room for text is measured after the drop`, `packages/ui-server/tests/drafts-store.test.ts:46-54`)
 - `per-draft byte bound counts text and images together` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`per-draft byte bound counts text and images together`, `packages/ui-server/tests/drafts-store.test.ts:56-62`)
@@ -264,17 +264,17 @@ checks both nonempty priced and mixed-knownness fixtures
 **J — Confirmed share intake.**
 
 - `mounted share replay creates one untrusted thread, triage item and staging area` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`mounted share replay creates one untrusted thread, triage item and staging area`, `packages/ui-server/tests/inbox-intake.test.ts:40-60`)
-- `stages files under the staging dir with their bytes intact` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`stages files under the staging dir with their bytes intact`, `packages/ui-server/tests/share-routes.test.ts:78-96`)
-- `a body with no content-length is still capped while streaming` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`a body with no content-length is still capped while streaming`, `packages/ui-server/tests/share-routes.test.ts:193-221`)
-- `too many files is refused with the limit` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`too many files is refused with the limit`, `packages/ui-server/tests/share-routes.test.ts:164-177`)
-- `counts overlapping uploads before their first body-read await` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`counts overlapping uploads before their first body-read await`, `packages/ui-server/tests/share-routes.test.ts:265-332`)
+- `stages files under the staging dir with their bytes intact` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`stages files under the staging dir with their bytes intact`, `packages/ui-server/tests/share-routes.test.ts:73-91`)
+- `a body with no content-length is still capped while streaming` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`a body with no content-length is still capped while streaming`, `packages/ui-server/tests/share-routes.test.ts:188-216`)
+- `too many files is refused with the limit` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`too many files is refused with the limit`, `packages/ui-server/tests/share-routes.test.ts:159-172`)
+- `counts overlapping uploads before their first body-read await` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`counts overlapping uploads before their first body-read await`, `packages/ui-server/tests/share-routes.test.ts:260-327`)
 - `staging followed by a database failure rolls back work and compensates files before retry` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`staging followed by a database failure rolls back work and compensates files before retry`, `packages/ui-server/tests/inbox-intake.test.ts:120-136`)
 
 **L — Share-target fallback and interception.**
 
 - `share-target network fallback leaves the cross-site request body unread before authentication` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`share-target network fallback leaves the cross-site request body unread before authentication`, `packages/ui-server/tests/http-principal-boundaries.test.ts:137-147`)
-- `stashes a text share and redirects with its id` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`stashes a text share and redirects with its id`, `packages/ui-sdk/tests/share-target.test.ts:57-79`)
-- `respondWith is called synchronously with the event` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`respondWith is called synchronously with the event`, `packages/ui-sdk/tests/share-target.test.ts:372-392`)
+- `stashes a text share and redirects with its id` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`stashes a text share and redirects with its id`, `packages/ui-sdk/tests/share-target.test.ts:54-76`)
+- `respondWith is called synchronously with the event` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`respondWith is called synchronously with the event`, `packages/ui-sdk/tests/share-target.test.ts:369-389`)
 
 **E — Rendering.**
 

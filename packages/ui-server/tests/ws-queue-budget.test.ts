@@ -9,7 +9,7 @@ import {
   resetForTests,
   setBackendForTests,
 } from "./helpers/test-host";
-import { MAX_SESSION_QUEUE, QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
+import { QUEUE_MAX_BYTES, QUEUE_WARN_BYTES } from "../src/ws/host";
 import { queuedBytes, queuedFollowUpBytes } from "../src/ws/turns";
 import { testAuthorization } from "./helpers/principal";
 
@@ -230,17 +230,17 @@ describe("queue budget (ws handler)", () => {
     expect(queueErrors(sent)).toHaveLength(1);
   });
 
-  test("depth backstop refuses beyond MAX_SESSION_QUEUE tiny messages", async () => {
+  test("depth backstop refuses beyond 50 tiny messages", async () => {
     const { ws, sent, sessionId } = await startSession();
 
-    for (let i = 0; i < MAX_SESSION_QUEUE + 2; i++) {
+    for (let i = 0; i < 52; i++) {
       await handleClientMessage(ws, { type: "chat_message", text: "x", sessionId });
     }
 
-    expect(queuedFrames(sent)).toHaveLength(MAX_SESSION_QUEUE);
+    expect(queuedFrames(sent)).toHaveLength(50);
     const errors = queueErrors(sent);
     expect(errors).toHaveLength(2);
-    expect(errors[0]!.message).toContain(`${MAX_SESSION_QUEUE} messages`);
+    expect(errors[0]!.message).toContain("50 messages");
   });
 
   test("the thresholds are ordered and a single message can never wedge the queue", () => {

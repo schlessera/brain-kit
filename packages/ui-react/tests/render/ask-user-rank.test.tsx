@@ -67,15 +67,18 @@ describe("ranking exchange", () => {
     expect(view.container.querySelector("[aria-live]")?.textContent).toContain("Journey 1 dropped below the top 2");
     expect(view.container.textContent).toContain("only your top 2 count");
     fireEvent.click(view.getByRole("button", { name: "Submit order" }));
-    expect(view.sent[0]?.order).toHaveLength(6);
+    expect(view.sent[0]?.order).toEqual([IDS[5]!, ...IDS.slice(0, 5)]);
   });
   test("Reset and Undo restore their exact orders; returning to the initial order says Keep", () => {
     const view = mount();
     const pick = view.getByRole("button", { name: "Journey 2, position 3 of 6" });
     fireEvent.keyDown(pick, { key: "1" });
+    expect([...view.container.querySelectorAll<HTMLElement>("[data-rank-row]")].map((row) => row.dataset.rankRow)).toEqual([IDS[2]!, IDS[0]!, IDS[1]!, ...IDS.slice(3)]);
     fireEvent.click(view.getByRole("button", { name: "Reset" }));
+    expect([...view.container.querySelectorAll<HTMLElement>("[data-rank-row]")].map((row) => row.dataset.rankRow)).toEqual(IDS);
     expect(view.getByRole("button", { name: "Keep this order" })).toBeDefined();
     fireEvent.click(view.getByRole("button", { name: /Undo/ }));
+    expect([...view.container.querySelectorAll<HTMLElement>("[data-rank-row]")].map((row) => row.dataset.rankRow)).toEqual([IDS[2]!, IDS[0]!, IDS[1]!, ...IDS.slice(3)]);
     expect(view.getByRole("button", { name: "Submit order" })).toBeDefined();
     fireEvent.keyDown(pick, { key: "3" });
     expect(view.getByRole("button", { name: "Keep this order" })).toBeDefined();

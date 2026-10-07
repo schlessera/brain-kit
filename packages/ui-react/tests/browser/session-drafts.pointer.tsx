@@ -217,6 +217,19 @@ const rect = (el: Element) => el.getBoundingClientRect();
 const composer = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
 const chips = (s: Scene) => [...s.host.querySelectorAll<HTMLImageElement>("[data-composer] img")];
 const saveLine = (s: Scene) => s.host.querySelector<HTMLElement>("[data-draft-save]");
+
+/** Counts alone also accept a broken image element: inspect what Chromium decoded. */
+async function expectDraftImage(s: Scene) {
+  await expect.poll(() => chips(s)[0]?.naturalWidth, { message: "the draft thumbnail decodes its PNG" }).toBe(64);
+  const image = chips(s)[0]!;
+  expect(image.naturalHeight).toBe(64);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d")!;
+  context.drawImage(image, 0, 0, 1, 1);
+  expect([...context.getImageData(0, 0, 1, 1).data], "the saved blue image is painted").toEqual([30, 90, 160, 255]);
+}
+
 const views = (s: Scene) => trackerViews(s.ui.stores.trackers.getState(), s.ui.stores.chat.getState().queueNotes);
 
 function find(name: string | RegExp, role?: string, within: ParentNode = document): HTMLElement | null {
@@ -293,6 +306,7 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
     await expect.poll(() => chips(s).length, { message: "A's image is in A's composer" }).toBe(1);
     await expect.poll(() => saveLine(s)?.dataset.draftSave, { message: "A's draft is saved on the host" }).toBe("saved");
     expect(saveLine(s)!.textContent).toBe("draft · saved");
+    await expectDraftImage(s);
 
     // New chat: an empty composer, and nothing sent, cancelled or asked.
     const start = await must(s, newChatName(width));
@@ -320,6 +334,7 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
     await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "A is in view" }).toBe(ITHACA.id);
     await expect.poll(() => composer(s)?.value, { message: "A's exact text" }).toBe(wind);
     expect(chips(s), "A's image").toHaveLength(1);
+    await expectDraftImage(s);
 
     // Actions unmounts the composer; coming back restores the draft by id.
     await press(s, await must(s, /^Actions/, "tab"), mode);
@@ -327,6 +342,7 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
     await press(s, await must(s, /^Chat/, "tab"), mode);
     await expect.poll(() => composer(s)?.value, { message: "A's text after the remount" }).toBe(wind);
     expect(chips(s), "A's image after the remount").toHaveLength(1);
+    await expectDraftImage(s);
 
     // The Draft entry opens an empty Chat with B restored: no session, nothing sent.
     await openSessions(s, mode);

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import { type ToolCallView } from "@schlessera/brain-ui-sdk/client";
 import { resetToolRenderers, resolveToolRenderer } from "../../ui-sdk/src/client/renderers.js";
 import {
@@ -83,12 +83,20 @@ describe("registration survives a reset", () => {
   });
 
   test("calling it twice without a reset registers each pack once", () => {
-    resetToolRenderers();
-    registerBuiltinRenderers();
-    registerBuiltinRenderers();
-    // A duplicated generic pack would stack a second predicate; resolution
-    // would still work, so the observable is that the SAME object wins.
-    expect(resolveToolRenderer(toolCall("mystery"), "nobody")).toBe(GENERIC_RENDERER);
-    expect(resolveToolRenderer(toolCall("Bash"), "claude")).not.toBe(GENERIC_RENDERER);
+    // Resolution identity alone cannot detect duplicate predicates: both
+    // registrations return the same renderer. Count actual predicate calls.
+    const predicate = spyOn(GENERIC_RENDERER, "match");
+    try {
+      resetToolRenderers();
+      registerBuiltinRenderers();
+      registerBuiltinRenderers();
+      expect(resolveToolRenderer(toolCall("mystery"), "nobody")).toBe(GENERIC_RENDERER);
+      expect(predicate).toHaveBeenCalledTimes(1);
+      expect(resolveToolRenderer(toolCall("Bash"), "claude")).not.toBe(GENERIC_RENDERER);
+    } finally {
+      predicate.mockRestore();
+      resetToolRenderers();
+      registerBuiltinRenderers();
+    }
   });
 });

@@ -77,6 +77,7 @@ describe("bundled skills", () => {
     );
     // Warnings too, not just errors: an undeclared shell command or an absolute
     // path in a skill we ship is a portability defect, not a style preference.
+    expect(skills.length, "jobs skills reach the lint assertions").toBeGreaterThan(0);
     const findings = lintSkills(skills).filter((f) => f.severity !== "info");
     expect(findings).toEqual([]);
   });
@@ -88,6 +89,7 @@ describe("bundled skills", () => {
       { root: resolve(import.meta.dir, "fixtures"), modules: [loaded] },
       { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
     );
+    expect(skills.length, "jobs skills reach the description assertions").toBeGreaterThan(0);
     const offenders = skills
       .filter((s) => !s.description.startsWith("Use "))
       .map((s) => s.name);

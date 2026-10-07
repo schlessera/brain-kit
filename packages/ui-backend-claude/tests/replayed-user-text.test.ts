@@ -57,7 +57,7 @@ async function transcriptContent(prompt: string | AsyncIterable<SDKUserMessage>)
   return contents;
 }
 
-async function replayUserText(contents: unknown[]): Promise<string[]> {
+async function replayUserMessages(contents: unknown[]) {
   const transcript = contents.flatMap((content) => [
     { type: "user", uuid: crypto.randomUUID(), session_id: "sess", message: { content }, parent_tool_use_id: null },
     {
@@ -73,7 +73,11 @@ async function replayUserText(contents: unknown[]): Promise<string[]> {
     getSessionMessagesFn: (async () => transcript) as unknown as typeof sdkGetSessionMessages,
   });
   const out = await history.getHistory("sess");
-  return out.filter((message) => message.role === "user").map((message) => message.content);
+  return out.filter((message) => message.role === "user");
+}
+
+async function replayUserText(contents: unknown[]): Promise<string[]> {
+  return (await replayUserMessages(contents)).map((message) => message.content);
 }
 
 describe("Claude replays a user message as the text the client sent", () => {
@@ -84,12 +88,16 @@ describe("Claude replays a user message as the text the client sent", () => {
     ]);
     const contents = await transcriptContent(turn.prompt);
     expect(contents).toHaveLength(1);
-    expect(await replayUserText(contents)).toEqual(["What is in this picture?"]);
+    const messages = await replayUserMessages(contents);
+    expect(messages.map((message) => message.content)).toEqual(["What is in this picture?"]);
+    expect(messages[0]!.attachmentCount).toBe(2);
   });
 
   test("an image-only message replays as empty text", async () => {
     const turn = turnFor("", [{ mediaType: "image/png", data: PNG_1PX }]);
-    expect(await replayUserText(await transcriptContent(turn.prompt))).toEqual([""]);
+    const messages = await replayUserMessages(await transcriptContent(turn.prompt));
+    expect(messages.map((message) => message.content)).toEqual([""]);
+    expect(messages[0]!.attachmentCount).toBe(1);
   });
 
   test("the client environment goes to the system prompt, never into the message text", async () => {

@@ -680,6 +680,7 @@ describe("taking a chip", () => {
       await tick();
       await take(page, 1);
       expect(page.field().value).toBe("Who was on watch then?");
+      expect(page.view.getByRole("button", { name: "Send — unavailable" }).getAttribute("aria-disabled")).toBe("true");
       expect(page.turnFrames()).toEqual([]);
     } finally {
       page.done();

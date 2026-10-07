@@ -484,6 +484,11 @@ for (const width of [320, 900, 1440] as const) {
     if (over === "Settings") s.ui.stores.ui.getState().openPanel("settings");
     else s.ui.stores.ui.getState().pushSubagentView("span-sirens");
     await settle(s);
+    const overlay = over === "Settings"
+      ? s.host.querySelector<HTMLElement>('section[aria-label="Settings"] nav[aria-label="Settings sections"]') ?? [...s.host.querySelectorAll<HTMLElement>("h1, h2")].find((el) => el.textContent === "Settings")
+      : [...s.host.querySelectorAll<HTMLElement>("p")].find((el) => el.textContent?.includes("No recorded activity for this subagent"));
+    expect(overlay, `${over} is actually drawn before the late replay`).toBeDefined();
+    expect(overlay!.getBoundingClientRect().height, `${over} has visible content`).toBeGreaterThan(0);
     const inside = document.activeElement;
     s.socket.deliver({ type: "session_info", sessionId: PENELOPE.id, isNew: false });
     s.socket.deliver({ type: "session_history", sessionId: PENELOPE.id, messages: history(PENELOPE.id, 3) });

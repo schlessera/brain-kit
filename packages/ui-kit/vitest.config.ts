@@ -6,7 +6,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
-import { formViewport, formConsumerStyles } from "./tests/visual/form-browser.ts";
+import { formViewport, formConsumerStyles, htmlPreviewFixture } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
@@ -73,7 +73,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, buttonPointer, overlayMouse },
+      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, buttonPointer, overlayMouse },
       provider: playwright({
         launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },

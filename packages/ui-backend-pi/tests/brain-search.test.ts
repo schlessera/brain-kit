@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -100,6 +102,10 @@ describe("brain_add wrapper", () => {
       undefined,
       CTX
     );
-    expect(resultText(res)).toContain(".md");
+    const { path } = res.details as { path: string };
+    expect(resultText(res)).toContain(path);
+    expect(path).toEndWith(".md");
+    expect(existsSync(join(brain.root, path))).toBe(true);
+    expect(readFileSync(join(brain.root, path), "utf8")).toContain("A captured pi-backend test note about retrieval");
   });
 });

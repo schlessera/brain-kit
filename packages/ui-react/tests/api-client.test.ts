@@ -139,31 +139,19 @@ describe("billing overrides and pricing state", () => {
 });
 
 describe("API error response handling", () => {
-  test("error body shape is consistent", () => {
-    const errorBodies = [
-      { error: "Query parameter 'q' is required" },
-      { error: "Field 'content' is required" },
-      { error: "VPN access required" },
-      { error: "Search failed" },
-    ];
-    for (const body of errorBodies) {
-      expect(body).toHaveProperty("error");
-      expect(typeof body.error).toBe("string");
+  test("error response bodies reach the actual client error", async () => {
+    for (const error of ["Query parameter 'q' is required", "Field 'content' is required", "VPN access required", "Search failed"]) {
+      const client = createBrainApi(() => "/api", async () => Response.json({ error }, { status: 400 }));
+      await expect(client.health()).rejects.toMatchObject({ message: error, status: 400 });
     }
   });
 
-  test("HTTP status codes map to error types", () => {
-    const statusMeanings: Record<number, string> = {
-      400: "client sent bad input",
-      403: "VPN required",
-      404: "resource not found",
-      500: "server/brain CLI error",
-    };
-    // All expected statuses are documented
-    expect(Object.keys(statusMeanings)).toHaveLength(4);
-    for (const [code, meaning] of Object.entries(statusMeanings)) {
-      expect(Number(code)).toBeGreaterThanOrEqual(400);
-      expect(meaning.length).toBeGreaterThan(0);
+  test("HTTP status codes reach ApiRequestError unchanged", async () => {
+    for (const status of [400, 403, 404, 500]) {
+      const client = createBrainApi(() => "/api", async () => Response.json({ error: "Fixture refused" }, { status }));
+      const error = await client.health().catch((error: unknown) => error);
+      expect(error).toBeInstanceOf(ApiRequestError);
+      expect(error).toMatchObject({ status, message: "Fixture refused" });
     }
   });
 });
@@ -194,37 +182,46 @@ describe("API client response shape contracts", () => {
     }
   });
 
-  test("stats response shape", () => {
-    const response = {
+  test("stats response shape", async () => {
+    const fixture = {
       documents: 393,
       byType: { identity: 46, talk: 172 },
       byStatus: { active: 322 },
       tags: 386,
       links: 215,
     };
+    const cap = captureUrl(fixture);
+    const response = await api.brainStats();
+    expect(cap.urls).toEqual(["/api/brain/stats"]);
     expect(response.documents).toBeGreaterThan(0);
     expect(response.byType).toBeDefined();
     expect(typeof response.byType.identity).toBe("number");
   });
 
-  test("search response shape", () => {
-    const response = {
+  test("search response shape", async () => {
+    const fixture = {
       results: [
         { path: "me/identity.md", title: "Identity", snippet: "...", score: 0.5 },
       ],
     };
+    const cap = captureUrl(fixture);
+    const response = await api.brainSearch("Ithaca");
+    expect(cap.urls).toEqual(["/api/brain/search?q=Ithaca"]);
     expect(response.results).toBeArray();
     expect(response.results[0]).toHaveProperty("path");
     expect(response.results[0]).toHaveProperty("title");
     expect(response.results[0]).toHaveProperty("score");
   });
 
-  test("sessions response shape", () => {
-    const response = {
+  test("sessions response shape", async () => {
+    const fixture = {
       sessions: [
         { id: "s1", title: "Chat", createdAt: Date.now(), lastActiveAt: Date.now() },
       ],
     };
+    const cap = captureUrl(fixture);
+    const response = await api.sessions();
+    expect(cap.urls).toEqual(["/api/sessions"]);
     expect(response.sessions).toBeArray();
     expect(response.sessions[0]).toHaveProperty("id");
     expect(response.sessions[0]).toHaveProperty("title");

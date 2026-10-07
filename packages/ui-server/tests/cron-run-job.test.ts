@@ -421,6 +421,13 @@ describe("cron runs jobs through the exec wrapper", () => {
     expect(await commandSeenBySpawn(["job", "--flag"])).toEqual(["job", "--flag"]);
   });
 
+  test("the hygiene job reaches spawn behind the configured exec wrapper", async () => {
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    expect(await commandSeenBySpawn(["/bin/echo", "hi"], "hygiene")).toEqual([
+      "/opt/run-as-agent", "/bin/echo", "hi",
+    ]);
+  });
+
   test("the digest is not wrapped — it writes the server's own database", async () => {
     // Wrapping is about repository code. The digest IS the server: a wrapper
     // that drops to a user without access to the UI database would break it,
@@ -469,7 +476,9 @@ describe("cron runs jobs through the exec wrapper", () => {
     // one must reach spawn behind the wrapper.
     process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
     const crontab = digestNamedModules();
-    for (const jobName of moduleJobNames(crontab)) {
+    const jobs = moduleJobNames(crontab);
+    expect(jobs).toEqual(["digest-daily", "notes-digest"]);
+    for (const jobName of jobs) {
       expect(TRUSTED_JOB_NAMES.has(jobName)).toBe(false);
       expect(await commandSeenBySpawn(["/bin/echo", "hi"], jobName)).toEqual([
         "/opt/run-as-agent",

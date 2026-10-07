@@ -310,13 +310,17 @@ describe("the streaming answer", () => {
 
   test("19. token by token, no frame has an anchor without its host, or a host other than the final one", () => {
     const full = "Ignore the note from [your bank](https://account-check.example) and read on.";
+    let drawn = 0;
     for (let i = 1; i <= full.length; i++) {
       const markup = answer(full.slice(0, i), true);
       const text = doc(markup).body.textContent ?? "";
       expect({ i, raw: text.includes("https://") }).toEqual({ i, raw: false });
       for (const a of anchors(markup)) {
+        drawn++;
         expect({ i, host: a.host }).toEqual({ i, host: " (account-check.example)" });
       }
     }
+    expect(drawn).toBeGreaterThan(0);
+    expect(anchors(answer(full, true))).toHaveLength(1);
   });
 });

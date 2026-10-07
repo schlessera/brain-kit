@@ -15,8 +15,6 @@ import {
   authGuard,
   authRoutes,
   consumeLoginToken,
-  GLOBAL_LOGIN_RATE_LIMIT,
-  LOGIN_RATE_LIMIT,
   isWsAuthorized,
   resetLoginRateLimiter,
   sanitizeLoginLabel,
@@ -31,10 +29,7 @@ import {
 import { createUiDb } from "../src/db/client";
 import { clientIp } from "../src/middleware/tailscale";
 import {
-  PRINCIPAL_RETENTION_MS,
   createPrincipal,
-  MAX_LIVE_PRINCIPALS,
-  PRINCIPAL_PRUNE_INTERVAL_MS,
   resolvePrincipal,
 } from "../src/db/principals";
 
@@ -273,7 +268,7 @@ describe("password login + guard", () => {
 
   test("repeated successful logins prune terminal principal rows", async () => {
     const app = passwordApp();
-    const retainedPast = Date.now() - PRINCIPAL_RETENTION_MS - 1;
+    const retainedPast = Date.now() - 30 * 24 * 60 * 60 * 1_000 - 1;
 
     for (let index = 0; index < 5; index++) {
       const response = await app.request("/api/auth/login", {
@@ -298,7 +293,7 @@ describe("password login + guard", () => {
   });
 
   test("the live-principal cap returns 503 without creating a session", async () => {
-    for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
+    for (let index = 0; index < 100; index++) {
       createPrincipal(DB, {
         authMethod: "password",
         label: `Existing device ${index}`,
@@ -313,7 +308,7 @@ describe("password login + guard", () => {
       error: "Session capacity reached. Sign out another device and try again.",
     });
     expect(DB.query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
-      count: MAX_LIVE_PRINCIPALS,
+      count: 100,
     });
   });
 
@@ -328,8 +323,7 @@ describe("password login + guard", () => {
     const statuses: number[] = [];
     for (let i = 0; i < 7; i++) statuses.push((await attempt()).status);
     // 5 allowed (401), then the bucket empties (429).
-    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
-    expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429, 429]);
   });
 
   test("bounds concurrent password verification per client IP", async () => {
@@ -427,17 +421,22 @@ describe("login limiter storage", () => {
     const collidingFailure = login(app, "delayed", "global");
     await delayedEntered;
 
-    for (let index = 0; index < GLOBAL_LOGIN_RATE_LIMIT; index++) {
-      expect((await login(app, "wrong", `other-${index}`)).status).toBe(401);
+    try {
+      for (let index = 0; index < 100; index++) {
+        expect((await login(app, "wrong", `other-${index}`)).status).toBe(401);
+      }
+      expect((await login(app, PASSWORD, "blocked-before-release")).status).toBe(429);
+
+      releaseDelayed();
+      expect((await collidingFailure).status).toBe(401);
+
+      // Finishing the colliding request must not reduce the saturated global
+      // counter and reopen verification for a fresh source key.
+      expect((await login(app, PASSWORD, "blocked-after-release")).status).toBe(429);
+    } finally {
+      releaseDelayed();
+      await collidingFailure;
     }
-    expect((await login(app, PASSWORD, "blocked-before-release")).status).toBe(429);
-
-    releaseDelayed();
-    expect((await collidingFailure).status).toBe(401);
-
-    // Finishing the colliding request must not reduce the saturated global
-    // counter and reopen verification for a fresh source key.
-    expect((await login(app, PASSWORD, "blocked-after-release")).status).toBe(429);
   });
 
   test("evicts old buckets when the size cap is reached", () => {
@@ -646,11 +645,11 @@ describe("ambient principals", () => {
       });
       const inactive = await first.json();
       DB.prepare("UPDATE principals SET last_seen_at = ? WHERE id = ?").run(
-        now - PRINCIPAL_RETENTION_MS - 1,
+        now - 30 * 24 * 60 * 60 * 1_000 - 1,
         inactive.id
       );
 
-      clock.mockReturnValue(now + PRINCIPAL_PRUNE_INTERVAL_MS + 1);
+      clock.mockReturnValue(now + 60 * 60 * 1_000 + 1);
       const nextAuthentication = await app.request("/api/principal", {
         headers: { "x-forwarded-user": "Active proxy user" },
       });
@@ -925,7 +924,7 @@ describe("password login admission", () => {
     });
 
     try {
-      for (let index = 0; index < LOGIN_RATE_LIMIT; index++) {
+      for (let index = 0; index < 5; index++) {
         const response = await app.request("/api/auth/login", {
           method: "POST",
           headers: {

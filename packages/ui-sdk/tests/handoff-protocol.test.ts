@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   composeHandoffText,
-  HANDOFF_MAX_REFERENCES,
   parseHandoffText,
 } from "../src/protocol.js";
 import { parseClientMessage, parseServerMessage } from "../src/schemas.js";
@@ -39,7 +38,7 @@ describe("handoff frames at the boundary", () => {
   test("refuses a key that could break out of an id, and more references than the limit", () => {
     expect(parseClientMessage(chat({ handoffId: "h ithaca", sourceSessionId: "s1", references: [] })).ok).toBe(false);
     expect(parseClientMessage(chat({ handoffId: "short", sourceSessionId: "s1", references: [] })).ok).toBe(false);
-    const many = Array.from({ length: HANDOFF_MAX_REFERENCES + 1 }, (_, i) => `notes/${i}.md`);
+    const many = Array.from({ length: 9 }, (_, i) => `notes/${i}.md`);
     expect(parseClientMessage(chat({ handoffId: "h-ithaca-0001", sourceSessionId: "s1", references: many })).ok).toBe(false);
   });
 

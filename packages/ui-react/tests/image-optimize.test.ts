@@ -20,7 +20,9 @@ describe("optimizationLadder", () => {
   });
 
   test("aspect ratio survives every step", () => {
-    for (const step of optimizationLadder(3000, 1000)) {
+    const steps = optimizationLadder(3000, 1000);
+    expect(steps.length).toBeGreaterThan(0);
+    for (const step of steps) {
       expect(step.width / step.height).toBeCloseTo(3, 1);
     }
   });
@@ -36,6 +38,7 @@ describe("optimizationLadder", () => {
 
   test("stops shrinking before the image stops being worth sending", () => {
     const steps = optimizationLadder(600, 400);
+    expect(steps.length).toBeGreaterThan(0);
     const smallest = Math.min(...steps.map((s) => Math.max(s.width, s.height)));
     expect(smallest).toBeGreaterThanOrEqual(150);
   });

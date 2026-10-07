@@ -25,6 +25,7 @@ describe("document kinds", () => {
   });
 
   test("names and aliases are unique", () => {
+    expect(DOCUMENT_KINDS.length, "the kind catalogue is populated").toBeGreaterThan(0);
     const words = DOCUMENT_KINDS.flatMap((k) => [k.name, ...k.aliases]);
     expect(new Set(words).size).toBe(words.length);
   });
@@ -37,6 +38,7 @@ describe("document kinds", () => {
   });
 
   test("every block a kind names is in the catalogue", () => {
+    expect(DOCUMENT_KINDS.length, "the kind catalogue is populated").toBeGreaterThan(0);
     const names = new Set(DOCUMENT_BLOCKS.map((b) => b.name));
     for (const kind of DOCUMENT_KINDS) {
       expect(kind.blocks.filter((b) => !names.has(b))).toEqual([]);

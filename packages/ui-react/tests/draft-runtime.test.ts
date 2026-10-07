@@ -156,6 +156,24 @@ async function release(prompt: string) {
   gate();
 }
 
+/** Inspect decoded pixels: a DOM image count also accepts an unreadable preview. */
+async function expectHarbourImage(page: Page) {
+  await page.waitForFunction(() => {
+    const image = document.querySelector<HTMLImageElement>("[data-composer] img");
+    return image?.complete;
+  });
+  const painted = await page.locator("[data-composer] img").evaluate((image) => {
+    const img = image as HTMLImageElement;
+    if (!img.naturalWidth) return { width: 0, height: 0, rgba: [] };
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(img, 0, 0, 1, 1);
+    return { width: img.naturalWidth, height: img.naturalHeight, rgba: [...context.getImageData(0, 0, 1, 1).data] };
+  });
+  expect(painted).toEqual({ width: 64, height: 64, rgba: [30, 90, 160, 255] });
+}
+
 const wide = (options: BrowserContextOptions) => (options.viewport?.width ?? 0) >= 1280;
 
 async function device(options: BrowserContextOptions, theme: "dark" | "light"): Promise<{ context: BrowserContext; page: Page }> {
@@ -220,6 +238,7 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await until(a.page, "f.view().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
         await hostUntil((d) => d.some((x) => x.sessionId === session && x.attachmentCount === 1));
+        await expectHarbourImage(a.page);
 
         // New chat: an empty composer, the session's draft kept.
         await press(a.page, run.options, wide(run.options) ? "New conversation" : "New chat");
@@ -238,6 +257,7 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await until(a.page, `f.activeSessionId() === ${JSON.stringify(session)}`);
         expect(await composer(a.page).inputValue()).toBe(later);
         expect(await a.page.locator("[data-composer] img").count()).toBe(1);
+        await expectHarbourImage(a.page);
         // Unmounted and mounted again, as Actions does: still there.
         await fixture(a.page, (f) => f.away());
         await a.page.locator("[data-away]").waitFor();
@@ -245,6 +265,7 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await composer(a.page).waitFor();
         expect(await composer(a.page).inputValue()).toBe(later);
         expect(await a.page.locator("[data-composer] img").count()).toBe(1);
+        await expectHarbourImage(a.page);
 
         // A reload: everything here was in memory; the host brings it back.
         await a.page.reload();
@@ -255,6 +276,7 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await until(a.page, `f.view().text === ${JSON.stringify(later)} && f.view().images === 1`);
         expect(await composer(a.page).inputValue()).toBe(later);
         expect(await line(a.page).textContent()).toBe("draft · saved");
+        await expectHarbourImage(a.page);
 
         // The other device: the same text and image, and the letter's entry.
         b = await device(run.options, run.theme);
@@ -262,6 +284,7 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await b.page.evaluate((s) => (window as unknown as { __drafts: Fixture }).__drafts.resume(s), session);
         await until(b.page, `f.view().text === ${JSON.stringify(later)} && f.view().images === 1`);
         expect(await composer(b.page).inputValue()).toBe(later);
+        await expectHarbourImage(b.page);
 
         // Both edit: the other device saves first. This device's dirty edit
         // is never overwritten; the host refuses it and the reader chooses.

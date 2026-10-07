@@ -10,7 +10,6 @@ import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
-import { clockTime, dayAndTime } from "../../src/lib/answer-delivery/copy.js";
 import type { AnswerDelivery, AnswerPayload, DeliveryState } from "../../src/lib/answer-delivery/types.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -57,11 +56,11 @@ const SETTLED = new Date(2026, 6, 12, 9, 42).getTime();
 
 /** The §3 table, as rendered text. */
 const EXPECTED: Record<Exclude<DeliveryState, "saving">, { tag: string; body: string; actions: string[]; meta?: string; patch?: Partial<AnswerDelivery> }> = {
-  queued: { tag: "NOT SENT YET · SAVED ON THIS DEVICE", body: "You're offline. Your answer sends automatically when you're back.", actions: ["Cancel sending"], meta: `queued ${clockTime(T)} · stops after 24 h` },
+  queued: { tag: "NOT SENT YET · SAVED ON THIS DEVICE", body: "You're offline. Your answer sends automatically when you're back.", actions: ["Cancel sending"], meta: "queued 09:41 · stops after 24 h" },
   awaiting: { tag: "SENT · WAITING FOR THE HOST", body: "Your answer was sent. Waiting for the host to confirm it got it.", actions: [], meta: "checking again in 5 s if no reply" },
-  answered: { tag: "ANSWERED", body: "The host received your answer.", actions: [], meta: `confirmed ${clockTime(SETTLED)}` },
-  closed: { tag: "NOT DELIVERED · QUESTION CLOSED", body: "This question ended before your answer arrived. Your answer is kept below.", actions: ["Copy answer", "Send as message"], meta: `turn ended ${clockTime(SETTLED)} · nothing was sent`, patch: { reason: "ended" } },
-  expired: { tag: "NOT SENT · STOPPED TRYING", body: "This answer waited more than 24 hours and wasn't sent.", actions: ["Copy answer", "Send as message"], meta: `queued ${dayAndTime(T)}` },
+  answered: { tag: "ANSWERED", body: "The host received your answer.", actions: [], meta: "confirmed 09:42" },
+  closed: { tag: "NOT DELIVERED · QUESTION CLOSED", body: "This question ended before your answer arrived. Your answer is kept below.", actions: ["Copy answer", "Send as message"], meta: "turn ended 09:42 · nothing was sent", patch: { reason: "ended" } },
+  expired: { tag: "NOT SENT · STOPPED TRYING", body: "This answer waited more than 24 hours and wasn't sent.", actions: ["Copy answer", "Send as message"], meta: "queued 12 Jul 09:41" },
   cancelled: { tag: "NOT SENT · CANCELLED", body: "You stopped this answer before it was sent.", actions: ["Edit"], patch: { editable: true } },
   update: { tag: "CAN'T SEND · UPDATE NEEDED", body: "This app or the host is too old to confirm answers. Your answer is kept.", actions: ["Reload app"], meta: "answers need receipt support" },
   full: { tag: "CAN'T SAVE MORE ANSWERS", body: "16 answers are already waiting to send. This one stays here, unsent.", actions: ["Try again"], meta: "16 / 16 queued · nothing dropped", patch: { full: "count" } },
@@ -136,14 +135,18 @@ for (const kind of Object.keys(CASES) as Kind[]) {
       for (const state of ["queued", "awaiting"] as const) {
         cleanup();
         const view = mount(kind, { requestId: "toolu_1", submissionId: "sub-1", sessionId: "s1", state, payload: CASES[kind].payload, submittedAt: T, editable: true });
-        const buttons = [...view.container.querySelectorAll('[data-answer-delivery] [role="button"]')].map((b) => b.textContent);
+        const status = view.container.querySelector("[data-answer-delivery]");
+      expect(status).not.toBeNull();
+      const buttons = [...status!.querySelectorAll('[role="button"]')].map((b) => b.textContent);
         expect(buttons).not.toContain("Edit");
       }
     });
 
     test("a cancelled answer the host has not confirmed as still wanted offers no Edit", () => {
       const view = mount(kind, { requestId: "toolu_1", submissionId: "sub-1", sessionId: "s1", state: "cancelled", payload: CASES[kind].payload, submittedAt: T });
-      const buttons = [...view.container.querySelectorAll('[data-answer-delivery] [role="button"]')].map((b) => b.textContent);
+      const status = view.container.querySelector("[data-answer-delivery]");
+      expect(status).not.toBeNull();
+      const buttons = [...status!.querySelectorAll('[role="button"]')].map((b) => b.textContent);
       expect(buttons).not.toContain("Edit");
     });
 

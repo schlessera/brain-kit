@@ -85,6 +85,7 @@ describe("the six default patterns, each with its effect", () => {
     // A new default without a phrase is a defect, not a supported state
     // (docs/decisions/voice-permission.md): the fallback says nothing a
     // listener could act on.
+    expect(DEFAULT_CONFIRM_BASH_PATTERNS.length).toBeGreaterThan(0);
     for (const entry of DEFAULT_CONFIRM_BASH_PATTERNS) {
       expect(typeof entry, JSON.stringify(entry)).toBe("object");
       expect((entry as { effect: string }).effect.trim().length).toBeGreaterThan(0);

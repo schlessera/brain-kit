@@ -1,8 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import {
   shrinkForReplication,
-  MAX_WS_MESSAGE_BYTES,
 } from "../src/ws/shrink";
+
+// Pin the default frame budget independently of the implementation.
+const FRAME_BUDGET_BYTES = 512_000;
 
 describe("shrinkForReplication", () => {
   test("returns small payloads unchanged (same reference)", () => {
@@ -11,7 +13,7 @@ describe("shrinkForReplication", () => {
   });
 
   test("leaves a payload just under the cap untouched", () => {
-    const msg = { type: "tool_result", output: "x".repeat(MAX_WS_MESSAGE_BYTES - 200) };
+    const msg = { type: "tool_result", output: "x".repeat(FRAME_BUDGET_BYTES - 200) };
     expect(shrinkForReplication(msg)).toBe(msg);
   });
 
@@ -25,7 +27,7 @@ describe("shrinkForReplication", () => {
     };
     const shrunk = shrinkForReplication(msg);
     expect(shrunk).not.toBe(msg);
-    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     // Discriminator + small ids survive verbatim.
     expect(shrunk.type).toBe("tool_result");
     expect(shrunk.toolUseId).toBe("toolu_keepme");
@@ -44,7 +46,7 @@ describe("shrinkForReplication", () => {
     }));
     const msg = { type: "tool_result", content };
     const shrunk = shrinkForReplication(msg);
-    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     expect(shrunk.content.length).toBeLessThan(content.length);
     // Typed arrays must contain only their original element type.
     expect(shrunk.content.every((block) => typeof block === "object")).toBe(true);
@@ -62,7 +64,7 @@ describe("shrinkForReplication", () => {
       })),
     };
     const shrunk = shrinkForReplication(msg);
-    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     expect(shrunk.type).toBe("session_history");
   });
 });

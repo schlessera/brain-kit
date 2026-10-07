@@ -45,7 +45,7 @@ function paint(element: HTMLElement) {
   return { background: css.backgroundColor, border: css.borderTopColor, foreground: css.color };
 }
 
-/** Resolve the approved palette in this theme, independently of Button's styles. */
+/** Resolve the palette to check token wiring, not the palette's readability. */
 function expectedPaint(tone: ButtonTone, hover: boolean) {
   const swatch = document.createElement("div");
   const rest = {

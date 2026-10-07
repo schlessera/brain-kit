@@ -48,8 +48,12 @@ describe("mercY", () => {
   test("clamps at ±85°, because the projection diverges at the poles", () => {
     // tan(π/4 + φ/2) → ∞ at 90°, and a map that renders Infinity renders
     // nothing at all.
-    expect(mercY(90)).toBe(mercY(85));
-    expect(mercY(-90)).toBe(mercY(-85));
+    // ln(tan(π/4 + 85°/2)), independently evaluated. Comparing the
+    // function to itself also passes when it clamps too early (e.g. 80°).
+    expect(mercY(85)).toBeCloseTo(3.1313013315, 10);
+    expect(mercY(90)).toBeCloseTo(3.1313013315, 10);
+    expect(mercY(-85)).toBeCloseTo(-3.1313013315, 10);
+    expect(mercY(-90)).toBeCloseTo(-3.1313013315, 10);
     expect(Number.isFinite(mercY(90))).toBe(true);
   });
 
@@ -436,6 +440,9 @@ describe("the accuracy ring", () => {
       />,
     );
     const at = (needle: string) => mapSvg(html).indexOf(needle);
+    for (const layer of ["<line", 'fill-rule="evenodd"', "<circle", "<polyline"]) {
+      expect(at(layer), `the ${layer} layer is drawn`).toBeGreaterThan(-1);
+    }
     expect(at("<line")).toBeLessThan(at("<circle"));
     expect(at("fill-rule=\"evenodd\"")).toBeLessThan(at("<circle"));
     expect(at("<circle")).toBeLessThan(at("<polyline"));
@@ -539,6 +546,7 @@ describe("the card", () => {
     expect(html).toContain("The fix is the harbour front; the hall is a street back.");
     // After the foot row's `meta`, which is the last thing the row renders,
     // and before the card's closing tag.
+    expect(html).toContain("628 km");
     expect(html.indexOf("628 km")).toBeLessThan(html.indexOf("The fix is the harbour front"));
     expect(html.endsWith("</div></div>")).toBe(true);
     expect(html).toContain("font:400 11.5px/1.55");

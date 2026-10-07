@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { brainConfigSchema, typeSpecSchema } from "../src/lib/config";
 import { mergeFrontmatter } from "../src/lib/sync/resolve/frontmatter";
 import { parseDoc } from "../src/lib/sync/resolve/markdown";
-import { MAX_MERGE_BYTES, pairId, planMerge, remotePath, type MergeOutcome } from "../src/lib/sync/resolve/plan";
+import { pairId, planMerge, remotePath, type MergeOutcome } from "../src/lib/sync/resolve/plan";
 import { strategyFor } from "../src/lib/sync/resolve/strategy";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 
@@ -36,13 +36,13 @@ describe("planMerge refuses what it must not merge", () => {
 
   test("a side over 100 KB is refused by bytes, not characters", () => {
     const fill = (bytes: number) => doc("2026-05-02", "\n## Log\n\n" + "a".repeat(bytes - doc("2026-05-02", "\n## Log\n\n\n").length) + "\n");
-    const atLimit = fill(MAX_MERGE_BYTES);
-    expect(Buffer.byteLength(atLimit)).toBe(MAX_MERGE_BYTES);
+    const atLimit = fill(102_400);
+    expect(Buffer.byteLength(atLimit)).toBe(102_400);
     expect(planMerge({ path: "studies/log.md", base, ours: atLimit, theirs }, "synthesize").render(new Map()).status).toBe("resolved");
 
     // 51 201 two-byte characters: fewer characters than the limit, more bytes.
     const wide = doc("2026-05-02", "\n## Log\n\n" + "é".repeat(51_201) + "\n");
-    expect(wide.length).toBeLessThan(MAX_MERGE_BYTES);
+    expect(wide.length).toBeLessThan(102_400);
     const outcome = planMerge({ path: "studies/log.md", base, ours: wide, theirs }, "synthesize").render(new Map());
     expect(outcome.status).toBe("unresolved");
     if (outcome.status === "unresolved") expect(outcome.reason).toContain("too large");
@@ -82,7 +82,7 @@ describe("judgment pairs", () => {
     const plan = planMerge({ path: "studies/log.md", base, ours, theirs }, "synthesize");
     expect(plan.pairs).toEqual([
       {
-        id: pairId("studies/log.md", "Log", "- The Bear at dawn, visibility 3/5.", "- The Bear at dawn; clouds by six."),
+        id: "df2d668ef18ee1f8",
         path: "studies/log.md",
         context: "Log",
         ours: "- The Bear at dawn, visibility 3/5.",
@@ -90,6 +90,8 @@ describe("judgment pairs", () => {
       },
     ]);
     expect(planMerge({ path: "studies/log.md", base, ours, theirs }, "synthesize").pairs[0]!.id).toBe(plan.pairs[0]!.id);
+    expect(pairId("studies/log.md", "Log", "changed", "b")).not.toBe(pairId("studies/log.md", "Log", "a", "b"));
+    expect(pairId("studies/log.md", "Log", "a", "changed")).not.toBe(pairId("studies/log.md", "Log", "a", "b"));
     expect(pairId("studies/log.md", "Other", "a", "b")).not.toBe(pairId("studies/log.md", "Log", "a", "b"));
     expect(pairId("studies/other.md", "Log", "a", "b")).not.toBe(pairId("studies/log.md", "Log", "a", "b"));
   });

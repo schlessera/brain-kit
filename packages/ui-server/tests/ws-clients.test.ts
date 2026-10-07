@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { ClientSet, sendTo, type WSContext } from "../src/ws/clients";
-import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink";
+// Independent default frame budget, so the cap cannot drift with its oracle.
+const FRAME_BUDGET_BYTES = 512_000;
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 function fakeSocket() {
@@ -161,11 +162,11 @@ describe("ws client registry", () => {
     sendTo(ws, {
       type: "tool_result",
       toolUseId: "t1",
-      output: "q".repeat(5_000_000),
+      output: "q".repeat(600_000),
       isError: false,
     });
     expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0].length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(ws.sent[0].length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     const frame = JSON.parse(ws.sent[0]);
     expect(frame.toolUseId).toBe("t1");
   });
@@ -178,10 +179,10 @@ describe("ws client registry", () => {
     broadcast({
       type: "tool_result",
       toolUseId: "t2",
-      output: "w".repeat(5_000_000),
+      output: "w".repeat(600_000),
       isError: false,
     });
-    expect(a.sent[0].length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
-    expect(b.sent[0].length).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(a.sent[0].length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
+    expect(b.sent[0].length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
   });
 });

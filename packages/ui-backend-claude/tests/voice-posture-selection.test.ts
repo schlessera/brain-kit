@@ -44,7 +44,7 @@ describe("claude: the voice posture selects VOICE_ALLOWED_TOOLS", () => {
   test("a voice turn's allowlist is the voice posture, without the ordinary write and shell tools", async () => {
     const voice = await capturedAllowlist({ posture: "voice", enforceAllowedTools: true, noGrantSurface: true });
     for (const excluded of ["Bash", "Write", "Edit", "NotebookEdit", "Agent", "Skill"]) expect(voice).not.toContain(excluded);
-    for (const tool of VOICE_ALLOWED_TOOLS) expect(voice).toContain(tool);
+    expect([...new Set(voice)].sort()).toEqual([...new Set(VOICE_ALLOWED_TOOLS)].sort());
   });
 
   test("the same backend's ordinary enforced turn keeps its configured list", async () => {

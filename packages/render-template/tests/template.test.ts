@@ -100,7 +100,8 @@ describe("buildHtmlDocument", () => {
         contentType: "html",
         allowHosts: ["example.com"],
       });
-      expect(html).toContain("remote-image");
+      expect(html).toContain('<span class="remote-image">[remote image — not embedded]</span>');
+      expect(html).not.toContain("::not a url::");
     });
 
     test("an empty alt falls back to the generic label", () => {
@@ -341,6 +342,7 @@ describe("buildHtmlDocument", () => {
       const title = 'a"b\\c</style><script>alert(1)</script>';
       const html = buildHtmlDocument({ content: "x", contentType: "markdown", title });
       const footer = footerOf(html)!;
+      expect(footer).toContain("alert(1)"); // the hostile title reached the CSS string
       expect(footer).not.toContain("</");
       expect(footer.slice(1, -1)).not.toContain('"');
       expect(html.match(/<\/style>/g)).toHaveLength(1);

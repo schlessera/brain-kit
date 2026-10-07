@@ -5,7 +5,6 @@ import { BLOCK_KINDS } from "../src/tool-contracts/blocks.js";
 import {
   CANDIDATE_KINDS,
   CATALOGUE_BLOCK_KINDS,
-  CONFIDENCE,
   applyClassification,
   detectCandidates,
   observeClassification,
@@ -119,7 +118,7 @@ describe("the catalogue", () => {
 
   test("below the swap threshold, or 'plain', nothing is drawn", () => {
     const [table] = detectCandidates(COMPARISON);
-    expect(transformCandidate(table!, { "c0.shape": choice("comparison", CONFIDENCE.swap - 0.01), "c0.criteria_first": noul(1) })).toBeNull();
+    expect(transformCandidate(table!, { "c0.shape": choice("comparison", 0.6 - 0.01), "c0.criteria_first": noul(1) })).toBeNull();
     expect(transformCandidate(table!, { "c0.shape": choice("plain", 0.99) })).toBeNull();
     expect(transformCandidate(table!, {})).toBeNull();
   });
@@ -144,7 +143,9 @@ describe("the catalogue", () => {
     for (const options of [1, 4, 5, 254, 255, 256, 300]) {
       const [table] = detectCandidates(wideTable(options));
       expect(table?.kind).toBe("table");
-      for (const [id, question] of Object.entries(questionsFor(table!))) {
+      const questions = Object.entries(questionsFor(table!)).filter(([, question]) => question.type === "choice");
+      expect(questions.length).toBeGreaterThan(0);
+      for (const [id, question] of questions) {
         if (question.type !== "choice") continue;
         const count = Object.keys(question.criteria).length;
         if (count > 255) throw new Error(`${options}-option table: ${id} offers ${count} options`);
@@ -326,7 +327,7 @@ describe("the catalogue", () => {
       transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("none", 0.95) })
     ).toBeNull();
     expect(
-      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Role", CONFIDENCE.swap - 0.01) })
+      transformCandidate(run!, { "c0.shape": choice("contact", 0.9), "c0.subject": choice("Role", 0.6 - 0.01) })
     ).toBeNull();
     expect(transformCandidate(run!, { "c0.shape": choice("contact", 0.9) })).toBeNull();
     expect(transformCandidate(run!, { "c0.shape": choice("plain", 0.95) })).toBeNull();
@@ -427,7 +428,7 @@ describe("the catalogue", () => {
     expect(
       transformCandidate(run!, {
         "c0.shape": choice("receipt", 0.9),
-        "c0.value_tone_1": choice("red", CONFIDENCE.tone - 0.01),
+        "c0.value_tone_1": choice("red", 0.8 - 0.01),
       })?.block
     ).toEqual({ kind: "receipt", rows: [{ k: "Ships", v: "12" }, { k: "Crew", v: "lost" }] });
   });
@@ -701,10 +702,10 @@ describe("what the classifier answered, for tuning the thresholds", () => {
         const questions = questionsFor(candidate);
         for (const id of Object.keys(questions)) {
           idsSeen.push(id);
-          // No line names a figure of its own: they all come from CONFIDENCE.
+          // Check the published gate values independently of the source constant.
           const threshold = thresholdOf(questions, id);
           expect(threshold).toBeTypeOf("number");
-          expect(Object.values<number>(CONFIDENCE)).toContain(threshold!);
+          expect([0.6, 0.8, 0.7]).toContain(threshold!);
         }
       }
     }
@@ -719,7 +720,7 @@ describe("what the classifier answered, for tuning the thresholds", () => {
   test("a question nobody asked has no line, and no answer worth reading", () => {
     const [run] = detectCandidates("**Ships:** 12\n**Crew:** 600");
     const questions = questionsFor(run!);
-    expect(thresholdOf(questions, "c0.value_tone_0")).toBe(CONFIDENCE.tone);
+    expect(thresholdOf(questions, "c0.value_tone_0")).toBe(0.8);
     // One past the run's rows: never asked, so never gated.
     expect(thresholdOf(questions, "c0.value_tone_2")).toBeUndefined();
     // And the transform will not act on an answer to it either.
@@ -748,7 +749,7 @@ describe("what the classifier answered, for tuning the thresholds", () => {
         answerType: "choice",
         choice: "comparison",
         confidence: 0.91,
-        threshold: CONFIDENCE.swap,
+        threshold: 0.6,
         cleared: true,
         outcome: "swapped",
       },
@@ -759,7 +760,7 @@ describe("what the classifier answered, for tuning the thresholds", () => {
         answerType: "choice",
         choice: "Ithaca",
         confidence: 0.85,
-        threshold: CONFIDENCE.tone,
+        threshold: 0.8,
         cleared: true,
         outcome: "swapped",
       },
@@ -769,7 +770,7 @@ describe("what the classifier answered, for tuning the thresholds", () => {
         question: "criteria_first",
         answerType: "noul",
         confidence: 0.95,
-        threshold: CONFIDENCE.noul,
+        threshold: 0.7,
         cleared: true,
         outcome: "swapped",
       },

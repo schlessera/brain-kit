@@ -210,13 +210,14 @@ describe("global installation", () => {
 describe("primitives", () => {
   test("series keys are attribute-order independent", () => {
     expect(seriesKey("m", { b: 2, a: 1 })).toBe(seriesKey("m", { a: 1, b: 2 }));
+    expect(seriesKey("m", { a: 1, b: 2 })).not.toBe(seriesKey("m", {}));
     expect(seriesKey("m", {})).toBe("m");
     expect(seriesKey("m", { a: undefined })).toBe("m");
   });
 
   test("an unknown severity is treated as INFO rather than dropped", () => {
-    expect(severityRank("NONSENSE")).toBe(severityRank("INFO"));
-    expect(severityRank(undefined)).toBe(severityRank("INFO"));
+    expect(severityRank("NONSENSE")).toBe(2);
+    expect(severityRank(undefined)).toBe(2);
   });
 
   test("non-scalar attributes are flattened, not printed as [object Object]", () => {
