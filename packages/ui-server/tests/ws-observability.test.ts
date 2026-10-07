@@ -19,6 +19,8 @@ import { BackendBusyError } from "@schlessera/brain-ui-sdk/server";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
+import { resolveAmbientPrincipal } from "../src/db/principals";
+import { createTestApp } from "./helpers/test-app";
 import { createRecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers as createAuthorizedWsHandlers } from "../src/ws/connection";
@@ -137,7 +139,10 @@ describe("inbound frame rejections are observable", () => {
     const secret = "SHOULD-NOT-BE-LOGGED-" + "x".repeat(500);
     handlers.onMessage({ data: `{"type":"chat_message","content":"${secret}"` } as MessageEvent, fakeSocket());
 
-    const serialized = JSON.stringify(observability.logs.records());
+    const records = observability.logs.find({ body: "inbound frame rejected" });
+    expect(records).toHaveLength(1);
+    expect(records[0]!.attributes.detail).toBeString();
+    const serialized = JSON.stringify(records);
     expect(serialized).not.toContain("SHOULD-NOT-BE-LOGGED");
     expect(observability.metrics.total("ws.frames.dropped")).toBe(1);
   });
@@ -178,22 +183,28 @@ describe("inbound frame rejections are observable", () => {
 });
 
 describe("the snapshot /api/status serves", () => {
-  test("carries the recorded series, JSON-safe", () => {
-    const { db, observability, handlers } = setup();
-    close = () => db.close();
-
-    handlers.onMessage({ data: "{bad" } as MessageEvent, fakeSocket());
-
-    const snapshot = observability.metrics.snapshot();
-    expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
-    expect(snapshot).toEqual([
-      {
-        name: "ws.frames.dropped",
-        attributes: { direction: "inbound", reason: "parse_error" },
-        value: 1,
-        kind: "counter",
-      },
-    ]);
+  test("carries the recorded series, JSON-safe", async () => {
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({ id: "fake" });
+    const rig = await createTestApp({ appOptions: {
+      registry: createStaticBackendRegistry([backend], backend.id), observability,
+    } });
+    try {
+      const principal = resolveAmbientPrincipal(rig.app.db, "none", "No authentication", "No authentication");
+      const handlers = createAuthorizedWsHandlers(rig.app.wsHost, principal);
+      handlers.onMessage({ data: "{bad" } as MessageEvent, fakeSocket());
+      const response = await rig.fetch("/api/status");
+      expect(response.status).toBe(200);
+      const snapshot = (await response.json()).metrics;
+      expect(snapshot).toEqual([
+        {
+          name: "ws.frames.dropped",
+          attributes: { direction: "inbound", reason: "parse_error" },
+          value: 1,
+          kind: "counter",
+        },
+      ]);
+    } finally { await rig.teardown(); }
   });
 });
 
