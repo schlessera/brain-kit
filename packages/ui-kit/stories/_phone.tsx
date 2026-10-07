@@ -73,7 +73,7 @@ export function PhoneFrame(p: PhoneFrameProps) {
   };
 
   return (
-    <div style={frame} data-theme={paper ? "light" : undefined}>
+    <div style={frame} data-theme={paper ? "light" : "dark"}>
       {p.showStatus !== false ? (
         <div
           style={{
