@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
@@ -162,9 +162,13 @@ async function until(page: Page, predicate: string, timeout = 15_000) {
   await page.waitForFunction(`(() => { const f = window.__local; return !!f && (${predicate}); })()`, undefined, { timeout });
 }
 
-async function signIn(context: BrowserContext) {
-  const res = await context.request.post(`${origin}/api/auth/login`, { data: { password: PASSWORD }, headers: { origin } });
-  expect(res.status()).toBe(200);
+/** Signs in from the page itself, so the browser keeps the cookie as it would after the login form. */
+async function signIn(page: Page) {
+  if (!page.url().startsWith(origin)) await page.goto(`${origin}/api/health`);
+  const status = await page.evaluate(async (password) => (await fetch("/api/auth/login", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }),
+  })).status, PASSWORD);
+  expect(status).toBe(200);
 }
 
 /** Booted, authenticated, connected, and the conversation replayed. */
@@ -189,7 +193,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
     const page = await context.newPage();
     try {
-      await signIn(context);
+      await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
       await fixture(page, (f) => f.resume("odysseus-ithaca"));
@@ -246,7 +250,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     const context = await browser!.newContext({ viewport: { width: 390, height: 760 } });
     const page = await context.newPage();
     try {
-      await signIn(context);
+      await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
       await fixture(page, (f) => f.resume("odysseus-ithaca"));
@@ -269,7 +273,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(await page.locator("body").innerText()).not.toContain("Nobody");
 
       // The same owner again: the same key, and the draft back.
-      await signIn(context);
+      await signIn(page);
       await page.reload();
       await ready(page);
       expect(await fixture(page, (f) => f.accountKey())).toBe(keyA);
@@ -286,7 +290,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await stopHost(host);
       host = await startHost("pylos.db");
       await page.reload();
-      await signIn(context);
+      await signIn(page);
       await page.reload();
       await until(page, "f.connected() && f.accountKey() !== null");
       await fixture(page, (f) => f.resume("odysseus-ithaca"));
@@ -358,7 +362,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     try {
-      await signIn(context);
+      await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
       await committed(page);
@@ -409,7 +413,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     });
     const page = await context.newPage();
     try {
-      await signIn(context);
+      await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
       const line = page.locator("[data-draft-save]");
