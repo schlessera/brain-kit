@@ -260,7 +260,7 @@ describe("orphans", () => {
     host.setDown(true);
     ui.stores.drafts.setState((s) => ({ orphans: [...s.orphans, { draftId: "d-gone", revision: 3 }] }));
     await wait(300);
-    expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone").length).toBeLessThanOrEqual(1);
+    expect(host.calls.filter((c) => c === "DELETE /drafts/d-gone")).toHaveLength(1);
   });
 });
 
@@ -483,10 +483,18 @@ describe("restoring", () => {
     const host = fakeHost();
     host.rows.set("d-raft", { draftId: "d-raft", sessionId: "odysseus-raft", revision: 4, updatedAt: 1, text: "Lash the beams", attachments: [] });
     host.rows.set("d-letter", { draftId: "d-letter", sessionId: null, revision: 1, updatedAt: 2, text: "Letter to Penelope", attachments: [] });
-    const { drafts } = boot(host);
+    const { socket, drafts } = boot(host);
     await until(() => Object.keys(drafts().drafts).length === 2);
     expect(drafts().drafts[drafts().idFor("odysseus-raft")]?.text).toBe("Lash the beams");
     expect(drafts().drafts["d-letter"]).toMatchObject({ text: "Letter to Penelope", sessionId: null });
+    drafts().edit("d-raft", "odysseus-raft", { text: "Keep the reader's rope" });
+    host.rows.set("d-raft", { ...host.rows.get("d-raft")!, revision: 5, text: "The phone's rope" });
+    const reads = host.calls.filter((c) => c === "GET /drafts/d-raft").length;
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => host.calls.filter((c) => c === "GET /drafts/d-raft").length > reads);
+    await wait(100);
+    expect(drafts().drafts["d-raft"]?.text, "a host refresh never overwrites dirty words").toBe("Keep the reader's rope");
+    expect(drafts().drafts["d-raft"]?.conflict?.other.text).toBe("The phone's rope");
   });
 });
 

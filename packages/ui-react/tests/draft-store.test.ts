@@ -202,8 +202,12 @@ describe("the host's versions", () => {
     state().restore(hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 1, text: "Ask about the swineherd" }));
     expect(state().drafts["d-1"]).toMatchObject({ text: "Ask about the swineherd", sessionId: ITHACA });
     expect(draftSaveView(state().drafts["d-1"], { supported: true, limits: state().limits }, 0).state).toBe("saved");
-    state().restore(hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 2, text: "Ask Eumaeus about the swineherd" }));
+    state().restore(hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 2, text: "Ask Eumaeus about the swineherd", attachments: [{ attachmentId: "att-chart", mime: "image/png", bytes: "iVBORw0KGgo=", name: "chart.png" }] }));
     expect(state().drafts["d-1"]?.text).toBe("Ask Eumaeus about the swineherd");
+    expect(state().drafts["d-1"]?.attachments).toEqual([{
+      attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" },
+      previewUrl: "data:image/png;base64,iVBORw0KGgo=", bytes: 8, name: "chart.png",
+    }]);
     state().edit("d-1", ITHACA, { text: "Ask Eumaeus, and the dog" });
     state().restore(hostDraft({ draftId: "d-1", sessionId: ITHACA, revision: 3, text: "Ask Eumaeus at dawn" }));
     expect(state().drafts["d-1"]?.text).toBe("Ask Eumaeus, and the dog");
@@ -431,6 +435,12 @@ describe("the host's versions", () => {
     expect(holdsUnsaved(state()), "the delete has not landed").toBe(true);
     state().removed(id);
     expect(holdsUnsaved(state())).toBe(false);
+    const pending = state().idFor(RAFT);
+    state().edit(pending, RAFT, { text: "Lash" });
+    state().saving(pending, 1);
+    state().edit(pending, RAFT, { text: "" });
+    expect(state().drafts[pending]).toMatchObject({ text: "", attachments: [], host: null, savingSince: 1 });
+    expect(holdsUnsaved(state()), "the first save's answer is still owed").toBe(true);
   });
 
   test("Edit, refusal and a failed send never pass through a state with nothing held", () => {
