@@ -11,6 +11,7 @@ const packages = [
   "ui-server",
   "ui-react",
   "module-finance",
+  "module-video",
   "module-jobs",
   "module-speaking",
   "module-travel",

@@ -34,7 +34,12 @@ mistake therefore lands on the whole group at once.
 3. **New package added this cycle?** It must appear in `scripts/publish.ts`,
    `scripts/build.ts`, the `fixed` group in `.changeset/config.json`, and the
    package map in `README.md`. `tests/release-manifest.test.ts` enforces the
-   first three. In `publish.ts` and `build.ts`, order matters: a package must
+   first three. Include the new package in `scripts/clean.ts` as well.
+   Record the issue-approved internal dependencies in
+   `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
+   rejects a package without an edge policy. Add the package to every pack/import
+   inventory in `.depot/workflows/ci.yml`, then regenerate the fork adapters with
+   `bun scripts/fork-ci-adapters.ts --write`. In `publish.ts` and `build.ts`, order matters: a package must
    be listed **before** anything that depends on it.
 
 ## Versioning
