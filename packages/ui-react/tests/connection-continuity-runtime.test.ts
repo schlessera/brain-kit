@@ -86,14 +86,14 @@ function scriptedBackend(): AgentBackend {
     listProfiles: () => [{ id: "continuity-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => structuredClone(transcripts.get(sessionId) ?? []),
-    async startTurn({ prompt, bridge, sessionId: resumed, signal }) {
+    async startTurn({ prompt, bridge, sessionId: resumed, signal, attachments }) {
       const sessionId = resumed ?? `odysseus-continuity-${++sequence}`;
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
       if (!titles.has(sessionId)) titles.set(sessionId, title);
       bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
-      transcript.push({ role: "user", content: prompt, toolCalls: [] });
+      transcript.push({ role: "user", content: prompt, toolCalls: [], ...(attachments?.length ? { attachmentCount: attachments.length } : {}) });
       if (prompt.startsWith("Hold:")) {
         const opening = `Setting out: ${title}. ${LOG}\n\n`;
         const partial: SessionHistoryMessage = { role: "assistant", content: opening, toolCalls: [] };
@@ -274,6 +274,7 @@ async function scene(cell: Cell): Promise<Scene> {
   page.on("dialog", (dialog) => void dialog.dismiss());
   await page.goto(origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
+  await settle(page);
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the cell's theme is the one drawn").toBe(cell.theme);
 
   // B runs out of view: a tracker where the width draws it (#950).
@@ -281,9 +282,12 @@ async function scene(cell: Cell): Promise<Scene> {
   await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
   const B = (await probe(page, (p) => p.activeSessionId()))!;
   await page.getByText("Setting out: Row through Scylla's strait").first().waitFor();
+  await settle(page);
   await newChat(cell, page);
 
   // A runs in view with a long transcript, and a follow-up waits as a pill (#1002).
+  await page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sent-sail.png", mimeType: "image/png", buffer: SAIL });
+  await until(page, "p.draft().images === 1");
   await send(page, `Hold: Sail past the Sirens ${tag}`);
   await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
   const A = (await probe(page, (p) => p.activeSessionId()))!;
@@ -333,7 +337,9 @@ type Measure = {
   replaced: number;
   previews: string[];
   track: string;
-  pills: number;
+  pills: string[];
+  transcriptPreviews: string[];
+  replacedImages: number;
 };
 async function mark(page: Page) {
   await page.evaluate(() => {
@@ -342,14 +348,15 @@ async function mark(page: Page) {
     const top = column.parentElement!.getBoundingClientRect().top;
     const nodes = [...column.children];
     const first = nodes.find((n) => n.getBoundingClientRect().bottom > top + 1)!;
-    Object.assign(window, { __marks: { field, nodes, first } });
+    const images = [...column.querySelectorAll("img")];
+    Object.assign(window, { __marks: { field, nodes, first, images } });
     // From here on, every composition and focus event is the drops' doing.
     (window as unknown as { __events: unknown[] }).__events.length = 0;
   });
 }
 function measure(page: Page): Promise<Measure> {
   return page.evaluate(() => {
-    const marks = (window as unknown as { __marks: { field: HTMLTextAreaElement; nodes: Element[]; first: Element } }).__marks;
+    const marks = (window as unknown as { __marks: { field: HTMLTextAreaElement; nodes: Element[]; first: Element; images: HTMLImageElement[] } }).__marks;
     const field = document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
     const column = document.querySelector("[data-reading-column]")!;
     return {
@@ -364,7 +371,9 @@ function measure(page: Page): Promise<Measure> {
       replaced: marks.nodes.filter((n) => !n.isConnected).length,
       previews: [...document.querySelectorAll("[data-composer] img")].map((img) => (img as HTMLImageElement).src),
       track: document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? "",
-      pills: document.querySelectorAll('[data-row-half="right"] [data-pill]').length,
+      pills: [...document.querySelectorAll('[data-row-half="right"] [data-pill]')].map((pill) => pill.textContent ?? ""),
+      transcriptPreviews: [...column.querySelectorAll("img")].map((img) => img.src),
+      replacedImages: marks.images.filter((img) => !img.isConnected).length,
     };
   });
 }
@@ -397,6 +406,8 @@ async function recover(s: Scene) {
  * replayed answer is no longer streaming), and that must not mask it.
  */
 function same(label: string, now: Measure, base: Measure) {
+  expect(now.replacedImages, `${label}: sent image nodes stay mounted`).toBe(0);
+  expect(now.transcriptPreviews, `${label}: the transcript keeps its sent image representation`).toEqual(base.transcriptPreviews);
   expect(now.replaced, `${label}: no transcript message node replaced`).toBe(0);
   expect(Math.abs(now.fieldTop - base.fieldTop), `${label}: the composer field's top`).toBeLessThanOrEqual(1);
   expect(now.firstTop, `${label}: the first visible message is still the same node`).not.toBeNull();
@@ -407,7 +418,7 @@ function same(label: string, now: Measure, base: Measure) {
   expect(now.value, `${label}: the textarea's value`).toBe(base.value);
   expect([now.selectionStart, now.selectionEnd], `${label}: the selection`).toEqual([base.selectionStart, base.selectionEnd]);
   expect(now.previews, `${label}: the attachment keeps its object URL`).toEqual(base.previews);
-  expect(now.pills, `${label}: the pending follow-up stays a pill`).toBe(base.pills);
+  expect(now.pills, `${label}: the pending follow-up keeps its text and state`).toEqual(base.pills);
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
@@ -426,7 +437,13 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           const [start, end] = cycle % 2 ? [caret, caret] : word;
           await page.evaluate(([a, b]) => document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!.setSelectionRange(a!, b!), [start, end]);
           const base = await measure(page);
-          if (cycle === 1) expect(base.previews[0], "the image previews from an object URL").toStartWith("blob:");
+          if (cycle === 1) {
+            expect(base.previews[0], "the image previews from an object URL").toStartWith("blob:");
+            expect(base.pills, "a real pending follow-up is guarded").toHaveLength(1);
+            expect(base.pills[0]).toContain("Then bind me to the mast");
+            expect(base.transcriptPreviews, "a sent image body is guarded").toHaveLength(1);
+            expect(base.transcriptPreviews[0]).toStartWith("blob:");
+          }
           log.push({ cycle, phase: "before", ...base });
 
           await drop(s);

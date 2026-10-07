@@ -12,6 +12,7 @@
  *   live answer it continues stays live until the host's status ends it.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { resolveObjectURL } from "node:buffer";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 
 class Socket {
@@ -68,6 +69,26 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  test("Claude's aggregate separators around a tool do not replace a live answer", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendText("s1", " Landed.");
+    const old = buffer(root).messages.at(-1)!;
+    const next = reconnect(root, socket);
+    // buildSessionHistory joins assistant entries with two newlines in
+    // content; its chronological parts retain the original text blocks.
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: `${SIRENS}\n\n Landed.`,
+      toolCalls: [{ id: "wax-1", name: "Bash", input: {} }],
+      parts: [{ kind: "text", text: SIRENS }, { kind: "tool", toolIndex: 0 }, { kind: "text", text: " Landed." }],
+    }] });
+    expect(buffer(root).messages.at(-1)!.id, "the live answer's node survives Claude history").toBe(old.id);
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Row on." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toBe(`${SIRENS} Landed. Row on.`);
+  });
   test("the host's unscoped greeting does not end it; the page reattaches and the host's answer decides", () => {
     const { root, socket } = running();
     const before = buffer(root).messages.map((m) => m.id);
@@ -295,9 +316,11 @@ describe("a reconnect while the turn in view runs", () => {
 
   test("a first chunk that stops early still leaves the turn's end to replay the whole", () => {
     const { root, socket } = running();
+    root.stores.chat.getState().stampTurn("s1", "turn-1");
     const next = reconnect(root, socket);
     // A first chunk that ends before the question on screen, then the rest.
     next.deliver({ type: "session_history", sessionId: "s1", messages: [] });
+    expect(buffer(root).messages.at(-1)!.turnId, "an unreceived live answer carries no history proof").toBeUndefined();
     next.deliver({ type: "session_history", sessionId: "s1", append: true, messages: history(SIRENS).slice(0, 1) });
     next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
     expect(buffer(root).isStreaming).toBe(true);
@@ -342,6 +365,41 @@ describe("a reconnect while the turn in view runs", () => {
 });
 
 describe("a history replay of a transcript already drawn", () => {
+  test("a sent image keeps its live preview and URL until the message is removed", () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    chat.finishAssistantMessage("s1");
+    const previewUrl = URL.createObjectURL(new Blob(["sail"]));
+    chat.addUserMessage("s1", "Chart the harbour", "typed", [{ previewUrl, mediaType: "image/png" }]);
+    socket.deliver({ type: "session_history", sessionId: "s1", messages: [
+      { role: "user", content: "Hold: Sail past the Sirens (corrected)", toolCalls: [] },
+    ] });
+    expect(buffer(root).messages.at(-1)!.attachments?.[0]?.previewUrl, "an updated prefix does not drop an unreceived image").toBe(previewUrl);
+    socket.deliver({ type: "session_history", sessionId: "s1", append: true, messages: [
+      history(SIRENS)[1], { role: "user", content: "Chart the harbour", toolCalls: [], attachmentCount: 1 },
+    ] });
+    expect(buffer(root).messages.at(-1)!.attachments?.[0]?.previewUrl, "sent preview survives replay").toBe(previewUrl);
+    expect(resolveObjectURL(previewUrl), "the retained URL was not revoked").toBeDefined();
+    socket.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    socket.deliver({ type: "session_history", sessionId: "s1", messages: [] });
+    socket.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    expect(resolveObjectURL(previewUrl), "removing the message still releases the URL").toBeUndefined();
+  });
+  test("a partial matching replay keeps its drawn suffix until the host settles it", () => {
+    const { root, socket } = running();
+    socket.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    const before = buffer(root).messages.map((m) => m.id);
+    socket.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS).slice(0, 1) });
+    expect(buffer(root).messages.map((m) => m.id), "the suffix stays between chunks").toEqual(before);
+    socket.deliver({ type: "session_history", sessionId: "s1", append: true, messages: history(SIRENS).slice(1) });
+    socket.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    expect(buffer(root).messages.map((m) => m.id)).toEqual(before);
+    socket.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS).slice(0, 1) });
+    socket.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    expect(buffer(root).messages, "a genuinely shorter authoritative history settles").toHaveLength(1);
+    expect(buffer(root).replay, "the completed replay is released").toBeUndefined();
+  });
+
   test("keeps the ids and times of the messages it repeats, and replaces the ones it changes", () => {
     const { root } = running();
     const chat = root.stores.chat.getState();

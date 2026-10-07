@@ -522,6 +522,8 @@ export interface ChatState {
   setMessages: (key: ChatKey, messages: ChatMessage[]) => void;
   /** Concatenate a continuation chunk of replayed history. Creates the buffer. */
   appendMessages: (key: ChatKey, messages: ChatMessage[]) => void;
+  /** @internal The host's status after history settles a chunked replay. */
+  finishHistoryReplay: (key: ChatKey) => void;
 
   // Session lifecycle
   /**
@@ -589,7 +591,11 @@ function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessa
  * continues the other, and it stays streaming: the host's status after the
  * history says whether the turn is still running, and only that ends it.
  */
-function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">): Pick<SessionChat, "messages" | "isStreaming"> {
+function drawnText(message: ChatMessage): string {
+  return message.parts.filter((part) => part.kind === "text").map((part) => part.text).join("") || message.content;
+}
+
+function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
   const tail = next.length - 1;
@@ -598,7 +604,10 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const old = previous.messages[i];
     if (!old || old.role !== m.role) return m;
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
-    const same = old.content === m.content || (live && (m.content.startsWith(old.content) || old.content.startsWith(m.content)));
+    // Claude history adds separators to its aggregate across assistant
+    // entries; the chronological text parts are the actual drawn text.
+    const mine = drawnText(old), theirs = drawnText(m);
+    const same = mine === theirs || (live && (theirs.startsWith(mine) || mine.startsWith(theirs)));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
     const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
@@ -610,8 +619,16 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       streaming = true;
       return mergeLive(old, m);
     }
-    return { ...m, id: old.id, timestamp: old.timestamp };
+    return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
   });
+  // The first frame can be only a prefix. Keep its matching drawn suffix
+  // until the host's post-history status settles the replay: otherwise a
+  // painted frame between WS tasks unmounts it and loses the scroll anchor.
+  if (partial && next.length < previous.messages.length) {
+    const suffix = previous.messages.slice(next.length).map((m) => m.isStreaming
+      ? { ...m, turnId: undefined, streamTurnId: m.turnId ?? m.streamTurnId } : m);
+    return { messages: [...messages, ...suffix], isStreaming: previous.isStreaming };
+  }
   // A backend may keep an answer only once it ends, so a replay mid-turn can
   // stop just before the answer on screen. Everything else repeated: the
   // answer is still being written, and stays (the turn's end replays again).
@@ -633,7 +650,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
  * correlation.
  */
 function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
-  const base = old.content.length > m.content.length ? old : m;
+  const base = drawnText(old).length >= drawnText(m).length ? old : m;
   const other = base === old ? m : old;
   const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
   // A tool the other copy saw finish is that copy's, state and all: an
@@ -739,10 +756,11 @@ function withoutRetry(message: ChatMessage): ChatMessage {
 }
 
 /** Free object URLs held by live message previews before dropping them. */
-function revokeAttachmentUrls(messages: ChatMessage[]) {
+function revokeAttachmentUrls(messages: ChatMessage[], retained: ChatMessage[] = []) {
+  const kept = new Set(retained.flatMap((m) => (m.attachments ?? []).map((a) => a.previewUrl)));
   for (const m of messages) {
     for (const a of m.attachments ?? []) {
-      if (a.previewUrl.startsWith("blob:")) URL.revokeObjectURL(a.previewUrl);
+      if (a.previewUrl.startsWith("blob:") && !kept.has(a.previewUrl)) URL.revokeObjectURL(a.previewUrl);
     }
   }
 }
@@ -1514,12 +1532,13 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             };
           }
           const existing = state.buffers[key];
-          if (existing) revokeAttachmentUrls(existing.messages);
           const base = existing ? { messages: existing.messages, isStreaming: existing.isStreaming } : null;
+          const drawn = base ? keepDrawnMessages(withKnownTurns(messages, base.messages), base) : { messages, isStreaming: false };
+          if (existing) revokeAttachmentUrls(existing.messages, drawn.messages);
           const buffers = {
             ...state.buffers,
             [key]: base
-              ? { ...emptyChat(), ...keepDrawnMessages(withKnownTurns(messages, base.messages), base), replay: { base, received: messages } }
+              ? { ...emptyChat(), ...drawn, replay: { base, received: messages } }
               : { ...emptyChat(), messages },
           };
           return { buffers: evictStale(buffers, state.activeSessionId) };
@@ -1542,10 +1561,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             const live = base.messages.at(-1);
             const current = now && live && now.id === live.id ? { ...base, messages: [...base.messages.slice(0, -1), now] } : base;
             const all = [...received, ...messages];
+            const drawn = keepDrawnMessages(withKnownTurns(all, current.messages), current);
+            revokeAttachmentUrls(existing.messages, drawn.messages);
             return {
               buffers: {
                 ...state.buffers,
-                [key]: { ...existing, ...keepDrawnMessages(withKnownTurns(all, current.messages), current), replay: { base: current, received: all }, lastTouched: Date.now() },
+                [key]: { ...existing, ...drawn, replay: { base: current, received: all }, lastTouched: Date.now() },
               },
             };
           }
@@ -1560,6 +1581,25 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             },
           };
         }),
+
+      finishHistoryReplay: (key) => mutateBuffer(key, (existing) => {
+        if (!existing.replay) return {};
+        const { base, received } = existing.replay;
+        const now = existing.messages.at(-1);
+        const live = base.messages.at(-1);
+        // A full replay is already reconciled. Progress that opened another
+        // message afterward is live, not an unreceived history suffix. A
+        // lagging backend can also omit just the answer that was live before
+        // the replay; retain that answer even if this status ends its turn.
+        if (received.length >= base.messages.length || now?.id !== live?.id
+          || (base.isStreaming && live?.isStreaming && received.length === base.messages.length - 1
+            && existing.messages.slice(0, received.length).every((m, i) => m.id === base.messages[i]!.id))) {
+          return { replay: undefined };
+        }
+        const drawn = keepDrawnMessages(withKnownTurns(received, existing.messages), existing, false);
+        revokeAttachmentUrls(existing.messages, drawn.messages);
+        return { ...drawn, replay: undefined };
+      }),
 
       startDraftTurn: () => {
         const id =

@@ -414,6 +414,11 @@ export const chatFrameHandlers = {
     if (context.key !== null) context.state.noteHistoryLoaded(context.key);
   },
   status: (msg, context) => {
+    // Both a resume and the host's connect snapshot send their scoped status
+    // after all history chunks. A queued request is not that answer.
+    if (context.frameSessionId && msg.status !== "queued") {
+      context.state.finishHistoryReplay(context.key);
+    }
     // A model call the runtime is retrying: the turn is alive, and says why
     // it is waiting (#575). Any other progress means the retry is behind it.
     if (msg.status === "thinking" || msg.status === "tool_executing") {
