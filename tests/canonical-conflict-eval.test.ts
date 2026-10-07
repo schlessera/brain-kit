@@ -165,9 +165,10 @@ test("configured authority, archive and taxonomy exclusions remain code gates", 
 });
 
 test("offline report retains a known retrieval miss and leaves live adoption metrics unmeasured", async () => {
-  const r = await controlReport(); expect(r.results.every(x => x.correct)).toBe(true); expect(r.cases).toBe(21);
+  const r = await controlReport(); expect(r.results).toHaveLength(21); expect(r.results.every(x => x.correct)).toBe(true); expect(r.cases).toBe(21);
   expect(r.draftCandidateRecall).toEqual({ positives: 6, retrieved: 5 });
   expect(r.adoption).toBe("not measured"); expect(r.replacement).toBe("not proposed");
+  expect(Object.keys(r.live)).toHaveLength(7);
   for (const metric of Object.values(r.live)) expect(metric).toBeNull();
 });
 

@@ -134,6 +134,7 @@ test("actual tag migration fixes a configured alias while corpus tag-noise remai
 
 test("offline controls do not manufacture live quality, savings or adoption measurements", () => {
   const r = controlReport(); expect(r.cases).toBe(14); expect(r.expectedHandlers).toBe(2);
-  expect(r.results.every(row => row.correct)).toBe(true); expect(r.adoption).toBe("not measured");
+  expect(r.results).toHaveLength(14); expect(r.results.every(row => row.correct)).toBe(true); expect(r.adoption).toBe("not measured");
+  expect(Object.keys(r.live)).toHaveLength(9);
   for (const value of Object.values(r.live)) expect(value).toBeNull();
 });

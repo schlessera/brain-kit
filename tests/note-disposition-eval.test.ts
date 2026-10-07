@@ -125,6 +125,7 @@ test("offline report leaves every live quality, price and latency metric unmeasu
   expect(r.cases).toBe(16);
   expect(r.oracleGuard.accepted).toBe(16);
   expect(r.adoption).toBe("not measured");
+  expect(Object.keys(r.live)).toHaveLength(10);
   for (const metric of Object.values(r.live)) expect(metric).toBeNull();
 });
 
