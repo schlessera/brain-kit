@@ -209,6 +209,44 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)!.parts).toEqual([...old.parts, { kind: "text", text: " Landed." }]);
     expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
   });
+  for (const trailing of ["", " Landed."]) {
+    test(`a completed bounded answer keeps every tool part and trailing text (${trailing ? "text" : "tools"})`, () => {
+      const { root, socket } = running();
+      for (let i = 0; i < 150; i++) {
+        root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
+        root.stores.chat.getState().setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+      }
+      if (trailing) root.stores.chat.getState().appendText("s1", trailing);
+      root.stores.chat.getState().finishAssistantMessage("s1");
+      const old = buffer(root).messages.at(-1)!;
+      expect(buffer(root).isStreaming).toBe(false);
+      const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: old.toolCalls, parts: old.parts }, HISTORY_CHUNK_BYTES);
+      expect(replay.toolCalls.length, "the completed fixture is genuinely bounded").toBeLessThan(150);
+      const next = reconnect(root, socket);
+      next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+      expect(buffer(root).messages.at(-1)!.parts, "completed replay keeps all drawn parts").toEqual(old.parts);
+      expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+      expect(buffer(root).isStreaming).toBe(false);
+    });
+  }
+  test("a completed clipped aggregate keeps its drawn trailing block", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendText("s1", "Row through the strait. ".repeat(5000));
+    for (let i = 0; i < 150; i++) {
+      root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
+      root.stores.chat.getState().setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+    }
+    root.stores.chat.getState().appendText("s1", " Landed.");
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: old.toolCalls, parts: old.parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.content).toContain("chars elided]");
+    expect(replay.parts.some((p) => p.kind === "text" && p.text === " Landed.")).toBe(false);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.parts, "completed clipped aggregate keeps the known trailing block").toEqual(old.parts);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+  });
   test("a size-bounded tool array keeps the tool cards already drawn", () => {
     const { root, socket } = running();
     for (let i = 0; i < 150; i++) {

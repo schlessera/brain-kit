@@ -652,9 +652,11 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       })),
     };
     if (/\n…\[\d+ chars elided\]/.test(content)) m.content = drawnText(m);
+    if (content !== unclippedContent && unclippedContent === old.content && drawnText(old).startsWith(drawnText(m))) m.content = old.content;
     // The array bound can omit a new trailing block while the aggregate
     // still carries it. Keep drawn cards, then add the newly proven suffix.
-    if (m.content.startsWith(old.content) && m.content.length > old.content.length
+    if (m.content.startsWith(old.content) && m.content.length >= old.content.length
+      && (boundedTools || m.content.length > old.content.length || drawnText(m).length < drawnText(old).length)
       && drawnText(m).length <= drawnText(old).length
       && (!old.turnId || !m.turnId || old.turnId === m.turnId)
       && old.toolCalls.slice(0, Math.min(old.toolCalls.length, m.toolCalls.length)).every((t, k) => t.id === m.toolCalls[k]!.id)) {
@@ -662,7 +664,8 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       for (const [toolIndex, tool] of m.toolCalls.entries()) {
         if (!old.toolCalls.some((t) => t.id === tool.id)) parts.push({ kind: "tool", toolIndex });
       }
-      m.parts = appendPart(parts, "text", m.content.slice(old.content.length));
+      const suffix = m.content.slice(old.content.length);
+      m.parts = suffix ? appendPart(parts, "text", suffix) : parts;
     }
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
     // Claude history adds separators to its aggregate across assistant
