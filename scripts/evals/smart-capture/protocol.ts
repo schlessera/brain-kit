@@ -1,0 +1,23 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+export const protocol = {
+  models: { current: "claude-sonnet-5-5", classifier: "jev-1.13.0" },
+  arms: ["current", "deterministic", "hybrid"], repetitions: 3,
+  state: "Fresh disposable fixture brain/home/config per physical current or generation invocation; no automatic memory; index rebuilt; same original files and actual shipped /add skill; raw usage and cache state retained. Cold native startup is included in current end-to-end latency.",
+  baseline: "Actual addCommand --smart -> actual claudeRunner, with its existing initialize/get_settings subscription gate. Explicit fields use actual ordinary addCommand because current --smart does not forward them. Native CLI model pinned Sonnet5.5; actual version recorded, no SDK/native upgrade hidden in the comparison.",
+  deterministic: "Explicit fields, unique revalidated exact titles, lexical bounded tags and otherwise inbox. Real production ingest for new files, existing byte-preserving frontmatter helper for target append. Experiment-only empty/bounded tag normalization is disclosed and reindexed.",
+  hybrid: "Same mechanical bypasses; pinned Jev Choice for every runtime capture type and explicit-none project destination, separate per-candidate Noul and per-vocabulary-tag Noul. Semantic destinations remain review proposals, never automatic append permission. Uncertain/failed/no-key classifier safely captures original in inbox.",
+  calibration: "Only the eight tuning fixtures calibrate a common candidate threshold from .7,.8,.9,.95,1. Require zero observed type/target/tag false positives and at least one accepted semantic judgment. No qualifying threshold means no inferred judgments. Freeze threshold before held-out observations; no labels or schema edits after inference.",
+  generation: "Requested rewrite remains an actual coding-agent generation invocation. Deterministic/hybrid preserve the original capture first and request a separate rewrite draft. Every generation/retry/failed/fallback call is recorded and included in its arm. Classifier alone never supplies rewritten prose.",
+  writes: "Fixture-only native tool hook and read-only source mount; only contained Markdown and brain CLI permitted. Unique configured exact-title appends require unchanged target snapshot, existing body and original capture retention, and retained metadata. Wrong-target appends/content loss veto unattended adoption.",
+  sample: "26 authored cases: 8 Ogygia tuning and18 Ithaca/Pylos/Sparta held-out; repeated task patterns cross split intentionally disclosed, so entity split is not a template-generalization claim. Three correlated repetitions; one larger-state case includes full unrelated lesson in classifier state; default model sampling retained. Directional evidence, not population calibration.",
+  scoring: "Real post-write files: type confusion, changed-existing target precision, original capture/full existing-body retention, bounded tag micro precision/recall, abstention and semantic review destination. A semantic proposed destination is compared separately from actual append. Strict complete file snapshots retained; frontmatter layout is not mistaken for semantic equivalence.",
+  accounting: "$15 issue/$150 aggregate actual additional billed caps per ruling6038531493. Included subscription turns' independently priced API equivalents are diagnostic. Missing native result/usage, unexpected served model, auth mismatch or reported overage stops. Every physical Jev HTTP attempt/retry charged from raw usage; missing charge receipt stops, never invented zero. Counter/native setup is not model quality.",
+  headline: "Held-out rows only; tuning is a safety screen. No production adoption or config seam is implemented by this spike, including a favorable observed sample.",
+};
+const sourcePaths = ["pipeline.ts", "metrics.ts", "brain-fixture.ts", "native-observer.ts", "tool-hook.py", "protocol.ts", "relay.ts", "live.ts", "launch.py",
+  "../../../packages/core/src/cli/commands/add.ts", "../../../packages/core/src/lib/ingestion.ts", "../../../packages/core/src/providers/agents/cli-runners.ts",
+  "../../../packages/core/src/providers/agents/claude-subscription.ts", "../../../packages/core/skills/add/SKILL.md", "../../measure-sonnet55-cost.ts"];
+export const fixtureSha = createHash("sha256").update(readFileSync(new URL("fixtures.json", import.meta.url))).digest("hex");
+export const protocolSha = createHash("sha256").update(JSON.stringify(protocol)).digest("hex");
+export const sourceHashes = Object.fromEntries(sourcePaths.map(path => [path, createHash("sha256").update(readFileSync(new URL(path, import.meta.url))).digest("hex")]));
