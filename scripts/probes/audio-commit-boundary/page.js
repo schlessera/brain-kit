@@ -251,6 +251,7 @@ async function start({ id, timesliceMs, mime }) {
 
 /** Simulated microphone interruption: the capture track ends under the recorder. */
 function interruptTrack() {
+  if (live.stoppedBy || live.recorder?.state !== "recording") throw Error(`recorder already stopped by ${live.stoppedBy}`);
   live.stopWall = Date.now();
   live.stoppedBy = "track-ended";
   for (const track of live.stream.getTracks()) track.stop();
@@ -272,6 +273,7 @@ function snapshot() {
     stopWall: live.stopWall,
     stoppedBy: live.stoppedBy,
     drained: live.drained,
+    tracks: live.stream ? live.stream.getTracks().map((t) => t.readyState) : [],
     completed: live.completed,
     visibility: document.visibilityState,
     events: live.events,

@@ -340,9 +340,26 @@ function sigkill(pids) {
   for (const pid of pids) {
     try {
       process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
+    } catch (error) {
+      // Already gone is fine; anything else means the kill did not happen.
+      if (error?.code !== "ESRCH") throw error;
     }
+  }
+}
+
+/** Resolve once every pid is gone or a zombie; throw if any is still running after 5 s. */
+async function observeDeath(pids) {
+  const alive = (pid) => {
+    try {
+      return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1][0] !== "Z";
+    } catch {
+      return false;
+    }
+  };
+  const until = Date.now() + 5000;
+  while (pids.some(alive)) {
+    if (Date.now() > until) throw Error(`processes survived SIGKILL: ${pids.filter(alive).join(", ")}`);
+    await sleep(20);
   }
 }
 
@@ -351,11 +368,13 @@ function sigkill(pids) {
  * list is taken first; the returned wall time is taken just before the first
  * signal, so the scan does not count as recording time.
  */
-function killBrowser(dir) {
+async function killBrowser(dir) {
   const procs = profileProcesses(dir);
   if (!procs.length) throw Error(`no processes found for ${dir}`);
+  const pids = procs.map((p) => p.pid);
   const wall = Date.now();
-  sigkill(procs.map((p) => p.pid));
+  sigkill(pids);
+  await observeDeath(pids);
   return { wall, processes: procs.length };
 }
 
@@ -383,6 +402,7 @@ async function crashRenderer(name, driver, dir) {
     if (!tabs.length) throw Error(`no Firefox tab content process found among ${JSON.stringify(all.map((p) => [p.pid, p.ppid, p.cmd.slice(0, 2), p.cmd.at(-1)]))}`);
     wall = Date.now();
     sigkill(tabs.map((p) => p.pid));
+    await observeDeath(tabs.map((p) => p.pid));
     how = `SIGKILL of the ${tabs.length} Firefox web-content ("tab") processes`;
   }
   await crashed; // throws on timeout: no observed crash, no measurement
@@ -400,6 +420,12 @@ async function waitDrained(driver, ms) {
     await sleep(100);
   } while (Date.now() < until);
   return snap;
+}
+
+/** Refuse to measure an interruption of a recording that had already stopped. */
+function assertRecording(snap) {
+  if (snap.recorderState !== "recording" || snap.stoppedBy)
+    throw Error(`the recorder was not recording before the interruption: state ${snap.recorderState}, stopped by ${snap.stoppedBy}`);
 }
 
 const START = `window.probe.start({ id: "rec", timesliceMs: ${timesliceMs}, mime: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : undefined })`;
@@ -420,6 +446,7 @@ async function runOnce(name, kase, run) {
   let browserAlive = true;
   let ballast = null;
   let keeper = null;
+  const skip = (message) => Object.assign(Error(message), { skip: true });
   try {
     if (kase === "quota") {
       // Leave about recordForMs of opus free on the profile's disk; the recording then runs into it.
@@ -441,11 +468,11 @@ async function runOnce(name, kase, run) {
         await sleep(200);
         snap = await driver.ev("window.probe.snapshot()");
       } while (!snap.writeErrors.length && Date.now() < deadline);
-      if (!snap.writeErrors.length) return { ...record, before: snap, failed: "no chunk write failed within 60 s" };
+      if (!snap.writeErrors.length) throw Error("no chunk write failed within 60 s");
       record.before = await waitDrained(driver, 5000);
       record.interruptWall = record.before.stopWall;
       record.interruptedBy = "the first failed chunk write; the probe then stops the recorder";
-      record.killedProcesses = killBrowser(dir).processes;
+      record.killedProcesses = (await killBrowser(dir)).processes;
       browserAlive = false;
       // The reader relaunches after space was freed again, as after the user clears storage.
       rmSync(ballast, { force: true });
@@ -456,39 +483,48 @@ async function runOnce(name, kase, run) {
         keeper = await driver.context.newPage();
         await driver.page.bringToFront();
         record.before = await driver.ev("window.probe.snapshot()");
+        assertRecording(record.before);
         record.interruptWall = Date.now();
         await driver.page.close({ runBeforeUnload: false });
         if (!driver.page.isClosed()) throw Error("the recording tab is still open after page.close");
         record.interruptedBy = "page.close without unload handlers; browser stays up";
       } else if (kase === "crash-renderer") {
         record.before = await driver.ev("window.probe.snapshot()");
+        assertRecording(record.before);
         const crash = await crashRenderer(name, driver, dir);
         record.interruptWall = crash.wall;
         record.interruptedBy = crash.how;
       } else if (kase === "kill-browser") {
         record.before = await driver.ev("window.probe.snapshot()");
-        const kill = killBrowser(dir);
+        assertRecording(record.before);
+        const kill = await killBrowser(dir);
         record.interruptWall = kill.wall;
         record.killedProcesses = kill.processes;
         browserAlive = false;
         record.interruptedBy = "SIGKILL of every browser process";
       } else if (kase === "hidden-then-kill") {
         const how = await driver.hide();
-        if (!how) return { ...record, skipped: "the recording tab still reported visible behind a second tab" };
+        if (!how) throw skip("the recording tab still reported visible behind a second tab");
         record.hiddenBy = how;
         record.hiddenAtMs = Date.now() - startWall;
         await sleep(6000);
         record.before = await driver.ev("window.probe.snapshot()");
         if (record.before.visibility !== "hidden") throw Error("the recording tab became visible again before the kill");
-        const kill = killBrowser(dir);
+        assertRecording(record.before);
+        const kill = await killBrowser(dir);
         record.interruptWall = kill.wall;
         record.killedProcesses = kill.processes;
         browserAlive = false;
         record.interruptedBy = "SIGKILL of every browser process after 6 s hidden";
       } else if (kase === "track-ended") {
+        assertRecording(await driver.ev("window.probe.snapshot()"));
         record.interruptWall = await driver.ev("window.probe.interruptTrack()");
         record.before = await waitDrained(driver, 5000);
-        record.killedProcesses = killBrowser(dir).processes;
+        // Only a recorder that the track end itself stopped, with every write settled, is this case.
+        const b = record.before;
+        if (!b.drained || b.recorderState !== "inactive" || b.stoppedBy !== "track-ended" || !b.tracks.every((t) => t === "ended"))
+          throw Error(`the track end did not stop the recorder: drained ${b.drained}, state ${b.recorderState}, stopped by ${b.stoppedBy}, tracks ${b.tracks}`);
+        record.killedProcesses = (await killBrowser(dir)).processes;
         browserAlive = false;
         record.interruptedBy = "MediaStreamTrack.stop() on the capture track; SIGKILL once the write chain drained (or after 5 s)";
       }
@@ -503,11 +539,12 @@ async function runOnce(name, kase, run) {
       record.readVia = "new tab in the same browser";
     }
   } catch (error) {
-    record.failed = String(error?.stack ?? error);
+    if (error?.skip) record.skipped = error.message;
+    else record.failed = String(error?.stack ?? error);
   } finally {
     await driver.close();
   }
-  if (!record.failed && !record.after) {
+  if (!record.failed && !record.skipped && !record.after) {
     // Relaunch the same way the run launched, so only the interruption differs.
     let reader;
     try {
@@ -522,8 +559,10 @@ async function runOnce(name, kase, run) {
   }
   rmSync(dir, { recursive: true, force: true });
   if (ballast) rmSync(ballast, { force: true });
-  if (record.failed) return record;
+  if (record.failed || record.skipped) return record;
   if (!record.after?.indexReadable) return { ...record, failed: `storage could not be opened after the interruption: ${record.after?.error}` };
+  if (record.after.readableChunks !== record.after.chunkRows || !record.after.contiguous)
+    return { ...record, failed: `committed chunks not all readable: ${record.after.readableChunks} of ${record.after.chunkRows}, contiguous ${record.after.contiguous}` };
   if (record.after.chunkRows && record.after.decodedMs == null)
     return { ...record, failed: `committed chunks did not decode: ${record.after.decodeError}` };
   record.capturedMs = record.interruptWall - record.started.startWall;
