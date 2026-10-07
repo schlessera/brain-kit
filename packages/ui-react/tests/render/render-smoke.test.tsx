@@ -5,7 +5,8 @@
 // The dom.js import MUST stay first — it registers the happy-dom globals
 // before the component module bodies run, and its header documents why every
 // render test lives in this one file and why `screen` must not be used.
-import { unregisterDom } from "./dom.js";
+import { registerDom, unregisterDom } from "./dom.js";
+registerDom();
 
 import { BrainMarkdown } from "../../src/components/chat/brain-markdown.js";
 import { MaskEditor } from "../../src/components/images/mask-editor.js";
@@ -161,13 +162,10 @@ mock.module("../../src/components/graph/graph-canvas.js", () => ({
 
 afterEach(cleanup);
 afterAll(async () => {
-  // Let React's scheduler drain before the DOM globals go. A test that
-  // resolves a deferred response late can leave one `performWorkUntilDeadline`
-  // task queued; unregistering underneath it throws "window is not defined"
-  // from the scheduler, which Bun reports as an error and exits non-zero even
-  // though every test passed.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterDom();
+  // Finish owned React work while its DOM still exists, then await happy-dom's
+  // own closure. A timer turn is not proof that scheduled work has drained.
+  await act(async () => cleanup());
+  await unregisterDom();
 });
 
 const realFetch = globalThis.fetch;
@@ -6731,7 +6729,7 @@ for (const backend of ["claude","pi"] as const) {
       expect(view.container.querySelectorAll('[data-lane-fade="true"]')).toHaveLength(0);
       expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('cancelled');
       expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('denied');
-    }finally{root.dispose();}
+    }finally{await act(async()=>root.dispose());}
   });
 }
 
@@ -6769,7 +6767,7 @@ for(const variant of ['empty','pruned','unsupported'] as const)test(`run lanes s
     if(variant==='pruned')await waitFor(()=>expect(view.container.textContent).toContain('Trace pruned'));
     else await act(async()=>{await Promise.resolve();});
     expect(view.container.querySelector('[data-kit-lane-chart]')).toBeNull();expect(view.container.textContent).not.toContain('waiting on you');
-  }finally{root.dispose();}
+  }finally{await act(async()=>root.dispose());}
 });
 
 import { parallelSpans as realParallelSpans } from "../orbit-fixtures.js";
@@ -6797,7 +6795,7 @@ for (const backend of ["claude", "pi"] as const) {
       expect(root.stores.ui.getState().activeView).toBe("chat");
       expect(root.stores.chat.getState().activeSessionId).toBe("crossing-chat");
       expect(root.stores.ui.getState().subagentStack).toEqual(["research"]);
-    } finally { root.dispose(); }
+    } finally { await act(async()=>root.dispose()); }
   });
 }
 
@@ -6824,7 +6822,7 @@ for (const variant of ["unsupported","pruned","single","empty"] as const) {
       if(variant==="pruned")await waitFor(()=>expect(view.container.textContent).toContain("Trace pruned"));
       expect(view.container.querySelectorAll('[data-kit-agent-orbit]')).toHaveLength(0);
       expect(view.container.textContent).not.toContain("4,812");
-    }finally{root.dispose();}
+    }finally{await act(async()=>root.dispose());}
   });
 }
 test("live approval and terminal frames update the same orbit without an announcement region", async () => {
@@ -6841,5 +6839,5 @@ test("live approval and terminal frames update the same orbit without an announc
     expect(orbit.getAttribute('aria-label')).toBe("Agents: 0 needs you, 2 running, 4 ended");
     expect(orbit.querySelector('[data-orbit-agent="research"]')?.getAttribute('data-orbit-state')).toBe("stopped");
     expect(orbit.querySelectorAll('[aria-live],[role="status"]')).toHaveLength(0);
-  }finally{root.dispose();}
+  }finally{await act(async()=>root.dispose());}
 });
