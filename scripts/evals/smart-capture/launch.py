@@ -11,6 +11,8 @@ def main():
     env = {'PATH': '/usr/bin:/bin:' + str(bun.parent), 'HOME': '/tmp/isolated-home', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1'}
     if mode in ['review', 'live']:
         out = pathlib.Path(sys.argv[2]).resolve()
+        if out.parent in [pathlib.Path('/tmp'), pathlib.Path('/')]:
+            raise RuntimeError('Use a dedicated issue output parent, not the entire temporary filesystem')
         if out.exists():
             raise RuntimeError('Fresh protected output directory required')
         out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -38,8 +40,11 @@ def main():
         if mode == 'offline-review':
             env['BRAIN_SMART_READONLY_REVIEW'] = '1'
         command = [str(source / 'scripts/evals/smart-capture/offline-probe.ts')]
-    for system in ['/usr', '/bin', '/lib', '/lib64', '/etc']:
+    for system in ['/usr', '/bin', '/lib', '/lib64']:
         args += ['--ro-bind', system, system]
+    for system in ['/etc/ssl', '/etc/resolv.conf', '/etc/hosts', '/etc/nsswitch.conf', '/etc/passwd', '/etc/group']:
+        if pathlib.Path(system).exists():
+            args += ['--ro-bind', system, system]
     args += ['--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--ro-bind', str(source), str(source), '--ro-bind', str(bun), str(bun), '--chdir', str(source)]
     # Writable destinations must be mounted after /tmp is created.
     if mode in ['review', 'live']:

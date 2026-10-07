@@ -6,6 +6,7 @@ export interface NativeCall {
   requestSha: string; stateBytes: number; requestedModel: string; servedModel: string | null;
   status: number | null; usage: Record<string, any> | null; finished: boolean;
   outcome: string; durationMs: number; apiEquivalent: ReturnType<typeof priceSonnet55Usage> | null;
+  failure?: string;
 }
 export function startRelay(options: {
   oauthToken: string; fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -36,6 +37,7 @@ export function startRelay(options: {
       response = await options.fetch(`${upstream.origin}${url.pathname}${url.search}`, { method: "POST", headers, body, redirect: "error", signal: request.signal });
     } catch (error) {
       call.outcome = "network_error"; call.finished = true; call.durationMs = performance.now() - started;
+      call.failure = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       stopped = true; options.save(calls); return new Response(String(error), { status: 502 });
     }
     call.status = response.status;
