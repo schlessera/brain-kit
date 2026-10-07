@@ -56,7 +56,7 @@ export const NoWrap = Default.extend({
     const row = chips[0]!.parentElement!;
     await userEvent.tab();
     await expect(row).toHaveFocus();
-    for (const chip of chips) await userEvent.tab();
+    for (let i = 0; i < chips.length; i += 1) await userEvent.tab();
     await expect(chips.at(-1)).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     await expect(args.items?.at(-1)?.onClick).toHaveBeenCalledTimes(1);
