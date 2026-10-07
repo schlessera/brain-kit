@@ -263,22 +263,38 @@ describe("createModelSource", () => {
   test("ensureFresh() awaits a cold start but returns immediately when stale", async () => {
     process.env.ANTHROPIC_API_KEY = "k";
     let now = 1_000_000;
+    let blockRefresh = false;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
     const source = createModelSource({
       brainPath,
       ttlMs: 1_000,
       now: () => now,
-      fetchImpl: stubFetch({ models: [{ id: "claude-opus-5-5" }] }),
+      fetchImpl: (async (input) => {
+        if (blockRefresh) await pending;
+        return stubFetch({ models: [{ id: "claude-opus-5-5" }] })(input);
+      }) as typeof fetch,
     });
 
-    // Cold: nothing to serve, so the caller waits and gets a populated list.
     await source.ensureFresh();
     expect(source.list()).toHaveLength(1);
 
-    // Stale: returns without awaiting the refresh, list still served.
     now += 5_000;
+    blockRefresh = true;
     expect(source.state().stale).toBe(true);
-    await source.ensureFresh();
-    expect(source.list()).toHaveLength(1);
+    let returned = false;
+    const stale = source.ensureFresh().then(() => { returned = true; });
+    try {
+      await Bun.sleep(0);
+      expect(returned).toBe(true);
+      expect(source.list()).toHaveLength(1);
+      // The refresh is still blocked: the return came from serving cache.
+      expect(source.state().stale).toBe(true);
+    } finally {
+      release();
+      await stale;
+      await source.refresh();
+    }
   });
 
   test("disabled sources never fetch and report themselves disabled", async () => {
