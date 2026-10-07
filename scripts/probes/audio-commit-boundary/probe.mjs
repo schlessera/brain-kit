@@ -219,8 +219,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function openPlaywright(name, dir) {
   const context = await playwright[name].launchPersistentContext(dir, launchOptions(name));
   const page = context.pages()[0] ?? (await context.newPage());
-  await page.goto(origin);
-  await page.waitForFunction(() => window.probeReady === true);
+  try {
+    await page.goto(origin);
+    await page.waitForFunction(() => window.probeReady === true);
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
+  }
   return {
     kind: "playwright",
     context,
@@ -243,6 +248,15 @@ async function rawChromium(dir) {
     [`--user-data-dir=${dir}`, "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--no-sandbox", "--password-store=basic", ...CHROMIUM_ARGS, "about:blank"],
     { stdio: "ignore" }
   );
+  try {
+    return await connectRaw(proc, dir);
+  } catch (error) {
+    proc.kill("SIGKILL");
+    throw error;
+  }
+}
+
+async function connectRaw(proc, dir) {
   let endpoint;
   for (let i = 0; i < 200 && !endpoint; i++) {
     await sleep(50);
@@ -440,14 +454,15 @@ async function runOnce(name, kase, run) {
       skipped: "could not hide the tab: Playwright opens every Firefox page in its own window, and Xvfb has no window manager to minimise or occlude it",
     };
   const dir = mkdtempSync(resolve(kase === "quota" ? SMALL_DISK : tmpdir(), `v1-${name}-${kase}-`));
-  const driver = kase === "hidden-then-kill" ? await rawChromium(dir) : await openPlaywright(name, dir);
-  record.browserVersion = driver.version;
-  record.driver = driver.kind;
+  let driver;
   let browserAlive = true;
   let ballast = null;
   let keeper = null;
   const skip = (message) => Object.assign(Error(message), { skip: true });
   try {
+    driver = kase === "hidden-then-kill" ? await rawChromium(dir) : await openPlaywright(name, dir);
+    record.browserVersion = driver.version;
+    record.driver = driver.kind;
     if (kase === "quota") {
       // Leave about recordForMs of opus free on the profile's disk; the recording then runs into it.
       // 256 KiB lets the index row and the first chunks commit; the rest is about recordForMs of opus.
@@ -470,6 +485,10 @@ async function runOnce(name, kase, run) {
       } while (!snap.writeErrors.length && Date.now() < deadline);
       if (!snap.writeErrors.length) throw Error("no chunk write failed within 60 s");
       record.before = await waitDrained(driver, 5000);
+      // Only a recorder that the failed write itself stopped, with the chain settled, is this case.
+      const b = record.before;
+      if (!b.drained || b.recorderState !== "inactive" || b.stoppedBy !== "write-error" || !b.stopWall)
+        throw Error(`the failed write did not stop the recorder: drained ${b.drained}, state ${b.recorderState}, stopped by ${b.stoppedBy}`);
       record.interruptWall = record.before.stopWall;
       record.interruptedBy = "the first failed chunk write; the probe then stops the recorder";
       record.killedProcesses = (await killBrowser(dir)).processes;
@@ -542,7 +561,7 @@ async function runOnce(name, kase, run) {
     if (error?.skip) record.skipped = error.message;
     else record.failed = String(error?.stack ?? error);
   } finally {
-    await driver.close();
+    await driver?.close();
   }
   if (!record.failed && !record.skipped && !record.after) {
     // Relaunch the same way the run launched, so only the interruption differs.
