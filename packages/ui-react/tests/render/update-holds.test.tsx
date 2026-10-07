@@ -328,6 +328,22 @@ test("dictated text waiting for review holds the reload with the composer's fiel
   expect(reloads(), "the review card closed: one reload").toBe(1);
 });
 
+test("a recording on the device holds the reload while it opens, records and hands over its last chunk; then it reloads once", async () => {
+  const { root } = voiceRoot();
+  emptyComposer();
+  const { reloads } = await mountGuard(root);
+  const voice = () => root.stores.voice.getState();
+  act(() => voice().setLocal("opening"));
+  takeOver();
+  expect(reloads(), "no reload while busy: the microphone is opening").toBe(0);
+  act(() => voice().setLocal("recording"));
+  expect(reloads(), "no reload while busy: recording").toBe(0);
+  act(() => voice().setLocal("stopping"));
+  expect(reloads(), "no reload while busy: the final chunk is on its way").toBe(0);
+  act(() => voice().setLocal("idle"));
+  expect(reloads(), "the recording ended: one reload").toBe(1);
+});
+
 test("a nonempty text field holds the reload until it is emptied", async () => {
   const { root } = voiceRoot();
   const field = emptyComposer();

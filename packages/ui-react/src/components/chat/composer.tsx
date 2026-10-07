@@ -18,6 +18,7 @@ import { ComposerView } from "./composer-view.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { useDictation } from "../../voice/use-dictation.js";
+import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
@@ -205,6 +206,20 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const reviewText = useVoiceStore((s) => s.reviewText);
   const clearReview = useVoiceStore((s) => s.clearReview);
   const dictation = useDictation();
+  const localCapture = useLocalCapture();
+  const localSupported = useLocalCaptureSupport();
+  const localPhase = useVoiceStore((s) => s.local);
+  const localNotice = useVoiceStore((s) => s.localNotice);
+  // What the mic does (#1012). It is decided at the tap and kept for the
+  // capture's life: a recording on the device stays one when the host comes
+  // back, and a dictation never turns into one when the host goes away.
+  // Without local recording on this root, the mic dictates as it always has.
+  const micMode: "dictate" | "local" | "unsupported" | "pending" =
+    voiceMode === "dictate" ? "dictate"
+      : localPhase !== "idle" ? "local"
+      : wsStatus === "connected" || root.localCapture === null ? "dictate"
+      : localSupported === null ? "pending"
+      : localSupported ? "local" : "unsupported";
 
   const runCommand = useChatCommands();
 
@@ -508,7 +523,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   function handleMicTap() {
     if (root.stores.voice.getState().mode === "dictate") {
       stopDictation();
-    } else {
+    } else if (micMode === "local") {
+      setAttachMenuOpen(false);
+      setProviderMenuOpen(false);
+      setPaletteDismissed(true);
+      // A recording on the device leaves the draft editable, and focus where
+      // the tap put it: on the mic, which is also the stop.
+      // A tap while the microphone is still opening cancels it.
+      const phase = root.stores.voice.getState().local;
+      if (phase === "recording" || phase === "opening") void localCapture.stop("user");
+      else if (phase === "idle") void localCapture.start();
+    } else if (micMode === "dictate") {
       setAttachMenuOpen(false);
       setProviderMenuOpen(false);
       setPaletteDismissed(true);
@@ -535,6 +560,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   function handleVoiceAppend() {
+    // Dictation never starts beside a recording on the device.
+    if (root.stores.voice.getState().local !== "idle") return;
     // Review text stays in place; the next capture appends to it on stop.
     void dictation.start();
   }
@@ -625,6 +652,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <ComposerView
           dictation={<DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />}
+          captureNotice={
+            micMode === "unsupported"
+              ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
+              : localNotice === "denied" && micMode === "local"
+                ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
+                : undefined
+          }
+          mic={micMode !== "unsupported"}
+          micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
@@ -650,7 +686,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
@@ -703,7 +739,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (voiceMode !== "dictate" && canSend) handleSubmit();
           }}
           onStop={handleCancel}
-          onMic={handleMicTap}
+          onMic={micMode === "pending" ? undefined : handleMicTap}
           onAttachToggle={() => setAttachMenuOpen((v) => !v)}
           onPickLibrary={() => {
             setAttachMenuOpen(false);

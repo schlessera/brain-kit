@@ -81,5 +81,22 @@ export { createBrainApi, type BrainApi } from "./lib/api-client.js";
 export { apiBase } from "./lib/backend.js";
 
 // Independent UI roots; connection handlers close over the root they belong to.
-export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions } from "./root.js";
+export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions, type LocalCaptureOptions } from "./root.js";
+
+// Recording on the device without a server voice session (#1012). A root
+// offers it only when given `localCapture`; the engine and the support probe
+// are exported for the shell's own capture surfaces.
+export {
+  startLocalCapture,
+  detectLocalCaptureSupport,
+  LOCAL_CAPTURE_MIME_TYPES,
+  type LocalCapture,
+  type LocalCaptureChunk,
+  type LocalCaptureMimeType,
+  type LocalCaptureSink,
+  type LocalCaptureStopReason,
+  type LocalCaptureSupport,
+  type StartLocalCaptureOptions,
+  type LocalCaptureEnvironment,
+} from "./voice/local-capture.js";
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";

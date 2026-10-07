@@ -9,6 +9,15 @@ import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerSto
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
 import { disposeTracks } from "./lib/draft-tracks.js";
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
+import type { LocalCaptureSink } from "./voice/local-capture.js";
+
+/** Recording on the device while the host is unreachable (#1012). */
+export interface LocalCaptureOptions {
+  /** A sink for one recording; called once per tap that starts one. */
+  sink: () => LocalCaptureSink;
+  /** MediaRecorder's chunk interval. A tuning default, never shown. */
+  timesliceMs?: number;
+}
 
 export interface BrainUiRootOptions {
   config?: Partial<BrainUiConfig>;
@@ -26,6 +35,12 @@ export interface BrainUiRootOptions {
   answerStorage?: AnswerStorage | null;
   /** @internal Cross-tab coordination for the answer queue. */
   answerTabs?: TabCoordinator | null;
+  /**
+   * Turns on "Record on this device": with the host unreachable, the mic
+   * records locally into this sink. Off when omitted, so no build offers a
+   * recording it cannot save before the durable store (#1017) supplies one.
+   */
+  localCapture?: LocalCaptureOptions | null;
 }
 
 /** Dependencies the connection closes over; none are resolved from React. */
@@ -45,6 +60,8 @@ export interface BrainUiServices {
   /** Answer-queue dependencies, resolved once for this root. */
   answerStorage: AnswerStorage | null;
   answerTabs: TabCoordinator | null;
+  /** Local recording, or null when this root does not offer it. */
+  localCapture: LocalCaptureOptions | null;
   registerVpnRecheck: (callback: () => void) => () => void;
 }
 
@@ -94,6 +111,7 @@ export function createRoot(
     : persistent ? createBrowserTabCoordinator(`${prefix}:answers`) : null;
   const services: BrainUiServices = {
     answerStorage, answerTabs,
+    localCapture: options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
     backendUrl: (path) => getBackendUrlFor(config, path),
     wsUrl: () => getWsUrlFor(config),

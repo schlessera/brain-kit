@@ -28,6 +28,20 @@ both stylesheet entry points. Both forms keep the provider disclosure,
 transcript scrolling and review flow. The composer preserves its draft and
 prevents typing or sending while capture or its final drain is active.
 
+### Recording on the device
+
+A root created with `localCapture: { sink }` also records without the host.
+While the host is unreachable the mic becomes "Record on this device": a tap
+opens the microphone and records with MediaRecorder into the sink, chunk by
+chunk, with no network request. The draft stays editable, and the mic stops
+the recording ("Stop and save"). A recording stays one when the host returns,
+and a dictation never becomes one. A refused microphone and a browser that
+cannot record on the device (`detectLocalCaptureSupport`) each say so in place
+of the capture panel; the latter draws no mic. Without the option the mic
+dictates online and offline exactly as before. The engine is also exported:
+`startLocalCapture({ sink })` returns a capture whose `stop(reason)` resolves
+once the final chunk was handed over and the microphone released.
+
 ## Track files
 
 The composer accepts validated GPX, KML and supported GeoJSON alongside images
