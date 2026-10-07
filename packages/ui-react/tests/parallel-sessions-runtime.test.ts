@@ -295,9 +295,10 @@ type Device = { context: BrowserContext; page: Page; dialogs: string[] };
 async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  // The whole app applies the root's stored theme to the document, so the
+  // run's theme is stored under the fixture root's prefix before it loads.
   await context.addInitScript((theme) => {
-    document.documentElement.dataset.theme = theme;
-    if (theme === "dark") document.documentElement.classList.add("dark");
+    localStorage.setItem("odysseus-parallel:brain-theme", theme);
   }, run.theme);
   const page = await context.newPage();
   // A page clock the test can move forward; it runs in real time otherwise.
@@ -307,6 +308,7 @@ async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device>
   page.on("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
   await page.goto(origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
+  expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
   return { context, page, dialogs };
 }
 
