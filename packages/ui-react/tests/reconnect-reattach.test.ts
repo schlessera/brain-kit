@@ -98,6 +98,43 @@ describe("a reconnect while the turn in view runs", () => {
       expect(buffer(root).messages.at(-1)!.content).toBe(`${merged} Landed.`);
     });
   }
+  test("a clipped interior gap in one stored text part retains the drawn answer", () => {
+    const { root, socket } = running();
+    const first = "A".repeat(20000), missed = "B".repeat(200000), late = "C".repeat(60000);
+    root.stores.chat.getState().appendText("s1", first + late);
+    const old = buffer(root).messages.at(-1)!;
+    const whole = SIRENS + first + missed + late;
+    const replay = shrinkForReplication({ role: "assistant", content: whole, toolCalls: [], parts: [{ kind: "text", text: whole }] }, HISTORY_CHUNK_BYTES);
+    expect(replay.parts[0]!.text).toContain("chars elided]");
+    expect(replay.parts[0]!.text).not.toContain(late);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "clipped interior gap retains the answer identity").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content).toContain(late);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toEndWith(late + " Landed.");
+  });
+  test("a missed interior tool retains answer identity and chronological tool indices", () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    for (const id of ["wax-a", "wax-c"]) { chat.startToolCall("s1", id, "Bash"); chat.completeToolCall("s1", id, "Bash", { command: id }); }
+    const old = buffer(root).messages.at(-1)!;
+    expect(old.toolCalls.map((t) => t.id), "the drawn cards are nonempty and have the interior gap").toEqual(["wax-a", "wax-c"]);
+    const tools = ["wax-a", "wax-b", "wax-c"].map((id) => ({ id, name: "Bash", input: { command: id } }));
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, toolCalls: tools, parts: [{ kind: "text", text: SIRENS }, ...tools.map((_, toolIndex) => ({ kind: "tool", toolIndex }))],
+    }] });
+    const merged = buffer(root).messages.at(-1)!;
+    expect(merged.id, "interior tool gap retains the answer identity").toBe(old.id);
+    expect(merged.parts.filter((p) => p.kind === "tool").map((p) => merged.toolCalls[p.toolIndex]!.id)).toEqual(["wax-a", "wax-b", "wax-c"]);
+    expect(merged.toolCalls.map((t) => t.id)).toEqual(["wax-a", "wax-b", "wax-c"]);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+  });
   test("clipped text across a missed thinking block does not duplicate live text", () => {
     const { root, socket } = running();
     const first = "Wax for the crew. ".repeat(5000), last = "Rope for me. ".repeat(18000);

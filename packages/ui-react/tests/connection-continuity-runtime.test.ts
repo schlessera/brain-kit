@@ -251,6 +251,8 @@ type Net = {
   uploads: number;
   /** Every frame the page sent, by type. */
   sent: string[];
+  holdQueues: boolean;
+  queues: Array<() => void>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
 
@@ -278,13 +280,23 @@ async function settle(page: Page) {
 async function scene(cell: Cell): Promise<Scene> {
   const tag = `(${cell.name})`;
   const context = await browser!.newContext({ viewport: { width: cell.width, height: cell.height }, reducedMotion: "reduce" });
-  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [] };
+  const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [] };
   // Keep the real browser offline apart from this one local host.
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   await context.route("**/api/track-upload", (route) => {
     net.uploads++;
     if (net.holdTracks) net.held.push(route);
     else void route.continue();
+  });
+  // Forward the real socket, with an explicit network delay for queue frames.
+  // This lets hello/history paint before an authoritative queue arrives.
+  await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
+    const host = socket.connectToServer();
+    host.onMessage((message) => {
+      const send = () => socket.send(message);
+      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
+      else send();
+    });
   });
   await context.addInitScript((theme) => localStorage.setItem("odysseus-continuity:brain-theme", theme), cell.theme);
   await context.addInitScript(recorder);
@@ -361,6 +373,8 @@ type Measure = {
   pills: string[];
   transcriptPreviews: string[];
   replacedImages: number;
+  replacedPills: number;
+  removedPills: number;
 };
 async function mark(page: Page) {
   await page.evaluate(() => {
@@ -370,14 +384,22 @@ async function mark(page: Page) {
     const nodes = [...column.children];
     const first = nodes.find((n) => n.getBoundingClientRect().bottom > top + 1)!;
     const images = [...column.querySelectorAll("img")];
-    Object.assign(window, { __marks: { field, nodes, first, images } });
+    const pills = [...document.querySelectorAll('[data-row-half="right"] [data-pill]')];
+    const marks = { field, nodes, first, images, pills, removedPills: 0 };
+    const observer = new MutationObserver((records) => {
+      for (const record of records) for (const removed of record.removedNodes) {
+        marks.removedPills += pills.filter((pill) => removed === pill || removed.contains(pill)).length;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    Object.assign(window, { __marks: marks });
     // From here on, every composition and focus event is the drops' doing.
     (window as unknown as { __events: unknown[] }).__events.length = 0;
   });
 }
 function measure(page: Page): Promise<Measure> {
   return page.evaluate(() => {
-    const marks = (window as unknown as { __marks: { field: HTMLTextAreaElement; nodes: Element[]; first: Element; images: HTMLImageElement[] } }).__marks;
+    const marks = (window as unknown as { __marks: { field: HTMLTextAreaElement; nodes: Element[]; first: Element; images: HTMLImageElement[]; pills: Element[]; removedPills: number } }).__marks;
     const field = document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
     const column = document.querySelector("[data-reading-column]")!;
     return {
@@ -395,6 +417,8 @@ function measure(page: Page): Promise<Measure> {
       pills: [...document.querySelectorAll('[data-row-half="right"] [data-pill]')].map((pill) => pill.textContent ?? ""),
       transcriptPreviews: [...column.querySelectorAll("img")].map((img) => img.src),
       replacedImages: marks.images.filter((img) => !img.isConnected).length,
+      replacedPills: marks.pills.filter((pill) => !pill.isConnected).length,
+      removedPills: marks.removedPills,
     };
   });
 }
@@ -427,6 +451,8 @@ async function recover(s: Scene) {
  * replayed answer is no longer streaming), and that must not mask it.
  */
 function same(label: string, now: Measure, base: Measure) {
+  expect(now.removedPills, `${label}: no pending pill was removed during recovery`).toBe(0);
+  expect(now.replacedPills, `${label}: pending pills keep their original nodes`).toBe(0);
   expect(now.replacedImages, `${label}: sent image nodes stay mounted`).toBe(0);
   expect(now.transcriptPreviews, `${label}: the transcript keeps its sent image representation`).toEqual(base.transcriptPreviews);
   expect(now.replaced, `${label}: no transcript message node replaced`).toBe(0);
@@ -541,7 +567,13 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           // The last reconnect lets the upload through, so it is seen to finish.
           if (cycle === 10) net.holdTracks = false;
           const uploadsBefore = net.uploads;
+          net.holdQueues = true;
           await recover(s);
+          expect(net.queues.length, "real queue frames were delayed after hello").toBeGreaterThan(0);
+          same(`cycle ${cycle}, queue report still delayed`, await measure(page), base);
+          net.holdQueues = false;
+          for (const release of net.queues.splice(0)) release();
+          await settle(page);
           if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);

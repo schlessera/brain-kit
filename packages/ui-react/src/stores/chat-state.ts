@@ -679,14 +679,24 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     // entries; the chronological text parts are the actual drawn text.
     const mine = drawnText(old), theirs = drawnText(m);
     const provenTurn = m.turnId && m.turnId === (old.turnId ?? old.streamTurnId);
-    const same = mine === theirs || (live && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
+    const clippedPrefix = received.parts.find((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
+    const boundedContinuation = clippedPrefix?.kind === "text" && mine.length > 0
+      && clippedPrefix.text.slice(0, Math.min(32, mine.length)) === mine.slice(0, Math.min(32, mine.length));
+    const same = mine === theirs || (live && (provenTurn || boundedContinuation || theirs.startsWith(mine) || mine.startsWith(theirs)
       || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
     const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
-    const sameTools = old.toolCalls.slice(0, shared).every((t, k) => t.id === m.toolCalls[k]!.id)
-      && (live || old.toolCalls.length === m.toolCalls.length);
-    const sameTurn = !old.turnId || !m.turnId || old.turnId === m.turnId;
+    const orderedSubset = (a: ChatMessage["toolCalls"], b: ChatMessage["toolCalls"]) => {
+      let at = 0;
+      for (const tool of b) if (tool.id === a[at]?.id) at++;
+      return at === a.length;
+    };
+    const sameTools = live
+      ? orderedSubset(old.toolCalls, m.toolCalls) || orderedSubset(m.toolCalls, old.toolCalls)
+      : old.toolCalls.length === m.toolCalls.length && old.toolCalls.slice(0, shared).every((t, k) => t.id === m.toolCalls[k]!.id);
+    const knownTurn = old.turnId ?? old.streamTurnId;
+    const sameTurn = !knownTurn || !m.turnId || knownTurn === m.turnId;
     if (!same || !sameTools || !sameTurn) return m;
     if (live && i === tail) {
       streaming = true;
@@ -725,7 +735,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
 function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   const thinkingSize = (message: ChatMessage) => message.parts.reduce((n, p) => n + (p.kind === "thinking" ? p.text.length : 0), 0);
   const moreThinking = thinkingSize(m) > thinkingSize(old);
-  const base = drawnText(old).length > drawnText(m).length || (drawnText(old).length === drawnText(m).length && !moreThinking) ? old : m;
+  const unresolvedClip = m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
+  const base = unresolvedClip || drawnText(old).length > drawnText(m).length
+    || (drawnText(old).length === drawnText(m).length && !moreThinking && m.toolCalls.length <= old.toolCalls.length) ? old : m;
   const other = base === old ? m : old;
   const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
   // A tool the other copy saw finish is that copy's, state and all: an
@@ -737,11 +749,16 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   let parts = [...base.parts];
   const keptToolParts = base !== old && old.toolCalls.some((tool) => !parts.some((p) => p.kind === "tool" && base.toolCalls[p.toolIndex]?.id === tool.id));
   if (keptToolParts) {
-    parts = appendPart(old.parts, "text", drawnText(m).slice(drawnText(old).length));
+    parts = appendPart(old.parts.map((p) => p.kind === "tool" ? { ...p, toolIndex: toolCalls.findIndex((t) => t.id === old.toolCalls[p.toolIndex]?.id) } : p), "text", drawnText(m).slice(drawnText(old).length));
   }
   for (const t of other.toolCalls) {
     if (toolCalls.some((b) => b.id === t.id)) continue;
-    if (!keptToolParts) parts.push({ kind: "tool", toolIndex: toolCalls.length });
+    if (!keptToolParts) {
+      const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex]?.id === t.id);
+      const following = other.parts.slice(sourceAt + 1).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
+      const at = parts.findIndex((p) => p.kind === "tool" && following.includes(toolCalls[p.toolIndex]!.id));
+      parts.splice(at < 0 ? parts.length : at, 0, { kind: "tool", toolIndex: toolCalls.length });
+    }
     toolCalls.push(t);
   }
   // Thinking stays between the text/tool parts that bracketed it. Host

@@ -94,7 +94,9 @@ export interface FollowUpState {
   takeLocal(requestId: string): StartedFollowUp | null;
   /** The host refused, or never confirmed, a local entry: it is not pending. */
   dropLocal(requestId: string): void;
-  /** A new connection: the host re-reports every queue after its hello. */
+  /** Retain pills until the new connection reports each authoritative queue. */
+  reconnect(supported: boolean, principalKey?: string): void;
+  /** Discard a principal's queues and release accepted previews. */
   reset(): void;
 }
 
@@ -149,6 +151,8 @@ function withSession<T>(map: Record<string, T[]>, sessionId: string, value: T[])
 export function createFollowUpStore() {
   return createStore<FollowUpState>((set, get) => {
     let seq = 0;
+    let principal: string | undefined;
+    let refreshing = new Set<string>();
     const announce = (sessionId: string, text: string): FollowUpAnnouncement => ({ sessionId, text, seq: ++seq });
 
     /** Write one session's lists and recompute its merged view. */
@@ -189,7 +193,12 @@ export function createFollowUpStore() {
         // A local entry is kept until the host starts or drops it: once the
         // host reports it the merge hides it, but its previews are still what
         // the transcript draws when it starts.
-        const local = before.filter((entry) => !leftIds.has(entry.requestId));
+        const fresh = refreshing.delete(sessionId);
+        const reportedBefore = new Set((state.reported[sessionId] ?? []).map((e) => e.requestId));
+        const reportedNow = new Set(frame.followUps.map((e) => e.requestId));
+        const disappeared = before.filter((e) => fresh && reportedBefore.has(e.requestId) && !reportedNow.has(e.requestId) && e.requestId !== frame.started?.requestId);
+        releasePreviews(disappeared.filter((e) => !leftIds.has(e.requestId)));
+        const local = before.filter((entry) => !leftIds.has(entry.requestId) && !disappeared.includes(entry));
         const droppedIds = new Set((frame.dropped ?? []).map((entry) => entry.requestId).filter(Boolean));
         releasePreviews(before.filter((entry) => droppedIds.has(entry.requestId)));
         const mine = frame.started?.requestId ? before.find((entry) => entry.requestId === frame.started!.requestId) : undefined;
@@ -251,7 +260,14 @@ export function createFollowUpStore() {
         }
       },
 
+      reconnect(supported, principalKey) {
+        if (!supported || (principal !== undefined && principalKey !== principal)) get().reset();
+        principal = principalKey;
+        refreshing = new Set(Object.keys(get().pending));
+      },
+
       reset() {
+        refreshing.clear();
         // An entry the host had reported was accepted, so its previews are the
         // entry's alone. One it never reported is still the composer's draft.
         const state = get();

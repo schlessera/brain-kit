@@ -305,7 +305,14 @@ export function createWebSocketClient(root: BrainUiServices) {
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
-    if (msg.type === "server_hello") { trackers.hello(msg); drafts.hello(msg); }
+    if (msg.type === "server_hello") {
+      trackers.hello(msg); drafts.hello(msg);
+      // Resume reports even an empty queue. Revalidate retained background
+      // pills too; the selected session already reattaches on connection.
+      for (const sessionId of Object.keys(root.stores.followUp.getState().pending)) {
+        if (sessionId !== root.stores.chat.getState().activeSessionId) client.send({ type: "session_resume", sessionId });
+      }
+    }
     else trackers.frame(msg);
     // The first frame of a connection settles what its host supports: a hello,
     // or anything else from a host too old to send one. Only then can queued
