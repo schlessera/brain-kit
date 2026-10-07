@@ -4486,7 +4486,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:270`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:274`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4968,7 +4968,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:90-96`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:103-109`).
 There is no global key.
 
 ```ts
@@ -5035,7 +5035,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:227-231`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:233-237`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5458,12 +5458,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:619-627`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:701-709`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:625-632`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
