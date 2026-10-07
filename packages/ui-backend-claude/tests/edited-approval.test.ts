@@ -332,7 +332,7 @@ describe("the rtk rewrite does not race a confirmation", () => {
     writeFileSync(
       binary,
       "#!/bin/sh\n" +
-        'if [ "$1" = "--version" ]; then exit 0; fi\n' +
+        'if [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
         "printf '%s\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk proxied\"}}}'\n"
     );
     chmodSync(binary, 0o755);
