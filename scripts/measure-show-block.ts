@@ -128,7 +128,7 @@ import { disableMeasurementMemory, measurementIsolationHook, type MeasurementToo
  * Pinned rather than left to the CLI default, so a later re-run compares
  * against the same model this measurement was taken on.
  */
-const MODEL = "claude-sonnet-5";
+const MODEL = "claude-sonnet-5-5";
 
 /**
  * The brain the turns run against: a COPY of the repo's keyless fixture
