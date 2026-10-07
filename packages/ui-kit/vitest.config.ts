@@ -15,6 +15,8 @@ import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/vi
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
+import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
+import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
 import viteConfig from "./vite.config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -94,13 +96,22 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "ui-react-layout",
-            // Measurements of the real consumer, kept out of Bun's test glob.
-            include: ["../ui-react/tests/browser/**/*.layout.tsx"],
+            // Measurements of the real consumer, kept out of Bun's test glob,
+            // and the offline fault harness's self-tests (#1016).
+            include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount },
-              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },
