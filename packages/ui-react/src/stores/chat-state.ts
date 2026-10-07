@@ -569,6 +569,32 @@ function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessa
   );
 }
 
+/**
+ * A history replay of a transcript already on screen (a reconnect's resume or
+ * snapshot, #1013) keeps what it repeats: a message at the same place with the
+ * same role and text keeps its id and time, so React keeps its node and the
+ * reader's place. The streaming answer counts as repeated when one text
+ * continues the other, and it stays streaming: the host's status after the
+ * history says whether the turn is still running, and only that ends it.
+ */
+function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<SessionChat, "messages" | "isStreaming"> {
+  const lastAssistant = next.findLastIndex((m) => m.role === "assistant");
+  let streaming = false;
+  const messages = next.map((m, i) => {
+    const old = previous.messages[i];
+    if (!old || old.role !== m.role) return m;
+    const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
+    const same = old.content === m.content || (live && (m.content.startsWith(old.content) || old.content.startsWith(m.content)));
+    if (!same) return m;
+    if (live && i === lastAssistant) {
+      streaming = true;
+      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };
+    }
+    return { ...m, id: old.id, timestamp: old.timestamp };
+  });
+  return { messages, isStreaming: streaming };
+}
+
 function emptyChat(): SessionChat {
   return { messages: [], isStreaming: false, askUser: null, lastTouched: Date.now() };
 }
@@ -1410,9 +1436,10 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           }
           const existing = state.buffers[key];
           if (existing) revokeAttachmentUrls(existing.messages);
+          const replay = existing ? keepDrawnMessages(withKnownTurns(messages, existing.messages), existing) : null;
           const buffers = {
             ...state.buffers,
-            [key]: { ...emptyChat(), messages: existing ? withKnownTurns(messages, existing.messages) : messages },
+            [key]: { ...emptyChat(), ...(replay ?? { messages }) },
           };
           return { buffers: evictStale(buffers, state.activeSessionId) };
         }),

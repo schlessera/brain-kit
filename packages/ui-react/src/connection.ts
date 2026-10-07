@@ -413,6 +413,14 @@ export function createWebSocketClient(root: BrainUiServices) {
     // Frames without a sessionId (legacy single-session servers, or a new
     // session's pre-binding frames) apply to the buffer in view.
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
+    if (msg.type === "status" && reattachSessionId !== null) {
+      // The host's own answer for the session being reattached settles it.
+      if (frameSessionId === reattachSessionId) reattachSessionId = null;
+      // The host greets every connection with an unscoped idle, also while
+      // this session's turn is still running beside others. That greeting is
+      // not about the session in view; the reattach's answer is (#1013).
+      else if (!frameSessionId && state.activeSessionId === reattachSessionId) return;
+    }
     if (frameSessionId) {
       // `detail` on a queued status is the host's queue-pressure note; it rides
       // along so the session's badge can show WHY it is queued deep.
@@ -608,6 +616,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   // connection — an empty session would otherwise re-trigger on every idle
   // status and loop.
   let coldResumedSessionId: string | null = null;
+  /** The running session in view that a reconnect reattached, until the host answers for it. */
+  let reattachSessionId: string | null = null;
 
   function markHistoryReplaced(key: ChatKey): void {
     if (key !== null && key === resyncSessionId) resyncSessionId = null;
@@ -647,6 +657,7 @@ export function createWebSocketClient(root: BrainUiServices) {
         if (pending.state === "waiting") chat.setTurnRetry(sessionId, { ...pending, state: "unknown" });
       }
       wasDisconnected = true;
+      reattachSessionId = null;
       // Allow a fresh cold-resume attempt after we reconnect.
       coldResumedSessionId = null;
     } else if (status === "connected" && wasDisconnected) {
@@ -655,10 +666,17 @@ export function createWebSocketClient(root: BrainUiServices) {
       const active = activeChat(chat);
       if (chat.activeSessionId && active.messages.length > 0) {
         resyncSessionId = chat.activeSessionId;
-        // Not mid-stream: replay right away. Mid-stream: the flag holds until
-        // the running turn finishes (result or idle status).
         if (!active.isStreaming) {
+          // Not mid-stream: replay right away.
           resyncIfNeeded(chat.activeSessionId);
+        } else {
+          // Mid-stream: reattach. Only the host knows whether the turn is
+          // still running or ended while this page was away, and its answer
+          // to a resume says which (a scoped `thinking` or `idle`) after a
+          // history that keeps the messages already drawn (#1013).
+          resyncSessionId = null;
+          reattachSessionId = chat.activeSessionId;
+          wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
         }
       }
     }
