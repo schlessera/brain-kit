@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, expect, test, vi, type TestContext } fr
 import { commands, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { createStore } from "zustand/vanilla";
+import type { LocalWorkStatus, WorkRestore } from "../../src/lib/local-work.js";
 import type { VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
@@ -43,7 +45,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-type Scene = { ui: BrainUiRoot; host: HTMLDivElement; net: FaultNetwork };
+type Scene = { ui: BrainUiRoot; host: HTMLDivElement; net: FaultNetwork; snapshot: { entered: boolean; finish(): void } };
 
 async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", local = false): Promise<Scene> {
   const net = installFaultNetwork({
@@ -61,6 +63,16 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   host.style.cssText = "position:fixed;inset:0;width:390px;height:780px";
   document.body.append(host);
   const ui = createBrainUiRoot({ storage: null, request: net.request, localCapture: local ? {sink:()=>({chunk(){},end(){}}),timesliceMs:200} : null });
+  let finish!: () => void;
+  const commit = new Promise<void>((yes) => { finish = yes; });
+  const snapshot = { entered: false, finish };
+  ui.localWork = {
+    status: createStore<LocalWorkStatus>(() => ({ failed: false, pending: false })),
+    restore: createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null })),
+    snapshotNow: async () => { snapshot.entered = true; await commit; },
+    register: () => () => {}, changed() {}, restoring: async () => {}, lock() {}, resume: async () => false, dispose() {},
+  };
+  ctx.onTestFinished(finish);
   const renderer = createRoot(host);
   ctx.onTestFinished(() => {
     flushSync(() => renderer.unmount());
@@ -71,7 +83,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   flushSync(() => renderer.render(<BrainUiProvider root={ui}><ConnectionGate><ChatPage /></ConnectionGate></BrainUiProvider>));
 
   await expect.poll(() => ui.stores.connection.getState().wsStatus, { message: "the app reached the host" }).toBe("connected");
-  return { ui, host, net };
+  return { ui, host, net, snapshot };
 }
 
 const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Dictate"]');
@@ -85,6 +97,16 @@ async function startDictating(s: Scene) {
 }
 
 
+/** Host auth cannot close the independent speech provider socket. Keep the
+ * #1016 host/probe fault, while only the shipped capture-end path may close speech. */
+function expireHost(s: Scene) {
+  const speech = s.net.socket(SPEECH);
+  const finish = speech?.finish;
+  if (speech && finish) speech.finish = (code, reason, clean) => { if (code !== 1008) finish.call(speech, code, reason, clean); };
+  s.net.expireAuth();
+  if (speech && finish) speech.finish = finish;
+}
+
 async function settle() {
   await expect.poll(() => document.getAnimations().some((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity), { message: "entrances settled" }).toBe(false);
 }
@@ -96,10 +118,12 @@ test("host auth expiry cancels live streaming dictation through the capture-end 
  s.net.socket(SPEECH)!.deliver({type:"Results",is_final:true,speech_final:false,channel:{alternatives:[{transcript:"Tie Odysseus to the mast"}]}});
  await expect.poll(()=>s.ui.stores.voice.getState().finalText).toBe("Tie Odysseus to the mast");
  expect(mic.streams.length,"the real mic opened").toBeGreaterThan(0);
- s.net.expireAuth();
- await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
- expect(s.ui.stores.voice.getState().mode,"dictation cancelled").toBe("idle");
+ expireHost(s);
+ await expect.poll(()=>s.snapshot.entered).toBe(true);
+ expect(s.host.querySelector("textarea[data-composer]"),"capture stops before protected views unmount").not.toBeNull();
  expect(mic.streams.flatMap((stream)=>stream.getTracks()).every((t)=>t.readyState==="ended"),"all streaming tracks stopped").toBe(true);
+ expect(s.ui.stores.voice.getState().mode,"dictation cancelled").toBe("idle");
+ s.snapshot.finish(); await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
  expect(s.ui.stores.voice.getState().finalText).toBe("");
  expect(s.host.querySelector("textarea[data-composer]"),"protected views unmounted").toBeNull();
  expect(document.documentElement.outerHTML).not.toContain("Tie Odysseus to the mast");
@@ -121,9 +145,11 @@ test("transport drop keeps local capture and protected views mounted; auth expir
  s.net.recover(); s.ui.connection.reconnectNow();
  await expect.poll(()=>s.ui.stores.connection.getState().wsStatus).toBe("connected");
  expect(s.ui.stores.voice.getState().local,"reconnect does not stop or restart capture").toBe("recording");
- s.net.expireAuth();
- await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
+ expireHost(s);
+ await expect.poll(()=>s.snapshot.entered).toBe(true);
+ expect(s.host.querySelector("textarea[data-composer]"),"local capture stops before protected views unmount").not.toBeNull();
  expect(mic.streams.flatMap((stream)=>stream.getTracks()).every((t)=>t.readyState==="ended"),"auth stops every local track").toBe(true);
+ s.snapshot.finish(); await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
  expect(s.host.querySelector("textarea[data-composer]"),"auth removes protected views").toBeNull();
 });
 
@@ -138,11 +164,13 @@ test("auth expiry interrupts a Done already draining and closes its real microph
  expect(done,"dictation has Done").toBeDefined(); await userEvent.click(done!);
  await expect.poll(()=>s.ui.stores.voice.getState().draining,{message:"Done is awaiting provider tail"}).toBe(true);
  expect(mic.streams.length).toBeGreaterThan(0);
- s.net.expireAuth(); await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
+ expireHost(s); await expect.poll(()=>s.snapshot.entered).toBe(true);
+ expect(s.host.querySelector("textarea[data-composer]"),"draining capture closes before protected views unmount").not.toBeNull();
  expect(mic.streams.flatMap(stream=>stream.getTracks()).every(t=>t.readyState==="ended"),"auth closes the draining microphone before lock").toBe(true);
+ s.snapshot.finish(); await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
  expect(s.ui.stores.voice.getState().draining).toBe(false);
  expect(s.ui.stores.voice.getState().reviewText,"cancelled drain never reaches review").toBe("");
- s.net.socket(SPEECH)?.deliver({type:"Metadata"});
+ s.net.socket(SPEECH)?.onmessage?.(new MessageEvent("message",{data:JSON.stringify({type:"Metadata"})}));
  await new Promise(yes=>setTimeout(yes,100));
  expect(s.ui.stores.voice.getState().reviewText,"late drain completion cannot repopulate locked review").toBe("");
 });

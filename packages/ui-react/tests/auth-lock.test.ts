@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import type { LocalWork } from "../src/lib/local-work.js";
+import { createBrainApi } from "../src/lib/api-client.js";
 import type { BrainApi } from "../src/lib/api-client.js";
 import { updateHeld } from "../src/lib/update-holds.js";
 
@@ -85,5 +86,15 @@ test("lock clears activity read caches; restoration refetches finished history a
   await root.stores.activity.loadSessionActivityHistory("odysseus-ithaca"); await root.stores.activity.loadSpanPayloads(spanId);
   expect(histories,"finished history reloaded after lock").toBe(2); expect(payloads,"tool payload refetched after lock").toBe(2);
   expect(Object.keys(root.stores.activity.getState().spans),"finished history restored").toEqual([runId]);
+ } finally {root.dispose();}
+});
+
+
+test("classified recovery 401 from the injected real client locks auth",async()=>{
+ const api=createBrainApi(()=>"/api",async()=>new Response(null,{status:401}));
+ const root=createBrainUiRoot({storage:null,api});
+ try {
+  work(root,async()=>true); expect(await root.api.sessionRecovery("odysseus-ithaca")).toEqual({ok:false,reason:"unauthorized"});
+  expect(root.authLock.state.getState().phase,"classified unauthorized is auth evidence").toBe("locked");
  } finally {root.dispose();}
 });

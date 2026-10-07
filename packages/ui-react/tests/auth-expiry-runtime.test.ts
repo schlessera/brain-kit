@@ -143,6 +143,7 @@ type Fixture = {
   phase(): string;
   recording(): Promise<Array<{id:string; state:string; savedThroughMs:number; chunkCount:number}>>;
   tracks(): unknown[];
+  allImages(): unknown[];
   savedThrough(): number | null;
   chunkEnds(): Promise<number[]>;
   ended(): boolean[];
@@ -321,9 +322,14 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       expect(await fixture(page,(f)=>f.held()),"update reload held during capture stop and snapshot").toBe(true);
       expect((await fixture(page,(f)=>f.ended())).length,"microphone was opened").toBeGreaterThan(0);
       expect((await fixture(page,(f)=>f.ended())).every(Boolean),"all microphone tracks ended before unmount").toBe(true);
+      // An edit while the transaction is pending must join the final snapshot.
+      const latest = `${DRAFT}. Odysseus returns to Ithaca.`;
+      await field(page).fill(latest);
+      await field(page).evaluate((el:HTMLTextAreaElement)=>el.setSelectionRange(16,30));
       await page.evaluate(() => (window as unknown as {__hold:{finish():void}}).__hold.finish());
       await until(page,"f.phase() === 'locked' && f.accountKey() === null");
-      await page.getByText("Your sign-in has expired",{exact:true}).waitFor();
+      if (kind === "1008") expect(await page.getByText("Your sign-in has expired",{exact:true}).count(),"expiry close uses expired copy").toBe(1);
+      else expect(await page.getByText(/^(Your sign-in has expired|This device was signed out)$/).count(),"401 and any concurrent invalidation show neutral reauth copy").toBe(1);
       expect(await field(page).count(),"protected composer unmounted").toBe(0);
       const html=await page.evaluate(()=>document.documentElement.outerHTML);
       for(const text of [DRAFT,"Winds of Aeolus","winds were loosed","shroud.png"]) expect(html,`protected ${text} absent from entire document`).not.toContain(text);
@@ -340,10 +346,10 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       await ready(page);
       await page.waitForTimeout(1800);
       expect(navigations,"same-account sign-in has no navigation").toBe(0);
-      expect(await field(page).inputValue(),"draft restored").toBe(DRAFT);
+      expect(await field(page).inputValue(),"edits during snapshot commit restored").toBe(latest);
       expect(await fixture(page,(f)=>f.images()),"attachments restored").toEqual(before.images);
       expect(await fixture(page,(f)=>f.tracks()),"uploaded track references restored").toEqual(before.tracks);
-      expect(await field(page).evaluate((el:HTMLTextAreaElement)=>[el.selectionStart,el.selectionEnd]),"selection restored").toEqual([14,28]);
+      expect(await field(page).evaluate((el:HTMLTextAreaElement)=>[el.selectionStart,el.selectionEnd]),"selection restored").toEqual([16,30]);
       expect(await field(page).evaluate((el)=>document.activeElement===el),"focus restored").toBe(true);
       const after=(await fixture(page,(f)=>f.firstVisible()))!;
       expect(after.anchor,"same scroll anchor").toBe(before.place.anchor);
@@ -380,6 +386,10 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    expect(await page.getByText("Your draft couldn't be saved on this device.",{exact:true}).count(),"failed snapshot is reported on neutral reauth screen").toBe(1);
    expect(await field(page).count()).toBe(0);
    expect(await page.getByText("This device was signed out",{exact:true}).count()).toBe(1);
+   let navigations=0; page.on("framenavigated",()=>navigations++);
+   await page.waitForTimeout(400); await loginForm(page);
+   await until(page,"f.connected() && f.accountKey() !== null");
+   expect(navigations,"same-account sign-in reloads after a failed snapshot").toBeGreaterThan(0);
   } finally { await context.close(); }
  },120_000);
  test("different account navigates and cannot read or restore prior drafts or audio",async()=>{
@@ -430,7 +440,7 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
    await page.evaluate(()=>(window as any).__decode.release());
    await page.waitForFunction(()=>(window as any).__decode.done===1); await page.waitForTimeout(300);
-   expect(await fixture(page,f=>f.images()),"late image decode cannot repopulate locked drafts").toEqual([]);
+   expect(await fixture(page,f=>f.allImages()),"late image decode cannot repopulate locked drafts").toEqual([]);
    expect(await fixture(page,f=>f.text())).toBe("");
    await page.waitForTimeout(400); await loginForm(page); await ready(page);
    expect(await field(page).inputValue(),"saved text survives the delayed image callback").toBe(DRAFT);

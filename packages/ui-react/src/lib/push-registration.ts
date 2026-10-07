@@ -39,6 +39,13 @@ export function noticeClientId(): string {
 
 const zoneListeners = new WeakMap<BrainApi, Set<() => void>>();
 
+/** @internal A root's guarded client reports the same zone as its injected transport. */
+export function shareNotificationZoneReports(guarded: BrainApi, source: BrainApi): void {
+  let listeners = zoneListeners.get(source);
+  if (!listeners) zoneListeners.set(source, (listeners = new Set()));
+  zoneListeners.set(guarded, listeners);
+}
+
 /** Run `listener` after each successful zone report through this API client. */
 export function onNotificationZoneReported(api: BrainApi, listener: () => void): () => void {
   let listeners = zoneListeners.get(api);

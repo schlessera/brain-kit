@@ -59,6 +59,7 @@ Object.assign(window, {
     },
     text: () => draft()?.text ?? "",
     images: () => (draft()?.attachments ?? []).map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, name: a.name })),
+    allImages: () => Object.values(root.stores.drafts.getState().drafts).flatMap((d) => d.attachments.map((a) => ({ data: a.attachment.data, name: a.name }))),
     reviewText: () => root.stores.voice.getState().reviewText,
     /** The review card's text, as a finished dictation leaves it (no microphone in CI). */
     review: (text: string) => root.stores.voice.getState().setReviewText(text),

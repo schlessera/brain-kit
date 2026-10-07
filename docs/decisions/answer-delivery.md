@@ -126,7 +126,7 @@ that fails leaves the card editable and sends nothing, because sending an
 answer that would not survive a reload breaks the promise the queued state
 makes. After a reconnect or a takeover, every held answer asks for its
 status first and is sent again only while the host reports it `pending`
-(`function replay(entry`, `manager.ts:314-318`).
+(`function replay(entry`, `manager.ts:318-322`).
 
 Admission against Queue A is decided, and its storage write committed, under
 one lock that every tab shares. The count and byte totals are read from what

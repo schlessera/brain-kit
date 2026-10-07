@@ -14,6 +14,7 @@ import { createLocalPartitions, type LocalPartitions } from "./lib/local-partiti
 import { createRecordingStore, type RecordingStore } from "./lib/recordings.js";
 import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
+import { shareNotificationZoneReports } from "./lib/push-registration.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
 const LOCAL_PARTITIONS_DB = "brain-ui-local";
@@ -143,6 +144,7 @@ export function createRoot(
       try {
         const result = await value.apply(target, args);
         if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+        if (property === "sessionRecovery" && result?.ok === false && result.reason === "unauthorized") await authLock?.expire();
         return result;
       } catch (error) {
         if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
@@ -151,6 +153,7 @@ export function createRoot(
       }
     };
   } }) : createBrainApi(apiBase, request);
+  if (options.api) shareNotificationZoneReports(api, options.api);
   const prefix = options.storagePrefix ?? `brain-ui:${crypto.randomUUID()}`;
   const stores = createBrainStores({
     api, apiBase, request,

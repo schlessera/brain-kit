@@ -202,6 +202,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let disposed = false;
   let locked = false;
   let generation = 0;
+  let revision = 0;
+  let committedRevision = 0;
 
   const held = () => stores.connection.getState().accountKey;
   let switching = false;
@@ -233,6 +235,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     if (disposed) throw new Error("The work context was disposed before it was written");
     if (locked || bound === null || partition === null) return;
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
+    const writingRevision = revision;
     const drafts = stores.drafts.getState().drafts;
     const changes: PartitionWrite[] = [];
     const next = new Map<string, ComposerDraft | null>();
@@ -246,7 +249,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const ctx = context();
     const text = JSON.stringify(ctx);
     if (text !== writtenContext) changes.push({ put: contextKey, value: { v: 1, ...ctx } satisfies StoredContext });
-    if (changes.length === 0) { status.setState({ pending: false }); return; }
+    if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
     try {
       await partition.write(changes);
     } catch (error) {
@@ -254,6 +257,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
       throw error;
     }
+    committedRevision = writingRevision;
     written = next;
     writtenContext = text;
     status.setState({ failed: false, pending: timer !== null });
@@ -268,6 +272,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   function changed() {
     if (disposed || locked || bound === null) return;
+    revision++;
     const now = Date.now();
     // Steady typing moves the write on, but never past the longest wait.
     if (timer !== null && now - pendingSince >= LOCAL_WRITE_MAX_DELAY_MS - LOCAL_WRITE_DELAY_MS) return;
@@ -371,9 +376,14 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     status,
     restore,
     async snapshotNow() {
-      if (timer !== null) { clearTimeout(timer); timer = null; }
       if (bound === null) throw new PartitionRefusedError("account:");
-      await enqueue();
+      // Changes made while a transaction commits belong to this snapshot too.
+      // The final iteration and the caller's unmount run in one microtask turn.
+      do {
+        if (timer !== null) { clearTimeout(timer); timer = null; }
+        await enqueue();
+        if (locked || bound === null) throw new PartitionRefusedError("account:");
+      } while (committedRevision !== revision);
     },
     register(probe) {
       probes.add(probe);

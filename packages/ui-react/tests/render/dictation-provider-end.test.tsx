@@ -19,6 +19,8 @@ import type { VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { BrainApi } from "../../src/lib/api-client.js";
+import { useVpnStatus } from "../../src/hooks/use-vpn-status.js";
+import type { LocalWork } from "../../src/lib/local-work.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
 import { useServiceWorkerUpdates } from "../../src/index.js";
 
@@ -500,4 +502,20 @@ test("auth expiry cancels the client whose Done is still draining and holds upda
  expect(voice(root).reviewText).toBe(""); expect(reloads(),"auth lock holds reload").toBe(0);
  await act(async()=>{socket().onmessage?.({data:JSON.stringify({type:"Metadata"})}); await done;});
  expect(voice(root).reviewText,"late drain cannot repopulate review").toBe("");
+});
+
+
+test("a probe decoding across lock and restore cannot clear the newly confirmed account key",async()=>{
+ let release!:()=>void; const gate=new Promise<void>(yes=>release=yes);
+ let decoding=false;
+ const root=createBrainUiRoot({storage:null,request:async()=>Object.assign(new Response(),{json:async()=>{decoding=true;await gate;return {accountKey:"odysseus-key"};}})});
+ roots.push(root);
+ root.localWork={snapshotNow:async()=>{},lock(){},resume:async()=>true,dispose(){}} as LocalWork;
+ root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+ const probe=renderHook(()=>useVpnStatus(),{wrapper:wrapper(root)});
+ await act(async()=>Promise.resolve()); expect(decoding,"old probe is decoding a real successful response").toBe(true);
+ await act(async()=>{await root.authLock.expire();root.authLock.dropContext();expect(await root.authLock.signedIn("odysseus-key")).toBe(true);});
+ await act(async()=>{release();await Promise.resolve();});
+ expect(root.stores.connection.getState().accountKey,"old probe cannot clear newly confirmed key").toBe("odysseus-key");
+ probe.unmount();
 });
