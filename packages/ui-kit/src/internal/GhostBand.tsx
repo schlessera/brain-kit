@@ -16,8 +16,10 @@ export function GhostBand(p: { loading: boolean; arriving?: boolean; animate?: b
     const scale = frame.offsetWidth ? frame.getBoundingClientRect().width / frame.offsetWidth : 1;
     const snapshot = (source: Element): Element | null => {
       if (source.classList.contains("bk-ghost-viewport")) return null;
-      const resource = /^(BUTTON|INPUT|SELECT|TEXTAREA|A|IMG|VIDEO|AUDIO|IFRAME|OBJECT|EMBED|SCRIPT|STYLE|LINK)$/;
-      if (resource.test(source.tagName)) {
+      const resource = /^(BUTTON|INPUT|SELECT|TEXTAREA|A|IMG|IMAGE|VIDEO|AUDIO|IFRAME|OBJECT|EMBED|SCRIPT|STYLE|LINK)$/i;
+      // Inertness does not suppress custom-element constructors. Never clone
+      // those nodes (including customized built-ins), or SVG resource tags.
+      if (resource.test(source.tagName) || source.localName.includes("-") || source.hasAttribute("is")) {
         const box = frame.ownerDocument.createElement("span");
         const rect = source.getBoundingClientRect();
         box.style.cssText = `display:inline-block;width:${rect.width / scale}px;height:${rect.height / scale}px;flex:none;visibility:hidden`;

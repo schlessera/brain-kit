@@ -5750,7 +5750,10 @@ motion path unchanged. Visual sign-off at
 **Copies and media.** The internal band snapshots the committed loading layout
 three times, preserving the exact seeded text, font, baseline and wrapping.
 Supplied React children are mounted once. Copies are aria-hidden and inert;
-controls and resources become empty boxes and only ghost glyphs paint. Their
+controls and resources become empty boxes and only ghost glyphs paint. Custom
+elements and customized built-ins also become boxes before cloning, because
+inertness does not suppress their constructors; SVG resource tags use the same
+guard irrespective of tag-name case. Their
 blur is 1.2px greater than the base. Single-line text clips before the blur,
 so ellipsis does not cut off blurred ends. Reduced motion hides the entire
 band and disables every translation; print hides ghosts and the band. The

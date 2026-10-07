@@ -1,3 +1,8 @@
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { GhostBand } from "../../src/internal/GhostBand.js";
+import { GhostText } from "../../src/internal/GhostText.js";
 import { commands } from "vitest/browser";
 import { afterEach, expect, test } from "vitest";
 import * as stories from "../../stories/states/GhostSweep.stories.js";
@@ -212,3 +217,49 @@ for (const width of [320, 800]) {
     }
   });
 }
+
+for (const kind of ["custom", "customized built-in"] as const) {
+  test(`${kind}: inert copies never invoke another element constructor`, async () => {
+    await run(stories.ShortLine);
+    let constructed = 0;
+    const name = `bk-ghost-probe-${crypto.randomUUID()}`;
+    if (kind === "custom") customElements.define(name, class extends HTMLElement { constructor() { super(); constructed++; } });
+    else customElements.define(name, class extends HTMLSpanElement { constructor() { super(); constructed++; } }, { extends: "span" });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      flushSync(() => root.render(createElement("div", { style: { position: "relative", width: 200 } },
+        kind === "custom" ? createElement(name) : createElement("span", { is: name }),
+        createElement(GhostText, { role: "sans", length: 12, seed: "odysseus-resource" }),
+        createElement(GhostBand, { loading: true }),
+      )));
+      expect(host.querySelector(kind === "custom" ? name : `[is="${name}"]`)).not.toBeNull();
+      expect(constructed, "the original element is actually constructed").toBeGreaterThan(0);
+      expect(constructed, "snapshots must not construct supplied elements again").toBe(1);
+      expect(host.querySelectorAll(".bk-ghost-copy-glyph")).toHaveLength(3);
+    } finally { flushSync(() => root.unmount()); host.remove(); }
+  });
+}
+
+test("SVG resources stay only in the original frame", async () => {
+  await run(stories.ShortLine);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(createElement("div", { style: { position: "relative", width: 200 } },
+      createElement("svg", { width: 20, height: 12 },
+        createElement("style", null, ".ghost-svg-probe { fill: currentColor; }"),
+        createElement("script", { type: "application/json" }, '{"world":"Odysseus"}'),
+        createElement("image", { href: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E", width: 12, height: 12 }),
+      ),
+      createElement(GhostText, { role: "sans", length: 12, seed: "odysseus-resource" }),
+      createElement(GhostBand, { loading: true }),
+    )));
+    expect(host.querySelector("svg style")!.textContent).toContain("fill:");
+    expect(host.querySelector("svg image")!.getAttribute("href")).toContain("data:image");
+    expect(host.querySelectorAll(".bk-ghost-copy-glyph")).toHaveLength(3);
+    expect(host.querySelectorAll(".bk-ghost-copy style, .bk-ghost-copy script, .bk-ghost-copy image")).toHaveLength(0);
+  } finally { flushSync(() => root.unmount()); host.remove(); }
+});
