@@ -54,6 +54,8 @@ export interface ComposerDraft {
   attachments: PendingAttachment[];
   /** Local clock of the last change: the Sessions row's age and the compare sheet's time. */
   editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
   /** Bumped by every change to the content. */
   edit: number;
   host: DraftHostCopy | null;
@@ -116,6 +118,8 @@ export interface LocalDraft {
   text: string;
   attachments: PendingAttachment[];
   editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
 }
 
@@ -143,7 +147,7 @@ export interface DraftStoreState {
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
   idFor(sessionId: string | null): string;
   /** Change a draft's content; a draft emptied with nothing on the host is forgotten. */
-  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[] }): void;
+  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[]; deviceOnly?: boolean }): void;
   /** These previews belong to a transcript message now: never revoked here. */
   transfer(attachments: readonly PendingAttachment[]): void;
   /** New chat: the new-chat view gets a fresh identity; the old draft stays where it is. */
@@ -407,7 +411,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const attachments = patch.attachments ?? current.attachments;
         if (text === current.text && attachments === current.attachments) return;
         if (patch.attachments) release(current.attachments, attachments);
-        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), failure: current.failure?.kind === "unsaved" ? current.failure : null });
+        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), deviceOnly: patch.deviceOnly === true, failure: current.failure?.kind === "unsaved" ? current.failure : null });
         settle(draftId);
       },
 
@@ -446,7 +450,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           const edit = 1;
           put({
-            ...blank(k.draftId, k.sessionId, k.editedAt),
+            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true,
             text: k.text,
             attachments: k.attachments,
             edit,

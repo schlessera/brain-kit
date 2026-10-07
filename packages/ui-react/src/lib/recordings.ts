@@ -118,7 +118,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const pendingPlaybacks = new Set<{ partition: PartitionId; id: string; cancelled: boolean }>();
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
-  const fingerprint = (row: Index) => `${row.state}/${row.chunkCount}/${row.bytes}/${row.savedThroughMs}/${row.contentHash}`;
+  const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev]);
   function present(partition: PartitionId, row: Index): Index | null {
     const repair = repaired.get(identity(partition, row.id));
     return repair?.source === fingerprint(row) ? repair.value : row;
@@ -311,11 +311,19 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       notify();
     }
   }
+  async function acceptedView(partition: PartitionId, index: Index): Promise<Recording> {
+    const receipt = await partitions.open(partition).get(`recording:accepted:${index.id}`) as { revision: number } | undefined;
+    checkReadable(partition);
+    // A committed draft is already accepted even if its following metadata
+    // write failed. Review text is then read-only until cleanup can retry.
+    return receipt ? { ...index, partition, state: "accepted", acceptedDraftRev: receipt.revision }
+      : { ...index, partition };
+  }
   async function get(partition: PartitionId, id: string): Promise<Recording | undefined> {
     const value = await partitions.open(partition).get(indexKey(id)) as Index | undefined;
     checkReadable(partition);
     const shown = value ? present(partition, value) : null;
-    return shown ? { ...shown, partition } : undefined;
+    return shown ? acceptedView(partition, shown) : undefined;
   }
   async function chunks(partition: PartitionId, id: string): Promise<LocalCaptureChunk[]> {
     return (await partitions.open(partition).list(chunkPrefix(id))).map((r) => r.value as LocalCaptureChunk).sort((a, b) => a.index - b.index);
@@ -328,7 +336,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   }
   async function deleteRecording(partition: PartitionId, id: string) {
     const audio = await chunks(partition, id);
-    await partitions.open(partition).write([{ delete: indexKey(id) }, ...audio.map((c) => ({ delete: chunkKey(id, c.index) }))]);
+    await partitions.open(partition).write([{ delete: indexKey(id) }, { delete: `recording:accepted:${id}` }, ...audio.map((c) => ({ delete: chunkKey(id, c.index) }))]);
     repaired.delete(identity(partition, id));
     transcripts.delete(identity(partition, id));
     changed(id);
@@ -394,10 +402,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     async list(partition) {
       const entries = await partitions.open(partition).list(INDEX);
       checkReadable(partition);
-      const rows = entries.flatMap((r) => {
+      const rows = (await Promise.all(entries.map(async r => {
         const shown = present(partition, r.value as Index);
-        return shown ? [{ ...shown, partition }] : [];
-      });
+        return shown ? acceptedView(partition, shown) : null;
+      }))).filter((row): row is Recording => row !== null);
       trackTranscripts(partition, rows);
       return rows;
     },
@@ -416,7 +424,14 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const index = entry.value as Index;
           const all = await chunks(partition, index.id);
           const kept = contiguousChunks(all);
-          if (!kept.length) {
+          if (!kept.length && typeof index.transcript === "string") {
+            // Browser audio loss cannot erase independently surviving review
+            // text. It remains editable and acceptable without playback.
+            const shown: Index = { ...index, state: index.state === "accepted" ? "accepted" : "transcript-ready", bytes: 0, chunkCount: 0, savedThroughMs: 0 };
+            try { await handle.write([{ put: indexKey(index.id), value: shown }, ...all.map(c => ({ delete: chunkKey(index.id, c.index) }))]); }
+            catch { repaired.set(identity(partition, index.id), { source: fingerprint(index), value: shown }); }
+            recovered.push(await acceptedView(partition, shown));
+          } else if (!kept.length) {
             removedCount++;
             removed.push({ index, audio: all });
             repaired.set(identity(partition, index.id), { source: fingerprint(index), value: null });
@@ -430,7 +445,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
                 repaired.set(identity(partition, index.id), { source: fingerprint(index), value: shown });
               }
             }
-            recovered.push({ ...shown, partition });
+            recovered.push(await acceptedView(partition, shown));
           }
         }
         if (removed.length) {
@@ -517,8 +532,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const row = await get(partition, id);
         if (!row) return;
         if (row.state !== "accepted" && (row.state !== "transcript-ready" || !row.transcript?.trim())) throw new Error("The recording has no transcript to add");
-        const revision = row.state === "accepted" ? row.acceptedDraftRev!
-          : await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);
+        const revision = await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);
         // Authority may have gone during the draft commit. The audio stays
         // locked until the same account returns; it is never deleted early.
         checkReadable(partition);

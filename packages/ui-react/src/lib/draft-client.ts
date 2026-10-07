@@ -75,7 +75,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
   /** The draft needs a call: different from what the host acknowledged, or owed a bind or a delete. */
   function owed(d: ComposerDraft): boolean {
-    if (d.conflict) return false;
+    if (d.deviceOnly || d.conflict) return false;
     if (d.failure && d.failure.kind !== "unsaved") return false;
     if (d.bind) return true;
     if (!hasContent(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);

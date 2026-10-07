@@ -223,12 +223,16 @@ export function ChatPage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
+    const trayHeight = () => el.parentElement?.parentElement?.querySelector("[data-recordings-tray]")?.getBoundingClientRect().height ?? 0;
+    let tray = trayHeight();
     let height = el.clientHeight;
     let top = el.scrollTop;
     const remember = () => { if (el.clientHeight === height) top = el.scrollTop; };
     const observer = new ResizeObserver(() => {
       const nextHeight = el.clientHeight;
-      if (nextHeight < height) el.scrollTop = top;
+      const nextTray = trayHeight();
+      if (nextHeight < height && nextTray > tray) el.scrollTop = top;
+      tray = nextTray;
       height = nextHeight;
       top = el.scrollTop;
     });

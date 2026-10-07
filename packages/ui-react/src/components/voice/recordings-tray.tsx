@@ -7,6 +7,7 @@ import { recordingTime, type Recording } from "../../lib/recordings.js";
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
 const target = { minHeight: 44, minWidth: 44 };
+const EMPTY_ROWS: Recording[] = [];
 const size = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 export function recordingClock(row: Recording): string {
   if (row.createdAt === undefined) return "unknown time";
@@ -58,7 +59,11 @@ export function RecordingsTray({ composerRef, onAccepted }: {
         }
         rows.push(...await store.list(partition));
       }
-      if (live && generation === serial && root.stores.connection.getState().accountKey === account) setInventory({ account, rows: rows.filter(r => r.state !== "recording").sort((a, b) => Number(a.partition === "unassigned") - Number(b.partition === "unassigned") || (b.createdAt ?? 0) - (a.createdAt ?? 0)), removed });
+      if (live && root.stores.connection.getState().accountKey === account) setInventory(current => {
+        const notices = recover ? removed : current.account === account ? current.removed : [];
+        if (generation !== serial) return recover && current.account === account ? { ...current, removed: notices } : current;
+        return { account, rows: rows.filter(r => r.state !== "recording").sort((a, b) => Number(a.partition === "unassigned") - Number(b.partition === "unassigned") || (b.createdAt ?? 0) - (a.createdAt ?? 0)), removed: notices };
+      });
     };
     const update = () => { void refresh().catch(() => {}); };
     const unwatch = store.subscribe(update);
@@ -66,7 +71,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
     setNotice("");
     return () => { live = false; unwatch(); };
   }, [root, account]);
-  const rows = inventory.account === account ? inventory.rows : [];
+  const rows = inventory.account === account ? inventory.rows : EMPTY_ROWS;
   const [focusAfter, setFocusAfter] = useState<string | null>(null);
   useEffect(() => {
     if (focusAfter === null) return;
@@ -117,20 +122,21 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   const chain = useRef(Promise.resolve());
   const previousState = useRef(row.state);
   useEffect(() => {
-    if (previousState.current !== row.state && row.state === "transcript-ready") setText(row.transcript ?? "");
+    if (previousState.current !== row.state && (row.state === "transcript-ready" || row.state === "accepted")) setText(row.transcript ?? "");
     previousState.current = row.state;
   }, [row.state, row.transcript]);
   const mounted = useRef(true);
   const keep = useRef<HTMLDivElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
   const playback = useRef<{ url: string; revoke(): void } | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => { if (confirm) keep.current?.querySelector<HTMLElement>("[role=button]")?.focus(); }, [confirm]);
-  useEffect(() => () => { mounted.current = false; playback.current?.revoke(); }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; playback.current?.revoke(); }; }, []);
   const name = `recording from ${recordingClock(row)}, ${recordingDuration(row)}`;
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>, needsSavedInput = false) => {
     if (active.current) return;
     active.current = true; setBusy(true); setError("");
-    try { await chain.current; await fn(); }
+    try { if (needsSavedInput) await chain.current; else await chain.current.catch(() => {}); await fn(); }
     catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "The recording is kept."); }
     finally { active.current = false; if (mounted.current) setBusy(false); }
   };
@@ -140,13 +146,16 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
     if (!mounted.current) { audio.revoke(); return; }
     playback.current = audio; setUrl(audio.url);
   });
-  const accept = () => void run(async () => {
+  const accept = () => {
     const chat = root.stores.chat.getState();
-    const drafts = root.stores.drafts.getState();
-    try { await root.recordings!.accept(row.partition, row.id, drafts.idFor(chat.activeSessionId), chat.activeSessionId); }
-    catch { throw new Error(ACCEPT_FAILED); }
-    onAccepted();
-  });
+    const draftId = root.stores.drafts.getState().idFor(chat.activeSessionId);
+    const sessionId = chat.activeSessionId;
+    void run(async () => {
+      try { await root.recordings!.accept(row.partition, row.id, draftId, sessionId); }
+      catch { throw new Error(ACCEPT_FAILED); }
+      onAccepted();
+    }, true);
+  };
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
     <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} offline={offline}>
       {(row.state === "transcript-ready" || row.state === "accepted") && <>
@@ -161,17 +170,18 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
         </label>
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div ref={actions} className="mt-2 flex flex-wrap gap-2">
         {(row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
-        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={busy} onClick={play} />
+        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={busy || row.chunkCount === 0} onClick={play} />
         <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={busy} onClick={() => setConfirm(true)} />
       </div>
+      {row.chunkCount === 0 && <p className="mt-2 text-xs text-muted-foreground">Audio is no longer available on this device. Your transcript is kept.</p>}
       {url && <audio controls autoPlay src={url} aria-label={`Playback of ${name}`} className="mt-2 w-full" />}
       {confirm && <div role="group" aria-label={`Delete ${name}`} className="mt-2">
         <p className="text-xs">Delete the recording and its transcript from this device?</p>
         <div className="mt-2 flex flex-wrap gap-2">
           <Button label="Delete" ariaLabel={`Delete ${name}`} tone="danger" block={false} style={target} disabled={busy} onClick={() => void run(onDiscard)} />
-          <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => setConfirm(false)} /></div>
+          <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
       <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>

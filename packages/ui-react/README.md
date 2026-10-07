@@ -85,9 +85,12 @@ unavailable. Nothing in these actions sends audio or a chat message.
 views. A ready transcript is editable and each input is committed locally.
 Add to draft appends after a newline and commits through the account's local
 work snapshot before marking the recording accepted or deleting its audio and
-transcript. A durable acceptance receipt makes a retry safe after a failed
+transcript. A hash-bound acceptance receipt makes a retry safe after a failed
 cleanup or reload; a failed draft write retains the recording. Unaccepted
-transcripts hold service-worker reloads even after the tray unmounts.
+transcripts hold service-worker reloads even after the tray unmounts. A surviving
+transcript remains reviewable if the browser removes its audio. Acceptance stays
+device-local even when host draft autosave is available; a subsequent user edit
+or explicit Send resumes the ordinary draft workflow.
 
 
 A root created with `localCapture: { sink }` also records without the host.

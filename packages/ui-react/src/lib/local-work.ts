@@ -131,7 +131,7 @@ function parseDraft(raw: unknown): LocalDraft | null {
   const h = r.host;
   const host = h && isNum(h.revision) && isStrOrNull(h.sessionId ?? null) && isNum(h.updatedAt) && typeof h.clean === "boolean"
     ? { revision: h.revision, sessionId: h.sessionId ?? null, updatedAt: h.updatedAt, clean: h.clean } : null;
-  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host };
+  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true };
 }
 
 function parseContext(raw: unknown): WorkContext | null {
@@ -161,6 +161,7 @@ function storeDraft(d: ComposerDraft): StoredDraft {
     text: d.text,
     attachments: d.attachments.map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, bytes: a.bytes, name: a.name })),
     editedAt: d.editedAt,
+    deviceOnly: d.deviceOnly === true,
     host: d.host ? { revision: d.host.revision, sessionId: d.host.sessionId, updatedAt: d.host.updatedAt, clean: d.host.edit === d.edit } : null,
   };
 }
@@ -211,9 +212,6 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let generation = 0;
   let revision = 0;
   let committedRevision = 0;
-  // A failed write may leave the appended text in memory. Every later flush
-  // carries its receipt too, so retry/reload can never append it a second time.
-  const accepting = new Map<string, { draftId: string; revision: number; text: string }>();
   const receiptKey = (id: string) => `recording:accepted:${id}`;
 
   const held = () => stores.connection.getState().accountKey;
@@ -242,18 +240,15 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   }
 
   /** One write of everything that changed since the last commit. */
-  async function flush(): Promise<void> {
+  async function flush(acceptance?: { id: string; draft: ComposerDraft; textHash: string }): Promise<void> {
     // A snapshot asked for and then cancelled by the root going is not a receipt.
     if (disposed) throw new Error("The work context was disposed before it was written");
     if (locked || bound === null || partition === null) return;
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
     const writingRevision = revision;
-    const drafts = stores.drafts.getState().drafts;
-    for (const [id, receipt] of accepting) {
-      const target = stores.drafts.getState().resolveId(receipt.draftId);
-      if (!drafts[target]?.text.includes(receipt.text)) accepting.delete(id);
-    }
-    const changes: PartitionWrite[] = [...accepting].map(([id, { draftId, revision }]) => ({ put: receiptKey(id), value: { draftId, revision } }));
+    const drafts = { ...stores.drafts.getState().drafts };
+    if (acceptance) drafts[acceptance.draft.draftId] = acceptance.draft;
+    const changes: PartitionWrite[] = acceptance ? [{ put: receiptKey(acceptance.id), value: { draftId: acceptance.draft.draftId, revision: acceptance.draft.edit, textHash: acceptance.textHash } }] : [];
     const next = new Map<string, ComposerDraft | null>();
     for (const d of Object.values(drafts)) {
       // An emptied draft the host still holds is kept too: its deletion is still owed.
@@ -274,14 +269,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       throw error;
     }
     committedRevision = writingRevision;
-    accepting.clear();
     written = next;
     writtenContext = text;
     status.setState({ failed: false, pending: timer !== null });
   }
 
   function enqueue(): Promise<void> {
-    const run = chain.then(flush);
+    const run = chain.then(() => flush());
     // The chain goes on after a failure; the caller of this run still sees it.
     chain = run.catch(() => {});
     return run;
@@ -407,24 +401,31 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       const account = held();
       const run = chain.then(async () => {
         if (account === null || account !== bound || held() !== account || !partition || disposed) throw new PartitionRefusedError(accountPartition(account ?? ""));
-        const receipt = await partition.get(receiptKey(id)) as { revision: number } | undefined;
+        const textHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), b => b.toString(16).padStart(2, "0")).join("");
+        const receipt = await partition.get(receiptKey(id)) as { revision: number; textHash: string } | undefined;
         if (held() !== account) throw new PartitionRefusedError(accountPartition(account));
-        if (receipt) return receipt.revision;
-        let pending = accepting.get(id);
-        if (pending && !stores.drafts.getState().drafts[stores.drafts.getState().resolveId(pending.draftId)]?.text.includes(pending.text)) {
-          accepting.delete(id);
-          pending = undefined;
+        if (receipt) {
+          if (receipt.textHash !== textHash) throw new Error("This recording was already added with a different transcript");
+          return receipt.revision;
         }
-        if (!pending) {
-          const state = stores.drafts.getState();
-          const target = state.resolveId(draftId);
-          const before = state.drafts[target]?.text ?? "";
-          state.edit(target, sessionId, { text: before ? `${before}\n${text}` : text });
-          pending = { draftId: target, text, revision: stores.drafts.getState().drafts[target]!.edit };
-          accepting.set(id, pending);
-        }
-        await flush();
-        return pending.revision;
+        const state = stores.drafts.getState();
+        const target = state.resolveId(draftId);
+        const current = state.drafts[target];
+        const before = current?.text ?? "";
+        // Prepare the append in the same snapshot path as ordinary drafts.
+        // Publish it to the live composer only after commit: failed writes
+        // leave no pending insertion for another root or edit to replay.
+        const base: ComposerDraft = current ?? {
+          draftId: target, sessionId, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+          uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
+        };
+        const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
+        await flush({ id, draft, textHash });
+        if (held() !== account || disposed) throw new PartitionRefusedError(accountPartition(account));
+        const latest = stores.drafts.getState();
+        const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
+        latest.edit(target, sessionId, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
+        return draft.edit;
       });
       chain = run.then(() => {}, () => {});
       return run;

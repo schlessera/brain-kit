@@ -1,6 +1,7 @@
 /// <reference types="@vitest/browser-playwright" />
 import { beforeAll, afterAll, expect, test, vi, type TestContext } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import axe from "axe-core";
@@ -42,27 +43,31 @@ function fixture(ctx: TestContext) {
   const field = document.createElement("div");
   field.innerHTML = "<textarea data-composer aria-label=Draft></textarea>";
   const ref = { current: field };
-  const renderTray = () => { flushSync(() => react.render(<BrainUiProvider root={root}><RecordingsTray composerRef={ref} /></BrainUiProvider>)); host.append(field); };
+  const renderTray = (strict = false) => { const view = <BrainUiProvider root={root}><RecordingsTray composerRef={ref} /></BrainUiProvider>; flushSync(() => react.render(strict ? <StrictMode>{view}</StrictMode> : view)); host.append(field); };
   const mountChat = () => flushSync(() => react.render(<BrainUiProvider root={root}><ChatPage /></BrainUiProvider>));
   ctx.onTestFinished(async () => { flushSync(() => react.unmount()); host.remove(); await root.recordings!.stop("interrupted"); root.dispose(); net.restore(); vi.restoreAllMocks(); });
   const ready = async () => { await root.localWork!.restoring(); await root.localWork!.snapshotNow(); };
-  const seed = async (state: Recording["state"] = "transcript-ready", transcript = TEXT) => {
+  const seed = async (state: Recording["state"] = "transcript-ready", transcript = TEXT, timestamp = "2026-07-12T09:12:00") => {
+    // Await mount-time recovery before asking the ifAvailable recorder lock.
+    await navigator.locks.request("brain-ui:recording", async () => {});
     const sink = root.recordings!.sink();
     const previous = new Set((await root.recordings!.list("account:odysseus")).map(r => r.id));
-    const clock = vi.spyOn(Date, "now").mockReturnValue(new Date("2026-07-12T09:12:00").getTime());
+    const clock = vi.spyOn(Date, "now").mockReturnValue(new Date(timestamp).getTime());
     await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
     clock.mockRestore();
     await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob([new Uint8Array(generateWav(AUDIO_FIXTURES.note10s))], { type: "audio/wav" }) });
     await sink.end!(state === "interrupted" ? "interrupted" : "user");
     const row = (await root.recordings!.list("account:odysseus")).find(r => !previous.has(r.id))!;
     const { partition: _, ...index } = row;
-    await partitions.open(row.partition).put(`recording:index:${row.id}`, { ...index, state, transcript, mime: "audio/wav", createdAt: new Date("2026-07-12T09:12:00").getTime() });
+    await partitions.open(row.partition).put(`recording:index:${row.id}`, { ...index, state, transcript, mime: "audio/wav", createdAt: new Date(timestamp).getTime() });
     if (state === "transcript-ready") await root.recordings!.saveTranscript(row.partition, row.id, transcript);
     return { ...row, state, transcript, mime: "audio/wav" };
   };
   return { root, partitions, host, react, net, ref, ready, seed, renderTray, mountChat };
 }
 async function tap(el: Element) {
+  el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  await settled();
   if (matchMedia("(any-pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) {
     const rect = el.getBoundingClientRect();
     await commands.rankTap({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
@@ -73,7 +78,8 @@ async function expand(c: ReturnType<typeof fixture>) { await expect.poll(() => c
 
 for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]) {
   test(`tray anchors messages, isolates accounts, keeps actions local and accessible at ${width}px ${theme}`, async ctx => {
-    await commands.formViewport(width, 900);
+    await commands.formViewport(width, 900); await page.viewport(width, 900);
+    expect(window.innerWidth, "actual browser cell width").toBe(width);
     document.documentElement.dataset.theme = theme;
     const c = fixture(ctx);
     await c.ready();
@@ -89,11 +95,15 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     const top = anchor.getBoundingClientRect().top;
     const requestsBefore = c.net.requests.length; const framesBefore = c.net.frames.length;
     const row = await c.seed("interrupted");
+    const card = await c.seed("transcript-ready", TEXT, "2026-07-12T09:00:00");
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeTruthy();
     await settled();
     expect(Math.abs(anchor.getBoundingClientRect().top - top), "tray appearance preserves first visible message").toBeLessThanOrEqual(1);
     await expand(c);
     expect(Math.abs(anchor.getBoundingClientRect().top - top), "tray expansion preserves first visible message").toBeLessThanOrEqual(1);
+    const trayBox = c.host.querySelector<HTMLElement>("[data-recordings-tray]")!.getBoundingClientRect();
+    expect(trayBox.height, "expanded tray fits forty percent of viewport").toBeLessThanOrEqual(window.innerHeight * 0.4 + 1);
+    expect(trayBox.width, "desktop tray stays within the 720px measure").toBeLessThanOrEqual(Math.min(window.innerWidth, 720) + 1);
     expect(c.host.textContent).toContain("interrupted"); expect(c.host.textContent).toContain("saved up to 0:01 — the end may be missing");
     expect(c.host.textContent).toContain("Kept in this browser. Not protected from someone who can use this device.");
     flushSync(() => c.root.stores.connection.getState().setWsStatus("disconnected"));
@@ -111,7 +121,13 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     for (const el of c.host.querySelectorAll<HTMLElement>("[data-recordings-tray] button,[data-recordings-tray] [role=button]")) {
       const rect = el.getBoundingClientRect(); expect(rect.height, "44px control height").toBeGreaterThanOrEqual(44); expect(rect.width).toBeGreaterThanOrEqual(44);
     }
+    await tap(button(c.host, "Keep"));
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Keep restores row Discard focus" }).toContain("Discard recording");
+    await tap(button(c.host, "Discard recording")); await settled();
     await tap(button(c.host, "Delete recording"));
+    await expect.poll(() => (document.activeElement as HTMLElement)?.dataset.recordingFocus).toBe(card.id);
+    const cardNode = c.host.querySelector<HTMLElement>(`[data-recording-focus="${card.id}"]`)!;
+    await tap(button(cardNode, "Discard recording")); await settled(); await tap(button(cardNode, "Delete recording"));
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeNull();
     await expect.poll(() => document.activeElement?.matches("textarea[data-composer]")).toBe(true);
     expect(c.net.requests.slice(requestsBefore), "local actions send no HTTP requests").toEqual([]); expect(c.net.frames.slice(framesBefore), "local actions send no socket frames").toEqual([]);
@@ -202,12 +218,14 @@ test("local sheet has honest copy, a silent timer and Keep focus; Stop calls its
   await wait(1100); expect(c.host.querySelector("[role=status]")!.textContent, "timer never changes live text").toBe(status);
   await tap(button(c.host, "Discard")); await settled();
   expect(c.host.textContent).toContain("Discard this recording? This can\u0027t be undone."); expect(document.activeElement?.textContent).toBe("Keep recording");
-  await tap(button(c.host, "Keep recording")); await tap(button(c.host, "Stop and save")); expect(stopped).toBe(1);
+  await tap(button(c.host, "Keep recording"));
+  await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Keep restores sheet Discard focus" }).toBe("Discard");
+  await tap(button(c.host, "Stop and save")); expect(stopped).toBe(1);
 });
 
 
 test("real local capture sheet Stop restores mic focus and Discard keeps its explicit confirm", async ctx => {
-  await commands.formViewport(390, 900);
+  await commands.formViewport(390, 900); await page.viewport(390, 900);
   const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
   const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
   await expect.poll(() => button(c.host, "Record on this device")).toBeTruthy();
@@ -230,11 +248,16 @@ test("real local capture sheet Stop restores mic focus and Discard keeps its exp
 
 
 test("accept focuses the composer at the end without sending or answering a tool approval", async ctx => {
-  await commands.formViewport(390, 900);
-  const c = fixture(ctx); await c.ready(); c.net.drop();
+  await commands.formViewport(390, 900); await page.viewport(390, 900);
+  const c = fixture(ctx); await c.ready();
   const drafts = c.root.stores.drafts.getState(); const id = drafts.idFor(null);
   drafts.edit(id, null, { text: "Check the harbour." }); await c.root.localWork!.snapshotNow();
-  const row = await c.seed(); c.mountChat(); await expand(c);
+  const row = await c.seed();
+  c.root.stores.chat.getState().startAssistantMessage(null);
+  c.root.stores.chat.getState().requestToolApproval(null, "loom-approval", "write_file", { path: "notes/loom.md" }, "Keep the loom order", "tool");
+  expect(c.root.stores.chat.getState().draft?.messages.flatMap(m => m.toolCalls ?? []).find(t => t.id === "loom-approval")?.status).toBe("pending_approval");
+  c.mountChat(); await expand(c);
+  await expect.poll(() => c.root.stores.connection.getState().wsStatus, { message: "acceptance has a live fixture transport to observe" }).toBe("connected");
   const requests = c.net.requests.length, frames = c.net.frames.length;
   await tap(button(c.host, "Add transcript"));
   await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
@@ -245,6 +268,7 @@ test("accept focuses the composer at the end without sending or answering a tool
   expect(field.selectionEnd).toBe(field.value.length);
   expect(c.net.requests.slice(requests), "accept sends no HTTP").toEqual([]);
   expect(c.net.frames.slice(frames), "accept sends no socket action or approval").toEqual([]);
+  expect(c.root.stores.chat.getState().draft?.messages.flatMap(m => m.toolCalls ?? []).find(t => t.id === "loom-approval")?.status, "pending approval stays unanswered").toBe("pending_approval");
 });
 
 test("retry after deleting the uncommitted append saves the transcript again before audio deletion", async ctx => {
@@ -252,6 +276,7 @@ test("retry after deleting the uncommitted append saves the transcript again bef
   const drafts = c.root.stores.drafts.getState(), id = drafts.idFor(null);
   const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
   await expect(c.root.recordings!.accept(row.partition, row.id, id, null)).rejects.toThrow();
+  expect(c.root.stores.drafts.getState().drafts[id]?.text ?? "", "failed commit publishes no pending append").toBe("");
   drafts.edit(id, null, { text: "Review the fleet." });
   fault.restore();
   await c.root.localWork!.snapshotNow();
@@ -261,8 +286,9 @@ test("retry after deleting the uncommitted append saves the transcript again bef
 
 
 test("discard focuses the next row or the header while another recording remains", async ctx => {
-  const c = fixture(ctx); await c.ready(); const first = await c.seed("saved"); const second = await c.seed("saved"); const third = await c.seed("saved");
+  const c = fixture(ctx); await c.ready(); await c.seed("saved"); await c.seed("saved"); await c.seed("saved");
   c.renderTray(); await expand(c);
+  const [first, second, third] = [...c.host.querySelectorAll<HTMLElement>("[data-recording-focus]")].map(el => ({ id: el.dataset.recordingFocus! }));
   const discard = async (id: string) => {
     const row = c.host.querySelector<HTMLElement>(`[data-recording-focus="${id}"]`)!;
     await tap(button(row, "Discard recording")); await settled(); await tap(button(row, "Delete recording"));
@@ -272,4 +298,140 @@ test("discard focuses the next row or the header while another recording remains
   await expect.poll(() => (document.activeElement as HTMLElement)?.dataset.recordingFocus, { message: "discard focuses the next row" }).toBe(second.id);
   await discard(third.id);
   await expect.poll(() => document.activeElement?.getAttribute("aria-expanded"), { message: "last row discard focuses tray header" }).toBe("true");
+});
+
+
+test("Strict Mode replay keeps Play usable and releases its busy state", async ctx => {
+  const c = fixture(ctx); await c.ready(); await c.seed("saved"); c.renderTray(true); await expand(c);
+  await tap(button(c.host, "Play recording"));
+  await expect.poll(() => c.host.querySelector("audio")?.getAttribute("src"), { message: "Strict Mode Play produces a local audio player" }).toMatch(/^blob:/);
+  await expect.poll(() => button(c.host, "Play recording")?.getAttribute("aria-disabled"), { message: "Strict Mode Play releases busy state" }).not.toBe("true");
+});
+
+test("a failed transcript input still allows local playback and confirmed discard", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea:not([data-composer])")!, "Ask Penelope about the fleet.");
+  await expect.poll(() => c.host.textContent).toContain("Couldn't save the transcript");
+  await tap(button(c.host, "Play recording"));
+  await expect.poll(() => c.host.querySelector("audio")?.getAttribute("src"), { message: "input write failure cannot disable playback" }).toMatch(/^blob:/);
+  fault.restore();
+  await tap(button(c.host, "Discard recording")); await settled(); await tap(button(c.host, "Delete recording"));
+  await expect.poll(async () => c.root.recordings!.get(row.partition, row.id), { message: "input write failure cannot disable explicit discard" }).toBeUndefined();
+});
+
+test("Add keeps its activation draft when a pending transcript edit delays acceptance", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  c.root.stores.chat.getState().setActiveSession("ithaca");
+  const id = c.root.stores.drafts.getState().idFor("ithaca");
+  c.renderTray(); await expand(c);
+  const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:")); ctx.onTestFinished(() => hold.restore());
+  await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea:not([data-composer])")!, "Penelope confirms the fleet."); await hold.started;
+  await tap(button(c.host, "Add transcript"));
+  c.root.stores.chat.getState().setActiveSession("fleet");
+  hold.release();
+  await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+  expect(c.root.stores.drafts.getState().drafts[id]?.text, "acceptance stays in the draft activated by the user").toBe("Penelope confirms the fleet.");
+  expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor("fleet")]?.text ?? "").toBe("");
+});
+
+test("editing the transcript after a failed draft write accepts the current text", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const id = c.root.stores.drafts.getState().idFor(null);
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  await expect(c.root.recordings!.accept(row.partition, row.id, id, null)).rejects.toThrow();
+  fault.restore();
+  await c.root.recordings!.saveTranscript(row.partition, row.id, "Penelope confirms the fleet.");
+  await c.root.recordings!.accept(row.partition, row.id, id, null);
+  expect((await c.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string }).text, "current edited transcript precedes deletion").toBe("Penelope confirms the fleet.");
+});
+
+
+test("audio loss preserves a surviving transcript for editing and acceptance", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const h = c.partitions.open(row.partition);
+  await h.write((await h.list(`recording:chunk:${row.id}:`)).map(r => ({ delete: r.key })));
+  const recovered = await c.root.recordings!.recover(row.partition);
+  expect(recovered.recordings, "audio recovery cannot erase surviving transcript").toMatchObject([{ transcript: TEXT, chunkCount: 0 }]);
+  c.renderTray(); await expand(c);
+  expect(c.host.textContent).toContain("Audio is no longer available on this device. Your transcript is kept.");
+  expect(button(c.host, "Play recording").getAttribute("aria-disabled")).toBe("true");
+  await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea:not([data-composer])")!, "Penelope confirms the fleet.");
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+  const id = c.root.stores.drafts.getState().idFor(null);
+  expect((await h.get(`root:ithaca/draft/${id}`) as { text: string }).text).toBe("Penelope confirms the fleet.");
+});
+
+test("a failed acceptance in one root cannot flush a duplicate after another root accepts", async ctx => {
+  const a = fixture(ctx), b = fixture(ctx); await a.ready(); await b.ready();
+  b.root.recordings!.dispose(); b.root.localWork!.dispose();
+  b.root.partitions = a.partitions;
+  b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:fleet", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+  b.root.recordings = createRecordingStore({ root: b.root, partitions: a.partitions, heldAccountKey: () => b.root.stores.connection.getState().accountKey });
+  await b.root.localWork.restoring();
+  const row = await a.seed(), idA = a.root.stores.drafts.getState().idFor(null), idB = b.root.stores.drafts.getState().idFor(null);
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  await expect(a.root.recordings!.accept(row.partition, row.id, idA, null)).rejects.toThrow(); fault.restore();
+  await b.root.recordings.accept(row.partition, row.id, idB, null);
+  await a.root.localWork!.snapshotNow();
+  expect((await a.partitions.open(row.partition).get(`root:ithaca/draft/${idA}`) as { text: string } | undefined)?.text ?? "", "failed root never leaves a deferred duplicate append").toBe("");
+  expect((await a.partitions.open(row.partition).get(`root:fleet/draft/${idB}`) as { text: string }).text).toBe(TEXT);
+});
+
+test("accepted metadata failure makes the committed transcript read-only until cleanup", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const id = c.root.stores.drafts.getState().idFor(null);
+  const original = IDBObjectStore.prototype.put;
+  const spy = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function(this: IDBObjectStore, value, key) { if ((value as Recording)?.state === "accepted") throw new DOMException("Full", "QuotaExceededError"); return original.call(this, value, key); });
+  await expect(c.root.recordings!.accept(row.partition, row.id, id, null)).rejects.toThrow(); spy.mockRestore();
+  expect(await c.root.recordings!.get(row.partition, row.id), "committed receipt makes review immutable").toMatchObject({ state: "accepted", transcript: TEXT });
+  await expect(c.root.recordings!.saveTranscript(row.partition, row.id, "A different transcript")).rejects.toThrow("not available for review");
+  await c.root.recordings!.accept(row.partition, row.id, id, null);
+  expect((await c.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string }).text).toBe(TEXT);
+  expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`), "cleanup removes receipt as well as recording").toBeUndefined();
+});
+
+test("accept stays on this device even when host draft autosave is supported", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const drafts = c.root.stores.drafts.getState(); drafts.setSupport(true);
+  c.root.stores.connection.getState().setWsStatus("connected");
+  const id = drafts.idFor(null); const before = c.net.requests.length;
+  await c.root.recordings!.accept(row.partition, row.id, id, null);
+  await wait(800);
+  expect(c.net.requests.slice(before), "acceptance never schedules an automatic host draft upload").toEqual([]);
+  drafts.edit(id, null, { text: `${TEXT} Bring the wax tablet.` });
+  await expect.poll(() => c.net.requests.slice(before).filter(r => r.method !== "GET").length, { message: "a later user edit resumes ordinary host draft save" }).toBeGreaterThan(0);
+});
+
+
+test("local sheet renders the store's warning, limit and storage outcomes", async ctx => {
+  const c = fixture(ctx); await c.ready(); c.host.style.cssText += ";position:relative;overflow:visible;margin-top:500px;height:0";
+  const timers = new Map<number, () => void>(); const original = globalThis.setTimeout;
+  vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+    if (typeof fn === "function" && (ms === 540000 || ms === 600000)) timers.set(ms, () => fn(...args));
+    return original(fn, ms, ...args);
+  }) as typeof setTimeout);
+  const sink = c.root.recordings!.sink(); await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
+  const audio = new Blob([new Uint8Array(generateWav(AUDIO_FIXTURES.note10s))], { type: "audio/wav" });
+  await sink.chunk({ index: 0, startMs: 0, endMs: 10000, data: audio });
+  c.root.stores.voice.getState().setLocal("recording");
+  flushSync(() => c.react.render(<BrainUiProvider root={c.root}><LocalRecordingSheet open onStop={async () => {}} onDiscard={async () => {}} /></BrainUiProvider>)); await settled();
+  expect(timers.get(540000), "store supplies the nine-minute warning timer").toBeTypeOf("function");
+  timers.get(540000)!();
+  await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "store warning reaches local sheet" }).toBe("1 minute left in this recording");
+  timers.get(600000)!();
+  await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "store limit outcome reaches local sheet" }).toBe("Stopped at the 10-minute limit. Your recording is saved.");
+  await navigator.locks.request("brain-ui:recording", async () => {});
+  const next = c.root.recordings!.sink(); await next.begin!({ mimeType: "audio/webm;codecs=opus" });
+  await next.chunk({ index: 0, startMs: 0, endMs: 10000, data: audio });
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  await expect(next.chunk({ index: 1, startMs: 10000, endMs: 20000, data: audio })).rejects.toThrow();
+  fault.restore(); await next.end!("storage");
+  await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "write failure reports only the committed prefix" }).toBe("Stopped: this device couldn't save more audio. Saved up to 0:10; the end may be missing.");
+  const full = c.root.recordings!.sink(); await full.begin!({ mimeType: "audio/webm;codecs=opus" });
+  await full.chunk({ index: 0, startMs: 0, endMs: 10000, data: audio });
+  vi.spyOn(navigator.storage, "estimate").mockResolvedValue({ quota: 1, usage: 1 });
+  await expect(full.chunk({ index: 1, startMs: 10000, endMs: 20000, data: audio })).rejects.toThrow("storage is full");
+  await full.end!("storage");
+  await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "budget outcome reports committed audio" }).toBe("Stopped: storage for recordings is full. Saved up to 0:10.");
 });
