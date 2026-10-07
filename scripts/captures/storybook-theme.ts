@@ -10,8 +10,9 @@ export async function checkStorybookTheme(browser: Browser, root: string, cache:
     light: { ink: "rgb(35, 31, 26)", canvas: "rgb(236, 231, 220)", surface: "rgb(248, 245, 239)" },
     dark: { ink: "rgb(232, 228, 223)", canvas: "rgb(12, 14, 18)", surface: "rgb(20, 22, 25)" },
   };
-  for (const theme of ["dark", "light"] as const) for (const nested of ["light", "dark"] as const) {
-    const id = `chrome-phoneframe--${nested === "light" ? "paper" : "dark"}`;
+  for (const theme of ["dark", "light"] as const) for (const nested of ["light", "dark", "inherit"] as const) {
+    const expectedTheme = nested === "inherit" ? theme : nested;
+    const id = nested === "inherit" ? "chrome-phoneframe--the-column-holds" : `chrome-phoneframe--${nested === "light" ? "paper" : "dark"}`;
     const { page, context, faults } = await capturePage(browser, root, cache, catalogue, [origin], { width: 1280, height: 1000 }, theme);
     try {
       await page.goto(`${origin}/iframe.html?id=${id}&viewMode=story&globals=theme:${theme}&embed=true`);
@@ -25,12 +26,12 @@ export async function checkStorybookTheme(browser: Browser, root: string, cache:
       });
       const name = `${id} inside ${theme}`;
       assert.equal(colors.document, theme, `${name}: outer document theme`);
-      assert.equal(colors.ink, palettes[nested].ink, `${name}: nested ink must resolve in its own theme`);
-      assert.equal(colors.canvas, palettes[nested].canvas, `${name}: nested canvas`);
-      assert.equal(colors.rowInk, palettes[nested].ink, `${name}: descendant ink`);
-      assert.equal(colors.surface, palettes[nested].surface, `${name}: descendant surface`);
-      assert.equal(colors.scheme, nested, `${name}: frame color scheme`);
-      assert.equal(colors.controlScheme, nested, `${name}: native control color scheme`);
+      assert.equal(colors.ink, palettes[expectedTheme].ink, `${name}: nested ink must resolve in its own theme`);
+      assert.equal(colors.canvas, palettes[expectedTheme].canvas, `${name}: nested canvas`);
+      assert.equal(colors.rowInk, palettes[expectedTheme].ink, `${name}: descendant ink`);
+      assert.equal(colors.surface, palettes[expectedTheme].surface, `${name}: descendant surface`);
+      assert.equal(colors.scheme, expectedTheme, `${name}: frame color scheme`);
+      assert.equal(colors.controlScheme, expectedTheme, `${name}: native control color scheme`);
       assert.deepEqual(faults, [], `${name}: browser errors`);
       console.log(`Built Storybook theme: ${name} ${JSON.stringify(colors)}`);
     } finally { await context.close(); }

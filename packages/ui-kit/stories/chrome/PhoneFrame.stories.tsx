@@ -54,7 +54,7 @@ const meta = preview.meta({
 
 /** 6:40 on Ogygia, which is the hour the digest lands and the instant the whole
  * fixture world is pinned to. */
-export const Dark = meta.story({});
+export const Dark = meta.story({ args: { theme: "dark" } });
 
 /**
  * `theme="paper"` is the light theme, scoped to one device: the frame carries
