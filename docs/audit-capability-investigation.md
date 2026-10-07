@@ -92,9 +92,10 @@ The private prototype reuses existing hygiene identity/evidence functions and
 reports handler availability separately from execution authorization. Only a
 valid, nonempty registry plan can be selected. It retains built-in suggestions,
 uses conservative containment and metadata checks, and rejects unsupported
-categories regardless of instructions in their messages. Its own-property type
-guard avoids the already tracked production membership defect in #854 without
-claiming that defect is fixed in production.
+categories regardless of instructions in their messages. The production
+own-property taxonomy membership defect tracked in #854 was fixed by #976.
+The private source-validity gate remains conservative: configured membership
+alone does not establish that every registry child's metadata is valid.
 
 Real execution controls show a generated registry rewrite producing parseable
 bytes, preserving prose/TODO content, clearing `index-stale` after reindex, and
@@ -167,3 +168,64 @@ and broader mechanical hygiene discovery remains #842. Assess public CLI/JSON,
 MCP and frontmatter impact under the [integration contract](integration-contract.md)
 before implementation, with the required contract ruling, documentation and
 changeset. Add no generic repair seam and transfer no D42/sync thresholds here.
+
+## Complete-brain measurement protocol
+
+The expanded private benchmark stages 26 authored brains: six tuning and twenty
+held-out, with disjoint entity sets and unique representation labels. These
+labels do not prove structural independence. Complete independently authored
+preview and effect maps cover nine valid registry premises, including one
+preview-only case whose independent authorization is false. The other cases
+exercise malformed metadata, invalid/prototype types, configured and
+module-owned taxonomy, stale and current generated regions, tag aliases,
+unresolved links, quoted/negated markers, absent sources, failed module checks,
+escaped module configuration and a larger handwritten index. No additional
+domain repair handler is fabricated to improve coverage.
+
+`benchmark.ts` indexes each whole brain and executes the real audit command.
+Its input record separates actual audit detections from validation rules:
+an unparseable child can also make a link unresolved, scalar tags are reported
+as missing required metadata by validation and corpus noise by audit, and the
+current marker scanner includes a TODO inside a fenced example. The candidate
+uses the shipped hygiene identity primitives, including the canonical
+equivalence/evidence policy delivered for #597 by #1024. Its registry handler
+reads the actual plan and validates source premises; it explains why an invalid
+premise needs review instead of repeating an unconditional regeneration claim.
+
+Two repetitions compare unchanged message-only `audit --fix`, actual
+providerless `audit --fix`, and the providerless capability-backed registry
+candidate on separate identical brains. Only the last arm invokes an existing
+writer, and only in independently authorized disposable fixtures. Current
+completion replacement strings are retained as untrusted proposals and are
+never executed. An in-memory full-file projection is a secondary diagnostic,
+not evidence that the current command writes files. Full-content explanation
+is not silently added to the current arm.
+
+Natural suggestion correctness requires source-aware annotations for every
+answer under the frozen category rubric. The analysis verifies complete
+three-arm/repetition coverage, exact output hashes and physical-call accounting;
+it does not infer semantic correctness from matching words. Coverage,
+repairability claims, unsupported auto-fix claims, actual authorized writes,
+preview/effect bytes, parseability, finding post-checks and repeat no-ops remain
+separate measurements. Ordinary audit totals and the suggestion-only public
+command remain unchanged.
+
+The runtime freeze covers the core sources and complete installed transitive
+dependency closure, subscription guard/review helper closure, private runtime
+sources, exact Bun executable and actual native Claude executable verified
+against its installed SDK manifest. The bounded complementary review retains
+native stdout before SDK parsing, raw usage/cache TTLs, overage flags and child
+drain evidence. Actual direct API attempts are recorded before dispatch, use
+canonical `claude-sonnet-5-5` with explicit `standard_only` and `global`
+selectors, and preserve requested/returned rate metadata. Official raw usage
+pricing is independent of SDK dollar totals; unknown consumption stops further
+admissions. Subscription API-price equivalents are separate diagnostics from
+the authorized $15 actual-additional-charge allowance, and no usage estimate
+is presented as a supplied invoice. JEV does not decide whether code exists.
+
+The expanded controls use Bun 1.4.2. The actual audit command reads its real
+clock; the measured detection date is frozen explicitly, while authorized
+fixture writer effects use the fictional `2026-07-12` date. Neither becomes a
+new CLI clock contract. Input review precedes dispatch and the source-aware
+output review precedes any measured recommendation; keyless controls alone
+establish neither live suggestion quality nor production adoption.
