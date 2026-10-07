@@ -395,6 +395,60 @@ export function clusterLetter(index: number): string {
 /** The numbered badge's diameter: a pin you can read a two-digit number in. */
 const BADGE = 18;
 
+interface LabelBox { x: number; y: number; width: number; height: number }
+function overlap(a: LabelBox, b: LabelBox): number {
+  return Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+    * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+}
+
+/** Move only the callout, never the geographic marker. Prefer its existing
+ * side, then the nearest free rectangle bounded by the actual map. */
+function calloutOptions(width: number, height: number, point: {x: number; y: number}, size: {width: number; height: number}, occupied: LabelBox[]) {
+  const inset = 6, gap = 3;
+  const maxX = Math.max(inset, width - size.width - inset);
+  const maxY = Math.max(inset, height - size.height - inset);
+  const clampX = (x: number) => Math.min(maxX, Math.max(inset, x));
+  const clampY = (y: number) => Math.min(maxY, Math.max(inset, y));
+  const preferred = { x: point.x > width * .62 ? point.x - 12 - size.width : point.x + 12, y: point.y - size.height / 2 };
+  const xs = new Set([clampX(preferred.x), inset, maxX, clampX(point.x + 12), clampX(point.x - 12 - size.width)]);
+  const ys = new Set([clampY(preferred.y), inset, maxY]);
+  for (let x = inset; x <= maxX; x += 8) xs.add(x);
+  for (let y = inset; y <= maxY; y += 8) ys.add(y);
+  for (const rect of occupied) {
+    xs.add(clampX(rect.x - size.width - gap)); xs.add(clampX(rect.x + rect.width + gap));
+    ys.add(clampY(rect.y - size.height - gap)); ys.add(clampY(rect.y + rect.height + gap));
+  }
+  const options: { box: LabelBox; covered: number; distance: number }[] = [];
+  for (const x of xs) for (const y of ys) {
+    const box = {...size, x, y};
+    const covered = occupied.reduce((sum, rect) => sum + overlap(box, rect), 0);
+    const distance = (x - preferred.x) ** 2 + (y - preferred.y) ** 2;
+    options.push({box, covered, distance});
+  }
+  return options.sort((a, b) => a.covered - b.covered || a.distance - b.distance);
+}
+
+/** Bounded backtracking lets an earlier short callout yield to a later one.
+ * A greedy nearest-box pass alone can trap a name despite available room. */
+function fitCallouts(width: number, height: number, sized: {index: number; point: {x:number;y:number}; size: LabelBox}[], fixed: LabelBox[], budget = 800) {
+  const boxes: (LabelBox | undefined)[] = [];
+  let remaining = budget;
+  const solve = (index: number, occupied: LabelBox[]): boolean => {
+    if (index === sized.length) return true;
+    if (--remaining < 0) return false;
+    const item = sized[index]!;
+    for (const {box, covered} of calloutOptions(width, height, item.point, item.size, occupied)) {
+      if (remaining < 0) return false;
+      if (covered > .01) continue;
+      boxes[item.index] = box;
+      if (solve(index + 1, [...occupied, {x:box.x - 3,y:box.y - 3,width:box.width + 6,height:box.height + 6}])) return true;
+    }
+    boxes[item.index] = undefined;
+    return false;
+  };
+  return solve(0, fixed) ? boxes : undefined;
+}
+
 export function MapView(p: MapViewProps) {
   /**
    * THE PROJECTION IS BUILT FOR THE WIDTH THE CARD ACTUALLY IS.
@@ -490,9 +544,9 @@ export function MapView(p: MapViewProps) {
   const pctY = (y: number) => `${((y / H) * 100).toFixed(4)}%`;
 
   /*
-   * Label collisions are resolved by CLUSTERING, not by truncating (the
-   * fourth drop's answer to design-feedback §16). Two rules, both computable
-   * without measuring text:
+   * Nearby centres retain the fourth drop's clustering rule. Callouts are
+   * placed from rendered bounds afterward, so names never need truncation.
+   * The existing cluster and secondary-meta rules stay independent of text:
    *   1. a pin whose projected centre sits within `clusterPx` of an
    *      already-placed pin joins it; the survivor carries `+N` and the
    *      absorbed pins draw nothing;
@@ -554,6 +608,57 @@ export function MapView(p: MapViewProps) {
   useEffect(() => {
     onClustersRef.current?.(JSON.parse(clusterKey) as MapCluster[]);
   }, [clusterKey]);
+
+  // The key includes everything that can change a callout's text or anchor.
+  // Observe text boxes too: a late font load or wrapping change needs a fresh
+  // placement even when the map width itself has not changed.
+  const placementKey = JSON.stringify([W, H, numbered, p.coordChip, src[0].lat, src[0].lon, placed]);
+  const [callouts, setCallouts] = useState<{key: string; boxes: (LabelBox | undefined)[]; hiddenGrid: number[]}>({key: "", boxes: [], hiddenGrid: []});
+  useLayoutEffect(() => {
+    const node = viewportRef.current;
+    if (!node || numbered) return;
+    const labels = [...node.querySelectorAll<HTMLElement>("[data-map-label]")];
+    const layout = () => {
+      const bounds = node.getBoundingClientRect();
+      if (!bounds.width || Math.abs(bounds.width - W) > 1) return;
+      const relative = (el: Element): LabelBox => {
+        const box = el.getBoundingClientRect();
+        return {x: box.left - bounds.left, y: box.top - bounds.top, width: box.width, height: box.height};
+      };
+      const occupied = [...node.querySelectorAll("[data-map-annotation]:not([data-map-grid])")].map(relative);
+      const gridBoxes = [...node.querySelectorAll<HTMLElement>("[data-map-grid]")].map(relative);
+      // Keep a gap around each mark. A shifted callout must not hide another
+      // place merely because its centre is outside the old clustering radius.
+      for (const dot of node.querySelectorAll("[data-map-dot]")) {
+        const box = relative(dot); occupied.push({x: box.x - 2, y: box.y - 2, width: box.width + 4, height: box.height + 4});
+      }
+      // Reserve larger names first; indices continue to identify their pins.
+      const sized = labels.map(label => {
+        const index = Number(label.dataset.mapLabel);
+        return {index, point: placed[index]!, size: relative(label)};
+      }).sort((a, b) => b.size.width * b.size.height - a.size.width * a.size.height || a.index - b.index);
+      let boxes = fitCallouts(bounds.width, bounds.height, sized, [...occupied, ...gridBoxes], 32)
+        ?? fitCallouts(bounds.width, bounds.height, sized, occupied);
+      if (!boxes) {
+        // Finite fallback for genuinely overfull caller input. Keep full names
+        // and real markers; centre clustering is never changed by typography.
+        boxes = [];
+        for (const {index, point, size} of sized) {
+          const box = calloutOptions(bounds.width, bounds.height, point, size, occupied)[0]!.box;
+          occupied.push({x:box.x - 3,y:box.y - 3,width:box.width + 6,height:box.height + 6});
+          boxes[index] = box;
+        }
+      }
+      const hiddenGrid = gridBoxes.flatMap((rect, i) => boxes.some(box => box && overlap(box, rect) > 0) ? [i] : []);
+      setCallouts(current => current.key === placementKey && JSON.stringify([current.boxes, current.hiddenGrid]) === JSON.stringify([boxes, hiddenGrid])
+        ? current : {key: placementKey, boxes, hiddenGrid});
+    };
+    layout();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(layout);
+    observer.observe(node); labels.forEach(label => observer.observe(label));
+    return () => observer.disconnect();
+  }, [placementKey]);
 
   const lonStep = step(me - mw);
   const latStep = step(latTop - latBot);
@@ -741,9 +846,17 @@ export function MapView(p: MapViewProps) {
               vectorEffect="non-scaling-stroke"
             />
           ))}
+          {!numbered && callouts.key === placementKey ? placed.map((pin, i) => {
+            const box = callouts.boxes[i];
+            if (!box) return null;
+            const endX = Math.max(box.x, Math.min(pin.x, box.x + box.width));
+            const endY = Math.max(box.y, Math.min(pin.y, box.y + box.height));
+            return <line key={`tether${i}`} data-map-tether x1={pin.x} y1={pin.y} x2={endX} y2={endY}
+              stroke={MARKS[pin.tone] || MARKS.amber} strokeWidth={1} vectorEffect="non-scaling-stroke" />;
+          }) : null}
         </svg>
         {gridLabels.map((lab, i) => (
-          <span key={`l${i}`} style={lab.style}>
+          <span key={`l${i}`} data-map-annotation data-map-grid={i} style={{...lab.style, visibility: callouts.key === placementKey && callouts.hiddenGrid.includes(i) ? "hidden" : undefined}}>
             {lab.text}
           </span>
         ))}
@@ -797,24 +910,10 @@ export function MapView(p: MapViewProps) {
                 position: "absolute",
                 left: pctX(x),
                 top: pctY(pin.y),
-                // THE DOT marks the coordinate, not the row.
-                //
-                // `translate(-50%, -50%)` centres the whole flex row — dot, gap
-                // and label — on the projected point, which puts the dot itself
-                // half a label to one side of the place it is marking: measured
-                // at 44px in a 238px card, about 19% of the width. Two pins
-                // with labels of different lengths are then displaced by
-                // different amounts, so the distance BETWEEN them is wrong too,
-                // under a scale bar that claims to measure it. Nothing caught
-                // it because `tests/mapview-projection.test.tsx` reads `left`,
-                // which is the row's anchor and was always correct.
-                //
-                // So the row is shifted by half a dot instead: leftwards when
-                // the dot leads, and by its own width less half a dot when the
-                // row is reversed and the dot trails.
-                transform: flip
-                  ? `translate(calc(-100% + ${DOT / 2}px), -50%)`
-                  : `translate(-${DOT / 2}px, -50%)`,
+                // The wrapper is just the dot; callout offsets are independent.
+                transform: `translate(-${DOT / 2}px, -50%)`,
+                width: DOT,
+                height: DOT,
                 zIndex: 3,
                 display: "flex",
                 flexDirection: flip ? "row-reverse" : "row",
@@ -824,6 +923,7 @@ export function MapView(p: MapViewProps) {
               }}
             >
               <span
+                data-map-dot
                 data-track-marker={pin.marker}
                 style={{
                   width: DOT,
@@ -837,7 +937,18 @@ export function MapView(p: MapViewProps) {
               />
               {label ? (
                 <span
+                  data-map-label={i}
                   style={{
+                    position: "absolute",
+                    ...(callouts.key === placementKey && callouts.boxes[i] ? {
+                      left: callouts.boxes[i]!.x - pin.x + DOT / 2,
+                      top: callouts.boxes[i]!.y - pin.y + DOT / 2,
+                    } : { ...(flip ? { right: 17 } : { left: 17 }), top: "50%", transform: "translateY(-50%)" }),
+                    width: "max-content",
+                    maxWidth: Math.max(1, W - 12),
+                    boxSizing: "border-box",
+                    whiteSpace: "normal",
+                    overflowWrap: "anywhere",
                     background: token("map-label-bg"),
                     border: `1px solid ${LABEL_BORDERS[pin.tone] || LABEL_BORDERS.amber}`,
                     borderRadius: 7,
@@ -877,6 +988,7 @@ export function MapView(p: MapViewProps) {
           }}
         >
           <span
+            data-map-annotation
             style={{
               display: "block",
               // A PERCENTAGE of the box, not the projected pixel. The bar is an
@@ -897,6 +1009,7 @@ export function MapView(p: MapViewProps) {
             }}
           />
           <span
+            data-map-annotation
             style={{
               font: `500 9px/1 ${font.mono}`,
               color: color.inkDim,
@@ -910,6 +1023,7 @@ export function MapView(p: MapViewProps) {
         </div>
         {p.coordChip !== false ? (
           <div
+            data-map-annotation
             style={{
               position: "absolute",
               left: 10,
