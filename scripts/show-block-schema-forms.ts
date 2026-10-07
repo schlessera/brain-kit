@@ -1,8 +1,8 @@
 /**
  * The schema forms #336 A/Bs, and the credential its live half runs on.
  *
- * `measure-show-block.ts` stages a brain and runs on import, so what the A/B
- * rests on lives here, where a test can load it: which form each arm sends,
+ * `measure-show-block.ts` stages a brain on import; its CLI runs directly. The A/B
+ * inputs live here, where a test can load them: which form each arm sends,
  * the schema each arm's tool lists through the Agent SDK's own MCP server,
  * and which credential a live run uses. Nothing here makes a network call.
  *
