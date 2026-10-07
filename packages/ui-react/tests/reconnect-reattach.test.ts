@@ -660,6 +660,7 @@ describe("a reconnect while the turn in view runs", () => {
     expect(last.content).toBe(`${SIRENS} Past Scylla.`);
     expect(last.toolCalls.map((t) => t.id)).toEqual(["wax-1"]);
     expect(last.parts.filter((p) => p.kind === "tool")).toHaveLength(1);
+    expect(last.parts.filter((p) => p.kind === "tool").map((p) => last.toolCalls[p.toolIndex]?.id), "the retained part references its actual drawn card").toEqual(["wax-1"]);
   });
 
   test("a replay in chunks that splits just before the answer draws it once", () => {
