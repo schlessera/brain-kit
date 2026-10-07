@@ -1,6 +1,6 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
-import { GhostText, INCOMING, useArrival, type GhostSpec } from "../internal/GhostText.js";
+import { DEFAULT_SIZE, GhostText, INCOMING, ghostFamily, useArrival, type GhostSpec } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
@@ -62,7 +62,8 @@ export interface PlaceholderProps {
   lines?: number;
   /** Loading only: the content being waited for, as ghost text. */
   ghost?: GhostSpec[];
-  /** The seed for the ghost glyphs — the item's key, so they never flicker. */
+  /** The seed for the ghost glyphs. Defaults to this instance's identity, which
+   * React keeps per item key, so the glyphs never flicker. */
   seed?: string;
   /** Loading only: the data has landed. Children are the real content. */
   arrived?: boolean;
@@ -102,6 +103,10 @@ const WIDTHS = ["46%", "88%", "64%", "78%", "52%"];
  * would. The caller's own content sets the real ones. */
 const LINE_HEIGHT = { sans: 1.55, mono: 1.4, title: 1.25 } as const;
 
+function ghostLine(role: keyof typeof LINE_HEIGHT, size: number): CSSProperties {
+  return { fontFamily: ghostFamily(role), fontSize: size, lineHeight: LINE_HEIGHT[role] };
+}
+
 export function Placeholder(p: PlaceholderProps) {
   const v = p.variant || "loading";
   const loading = v === "loading";
@@ -119,18 +124,21 @@ export function Placeholder(p: PlaceholderProps) {
   const icon = p.icon || (err ? "failed" : "fyi");
   const iconSize = Number(p.iconSize) || 14;
 
-  const seed = p.seed ?? "placeholder";
+  const id = useId();
+  const seed = p.seed ?? id;
   const still = p.animate === false;
   // Lines inside one card are offset by +0.1s each, so the sweep travels down
   // the card rather than flashing every line at once.
   const ghosts = p.ghost?.length
     ? p.ghost.map((g, i) => (
-        <div key={i} style={{ lineHeight: LINE_HEIGHT[g.role] }}>
+        // The line box takes the role's own font, not the surrounding one: a
+        // 12px ghost in a 16px parent would otherwise sit in a 16px strut.
+        <div key={i} style={ghostLine(g.role, g.size ?? DEFAULT_SIZE[g.role])}>
           <GhostText role={g.role} size={g.size} length={g.length} seed={`${seed}:${i}`} delay={i * 0.1} animate={!still} />
         </div>
       ))
     : Array.from({ length: lines }).map((_, i) => (
-        <div key={i} style={{ lineHeight: LINE_HEIGHT.sans }}>
+        <div key={i} style={ghostLine("sans", DEFAULT_SIZE.sans)}>
           <GhostText
             role="sans"
             length={120}

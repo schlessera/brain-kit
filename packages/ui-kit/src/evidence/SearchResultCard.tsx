@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue, type GhostTextProps } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -61,6 +61,9 @@ export function SearchResultCard(p: SearchResultCardProps) {
   const view = p.view || "ready";
   const loading = view === "loading";
   const arriving = useArrival(loading);
+  // The ghost's seed is this instance — kept per item key, not per list
+  // position — so re-ranking a row never regenerates its glyphs.
+  const id = useId();
   const path = p.path ?? "knowledge/scylla.md";
   const score = p.score ?? "0.94";
   const before = p.before ?? "…she named her before we were out of the bay: ";
@@ -137,7 +140,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
     role,
     size: role === "mono" ? 11 : 12,
     length,
-    seed: `search:${p.index ?? 0}:${slot}`,
+    seed: `${id}:${slot}`,
     delay: stagger + line * 0.1,
     path: slot === "path",
   });

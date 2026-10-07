@@ -153,8 +153,10 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
               ))}
             </div>
           ) : null}
-          {/* Positioned, so the text paints over the ghost that precedes it. */}
-          <span style={INCOMING}>
+          {/* Positioned, so the text paints over the ghost that precedes it.
+              The first chunk fades in over the same 600ms the ghost fades out
+              in; the tail ramp settles the newest characters on top of that. */}
+          <span className={arriving ? "bk-ghost-in" : undefined} style={INCOMING}>
             {text ? head : null}
             {text
               ? tail.map((ch, i) => (

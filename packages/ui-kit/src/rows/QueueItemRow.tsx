@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import {
   GhostDot,
@@ -93,6 +93,9 @@ export function QueueItemRow(p: QueueItemRowProps) {
   const view = p.view || "ready";
   const loading = view === "loading";
   const arriving = useArrival(loading);
+  // The ghost's seed is this instance — kept per item key, not per list
+  // position — so re-ranking a row never regenerates its glyphs.
+  const id = useId();
   const last = useLastLengths(view === "ready", {
     state: state.length,
     subject: (p.subject ?? "triage · share-9f2").length,
@@ -164,7 +167,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
     role: "mono",
     size: 11,
     length,
-    seed: `queue:${p.index ?? 0}:${slot}`,
+    seed: `${id}:${slot}`,
     delay: stagger + line * 0.1,
   });
   const noteStyle: CSSProperties = { position: "relative", marginTop: 6, font: `400 11px/1.5 ${font.body}`, color: color.inkMute };
@@ -219,7 +222,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
           <Ghosted
             loading={loading}
             arriving={arriving}
-            ghost={{ role: "sans", size: 11, length: lengths.note, seed: `queue:${p.index ?? 0}:note`, delay: stagger + 0.1 }}
+            ghost={{ role: "sans", size: 11, length: lengths.note, seed: `${id}:note`, delay: stagger + 0.1 }}
           >
             {p.note}
           </Ghosted>

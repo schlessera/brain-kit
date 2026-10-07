@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Chip } from "../primitives/Chip.js";
 import { GhostIconSlot, Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue } from "../internal/GhostText.js";
@@ -107,6 +107,9 @@ export function FileRow(p: FileRowProps) {
   const view = p.view || "ready";
   const loading = view === "loading";
   const arriving = useArrival(loading);
+  // The ghost's seed is this instance — kept per item key, not per list
+  // position — so re-ranking a row never regenerates its glyphs.
+  const id = useId();
   const label = p.label ?? "notes";
   const last = useLastLengths(view === "ready", { name: label.length, kind });
   const nameLength = useLoadingValue(loading, ghostLength(last.name, p.label?.length, 14));
@@ -115,6 +118,7 @@ export function FileRow(p: FileRowProps) {
   const loadingKind = p.kind ?? last.kind;
   const kindKnown = !loading || loadingKind !== undefined;
   const drawn = loading && loadingKind ? loadingKind : kind;
+  const reserved: CSSProperties | undefined = loading ? { visibility: "hidden" } : undefined;
 
   if (view !== "ready" && !loading) {
     return (
@@ -224,14 +228,35 @@ export function FileRow(p: FileRowProps) {
         <Ghosted
           loading={loading}
           arriving={arriving}
-          ghost={{ role: "sans", size: 13, length: nameLength, seed: `file:${depth}:${nameLength}` }}
+          ghost={{ role: "sans", size: 13, length: nameLength, seed: `${id}:name` }}
         >
           {label}
         </Ghosted>
       </span>
-      {p.badge && !loading ? <Chip label={p.badge} variant="count" tone="red" /> : null}
-      {p.flag && !loading ? <StatusDot tone={p.flag} pulse={false} size={6} /> : null}
-      {p.meta && !loading ? <span style={metaStyle}>{p.meta}</span> : null}
+      {/* Known while loading, they keep their space, invisibly. */}
+      {p.badge ? (
+        loading ? (
+          <span style={{ display: "inline-flex", flex: "none", ...reserved }} inert>
+            <Chip label={p.badge} variant="count" tone="red" />
+          </span>
+        ) : (
+          <Chip label={p.badge} variant="count" tone="red" />
+        )
+      ) : null}
+      {p.flag ? (
+        loading ? (
+          <span style={{ display: "inline-flex", flex: "none", ...reserved }} inert>
+            <StatusDot tone={p.flag} pulse={false} size={6} />
+          </span>
+        ) : (
+          <StatusDot tone={p.flag} pulse={false} size={6} />
+        )
+      ) : null}
+      {p.meta ? (
+        <span style={{ ...metaStyle, ...reserved }} inert={loading || undefined}>
+          {p.meta}
+        </span>
+      ) : null}
     </div>
   );
 }

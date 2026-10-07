@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { Chip } from "../primitives/Chip.js";
 import {
@@ -167,6 +167,9 @@ export function ActionCard(p: ActionCardProps) {
   const st = p.state || "ready";
   const loading = st === "loading";
   const arriving = useArrival(loading);
+  // The ghost's seed is this instance — kept per item key, not per list
+  // position — so re-ranking a row never regenerates its glyphs.
+  const id = useId();
   const title = p.title ?? "Write the corrected seat count into talks/lisbon-2026.md?";
   const kindLabel = p.kindLabel || k.label;
   const last = useLastLengths(st === "ready", {
@@ -265,12 +268,14 @@ export function ActionCard(p: ActionCardProps) {
     role,
     size,
     length,
-    seed: `action:${slot}:${length}`,
+    seed: `${id}:${slot}`,
     delay: line * 0.1,
   });
   const showBody = loading ? lengths.body > 0 : Boolean(p.body);
   const showFoot = loading ? lengths.foot > 0 || Boolean(p.footLink) : Boolean(p.footMeta || p.footLink);
-  // Known while loading, invisible until the data says what it holds.
+  // Known while loading, invisible until the data says what it holds — and
+  // inert, so nothing inside it can be focused or pressed, even a descendant
+  // that sets its own visibility back.
   const reserved: CSSProperties | undefined = loading ? { visibility: "hidden" } : undefined;
   // 44px tall like every other touch target; the visible text stays the
   // foot's mono size, so the line does not grow a button look.
@@ -324,11 +329,15 @@ export function ActionCard(p: ActionCardProps) {
           </Ghosted>
         </span>
         {p.rightChip ? (
-          <span style={{ ...rightWrap, ...reserved }}>
+          <span style={{ ...rightWrap, ...reserved }} inert={loading || undefined}>
             <Chip label={p.rightChip} tone={p.rightChipTone || "purple"} variant="outline" />
           </span>
         ) : null}
-        {p.rightMeta ? <span style={{ ...rightMetaStyle, ...reserved }}>{p.rightMeta}</span> : null}
+        {p.rightMeta ? (
+          <span style={{ ...rightMetaStyle, ...reserved }} inert={loading || undefined}>
+            {p.rightMeta}
+          </span>
+        ) : null}
       </div>
       <div style={titleStyle}>
         <Ghosted loading={loading} arriving={arriving} ghost={ghost("title", "sans", 13, lengths.title, 1)}>
@@ -349,7 +358,11 @@ export function ActionCard(p: ActionCardProps) {
        * showed up, and the caller could not fix it without putting a one-off
        * margin in a screen — which is the thing §11 says a screen must never
        * need. */}
-      {p.children ? <div style={{ marginTop: 10, ...reserved }}>{p.children}</div> : null}
+      {p.children ? (
+        <div style={{ marginTop: 10, ...reserved }} inert={loading || undefined}>
+          {p.children}
+        </div>
+      ) : null}
       {showFoot ? (
         <div style={foot}>
           {loading ? (
@@ -371,11 +384,13 @@ export function ActionCard(p: ActionCardProps) {
               type="button"
               className="bk-control"
               style={{ ...footLinkStyle, ...reserved }}
+              inert={loading || undefined}
               aria-label={p.footLink.name}
               onClick={(event) => {
                 // The link is not the card: a card with its own handler must
                 // not also open from the same tap.
                 event.stopPropagation();
+                if (loading) return;
                 p.footLink!.onClick();
               }}
               onKeyDown={(event) => event.stopPropagation()}

@@ -37,7 +37,7 @@ export interface GhostSpec {
 /** How long the handoff runs, in ms. The `.bk-ghost-in`/`-out` duration. */
 export const HANDOFF_MS = 600;
 
-const DEFAULT_SIZE: Record<GhostRole, number> = { sans: 12, mono: 11, title: 19 };
+export const DEFAULT_SIZE: Record<GhostRole, number> = { sans: 12, mono: 11, title: 19 };
 
 /**
  * The blur, by role and size. A ghost blurred too little reads as text in a

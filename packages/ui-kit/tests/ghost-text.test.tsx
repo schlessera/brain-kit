@@ -186,6 +186,21 @@ describe("Placeholder loading", () => {
     expect(g.map((e) => e.style.animationDelay)).toEqual(["", "0.10s", "0.20s"]);
   });
 
+  test("each ghost line takes its role's font, not the surrounding one", () => {
+    const doc = draw(
+      <div style={{ fontSize: 16 }}>
+        <Placeholder variant="loading" ghost={[{ role: "sans", size: 12, length: 20 }, { role: "mono", length: 10 }]} />
+        <Placeholder variant="loading" lines={1} />
+      </div>,
+    );
+    const lines = ghosts(doc).map((g) => g.parentElement!);
+    expect(lines.map((l) => [l.style.fontSize, l.style.lineHeight])).toEqual([
+      ["12px", "1.55"],
+      ["11px", "1.4"],
+      ["12px", "1.55"],
+    ]);
+  });
+
   test("empty and error do not change", () => {
     const empty = draw(<Placeholder variant="empty" message="Nothing" />);
     const error = draw(<Placeholder variant="error" message="Broke" />);
@@ -401,6 +416,43 @@ describe("the five components", () => {
     expect(lengths).toContain("waiting on your approval".length);
   });
 
+  test("reserved slots are inert, and the hidden foot link does nothing", async () => {
+    let followed = 0;
+    const m = await mount((loading) => (
+      <ActionCard
+        state={loading ? "loading" : "ready"}
+        rightChip="untrusted · relayed"
+        footLink={{ label: "blocks queue item", onClick: () => (followed += 1) }}
+      >
+        <button type="button" style={{ visibility: "visible" }}>
+          Allow
+        </button>
+      </ActionCard>
+    ));
+    const reservedSlots = [...m.host.querySelectorAll<HTMLElement>("[inert]")];
+    expect(reservedSlots.length).toBe(3);
+    expect(reservedSlots.some((e) => e.querySelector("button")?.textContent === "Allow")).toBe(true);
+    const footLink = () => [...m.host.querySelectorAll("button")].find((b) => b.textContent === "blocks queue item")!;
+    await act(async () => footLink().click());
+    expect(followed).toBe(0);
+    await m.land();
+    expect(m.host.querySelectorAll("[inert]")).toHaveLength(0);
+    await act(async () => footLink().click());
+    expect(followed).toBe(1);
+    await m.unmount();
+  });
+
+  test("re-ranking a loading row keeps its glyphs: the seed is the instance, not the index", async () => {
+    const m = await mount((_loading, n) => <SearchResultCard view="loading" index={n} />);
+    const before = ghosts(m.host as unknown as Document).map((g) => g.textContent);
+    await m.next();
+    const after = ghosts(m.host as unknown as Document);
+    expect(after.map((g) => g.textContent)).toEqual(before);
+    // The stagger still follows the rank.
+    expect(after[0]!.style.animationDelay).toBe("0.25s");
+    await m.unmount();
+  });
+
   test("the foot dot is reserved only when one is coming", async () => {
     // A card that showed no dot re-fetches without one: the foot text stays put.
     const m = await mount((loading) => <ActionCard state={loading ? "loading" : "ready"} footMeta="run 7f2" />);
@@ -506,6 +558,8 @@ describe("StreamingAnswer", () => {
     const text = m.host.querySelector<HTMLElement>(".bk-ghost-tail")!.parentElement!;
     expect(out.compareDocumentPosition(text) & 4).toBe(4);
     expect(text.style.position).toBe("relative");
+    // The first chunk fades in over the same handoff, not only its tail.
+    expect(text.className).toBe("bk-ghost-in");
     expect(m.host.querySelector('[aria-busy="true"]')).toBeNull();
     await m.settle();
     expect(m.host.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
