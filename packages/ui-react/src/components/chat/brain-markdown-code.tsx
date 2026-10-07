@@ -1,4 +1,5 @@
-import React, { useRef } from "react";
+import React from "react";
+import { CodeBlock } from "@schlessera/brain-ui-kit";
 import { CopyButton } from "./copy-button.js";
 import { MermaidBlock } from "./mermaid-block.js";
 
@@ -35,18 +36,20 @@ export function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutR
   return <CodePre {...props}>{children}</CodePre>;
 }
 
-function CodePre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
-  const ref = useRef<HTMLPreElement>(null);
+function CodePre({ children }: React.ComponentPropsWithoutRef<"pre">) {
+  const source = extractText(children).replace(/\n$/, "");
+  let language: string | undefined;
+  for (const child of React.Children.toArray(children)) {
+    if (!React.isValidElement(child)) continue;
+    const props = child.props as { className?: string };
+    const match = props.className?.match(/(?:^|\s)language-([^\s]+)/);
+    if (match) { language = match[1]; break; }
+  }
   return (
-    <div className="group/copy relative">
-      <pre
-        ref={ref}
-        className="overflow-x-auto rounded-lg border border-border bg-surface p-4 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed"
-        {...props}
-      >
-        {children}
-      </pre>
-      <CopyButton getText={() => ref.current?.textContent ?? ""} />
+    <div data-chat-code className="my-3">
+      <CodeBlock code={source} lang={language} fontSize={13} action={
+        <CopyButton getText={() => source} className="print:hidden -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground" />
+      }>{children}</CodeBlock>
     </div>
   );
 }

@@ -43,3 +43,23 @@ declare module "vitest/browser" {
     formConsumerStyles(): Promise<string>;
   }
 }
+
+
+const highlightFailures = new WeakMap<object, number>();
+/** Deny the actual lazy module so plain-fence coverage observes a load failure. */
+export const codeHighlightFailure: BrowserCommand<[boolean], void> = async (ctx, enabled) => {
+  await ctx.page.unroute("**/*rehype-highlight*");
+  if (!enabled) { highlightFailures.delete(ctx.page); return; }
+  highlightFailures.set(ctx.page, 0);
+  await ctx.page.route("**/*rehype-highlight*", async route => {
+    highlightFailures.set(ctx.page, (highlightFailures.get(ctx.page) ?? 0) + 1);
+    await route.abort();
+  });
+};
+export const codeHighlightFailureCount: BrowserCommand<[], number> = async ctx => highlightFailures.get(ctx.page) ?? 0;
+declare module "vitest/browser" {
+  interface BrowserCommands {
+    codeHighlightFailure(enabled: boolean): Promise<void>;
+    codeHighlightFailureCount(): Promise<number>;
+  }
+}

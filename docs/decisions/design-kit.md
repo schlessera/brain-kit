@@ -5794,3 +5794,25 @@ from runtime defaults. Metadata accepts several wrapping lines. The accepted
 pre-1.0 API break ships in a minor: callers pass identity and optional facts
 explicitly. This is an approved exception to D30's parity defaults; examples
 remain in stories. No attachment protocol or persistence contract changes.
+
+
+## 2026-10-07 — Code fences compose CodeBlock (#1142)
+
+The maintainer approved retaining lazy syntax highlighting for chat code
+bodies as an explicit exception to decision-only colour. The host passes
+highlighted React children to the pure kit; it owns the clipboard action.
+Keywords use purple ink, strings and additions teal, numbers and literals
+gold, titles blue, comments muted italic, and deletions red. Other token
+classes inherit the ordinary code ink. Every rendered token must meet 4.5:1
+against the code surface in dark and paper, measured independently from
+computed browser colours. The highlight theme requires the maintainer's
+visual sign-off in Storybook before merge.
+
+Copy occupies the head and uses the original React text descendants with
+one trailing fence newline removed, including when file linkification
+changes the painted text. Mermaid retains its earlier routing. Long lines
+wrap without changing copied source. The kit draws no language, sample
+command or copy glyph when the corresponding input/action is absent; the
+maintainer accepted these pre-1.0 breaking changes in a minor. Other hosts
+must pass `lang`, `code` or `children`, and their real `action` explicitly.
+No tool schema, protocol or permission semantics change.

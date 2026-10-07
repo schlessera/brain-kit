@@ -6643,3 +6643,74 @@ test("missing sent-track metadata invents no original name, byte count or proven
   expect(view.container.textContent).not.toContain("Sailing directions"); expect(view.container.textContent).not.toContain("0 B");
   expect(view.container.querySelectorAll('[role="button"],[tabindex]')).toHaveLength(0);
 });
+
+
+import { CodeBlock as RuntimeKitCodeBlock } from "@schlessera/brain-ui-kit";
+import { MarkdownPre as RuntimeMarkdownPre } from "../../src/components/chat/brain-markdown-code.js";
+test("an ordinary nonempty Markdown fence uses the kit CodeBlock", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const view = render(<BrainUiProvider root={root}><BrainMarkdown content={'```js\nconst crossing = "Scylla";\n```'} /></BrainUiProvider>);
+    expect(view.container.querySelector("pre")!.textContent).toContain('const crossing = "Scylla";');
+    expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(1);
+  } finally { root.dispose(); }
+});
+test("highlighted and linkified fence Copy retains the exact source rather than painted text", async () => {
+  const source = 'echo "Circe"\n[[circe|guide]]\nknowledge/scylla.md\n<b>Odysseus</b>';
+  const writes: string[] = [];
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text: string) => { writes.push(text); return Promise.resolve(); } } });
+  const root = createBrainUiRoot({ storage: null });
+  root.stores.file.setState({ wikilinkLoaded: true, wikilinkMap: { circe: "people/circe.md" } });
+  try {
+    const view = render(<BrainUiProvider root={root}><BrainMarkdown content={'```bash\n' + source + '\n```'} fileLinks /></BrainUiProvider>);
+    await waitFor(() => expect(view.container.querySelectorAll('.hljs-string').length).toBeGreaterThan(0));
+    expect(view.container.querySelectorAll('pre .brain-wiki-link')).toHaveLength(1);
+    expect(view.container.querySelector('pre')!.textContent!.includes('[[circe|guide]]')).toBe(false);
+    fireEvent.click(view.getByRole("button", { name: /^Copy$/ }));
+    expect(writes).toEqual([source]);
+    expect(view.container.querySelector('pre b')).toBeNull();
+  } finally { root.dispose(); }
+});
+test("code without an info string has no invented language or sample or copy glyph", () => {
+  const view = render(<RuntimeKitCodeBlock />);
+  expect(view.container.textContent).toBe("");
+  expect(view.container.querySelectorAll("svg")).toHaveLength(0);
+});
+test("Mermaid keeps its renderer instead of a code card", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const view = render(<BrainUiProvider root={root}><RuntimeMarkdownPre><code className="language-mermaid">{"graph LR; Troy-->Ithaca\n"}</code></RuntimeMarkdownPre></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(0);
+    expect(view.container.textContent).toContain("graph LR; Troy-->Ithaca");
+  } finally { root.dispose(); }
+});
+
+
+for (const backend of ["claude", "pi"] as const) {
+  test(`${backend} streamed and replayed code fences keep nonempty source in the actual message bubble`, () => {
+    const root = createBrainUiRoot({ storage: null });
+    const sessionId = `code-${backend}`;
+    root.stores.file.setState({ wikilinkLoaded: true, wikilinkMap: {} });
+    root.stores.chat.getState().setActiveSession(sessionId);
+    root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
+    const partial = '```bash\necho "Scylla"'; const complete = partial + ' --final-argument\n```';
+    const noop = () => {};
+    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!}
+      onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
+    try {
+      root.stores.chat.getState().startAssistantMessage(sessionId);
+      root.connection.handleServerMessage({ type: "text_delta", sessionId, text: partial });
+      root.connection.flushChatDeltas();
+      const view = render(bubble());
+      expect(root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!.content).toBe(partial);
+      expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(1);
+      expect(view.container.querySelector('pre')!.textContent).toContain('echo "Scylla"');
+      root.stores.chat.getState().finishAssistantMessage(sessionId);
+      act(() => root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{ role: "assistant", content: complete, toolCalls: [] }] }));
+      view.rerender(bubble());
+      expect(root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!.content).toBe(complete);
+      expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(1);
+      expect(view.container.querySelector('pre')!.textContent).toContain('echo "Scylla" --final-argument');
+    } finally { root.dispose(); }
+  });
+}

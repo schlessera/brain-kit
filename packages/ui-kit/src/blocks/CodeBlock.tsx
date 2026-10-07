@@ -1,22 +1,20 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
-import { Icon } from "../primitives/Icon.js";
 import { accent, color, font } from "../tokens.js";
 
 /**
  * Commands and config the user is meant to run or paste.
  *
- * Deliberately not syntax-highlighted: in this app mono type already means
- * "machine", and colour is reserved for decisions. Use `DiffBlock` instead
- * when the point is a change rather than a thing to copy.
- *
- * The copy glyph is DECORATIVE, exactly as in the source — the component has
- * no clipboard access and `ui-kit` has no browser globals (D13). A caller that
- * wants a working copy button composes one; this is the affordance the design
- * drew, and giving it a handler here would make the kit impure for one glyph.
+ * The host can supply a highlighted body and a real copy action. The kit
+ * stays free of highlighting, clipboard access and browser globals (D13).
+ * Absent source, language and action draw no example or false affordance.
  */
 export interface CodeBlockProps {
   code?: string;
+  /** Pre-rendered body; falls back to the source string. */
+  children?: ReactNode;
+  /** Host-owned control at the right of the head. */
+  action?: ReactNode;
   /** The uppercase amber tag on the left of the head. */
   lang?: string;
   /** A quiet note beside it — where to run this, not what it does. */
@@ -44,25 +42,26 @@ export function CodeBlock(p: CodeBlockProps) {
     display: "flex",
     alignItems: "center",
     gap: 9,
-    padding: "8px 11px",
+    padding: p.action ? "4px 11px" : "8px 11px",
     borderBottom: `1px solid ${color.line}`,
   };
 
   return (
-    <div style={box}>
+    <div style={box} data-kit-code-block>
       {p.head !== false ? (
         <div style={head}>
-          <span
+          {p.lang ? <span
             style={{
-              flex: "none",
+              minWidth: 0,
+              overflowWrap: "anywhere",
               font: `600 9px/1 ${font.mono}`,
               letterSpacing: ".08em",
               textTransform: "uppercase",
               color: accent.amber.ink,
             }}
           >
-            {p.lang ?? "bash"}
-          </span>
+            {p.lang}
+          </span> : null}
           {p.caption ? (
             <span
               style={{
@@ -78,7 +77,7 @@ export function CodeBlock(p: CodeBlockProps) {
               {p.caption}
             </span>
           ) : null}
-          <Icon icon="copy" size={13} color={accent.neutral.ink} />
+          {p.action ? <div style={{ marginLeft: "auto", flex: "none", display: "flex" }}>{p.action}</div> : null}
         </div>
       ) : null}
       <pre
@@ -96,7 +95,7 @@ export function CodeBlock(p: CodeBlockProps) {
           overflowWrap: p.wrap === false ? undefined : "anywhere",
         }}
       >
-        {p.code ?? "brain reindex --path talks/ --force"}
+        {p.children ?? p.code ?? ""}
       </pre>
     </div>
   );
