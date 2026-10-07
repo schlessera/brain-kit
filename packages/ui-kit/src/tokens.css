@@ -2163,3 +2163,13 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, max(var(--bk-stattiles-min, 96px), calc((100% - 27px) / 4))), 1fr));
   }
 }
+
+/* Native no-wrap scrollports keep the keyboard ring inside clipped cards. */
+.bk-scroll-x {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bk-color-edge) transparent;
+}
+.bk-scroll-x:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
+}

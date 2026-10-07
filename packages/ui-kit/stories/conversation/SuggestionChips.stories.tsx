@@ -1,5 +1,5 @@
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 
 import { suggestions } from "../../fixtures/search.js";
 import { SuggestionChips } from "../../src/conversation/SuggestionChips.js";
@@ -48,8 +48,21 @@ export const CarriesAnEffect = Default.extend({
 
 export const NoLabel = Default.extend({ args: { label: "" } });
 
-/** `wrap: false` keeps one line and clips. Worth seeing before choosing it. */
-export const NoWrap = Default.extend({ args: { wrap: false } });
+/** A single line with native scrolling, including focus-driven reach. */
+export const NoWrap = Default.extend({
+  args: { wrap: false },
+  play: async ({ canvas, userEvent, args }) => {
+    const chips = await canvas.findAllByRole("button");
+    const row = chips[0]!.parentElement!;
+    await userEvent.tab();
+    await expect(row).toHaveFocus();
+    for (let i = 0; i < chips.length; i += 1) await userEvent.tab();
+    await expect(chips.at(-1)).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.items?.at(-1)?.onClick).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(row.scrollLeft).toBeGreaterThan(0));
+  },
+});
 
 export const Wide = Default.extend({ parameters: wide });
 
