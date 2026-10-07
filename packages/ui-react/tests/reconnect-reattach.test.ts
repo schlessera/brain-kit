@@ -115,6 +115,13 @@ describe("a reconnect while the turn in view runs", () => {
     next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
     expect(buffer(root).messages).toHaveLength(2);
     expect(buffer(root).messages.at(-1)!.content).toEndWith(late + " Landed.");
+    next.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    const terminal = shrinkForReplication({ role: "assistant", content: whole + " Landed.", toolCalls: [], parts: [{ kind: "text", text: whole + " Landed." }] }, HISTORY_CHUNK_BYTES);
+    expect(terminal.parts[0]!.text).toContain("chars elided]");
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], terminal] });
+    expect(buffer(root).messages.at(-1)!.id, "terminal bounded replay retains the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content, "terminal bounded replay keeps the already drawn suffix").toEndWith(late + " Landed.");
+    expect(buffer(root).isStreaming).toBe(false);
   });
   test("a missed interior tool retains answer identity and chronological tool indices", () => {
     const { root, socket } = running();

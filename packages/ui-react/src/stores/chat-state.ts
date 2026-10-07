@@ -682,7 +682,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const clippedPrefix = received.parts.find((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
     const boundedContinuation = clippedPrefix?.kind === "text" && mine.length > 0
       && clippedPrefix.text.slice(0, Math.min(32, mine.length)) === mine.slice(0, Math.min(32, mine.length));
-    const same = mine === theirs || (live && (provenTurn || boundedContinuation || theirs.startsWith(mine) || mine.startsWith(theirs)
+    const same = mine === theirs || boundedContinuation || (live && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
       || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
@@ -701,6 +701,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     if (live && i === tail) {
       streaming = true;
       return mergeLive(old, m);
+    }
+    if (boundedContinuation && m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text))) {
+      return { ...mergeLive(old, m), isStreaming: false };
     }
     return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
   });
