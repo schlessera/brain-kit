@@ -43,7 +43,7 @@ const history = (answer: string) => [
 ];
 
 /** Session s1 in view, its turn streaming the opening of an answer. */
-function running() {
+function running(opening = SIRENS) {
   globalThis.WebSocket = Socket as unknown as typeof WebSocket;
   const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://ithaca-harbour.example" } });
   roots.push(root);
@@ -54,7 +54,7 @@ function running() {
   chat.setActiveSession("s1");
   socket.deliver({ type: "session_history", sessionId: "s1", messages: history("").slice(0, 1) });
   root.stores.chat.getState().startAssistantMessage("s1");
-  root.stores.chat.getState().appendText("s1", SIRENS);
+  root.stores.chat.getState().appendText("s1", opening);
   return { root, socket };
 }
 const buffer = (root: BrainUiRoot) => root.stores.chat.getState().buffers.s1!;
@@ -70,6 +70,49 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  for (const split of [false, true]) test(`clipped later progress keeps a short opening and drawn suffix (${split ? "split" : "coalesced"})`, () => {
+    const { root, socket } = running("Row on.");
+    const chat = root.stores.chat.getState();
+    chat.stampTurn("s1", "turn-1");
+    if (split) chat.appendThinking("s1", "Hold fast.");
+    chat.appendText("s1", "C".repeat(80000));
+    const old = buffer(root).messages.at(-1)!;
+    const parts = split ? [{ kind: "text", text: "Row on." + "B".repeat(30000) }, { kind: "thinking", text: "Hold fast." }, { kind: "text", text: "C".repeat(300000) }] : [{ kind: "text", text: "Row on." + "B".repeat(30000) + "C".repeat(300000) }];
+    const replay = shrinkForReplication({ role: "assistant", content: "Row on." + "B".repeat(30000) + "C".repeat(300000), toolCalls: [], parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.parts.at(-1)!.text).toContain("chars elided]");
+    if (split) expect(replay.parts[0]!.text).not.toContain("chars elided]");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "later clipped progress retains the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content).toContain("C".repeat(80000));
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-1" });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toEndWith("C".repeat(80000) + " Landed.");
+  });
+  for (const inHistory of [false, true]) for (const longer of [false, true]) test(`a retained approval is revalidated before it can be answered (${inHistory ? "reported" : "omitted"}, ${longer ? "stored" : "live"} base)`, () => {
+    const { root, socket } = running();
+    socket.deliver({ type: "tool_approval_request", sessionId: "s1", turnId: "turn-1", toolUseId: "wax-1", toolName: "Bash", input: { command: "check wax" }, description: "Check the wax" });
+    expect(buffer(root).messages.at(-1)!.toolCalls[0]!.status).toBe("pending_approval");
+    const old = buffer(root).messages.at(-1)!;
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], { role: "assistant", content: SIRENS + (longer ? " Past Scylla." : ""), toolCalls: inHistory ? [{ id: "wax-1", name: "Bash", input: { command: "check wax" } }] : [] }] });
+    const tool = buffer(root).messages.at(-1)!.toolCalls[0]!;
+    expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id)).toEqual(["wax-1"]);
+    if (inHistory) expect(tool.status, "a reported tool cannot keep stale live approval controls").toBe("complete");
+    else {
+      expect(tool.status).toBe("pending_approval");
+      expect(tool.restored, "an omitted approval needs recovery evidence before answering").toBe(true);
+      expect(tool.approvalTurnId).toBeUndefined();
+    }
+    expect(tool.output).toBeUndefined();
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+    // A genuinely pending approval is explicitly replayed by the host.
+    next.deliver({ type: "tool_approval_request", sessionId: "s1", turnId: "turn-1", toolUseId: "wax-1", toolName: "Bash", input: { command: "check wax" }, description: "Check the wax" });
+    expect(buffer(root).messages.at(-1)!.toolCalls[0]!.status).toBe("pending_approval");
+    expect(buffer(root).messages.at(-1)!.toolCalls).toHaveLength(1);
+  });
+
   test("longer but lagging history cannot erase newer drawn text", () => {
     const { root, socket } = running();
     const chat = root.stores.chat.getState();

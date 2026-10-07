@@ -679,9 +679,13 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     // entries; the chronological text parts are the actual drawn text.
     const mine = drawnText(old), theirs = drawnText(m);
     const provenTurn = m.turnId && m.turnId === (old.turnId ?? old.streamTurnId);
-    const clippedPrefix = received.parts.find((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
-    const boundedContinuation = clippedPrefix?.kind === "text" && mine.length > 0
-      && clippedPrefix.text.slice(0, Math.min(32, mine.length)) === mine.slice(0, Math.min(32, mine.length));
+    const clipped = received.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
+    const opening = received.parts.find((p) => p.kind === "text");
+    // A bound cannot disprove this drawn continuation: retain even a short
+    // shared opening until the scoped status settles its turn. Tool/request
+    // identities and a different proven turn still reject a replacement.
+    const boundedContinuation = clipped && opening?.kind === "text" && mine.length > 0
+      && opening.text.length > 0 && opening.text[0] === mine[0];
     const continuing = live || !!(old.turnId ?? old.streamTurnId);
     const same = mine === theirs || boundedContinuation || (continuing && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
       || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
@@ -747,7 +751,8 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   // approval the host settled meanwhile is not offered again.
   const toolCalls = base.toolCalls.map((t) => {
     const o = theirs.get(t.id);
-    return o && ((o.output !== undefined && t.output === undefined) || (t.status === "streaming" && o.status !== "streaming")) ? o : t;
+    if (!o && t.status === "pending_approval") return { ...t, restored: true as const, approvalTurnId: undefined };
+    return o && ((o.output !== undefined && t.output === undefined) || ((t.status === "streaming" || t.status === "pending_approval") && o.status !== t.status)) ? o : t;
   });
   let parts = [...base.parts];
   for (const t of other.toolCalls) {
@@ -765,7 +770,8 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
       }
       parts.splice(at < 0 ? parts.length : at, 0, { kind: "tool", toolIndex: toolCalls.length });
     }
-    toolCalls.push(t);
+    toolCalls.push(other === old && t.status === "pending_approval"
+      ? { ...t, restored: true as const, approvalTurnId: undefined } : t);
   }
   // The union's flat order must agree with its drawn chronology: the next
   // replay compares this list too, including a tool inserted in an old gap.
