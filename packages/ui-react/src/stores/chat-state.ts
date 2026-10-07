@@ -849,7 +849,7 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     // Terminal history is authoritative even when the drawn text is longer.
     failure: m.failure ?? base.failure,
     retryOfTurnId: m.failure ? m.retryOfTurnId : base.retryOfTurnId,
-    failureLive: m.failure ? false : base.failureLive,
+    failureLive: m.failure ? undefined : base.failureLive,
     files: m.files ?? base.files,
     blocks: m.blocks ?? base.blocks,
     id: old.id, timestamp: old.timestamp, isStreaming: true,

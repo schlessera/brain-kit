@@ -84,7 +84,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
     <div data-turn-failure={failure.errorClass}>
       <TurnErrorCard headline={presentation.headline} explanation={presentation.explanation} tone={presentation.tone}
         rows={rows} backend={backend} providerMessage={redactProviderMessage(failure.message)} providerOpen={failure.errorClass === "unknown"}
-        operator={presentation.operator} announce={announce && Boolean(message.failureLive)} actions={actions} busy={busy} notice={uncertain ? "Delivery is unconfirmed. Check delivery before sending another turn." : pending?.state === "refused" ? pending.message : notice}
+        operator={presentation.operator} announce={announce && message.failureLive !== undefined} actions={actions} busy={busy} notice={uncertain ? "Delivery is unconfirmed. Check delivery before sending another turn." : pending?.state === "refused" ? pending.message : notice}
         retryWarning={latest && presentation.retry && Boolean(message.retryOfTurnId)} />
       {review ? (
         <DiagnosticReview mode={review.mode} initialBody={review.initial} defaultIssueTitle="Chat turn failure"

@@ -138,7 +138,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
       turnId: "failed-first", parts: [{ kind: "text", text: old.content }, { kind: "tool", toolIndex: 0 }, { kind: "tool", toolIndex: 1 }] };
     replay(saved);
     expect(cards()[0], "replay keeps the original mounted failure card").toBe(card);
-    expect(root!.stores.chat.getState().buffers[SESSION].messages.at(-1)!.failureLive, "the complementary merge marks this failure as replayed").toBe(false);
+    expect(root!.stores.chat.getState().buffers[SESSION].messages.at(-1)!.failureLive, "the complementary merge marks this failure as replayed").toBeUndefined();
     expect(card.querySelector('[role="alert"]'), "a retained replayed card withdraws its live announcement").toBeNull();
   });
 
