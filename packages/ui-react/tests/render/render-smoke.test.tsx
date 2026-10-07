@@ -4333,8 +4333,8 @@ describe("single-key shortcuts (D36)", () => {
     const decided: unknown[] = [];
     const view = render(<Harness calls={[pending("t1")]} onApproval={(...a) => decided.push(a)} />);
     const card = view.getByRole("group", { name: "Approval: Bash" });
-    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allowa");
-    expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Denyd");
+    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allow a");
+    expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Deny d");
 
     // Bare letters elsewhere do nothing: the scope is the card.
     fireEvent.keyDown(document.body, { key: "a" });
@@ -5992,7 +5992,7 @@ describe("approval cards follow rememberability (#147)", () => {
   test("the transcript card drops Always allow when the host will not keep it", () => {
     for (const [tool, offered] of [[OFFERED, true], [UNKEPT, false], [COMMAND, false]] as const) {
       const view = render(<ToolCallTimeline toolCalls={[tool]} onApproval={() => {}} />);
-      expect(view.queryByRole("button", { name: "Always allow" }) !== null).toBe(offered);
+      expect(view.queryByRole("button", { name: /^Always allow/ }) !== null).toBe(offered);
       // Allow and Deny are never what this changes.
       expect(view.getByRole("button", { name: /^Allow/ })).toBeTruthy();
       expect(view.getByRole("button", { name: /^Deny/ })).toBeTruthy();
@@ -6911,4 +6911,88 @@ test("live approval and terminal frames update the same orbit without an announc
     expect(orbit.querySelector('[data-orbit-agent="research"]')?.getAttribute('data-orbit-state')).toBe("stopped");
     expect(orbit.querySelectorAll('[aria-live],[role="status"]')).toHaveLength(0);
   }finally{await act(async()=>root.dispose());}
+});
+
+import { SubagentView as PermissionSubagentView } from "../../src/components/chat/subagent-view.js";
+const permissionTool: ToolCall = { id:"permission-original",name:"Edit",input:{file_path:"knowledge/scylla.md",old_string:"Risk six men.",new_string:"Keep the crossing visible."},inputJson:"{}",status:"pending_approval",approvalKind:"tool" };
+for(const location of ["main","subagent"] as const){
+  test(`${location} actual pending permission uses the kit ApprovalCard and original nonempty diff`,()=>{
+    const root=createBrainUiRoot({storage:null});const decisions:unknown[]=[];
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");
+    const span={spanId:"permission-agent",runId:"permission-run",sessionId:"permission-session",origin:"session" as const,kind:"subagent" as const,name:"Agent",startedAt:0};
+    const child={...span,spanId:permissionTool.id,parentSpanId:span.spanId,kind:"tool" as const,name:"Edit"};
+    root.stores.activity.setState({spans:{"permission-run":{[span.spanId]:span,[child.spanId]:child}},spanRun:{[span.spanId]:span.runId,[child.spanId]:child.runId}});
+    try {
+      const onApproval=(...args:unknown[])=>decisions.push(args);
+      const view=render(<BrainUiProvider root={root}>{location==="main"?<ToolCallTimeline toolCalls={[permissionTool]} onApproval={onApproval}/>:<PermissionSubagentView spanId={span.spanId} onApproval={onApproval}/>}</BrainUiProvider>);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls).toHaveLength(1);
+      expect(view.container.textContent).toContain("Edit");
+      expect(permissionTool.input.old_string).not.toBe("");expect(permissionTool.input.new_string).not.toBe("");
+      expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(1);
+      const card=view.container.querySelector('[data-kit-approval-card]')!;
+      expect(card.textContent).toContain("knowledge/scylla.md");expect(card.textContent).toContain("Risk six men.");expect(card.textContent).toContain("Keep the crossing visible.");
+      fireEvent.click(view.getByRole("button",{name:/^Allow(?:$| )/}));expect(decisions).toEqual([[permissionTool.id,true,undefined]]);
+    }finally{root.dispose();}
+  });
+}
+
+import { replyToToolApproval } from "../../src/lib/tool-approval.js";
+import type { ClientMessage as PermissionReply } from "@schlessera/brain-ui-sdk/protocol";
+function permissionMirror(root: ReturnType<typeof createBrainUiRoot>) {
+  const span={spanId:"permission-agent",runId:"permission-run",kind:"subagent" as const,origin:"session" as const,name:"Agent",startedAt:0};
+  const child={...span,spanId:permissionTool.id,parentSpanId:span.spanId,kind:"tool" as const,name:"Edit"};
+  root.stores.activity.setState({spans:{[span.runId]:{[span.spanId]:span,[child.spanId]:child}},spanRun:{[span.spanId]:span.runId,[child.spanId]:child.runId}});
+  return span;
+}
+test("duplicate main and subagent controls send the original request once and share its resolved state",()=>{
+  const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+  root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+  const send=(message:PermissionReply)=>{replies.push(message);return true;};
+  const decide=(id:string,approved:boolean,always?:boolean)=>replyToToolApproval(root,null,send,id,approved,always);
+  function Both(){const calls=useChatStore(s=>activeChat(s).messages.at(-1)?.toolCalls??[]);return <><ToolCallTimeline live toolCalls={calls} onApproval={decide}/><PermissionSubagentView spanId={span.spanId} onApproval={decide}/><textarea data-composer aria-label="continue"/></>;}
+  try {
+    const view=render(<BrainUiProvider root={root}><Both/></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(2);
+    const allow=view.getAllByRole("button",{name:/^Allow(?:$| )/});const deny=view.getAllByRole("button",{name:/^Deny/});expect(allow).toHaveLength(2);
+    act(()=>{fireEvent.click(allow[0]!);fireEvent.click(deny[1]!);});
+    expect(replies).toEqual([{type:"tool_approval",toolUseId:permissionTool.id,channel:"card"}]);
+    expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status).toBe("approved");
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
+    expect(document.activeElement).toBe(view.getByLabelText("continue"));
+  }finally{root.dispose();}
+});
+for(const [choice,approved,always] of [["Allow",true,undefined],["Deny",false,undefined],["Always allow",true,true]] as const){
+  test(`${choice} on the subagent retains its exact request and eligibility`,()=>{
+    const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+    try {const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={(id,ok,keep)=>replyToToolApproval(root,null,message=>{replies.push(message);return true;},id,ok,keep)}/></BrainUiProvider>);
+      fireEvent.click(view.getByRole("button",{name:choice==="Always allow"?/^Always allow/:choice==="Allow"?/^Allow(?:$| )/:/^Deny/}));
+      expect(replies).toEqual([approved?{type:"tool_approval",toolUseId:permissionTool.id,...(always?{always:true}:{}),channel:"card"}:{type:"tool_denial",toolUseId:permissionTool.id,message:"Denied by user",channel:"card"}]);
+    }finally{root.dispose();}
+  });
+}
+for(const kind of ["command","tool"] as const){test(`${kind} unrememberable subagent has no Always allow action`,()=>{
+  const root=createBrainUiRoot({storage:null});root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,kind,false);const span=permissionMirror(root);
+  try{const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={()=>{}}/></BrainUiProvider>);expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(1);expect(view.queryByRole("button",{name:/^Always allow/}) !== null).toBe(false);}finally{root.dispose();}
+});}
+
+test("a stale Always allow callback cannot remember a command or a host-refused grant",()=>{
+  for(const [kind,rememberable] of [["command",true],["tool",false]] as const){
+    const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+    try {root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,kind,rememberable);
+      replyToToolApproval(root,null,message=>{replies.push(message);return true;},permissionTool.id,true,true);
+      expect(replies).toEqual([{type:"tool_approval",toolUseId:permissionTool.id,channel:"card"}]);
+    }finally{root.dispose();}
+  }
+});
+test("restored closed subagent requests have no decision controls and stale callbacks send nothing",()=>{
+  const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+  try {
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+    root.stores.chat.getState().closeRestoredApprovals(null,[{toolUseId:permissionTool.id,closure:"answered"}]);
+    const tool=activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!;expect(tool.restored).toBe(true);expect(tool.readOnly).toBe("answered");
+    const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={(id,ok,keep)=>replyToToolApproval(root,null,message=>{replies.push(message);return true;},id,ok,keep)}/></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
+    replyToToolApproval(root,null,message=>{replies.push(message);return true;},permissionTool.id,true,true);expect(replies).toEqual([]);
+  }finally{root.dispose();}
 });

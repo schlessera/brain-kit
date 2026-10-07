@@ -1,3 +1,4 @@
+import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
@@ -362,12 +363,7 @@ export function ChatPage() {
 
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {
-      // Chat and its subagent view decide on a card: channel "card" (#113).
-      const sent = approved
-        ? send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), channel: "card" })
-        : send({ type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" });
-      // A refused send leaves the request open for a later explicit decision.
-      if (sent) root.stores.chat.getState().resolveToolApproval(sessionId, toolUseId, approved);
+      replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
     },
     [send, sessionId, root]
   );

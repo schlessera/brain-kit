@@ -385,6 +385,13 @@ signatures (every public export and the types it is made of)
         allowEffect?: string;
         onAllow?: () => void;
         onDeny?: () => void;
+        onAlwaysAllow?: () => void;
+        children?: ReactNode;
+        wrapHeader?: boolean;
+        shortcuts?: {
+            allow: string;
+            deny: string;
+        };
     }
   AskUserCard (packages/ui-kit/src/decisions/AskUserCard.tsx)
     export function AskUserCard(p: AskUserCardProps): import("react").JSX.Element;

@@ -541,3 +541,10 @@ rings; no progress is estimated. Phone containers draw marks and keep named
 subagent view over chat, selecting the recorded session when one is present;
 overflow scrolls to the complete list. Unavailable, pruned, empty and single-agent
 runs draw no overview or sample content.
+
+Pending tool permissions in the main timeline and subagent drill-in use the
+same kit ApprovalCard adapter. Original request identities, inputs, risks and
+command effects are preserved. Remembered grants remain eligibility-gated;
+restored closed requests remain read-only. Decisions use the current shared
+request state, so a duplicate view cannot send another reply, and keyboard
+focus moves to a different pending request or the composer.
