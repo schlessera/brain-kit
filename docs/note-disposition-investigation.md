@@ -137,9 +137,11 @@ contract proposal for review, not a shipping schema or an implemented apply path
 
 ## Evidence required before adoption
 
-Do not adopt an unattended hybrid on these controls. Its precision, escalation,
-retention, malformed-operation rate, model work saved, tokens, cost and latency
-remain unmeasured. The offline report prints those live metrics as null.
+Do not adopt an unattended hybrid on these controls. At the keyless preparation
+stage, precision, escalation, retention, malformed-operation rate, model work
+saved, tokens, cost and latency were unmeasured. The offline report still prints
+those live metrics as null; the separate measured comparison below supplies
+observations without establishing production readiness.
 
 Before tuning, independently review goldens and freeze task-specific gates:
 zero accepted wrong-target writes, lost source/target facts, unauthorized effects
@@ -257,4 +259,140 @@ Claude Code's automatic session-title helper is an additional physical model req
 
 The second review also rejected its freeze. The corrected fixture now checks body/raw consistency across every case. Merge goldens and the generation prompt share a single-newline separator; complete-file comparison additionally reports blank-line and allowed ritual-filename differences separately. The unsupported-effect gate compares those format-normalised files, while strict exact files remain visible. Wrong promotion taxonomy, invented prose, metadata changes and loss still fail. Disposition accuracy uses accepted proposals; the raw model label is retained separately. Exact duplicates are protocol-forced labels, and the ambiguous pen-knot case is reported by category. The preregistered threshold floor and tiny tuning screen provide no reliable population calibration evidence. Both rejected review receipts and their hashes remain historical evidence.
 
-The third rejected freeze identified missing held-out safety reporting and raw split labels. Headline quality conclusions now use only the twenty held-out fixtures. Each split reports accepted-route precision, unsafe/unsupported writes, loss and rejections; zero-write splits and null hybrid thresholds are not evaluable. Per-fixture repetition disagreement and accuracy excluding protocol-forced duplicate labels remain visible. The water observation uses dawn, consistent with the pinned morning clock; its guest-room cistern is explicitly distinct from the target's separate orchard cistern. Full-target access is confounded with classifier routing, because this comparison has no full-target current ablation. A fresh review receives the actual keyless verification receipt rather than only a leakage-token hint from the UI guide.
+
+## Measured comparison — 2026-10-07
+
+**No-go for production classifier adoption.** The hybrid makes useful safe
+proposals on this authored sample, but its quality advantage over the mechanical
+baseline is small and reverses under a defensible alternate interpretation of
+two labels. The experiment supports continued controlled investigation, not
+unattended processing or a production write engine. Classifier probabilities
+still authorize neither writes nor archives. The proposal/generation/apply
+contract above remains the concrete candidate; no machine contract ships here.
+
+The fourth complementary Claude-family review approved fixture SHA
+`7d2a33ac9b9067b95e5ba77a2df7df137550f88884b9a886a01ea7eb5a4032cc`
+and protocol/source SHA
+`2356f4cb536e2f3efbf6f9cc5f2ae3ece02d0b047debd0f18eccccc542e31be2`
+at experiment head `2aa2fa23c1e2fb46a97f84c2db21c2bd4ddbc8a6`.
+The [approval receipt](https://github.com/schlessera/brain-kit/issues/840#issuecomment-6040336992)
+preceded all comparison calls. The six tuning classifications selected 0.7
+before querying held-out cases; no input, prompt or threshold changed afterward.
+All 156 observations completed: 26 fixtures, two repetitions, three arms.
+The [frozen protocol and runtime](../scripts/evals/note-disposition/results/2026-10-07/protocol.json),
+[tuning receipt](../scripts/evals/note-disposition/results/2026-10-07/calibration.json),
+[complete projections and proposals](../scripts/evals/note-disposition/results/2026-10-07/observations.json),
+[every physical call](../scripts/evals/note-disposition/results/2026-10-07/physical-calls.json),
+[scorer output](../scripts/evals/note-disposition/results/2026-10-07/summary.json),
+[independent assessment and sensitivity](../scripts/evals/note-disposition/results/2026-10-07/audit.json)
+and [all four sanitized review receipts](../scripts/evals/note-disposition/results/2026-10-07/reviews.json)
+are retained. The audit includes SHA-256 identities of the original five run
+artifacts. Physical-call receipt multisets reconcile with all observations;
+tuning calls occur exactly once. All 137 physical responses were HTTP 200 with
+the authorized served model. There were no retries, transport errors, incomplete
+completions or unknown-usage stops.
+
+Headline evidence uses only 20 unique held-out fixtures, repeated twice.
+The fixed goldens expect 24 keeps, ten merges and six promotions; an always-keep
+policy scores 60%, with no write opportunity to evaluate.
+
+| Held-out metric | Current completion | Mechanical | Hybrid |
+| --- | ---: | ---: | ---: |
+| Accepted disposition / exact files | 20/40 (50%) | 26/40 (65%) | 27/40 (67.5%) |
+| Keep recall | 18/24 (75%) | 24/24 (100%) | 18/24 (75%) |
+| Merge recall | 2/10 (20%) | 2/10 (20%) | 7/10 (70%) |
+| Promotion recall | 0/6 | 0/6 | 2/6 (33.3%) |
+| Accepted writes / unique fixtures | 2 / 1 | 2 / 1 | 9 / 5 |
+| Accepted write/target precision | 100% | 100% | 100% |
+| Rejected proposals | 12 | 0 | 8 |
+| Unsupported split proposals (rejected) | 2 | 0 | 2 |
+| Unsafe writes / unsupported effects / loss | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Current-command fallbacks | — | — | 17/40 (42.5%) |
+| Physical calls | 40 | 0 | 64 |
+| Standard/list usage estimate | $0.142056 | $0 | $0.080009256 |
+| End-to-end p50 / p95 | 2.236 / 4.140 s | 0.798 / 1.047 ms | 1.918 / 4.917 s |
+| Sequential observations per second | 0.360 | 1236.393 | 0.465 |
+
+The hybrid used 40 classifier calls, seven focused-generation calls and 17
+actual-current fallbacks on the held-out set. It saved 16/40 Claude calls (40%)
+and 43.7% of the standard/list token-price estimate, while increasing total
+physical calls by 60%. Its median was 14.3% lower, but its p95 was 18.8% higher;
+this is not a general latency improvement. Across tuning and held-out together,
+the hybrid used 52 classifier calls, 11 generation calls and 22 fallbacks,
+versus 52 Claude calls for current completion. Keep routes generated no content.
+
+Excluding `water-check` and `guest-confirmation`, accepted disposition accuracy
+is current 20/36 (55.6%), mechanical 26/36 (72.2%), hybrid 24/36 (66.7%). If safe
+keep is also accepted on those two debatable labels, scores become 22/40 (55%),
+30/40 (75%) and 28/40 (70%). The fixed primary goldens remain unchanged.
+Excluding only protocol-forced duplicate labels gives 47.4%, 63.2% and 65.8%.
+These sensitivities are sufficient to reject an adoption claim based on
+headline accuracy alone.
+
+GPT-family inspection of the Claude-generated proposals and complete projections
+confirmed every admitted write exactly matches its reviewed full-file golden.
+Original sources, complete targets, metadata and negations remain intact; no
+invented prose, cross-target operation or archive was admitted. All 19 admitted
+write observations across both partitions are exact, including nine held-out
+hybrid writes. However, the current command's ten held-out retention refusals
+and the hybrid's six are **literal guard refusals**, not ten/six observed
+semantic data losses. Several preserve facts with bullets, headings or
+paraphrase; the duplicate raft control fails solely because its output omits the
+terminal newline. Rejected proposals do not count as correct dispositions or
+exact successes. Zero admitted loss cannot establish that current generation
+semantically loses every rejected source, or that the guard recognizes all
+possible inventions. Raw content and refusal reasons remain available for that
+distinction. No actual apply engine or disk write was evaluated.
+
+Current and mechanical held-out dispositions repeat identically. Hybrid differs
+on `water-check` only: merge in pass zero, current-fallback keep in pass one.
+Hybrid held-out exact scores are 14/20 and 13/20, with five and four writes;
+current is 10/20 both passes and mechanical 13/20 both. The entire-run current
+pass estimates are $0.096348/$0.097028; hybrid $0.060190742/$0.055298742.
+The one large-state fixture is correctly kept in every arm/pass; its two
+hybrid observations total 0.541 s versus 3.693 s for current. This is a subgroup
+description, not a scaling curve. Every reported cache read/write counter was
+zero, so no warm-cache improvement was measured.
+
+Five unique admitted hybrid write cases provide very weak precision evidence.
+Even an illustrative one-sided 95% binomial bound with five independent,
+representative cases and zero failures permits a failure rate up to 45.1%.
+Those independence/representativeness assumptions do not hold here, so this is
+not a population confidence interval. The two repetitions are correlated; eight
+unique held-out fixtures expect writes. Six tuning items with a preregistered
+floor supply no reliable population calibration. Full-target reads, explicit
+category instructions and stronger verbatim generation are confounded with JEV.
+The lexical current baseline retrieves the entire tiny candidate collection
+within its five-result limit, and diagnostic fixture filenames are visible to
+it. Uniform metadata is projected, not written by a real production writer.
+
+The 137-call standard/list usage estimate is **$0.308865484**: 52 current calls
+($0.193376), 22 fallbacks ($0.104032), 11 generations ($0.009412) and 52 JEV
+classifications ($0.002045484). Claude usage totals 40,360 input/22,610 output
+tokens; JEV 48,702 input/5,736 output, with free output at its verified input-only
+price. This is a usage-derived API billing estimate, not an observed invoice or
+an asserted universal upper bound. Requests omitted `service_tier` and returned
+tier metadata was not retained. The current official
+[service-tiers reference](https://platform.claude.com/docs/en/api/service-tiers)
+excludes Sonnet 5.5 from legacy Priority Tier; requests also set no tool, speed
+or geography premium. This supports standard/list comparison, without an
+account-specific billing claim. Later collectors should pin and retain the
+applicable tier/rate metadata explicitly.
+
+Four input reviews consumed $1.653608 in separately calculated API-price
+equivalents. Their observed additional subscription charge was $0 on first-party
+OAuth routing and inactive-overage evidence, without claiming a final invoice.
+The first review's unexpected automatic-title Haiku call is retained in history
+and its diagnostic amount; subsequent reviews pinned both helper selectors to
+Sonnet 5.5 and observed only that canonical model. Actual-charge reservations
+and subscription diagnostics are kept separate under the maintainer's cap
+clarification. No additional paid run is required to reach this no-go.
+
+Implementation therefore does not adopt JEV or an unattended apply path. The
+source-confirmed JSON extraction defect has its own supporting task
+[#1211](https://github.com/schlessera/brain-kit/issues/1211). Full-target generation
+and a separately validated, explicitly authorized apply boundary remain
+concrete candidate tasks under the contract above; classifier adoption requires
+broader independently reviewed data and an ablation that isolates full-target
+access from routing. None of those future production changes is implemented or
+authorized by a classifier probability in this spike.
