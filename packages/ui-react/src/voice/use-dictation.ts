@@ -160,7 +160,11 @@ export function useDictation() {
       const client = releaseCapture();
       // This stop now ends the capture, even if the hook is torn down while
       // it drains: the transcript still reaches review before it goes idle.
-      const capture = captureRef.current?.root === root.stores ? captureRef.current : null;
+      // Only a capture still showing on its root: one its provider already
+      // ended has handed its words over, and draining it again would let a
+      // late event commit them twice.
+      const owned = captureRef.current?.root === root.stores ? captureRef.current : null;
+      const capture = owned && owners.get(owned.root) === owned ? owned : null;
       if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
@@ -184,7 +188,11 @@ export function useDictation() {
       // What was heard joins the review text in the update that ends the
       // drain, so nothing sees the drain over and the words not yet in review.
       endDictation(root.stores.voice, commitToReview, drained ? { draining: false } : {});
-      if (capture) release(capture);
+      if (capture) {
+        release(capture);
+        // Ended: nothing it reports from now on is heard.
+        stopping.delete(capture);
+      }
       resetCapture();
       if (drainFailure) throw drainFailure.error;
     },

@@ -340,6 +340,48 @@ test("words a client reports after its provider ended the dictation are not comm
   expect(voice(root).reviewText, "review holds the words once").toBe("Ask Nestor");
 });
 
+test("a Done after the provider ended the dictation does not reopen it to late words while it drains", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation } = await mount(root);
+  await listen(root, dictation);
+  const ended = recognition();
+  act(() => webspeech.hear("Ask Nestor", true));
+  act(() => webspeech.hear("about the ships", false));
+  act(() => ended.onend?.());
+  expect(voice(root).reviewText, "the interim tail went to review with the rest").toBe("Ask Nestor about the ships");
+
+  let stopped!: Promise<void>;
+  act(() => { stopped = dictation.result.current.stop(); });
+  // The recognizer finalizes the tail it already reported while Done waits on it.
+  await act(async () => {
+    ended.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "about the ships" } }] });
+    ended.onend?.();
+    await stopped;
+  });
+  expect(voice(root).reviewText, "review holds the words once").toBe("Ask Nestor about the ships");
+});
+
+for (const end of ["Done", "Cancel"] as const) test(`a dictation ${end} has ended takes no late words`, async () => {
+  const root = voiceRoot(deepgram);
+  const { dictation } = await mount(root);
+  await listen(root, dictation);
+  act(() => deepgram.hear("Ask Nestor", true));
+  await act(async () => {
+    const stopped = dictation.result.current.stop(end === "Done");
+    // Deepgram's closing summary settles Done's drain.
+    socket().onmessage?.({ data: JSON.stringify({ type: "Metadata" }) });
+    await stopped;
+  });
+  const expected = end === "Done" ? "Ask Nestor" : "";
+  expect(voice(root).reviewText).toBe(expected);
+
+  const late = { data: JSON.stringify({ type: "Results", is_final: true, speech_final: false, channel: { alternatives: [{ transcript: "about the ships" }] } }) };
+  act(() => socket().onmessage?.(late));
+  expect(voice(root).finalText, "the ended capture takes no more words").toBe("");
+  await act(async () => { await dictation.result.current.stop(); });
+  expect(voice(root).reviewText, "review holds the words once").toBe(expected);
+});
+
 test("another dictation ending on its own does not release the reload while a Done is still draining", async () => {
   const root = voiceRoot(webspeech);
   const { dictation: first, reloads } = await mount(root);
