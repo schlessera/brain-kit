@@ -10,6 +10,12 @@ import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
 import { createTrackerClient } from "./lib/tracker-client.js";
 import { createDraftClient } from "./lib/draft-client.js";
 
+const authLifecycles = new WeakMap<object, { drop(): void; restore(): void }>();
+/** @internal Called only after the gate removes protected views. */
+export function dropConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.drop(); }
+/** @internal Called after confirmed same-account work restore. */
+export function restoreConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.restore(); }
+
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
   let disposed = false;
@@ -22,7 +28,7 @@ export function createWebSocketClient(root: BrainUiServices) {
    */
   let answersReady = false;
 
-  const answers = createAnswerDelivery({
+  const makeAnswers = () => createAnswerDelivery({
     chat: root.stores.chat,
     storage: root.answerStorage,
     tabs: root.answerTabs,
@@ -38,13 +44,14 @@ export function createWebSocketClient(root: BrainUiServices) {
         .getState()
         .reportError("ANSWER_QUEUE_CORRUPT", "A saved answer on this device could not be read and was discarded."),
   });
+  let answers = makeAnswers();
   void answers.start();
 
   /** Work left running, tracked until seen (D52 §4, #948). Reads only. */
-  const trackers = createTrackerClient(root);
+  let trackers = createTrackerClient(root);
 
   /** Every session's own composer draft, kept on the host when it can (D52 §5, #951). */
-  const drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
+  let drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -294,7 +301,7 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   function handleServerMessage(msg: ServerMessage) {
-    if (disposed) return;
+    if (disposed || root.authLock.state.getState().phase !== "active") return;
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
@@ -560,7 +567,10 @@ export function createWebSocketClient(root: BrainUiServices) {
     const connection = root.stores.connection.getState();
     connection.recordWsClose(close.opened, close.code);
     // 1008 is the host closing a revoked or expired principal's sockets.
-    if (close.opened && close.code === 1008) trackers.revoked();
+    if (close.opened && close.code === 1008) {
+      trackers.revoked();
+      void root.authLock.expire(close.reason);
+    }
     if (
       !close.opened &&
       root.stores.connection.getState().handshakeFailures >= REFUSAL_ATTEMPTS
@@ -657,6 +667,7 @@ export function createWebSocketClient(root: BrainUiServices) {
   let wsClient: BrainUiClient | null = null;
 
   function sendClientMessage(msg: ClientMessage): boolean {
+    if (root.authLock.state.getState().phase !== "active") return false;
     if (!wsClient) return false;
     if (root.stores.connection.getState().wsStatus !== "connected") return false;
     // A message that starts a conversation takes the draft's local exchanges
@@ -690,7 +701,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       root.stores.connection.getState().noteSocketOpen();
       const client = new BrainUiClient({
         url: root.wsUrl(),
-        handlers: { onAny: (message) => { if (current()) handleServerMessage(message); } },
+        handlers: { onAny: (message) => { if (current() && root.authLock.state.getState().phase === "active") handleServerMessage(message); } },
         onStatusChange: (status) => { if (current()) handleStatusChange(status); },
         onClose: (close) => { if (current()) handleSocketClose(close); },
         onProtocolError: (err) => {
@@ -746,6 +757,7 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   function disconnect() {
+    coldResumedSessionId = null;
     generation++;
     removeListeners?.();
     removeListeners = undefined;
@@ -789,5 +801,25 @@ export function createWebSocketClient(root: BrainUiServices) {
       coldResumedSessionId = null;
     },
   };
+  authLifecycles.set(root.stores, {
+    drop() {
+      disconnect();
+      answers.dispose(); trackers.dispose(); drafts.dispose();
+      for (const timer of retryTimers.values()) clearTimeout(timer);
+      retryTimers.clear(); followUpRefresh.clear(); resyncSessionId = null;
+    },
+    restore() {
+      answers = makeAnswers(); client.answers = answers; void answers.start();
+      trackers = createTrackerClient(root);
+      drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
+      // An embedder can own a lease outside the protected gate. Remounting
+      // ChatPage is then optional, so restore that surviving owner too.
+      queueMicrotask(() => {
+        if (!disposed && owners > 0 && !wsClient && root.authLock.state.getState().phase === "active") {
+          const release = connect(); release();
+        }
+      });
+    },
+  });
   return client;
 }

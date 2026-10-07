@@ -395,6 +395,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
         // A held send's rows left the transcript: its snapshot alone owns its previews.
         for (const s of Object.values(get().sends)) if (s.state === "unconfirmed") for (const a of s.attachments) revoke(a.previewUrl);
+        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear();
       },
 
       edit(requested, requestedSession, patch) {

@@ -357,7 +357,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Command availability/effects: (`export function useChatCommands(): (command: string) => void {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:18-56`).
 
-- Stats local exchange: (`export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:70-150`).
+- Stats local exchange: (`export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:70-156`).
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
@@ -367,7 +367,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:683-699`).
 
-- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:108-141`).
+- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:174-207`).
 
 - Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1508-1517`).
 
@@ -375,9 +375,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Receipt consumption: [`if (!receipt || !pendingSend) return;`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L161-L176), before #951 moved send settlement into the draft client (`lib/draft-client.ts`).
 
-- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:63-74`).
+- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:70-81`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:408-454`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:415-461`).
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:403-413`).
 

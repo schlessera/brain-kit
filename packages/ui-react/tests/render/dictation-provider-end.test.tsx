@@ -19,6 +19,8 @@ import type { VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { BrainApi } from "../../src/lib/api-client.js";
+import { useVpnStatus } from "../../src/hooks/use-vpn-status.js";
+import type { LocalWork } from "../../src/lib/local-work.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
 import { useServiceWorkerUpdates } from "../../src/index.js";
 
@@ -483,4 +485,37 @@ test("another dictation ending on its own neither releases the reload nor commit
   expect(reloads(), "no reload while busy: the drain ended in the update that moved its words to review").toBe(0);
   act(() => voice(root).clearReview());
   expect(reloads(), "one reload").toBe(1);
+});
+
+
+test("auth expiry cancels the client whose Done is still draining and holds update reload",async()=>{
+ const root=voiceRoot(deepgram); const {dictation,reloads}=await mount(root);
+ root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+ let ended=0;
+ replaceGlobal(navigator,"mediaDevices",{getUserMedia:async()=>({getTracks:()=>[{stop(){ended++;}}]})});
+ await listen(root,dictation); act(()=>deepgram.hear("Ask Nestor",true));
+ let done!:Promise<void>; act(()=>{done=dictation.result.current.stop();});
+ expect(voice(root).draining,"Done is draining").toBe(true); takeOver();
+ await act(async()=>{await root.authLock.expire(); root.authLock.dropContext();});
+ expect(ended,"auth closes the draining capture before lock").toBeGreaterThan(0);
+ expect(socket().readyState,"speech socket closed").toBe(3);
+ expect(voice(root).reviewText).toBe(""); expect(reloads(),"auth lock holds reload").toBe(0);
+ await act(async()=>{socket().onmessage?.({data:JSON.stringify({type:"Metadata"})}); await done;});
+ expect(voice(root).reviewText,"late drain cannot repopulate review").toBe("");
+});
+
+
+test("a probe decoding across lock and restore cannot clear the newly confirmed account key",async()=>{
+ let release!:()=>void; const gate=new Promise<void>(yes=>release=yes);
+ let decoding=false;
+ const root=createBrainUiRoot({storage:null,request:async()=>Object.assign(new Response(),{json:async()=>{decoding=true;await gate;return {accountKey:"odysseus-key"};}})});
+ roots.push(root);
+ root.localWork={snapshotNow:async()=>{},lock(){},resume:async()=>true,dispose(){}} as LocalWork;
+ root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+ const probe=renderHook(()=>useVpnStatus(),{wrapper:wrapper(root)});
+ await act(async()=>Promise.resolve()); expect(decoding,"old probe is decoding a real successful response").toBe(true);
+ await act(async()=>{await root.authLock.expire();root.authLock.dropContext();expect(await root.authLock.signedIn("odysseus-key")).toBe(true);});
+ await act(async()=>{release();await Promise.resolve();});
+ expect(root.stores.connection.getState().accountKey,"old probe cannot clear newly confirmed key").toBe("odysseus-key");
+ probe.unmount();
 });

@@ -53,3 +53,14 @@ test("two concurrent uploads respect mixed-message count, byte and parser limits
     held.resolve(answer()); await settle(() => queue.files.every(f => f.state === "ready")); expect(count).toBe(3);
   } finally { queue.dispose(); }
 });
+
+
+test("restored references retain their byte budget without reuploading",()=>{
+ let calls=0; const queue=createTrackUploads(async()=>{calls++;return answer();},"/api",()=>{});
+ try {
+  queue.restore([0,1].map(i=>({...trackView().file,name:`ithaca-${i}.gpx`,bytes:18_000_000})));
+  expect(queue.files.every(f=>f.state === "ready")).toBe(true);
+  expect(queue.add([new File([new Uint8Array(18_000_000)],"pylos.gpx")]),"restored bytes count toward admission").toHaveLength(1);
+  expect(queue.files).toHaveLength(2); expect(calls,"references are never reuploaded").toBe(0);
+ } finally {queue.dispose();}
+});

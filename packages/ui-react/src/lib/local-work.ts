@@ -37,6 +37,8 @@ export interface WorkContext {
   scroll: { anchor: string; offset: number; fingerprint?: string } | null;
   reviewText: string;
   tracks: SharedFileMeta[];
+  /** Uploaded references in inactive staged views, kept for warm reauthentication only. */
+  stagedTracks?: Array<{ key: string; tracks: SharedFileMeta[] }>;
 }
 
 /** What a view reports at the moment a snapshot is taken. */
@@ -67,6 +69,10 @@ export interface LocalWork {
   changed(): void;
   /** Resolves once a restore for the held account has finished, if one is under way. */
   restoring(): Promise<void>;
+  /** Pause writes and drop the in-memory account payload after the gate unmounts. */
+  lock(): void;
+  /** Read the saved context only after explicit same-account authentication. */
+  resume(): Promise<boolean>;
   dispose(): void;
 }
 
@@ -141,6 +147,7 @@ function parseContext(raw: unknown): WorkContext | null {
     scroll,
     reviewText: r.reviewText ?? "",
     tracks: Array.isArray(r.tracks) ? r.tracks : [],
+    stagedTracks: Array.isArray(r.stagedTracks) ? r.stagedTracks.filter((v) => v && isStr(v.key) && /^(session|draft):.+/.test(v.key) && Array.isArray(v.tracks)) : undefined,
   };
 }
 
@@ -165,6 +172,9 @@ export interface LocalWorkOptions {
   tracks: (sessionId: string | null, draftId: string) => SharedFileMeta[];
   /** Calls back on every change to the root's staged tracks. */
   watchTracks: (fn: () => void) => () => void;
+  restoreTracks?: (sessionId: string | null, draftId: string, tracks: SharedFileMeta[]) => void;
+  allTracks?: () => NonNullable<WorkContext["stagedTracks"]>;
+  restoreAllTracks?: (views: NonNullable<WorkContext["stagedTracks"]>) => void;
   /**
    * The client holds another account than the one this page restored for:
    * the first account's drafts are in this page's stores, so the page must
@@ -195,6 +205,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let pendingSince = 0;
   let chain: Promise<void> = Promise.resolve();
   let disposed = false;
+  let locked = false;
+  let generation = 0;
+  let revision = 0;
+  let committedRevision = 0;
 
   const held = () => stores.connection.getState().accountKey;
   let switching = false;
@@ -215,6 +229,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       scroll: null,
       reviewText: stores.voice.getState().reviewText,
       tracks: options.tracks(sessionId, drafts.originOf(draftId)),
+      stagedTracks: options.allTracks?.(),
     };
     for (const probe of probes) Object.assign(ctx, probe());
     return ctx;
@@ -224,8 +239,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   async function flush(): Promise<void> {
     // A snapshot asked for and then cancelled by the root going is not a receipt.
     if (disposed) throw new Error("The work context was disposed before it was written");
-    if (bound === null || partition === null) return;
+    if (locked || bound === null || partition === null) return;
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
+    const writingRevision = revision;
     const drafts = stores.drafts.getState().drafts;
     const changes: PartitionWrite[] = [];
     const next = new Map<string, ComposerDraft | null>();
@@ -239,7 +255,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const ctx = context();
     const text = JSON.stringify(ctx);
     if (text !== writtenContext) changes.push({ put: contextKey, value: { v: 1, ...ctx } satisfies StoredContext });
-    if (changes.length === 0) { status.setState({ pending: false }); return; }
+    if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
     try {
       await partition.write(changes);
     } catch (error) {
@@ -247,6 +263,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
       throw error;
     }
+    committedRevision = writingRevision;
     written = next;
     writtenContext = text;
     status.setState({ failed: false, pending: timer !== null });
@@ -260,7 +277,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   }
 
   function changed() {
-    if (disposed || bound === null) return;
+    if (disposed || locked || bound === null) return;
+    revision++;
     const now = Date.now();
     // Steady typing moves the write on, but never past the longest wait.
     if (timer !== null && now - pendingSince >= LOCAL_WRITE_MAX_DELAY_MS - LOCAL_WRITE_DELAY_MS) return;
@@ -273,17 +291,20 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }, LOCAL_WRITE_DELAY_MS);
   }
 
-  async function bind(key: string) {
+  async function bind(key: string, warm = false): Promise<boolean> {
+    const binding = generation;
     const handle = partitions.open(accountPartition(key));
     const records = await handle.list(`${scope}/`);
-    if (disposed || held() !== key) return;
+    if (disposed || held() !== key || binding !== generation) return false;
     const kept: LocalDraft[] = [];
     let ctx: WorkContext | null = null;
     for (const { key: k, value } of records) {
       if (k === contextKey) ctx = parseContext(value);
       else if (k.startsWith(`${scope}/draft/`)) { const d = parseDraft(value); if (d) kept.push(d); }
     }
+    if (warm && ctx) stores.chat.getState().setActiveSession(ctx.sessionId);
     stores.drafts.getState().restoreLocal(kept);
+    if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
     const drafts = stores.drafts.getState();
     // These are in storage now. The next write puts back each one this page
     // holds and deletes the rest, which a newer draft here replaced.
@@ -293,10 +314,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (ctx.sessionId === activeSession) {
         // A new chat's own draft goes back into the new-chat view.
         // Not over a new chat the reader has already started typing in.
-        if (ctx.sessionId === null && drafts.drafts[ctx.draftId] && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
+        if (ctx.sessionId === null && (drafts.drafts[ctx.draftId] || (warm && ctx.tracks.length)) && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
         const draftId = stores.drafts.getState().idFor(activeSession);
         // The selection is the kept draft's: a draft this page holds instead keeps its own.
         const same = stores.drafts.getState().resolveId(ctx.draftId) === draftId;
+        if (warm && !ctx.stagedTracks) options.restoreTracks?.(ctx.sessionId, drafts.originOf(ctx.draftId), ctx.tracks);
         restore.setState({
           selection: same && ctx.selectionStart !== null && ctx.selectionEnd !== null ? { draftId, start: ctx.selectionStart, end: ctx.selectionEnd } : null,
           focusId: same || ctx.focusId !== "composer" ? ctx.focusId : null,
@@ -323,13 +345,14 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     bound = key;
     // Anything that changed while the restore was out is written now.
     changed();
+    return ctx !== null;
   }
 
   function onAccount() {
     const key = held();
     // The first account this page holds is the one it restores for; it never rebinds to another.
-    if (key === null || bound !== null || disposed) return;
-    restoreDone = bind(key).catch(() => {
+    if (locked || key === null || bound !== null || disposed) return;
+    restoreDone = bind(key).then(() => {}).catch(() => {
       // Unreadable storage restores nothing; editing goes on, and writes report their own failure.
       if (!disposed && held() === key) { partition = partitions.open(accountPartition(key)); bound = key; }
     });
@@ -360,9 +383,14 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     status,
     restore,
     async snapshotNow() {
-      if (timer !== null) { clearTimeout(timer); timer = null; }
       if (bound === null) throw new PartitionRefusedError("account:");
-      await enqueue();
+      // Changes made while a transaction commits belong to this snapshot too.
+      // The final iteration and the caller's unmount run in one microtask turn.
+      do {
+        if (timer !== null) { clearTimeout(timer); timer = null; }
+        await enqueue();
+        if (locked || bound === null) throw new PartitionRefusedError("account:");
+      } while (committedRevision !== revision);
     },
     register(probe) {
       probes.add(probe);
@@ -370,6 +398,23 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     },
     changed,
     restoring: () => restoreDone,
+    lock() {
+      generation++;
+      locked = true;
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+      bound = null; partition = null; written.clear(); writtenContext = "";
+      restore.setState({ selection: null, focusId: null, scroll: null });
+      status.setState({ pending: false });
+    },
+    async resume() {
+      const key = held();
+      if (!key || disposed) return false;
+      try {
+        const restored = await bind(key, true);
+        if (restored) { locked = false; changed(); }
+        return restored;
+      } catch { return false; }
+    },
     dispose() {
       disposed = true;
       if (timer !== null) clearTimeout(timer);

@@ -332,7 +332,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
+    const authEpoch = root.authLock.epoch();
     const results = await Promise.all(list.map((f) => fileToAttachment(f)));
+    if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
+      for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
+      return;
+    }
     const fresh: PendingAttachment[] = [];
     const errors: string[] = [...trackErrors];
     results.forEach((r, i) => {
@@ -348,7 +353,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       ...current,
       ...fresh,
     ]);
-    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + track.file.size, 0);
+    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
     const accepted = imageAccepted.filter((image, index) => {
       combinedBytes += image.bytes;
       return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;

@@ -776,3 +776,21 @@ describe("two tabs", () => {
 });
 
 beforeEach(() => {});
+
+
+for(const operation of ["cancel", "failed admission"] as const) test(`${operation} completing after disposal cannot publish old answer payloads`,async()=>{
+ const storage=createMemoryAnswerStorage(); const h=await harness({storage});
+ let release!:()=>void; const gate=new Promise<void>(yes=>release=yes); let pending:Promise<unknown>;
+ if(operation === "cancel") {
+  await h.submit(); expect(h.delivery()?.payload,"queued protected payload is nonempty").toEqual(PAYLOADS.ask_user);
+  const remove=storage.remove; storage.remove=async(id)=>{await gate;await remove(id);};
+  pending=h.queue.cancel("req-1");
+ } else {
+  storage.put=async()=>{await gate;throw new Error("device write refused");};
+  pending=h.submit(); await flush(); expect(h.delivery()?.payload,"pending protected payload is nonempty").toEqual(PAYLOADS.ask_user);
+ }
+ h.queue.dispose(); h.root.stores.chat.setState(h.root.stores.chat.getInitialState(),true);
+ release(); await pending;
+ expect(h.root.stores.chat.getState().deliveries,"disposed continuation cannot repopulate protected answers").toEqual({});
+ h.root.dispose();
+});

@@ -15,6 +15,7 @@ import { runStats } from "../../src/components/chat/use-chat-commands.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import type { ChatMessage } from "../../src/stores/chat-state.js";
 import { corpusStats, runtimeStats } from "../stats-fixtures.js";
+import type { LocalWork } from "../../src/lib/local-work.js";
 
 afterEach(cleanup);
 afterAll(unregisterStatsSessionDom);
@@ -85,6 +86,43 @@ function draw(root: BrainUiRoot, message: ChatMessage) {
     </BrainUiProvider>
   ).container;
 }
+
+test("an outside connection lease reconnects after warm auth restoration",async()=>{
+ const root=statsRoot();
+ try {
+  root.localWork={snapshotNow:async()=>{},lock(){},resume:async()=>true,dispose(){}} as LocalWork;
+  root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+  const release=root.connection.connect(); const first=FakeSocket.instances.at(-1)!; first.open();
+  const count=FakeSocket.instances.length;
+  await root.authLock.expire(); root.authLock.dropContext();
+  expect(first.readyState,"the outside owner's old socket is closed").toBe(3);
+  expect(await root.authLock.signedIn("odysseus-key")).toBe(true); await Promise.resolve();
+  expect(FakeSocket.instances.length,"surviving connection owner gets a replacement socket").toBe(count+1);
+  const second=FakeSocket.instances.at(-1)!; expect(second).not.toBe(first); second.open();
+  expect(root.stores.connection.getState().wsStatus).toBe("connected");
+  release(); expect(second.readyState,"one release still closes the one outside lease").toBe(3);
+ } finally {root.dispose();}
+});
+
+test("a stats operation spanning lock and restore cannot publish old figures or finish the new reply",async()=>{
+ const root=statsRoot(); let release!:()=>void;
+ const gate=new Promise<void>(yes=>release=yes); let corpusRead=false;
+ Object.assign(root.api,{brainStats:async()=>{corpusRead=true;return corpusStats();},brainStatsHistory:async()=>({dates:[]}),status:async()=>{await gate;throw new Error("old read interrupted");}});
+ try {
+  root.localWork={snapshotNow:async()=>{},lock(){},resume:async()=>true,dispose(){}} as LocalWork;
+  root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+  root.stores.chat.getState().setActiveSession("odysseus-ithaca");
+  const pending=runStats(root,"odysseus-ithaca"); await Promise.resolve();
+  expect(corpusRead,"the old corpus figures already arrived").toBe(true);
+  await root.authLock.expire(); root.authLock.dropContext(); expect(await root.authLock.signedIn("odysseus-key")).toBe(true);
+  const chat=root.stores.chat.getState(); chat.setActiveSession("odysseus-ithaca"); chat.startAssistantMessage("odysseus-ithaca"); chat.appendText("odysseus-ithaca","Nestor counts the ships");
+  release(); await pending;
+  const reply=root.stores.chat.getState().buffers["odysseus-ithaca"]!.messages.at(-1)!;
+  expect(reply.statsAnswer,"old composite stats cannot publish after warm restore").toBeUndefined();
+  expect(reply.localExchange).toBeUndefined(); expect(reply.content).toBe("Nestor counts the ships");
+  expect(root.stores.chat.getState().buffers["odysseus-ithaca"]!.isStreaming,"old finally cannot finish the new reply").toBe(true);
+ } finally {release();root.dispose();}
+});
 
 describe("/stats in a draft conversation", () => {
   test("the first message takes it along, and the session holds both", async () => {

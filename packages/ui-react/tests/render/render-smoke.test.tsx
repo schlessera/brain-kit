@@ -34,8 +34,8 @@ import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { WebSearchChain } from "../../src/components/settings/web-search-chain.js";
-import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { act, cleanup, fireEvent, render, renderHook, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { act, cleanup, fireEvent, render as renderDom, renderHook as renderHookDom, waitFor, within, type RenderOptions } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
@@ -67,18 +67,10 @@ import {
   hasUnsentText,
   useServiceWorkerUpdates,
 } from "../../src/hooks/use-service-worker-updates.js";
-import { useFileStore } from "../../src/stores/file-store.js";
-import { useActivityStore } from "../../src/stores/activity-store.js";
-import { useInboxStore } from "../../src/stores/inbox-store.js";
-import {
-  clearGraphSceneCache,
-  useGraphStore,
-} from "../../src/stores/graph-store.js";
-import { useUIStore } from "../../src/stores/ui-store.js";
 import { useShallow } from "zustand/react/shallow";
-import { BrainUiProvider, useBrainUiRoot } from "../../src/root-context.js";
+import { BrainUiProvider, useBrainUiRoot, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
-import { useChatStore, activeChat } from "../../src/stores/chat-store.js";
+import { activeChat } from "../../src/stores/chat-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
@@ -109,9 +101,41 @@ import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-t
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { FilePanel } from "../../src/components/files/file-panel.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
-import { useConnectionStore } from "../../src/stores/connection-store.js";
-import { useProviderStore } from "../../src/stores/provider-store.js";
-import { usePrincipalStore } from "../../src/stores/principal-store.js";
+
+let fixtureRoot = createBrainUiRoot({ storage: null });
+let useFileStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["file"]["getState"]>) => T) => useRootStore("file", selector), fixtureRoot.stores.file);
+let useActivityStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["activity"]["getState"]>) => T) => useRootStore("activity", selector), fixtureRoot.stores.activity);
+let useInboxStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["inbox"]["getState"]>) => T) => useRootStore("inbox", selector), fixtureRoot.stores.inbox);
+let useGraphStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["graph"]["getState"]>) => T) => useRootStore("graph", selector), fixtureRoot.stores.graph);
+let useUIStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["ui"]["getState"]>) => T) => useRootStore("ui", selector), fixtureRoot.stores.ui);
+let useChatStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["chat"]["getState"]>) => T) => useRootStore("chat", selector), fixtureRoot.stores.chat);
+let useConnectionStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["connection"]["getState"]>) => T) => useRootStore("connection", selector), fixtureRoot.stores.connection);
+let useProviderStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["provider"]["getState"]>) => T) => useRootStore("provider", selector), fixtureRoot.stores.provider);
+let usePrincipalStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["principal"]["getState"]>) => T) => useRootStore("principal", selector), fixtureRoot.stores.principal);
+const clearGraphSceneCache = () => fixtureRoot.stores.graph.clearSceneCache();
+const render = (node: ReactNode, options?: RenderOptions) => {
+  const Wrapper = options?.wrapper;
+  return renderDom(node, { ...options, wrapper: ({ children }) => <BrainUiProvider root={fixtureRoot}>{Wrapper ? <Wrapper>{children}</Wrapper> : children}</BrainUiProvider> });
+};
+const renderHook: typeof renderHookDom = (callback, options) => {
+  const Wrapper = options?.wrapper;
+  return renderHookDom(callback, { ...options, wrapper: ({ children }) => <BrainUiProvider root={fixtureRoot}>{Wrapper ? <Wrapper>{children}</Wrapper> : children}</BrainUiProvider> });
+};
+beforeEach(() => {
+  fixtureRoot.dispose();
+  fixtureRoot = createBrainUiRoot({ storage: null });
+  useFileStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["file"]["getState"]>) => T) => useRootStore("file", selector), fixtureRoot.stores.file);
+  useActivityStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["activity"]["getState"]>) => T) => useRootStore("activity", selector), fixtureRoot.stores.activity);
+  useInboxStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["inbox"]["getState"]>) => T) => useRootStore("inbox", selector), fixtureRoot.stores.inbox);
+  useGraphStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["graph"]["getState"]>) => T) => useRootStore("graph", selector), fixtureRoot.stores.graph);
+  useUIStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["ui"]["getState"]>) => T) => useRootStore("ui", selector), fixtureRoot.stores.ui);
+  useChatStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["chat"]["getState"]>) => T) => useRootStore("chat", selector), fixtureRoot.stores.chat);
+  useConnectionStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["connection"]["getState"]>) => T) => useRootStore("connection", selector), fixtureRoot.stores.connection);
+  useProviderStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["provider"]["getState"]>) => T) => useRootStore("provider", selector), fixtureRoot.stores.provider);
+  usePrincipalStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["principal"]["getState"]>) => T) => useRootStore("principal", selector), fixtureRoot.stores.principal);
+  realGraphFetchMeta = fixtureRoot.stores.graph.getInitialState().fetchMeta;
+  realGraphFetchScene = fixtureRoot.stores.graph.getInitialState().fetchScene;
+});
 
 // happy-dom rejects an animation's `finished` promise when a mounted gate
 // changes branches. These tests exercise the rendered state transitions, not
@@ -173,8 +197,8 @@ const RealWebSocket = globalThis.WebSocket;
 const realConfirm = window.confirm;
 const realClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 const realDateNow = Date.now;
-const realGraphFetchMeta = useGraphStore.getInitialState().fetchMeta;
-const realGraphFetchScene = useGraphStore.getInitialState().fetchScene;
+let realGraphFetchMeta = useGraphStore.getInitialState().fetchMeta;
+let realGraphFetchScene = useGraphStore.getInitialState().fetchScene;
 
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -265,6 +289,7 @@ afterEach(() => {
     mintError: null,
     oneTimeCredential: null,
   });
+  fixtureRoot.dispose();
 });
 
 async function flushPromises(): Promise<void> {

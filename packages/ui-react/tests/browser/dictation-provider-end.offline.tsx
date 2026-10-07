@@ -112,7 +112,7 @@ const deepgramEndings: { name: string; end: (net: FaultNetwork) => void }[] = [
   { name: "Deepgram closes the stream", end: (net) => net.socket(SPEECH)!.finish(1000, "", true) },
   { name: "Deepgram times the stream out", end: (net) => net.socket(SPEECH)!.finish(1011, "NET-0001", true) },
   { name: "the network drops", end: (net) => net.drop() },
-  { name: "the grant expires", end: (net) => net.expireAuth() },
+  { name: "the speech grant expires", end: (net) => net.socket(SPEECH)!.finish(1008, "Grant expired", true) },
 ];
 
 for (const ending of deepgramEndings) {

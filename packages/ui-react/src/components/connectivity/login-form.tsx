@@ -1,7 +1,7 @@
 import { Button, Callout, Icon } from "@schlessera/brain-ui-kit";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 /**
  * The login surface, rendered from props (S6). `LoginScreen` owns the methods
@@ -25,6 +25,8 @@ export interface LoginMethods {
 
 export interface LoginFormProps {
   appName: string;
+  title?: string;
+  notice?: ReactNode;
   methods: LoginMethods;
   password: string;
   busy: boolean;
@@ -55,7 +57,8 @@ export function LoginForm(p: LoginFormProps) {
           <Icon icon="brain" size={32} color="var(--bk-amber-ink)" />
         </div>
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-2xl text-foreground">{p.appName}</h1>
+          <h1 className="font-[family-name:var(--font-display)] text-2xl text-foreground">{p.title ?? p.appName}</h1>
+          {p.notice && <div className="mt-2 space-y-2 text-sm text-muted-foreground">{p.notice}</div>}
           <p className="mt-1 text-sm text-muted-foreground">
             {!passwordAvailable
               ? "Sign in with your passkey."
