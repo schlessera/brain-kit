@@ -330,6 +330,7 @@ describe("createApp boot validation", () => {
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.config.dbPath).toBe("");
+    expect(app.db.filename).toBe("");
     await app.close();
     expect(existsSync("/tmp/should-not-open.db")).toBe(false);
   });
@@ -344,6 +345,7 @@ describe("createApp boot validation", () => {
       registry: createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]),
     });
     expect(app.config.dbPath).toBe(override);
+    expect(app.db.filename).toBe(override);
     await app.close();
     for (const suffix of ["", "-shm", "-wal"]) {
       rmSync(override + suffix, { force: true });
