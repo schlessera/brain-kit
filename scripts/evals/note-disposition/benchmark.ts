@@ -13,7 +13,7 @@ export const benchmark = z.array(z.strictObject({
     id: z.string(), split: z.enum(["tuning", "held-out"]), entity: z.string(), template: z.string(), category: z.string(),
     source: z.string(), sourcePath: z.string(), sourceRaw: z.string(),
     targets: z.array(z.strictObject({ id: z.string(), body: z.string(), path: z.string(), raw: z.string() })),
-    expected: z.strictObject({ action: z.enum(["keep", "merge", "promote"]), target: z.string().nullable(), type: z.string().nullable(), forbidden: z.array(z.string()) }),
+    expected: z.strictObject({ action: z.enum(["keep", "merge", "promote"]), target: z.string().nullable(), type: z.string().nullable() }),
     expectedFiles: z.record(z.string(), z.string()),
 })).parse(raw);
 export type Benchmark = typeof benchmark[number];

@@ -18,6 +18,7 @@ test("natural benchmark includes every routed class in tuning, competing targets
     for (const f of benchmark) {
         expect(f.sourceRaw).toContain("summary: Original document summary.");
         expect(f.expectedFiles[f.sourcePath]).toBe(f.sourceRaw);
+  expect(Object.keys(f.expectedFiles).sort()).toEqual([f.sourcePath,...f.targets.map(t=>t.path),...(f.expected.action==="promote"?[`rituals/${f.id}.md`]:[])].sort());
     }
 });
 test("actual complete-document projection matches independently authored duplicate golden and preserves metadata", () => {
@@ -80,11 +81,12 @@ test("real JEV transport uses frozen full multi-target state and records each pr
     const spend = new Spend(1, () => { });
     let calls = 0;
     const result = await classify(f, spend, async () => { calls++; if (calls === 1)
-        return Response.json({ model: MODELS.classifier, usage: { input_tokens: 100 } }, { status: 429, headers: { "retry-after": "0" } }); return Response.json({ model: MODELS.classifier, usage: { input_tokens: 200 }, answers: Object.fromEntries(Object.entries(req.questions).map(([k, q]) => { if (q.type !== "choice")
+        return Response.json({ model: MODELS.classifier, usage: { input_tokens: 100, output_tokens: 7 } }, { status: 429, headers: { "retry-after": "0" } }); return Response.json({ model: MODELS.classifier, usage: { input_tokens: 200, output_tokens: 34 }, answers: Object.fromEntries(Object.entries(req.questions).map(([k, q]) => { if (q.type !== "choice")
             throw Error("unexpected"); const keys = Object.keys(q.criteria); const choice = k === "disposition" ? "merge" : k === "target" ? "rooms" : "note"; return [k, { type: "choice", choice, confidence: 1, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 1 : 0])) }]; })) }); }, "fictional-key");
     expect(result.outcome).toBe("answered");
     expect(calls).toBe(2);
     expect(spend.calls).toHaveLength(2);
+    expect(spend.calls.map(c => c.outputTokens)).toEqual([7,34]);
     expect(spend.used).toBeCloseTo(300 * 0.042 / 1e6, 10);
 });
 test("keep classified path makes no generation or fallback call", async () => {
@@ -140,9 +142,10 @@ test("arm summaries expose unsupported effects separately from correct routing p
 
 test("every arm receives the same full source and candidate bodies", () => {
  for(const f of benchmark){
-  expect(parseFrontmatter(f.sourceRaw).content.trimEnd()).toBe(f.source);
+  expect(parseFrontmatter(f.sourceRaw).content).toBe(f.source + "\n");
   expect(f.expectedFiles[f.sourcePath]).toBe(f.sourceRaw);
-  for(const target of f.targets)expect(parseFrontmatter(target.raw).content.trimEnd()).toBe(target.body.trimEnd());
+  expect(Object.keys(f.expectedFiles).sort()).toEqual([f.sourcePath,...f.targets.map(t=>t.path),...(f.expected.action==="promote"?[`rituals/${f.id}.md`]:[])].sort());
+  for(const target of f.targets)expect(parseFrontmatter(target.raw).content).toBe(target.body + "\n");
  }
 });
 test("validated disposition and path-normalised content separate unsafe effects from promotion formatting", () => {
@@ -155,4 +158,21 @@ test("validated disposition and path-normalised content separate unsafe effects 
  const merge=benchmark.find(f=>f.id==="water-check")!;
  const malformed=observe(merge,{action:"merge",reasoning:"Wrong operation",operations:[{op:"create",path:merge.targets[0]!.path,content:merge.source+"\n"}]});
  expect(malformed.accepted).toBe(false);expect(malformed.correctDisposition).toBe(false);expect(malformed.rawPredicted).toBe("merge");
+});
+
+
+test("held-out safety gates exclude tuning and cannot pass without evaluable write routes", () => {
+ const rows=["current","deterministic","hybrid"].flatMap(arm=>benchmark.flatMap(f=>[0,1].map(repetition=>({fixture:f.id,split:f.split,arm,repetition,durationMs:1,calls:[],stateBytes:1,accepted:true,correctDisposition:true,correctTarget:true,acceptedWrite:false,exactFiles:true,unsafeAccepted:false,unsupportedEffect:false,fullDocumentLoss:false,escalated:false}))));
+ const bad=rows.find(r=>r.arm==="hybrid"&&r.fixture==="water-check"&&r.repetition===0)!;
+ Object.assign(bad,{acceptedWrite:true,unsupportedEffect:true});
+ const hybrid=summarize(rows,2,0.9).find(s=>s.arm==="hybrid")!;
+ const held=hybrid.bySplit.find(s=>s.split==="held-out")!,tuning=hybrid.bySplit.find(s=>s.split==="tuning")!;
+ expect(held.unsupportedEffect).toBe(1);expect(tuning.unsupportedEffect).toBe(0);expect(held.gateStatus).toBe("failed");expect(tuning.gateStatus).toBe("not evaluable");
+ const uncalibrated=summarize(rows,2,null).find(s=>s.arm==="hybrid")!;
+ expect(uncalibrated.bySplit.find(s=>s.split==="held-out")!.gateStatus).toBe("not evaluable");
+});
+test("current split decisions remain distinct from unparseable proposals", () => {
+ const f=benchmark.find(f=>f.id==="two-plans")!;
+ const o=observe(f,{action:"split",reasoning:"Two distinct topics",operations:[]});
+ expect(o.rawPredicted).toBe("split");expect(o.rejection).toBe("unsupported action: split");expect(o.accepted).toBe(false);expect(o.predicted).toBe("unknown");
 });

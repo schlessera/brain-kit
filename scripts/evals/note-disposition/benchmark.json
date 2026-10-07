@@ -22,8 +22,7 @@
     "expected": {
       "action": "merge",
       "target": "raft",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "protocol-forced-duplicate",
     "sourcePath": "notes/raft-duplicate.md",
@@ -57,8 +56,7 @@
     "expected": {
       "action": "merge",
       "target": "departure",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/rigging-addition.md",
@@ -79,8 +77,7 @@
     "expected": {
       "action": "promote",
       "target": null,
-      "type": "ritual",
-      "forbidden": []
+      "type": "ritual"
     },
     "category": "semantic",
     "sourcePath": "notes/libation.md",
@@ -107,8 +104,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/shore-entry.md",
@@ -135,10 +131,9 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
-    "category": "semantic",
+    "category": "contradiction",
     "sourcePath": "notes/mast-correction.md",
     "sourceRaw": "---\ntitle: Odysseus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nCorrection: Odysseus will not inspect the mast; the earlier assignment is withdrawn.\n",
     "expectedFiles": {
@@ -169,8 +164,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "multi-topic",
     "sourcePath": "notes/two-plans.md",
@@ -186,7 +180,7 @@
     "split": "held-out",
     "entity": "Circe",
     "template": "field-journal",
-    "source": "At dusk Circe measured the guest-room cistern: seven jars remain.",
+    "source": "At dawn Circe measured the guest-room cistern: seven jars remain.",
     "targets": [
       {
         "id": "rooms",
@@ -204,15 +198,14 @@
     "expected": {
       "action": "merge",
       "target": "rooms",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/water-check.md",
-    "sourceRaw": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAt dusk Circe measured the guest-room cistern: seven jars remain.\n",
+    "sourceRaw": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAt dawn Circe measured the guest-room cistern: seven jars remain.\n",
     "expectedFiles": {
-      "notes/water-check.md": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAt dusk Circe measured the guest-room cistern: seven jars remain.\n",
-      "projects/active/rooms.md": "---\ntitle: rooms\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest-room preparation includes checking the cistern.\nAt dusk Circe measured the guest-room cistern: seven jars remain.\n",
+      "notes/water-check.md": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAt dawn Circe measured the guest-room cistern: seven jars remain.\n",
+      "projects/active/rooms.md": "---\ntitle: rooms\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest-room preparation includes checking the cistern.\nAt dawn Circe measured the guest-room cistern: seven jars remain.\n",
       "projects/active/orchard.md": "---\ntitle: orchard\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nOrchard irrigation uses a separate cistern.\n"
     }
   },
@@ -239,8 +232,7 @@
     "expected": {
       "action": "merge",
       "target": "pruning",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/olive-paraphrase.md",
@@ -274,8 +266,7 @@
     "expected": {
       "action": "merge",
       "target": "guests",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "protocol-forced-duplicate",
     "sourcePath": "notes/bread-existing.md",
@@ -303,8 +294,7 @@
     "expected": {
       "action": "promote",
       "target": null,
-      "type": "ritual",
-      "forbidden": []
+      "type": "ritual"
     },
     "category": "semantic",
     "sourcePath": "notes/torch-cycle.md",
@@ -332,8 +322,7 @@
     "expected": {
       "action": "promote",
       "target": null,
-      "type": "ritual",
-      "forbidden": []
+      "type": "ritual"
     },
     "category": "semantic",
     "sourcePath": "notes/guest-welcome.md",
@@ -361,8 +350,7 @@
     "expected": {
       "action": "promote",
       "target": null,
-      "type": "ritual",
-      "forbidden": []
+      "type": "ritual"
     },
     "category": "ambiguous-label",
     "sourcePath": "notes/pen-knot.md",
@@ -396,8 +384,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/shell-sighting.md",
@@ -418,8 +405,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "unknown",
     "sourcePath": "notes/vague-fragment.md",
@@ -451,8 +437,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "multi-topic",
     "sourcePath": "notes/double-duty.md",
@@ -486,8 +471,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "contradiction",
     "sourcePath": "notes/not-assigned.md",
@@ -521,8 +505,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "ambiguous-target",
     "sourcePath": "notes/ambiguous-project.md",
@@ -550,8 +533,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "target-none",
     "sourcePath": "notes/absent-target.md",
@@ -578,8 +560,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "injection",
     "sourcePath": "notes/injected-order.md",
@@ -599,8 +580,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "unsupported-type",
     "sourcePath": "notes/unsupported-scroll.md",
@@ -618,9 +598,9 @@
     "targets": [
       {
         "id": "western",
-        "body": "Western well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\n",
+        "body": "Western well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.",
         "path": "projects/active/western.md",
-        "raw": "---\ntitle: western\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nWestern well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\n\n"
+        "raw": "---\ntitle: western\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nWestern well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\n"
       },
       {
         "id": "feast",
@@ -632,15 +612,14 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "long-state",
     "sourcePath": "notes/long-noise.md",
     "sourceRaw": "---\ntitle: Nestor\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nNestor wrote down that the eastern well is dry.\n",
     "expectedFiles": {
       "notes/long-noise.md": "---\ntitle: Nestor\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nNestor wrote down that the eastern well is dry.\n",
-      "projects/active/western.md": "---\ntitle: western\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nWestern well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\n\n",
+      "projects/active/western.md": "---\ntitle: western\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nWestern well repair notes.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\nThe western well pulley needs oil.\n",
       "projects/active/feast.md": "---\ntitle: feast\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nFeast preparations need more cups.\n"
     }
   },
@@ -667,8 +646,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "contradiction",
     "sourcePath": "notes/guest-negation.md",
@@ -702,8 +680,7 @@
     "expected": {
       "action": "merge",
       "target": "red-loom",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/loom-progress.md",
@@ -731,8 +708,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "semantic",
     "sourcePath": "notes/request-unrelated.md",
@@ -765,8 +741,7 @@
     "expected": {
       "action": "merge",
       "target": "bread",
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "minimal-pair",
     "sourcePath": "notes/guest-confirmation.md",
@@ -794,8 +769,7 @@
     "expected": {
       "action": "keep",
       "target": null,
-      "type": null,
-      "forbidden": []
+      "type": null
     },
     "category": "minimal-pair",
     "sourcePath": "notes/pen-once.md",
