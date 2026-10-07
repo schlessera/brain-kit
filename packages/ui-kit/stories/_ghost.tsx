@@ -55,6 +55,7 @@ export async function playHandoff({
 }) {
   await document.fonts?.ready;
   const ready = frames(canvasElement).map((f) => f.getBoundingClientRect());
+  await expect(ready).toHaveLength(2);
   await expect(canvasElement.querySelectorAll(".bk-ghost")).toHaveLength(0);
 
   await userEvent.click(await canvas.findByRole("button", { name: "Reload" }));
@@ -64,31 +65,54 @@ export async function playHandoff({
   const ghostRects = loading.map((f) => f.getBoundingClientRect());
   const ghostAfter = afters(canvasElement);
 
-  const landed = performance.now();
-  await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
-  const arriving = frames(canvasElement);
-  const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
-  for (const [i, f] of arriving.entries()) {
-    await expect(f.getAttribute("aria-busy")).toBeNull();
-    // Same box loading and ready: the line count matched, and nothing moved.
-    await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
-    await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
-    await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
+  // D53's budget starts when each frame commits its arriving layers. Locator
+  // lookup and asynchronous input orchestration are not component handoff time;
+  // polling after removal must not extend that interval either (#1179).
+  const handoffs = loading.map(frame => ({ frame, arrived: undefined as number | undefined, removed: undefined as number | undefined }));
+  const observeHandoffs = () => {
+    const now = performance.now();
+    for (const h of handoffs) {
+      if (h.arrived === undefined && !h.frame.hasAttribute("aria-busy") && h.frame.querySelector(".bk-ghost-out")) h.arrived = now;
+      if (h.arrived !== undefined && h.removed === undefined && !h.frame.querySelector(".bk-ghost, .bk-ghost-out")) h.removed = now;
+    }
+  };
+  const observer = new MutationObserver(observeHandoffs);
+  observer.observe(canvasElement, {subtree: true, childList: true, attributes: true, attributeFilter: ["class", "aria-busy"]});
+  try {
+    await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
+    const arriving = frames(canvasElement);
+    const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
+    for (const [i, f] of arriving.entries()) {
+      await expect(f.getAttribute("aria-busy")).toBeNull();
+      // Same box loading and ready: the line count matched, and nothing moved.
+      await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
+    }
+    for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
+
+    // Mid-handoff, both layers are part-way: the ghost going, the text coming.
+    await new Promise((r) => setTimeout(r, 300));
+    const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
+    const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
+    await expect(out).toBeGreaterThan(0);
+    await expect(out).toBeLessThan(1);
+    await expect(incoming).toBeGreaterThan(0);
+    await expect(incoming).toBeLessThan(1);
+
+    await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
+      timeout: 1000,
+      interval: 20,
+    });
+    // Both widths must have entered and completed the real handoff. A missing
+    // observation cannot turn into a zero-duration success.
+    observeHandoffs();
+    for (const h of handoffs) {
+      await expect(h.arrived).toBeDefined();
+      await expect(h.removed).toBeDefined();
+      await expect(h.removed! - h.arrived!).toBeLessThan(700);
+    }
+  } finally {
+    observer.disconnect();
   }
-  for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
-
-  // Mid-handoff, both layers are part-way: the ghost going, the text coming.
-  await new Promise((r) => setTimeout(r, 300));
-  const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
-  const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
-  await expect(out).toBeGreaterThan(0);
-  await expect(out).toBeLessThan(1);
-  await expect(incoming).toBeGreaterThan(0);
-  await expect(incoming).toBeLessThan(1);
-
-  await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
-    timeout: 1000,
-    interval: 20,
-  });
-  await expect(performance.now() - landed).toBeLessThan(700);
 }
