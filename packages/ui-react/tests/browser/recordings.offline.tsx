@@ -271,6 +271,29 @@ test("caller-owned capture stops the microphone before releasing recording and u
   expect(c.events.filter((e) => e.kind === "committed").at(-1)!.savedThroughMs).toBe(boundary);
 });
 
+test("disposal while caller-owned begin is pending stops the microphone and retains its update hold until cleanup", async (ctx) => {
+  const c = cell(ctx);
+  const microphone = watchMicrophone();
+  ctx.onTestFinished(() => microphone.restore());
+  const hold = holdIndexedDbWrite((key) => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
+  c.cleanup.push(() => hold.restore());
+  const capture = await startLocalCapture({ sink: c.store.sink(), timesliceMs: 250 });
+  ctx.onTestFinished(async () => { hold.restore(); await capture.stop("interrupted"); });
+  await hold.started;
+  c.store.dispose();
+  await wait(0);
+  expect(microphone.streams[0]!.getAudioTracks()[0]!.readyState, "disposal stops the microphone during begin").toBe("ended");
+  expect(updateHeld(c.root), "begin cleanup still owns the update hold").toBe(true);
+  hold.release();
+  expect(await capture.ended).toBe("interrupted");
+  await expect.poll(() => c.store.busy()).toBe(false);
+  expect(updateHeld(c.root)).toBe(false);
+  expect(await c.store.list("account:odysseus")).toEqual([]);
+  const peer = createRecordingStore({ root: c.root, partitions: c.partitions, heldAccountKey: () => "odysseus" });
+  ctx.onTestFinished(() => peer.dispose());
+  await expect(peer.recover("account:odysseus")).resolves.toMatchObject({ recordings: [] });
+});
+
 test("playback awaiting its reads cannot create a URL after disposal", async (ctx) => {
   const c = cell(ctx);
   const row = await saved(c);
@@ -385,4 +408,71 @@ test("completed recovery relinquishes its lock before an immediate next recovery
   await recovery;
   request.mockRestore();
   for (let i = 0; i < 30; i++) await expect(c.store.recover("unassigned")).resolves.toMatchObject({ recordings: [] });
+});
+
+test("association preserves a recovered prefix when its repair initially could not commit", async (ctx) => {
+  const c = cell(ctx);
+  c.account(null);
+  const sink = c.store.sink();
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
+  for (let index = 0; index < 3; index++) await sink.chunk({ ...chunk(index, (index + 1) * 1000), data: new Blob([new Uint8Array([index + 1])]) });
+  await sink.end!("user");
+  const row = (await c.store.list("unassigned"))[0]!;
+  await c.partitions.open("unassigned").write([{ delete: `recording:chunk:${row.id}:00000001` }]);
+  const fault = failIndexedDbWrites({ afterBytes: 0 });
+  c.cleanup.push(() => fault.restore());
+  expect((await c.store.recover("unassigned")).recordings[0]).toMatchObject({ state: "interrupted", savedThroughMs: 1000, chunkCount: 1 });
+  fault.restore();
+  c.account("odysseus");
+  await c.store.assign(row.id);
+  const assigned = await c.store.get("account:odysseus", row.id);
+  expect(assigned, "association keeps the recovered committed prefix").toMatchObject({ state: "interrupted", savedThroughMs: 1000, bytes: 1, chunkCount: 1 });
+  const play = await c.store.playback("account:odysseus", row.id);
+  ctx.onTestFinished(() => play.revoke());
+  expect([...new Uint8Array(await (await fetch(play.url)).arrayBuffer())]).toEqual([1]);
+  expect(await c.store.list("unassigned")).toEqual([]);
+});
+
+test("dismissing a removed notice deletes a witness with no playable prefix after a failed repair", async (ctx) => {
+  const c = cell(ctx);
+  const sink = c.store.sink();
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
+  await sink.chunk(chunk(0, 1000));
+  await sink.chunk(chunk(1, 2000));
+  await sink.end!("user");
+  const row = (await c.store.list("account:odysseus"))[0]!;
+  await c.partitions.open(row.partition).write([{ delete: `recording:chunk:${row.id}:00000000` }]);
+  const fault = failIndexedDbWrites({ afterBytes: 0 });
+  c.cleanup.push(() => fault.restore());
+  expect((await c.store.recover(row.partition)).removedCount).toBe(1);
+  fault.restore();
+  await c.store.dismissRemoved(row.partition);
+  expect((await c.store.recover(row.partition)).removedCount, "dismissal removes the durable loss witness").toBe(0);
+  expect(await c.partitions.sizes("recording:chunk:")).toEqual([]);
+});
+
+test("a transient repair failure does not count the same lost recording twice", async (ctx) => {
+  const c = cell(ctx);
+  const first = await saved(c);
+  const second = await saved(c);
+  const handle = c.partitions.open(first.partition);
+  await handle.write([first, second].map((row) => ({ delete: `recording:chunk:${row.id}:00000000` })));
+  const fault = failIndexedDbWrites({ next: true });
+  c.cleanup.push(() => fault.restore());
+  expect((await c.store.recover(first.partition)).removedCount).toBe(2);
+  expect(fault.failures).toBe(1);
+  fault.restore();
+  expect((await c.store.recover(first.partition)).removedCount, "each lost recording is counted once").toBe(2);
+});
+
+test("caller-owned begin holds updates while the initial index transaction is pending", async (ctx) => {
+  const c = cell(ctx);
+  const hold = holdIndexedDbWrite((key) => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
+  c.cleanup.push(() => hold.restore());
+  const capture = await startLocalCapture({ sink: c.store.sink(), timesliceMs: 250 });
+  ctx.onTestFinished(async () => { hold.restore(); await capture.stop("interrupted"); });
+  await hold.started;
+  expect(updateHeld(c.root), "pending begin owns the update hold").toBe(true);
+  hold.release();
+  await capture.stop("interrupted");
 });
