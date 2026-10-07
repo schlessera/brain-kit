@@ -643,11 +643,13 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     return o && o.output !== undefined && t.output === undefined ? o : t;
   });
   let parts = [...base.parts];
-  // Thinking renders from the parts: the longer thinking brings its own.
-  if (base === m && (old.thinking ?? "").length > (m.thinking ?? "").length) {
+  // Thinking renders from the parts: the longer thinking brings its own,
+  // whichever copy the text came from.
+  const thinker = (old.thinking ?? "").length > (m.thinking ?? "").length ? old : m;
+  if (thinker !== base && (thinker.thinking ?? "").length > (base.thinking ?? "").length) {
     const at = parts.findIndex((p) => p.kind === "thinking");
     const rest = parts.filter((p) => p.kind !== "thinking");
-    const mine = old.parts.filter((p) => p.kind === "thinking");
+    const mine = thinker.parts.filter((p) => p.kind === "thinking");
     parts = [...rest.slice(0, at < 0 ? 0 : at), ...mine, ...rest.slice(at < 0 ? 0 : at)];
   }
   for (const t of other.toolCalls) {
@@ -655,9 +657,18 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     parts.push({ kind: "tool", toolIndex: toolCalls.length });
     toolCalls.push(t);
   }
-  const thinking = (old.thinking ?? "").length > (m.thinking ?? "").length ? old.thinking : m.thinking;
+  const thinking = thinker.thinking;
+  // Questions by request: one either copy saw settled is settled, and one
+  // only the page has drawn stays (its card is the reader's).
+  const settled = (e: AskUserExchange) => e.answers !== undefined || e.cancelled === true || e.order !== undefined || e.formAnswers !== undefined;
+  const asks = new Map((base.askUserExchanges ?? []).map((e) => [e.requestId, e]));
+  for (const e of other.askUserExchanges ?? []) {
+    const mine = asks.get(e.requestId);
+    if (!mine || (settled(e) && !settled(mine))) asks.set(e.requestId, e);
+  }
+  const askUserExchanges = asks.size ? [...asks.values()] : undefined;
   return {
-    ...base, toolCalls, parts, thinking,
+    ...base, toolCalls, parts, thinking, askUserExchanges,
     id: old.id, timestamp: old.timestamp, isStreaming: true,
     turnId: m.turnId, streamTurnId: old.turnId ?? old.streamTurnId,
   };

@@ -233,6 +233,33 @@ describe("a reconnect while the turn in view runs", () => {
     expect(tool).toMatchObject({ id: "wax-1", output: "Ears sealed.", status: "complete" });
   });
 
+  test("a question the host saw answered while the page was away is answered on the page too", () => {
+    const { root, socket } = running();
+    const rank = { id: "rank-1", name: "mcp__brain-ui__ask_user_rank", input: { prompt: "Order raft supplies", items: [{ id: "rope", label: "Rope" }, { id: "timber", label: "Timber" }] } };
+    root.stores.chat.getState().setAskUserRankRequest("s1", "rank-1", { prompt: "Order raft supplies", items: [{ id: "rope", label: "Rope" }, { id: "timber", label: "Timber" }] });
+    root.stores.chat.getState().appendText("s1", " And more the host has not stored.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [
+      history(SIRENS)[0]!,
+      { role: "assistant", content: SIRENS, toolCalls: [{ ...rank, output: JSON.stringify({ order: ["timber", "rope"], unchanged: false }), isError: false }] },
+    ] });
+    const exchange = buffer(root).messages.at(-1)!.askUserExchanges?.find((e) => e.requestId === "rank-1");
+    expect(exchange?.order, "the host's answer").toEqual(["timber", "rope"]);
+  });
+
+  test("longer thinking from the host shows even when the page has more text", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendText("s1", " And more the host has not stored.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [
+      history(SIRENS)[0]!,
+      { role: "assistant", content: SIRENS, thinking: "Wax for the crew.", toolCalls: [], parts: [{ kind: "thinking", text: "Wax for the crew." }, { kind: "text", text: SIRENS }] },
+    ] });
+    const last = buffer(root).messages.at(-1)!;
+    expect(last.content).toBe(`${SIRENS} And more the host has not stored.`);
+    expect(last.parts.filter((p) => p.kind === "thinking").map((p) => (p as { text: string }).text).join("")).toBe("Wax for the crew.");
+  });
+
   test("thinking the page drew stays drawn when the history's text is as long", () => {
     const { root, socket } = running();
     root.stores.chat.getState().appendThinking("s1", "Wax for the crew, rope for me.");
