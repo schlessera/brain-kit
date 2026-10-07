@@ -361,23 +361,23 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:335-342`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:336-343`).
 
-- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:543-550`).
+- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`).
 
-- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:662-678`).
+- Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:683-699`).
 
-- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:71-93`).
+- Root namespace: (`const prefix = options.storagePrefix ??`, `packages/ui-react/src/root.ts:72-94`).
 
-- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1486-1495`).
+- Clear transcript selection: (`clearMessages: () => {`, `packages/ui-react/src/stores/chat-state.ts:1508-1517`).
 
-- Composer draft/acknowledgement: (`const [input, setInput] = useState("");`, `packages/ui-react/src/components/chat/composer.tsx:62-85`).
+- Composer draft/acknowledgement: [`const [input, setInput] = useState("");`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62-L85), before #951 moved the draft into the root's draft store (`stores/draft-state.ts`).
 
-- Receipt consumption: (`if (!receipt || !pendingSend) return;`, `packages/ui-react/src/components/chat/composer.tsx:161-176`).
+- Receipt consumption: [`if (!receipt || !pendingSend) return;`](https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L161-L176), before #951 moved send settlement into the draft client (`lib/draft-client.ts`).
 
-- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:59-70`).
+- Draft announcement correlation: (`function isOurDraftAnnouncement(`, `packages/ui-react/src/connection.ts:63-74`).
 
-- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:388-434`).
+- Demux: (`const frameSessionId = (msg as { sessionId?: string }).sessionId;`, `packages/ui-react/src/connection.ts:408-454`).
 
 - History replay: (`session_history: (msg, context) => {`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:403-413`).
 
@@ -401,7 +401,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:671-715`).
 
-- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:769-799`).
+- Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:790-820`).
 
 ## Bounded follow-up ownership
 

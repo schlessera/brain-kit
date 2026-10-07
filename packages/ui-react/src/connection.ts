@@ -8,6 +8,7 @@ import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
 import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
 import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
 import { createTrackerClient } from "./lib/tracker-client.js";
+import { createDraftClient } from "./lib/draft-client.js";
 
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
@@ -41,6 +42,9 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   /** Work left running, tracked until seen (D52 §4, #948). Reads only. */
   const trackers = createTrackerClient(root);
+
+  /** Every session's own composer draft, kept on the host when it can (D52 §5, #951). */
+  const drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -294,14 +298,18 @@ export function createWebSocketClient(root: BrainUiServices) {
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
-    if (msg.type === "server_hello") trackers.hello(msg);
+    if (msg.type === "server_hello") { trackers.hello(msg); drafts.hello(msg); }
     else trackers.frame(msg);
     // The first frame of a connection settles what its host supports: a hello,
     // or anything else from a host too old to send one. Only then can queued
     // answers be revalidated and replayed.
     if (!answersReady && wsClient && wsClient.hello !== "pending") {
       // A host too old to send a hello has no recovery to offer.
-      if (wsClient.hello === "absent") root.stores.trackers.getState().setRecoverySupported(false);
+      if (wsClient.hello === "absent") {
+        root.stores.trackers.getState().setRecoverySupported(false);
+        // Nor any drafts: the line says so rather than `not saved yet` forever.
+        root.stores.drafts.getState().setSupport(false);
+      }
       answersReady = true;
       answers.connected();
     }
@@ -317,6 +325,8 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (msg.type === "retry_receipt") { handleRetryReceipt(msg); return; }
     if (msg.type === "ask_answer_receipt") { answers.receipt(msg); return; }
     if (msg.type === "session_queue") {
+      // Requests the host holds were accepted, a held send among them (#951).
+      drafts.queued(msg);
       adoptQueuedMessages(msg);
       const started = root.stores.followUp.getState().applyReport(msg);
       if (started) placeStartedFollowUp(started);
@@ -328,6 +338,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+      // Before the demux below: a new conversation's draft must already be
+      // its session's when the view follows the session there.
+      if (drafts.receipt(msg.requestId, "accepted", msg.sessionId)) state.clearChatReceipt(msg.requestId);
       // A follow-up sent as the session went idle runs at once, never queued:
       // its turn is starting now, so it is the agent's (#1002).
       if (msg.type === "session_info") {
@@ -335,8 +348,15 @@ export function createWebSocketClient(root: BrainUiServices) {
         const turnId = (msg as { turnId?: string }).turnId;
         if (started) placeStartedFollowUp({ ...started, sessionId: msg.sessionId, ...(turnId ? { turnId } : {}) });
       }
-    } else if (msg.type === "error" && msg.requestId) {
+    } else if (msg.type === "error" && !msg.requestId) {
+      drafts.error(msg);
+    }
+    if (msg.type === "error" && msg.requestId) {
       state.setChatReceipt(msg.requestId, "refused", msg.sessionId);
+      // A turn-scoped error in a session means the request ran there: it was
+      // accepted, then failed. One with no session left nothing to return to,
+      // so its words come back to the draft, as a refusal's do.
+      if (drafts.receipt(msg.requestId, msg.turnId && msg.sessionId ? "accepted" : "refused", msg.sessionId)) state.clearChatReceipt(msg.requestId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
       // A refused follow-up was never pending; the composer keeps its draft.
       // A turn-scoped error is not a refusal: the follow-up's turn started
@@ -415,6 +435,11 @@ export function createWebSocketClient(root: BrainUiServices) {
       state.addUserMessage(frameSessionId, sent.text, "handoff", undefined, { requestId: sent.requestId });
       state.startAssistantMessage(frameSessionId, undefined, sent.requestId);
       handoff.noteCreated(sent.handoffId, frameSessionId, true);
+      key = frameSessionId;
+    } else if (msg.type === "session_info" && msg.draftId && state.detachedDrafts[msg.draftId]) {
+      // A new conversation the reader left before it was answered (#951):
+      // its transcript becomes that session's, and the view stays put.
+      state.bindDetachedDraft(msg.draftId, frameSessionId);
       key = frameSessionId;
     } else if (state.draft && isOurDraftAnnouncement(state, msg)) {
       // A draft run just got its server identity: adopt the draft buffer.
@@ -739,6 +764,15 @@ export function createWebSocketClient(root: BrainUiServices) {
     retryTurn,
     checkRetryDelivery,
     reconnectNow: reconnectWebSocketNow,
+    /** Send again and Check again for a send the host never confirmed (D52 §5, #951). */
+    drafts: {
+      /** Send the held snapshot once more, under a new request id; false when it could not leave. */
+      resend: (requestId: string) => drafts.resend(requestId),
+      /** Ask the host whether it accepted the held send. Reads only. */
+      check: (requestId: string) => drafts.check(requestId),
+      /** Put the held send's text and images back into its own draft. */
+      edit: (requestId: string) => drafts.edit(requestId),
+    },
     handleServerMessage,
     answers,
     flushChatDeltas,
@@ -750,6 +784,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       disconnect();
       answers.dispose();
       trackers.dispose();
+      drafts.dispose();
       resyncSessionId = null;
       coldResumedSessionId = null;
     },

@@ -14,14 +14,18 @@ import { createFollowUpStore } from "./follow-up-state.js";
 import { createVoiceStore } from "../voice/voice-state.js";
 import { createTrackerStore } from "./tracker-state.js";
 import { createSessionListStore } from "./session-list-state.js";
+import { createDraftStore } from "./draft-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
 export function createBrainStores(env: StoreEnvironment) {
   const provider = createProviderStore(env);
   const handoff = createHandoffStore(env);
+  // Every composer's draft (D52 §5): New chat gives the new-chat view a fresh one.
+  const drafts = createDraftStore();
   return {
     provider,
-    chat: createChatStore(env, provider),
+    drafts,
+    chat: createChatStore(env, provider, drafts),
     ui: createUIStore(env),
     connection: createConnectionStore(),
     file: createFileStore(env),
