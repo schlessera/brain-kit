@@ -43,18 +43,19 @@ export function live(capture: Capture): boolean {
  *
  * `draining` belongs to whoever drains; only the drainer passes
  * `{ draining: false }`. While another hook's Done is still draining into
- * the root's one transcript buffer, a commit here leaves the buffer to that
- * drain, which hands everything in it to review once (#1223).
+ * the root's one transcript buffer, this leaves the buffer to that drain,
+ * which hands everything in it to review once (#1223), and returns false:
+ * the caller must not clear the buffer either.
  */
 export function endDictation(
   voice: VoiceStore,
   commitToReview: boolean,
   also: Partial<Pick<VoiceState, "draining">> = {},
-): void {
+): boolean {
   const { finalText, partial, reviewText, draining } = voice.getState();
-  if (commitToReview && draining && also.draining !== false) {
-    voice.setState({ connecting: false, mode: "idle", audioLevel: 0 });
-    return;
+  if (draining && also.draining !== false) {
+    voice.setState({ connecting: false, mode: "idle" });
+    return false;
   }
   const merged = [finalText, partial].filter(Boolean).join(" ").trim();
   voice.setState({
@@ -66,6 +67,7 @@ export function endDictation(
     audioLevel: 0,
     ...(commitToReview && merged ? { reviewText: reviewText ? `${reviewText} ${merged}` : merged } : {}),
   });
+  return true;
 }
 
 /**

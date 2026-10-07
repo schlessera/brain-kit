@@ -165,7 +165,9 @@ export function useDictation() {
       const capture = owned && owners.get(owned.root) === owned ? owned : null;
       // A second Done while the first still drains: the first hands
       // everything to review, this one has nothing to add.
-      if (commitToReview && capture && stopping.has(capture)) return;
+      // A Cancel then discards what that drain was handing over.
+      const ownDrain = Boolean(capture && stopping.has(capture));
+      if (commitToReview && ownDrain) return;
       // A slow connect must not open the mic after the user asked it to stop.
       const client = releaseCapture();
       if (capture) stopping.add(capture);
@@ -190,13 +192,14 @@ export function useDictation() {
 
       // What was heard joins the review text in the update that ends the
       // drain, so nothing sees the drain over and the words not yet in review.
-      endDictation(root.stores.voice, commitToReview, drained ? { draining: false } : {});
+      const handled = endDictation(root.stores.voice, commitToReview, drained || ownDrain ? { draining: false } : {});
       if (capture) {
         release(capture);
         // Ended: nothing it reports from now on is heard.
         stopping.delete(capture);
       }
-      resetCapture();
+      // Another hook's drain still owns the buffer: leave it to that drain.
+      if (handled) resetCapture();
       if (drainFailure) throw drainFailure.error;
     },
     [releaseCapture, resetCapture, root]

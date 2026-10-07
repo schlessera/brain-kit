@@ -384,6 +384,53 @@ test("a second Done while the first still drains changes nothing: the drain hand
   expect(reloads(), "no reload while busy: the transcript waits for review").toBe(0);
 });
 
+test("another hook's Done during a drain leaves the drain's words in place for it", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation: first, reloads } = await mount(root);
+  const second = renderHook(() => useDictation(), { wrapper: wrapper(root) });
+  await listen(root, first);
+  const draining = recognition();
+  act(() => webspeech.hear("Ask Nestor", true));
+  takeOver();
+
+  let stopped!: Promise<void>;
+  act(() => { stopped = first.result.current.stop(); });
+  // The second hook never started a client of its own.
+  await act(async () => { await second.result.current.stop(); });
+  expect(voice(root).finalText, "the drain's words are still in the buffer").toBe("Ask Nestor");
+  expect(reloads(), "no reload while busy: the transcript drains").toBe(0);
+
+  await act(async () => {
+    draining.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "about the ships" } }] });
+    draining.onend?.();
+    await stopped;
+  });
+  expect(voice(root).reviewText, "every word waits for review, once").toBe("Ask Nestor about the ships");
+  expect(reloads(), "no reload while busy: the transcript waits for review").toBe(0);
+});
+
+test("Escape while Done drains discards the take, words still arriving included", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation, reloads } = await mount(root);
+  await listen(root, dictation);
+  const draining = recognition();
+  act(() => webspeech.hear("Ask Nestor", true));
+  takeOver();
+
+  let stopped!: Promise<void>;
+  act(() => { stopped = dictation.result.current.stop(); });
+  await act(async () => { await dictation.result.current.stop(false); });
+  await act(async () => {
+    draining.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "about the ships" } }] });
+    draining.onend?.();
+    await stopped;
+  });
+  expect(voice(root).mode).toBe("idle");
+  expect(voice(root).reviewText, "the cancelled take does not reach review").toBe("");
+  expect(voice(root).finalText).toBe("");
+  expect(reloads(), "nothing holds it: one reload").toBe(1);
+});
+
 for (const end of ["Done", "Cancel"] as const) test(`a dictation ${end} has ended takes no late words`, async () => {
   const root = voiceRoot(deepgram);
   const { dictation } = await mount(root);
