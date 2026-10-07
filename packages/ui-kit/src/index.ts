@@ -122,6 +122,7 @@ export {
 
 /* States. */
 export { Placeholder, type PlaceholderProps } from "./states/Placeholder.js";
+export type { GhostRole, GhostSpec } from "./internal/GhostText.js";
 
 /* In-chat content blocks — the shapes an answer can take inside a transcript. */
 export { CodeBlock, type CodeBlockProps } from "./blocks/CodeBlock.js";

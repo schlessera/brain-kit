@@ -9,6 +9,7 @@ import { Receipt } from "../../src/evidence/Receipt.js";
 import { TraceSteps } from "../../src/evidence/TraceSteps.js";
 import type { ActionEmphasis, ActionKind } from "../../src/types.js";
 import { overflowing, stage, wide } from "../_stage.js";
+import { Handoff, playHandoff } from "../_ghost.js";
 
 const KINDS: ActionKind[] = [
   "approval",
@@ -234,4 +235,19 @@ export const FootLink = Default.extend({
     // The chevron would claim the card itself opens; the link replaces it.
     await expect(canvas.getAllByRole("button")).toHaveLength(1);
   },
+});
+
+/**
+ * Loading → ready (#1116). A plain 1px frame with ghost lines in each line's
+ * own role — kind, title, body, foot — and an outline slot for the icon. The
+ * approval's 2px amber border is data, so it arrives with the data; the plain
+ * frame pads a pixel more meanwhile, so the text does not move when it does.
+ */
+export const LoadingToReady = meta.story({
+  parameters: wide,
+  render: () => {
+    const { thread: _thread, ...card } = actions[0]!;
+    return <Handoff render={(loading) => <ActionCard state={loading ? "loading" : "ready"} {...card} />} />;
+  },
+  play: playHandoff,
 });

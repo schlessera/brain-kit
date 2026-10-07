@@ -189,6 +189,9 @@ export const LiveRegionsAnnounceOnce = meta.story({
  *
  * "`prefers-reduced-motion` drops `breathe` to a static dot and skeletons to
  * still bars. NOTHING CONVEYS MEANING THROUGH MOTION ALONE, so nothing is lost."
+ * Since #1116 the skeleton is ghost text, and reduced motion shows it as plain
+ * blurred text in the base colour: no sweep, no spectrum, an instant handoff,
+ * no settling tail.
  *
  * Two halves, and both are checked here against the STYLESHEET THE BROWSER
  * ACTUALLY LOADED rather than against the source file — a rule that is present
@@ -208,12 +211,15 @@ export const ReducedMotion = meta.story({
     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
       <QueueItemRow state="claimed" subject="index · omens/" meta="lease 40s" note="held by note-filer" />
       <StreamingAnswer phase="writing" target="drafting" elapsed="4.1s" />
+      <StreamingAnswer phase="searching" target="omens · 1 of 3 tools" elapsed="0.8s" text="" />
       <InlineToast text="Queued" target="3 edits" pending undoLabel="Undo" onUndo={fn()} />
     </div>
   ),
   play: async ({ canvas }) => {
     /* ── Half one: the rule is in the stylesheet the browser loaded. ─────── */
     let override: CSSKeyframesRule | null = null;
+    let ghostStill = false;
+    let handoffInstant = false;
     let mediaRules = 0;
     for (const sheet of document.styleSheets) {
       let rules: CSSRuleList;
@@ -228,6 +234,15 @@ export const ReducedMotion = meta.story({
         mediaRules += 1;
         for (const inner of rule.cssRules) {
           if (inner instanceof CSSKeyframesRule && inner.name === "breathe") override = inner;
+          if (inner instanceof CSSStyleRule && inner.selectorText === ".bk-ghost") {
+            ghostStill =
+              inner.style.animationName === "none" &&
+              inner.style.backgroundImage === "none" &&
+              inner.style.color === "var(--bk-ghost-base)";
+          }
+          if (inner instanceof CSSStyleRule && inner.selectorText.includes(".bk-ghost-out")) {
+            handoffInstant = inner.style.animationDuration === "0s";
+          }
         }
       }
     }
@@ -240,18 +255,59 @@ export const ReducedMotion = meta.story({
     await expect(override!.cssRules).toHaveLength(1);
     await expect(override!.cssRules[0]!.cssText).toContain("opacity: 1");
 
+    // Ghost text, in the same block: still, and the handoff instant.
+    await expect(ghostStill).toBe(true);
+    await expect(handoffInstant).toBe(true);
+
     /* ── Half two: nothing conveyed meaning through the motion. ──────────── */
     // The breathing dot on a claimed row means "an agent holds a lease" — and
     // the row says so in words as well.
     await expect(await canvas.findByText("claimed")).toBeVisible();
     await expect(await canvas.findByText(/lease 40s/)).toBeVisible();
 
-    // The breathing skeleton means "still arriving" — and the phase line says
-    // which phase, in the agent's own vocabulary, while it does.
+    // The ghost means "still arriving" — and the phase line says which phase,
+    // in the agent's own vocabulary, while it does.
     await expect(await canvas.findByText("drafting answer")).toBeVisible();
+    await expect(await canvas.findByText("brain_search")).toBeVisible();
 
     // The breathing toast means "not committed yet" — and it offers the Undo
     // that is the whole reason the pending state exists.
     await expect(await canvas.findByRole("button", { name: "Undo" })).toBeVisible();
+  },
+});
+
+/**
+ * LOADING IS NOT AMBIENT MOTION (#1116).
+ *
+ * "One ambient animation" still holds, word for word: `breathe` is the only
+ * thing that moves on its own for as long as a state lasts. Ghost text moves
+ * too, and it is not a second ambient animation — it is a loading state, and
+ * it ends when the data does. That is the line: an ambient motion has no end
+ * the user is waiting for; a loading state has exactly one.
+ *
+ * Checked as a rule rather than a sentence: a ghost is always inside a busy
+ * container (the thing it is waiting for), and it is gone once that container
+ * is no longer busy.
+ */
+export const LoadingIsNotAmbient = meta.story({
+  render: () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
+      <QueueItemRow view="loading" />
+      <ActionCard state="loading" />
+      <StreamingAnswer phase="searching" text="" />
+      <div data-ready="">
+        <QueueItemRow state="claimed" subject="index · omens/" />
+      </div>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const ghosts = [...canvasElement.querySelectorAll<HTMLElement>(".bk-ghost")];
+    await expect(ghosts.length).toBeGreaterThan(0);
+    for (const g of ghosts) {
+      await expect(g.closest('[aria-busy="true"]')).not.toBeNull();
+      await expect(getComputedStyle(g).animationName).not.toBe("breathe");
+    }
+    // The ready row carries no ghost: nothing loading, nothing sweeping.
+    await expect(canvasElement.querySelectorAll("[data-ready] .bk-ghost")).toHaveLength(0);
   },
 });

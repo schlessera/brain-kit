@@ -167,6 +167,14 @@ const SPECIFIED: Record<string, string> = {
   "red-mark": "#bd3b33",
   "neutral-mark": "#847c6f",
   "breathe-glow": "rgba(127,76,8,0.16)",
+  // Ghost text (#1116). The base is the issue's paper ghost; the three hues
+  // are the kit spectrum deepened, along its own hue and saturation, until
+  // each contrasts with that base as the dark pair does with #3a3d46 (amber
+  // 4.75, purple 4.26, blue 4.93). Derived for contrast parity, not drawn.
+  "ghost-base": "#c8bfac",
+  "ghost-amber": "#6d4107",
+  "ghost-purple": "#5f4685",
+  "ghost-blue": "#214d68",
   // §L3 — ActionCard kinds
   "action-tint-amber": "rgba(224,159,62,0.12)",
   "action-border-bold-amber": "rgba(127,76,8,0.4)",

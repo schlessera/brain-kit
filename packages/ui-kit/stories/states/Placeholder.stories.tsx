@@ -1,6 +1,8 @@
+import { useState } from "react";
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 
+import type { GhostRole } from "../../src/internal/GhostText.js";
 import { Placeholder } from "../../src/states/Placeholder.js";
 import type { Tone } from "../../src/types.js";
 import { CONTROL_RING, ring, Row, stage, wide } from "../_stage.js";
@@ -22,12 +24,14 @@ const meta = preview.meta({
 });
 
 /**
- * Skeleton bars, breathing on the kit's one ambient keyframe. Never a spinner:
- * "a spinner says 'wait' without saying what for."
+ * Ghost text (#1116): blurred text with the kit spectrum sweeping through it,
+ * left to right. With no `ghost`, `lines` draws neutral one-line ghosts. Never
+ * a spinner — "a spinner says 'wait' without saying what for" — and never
+ * bars. It is a loading state, not ambient motion: it ends when the data does.
  */
 export const Loading = meta.story({});
 
-/** `animate: false` freezes the same bars — the story a visual-regression
+/** `animate: false` holds the same ghost still — the story a visual-regression
  * baseline can be taken from without racing an animation. */
 export const LoadingStill = Loading.extend({ args: { animate: false } });
 
@@ -138,4 +142,118 @@ export const Tones = meta.story({
       ))}
     </>
   ),
+});
+
+/* ── Ghost text (#1116) ─────────────────────────────────────────────────── */
+
+const ROLES: { role: GhostRole; size: number; length: number }[] = [
+  { role: "sans", size: 13, length: 58 },
+  { role: "mono", size: 11, length: 26 },
+  { role: "title", size: 19, length: 22 },
+];
+
+/**
+ * Every role at one to five lines. The story projects render it on dark and
+ * on paper, so this is the roles × lines × themes matrix. A block of N lines
+ * is one ghost of N measures' length, wrapping where text of that length would.
+ */
+export const GhostRoles = meta.story({
+  parameters: wide,
+  render: () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
+      {ROLES.map(({ role, size, length }) =>
+        [1, 2, 3, 4, 5].map((n) => (
+          <Row key={`${role}-${n}`} caption={`${role} ×${n}`}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Placeholder variant="loading" seed={`${role}-${n}`} ghost={Array.from({ length: n }, () => ({ role, size, length }))} />
+            </div>
+          </Row>
+        )),
+      )}
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const ghosts = [...canvasElement.querySelectorAll<HTMLElement>(".bk-ghost")];
+    await expect(ghosts).toHaveLength(3 * 15);
+    for (const g of ghosts) {
+      await expect(g.getAttribute("aria-hidden")).toBe("true");
+      // The glyphs are drawn by the gradient, through the text.
+      await expect(getComputedStyle(g).color).toBe("rgba(0, 0, 0, 0)");
+      await expect(getComputedStyle(g).filter).toMatch(/^blur\(/);
+      await expect(getComputedStyle(g).animationName).toBe("ghost");
+    }
+  },
+});
+
+/**
+ * `arrived` hands off: the real content fades in over 600ms while the ghost
+ * fades out on top of it, then the ghost is gone. Toggle it with the button.
+ */
+export const Arrived = meta.story({
+  render: () => {
+    function Toggle() {
+      const [arrived, setArrived] = useState(false);
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+          <button type="button" onClick={() => setArrived((a) => !a)}>
+            {arrived ? "Reload" : "Arrive"}
+          </button>
+          <Placeholder variant="loading" seed="omens" ghost={[{ role: "sans", size: 12, length: 92 }]} arrived={arrived}>
+            <div style={{ font: "400 12px/1.55 var(--font-body, 'Plus Jakarta Sans',sans-serif)", color: "var(--bk-color-ink)" }}>
+              An eagle carrying a goose across the courtyard, reported by a guest at the second feast.
+            </div>
+          </Placeholder>
+        </div>
+      );
+    }
+    return <Toggle />;
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const box = () => canvasElement.querySelector<HTMLElement>("[aria-busy]");
+    await expect(box()).not.toBeNull();
+    await userEvent.click(await canvas.findByRole("button", { name: "Arrive" }));
+    await expect(box()).toBeNull();
+    const out = canvasElement.querySelector<HTMLElement>(".bk-ghost-out")!;
+    await expect(getComputedStyle(out).position).toBe("absolute");
+    await expect(getComputedStyle(out).animationName).toBe("ghost-out");
+    await expect(getComputedStyle(canvasElement.querySelector(".bk-ghost-in")!).animationName).toBe("ghost-in");
+    await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost")).toHaveLength(0), { timeout: 1000 });
+    await expect(await canvas.findByText(/An eagle carrying a goose/)).toBeVisible();
+  },
+});
+
+/** Ghosts are not printed: the print theme paints them in nothing, and a
+ * browser print hides them, keeping their box. */
+export const NotPrinted = meta.story({
+  render: () => (
+    <div data-theme="print" style={{ width: "100%" }}>
+      <Placeholder variant="loading" lines={3} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const ghosts = canvasElement.querySelectorAll<HTMLElement>(".bk-ghost");
+    await expect(ghosts).toHaveLength(3);
+    for (const g of ghosts) {
+      // Every stop resolves to transparent: no opaque `rgb(` survives.
+      await expect(getComputedStyle(g).backgroundImage).toContain("rgba(0, 0, 0, 0)");
+      await expect(getComputedStyle(g).backgroundImage).not.toContain("rgb(");
+    }
+    let printRule = false;
+    for (const sheet of document.styleSheets) {
+      let rules: CSSRuleList;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        continue; // a cross-origin sheet; none of ours are.
+      }
+      for (const rule of rules) {
+        if (rule instanceof CSSMediaRule && rule.conditionText === "print") {
+          for (const inner of rule.cssRules) {
+            if (inner instanceof CSSStyleRule && inner.selectorText === ".bk-ghost" && inner.style.visibility === "hidden") printRule = true;
+          }
+        }
+      }
+    }
+    await expect(printRule).toBe(true);
+  },
 });

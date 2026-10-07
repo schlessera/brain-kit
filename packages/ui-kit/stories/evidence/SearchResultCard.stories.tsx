@@ -4,6 +4,7 @@ import { expect, fn } from "storybook/test";
 import { query, searchHits } from "../../fixtures/search.js";
 import { SearchResultCard } from "../../src/evidence/SearchResultCard.js";
 import { stage, wide } from "../_stage.js";
+import { Handoff, playHandoff } from "../_ghost.js";
 
 const meta = preview.meta({
   title: "Evidence/SearchResultCard",
@@ -95,4 +96,17 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },
+});
+
+/**
+ * Loading → ready (#1116). The frame and the teal icon are final from the
+ * first frame; the path, score and snippet are ghosts as long as what they
+ * stand in for, so the snippet wraps into the lines it will occupy.
+ */
+export const LoadingToReady = meta.story({
+  parameters: wide,
+  render: () => (
+    <Handoff render={(loading) => <SearchResultCard view={loading ? "loading" : "ready"} {...searchHits[0]!} />} />
+  ),
+  play: playHandoff,
 });

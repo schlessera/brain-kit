@@ -77,6 +77,12 @@ const OVERRIDES: Record<string, string> = {
   "color-edge": "#a89e89",
   // Text set on an ink-solid ground is the page colour.
   "on-ink-solid": WHITE,
+  // Ghost text is a loading state, never printed (#1116): `.bk-ghost` is also
+  // hidden under print, and these make a stray one paint nothing.
+  "ghost-base": "transparent",
+  "ghost-amber": "transparent",
+  "ghost-purple": "transparent",
+  "ghost-blue": "transparent",
   // The recommended column in a comparison is data, not a wash, so it keeps
   // a fill, strong enough to stay visible in grayscale (the header about
   // 1.33:1 against white, the cells about 1.16:1).

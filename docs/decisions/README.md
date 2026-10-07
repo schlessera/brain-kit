@@ -12,7 +12,7 @@ somebody already learn the hard way?*
 | Record | What it decides |
 | --- | --- |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
-| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D52, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, and the navigation, session-tracker and per-session draft design. |
+| [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D53, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, the navigation, session-tracker and per-session draft design, and ghost-text loading. |
 | [public-website.md](public-website.md) | Why the product site uses static Astro, canonical Markdown with stable routes and separately authorized repository-controlled GitHub Pages publication. |
 | [public-visitor-paths.md](public-visitor-paths.md) | Why outbound visitor paths coexist with optional Buttondown release signup, and how the selected form, confirmation, cleanup and manual sending remain separate from launch authorization. |
 | [subject-baseline-isolation.md](subject-baseline-isolation.md) | Why incumbent composed-story pixels use a separate browser after failure captures were measured to change the actual mono fallback. |

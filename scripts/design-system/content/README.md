@@ -56,7 +56,7 @@ Three families, one job each:
 - **Focus** is a 2px `bk-color-ink` outline, offset +2 on controls and −2 on full-width rows, via `:focus-visible`. Ink, not an accent, because focus says where you are.
 - **Disabled** is opacity .45, inert and `aria-disabled`, paired with a mono line saying why.
 - **Interactive treatment appears only when a handler is passed.** A row with no `onClick` is not focusable and gets no hover.
-- **One ambient animation:** `breathe` (2s on status dots, 3s on the agent core). Nothing else moves on its own, and reduced motion makes it a still dot.
+- **One ambient animation:** `breathe` (2s on status dots, 3s on the agent core). Nothing else moves on its own, and reduced motion makes it a still dot. Loading states (`ghost`) are not ambient; they end when the data does. Reduced motion shows a ghost as plain blurred text with no spectrum, and makes its handoff instant.
 
 ## Accessibility (non-negotiable)
 
@@ -68,7 +68,7 @@ Three families, one job each:
 
 ## Loading, empty and error
 
-`Placeholder` owns all three at card level, `EmptyState` at screen level. Loading is skeleton bars on `breathe`, never a spinner. Empty is a dashed hairline plus a mono sentence saying what would be here and why it isn't. Error is a red hairline, the failure named, and a retry where one exists.
+`Placeholder` owns all three at card level, `EmptyState` at screen level. Loading is ghost text in the replaced content's type role, with the spectrum sweeping through it and a 600ms cross-fade to the real content; never a spinner, never bars. `StreamingAnswer` ghosts behind the answer until its first token, and its newest characters settle in as they stream. Empty is a dashed hairline plus a mono sentence saying what would be here and why it isn't. Error is a red hairline, the failure named, and a retry where one exists.
 
 ## Iconography
 

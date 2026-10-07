@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { GhostText, INCOMING, useArrival } from "../internal/GhostText.js";
 import { StatusDot } from "../primitives/StatusDot.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { StreamPhase } from "../types.js";
@@ -12,9 +13,13 @@ import type { StreamPhase } from "../types.js";
  * (`brain_search`, `WebFetch`, `drafting answer`), and the cost keeps counting
  * — a run that is spending money says so while it spends it.
  *
- * Partial text streams ABOVE the skeleton so the answer grows downward and
- * never reflows upward, which is what makes a long answer readable while it is
- * still being written.
+ * Before the first token the answer is ghost text (#1116): `lines` blurred
+ * prose lines at the answer's own size, the spectrum sweeping through them.
+ * The ghost sits BEHIND the text rather than below it — the first token lands
+ * where the ghost was, and the ghost fades out under it over 600ms. The answer
+ * still grows downward and never reflows upward. While it streams, its newest
+ * ~9 characters settle from 0.2 to full opacity, and keep settling after the
+ * last token, so a word arriving reads as arriving rather than as a jump.
  *
  * **`aria-live="polite"` on the phase line** is one of the design's five
  * non-negotiable rules, not a nicety: the phase is the only thing on screen
@@ -38,9 +43,10 @@ export interface StreamingAnswerProps {
   /** The answer so far. The caret sits at its end. */
   text?: string;
   cost?: string;
-  /** Skeleton bars below the partial text, 1-4. */
+  /** Ghost lines before the first token, 1-4. */
   lines?: number;
-  /** Show the skeleton. On by default. */
+  /** Show the ghost before the first token, and hold its height while the
+   * answer streams. On by default. */
   bars?: boolean;
   /** Show the Stop control. On by default. */
   stoppable?: boolean;
@@ -56,8 +62,11 @@ const PHASES: Record<StreamPhase, string> = {
   writing: "drafting answer",
 };
 
-/** Four widths, cycled, so a skeleton reads as prose rather than as a table. */
+/** Four widths, cycled, so the ghost reads as prose rather than as a table. */
 const WIDTHS = ["92%", "74%", "58%", "84%"];
+
+/** How many of the newest characters are still settling. */
+const TAIL = 9;
 
 export function StreamingAnswer(p: StreamingAnswerProps) {
   const phase = p.phase || "searching";
@@ -65,6 +74,13 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
   const text = p.text ?? "Three venues are in the corpus. Two have notes from last year";
   const canStop = p.stoppable !== false;
   const act = Boolean(p.onStop);
+  const waiting = p.bars !== false && !text;
+  const arriving = useArrival(waiting);
+  // Code points, not UTF-16 units, so the tail never splits a character.
+  const chars = Array.from(text);
+  const split = Math.max(0, chars.length - TAIL);
+  const head = chars.slice(0, split).join("");
+  const tail = chars.slice(split);
 
   function onStopKeyDown(event: KeyboardEvent<HTMLSpanElement>) {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -111,38 +127,60 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
           <span style={{ flex: "none", color: accent.neutral.ink }}>{p.elapsed ?? "1.4s"}</span>
         ) : null}
       </div>
-      {text ? (
-        <div style={{ font: `400 13.5px/1.7 ${font.body}`, color: color.ink }}>
-          {text}
-          <span
-            style={{
-              display: "inline-block",
-              width: 7,
-              height: 14,
-              marginLeft: 3,
-              verticalAlign: "text-bottom",
-              background: accent.amber.fill,
-              animation: "breathe 2s ease-in-out infinite",
-            }}
-          />
-        </div>
-      ) : null}
-      {p.bars !== false ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {Array.from({ length: lines }).map((_, i) => (
-            <span
-              key={i}
-              style={{
-                display: "block",
-                height: 9,
-                borderRadius: 5,
-                width: WIDTHS[i % WIDTHS.length],
-                background: color.line,
-                animation: "breathe 2s ease-in-out infinite",
-                animationDelay: `${(i * 0.18).toFixed(2)}s`,
-              }}
-            />
-          ))}
+      {p.bars !== false || text ? (
+        <div
+          style={{
+            position: "relative",
+            // While it streams the answer holds at least the ghost's lines, so
+            // the first token, which is shorter than the ghost, moves nothing
+            // below it; past that height it grows downward.
+            minHeight: p.bars !== false ? `${(lines * 1.7).toFixed(2)}em` : undefined,
+            font: `400 13.5px/1.7 ${font.body}`,
+            color: color.ink,
+          }}
+          aria-busy={waiting ? true : undefined}
+        >
+          {waiting || arriving ? (
+            <div
+              aria-hidden="true"
+              className={arriving ? "bk-ghost-out" : undefined}
+              style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}
+            >
+              {Array.from({ length: lines }).map((_, i) => (
+                <div key={i}>
+                  <GhostText role="sans" size={13.5} length={160} seed={`answer:${i}`} width={WIDTHS[i % WIDTHS.length]} delay={i * 0.1} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {/* Positioned, so the text paints over the ghost that precedes it.
+              The first chunk fades in over the same 600ms the ghost fades out
+              in; the tail ramp settles the newest characters on top of that. */}
+          <span className={arriving ? "bk-ghost-in" : undefined} style={INCOMING}>
+            {text ? head : null}
+            {text
+              ? tail.map((ch, i) => (
+                  // Keyed by position in the answer, so a character keeps its
+                  // ramp as later tokens push it out of the tail.
+                  <span key={split + i} className="bk-ghost-tail">
+                    {ch}
+                  </span>
+                ))
+              : null}
+            {text ? (
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 14,
+                  marginLeft: 3,
+                  verticalAlign: "text-bottom",
+                  background: accent.amber.fill,
+                  animation: "breathe 2s ease-in-out infinite",
+                }}
+              />
+            ) : null}
+          </span>
         </div>
       ) : null}
       {canStop ? (
