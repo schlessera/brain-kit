@@ -413,9 +413,23 @@ export function createWebSocketClient(root: BrainUiServices) {
     // Frames without a sessionId (legacy single-session servers, or a new
     // session's pre-binding frames) apply to the buffer in view.
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
+    // A resume the host could not serve answers with an error and no status:
+    // nothing will say whether the turn still runs (#1013).
+    const failedReattach = msg.type === "error" && reattachSessionId !== null && frameSessionId === reattachSessionId;
+    if (failedReattach) reattachSessionId = null;
     if (msg.type === "status" && reattachSessionId !== null) {
       // The host's own answer for the session being reattached settles it.
-      if (frameSessionId === reattachSessionId) reattachSessionId = null;
+      if (frameSessionId === reattachSessionId) {
+        reattachSessionId = null;
+        // Running, but another turn than the answer kept live (it ended
+        // while the page was away and a queued follow-up started): that
+        // answer is finished, and the new turn's text starts its own.
+        const live = state.buffers[frameSessionId]?.messages.at(-1);
+        const turnId = (msg as { turnId?: string }).turnId;
+        if (msg.status !== "idle" && msg.status !== "cancelled" && turnId && live?.isStreaming && live.turnId && live.turnId !== turnId) {
+          state.finishAssistantMessage(frameSessionId);
+        }
+      }
       // The host greets every connection with an unscoped idle, also while
       // this session's turn is still running beside others. That greeting is
       // not about the session in view; the reattach's answer is (#1013).
@@ -500,6 +514,11 @@ export function createWebSocketClient(root: BrainUiServices) {
       coldResumeIfNeeded,
       markHistoryReplaced,
     });
+    // After the error has been drawn as it would be anyway: a stream still
+    // open has no answer coming, so it ends here rather than never.
+    if (failedReattach && root.stores.chat.getState().buffers[frameSessionId!]?.isStreaming) {
+      root.stores.chat.getState().finishAssistantMessage(frameSessionId!);
+    }
   }
 
   /**

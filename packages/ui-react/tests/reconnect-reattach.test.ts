@@ -101,6 +101,52 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)).toMatchObject({ content: `${SIRENS} Landed.`, isStreaming: false });
   });
 
+  test("a turn that ended away, with a queued follow-up now running, ends the kept answer; the new turn's text is its own", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    // The answer in view belongs to turn-1, still streaming as far as the page knows.
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing on.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "status", status: "idle", detail: "Connected to Brain" });
+    // The host: turn-1 ended, the follow-up's user message, and turn-2 running.
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [
+      ...history(SIRENS),
+      { role: "assistant", content: "Rowing on. Landed.", toolCalls: [], turnId: "turn-1" },
+      { role: "user", content: "Then bind me to the mast", toolCalls: [] },
+    ] });
+    expect(buffer(root).isStreaming, "a message after the answer ends it").toBe(false);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+    const messages = buffer(root).messages;
+    expect(messages.map((m) => m.content).slice(-3)).toEqual(["Rowing on. Landed.", "Then bind me to the mast", "Bound."]);
+  });
+
+  test("a kept answer whose turn the host reports replaced ends, though nothing follows it yet", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing on.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [...history(SIRENS), { role: "assistant", content: "Rowing on.", toolCalls: [], turnId: "turn-1" }] });
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    expect(buffer(root).isStreaming, "turn-1's answer is over").toBe(false);
+  });
+
+  test("a resume the host could not serve does not leave the stream open forever", () => {
+    const { root, socket } = running();
+    // An answer that knows its turn: a turnless load error is not drawn on it.
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing on.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "status", status: "idle", detail: "Connected to Brain" });
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: "Failed to load session", sessionId: "s1" });
+    expect(buffer(root).isStreaming).toBe(false);
+  });
+
   test("once the host has answered, a later unscoped idle is the session in view's again", () => {
     const { root, socket } = running();
     const next = reconnect(root, socket);

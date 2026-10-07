@@ -578,7 +578,9 @@ function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessa
  * history says whether the turn is still running, and only that ends it.
  */
 function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<SessionChat, "messages" | "isStreaming"> {
-  const lastAssistant = next.findLastIndex((m) => m.role === "assistant");
+  // Only the transcript's tail can still be streaming: a message after it
+  // (a follow-up that started) means its turn is over.
+  const tail = next.length - 1;
   let streaming = false;
   const messages = next.map((m, i) => {
     const old = previous.messages[i];
@@ -592,7 +594,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<Ses
       && (live || old.toolCalls.length === m.toolCalls.length);
     const sameTurn = !old.turnId || !m.turnId || old.turnId === m.turnId;
     if (!same || !sameTools || !sameTurn) return m;
-    if (live && i === lastAssistant) {
+    if (live && i === tail) {
       streaming = true;
       return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };
     }
