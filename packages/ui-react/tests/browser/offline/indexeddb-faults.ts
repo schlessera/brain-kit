@@ -12,8 +12,8 @@
  * - `{ next: true }`: the next write fails, later ones succeed again.
  * - `{ afterBytes: n }`: writes succeed until the bytes committed since
  *   installing, plus those in transactions still open, would pass `n`; that
- *   write and every one after it fail, a smaller one too. A transaction that
- *   aborts for any reason gives its bytes back.
+ *   write and every one after it fail, a smaller one too. A write that fails or
+ *   throws, and a transaction that aborts for any reason, give their bytes back.
  *
  * Bytes are an estimate of the stored value: Blob and buffer sizes, string
  * lengths at two bytes a character, eight per number. Cursor `update` is not
@@ -56,39 +56,59 @@ function estimate(value: unknown, seen = new Set<object>()): number {
 
 export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
   const proto = IDBObjectStore.prototype;
-  const original = { put: proto.put, add: proto.add };
+  const txProto = IDBTransaction.prototype;
+  const original = { put: proto.put, add: proto.add, abort: txProto.abort };
   let failures = 0;
   let committed = 0;
   let armed = true;
   let full = false;
-  /** Bytes written by transactions that have not finished yet. */
-  const pending = new Map<IDBTransaction, number>();
-  // A transaction that failed has `error` set before any abort listener runs,
-  // and the caller's own `onabort` (registered first) may already be writing
-  // again by the time this file's listener hears the abort.
-  const inFlight = () => [...pending].reduce((sum, [tx, n]) => sum + (tx.error ? 0 : n), 0);
+  /**
+   * Each accepted write's bytes, per transaction still open. A write whose
+   * request fails is released at once, so is a whole transaction the moment
+   * it fails (`error` set) or anyone calls `abort()`: those bytes never
+   * commit, and a caller's own handler (registered before this file's) may
+   * already be writing again.
+   */
+  const open = new Map<IDBTransaction, Array<{ size: number; released: boolean }>>();
+  const reserved = () => {
+    let sum = 0;
+    for (const [tx, writes] of open) if (!tx.error) for (const w of writes) if (!w.released) sum += w.size;
+    return sum;
+  };
 
-  function track(tx: IDBTransaction, size: number) {
-    if (!pending.has(tx)) {
-      pending.set(tx, 0);
-      tx.addEventListener("complete", () => { committed += pending.get(tx) ?? 0; pending.delete(tx); });
-      tx.addEventListener("abort", () => pending.delete(tx));
+  function reserve(tx: IDBTransaction, req: IDBRequest, size: number) {
+    let writes = open.get(tx);
+    if (!writes) {
+      const list: Array<{ size: number; released: boolean }> = [];
+      writes = list;
+      open.set(tx, list);
+      tx.addEventListener("complete", () => {
+        for (const w of list) if (!w.released) committed += w.size;
+        open.delete(tx);
+      });
+      tx.addEventListener("abort", () => open.delete(tx));
     }
-    pending.set(tx, pending.get(tx)! + size);
+    const write = { size, released: false };
+    writes.push(write);
+    // A failed request stores nothing, even if its handler lets the transaction complete.
+    req.addEventListener("error", () => { write.released = true; });
   }
 
   function write(kind: "put" | "add") {
     return function faulted(this: IDBObjectStore, value: unknown, key?: IDBValidKey): IDBRequest<IDBValidKey> {
       const size = estimate(value);
-      // Past the threshold the origin stays full, even for a smaller write.
-      const fail = "next" in fault ? armed : (full ||= committed + inFlight() + size > fault.afterBytes);
+      const fail = "next" in fault ? armed : full || committed + reserved() + size > fault.afterBytes;
+      // The native call validates first: a write it refuses (a missing key, an
+      // inactive transaction) throws here and leaves the fault untouched.
       const req = original[kind].call(this, value, key);
       const tx = this.transaction;
       if (!fail) {
-        track(tx, size);
+        reserve(tx, req, size);
         return req;
       }
+      // Past the threshold the origin stays full, even for a smaller write.
       if ("next" in fault) armed = false;
+      else full = true;
       failures++;
       const error = new DOMException("The quota has been exceeded.", "QuotaExceededError");
       // Registered before the caller can add its own handlers: the caller still
@@ -102,6 +122,10 @@ export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
   }
   proto.put = write("put");
   proto.add = write("add");
+  txProto.abort = function abortReleasing(this: IDBTransaction) {
+    original.abort.call(this);
+    open.delete(this);
+  };
 
   return {
     get failures() { return failures; },
@@ -109,6 +133,7 @@ export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
     restore() {
       proto.put = original.put;
       proto.add = original.add;
+      txProto.abort = original.abort;
     },
   };
 }

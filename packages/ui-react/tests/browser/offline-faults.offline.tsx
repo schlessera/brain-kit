@@ -286,7 +286,16 @@ test("a write that never commits gives its bytes back to the threshold", async (
   expect(await transact(db, (s) => s.add(note("a")))).toBe("complete");
   // A duplicate key: the transaction aborts and stores nothing.
   expect(await transact(db, (s) => s.add(note("a")))).toBe("abort:ConstraintError");
-  expect(await transact(db, (s) => s.add(note("b")))).toBe("complete");
+  // A duplicate key whose error is handled: the transaction completes without it.
+  expect(await transact(db, (s) => { s.add(note("a")).onerror = (e) => e.preventDefault(); })).toBe("complete");
+  // A write the store refuses outright, larger than the whole budget: no key.
+  expect(await transact(db, (s) => { expect(() => s.add({ text: "x".repeat(400) })).toThrow(); })).toBe("complete");
+  // The caller aborts, and writes again before any abort event.
+  const aborted = db.transaction("notes", "readwrite");
+  aborted.objectStore("notes").add(note("c"));
+  aborted.abort();
+  const retry = transact(db, (s) => s.add(note("b")));
+  expect(await retry).toBe("complete");
   expect(await notes(db)).toEqual(["a", "b"]);
   expect(quota.failures).toBe(0);
 });
