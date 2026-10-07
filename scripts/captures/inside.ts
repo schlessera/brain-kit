@@ -5,6 +5,7 @@ import { readCatalogue } from "./catalogue.ts";
 import { CAPTURE_BROWSER_ARGUMENTS, captureStill, launchCaptureBrowser, startStaticServer } from "./browser.ts";
 import { captureDemo } from "./demo.ts";
 import { captureRuntime } from "./runtime.ts";
+import { checkStorybookLayout } from "./storybook-layout.ts";
 import { sha256,variantFile } from "./provenance.ts";
 
 export interface CaptureJob {
@@ -36,6 +37,7 @@ async function run(): Promise<void> {
   const artifacts: Array<Record<string, unknown>> = [];
   try {
     browser = await launchCaptureBrowser();
+    await checkStorybookLayout(browser, root, cache, catalogue, server.origin);
     const browserEvidence = {
       version: browser.version(),
       executable_sha256: sha256(await readFile(chromium.executablePath())),
