@@ -85,6 +85,24 @@ describe("the root's track queues, as one", () => {
     } finally { root.dispose(); }
   });
 
+  test("a composer reopening a queue is no change: its entry keeps its place", async () => {
+    const { root, uploads } = rootWithUploads();
+    try {
+      const queue = tracksFor(root, trackKey(null, "d-pylos")).uploads;
+      queue.add([gpx("day-3.gpx")]);
+      uploads[0]!.resolve(Response.json({ files: [trackView().file] }));
+      await flush();
+      expect(queue.files[0]!.state).toBe("ready");
+      const at = stagedTrackViews(root)[0]!.changedAt;
+      await Bun.sleep(5);
+      // What a composer does as it mounts on that view: reports the connection.
+      queue.setOnline(true);
+      expect(stagedTrackViews(root)[0]!.changedAt, "nothing changed").toBe(at);
+      queue.add([gpx("day-4.gpx")]);
+      expect(stagedTrackViews(root)[0]!.changedAt, "an add is a change").toBeGreaterThan(at);
+    } finally { root.dispose(); }
+  });
+
   test("rows come only from this root's queues", () => {
     const a = rootWithUploads().root;
     const b = rootWithUploads().root;

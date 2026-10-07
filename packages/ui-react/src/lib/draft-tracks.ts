@@ -41,9 +41,13 @@ export function tracksFor(root: BrainUiServices, key: string): Entry {
   let entry = reg.entries.get(key);
   if (!entry) {
     const listeners = new Set<() => void>();
+    // The queue's tracks and their states: a notice that changes neither
+    // (a composer reopening it reports its connection) is no change.
+    let seen = "";
     const created: Entry = {
       uploads: createTrackUploads(root.request, apiBaseFor(root.config), () => {
-        created.changedAt = Date.now();
+        const now = created.uploads.files.map((t) => `${t.id}:${t.state}`).join("\n");
+        if (now !== seen) { seen = now; created.changedAt = Date.now(); }
         for (const l of listeners) l();
         changed(reg);
       }),
