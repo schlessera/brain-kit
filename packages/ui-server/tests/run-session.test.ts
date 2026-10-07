@@ -526,12 +526,12 @@ describe("runSession", () => {
 
     expect(host.coordinator.startingSessions).toBe(0);
     expect(host.coordinator.running.size).toBe(0);
-    expect(sent).toContainEqual({
+    expect(sent.filter((message) => message.type === "error")).toEqual([{
       type: "error",
       code: "BACKEND_ERROR",
       message: "profile roster unavailable",
       sessionId: "session-1",
-    });
+    }]);
     expect(observability.metrics.value("turns.failed", { code: "BACKEND_ERROR" })).toBe(1);
   });
 
