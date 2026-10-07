@@ -152,6 +152,7 @@ describe("an approval decision records its channel", () => {
     const cards = (sock: ReturnType<typeof fakeSocket>) =>
       sock.frames().filter((f) => f.type === "tool_approval_request");
     const otherBefore = cards(other).length;
+    expect(otherBefore).toBe(1);
     s.send({ type: "tool_approval", toolUseId: "t1", channel: "voice", turnId });
     s.send({ type: "tool_approval", toolUseId: "t1", always: true, channel: "voice", turnId });
     s.send({

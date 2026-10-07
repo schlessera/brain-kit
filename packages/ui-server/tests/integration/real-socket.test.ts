@@ -12,7 +12,7 @@
  * other side is believed to send; this one puts the two shipped
  * implementations on opposite ends of a socket.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -225,18 +225,22 @@ describe("rev-3 negotiation end to end", () => {
     // The deprecation window's whole mechanism: without a client_hello the
     // server cannot tell a current client from a two-year-old one, so no
     // field could ever be made mandatory.
-    const { url, observability } = await start();
+    const { url, observability, app } = await start();
+    const acceptedHello = spyOn(app.wsHost.clients, "setCapabilities");
     const client = new BrainUiClient({ url, handlers: { onAny: () => {} } });
     client.connect();
 
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline && !client.isConnected) await Bun.sleep(20);
-    await Bun.sleep(100);
-
-    // Accepted silently — a hello is not answered, and must not be counted as
-    // a dropped frame.
-    expect(observability.metrics.total("ws.frames.dropped")).toBe(0);
-    expect(client.protocolRev).toBe(PROTOCOL_REV);
-    client.close();
+    try {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline && !client.isConnected) await Bun.sleep(20);
+      while (Date.now() < deadline && acceptedHello.mock.calls.length === 0) await Bun.sleep(5);
+      expect(acceptedHello).toHaveBeenCalledTimes(1);
+      expect(acceptedHello.mock.calls[0][1]).toMatchObject({ askReceipts: true, followUpQueue: true });
+  
+      // Accepted silently — a hello is not answered, and must not be counted as
+      // a dropped frame.
+      expect(observability.metrics.total("ws.frames.dropped")).toBe(0);
+      expect(client.protocolRev).toBe(PROTOCOL_REV);
+    } finally { acceptedHello.mockRestore(); client.close(); }
   });
 });
