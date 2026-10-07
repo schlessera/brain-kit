@@ -1925,6 +1925,39 @@ describe("useServiceWorkerUpdates", () => {
     expect(reloads, "never a second").toBe(1);
     root.dispose();
   });
+
+  for (const last of ["draft", "track"] as const) test(`a replaced root's own ${last} change is the one that releases a waiting update`, async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    const never = () => new Promise<Response>(() => {});
+    const ithaca = createBrainUiRoot({ storage: null, request: never });
+    const pylos = createBrainUiRoot({ storage: null, request: never });
+    const track = tracksFor(pylos, trackKey(null, pylos.stores.drafts.getState().fresh)).uploads;
+    track.add([new File(["{}"], "pylos-harbour.gpx")]);
+    const letter = pylos.stores.drafts.getState().idFor("odysseus-raft");
+    pylos.stores.drafts.getState().edit(letter, "odysseus-raft", { text: "Ask Nestor about the ships" });
+    let reloads = 0;
+    function Guard() {
+      useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ });
+      return null;
+    }
+    // The same hook instance, its provider's root replaced under it.
+    const view = render(<BrainUiProvider root={ithaca}><Guard /></BrainUiProvider>);
+    view.rerender(<BrainUiProvider root={pylos}><Guard /></BrainUiProvider>);
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "Pylos holds a track and an unsaved draft").toBe(0);
+    const releaseTrack = () => act(() => track.remove(track.files[0]!.id));
+    const releaseDraft = () => act(() => pylos.stores.drafts.getState().edit(letter, "odysseus-raft", { text: "" }));
+    if (last === "draft") releaseTrack(); else releaseDraft();
+    expect(reloads, "the other still holds it").toBe(0);
+    if (last === "draft") releaseDraft(); else releaseTrack();
+    expect(reloads, "Pylos's own change released it").toBe(1);
+    view.unmount();
+    ithaca.dispose();
+    pylos.dispose();
+  });
 });
 
 describe("MarkdownContent", () => {
