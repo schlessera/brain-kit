@@ -236,9 +236,10 @@ test("offline, the mic is labelled for a recording on the device", async (ctx) =
 
 test("with the host reachable, the mic still runs the streaming dictation through POST /api/voice/session", async (ctx) => {
   const s = await mount(ctx, { online: true });
-  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Dictate");
+  await expect.poll(() => mic(s), { message: "the composer has a mic" }).not.toBe(null);
   await userEvent.click(mic(s)!);
   await expect.poll(() => FixtureAsr.started, { message: "the existing dictation client started" }).toBe(1);
+  expect(mic(s)?.getAttribute("aria-label")).toBe("Stop dictation");
   expect(s.requests.filter((r) => r.path.endsWith("/voice/session")), "the voice session was requested").toEqual([{ path: "/api/voice/session", method: "POST" }]);
   expect(s.ui.stores.voice.getState().mode).toBe("dictate");
   expect(phase(s)).toBe("idle");
@@ -302,7 +303,7 @@ test("a recording on the device survives losing and regaining the host, and a di
 
 test("a refused microphone shows the denial, keeps focus on the mic and leaves the draft editable", async (ctx) => {
   const s = await mount(ctx, { gum: async () => { throw new DOMException("Permission denied", "NotAllowedError"); } });
-  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Record on this device");
+  await expect.poll(() => mic(s), { message: "the composer has a mic" }).not.toBe(null);
   const button = mic(s)!;
   await userEvent.click(button);
   await expect.poll(() => notice(s)?.textContent, { message: "the denial copy" })
