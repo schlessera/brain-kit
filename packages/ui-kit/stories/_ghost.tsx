@@ -64,8 +64,28 @@ export async function playHandoff({
   const ghostRects = loading.map((f) => f.getBoundingClientRect());
   const ghostAfter = afters(canvasElement);
 
+  const trace: Record<string, unknown>[] = [];
+  const started = performance.now();
+  const record = (stage: string, detail: Record<string, unknown> = {}) => trace.push({stage, ms: performance.now() - started, ...detail});
+  let last = "";
+  const snapshot = () => {
+    const state = frames(canvasElement).map(f => ({busy:f.getAttribute("aria-busy"), ghosts:f.querySelectorAll(".bk-ghost").length, out:f.querySelectorAll(".bk-ghost-out").length, incoming:f.querySelectorAll(".bk-ghost-in").length}));
+    const key = JSON.stringify(state);
+    if (key !== last) {last=key; record("dom",{state});}
+  };
+  const observe = new MutationObserver(snapshot);
+  observe.observe(canvasElement,{childList:true,subtree:true,attributes:true,attributeFilter:["class","aria-busy"]});
+  const click = (e: Event) => record("click",{target:(e.target as HTMLElement).textContent});
+  const animation = (e: Event) => { const a=e as AnimationEvent; if (/ghost-(in|out)$/.test(a.animationName)) record(e.type,{name:a.animationName,elapsed:a.elapsedTime,width:(e.target as HTMLElement).closest("[data-width]")?.getAttribute("data-width")}); };
+  canvasElement.addEventListener("click",click,true);
+  canvasElement.addEventListener("animationstart",animation,true);
+  canvasElement.addEventListener("animationend",animation,true);
+  snapshot();
+  try {
   const landed = performance.now();
+  record("before-land");
   await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
+  record("click-completed");
   const arriving = frames(canvasElement);
   const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
   for (const [i, f] of arriving.entries()) {
@@ -77,8 +97,10 @@ export async function playHandoff({
   }
   for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
 
+  record("geometry-completed");
   // Mid-handoff, both layers are part-way: the ghost going, the text coming.
   await new Promise((r) => setTimeout(r, 300));
+  record("midpoint");
   const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
   const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
   await expect(out).toBeGreaterThan(0);
@@ -90,5 +112,13 @@ export async function playHandoff({
     timeout: 1000,
     interval: 20,
   });
+  record("final-observation",{duration:performance.now()-landed});
   await expect(performance.now() - landed).toBeLessThan(700);
+  } finally {
+    observe.disconnect();
+    canvasElement.removeEventListener("click",click,true);
+    canvasElement.removeEventListener("animationstart",animation,true);
+    canvasElement.removeEventListener("animationend",animation,true);
+    console.info("HANDOFF_TRACE",JSON.stringify(trace));
+  }
 }
