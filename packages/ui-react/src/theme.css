@@ -691,3 +691,19 @@ a.bk-plink:focus-visible {
   outline: 2px solid var(--bk-focus-ring) !important;
   outline-offset: -2px;
 }
+
+/* #1142: the kit owns the code shell; highlighted bodies are a deliberate
+ * exception to decision-only colour. Only chat code bodies receive this theme. */
+[data-chat-code] pre { border: 0; border-radius: 0; }
+[data-chat-code] pre .hljs-keyword,
+[data-chat-code] pre .hljs-selector-tag { color: var(--bk-purple-ink); }
+[data-chat-code] pre .hljs-string,
+[data-chat-code] pre .hljs-regexp,
+[data-chat-code] pre .hljs-addition { color: var(--bk-teal-ink); }
+[data-chat-code] pre .hljs-number,
+[data-chat-code] pre .hljs-literal { color: var(--bk-gold-ink); }
+[data-chat-code] pre .hljs-title,
+[data-chat-code] pre .hljs-section { color: var(--bk-blue-ink); }
+[data-chat-code] pre .hljs-comment,
+[data-chat-code] pre .hljs-quote { color: var(--bk-color-ink-mute); font-style: italic; }
+[data-chat-code] pre .hljs-deletion { color: var(--bk-red-ink); }

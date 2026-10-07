@@ -15,9 +15,9 @@ const meta = preview.meta({
 });
 
 /**
- * Something to run or paste. Deliberately not syntax-highlighted: mono type
- * already means "machine" in this app, and colour is reserved for decisions.
- * The copy glyph is decorative — `ui-kit` has no browser globals to copy with.
+ * Something to run or paste. The pure kit does not run a highlighter or draw
+ * an action without a host handler. Conversation/Code fence theme shows the
+ * actual chat's highlighted body and copy control in both toolbar themes.
  */
 export const Default = meta.story({});
 

@@ -240,3 +240,11 @@ describe("a message with blocks", () => {
     expect(sr.style.clipPath).toBe("inset(50%)");
   });
 });
+
+
+test("shared ordinary code fences preserve complete raw commands and markup in PNG and PDF requests", async () => {
+  const source = 'brain search "Scylla" --path ' + 'knowledge/'.repeat(24) + '--final-argument\n<b>Odysseus</b>\n[[circe|guide]]';
+  const message = { id: "code-share", role: "assistant", content: '```bash\n' + source + '\n```', parts: [], toolCalls: [], isStreaming: false, timestamp: 0 } as ChatMessage;
+  expect(source.length).toBeGreaterThan(200);
+  for (const format of ["png", "pdf"] as const) expect(await sentBody(message, format)).toMatchObject({ content: message.content, contentType: "markdown", format });
+});

@@ -290,3 +290,10 @@ of branch reveals, hidden nodes, answers set aside and the remaining count.
 make Send and Attach unavailable while capture is active. Its mic is labelled
 “Stop dictation” and still calls `onMic`; the consumer owns capture, draining
 and review. Other composer states keep their existing behavior.
+
+
+`CodeBlock` renders only supplied content: pass `code` or pre-rendered
+`children`, `lang` when a language tag is wanted, and an `action` for a real
+head control. It has no sample command, default language or decorative copy
+control. Clipboard access and highlighting belong to the host. `wrap={false}`
+retains native keyboard-accessible horizontal scrolling.

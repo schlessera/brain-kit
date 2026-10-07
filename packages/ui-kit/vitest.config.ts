@@ -6,7 +6,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
-import { formViewport, formConsumerStyles, htmlPreviewFixture } from "./tests/visual/form-browser.ts";
+import { formViewport, formConsumerStyles, htmlPreviewFixture, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
@@ -99,7 +99,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts },
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "chromium" }],

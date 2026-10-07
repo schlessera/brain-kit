@@ -12,3 +12,6 @@
  * fourteen packages at once. This declares exactly what is needed.
  */
 declare module "*.css";
+
+/** Shipped consumer CSS, scoped within the integration preview. */
+declare module "*.css?raw" { const text: string; export default text; }

@@ -358,3 +358,12 @@ and only supplied edges. A complete textual node/edge list provides the
 accessible equivalent; accepted local file paths open the current root's
 viewer. Replay and static exports retain all nodes and edges, with no file
 controls in static output and no lookup needed to draw a graph.
+
+
+Markdown fences compose the kit `CodeBlock` with a permanent 44px head Copy
+control. Copy uses source text rather than linkified DOM text. The lazy
+highlighter soft-fails to the same plain source; its chat-only token theme
+works in dark and paper. Mermaid keeps its dedicated renderer. Long lines
+wrap for narrow transcripts, and exports retain the original fence content.
+The Storybook `Conversation/Code fence theme` preview uses the actual consumer
+renderer and shipped CSS within an isolated shadow root.
