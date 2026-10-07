@@ -67,7 +67,7 @@ describe("ranking exchange", () => {
     expect(view.container.querySelector("[aria-live]")?.textContent).toContain("Journey 1 dropped below the top 2");
     expect(view.container.textContent).toContain("only your top 2 count");
     fireEvent.click(view.getByRole("button", { name: "Submit order" }));
-    expect(view.sent[0]?.order).toHaveLength(6);
+    expect(view.sent[0]?.order).toEqual([IDS[5]!, ...IDS.slice(0, 5)]);
   });
   test("Reset and Undo restore their exact orders; returning to the initial order says Keep", () => {
     const view = mount();
