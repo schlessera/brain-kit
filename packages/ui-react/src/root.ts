@@ -4,7 +4,7 @@ import { createBrainUiConfig, type BrainUiConfig } from "./config.js";
 import { createBrainApi, type BrainApi } from "./lib/api-client.js";
 import { apiBaseFor, getBackendUrlFor, getWsUrlFor } from "./lib/backend.js";
 import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
-import { createWebSocketClient } from "./connection.js";
+import { createWebSocketClient, dropConnectionContext, restoreConnectionContext } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
 import { disposeTracks, tracksFor, subscribeAllTracks, trackKey, trackRefs } from "./lib/draft-tracks.js";
@@ -191,8 +191,8 @@ export function createRoot(
     });
   }
   services.authLock = authLock = createAuthLock(services, {
-    drop: () => connection.lockContext(),
-    restore: () => connection.restoreContext(),
+    drop: () => dropConnectionContext(services),
+    restore: () => { restoreConnectionContext(services); root.answers = connection.answers; },
   });
   const connection = createWebSocketClient(services);
   const root = Object.assign(services, {
@@ -213,6 +213,5 @@ export function createRoot(
       vpnRecheck = null;
     },
   });
-  Object.defineProperty(root, "answers", { get: () => connection.answers });
   return root;
 }

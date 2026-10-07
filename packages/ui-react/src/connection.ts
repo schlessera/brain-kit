@@ -10,6 +10,12 @@ import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
 import { createTrackerClient } from "./lib/tracker-client.js";
 import { createDraftClient } from "./lib/draft-client.js";
 
+const authLifecycles = new WeakMap<object, { drop(): void; restore(): void }>();
+/** @internal Called only after the gate removes protected views. */
+export function dropConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.drop(); }
+/** @internal Called after confirmed same-account work restore. */
+export function restoreConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.restore(); }
+
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
   let disposed = false;
@@ -780,20 +786,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       edit: (requestId: string) => drafts.edit(requestId),
     },
     handleServerMessage,
-    get answers() { return answers; },
-    /** @internal Drop client-owned account payloads, without deleting persisted work. */
-    lockContext() {
-      disconnect();
-      answers.dispose(); trackers.dispose(); drafts.dispose();
-      for (const timer of retryTimers.values()) clearTimeout(timer);
-      retryTimers.clear(); followUpRefresh.clear(); resyncSessionId = null;
-    },
-    /** @internal Same-account restore gives the remounted app fresh clients. */
-    restoreContext() {
-      answers = makeAnswers(); void answers.start();
-      trackers = createTrackerClient(root);
-      drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
-    },
+    answers,
     flushChatDeltas,
     dispose() {
       if (disposed) return;
@@ -808,5 +801,18 @@ export function createWebSocketClient(root: BrainUiServices) {
       coldResumedSessionId = null;
     },
   };
+  authLifecycles.set(root.stores, {
+    drop() {
+      disconnect();
+      answers.dispose(); trackers.dispose(); drafts.dispose();
+      for (const timer of retryTimers.values()) clearTimeout(timer);
+      retryTimers.clear(); followUpRefresh.clear(); resyncSessionId = null;
+    },
+    restore() {
+      answers = makeAnswers(); client.answers = answers; void answers.start();
+      trackers = createTrackerClient(root);
+      drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
+    },
+  });
   return client;
 }
