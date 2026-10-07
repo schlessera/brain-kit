@@ -22,8 +22,11 @@ export const htmlPreviewFixture: BrowserCommand<[string | null, string?], void> 
   await ctx.page.unroute("**/api/files/html?*");
   if (path === null) return;
   if (!html) throw new Error("HTML preview fixture must contain a document");
+  const fixtureOrigin = new URL(ctx.page.url()).origin;
   await ctx.page.route("**/api/files/html?*", async (route) => {
-    const requested = new URL(route.request().url()).searchParams.get("path");
+    const url = new URL(route.request().url());
+    if (url.origin !== fixtureOrigin) { await route.abort(); return; }
+    const requested = url.searchParams.get("path");
     await route.fulfill(requested === path
       ? { status: 200, contentType: "text/html", body: html }
       : { status: 404, contentType: "text/plain", body: "Unknown fixture file" });
