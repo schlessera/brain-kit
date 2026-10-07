@@ -36,6 +36,10 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
     // the same; reads started under the old epoch are refused by root.request.
     for (const [name, store] of Object.entries(root.stores)) {
       if (name === "connection") continue;
+      // These two initial states include boot-time persisted account metadata.
+      // Drop it from the reset target as well as the live state.
+      if (name === "chat") Object.assign(store.getInitialState(), { activeSessionId: null, turnRetries: {} });
+      if (name === "trackers") Object.assign(store.getInitialState(), { records: {}, evidence: {}, principalKey: null });
       (store as StoreApi<unknown>).setState(store.getInitialState(), true);
     }
   }

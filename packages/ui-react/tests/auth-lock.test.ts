@@ -4,6 +4,7 @@ import type { LocalWork } from "../src/lib/local-work.js";
 import { createBrainApi } from "../src/lib/api-client.js";
 import type { BrainApi } from "../src/lib/api-client.js";
 import { updateHeld } from "../src/lib/update-holds.js";
+import { TRACKER_STORAGE_KEY } from "../src/lib/trackers.js";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -107,5 +108,28 @@ test("only the exact account-confirmation route remains readable while locked",a
   await expect(root.request("/api/files?path=/api/vpn-check")).rejects.toMatchObject({name:"AbortError"});
   expect(requests,"a protected URL containing the probe name is never dispatched").toEqual([]);
   expect(await (await root.request("/api/vpn-check")).json(),"the actual confirmation route is available").toEqual({accountKey:"odysseus-key"});
+ } finally {root.dispose();}
+});
+
+test("lock cannot reintroduce account metadata captured in a persisted boot state",async()=>{
+ const session="odysseus-sirens";
+ const data=new Map([
+  ["brain-sessionId",session],
+  ["brain-turn-retries",JSON.stringify({[session]:{requestId:"odysseus-request",failedTurnId:"odysseus-turn",state:"waiting"}})],
+  [TRACKER_STORAGE_KEY,JSON.stringify({v:1,principalKey:"odysseus-principal",trackers:[{sessionId:session,requestId:"odysseus-request",turnId:"odysseus-turn",revision:1,leftAt:1,seen:null}]})],
+ ]);
+ const storage={getItem:(key:string)=>[...data].find(([suffix])=>key.endsWith(suffix))?.[1]??null,setItem(){},removeItem(){}} as unknown as Storage;
+ const root=createBrainUiRoot({storage});
+ try {
+  expect(Object.keys(root.stores.trackers.getState().records),"boot tracker fixture is nonempty").toEqual([session]);
+  expect(Object.keys(root.stores.chat.getState().turnRetries)).toEqual([session]);
+  expect(root.stores.chat.getState().activeSessionId).toBe(session);
+  work(root,async()=>true); await lock(root);
+  expect(root.stores.trackers.getState().records,"persisted trackers stay dropped after lock").toEqual({});
+  expect(root.stores.trackers.getState().evidence).toEqual({});
+  expect(root.stores.trackers.getState().principalKey).toBeNull();
+  expect(root.stores.chat.getState().activeSessionId).toBeNull();
+  expect(root.stores.chat.getState().turnRetries).toEqual({});
+  expect(root.stores.trackers.getInitialState().records,"reset target also drops boot metadata").toEqual({});
  } finally {root.dispose();}
 });

@@ -357,7 +357,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Command availability/effects: (`export function useChatCommands(): (command: string) => void {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:18-56`).
 
-- Stats local exchange: (`export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:70-150`).
+- Stats local exchange: (`export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:70-156`).
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 

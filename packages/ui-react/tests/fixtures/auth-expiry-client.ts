@@ -53,6 +53,8 @@ Object.assign(window, {
     // A root that keeps nothing has nothing pending.
     status: () => root.localWork?.status.getState() ?? { failed: false, pending: false },
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
+    draftId: () => root.stores.drafts.getState().fresh,
+    openUnbound: (id: string) => { root.stores.drafts.getState().openUnbound(id); root.stores.chat.getState().setActiveSession(null); },
     messages: () => {
       const chat = root.stores.chat.getState();
       return chat.activeSessionId ? chat.buffers[chat.activeSessionId]?.messages.length ?? 0 : 0;

@@ -144,6 +144,8 @@ type Fixture = {
   recording(): Promise<Array<{id:string; state:string; savedThroughMs:number; chunkCount:number}>>;
   tracks(): unknown[];
   allImages(): unknown[];
+  draftId(): string;
+  openUnbound(id: string): void;
   savedThrough(): number | null;
   chunkEnds(): Promise<number[]>;
   ended(): boolean[];
@@ -421,6 +423,30 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
 
 
 describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>{
+ test("uploaded references in every inactive staged view survive same-account restoration",async()=>{
+  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+  try {
+   await boot(page);
+   const inactive:Array<{id:string;refs:unknown[]}>=[];
+   for(let i=0;i<2;i++) {
+    if(i) { await page.evaluate(id=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await ready(page); }
+    await page.getByRole("button",{name:"New chat",exact:true}).click(); await until(page,"f.activeSessionId() === null");
+    await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx"));
+    await until(page,"f.tracks().length === 1");
+    inactive.push({id:await fixture(page,f=>f.draftId()),refs:await fixture(page,f=>f.tracks())});
+   }
+   await page.evaluate((id)=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await ready(page);
+   await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx")); await until(page,"f.tracks().length === 1");
+   const active=await fixture(page,f=>f.tracks()); expect(inactive[0]!.id).not.toBe(inactive[1]!.id); await committed(page);
+   await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   await page.waitForTimeout(400); await loginForm(page); await ready(page);
+   expect(await fixture(page,f=>f.tracks()),"active staged references restored").toEqual(active);
+   for(const view of inactive) {
+    await page.evaluate(id=>(window as unknown as {__local:Fixture}).__local.openUnbound(id),view.id);
+    expect(await fixture(page,f=>f.tracks()),"inactive staged references restored").toEqual(view.refs);
+   }
+  } finally {await context.close();}
+ },120_000);
  test("an image decode finishing after lock cannot recreate account drafts",async()=>{
   const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
   try {

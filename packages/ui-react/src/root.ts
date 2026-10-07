@@ -7,7 +7,7 @@ import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient, dropConnectionContext, restoreConnectionContext } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
-import { disposeTracks, tracksFor, subscribeAllTracks, trackKey, trackRefs } from "./lib/draft-tracks.js";
+import { disposeTracks, tracksFor, subscribeAllTracks, trackKey, trackRefs, stagedTrackViews } from "./lib/draft-tracks.js";
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 import type { LocalCaptureSink } from "./voice/local-capture.js";
 import { createLocalPartitions, type LocalPartitions } from "./lib/local-partitions.js";
@@ -213,6 +213,8 @@ export function createRoot(
       tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
       watchTracks: (fn) => subscribeAllTracks(services, fn),
       restoreTracks: (sessionId, origin, refs) => tracksFor(services, trackKey(sessionId, origin)).uploads.restore(refs),
+      allTracks: () => stagedTrackViews(services).map(({ key }) => ({ key, tracks: trackRefs(services, key) })).filter((v) => v.tracks.length > 0),
+      restoreAllTracks: (views) => { for (const { key, tracks } of views) tracksFor(services, key).uploads.restore(tracks); },
     });
   }
   services.authLock = authLock = createAuthLock(services, {

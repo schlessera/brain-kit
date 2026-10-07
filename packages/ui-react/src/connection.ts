@@ -812,6 +812,13 @@ export function createWebSocketClient(root: BrainUiServices) {
       answers = makeAnswers(); client.answers = answers; void answers.start();
       trackers = createTrackerClient(root);
       drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
+      // An embedder can own a lease outside the protected gate. Remounting
+      // ChatPage is then optional, so restore that surviving owner too.
+      queueMicrotask(() => {
+        if (!disposed && owners > 0 && !wsClient && root.authLock.state.getState().phase === "active") {
+          const release = connect(); release();
+        }
+      });
     },
   });
   return client;

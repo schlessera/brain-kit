@@ -37,6 +37,8 @@ export interface WorkContext {
   scroll: { anchor: string; offset: number; fingerprint?: string } | null;
   reviewText: string;
   tracks: SharedFileMeta[];
+  /** Uploaded references in inactive staged views, kept for warm reauthentication only. */
+  stagedTracks?: Array<{ key: string; tracks: SharedFileMeta[] }>;
 }
 
 /** What a view reports at the moment a snapshot is taken. */
@@ -145,6 +147,7 @@ function parseContext(raw: unknown): WorkContext | null {
     scroll,
     reviewText: r.reviewText ?? "",
     tracks: Array.isArray(r.tracks) ? r.tracks : [],
+    stagedTracks: Array.isArray(r.stagedTracks) ? r.stagedTracks.filter((v) => v && isStr(v.key) && /^(session|draft):.+/.test(v.key) && Array.isArray(v.tracks)) : undefined,
   };
 }
 
@@ -170,6 +173,8 @@ export interface LocalWorkOptions {
   /** Calls back on every change to the root's staged tracks. */
   watchTracks: (fn: () => void) => () => void;
   restoreTracks?: (sessionId: string | null, draftId: string, tracks: SharedFileMeta[]) => void;
+  allTracks?: () => NonNullable<WorkContext["stagedTracks"]>;
+  restoreAllTracks?: (views: NonNullable<WorkContext["stagedTracks"]>) => void;
   /**
    * The client holds another account than the one this page restored for:
    * the first account's drafts are in this page's stores, so the page must
@@ -224,6 +229,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       scroll: null,
       reviewText: stores.voice.getState().reviewText,
       tracks: options.tracks(sessionId, drafts.originOf(draftId)),
+      stagedTracks: options.allTracks?.(),
     };
     for (const probe of probes) Object.assign(ctx, probe());
     return ctx;
@@ -298,6 +304,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     if (warm && ctx) stores.chat.getState().setActiveSession(ctx.sessionId);
     stores.drafts.getState().restoreLocal(kept);
+    if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
     const drafts = stores.drafts.getState();
     // These are in storage now. The next write puts back each one this page
     // holds and deletes the rest, which a newer draft here replaced.
@@ -311,7 +318,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         const draftId = stores.drafts.getState().idFor(activeSession);
         // The selection is the kept draft's: a draft this page holds instead keeps its own.
         const same = stores.drafts.getState().resolveId(ctx.draftId) === draftId;
-        if (warm) options.restoreTracks?.(ctx.sessionId, drafts.originOf(ctx.draftId), ctx.tracks);
+        if (warm && !ctx.stagedTracks) options.restoreTracks?.(ctx.sessionId, drafts.originOf(ctx.draftId), ctx.tracks);
         restore.setState({
           selection: same && ctx.selectionStart !== null && ctx.selectionEnd !== null ? { draftId, start: ctx.selectionStart, end: ctx.selectionEnd } : null,
           focusId: same || ctx.focusId !== "composer" ? ctx.focusId : null,
