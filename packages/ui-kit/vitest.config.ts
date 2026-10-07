@@ -67,8 +67,9 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pressing the current destination (#1078) and the working sessions
     // (#950) run here too, for the real
     // pointer; they need the consumer stylesheet. Button's hover text
-    // contrast (#974) is measured under all three pointers as well.
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx"],
+    // contrast (#974) and the palette's reason rows (#1106) are measured
+    // under all three pointers as well.
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
@@ -118,7 +119,7 @@ export default mergeConfig(
             // fail on the first story import because bun's runner has no Vite and
             // cannot resolve `#.storybook/preview`. Two runners, two extensions.
             include: ["tests/visual/**/*.visual.tsx"],
-            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx"],
+            exclude: ["tests/visual/rank-footer-touch.visual.tsx", "tests/visual/module-settings.visual.tsx", "tests/visual/subjects.visual.tsx", "tests/visual/dictation-panel.visual.tsx", "tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx"],
             browser: {
               enabled: true,
               // The link card's no-request proof reads the network from

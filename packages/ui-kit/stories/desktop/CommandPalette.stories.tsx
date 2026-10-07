@@ -389,6 +389,77 @@ export const CostChip = meta.story({
   },
 });
 
+/** Every other backend is set up and none of them can run (#1090): the reason
+ * names all three, and is too long to sit beside its label. */
+const THREE_NEED_CREDENTIALS =
+  "Ithaca proxy · gpt-5.5, Circe relay · o4-mini, Argo bridge · gemini-2.5-pro need credentials";
+
+/** Short and long reasons, with and without a chip, beside a shortcut row and
+ * a bare one. */
+const REASONS: PaletteGroup[] = [
+  {
+    label: "Jump to",
+    items: [
+      { icon: "thread", label: "New chat", tone: "amber", shortcut: "⌘N", onClick: fn() },
+      { icon: "activity", label: "Brain statistics", tone: "neutral", why: "a turn is running", onClick: fn() },
+    ],
+  },
+  {
+    label: "Run",
+    items: [
+      { icon: "share", label: "Continue on another backend", tone: "teal", cost: "spends", why: THREE_NEED_CREDENTIALS, onClick: fn() },
+      { icon: "retry", label: "Sync the brain", tone: "amber", effect: "sync", why: "needs the host", onClick: fn() },
+      { icon: "digest", label: "Daily briefing", tone: "gold", cost: "~$0.12", why: "needs the host", onClick: fn() },
+      { icon: "graph", label: "The graph around Ithaca", tone: "purple", why: THREE_NEED_CREDENTIALS, onClick: fn() },
+      { icon: "edit", label: "Add a note", tone: "neutral", onClick: fn() },
+    ],
+  },
+];
+
+/**
+ * A disabled row keeps its reason on the first line, right-aligned where the
+ * shortcut would be, while the label, its chips and the whole reason fit side
+ * by side. When they do not, the reason drops to a second line under the
+ * label and wraps there (#1106). The label is never shrunk to make room, the
+ * reason is never cut, and the icon stays beside the label's line.
+ */
+export const LongReasonDropsUnderLabel = meta.story({
+  args: { groups: REASONS, query: "", selected: 0, maxHeight: 440 },
+  play: async ({ canvas, canvasElement }) => {
+    const dialog = canvasElement.querySelector<HTMLElement>('[role="dialog"]')!;
+    await expect(overflowing(dialog)).toEqual([]);
+    const off = (await canvas.findAllByRole("option")).filter((o) => o.getAttribute("aria-disabled") === "true");
+    await expect(off).toHaveLength(5);
+    for (const row of off) {
+      const item = REASONS.flatMap((g) => g.items).find((it) => row.textContent?.startsWith(it.label))!;
+      const label = [...row.querySelectorAll<HTMLElement>("span")].find((s) => s.textContent === item.label)!;
+      const why = [...row.querySelectorAll<HTMLElement>("span")].find((s) => s.textContent === item.why)!;
+      const icon = row.querySelector("svg")!;
+      const at = label.getBoundingClientRect();
+      const reason = why.getBoundingClientRect();
+      const glyph = icon.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      // Both whole: neither the label nor the reason is cut to an ellipsis.
+      await expect(label.scrollWidth, `${item.label}: the label is whole`).toBeLessThanOrEqual(label.clientWidth);
+      await expect(why.scrollWidth, `${item.label}: the reason is whole`).toBeLessThanOrEqual(why.clientWidth);
+      await expect(reason.right, `${item.label}: the reason ends inside the row`).toBeLessThanOrEqual(box.right);
+      // The icon is centred on the label's line, however many lines follow.
+      await expect(Math.abs((glyph.top + glyph.bottom) / 2 - (at.top + at.bottom) / 2), `${item.label}: the icon sits on the label's line`).toBeLessThanOrEqual(0.5);
+      if (item.why === THREE_NEED_CREDENTIALS) {
+        // Under the label, from the label's left edge, wrapping there.
+        await expect(reason.top, `${item.label}: the reason is under the label`).toBeGreaterThanOrEqual(at.bottom);
+        await expect(Math.abs(reason.left - at.left), `${item.label}: the reason starts at the label's edge`).toBeLessThanOrEqual(0.5);
+      } else {
+        // Beside the label, on its line, at the row's right end.
+        const middle = (reason.top + reason.bottom) / 2;
+        await expect(middle > at.top && middle < at.bottom, `${item.label}: the reason is on the label's line`).toBe(true);
+        await expect(reason.left, `${item.label}: the reason follows the label`).toBeGreaterThan(at.right);
+        await expect(box.right - parseFloat(getComputedStyle(row).paddingRight) - reason.right, `${item.label}: the reason is right-aligned`).toBeLessThanOrEqual(0.5);
+      }
+    }
+  },
+});
+
 /** The list scrolls past `maxHeight` rather than clipping, so a row is never
  * both cut and unreachable. Ten rows at 180px is a scroll, and End reaches
  * the bottom of it. */

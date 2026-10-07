@@ -31,8 +31,11 @@ import type { Tone } from "../types.js";
  *   reason, never omitted.** Dropping rows while the socket is down teaches
  *   that the palette's contents are a guess. `why` is what makes a row
  *   disabled: opacity .45, `aria-disabled`, no tab stop, no click, and the mono
- *   reason printed where the shortcut would be. A disabled row is never the
- *   selection, and ↑↓ step over it.
+ *   reason printed where the shortcut would be — or, when the label, its chips
+ *   and the whole reason do not fit side by side, on a line of its own under
+ *   the label, wrapping there. The label is never shrunk for the reason and the
+ *   reason is never cut (#1106). A disabled row is never the selection, and ↑↓
+ *   step over it.
  *
  * ## Keys, and which of them a presentational component can own
  *
@@ -153,6 +156,10 @@ const FALLBACK: PaletteGroup[] = [
   },
 ];
 
+/** The label's line in a row without a chip: `minHeight: 34` less 8px of
+ * padding top and bottom. */
+const FIRST_LINE = 18;
+
 const ENABLED_OPTION = '[role="option"]:not([aria-disabled="true"])';
 
 export function CommandPalette(p: CommandPaletteProps) {
@@ -243,6 +250,17 @@ export function CommandPalette(p: CommandPaletteProps) {
     padding: "3px 6px",
     font: `600 9px/1.3 ${font.mono}`,
   };
+  /** The label's line. Without a chip it is the 18px a one-line row always had
+   * inside its 34px minimum and 8px padding; a chip makes it taller (9px at
+   * 1.3, 3px padding and a 1px border, top and bottom). The icon and the
+   * shortcut are centred in it, so a row whose reason wraps keeps them beside
+   * the label rather than in the middle of the row (#1106). */
+  const lineBox = (chipped: boolean): CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    flex: "none",
+    height: chipped ? 9 * 1.3 + 2 * 3 + 2 * 1 : FIRST_LINE,
+  });
   const mono10: CSSProperties = { flex: "none", font: `500 10px/1 ${font.mono}`, color: color.inkMute };
   const footText: CSSProperties = { font: `400 9.5px/1.4 ${font.mono}`, color: color.inkMute };
 
@@ -338,9 +356,12 @@ export function CommandPalette(p: CommandPaletteProps) {
                 const act = Boolean(it.onClick) && !off;
                 const listed = anyInteractive && (act || off);
                 const ink = INKS[it.tone || "neutral"] || INKS.neutral;
+                const chipped = Boolean(it.cost || it.effect);
                 const row: CSSProperties = {
                   display: "flex",
-                  alignItems: "center",
+                  // Centred on the label's line (`lineBox`) instead, so a reason
+                  // that wraps under the label grows the row downward.
+                  alignItems: "flex-start",
                   gap: 10,
                   minHeight: 34,
                   padding: "8px 12px",
@@ -376,31 +397,61 @@ export function CommandPalette(p: CommandPaletteProps) {
                     onClick={act ? it.onClick : undefined}
                     onKeyDown={act ? (event) => onRowKeyDown(event, it) : undefined}
                   >
-                    {it.icon ? <Icon icon={it.icon} size={15} color={ink} /> : null}
-                    <span
+                    {it.icon ? (
+                      <span style={lineBox(chipped)}>
+                        <Icon icon={it.icon} size={15} color={ink} />
+                      </span>
+                    ) : null}
+                    {/* The label, its chips and the reason wrap as one box, so
+                        CSS decides where the reason goes: it stays at the right
+                        end of the label's line while the whole of it fits there,
+                        and otherwise drops to a line of its own under the label
+                        and wraps (#1106). The label never shrinks for it. */}
+                    <div
                       style={{
                         flex: 1,
                         minWidth: 0,
-                        // A row that WRITES or SPENDS is set in mono, because
-                        // what it will do is a command rather than a phrase.
-                        font: it.effect || it.cost ? `500 12px/1.3 ${font.mono}` : `500 12.5px/1.3 ${font.body}`,
-                        color: on ? color.ink : color.inkDim,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        columnGap: 10,
+                        rowGap: 3,
                       }}
-                      title={it.label}
                     >
-                      {it.label}
-                    </span>
-                    {it.cost ? <span style={{ ...chip, color: accent.gold.ink }}>{it.cost}</span> : null}
-                    {it.effect ? <span style={{ ...chip, color: accent.amber.ink }}>{it.effect}</span> : null}
-                    {it.why ? (
-                      <span style={{ flex: "none", font: `500 9.5px/1 ${font.mono}`, color: color.inkMute }}>
-                        {it.why}
+                      <span
+                        style={{
+                          // Grows to fill its line, and does not shrink: only a
+                          // label longer than the whole row ellipsizes.
+                          flex: "1 0 auto",
+                          maxWidth: "100%",
+                          // A row that WRITES or SPENDS is set in mono, because
+                          // what it will do is a command rather than a phrase.
+                          font: chipped ? `500 12px/1.3 ${font.mono}` : `500 12.5px/1.3 ${font.body}`,
+                          // Padded out to the line's full height, so the line
+                          // is never shorter than the icon's box and the text
+                          // sits exactly where a one-line row always drew it.
+                          paddingBlock: (FIRST_LINE - (chipped ? 12 : 12.5) * 1.3) / 2,
+                          color: on ? color.ink : color.inkDim,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={it.label}
+                      >
+                        {it.label}
                       </span>
-                    ) : on || it.shortcut ? (
-                      <span style={mono10}>{on ? it.shortcut || "⏎" : it.shortcut}</span>
+                      {it.cost ? <span style={{ ...chip, color: accent.gold.ink }}>{it.cost}</span> : null}
+                      {it.effect ? <span style={{ ...chip, color: accent.amber.ink }}>{it.effect}</span> : null}
+                      {it.why ? (
+                        <span style={{ flex: "0 1 auto", minWidth: 0, font: `500 9.5px/1.4 ${font.mono}`, color: color.inkMute }}>
+                          {it.why}
+                        </span>
+                      ) : null}
+                    </div>
+                    {!it.why && (on || it.shortcut) ? (
+                      <span style={lineBox(chipped)}>
+                        <span style={mono10}>{on ? it.shortcut || "⏎" : it.shortcut}</span>
+                      </span>
                     ) : null}
                   </div>
                 );
