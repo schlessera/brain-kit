@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { TurnObservation } from "../scripts/turn-surface-observation";
+import { captureSurface } from "../scripts/capture-turn-surface";
+import { successfulSurfaceReceipt } from "../scripts/turn-surface-admission";
 const model = "claude-sonnet-5-5";
 function assistant(id: string, content: unknown[]) { return { type: "assistant", parent_tool_use_id: null,
   message: { id, model, usage: { input_tokens: 20, output_tokens: 7, cache_read_input_tokens: 8, cache_creation_input_tokens: 9 }, content } }; }
@@ -39,4 +41,29 @@ test("a successfully executed card with the wrong quote fails the content criter
   expect(observed.score({ neededToolGroups: [["mcp__brain-ui__show_block"]], neededSkill: null,
     contentChecks: { scope: "acceptedInputs", patterns: ["Keep the Bear on your left through the night"] } }))
     .toMatchObject({ neededToolsHit: true, contentPass: false });
+});
+test("native streamed final output usage replaces stale assistant-start usage", async () => {
+  const capture = await captureSurface({ decision: Promise.resolve({arm:"baseline",routed:false,tools:[],skills:[]}),finalOutputTokens:11 });
+  const observed = new TurnObservation(0,model);
+  for(const frame of capture.rawFrames)observed.observe(frame);
+  expect(observed.roundTrips.size).toBe(1);
+  expect([...observed.roundTrips.values()][0]!.outputTokens).toBe(11);
+  expect(observed.finalUsageComplete).toBe(true);
+  const raw = capture.rawFrames.find(frame => frame.type === "result")!;
+  expect(() => successfulSurfaceReceipt(raw,observed)).not.toThrow();
+  const provisional = new TurnObservation(0,model);
+  for(const frame of capture.rawFrames.filter(frame=>frame.type!=="stream_event"))provisional.observe(frame);
+  expect(()=>successfulSurfaceReceipt(raw,provisional)).toThrow("missing_final_streamed_roundtrip_usage");
+  const mismatched = structuredClone(raw);
+  mismatched.modelUsage[model].outputTokens++;
+  expect(()=>successfulSurfaceReceipt(mismatched,observed)).toThrow("roundtrip_usage_mismatch:outputTokens");
+});
+test("cumulative native output deltas remain authoritative after repeated assistant frames",()=>{
+  const observed=new TurnObservation(0,model);
+  observed.observe({type:"stream_event",parent_tool_use_id:null,event:{type:"message_start",message:{id:"msg_final",model}}});
+  observed.observe(assistant("msg_final",[]));
+  for(const output_tokens of [8,11])observed.observe({type:"stream_event",parent_tool_use_id:null,event:{type:"message_delta",usage:{output_tokens}}});
+  observed.observe(assistant("msg_final",[]));
+  expect(observed.roundTrips.size).toBe(1);
+  expect([...observed.roundTrips.values()][0]!.outputTokens).toBe(11);
 });

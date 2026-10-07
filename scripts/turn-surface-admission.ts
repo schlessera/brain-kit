@@ -5,7 +5,16 @@ export function successfulSurfaceReceipt(raw: Parameters<typeof priceSonnet55Usa
   if (!raw || raw.subtype !== "success" || !observation.completed || observation.observationError || !observation.roundTrips.size) {
     throw Error(observation.observationError ?? "missing_success_result_or_roundtrip_usage");
   }
-  return priceSonnet55Usage(raw);
+  const price = priceSonnet55Usage(raw);
+  if (!observation.finalUsageComplete) throw Error("missing_final_streamed_roundtrip_usage");
+  const models = Object.values(raw.modelUsage!);
+  for (const [roundTripField, resultField] of [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"],
+    ["cacheReadTokens", "cacheReadInputTokens"], ["cacheWriteTokens", "cacheCreationInputTokens"]] as const) {
+    const observed = [...observation.roundTrips.values()].reduce((sum, usage) => sum + usage[roundTripField], 0);
+    const total = models.reduce((sum, usage) => sum + (usage[resultField] as number), 0);
+    if (observed !== total) throw Error(`roundtrip_usage_mismatch:${resultField}`);
+  }
+  return price;
 }
 export class SurfaceAdmission {
   init: { model: string; apiKeySource: string; cliVersion: string } | null = null;

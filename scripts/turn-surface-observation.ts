@@ -14,6 +14,8 @@ export class TurnObservation {
   readonly calls = new Map<string, ObservedCall>();
   readonly roundTrips = new Map<string, RoundTripUsage>();
   readonly answerParts = new Map<string, string>();
+  readonly finalOutputTokens = new Map<string, number>();
+  private streamMessageId: string | null = null;
   firstFrameMs: number | null = null;
   firstTextMs: number | null = null;
   completed = false;
@@ -30,6 +32,24 @@ export class TurnObservation {
     if (frame.type === "stream_event" && frame.parent_tool_use_id === null) {
       const event = object(frame.event);
       if (this.firstFrameMs === null) this.firstFrameMs = now - this.started;
+      if (event?.type === "message_start") {
+        const message = object(event.message);
+        if (typeof message?.id !== "string" || message.model !== this.model) {
+          this.observationError = "Missing stream message id or unexpected model";
+          this.streamMessageId = null;
+        } else this.streamMessageId = message.id;
+      }
+      if (event?.type === "message_delta") {
+        const output = tokens(object(event.usage)?.output_tokens);
+        if (!this.streamMessageId || output === null) this.observationError = "Missing final streamed output usage";
+        else {
+          // Provider deltas report cumulative output, not increments. The
+          // assistant envelope can retain the provisional message-start count.
+          this.finalOutputTokens.set(this.streamMessageId, output);
+          const trip = this.roundTrips.get(this.streamMessageId);
+          if (trip) trip.outputTokens = output;
+        }
+      }
       if (event?.type === "content_block_delta" && object(event.delta)?.type === "text_delta" && this.firstTextMs === null) {
         this.firstTextMs = now - this.started;
       }
@@ -47,7 +67,8 @@ export class TurnObservation {
         this.observationError = "Invalid assistant token usage";
         return;
       }
-      this.roundTrips.set(message.id, { id: message.id, model: this.model, inputTokens: input, outputTokens: output,
+      this.roundTrips.set(message.id, { id: message.id, model: this.model, inputTokens: input,
+        outputTokens: this.finalOutputTokens.get(message.id) ?? output,
         cacheReadTokens: read, cacheWriteTokens: write, cacheCreation: object(usage.cache_creation) });
       if (this.firstFrameMs === null) this.firstFrameMs = now - this.started;
       if (!Array.isArray(message.content)) return;
@@ -78,6 +99,10 @@ export class TurnObservation {
         call.accepted = !contract || contract.input.safeParse(call.input).success;
       }
     }
+  }
+
+  get finalUsageComplete() {
+    return this.roundTrips.size > 0 && [...this.roundTrips.keys()].every(id => this.finalOutputTokens.has(id));
   }
 
   score(golden: { neededToolGroups: readonly (readonly string[])[]; neededSkill: string | null;

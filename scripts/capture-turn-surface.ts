@@ -35,7 +35,7 @@ export function coreSdkServer(peer: Peer) {
   return { type: "sdk" as const, name: "brain", instance };
 }
 
-function scriptedReply(model: string, call?: { name: string; input: unknown }, sequence = 0): Response {
+function scriptedReply(model: string, call?: { name: string; input: unknown }, sequence = 0, outputTokens = 1): Response {
   const events = [
     { type: "message_start", message: { id: `msg_surface_control_${sequence}`, type: "message", role: "assistant", model,
       content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } },
@@ -45,7 +45,7 @@ function scriptedReply(model: string, call?: { name: string; input: unknown }, s
       ? { type: "input_json_delta", partial_json: JSON.stringify(call.input) }
       : { type: "text_delta", text: "Offline serialization control." } },
     { type: "content_block_stop", index: 0 },
-    { type: "message_delta", delta: { stop_reason: call ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+    { type: "message_delta", delta: { stop_reason: call ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: outputTokens } },
     { type: "message_stop" },
   ];
   return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
@@ -63,6 +63,7 @@ export async function captureSurface(control?: {
   corpus?: boolean;
   testSubscriptionRefusal?: boolean;
   testPolicyModelRefusal?: boolean;
+  finalOutputTokens?: number;
 }) {
   const home = mkdtempSync(join(tmpdir(), "turn-surface-home-"));
   mkdirSync(join(home, ".claude"));
@@ -87,7 +88,7 @@ export async function captureSurface(control?: {
     bodies.push(body);
     const isMain = body.tools?.some(tool => tool.name === "Read");
     const call = isMain ? calls[mainRequests++] : undefined;
-    return scriptedReply(body.model, call, bodies.length);
+    return scriptedReply(body.model, call, bodies.length, control?.finalOutputTokens ?? 1);
   } });
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 30_000);
