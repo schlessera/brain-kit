@@ -37,6 +37,12 @@ state, with Retry/Remove controls. Sending while files are pending holds the
 editable draft; all must validate before a single message is sent. Failed files
 keep the draft, and an acknowledgement removes only that message's files.
 
+Sent tracks use the kit's static `AttachmentRow`: the original incoming name,
+format, known byte count and `sent`, plus a differing staged name and any
+no-line waypoint note. Live and replayed messages use the same mapping. These
+rows offer no open or playback action. Image attachments retain their live
+80px zoomable thumbnails and count-only history chip.
+
 System shares remain under review until **Add to brain** is tapped. Dismiss
 cancels an in-flight upload. A previously confirmed share may resume when the
 connection returns; a share the reader has not confirmed never starts itself.

@@ -1,4 +1,5 @@
-import { TrackChip } from "./track-chip.js";
+import { AttachmentRow } from "@schlessera/brain-ui-kit";
+import { trackRowProps } from "../../lib/track-attachment.js";
 import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
@@ -124,7 +125,7 @@ export const MessageBubble = memo(function MessageBubble({
       ) : isUser ? (
         <UserTurn>
           <UserAttachments message={message} />
-          {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <TrackChip key={file.path} file={file} />)}</div>}
+          {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <AttachmentRow key={file.path} {...trackRowProps(file)} />)}</div>}
           {message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}

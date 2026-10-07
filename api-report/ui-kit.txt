@@ -552,12 +552,12 @@ signatures (every public export and the types it is made of)
     export function AttachmentRow(p: AttachmentRowProps): import("react").JSX.Element;
   AttachmentRowProps (packages/ui-kit/src/conversation/AttachmentRow.tsx)
     export interface AttachmentRowProps {
-        kind?: AttachmentKind;
-        label?: string;
+        kind: AttachmentKind;
+        label: string;
         duration?: string;
         seconds?: number;
         played?: number;
-        meta?: string;
+        meta?: string | string[];
         extract?: string;
         trust?: string;
         actionIcon?: IconName | "";

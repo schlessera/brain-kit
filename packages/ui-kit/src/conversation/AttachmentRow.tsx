@@ -30,15 +30,15 @@ import type { AttachmentKind, AttachmentTone } from "../types.js";
  * everything else: no `onClick`, no class, no role, no tab stop, no ring.
  */
 export interface AttachmentRowProps {
-  kind?: AttachmentKind;
+  kind: AttachmentKind;
   /** What the thing is called. `name` is reserved in the design's runtime. */
-  label?: string;
+  label: string;
   duration?: string;
   /** Drives the waveform's shape, and only that. */
   seconds?: number;
   /** 0-1. The fraction of the waveform drawn in the accent. */
   played?: number;
-  meta?: string;
+  meta?: string | string[];
   /** The line worth pulling out of it — a transcript, an OCR read. */
   extract?: string;
   /** Provenance. Its PRESENCE is what makes the card purple. */
@@ -84,24 +84,19 @@ const THUMB_BORDERS: Record<AttachmentTone, string> = {
 };
 
 export function AttachmentRow(p: AttachmentRowProps) {
-  const kind = p.kind || "audio";
+  const kind = p.kind;
   const k = KINDS[kind] || KINDS.doc;
   const tone = p.tone || k.tone;
   const ink = INKS[tone] || INKS.teal;
   const size = Number(p.thumbSize) || 44;
   const bars = Number(p.waveBars) || 22;
 
-  const secs = Number(p.seconds ?? (kind === "audio" ? 38 : 0)) || 0;
-  const played = Number(p.played ?? (kind === "audio" ? 0.35 : 0)) || 0;
-
-  const label = p.label ?? "Sailing directions";
-  const meta = p.meta ?? (kind === "audio" ? "captured 06:12 · transcribed on device" : null);
-  const extract =
-    p.extract ??
-    (kind === "audio"
-      ? "“Keep the Great Bear on your left hand, and do not correct it at night.”"
-      : null);
-  const duration = p.duration ?? (kind === "audio" ? "0:38" : null);
+  const secs = Number(p.seconds) || 0;
+  const played = Number(p.played) || 0;
+  const label = p.label;
+  const meta = Array.isArray(p.meta) ? p.meta : p.meta ? [p.meta] : [];
+  const extract = p.extract;
+  const duration = p.duration;
   const actionIcon = p.actionIcon === "" ? null : p.actionIcon || k.action;
 
   const box: CSSProperties = {
@@ -144,6 +139,7 @@ export function AttachmentRow(p: AttachmentRowProps) {
   return (
     <div
       style={box}
+      data-kit-attachment-row={kind}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
@@ -162,9 +158,8 @@ export function AttachmentRow(p: AttachmentRowProps) {
                 minWidth: 0,
                 font: `600 12.5px/1.35 ${font.body}`,
                 color: color.ink,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
+                overflowWrap: "anywhere",
+                whiteSpace: "normal",
               }}
             >
               {label}
@@ -175,7 +170,7 @@ export function AttachmentRow(p: AttachmentRowProps) {
               </span>
             ) : null}
           </div>
-          {kind === "audio" ? (
+          {kind === "audio" && typeof p.seconds === "number" && Number.isFinite(p.seconds) ? (
             <div style={{ display: "flex", alignItems: "center", gap: 2, height: 18 }}>
               {Array.from({ length: bars }).map((_, i) => (
                 <span
@@ -193,11 +188,11 @@ export function AttachmentRow(p: AttachmentRowProps) {
               ))}
             </div>
           ) : null}
-          {meta ? (
-            <span style={{ font: `400 10px/1.4 ${font.mono}`, color: accent.neutral.ink }}>
-              {meta}
+          {meta.map((line, index) => (
+            <span key={index} style={{ font: `400 10px/1.4 ${font.mono}`, color: accent.neutral.ink, overflowWrap: "anywhere" }}>
+              {line}
             </span>
-          ) : null}
+          ))}
         </div>
         {actionIcon ? <Icon icon={actionIcon} size={16} color={accent.neutral.ink} /> : null}
       </div>

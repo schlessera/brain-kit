@@ -27,13 +27,13 @@ export const Default = meta.story({});
 
 /** An image gets the hatched placeholder plus its OCR extract. Brain READS
  * pictures; it does not display them inline. */
-export const Image = Default.extend({ args: { ...image, kind: "image" } });
+export const Image = Default.extend({ args: { ...image, kind: "image", duration: undefined, seconds: undefined, played: undefined } });
 
-export const Document = Default.extend({ args: { ...doc, kind: "doc" } });
+export const Document = Default.extend({ args: { ...doc, kind: "doc", duration: undefined, seconds: undefined, played: undefined } });
 
 /** Anything from outside the corpus carries the purple provenance line, and
  * its presence turns the card's own border purple. */
-export const Untrusted = Default.extend({ args: { ...link, kind: "link" } });
+export const Untrusted = Default.extend({ args: { ...link, kind: "link", duration: undefined, seconds: undefined, played: undefined, extract: undefined } });
 
 /** Nothing played yet: every bar is the `edge` hairline. */
 export const Unplayed = Default.extend({ args: { played: 0 } });
