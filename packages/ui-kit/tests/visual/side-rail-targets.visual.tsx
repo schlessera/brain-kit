@@ -82,6 +82,24 @@ function geometry(tabs: HTMLElement[], expanded: boolean, coarse: boolean, short
   expect(document.documentElement.scrollHeight, "document vertical containment").toBeLessThanOrEqual(innerHeight);
 }
 
+/** The scrollport's last item stays whole at the end of the scroll and one
+ * pixel short of it. Chromium can draw a programmatic scroll that follows a
+ * touch pan a pixel short for a frame: End after a short pan read 98 between
+ * two frames at 99, and the last destination's bottom then measured 196
+ * against the list's 195.5 (#999). That frame is timing-dependent, so the
+ * guard sets the same offset directly. */
+function expectWholeAtEnd(item: HTMLElement, scroller: HTMLElement, what: string) {
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  expect(max, `${what}: the scrollport overflows`).toBeGreaterThan(1);
+  for (const offset of [max, max - 1]) {
+    scroller.scrollTop = offset;
+    expect(scroller.scrollTop, `${what}: scrolled to ${offset}`).toBe(offset);
+    const r = item.getBoundingClientRect();
+    const bounds = scroller.getBoundingClientRect();
+    expect(r.bottom, `${what} whole at scrollTop ${offset} of ${max}`).toBeLessThanOrEqual(bounds.bottom);
+  }
+}
+
 for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
   for (const width of [320, 390, 480, 900, 1280, 1440]) {
     test(`rail destinations: ${theme}, ${width}, ${expanded ? "expanded" : "collapsed"}`, async () => {
@@ -150,6 +168,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     const bounds = list.getBoundingClientRect();
     expect(r.top).toBeGreaterThanOrEqual(bounds.top);
     expect(r.bottom).toBeLessThanOrEqual(bounds.bottom);
+    expectWholeAtEnd(tabs[4]!, list, "final destination");
     for (const callback of callbacks) expect(callback, "End moves focus without navigation").not.toHaveBeenCalled();
     await userEvent.keyboard("{Home}");
     expect(document.activeElement).toBe(tabs[0]);
@@ -273,6 +292,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     expect(r.top, "End scrolls the last act into the middle").toBeGreaterThanOrEqual(bounds.top);
     expect(r.bottom).toBeLessThanOrEqual(bounds.bottom);
     expect(middle.scrollTop).toBeGreaterThan(0);
+    expectWholeAtEnd(last, middle, "last act");
     for (const callback of actCallbacks) expect(callback).not.toHaveBeenCalled();
 
     await press(all, mode);
