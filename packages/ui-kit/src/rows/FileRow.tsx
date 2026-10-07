@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Chip } from "../primitives/Chip.js";
@@ -157,7 +158,7 @@ export function FileRow(p: FileRowProps) {
     position: "relative",
     flex: "none",
     maxWidth: "68%",
-    overflow: "hidden",
+    overflow: loading || arriving ? "visible" : "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     color: p.tone ? TONES[p.tone] : kind === "file" || kind === "image" ? color.inkDim : color.ink,
@@ -201,7 +202,7 @@ export function FileRow(p: FileRowProps) {
 
   return (
     <div
-      style={box}
+      style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "treeitem" : undefined}
@@ -228,7 +229,7 @@ export function FileRow(p: FileRowProps) {
         <Ghosted
           loading={loading}
           arriving={arriving}
-          ghost={{ role: "sans", size: 13, length: nameLength, seed: `${id}:name` }}
+          ghost={{ role: "sans", size: 13, length: nameLength, line: true, seed: `${id}:name` }}
         >
           {label}
         </Ghosted>
@@ -257,6 +258,7 @@ export function FileRow(p: FileRowProps) {
           {p.meta}
         </span>
       ) : null}
+      <GhostBand loading={loading} arriving={arriving} />
     </div>
   );
 }

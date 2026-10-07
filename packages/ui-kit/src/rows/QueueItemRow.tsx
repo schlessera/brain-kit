@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import {
@@ -28,7 +29,7 @@ import type { QueueState, Tone, ViewState } from "../types.js";
  * state word, subject and meta are ghosts on one mono line, and the dot is a
  * grey `edge` slot until the state is known. A blocked or failed row takes
  * its tinted shell on arrival, not before — that emphasis is data. Each row
- * hands off when its own data lands; `index` offsets its sweep 0.15s per item.
+ * hands off when its own data lands. One band sweeps the whole frame (#1126).
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -59,7 +60,7 @@ export interface QueueItemRowProps {
   stateAction?: string;
   /** Makes the error state's retry real. See the note above. */
   onStateAction?: () => void;
-  /** Position in its list: staggers the loading sweep by 0.15s per item. */
+  /** List position, retained for compatibility; block sweeps no longer stagger. */
   index?: number;
   onClick?: () => void;
 }
@@ -156,19 +157,18 @@ export function QueueItemRow(p: QueueItemRowProps) {
     color: color.inkMute,
     flex: 1,
     minWidth: 0,
-    overflow: "hidden",
+    overflow: loading || arriving ? "visible" : "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   };
   const metaStyle: CSSProperties = { position: "relative", flex: "none", color: color.inkMute };
 
-  const stagger = (Number(p.index) || 0) * 0.15;
-  const ghost = (slot: string, length: number, line: number): GhostTextProps => ({
+  const ghost = (slot: string, length: number, _line: number): GhostTextProps => ({
     role: "mono",
+    line: true,
     size: 11,
     length,
     seed: `${id}:${slot}`,
-    delay: stagger + line * 0.1,
   });
   const noteStyle: CSSProperties = { position: "relative", marginTop: 6, font: `400 11px/1.5 ${font.body}`, color: color.inkMute };
   const linkRow: CSSProperties = {
@@ -189,7 +189,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
 
   return (
     <div
-      style={box}
+      style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
@@ -222,7 +222,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
           <Ghosted
             loading={loading}
             arriving={arriving}
-            ghost={{ role: "sans", size: 11, length: lengths.note, seed: `${id}:note`, delay: stagger + 0.1 }}
+            ghost={{ role: "sans", size: 11, length: lengths.note, seed: `${id}:note` }}
           >
             {p.note}
           </Ghosted>
@@ -241,6 +241,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
           </span>
         </div>
       ) : null}
+      <GhostBand loading={loading} arriving={arriving} />
     </div>
   );
 }

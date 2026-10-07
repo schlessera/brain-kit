@@ -5677,3 +5677,63 @@ its ghost's height while it streams, so the first token, shorter than the
 ghost, moves nothing below it; past that height the answer grows downward.
 Nothing is a control while it loads: no role, no tab stop, and a click does
 nothing.
+
+
+### D53 addendum — one compositor band per frame (#1126, 2026-10-07)
+
+**Decision.** The maintainer selected V5 after reviewing V1–V4: static base
+text, with one moving band for each QueueItemRow, FileRow, SearchResultCard,
+ActionCard and Placeholder frame, or StreamingAnswer prose block. This replaces
+per-slot sweeps and per-row staggering; each item still hands off when its own
+data arrives, over the same 600ms. The retained `index` props no longer set a
+sweep delay. Neither the seeded glyphs nor their role/size/blur map changes.
+
+**Why.** V1 moved `background-position` through clipped, blurred text, repainting
+and blurring every slot each frame. V3 moved a band per line but multiplied the
+compositor work. V5 shares the moving mask across the block. The prototype
+measurements on Chromium 153, at 6× CPU throttle, 412×915 and 2.625 DPR, with
+20 file rows and 6 action cards, were:
+
+| Variant | Main thread ms/s | Paint ms/s | Raster ms/s | Software compositor ms/s | fps | Frames >33ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| V1 shipped | 410 | 325 | 300 | 244 | 60 | 0/179 |
+| V3 band per line | 171 | 29 | 0 | 4005 | 29 | 37/86 |
+| V5 band per block | 15 | 1 | 0 | 1128 | 60 | 0/179 |
+
+These are the profiling session's 3s windows, recorded on #1126. Software
+rasterisation makes the compositor numbers relative evidence, not hardware GPU
+or Android measurements. No additional measurements are claimed for V2/V4.
+The maintainer explicitly chose to ship without a real-device measurement;
+there is no Android performance claim and no stepped-animation fallback gate.
+
+**The band.** A track spans the frame plus 0.6em on each side. Its band is
+`max(100%, 9em)`, at opacity 0.56, with amber, purple and blue mask windows that
+extend 8px above and below the frame and never repeat. The track and band
+translate forward, their layout copies counter-translate, all over 2.6s with
+`ease-in-out`. The sum keeps glyphs stationary while the band's left edge moves
+from `−m − band` to `block + m`. A stationary frame clips the moving layers
+8px outside the owning frame, preserving blur bleed without horizontal scroll.
+The cycle boundary is colour-free; timing is
+tested against this V5 path, not V1's separate per-line paths.
+
+**Broad reflective sweep (maintainer revision).** The maintainer reviewed the
+implementation and asked for a band about as wide as the text, with smoother
+colour transitions, so the whole text lights up rather than one small focus
+area travelling across it. The band therefore spans the full track, with a
+9em minimum, instead of the prototype's 40%. At the middle of the cycle it
+covers the whole frame. The amber leading ramp reaches opacity .08/.3/.65/1 at
+9.23/18.46/29.23/40% of the band; blue mirrors it at
+90.77/81.54/70.77/60%. The maintainer specifically requested longer transitions
+on both sides; each outer fade therefore spans 40% rather than 26% of the band.
+Purple and the inner ends remain percentages. These broad ramps scale with the frame; the earlier
+fixed 2.34em edge ruling is superseded by this revision. Visual sign-off at
+320px and desktop, in both themes, remains required before merge.
+
+**Copies and media.** The internal band snapshots the committed loading layout
+three times, preserving the exact seeded text, font, baseline and wrapping.
+Supplied React children are mounted once. Copies are aria-hidden and inert;
+controls and resources become empty boxes and only ghost glyphs paint. Their
+blur is 1.2px greater than the base. Single-line text clips before the blur,
+so ellipsis does not cut off blurred ends. Reduced motion hides the entire
+band and disables every translation; print hides ghosts and the band. The
+existing instant reduced-motion handoff and stream tail rules remain.

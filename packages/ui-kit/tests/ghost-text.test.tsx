@@ -106,7 +106,7 @@ describe("GhostText", () => {
 describe("the stylesheet", () => {
   test("ghost is a keyframe of its own, beside breathe, and breathe is untouched", () => {
     expect(uncommented.match(/@keyframes\s+ghost\s*\{/g)).toHaveLength(1);
-    expect(uncommented).toMatch(/\.bk-ghost\s*\{[^}]*animation:\s*ghost 2\.6s ease-in-out infinite;/);
+    expect(uncommented).toMatch(/\.bk-ghost-track\s*\{[^}]*animation:\s*ghost 2\.6s ease-in-out infinite;/);
     expect(uncommented).toMatch(/\.bk-ghost-in\s*\{[^}]*animation:\s*ghost-in 600ms ease both;/);
     expect(uncommented).toMatch(/\.bk-ghost-out\s*\{[^}]*animation:\s*ghost-out 600ms ease both;/);
     expect(HANDOFF_MS).toBe(600);
@@ -123,7 +123,7 @@ describe("the stylesheet", () => {
   });
 
   test("print hides every ghost and the print theme paints none", () => {
-    expect(uncommented).toMatch(/@media print\s*\{\s*\.bk-ghost\s*\{\s*visibility:\s*hidden;/);
+    expect(uncommented).toMatch(/@media print\s*\{[\s\S]*?\.bk-ghost\s*\{\s*visibility:\s*hidden;/);
     for (const name of ["ghost-base", "ghost-amber", "ghost-purple", "ghost-blue"] as const) {
       expect(PRINT_TOKENS[name]).toBe("transparent");
     }
@@ -182,8 +182,8 @@ describe("Placeholder loading", () => {
       ["sans", 58],
       ["title", 12],
     ]);
-    // Lines in a card are staggered +0.1s each.
-    expect(g.map((e) => e.style.animationDelay)).toEqual(["", "0.10s", "0.20s"]);
+    // Slots are static; one owning band sweeps the whole frame.
+    expect(g.map((e) => e.style.animationDelay)).toEqual(["", "", ""]);
   });
 
   test("each ghost line takes its role's font, not the surrounding one", () => {
@@ -429,14 +429,14 @@ describe("the five components", () => {
         </button>
       </ActionCard>
     ));
-    const reservedSlots = [...m.host.querySelectorAll<HTMLElement>("[inert]")];
+    const reservedSlots = [...m.host.querySelectorAll<HTMLElement>("[inert]")].filter((e) => !e.closest(".bk-ghost-viewport"));
     expect(reservedSlots.length).toBe(3);
     expect(reservedSlots.some((e) => e.querySelector("button")?.textContent === "Allow")).toBe(true);
     const footLink = () => [...m.host.querySelectorAll("button")].find((b) => b.textContent === "blocks queue item")!;
     await act(async () => footLink().click());
     expect(followed).toBe(0);
     await m.land();
-    expect(m.host.querySelectorAll("[inert]")).toHaveLength(0);
+    expect([...m.host.querySelectorAll("[inert]")].filter((e) => !e.closest(".bk-ghost-viewport"))).toHaveLength(0);
     await act(async () => footLink().click());
     expect(followed).toBe(1);
     await m.unmount();
@@ -448,8 +448,8 @@ describe("the five components", () => {
     await m.next();
     const after = ghosts(m.host as unknown as Document);
     expect(after.map((g) => g.textContent)).toEqual(before);
-    // The stagger still follows the rank.
-    expect(after[0]!.style.animationDelay).toBe("0.25s");
+    // Rank changes neither the glyphs nor the frame’s sweep phase.
+    expect(m.host.querySelector(".bk-ghost-track")!.getAttribute("style")).toBeNull();
     await m.unmount();
   });
 
@@ -520,10 +520,11 @@ describe("the five components", () => {
     expect(draw(<FileRow view="loading" />).querySelector('[data-ghost-slot="icon"]')).not.toBeNull();
   });
 
-  test("list items stagger: queue by 0.15s, search by 0.25s", () => {
-    const delay = (node: ReactElement) => ghosts(draw(node))[0]!.style.animationDelay;
-    expect(delay(<QueueItemRow view="loading" index={2} />)).toBe("0.30s");
-    expect(delay(<SearchResultCard view="loading" index={2} />)).toBe("0.50s");
+  test("list items share the block sweep instead of staggering text slots", () => {
+    for (const node of [<QueueItemRow view="loading" index={2} />, <SearchResultCard view="loading" index={2} />]) {
+      expect(draw(node).querySelectorAll(".bk-ghost-track")).toHaveLength(1);
+      expect(ghosts(draw(node)).every((g) => !g.style.animationDelay)).toBe(true);
+    }
   });
 
   test("the server's hint sizes the ghost", () => {
@@ -578,4 +579,27 @@ describe("StreamingAnswer", () => {
   test("`bars={false}` draws no ghost", () => {
     expect(ghosts(draw(<StreamingAnswer text="" bars={false} />))).toHaveLength(0);
   });
+});
+
+
+describe("one compositor band per loading frame (#1126)", () => {
+  const cases: [string, ReactElement][] = [
+    ["FileRow", <FileRow view="loading" />],
+    ["QueueItemRow", <QueueItemRow view="loading" note="Waiting for the crew" />],
+    ["SearchResultCard", <SearchResultCard view="loading" />],
+    ["ActionCard", <ActionCard state="loading" />],
+    ["Placeholder", <Placeholder lines={5} />],
+    ["StreamingAnswer", <StreamingAnswer text="" />],
+  ];
+  for (const [name, node] of cases) {
+    test(`${name}: exactly one track and three masked windows`, () => {
+      const doc = draw(node);
+      expect(ghosts(doc).length).toBeGreaterThan(0);
+      expect(doc.querySelectorAll(".bk-ghost-track")).toHaveLength(1);
+      expect(doc.querySelectorAll(".bk-ghost-window")).toHaveLength(3);
+      const track = doc.querySelector(".bk-ghost-track")!;
+      expect(track.getAttribute("aria-hidden")).toBe("true");
+      expect(track.hasAttribute("inert")).toBe(true);
+    });
+  }
 });

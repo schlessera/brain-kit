@@ -11,7 +11,7 @@ import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-
 import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
-import { ghostMedia } from "./tests/visual/ghost-browser.ts";
+import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
@@ -125,7 +125,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia },
+              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

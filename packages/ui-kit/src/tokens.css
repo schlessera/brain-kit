@@ -1236,59 +1236,102 @@
   }
 }
 
-/* ── Ghost text (#1116) ───────────────────────────────────────────────────
- *
- * The loading state: blurred text in the replaced content's own type role,
- * with the kit spectrum sweeping through it left to right. `GhostText` is the
- * only thing that draws one; it sets the font, size, blur and stagger inline
- * and takes these classes for everything a stylesheet has to be able to
- * reach — reduced motion and print.
- *
- * NOT AMBIENT MOTION. "The only ambient motion" is still `breathe`. A ghost is
- * a loading state: it ends when the data does, so the rule's wording stands.
- *
- * The sweep: the gradient is 250% of the line wide and its band — amber,
- * purple, blue — is 16% of that, so the band is 40% of the line. Sliding the
- * image from 100% to 0% moves the band in from the left edge and out past the
- * right. `box-decoration-break: clone` gives each wrapped line its own sweep
- * rather than one band across the concatenated lines.
+/* Ghost glyphs stay static; each loading frame owns one V5 band (#1126).
+ * The four translations cancel on the coloured layout copies. Only the mask
+ * windows travel, so wrapping glyphs need neither repaint nor animated blur.
  */
-.bk-ghost {
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    var(--bk-ghost-base) 0%,
-    var(--bk-ghost-base) 42%,
-    var(--bk-ghost-amber) 45%,
-    var(--bk-ghost-purple) 50%,
-    var(--bk-ghost-blue) 55%,
-    var(--bk-ghost-base) 58%,
-    var(--bk-ghost-base) 100%
-  );
-  background-size: 250% 100%;
-  background-position: 0% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-  animation: ghost 2.6s ease-in-out infinite;
+.bk-ghost, .bk-ghost-copy-glyph {
+  color: var(--bk-ghost-base);
   pointer-events: none;
   user-select: none;
 }
-
-/* `animate={false}`: the same ghost, still — a baseline can be taken from it. */
-.bk-ghost[data-still] {
-  animation: none;
+.bk-ghost-clip {
+  display: block;
+  overflow: hidden;
+  color: transparent;
+  background-color: var(--bk-ghost-base);
+  background-clip: text;
 }
-
-@keyframes ghost {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: 0% 0;
-  }
+.bk-ghost-viewport {
+  position: absolute;
+  inset: -8px;
+  overflow: clip;
+  pointer-events: none;
 }
+.bk-ghost-track {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: calc(8px - 0.6em);
+  width: calc(100% - 16px + 1.2em);
+  font-size: 12px;
+  container-type: inline-size;
+  pointer-events: none;
+  animation: ghost 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+.bk-ghost-band {
+  position: absolute;
+  right: 100%;
+  width: max(100%, 9em);
+  height: 100%;
+  opacity: 0.56;
+  animation: ghost 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+.bk-ghost-window {
+  position: absolute;
+  inset: -8px 0;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
+.bk-ghost-window[data-ghost-hue="amber"] {
+  --ghost-copy-color: var(--bk-ghost-amber);
+  mask-image: linear-gradient(90deg, transparent 0, rgb(0 0 0 / .08) 9.23%, rgb(0 0 0 / .3) 18.46%, rgb(0 0 0 / .65) 29.23%, #000 40%, transparent 52%);
+}
+.bk-ghost-window[data-ghost-hue="purple"] {
+  --ghost-copy-color: var(--bk-ghost-purple);
+  mask-image: linear-gradient(90deg, transparent 22%, #000 50%, transparent 78%);
+}
+.bk-ghost-window[data-ghost-hue="blue"] {
+  --ghost-copy-color: var(--bk-ghost-blue);
+  mask-image: linear-gradient(90deg, transparent 48%, #000 60%, rgb(0 0 0 / .65) 70.77%, rgb(0 0 0 / .3) 81.54%, rgb(0 0 0 / .08) 90.77%, transparent 100%);
+}
+.bk-ghost-counter-band {
+  position: absolute;
+  top: 8px;
+  left: 100%;
+  width: 100%;
+  height: calc(100% - 16px);
+  animation: ghost-counter 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+.bk-ghost-copy {
+  width: 100cqw;
+  padding: 0 0.6em;
+  box-sizing: border-box;
+  animation: ghost-counter 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+/* Furniture keeps the layout but paints nothing. Ghost wrappers may be
+ * clipped for ellipsis in the base; the coloured blur must reach past them. */
+.bk-ghost-copy * { visibility: hidden; }
+.bk-ghost-copy .bk-ghost-copy-glyph,
+.bk-ghost-copy .bk-ghost-copy-glyph * {
+  visibility: visible;
+  color: var(--ghost-copy-color);
+}
+.bk-ghost-copy .bk-ghost-copy-glyph .bk-ghost-clip {
+  color: transparent;
+  background-color: var(--ghost-copy-color);
+}
+.bk-ghost-copy [style*="text-overflow"],
+.bk-ghost-copy [style*="position: relative"] { overflow: visible !important; }
+.bk-ghost-track[data-still],
+.bk-ghost-track[data-still] * { animation: none; }
+.bk-ghost-track[data-still] { display: none; }
+@keyframes ghost { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes ghost-counter { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 
 /* The handoff: the ghost layer under the real one, both over 600ms, starting
  * when that item's data resolves. */
@@ -1299,6 +1342,8 @@
 .bk-ghost-out {
   animation: ghost-out 600ms ease both;
 }
+
+.bk-ghost-track.bk-ghost-out { animation: ghost 2.6s ease-in-out infinite, ghost-out 600ms ease both; }
 
 @keyframes ghost-in {
   from {
@@ -1338,6 +1383,7 @@
  * render paints nothing; a browser print hides it. Both
  * keep its box, so the printed page has the layout the screen had. */
 @media print {
+  .bk-ghost-track { display: none; }
   .bk-ghost {
     visibility: hidden;
   }
@@ -1373,6 +1419,8 @@
  * the finger does, and it is a pressed state rather than a movement.
  */
 @media (prefers-reduced-motion: reduce) {
+  .bk-ghost-track, .bk-ghost-track.bk-ghost-out, .bk-ghost-track * { animation: none; }
+  .bk-ghost-track { display: none; }
   @keyframes breathe {
     0%,
     100% {
