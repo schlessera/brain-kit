@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { captureSurface, SURFACE_MODEL } from "./capture-turn-surface";
 import { attributeTokenCounts, tokenGroupPayloads, type TokenGroup } from "./turn-surface-token-groups";
 
-export async function countSurfaceTokens(apiKey: string, doFetch: typeof fetch = fetch) {
+export async function countSurfaceTokens(apiKey: string, doFetch: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init)) {
   if (!apiKey.trim()) throw Error("Token-count instrument requires its authorized API key");
   const capture = await captureSurface();
   const counts: Array<{ group: TokenGroup; inputTokens: number }> = [];

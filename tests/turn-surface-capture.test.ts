@@ -48,7 +48,7 @@ test("token instrument records provider receipts and stops at a failed request",
     expect(String(url)).toBe("https://api.anthropic.com/v1/messages/count_tokens");
     received.push(JSON.parse(String(init?.body)));
     return Response.json({ input_tokens: tokens[received.length - 1] });
-  }) as typeof fetch);
+  }));
   expect(received).toHaveLength(5);
   expect(received.every(body => body.model === "claude-sonnet-5-5")).toBe(true);
   expect(report.rows.map(row => row.marginalTokens)).toEqual([10, 15, 19, 56, 20]);
@@ -56,6 +56,6 @@ test("token instrument records provider receipts and stops at a failed request",
   await expect(countSurfaceTokens("offline-fixture-key", (async () => {
     failedRequests++;
     return new Response("controlled rejection", { status: 503 });
-  }) as typeof fetch)).rejects.toThrow("everythingElse: HTTP 503");
+  }))).rejects.toThrow("everythingElse: HTTP 503");
   expect(failedRequests).toBe(1);
 });
