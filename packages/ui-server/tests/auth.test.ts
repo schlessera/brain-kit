@@ -426,10 +426,10 @@ describe("login limiter storage", () => {
         expect((await login(app, "wrong", `other-${index}`)).status).toBe(401);
       }
       expect((await login(app, PASSWORD, "blocked-before-release")).status).toBe(429);
-  
+
       releaseDelayed();
       expect((await collidingFailure).status).toBe(401);
-  
+
       // Finishing the colliding request must not reduce the saturated global
       // counter and reopen verification for a fresh source key.
       expect((await login(app, PASSWORD, "blocked-after-release")).status).toBe(429);

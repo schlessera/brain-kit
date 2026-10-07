@@ -236,7 +236,7 @@ describe("rev-3 negotiation end to end", () => {
       while (Date.now() < deadline && acceptedHello.mock.calls.length === 0) await Bun.sleep(5);
       expect(acceptedHello).toHaveBeenCalledTimes(1);
       expect(acceptedHello.mock.calls[0][1]).toMatchObject({ askReceipts: true, followUpQueue: true });
-  
+
       // Accepted silently — a hello is not answered, and must not be counted as
       // a dropped frame.
       expect(observability.metrics.total("ws.frames.dropped")).toBe(0);
