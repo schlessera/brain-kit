@@ -159,10 +159,10 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **F — Content and byte ranges.**
 
-- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:204-210`)
-- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:229-234`)
-- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:96-98`)
-- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:240-253`)
+- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:206-212`)
+- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:231-236`)
+- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:98-100`)
+- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:242-255`)
 - `Safari's two-byte probe gets a 206 with its length, and the frame headers` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`Safari's two-byte probe gets a 206 with its length, and the frame headers`, `packages/ui-server/tests/files-raw-range.test.ts:222-231`)
 - `a range that starts past the end is a 416 naming the size` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a range that starts past the end is a 416 naming the size`, `packages/ui-server/tests/files-raw-range.test.ts:87-92`)
 - `a HEAD request ignores Range, which applies to GET only` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a HEAD request ignores Range, which applies to GET only`, `packages/ui-server/tests/files-raw-range.test.ts:102-107`)
