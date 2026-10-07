@@ -97,6 +97,9 @@ describe("root test script, run for real", () => {
     }
     // A flag's separate value is not a path, and the filter applies.
     expect(await ran(["-t", "case-tests"])).toEqual(["tests"]);
+    // Bun 1.4's timings path is a flag value; losing it from VALUE_FLAGS
+    // omits our default roots, so Bun also discovers the unrelated `other`.
+    expect(await ran(["--timings", "timings.json"])).toEqual(DEFAULT_SET);
   });
 
   test("flags pass through alongside a path", async () => {
@@ -206,6 +209,14 @@ describe("testArgv", () => {
       ["--install", "fallback"],
       ["--origin", "http://localhost"],
       ["--cron-title", "nightly"],
+      ["--timings", "timings.json"],
+      ["--heap-prof-interval", "524288"],
+      ["--redirect-warnings", "warnings.log"],
+      ["--stack-trace-limit", "20"],
+      ["--trace-event-categories", "v8"],
+      ["--trace-event-file-pattern", "trace.json"],
+      ["--disable-warning", "DeprecationWarning"],
+      ["--watch-kill-signal", "SIGTERM"],
       ["--shard=1/3"],
       ["-t=name"],
       ["--bail"],

@@ -1,7 +1,7 @@
 // The committed lockfile must be readable by the bun the repository pins.
 //
 // It was not, for a week. `bun.lock` was committed as `"lockfileVersion": 2`,
-// which bun 1.3.14 — the version every CI job installs — cannot parse:
+// which the then-pinned bun 1.3.14 could not parse:
 //
 //   error: Unknown lockfile version
 //       at bun.lock:2:22
@@ -28,10 +28,12 @@ import { join, resolve } from "path";
 const ROOT = resolve(import.meta.dir, "..");
 
 /**
- * Lockfile formats the pinned bun can read. Bun writes the highest it knows,
- * so a file above this range was written by a newer bun than CI installs.
+ * Lockfile formats the pinned bun can read. Bun 1.4.2 preserves a compatible
+ * loaded format and chooses a newer one when its dependency rules need it.
+ * A file above this range needs a newer bun than CI installs.
  */
-const SUPPORTED_LOCKFILE_VERSIONS = [0, 1];
+// Bun 1.4.2: src/install/lockfile/bun.lock.rs, Version::from_int.
+const SUPPORTED_LOCKFILE_VERSIONS = [0, 1, 2, 3];
 
 /** The bun `.depot/workflows/ci.yml` installs for every job. */
 function pinnedBunVersions(): string[] {
