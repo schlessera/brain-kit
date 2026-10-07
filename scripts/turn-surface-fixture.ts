@@ -1,5 +1,5 @@
 /** Disposable fictional project. No SDK query or provider transport. */
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,24 +11,36 @@ import { claudeEmitter } from "../packages/core/src/lib/skills/emitters/claude.j
 import { assembleTurn, connectSurface, type SkillEntry, type Peer } from "./turn-surface-routing.js";
 import cases from "./fixtures/turn-surface-cases.json";
 import { DEFAULT_ALLOWED_TOOLS } from "../packages/ui-backend-claude/src/tool-policy.js";
+import corpusConfig from "../packages/core/fixtures/corpus/brain.config.js";
 
 export const FROZEN_CASES = cases;
-export function createFixture() {
+export function createFixture(control?: { corpus?: boolean }) {
   const root = mkdtempSync(join(tmpdir(), "turn-surface-fixture-"));
   writeFileSync(join(root, "brain.config.json"), JSON.stringify({ profile: { name: "Odysseus" } }));
   mkdirSync(join(root, "me"));
   writeFileSync(join(root, "me/identity.md"), "---\ntitle: Odysseus\ntype: identity\n---\n\nOdysseus is preparing the next voyage.\n");
-  for (const skill of cases.skills) {
+  if (control?.corpus) {
+    cpSync(join(import.meta.dir, "../packages/core/fixtures/corpus"), root, { recursive: true });
+    // The copied TS config imports a workspace package that is deliberately
+    // absent from this outside-checkout fixture. The same config object is
+    // supplied as literal data; document/skill content remains unchanged.
+    rmSync(join(root, "brain.config.ts"));
+    writeFileSync(join(root, "brain.config.json"), JSON.stringify(corpusConfig));
+    writeFileSync(join(root, "CLAUDE.md"), "This is the fictional Odysseus notebook. Its current story date is 2026-07-12, independent of the runtime calendar. Odysseus is alone on Ogygia; his crew did not survive Thrinacia. Follow an existing project skill when the user requests its written procedure. Do not save drafts, change notebook files or settings, or invent completed construction. Use the notebook for facts about Odysseus; general explanations may be answered in prose.\n");
+  }
+  const restoreSkills = () => { for (const skill of cases.skills) {
     const dir = join(root, ".agents/skills", skill.name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "SKILL.md"), `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\nConsult the voyage notebook before recording a decision.\n`);
-  }
+  } };
+  restoreSkills();
   const discover = () => discoverSkills({ root, modules: [] }, { coreSkillsDir: join(root, "no-core-skills") });
   const discovered = discover();
   if (discovered.warnings.length || discovered.skills.length !== cases.skills.length) throw new Error("fixture skill discovery failed");
   claudeEmitter.emit(discovered.skills, root);
   return {
     root, skills: discovered.skills.map(({ name, description }) => ({ name, description })) satisfies SkillEntry[],
+    restoreSkills() { restoreSkills(); claudeEmitter.emit(discover().skills, root); },
     skillFiles: () => Object.fromEntries(readdirSync(join(root, ".claude/skills")).sort().map(name => [name, readFileSync(join(root, ".claude/skills", name, "SKILL.md"), "utf8")])),
     pruneSkills(names: readonly string[]) {
       // Sources and emitted entries are removed only in this disposable root.
@@ -85,7 +97,7 @@ export function installedRuntime() {
 
 export async function connectBrainSurface(root: string): Promise<Peer> {
   const fixtureHome = join(root, ".fixture-home");
-  mkdirSync(fixtureHome);
+  mkdirSync(fixtureHome, { recursive: true });
   const client = new Client({ name: "turn-surface-core", version: "0.1.0" });
   // Exact environment: no account discovery, ambient provider keys or model
   // commands. This is the real stdio MCP server, not a Claude process.

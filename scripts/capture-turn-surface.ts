@@ -2,10 +2,10 @@
  * This observes serialization, not model choice or model quality. No real
  * credential is used. Run in an explicitly offline namespace when testing.
  */
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage, HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { createFixture, fixtureTurn, connectBrainSurface, installedRuntime } from "./turn-surface-fixture.js";
 import { type Peer } from "./turn-surface-routing.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -36,17 +36,17 @@ export function coreSdkServer(peer: Peer) {
   return { type: "sdk" as const, name: "brain", instance };
 }
 
-function scriptedReply(model: string, recoverTool?: string): Response {
+function scriptedReply(model: string, call?: { name: string; input: unknown }, sequence = 0): Response {
   const events = [
-    { type: "message_start", message: { id: "msg_surface_control", type: "message", role: "assistant", model,
+    { type: "message_start", message: { id: `msg_surface_control_${sequence}`, type: "message", role: "assistant", model,
       content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } },
-    { type: "content_block_start", index: 0, content_block: recoverTool
-      ? { type: "tool_use", id: "tool_surface_search", name: "ToolSearch", input: {} } : { type: "text", text: "" } },
-    { type: "content_block_delta", index: 0, delta: recoverTool
-      ? { type: "input_json_delta", partial_json: JSON.stringify({ query: `select:${recoverTool}` }) }
+    { type: "content_block_start", index: 0, content_block: call
+      ? { type: "tool_use", id: `tool_surface_${call.name}_${sequence}`, name: call.name, input: {} } : { type: "text", text: "" } },
+    { type: "content_block_delta", index: 0, delta: call
+      ? { type: "input_json_delta", partial_json: JSON.stringify(call.input) }
       : { type: "text_delta", text: "Offline serialization control." } },
     { type: "content_block_stop", index: 0 },
-    { type: "message_delta", delta: { stop_reason: recoverTool ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+    { type: "message_delta", delta: { stop_reason: call ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
     { type: "message_stop" },
   ];
   return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
@@ -59,16 +59,25 @@ export async function captureSurface(control?: {
   onSpawn?: () => void;
   recoverTool?: string;
   skillCatalogue?: readonly string[];
+  guard?: (root: string) => HookCallback;
+  readGuardControl?: boolean;
+  corpus?: boolean;
 }) {
   const home = mkdtempSync(join(tmpdir(), "turn-surface-home-"));
   mkdirSync(join(home, ".claude"));
-  const fixture = createFixture();
+  const fixture = createFixture({ corpus: control?.corpus });
   const prepared = await fixtureTurn(fixture.root, "Explain what a mast does.", "normal", undefined, { productionDefaults: true });
   const brain = await connectBrainSurface(fixture.root);
   const core = control ? gatedSurfaceServer("brain", {
     ...brain, tools: brain.tools.map(tool => ({ ...tool, _meta: { ...tool._meta, "anthropic/alwaysLoad": true } })),
   }, control.decision) : coreSdkServer(brain);
   const bridge = control ? gatedSurfaceServer("brain-ui", prepared.peer, control.decision) : undefined;
+  const outside = join(home, "controlled-outside.txt");
+  writeFileSync(outside, "OUTSIDE CONTROLLED CONTENT MUST NEVER REACH THE MODEL");
+  const calls = control?.readGuardControl ? [
+    { name: "Read", input: { file_path: outside } },
+    { name: "Read", input: { file_path: join(fixture.root, "me/identity.md") } },
+  ] : control?.recoverTool ? [{ name: "ToolSearch", input: { query: `select:${control.recoverTool}` } }] : [];
   const bodies: CapturedRequest[] = [];
   let mainRequests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -78,18 +87,20 @@ export async function captureSurface(control?: {
     // Credentials, headers and filesystem locations are never serialized.
     bodies.push(body);
     const isMain = body.tools?.some(tool => tool.name === "Read");
-    return scriptedReply(body.model, isMain && mainRequests++ === 0 ? control?.recoverTool : undefined);
+    const call = isMain ? calls[mainRequests++] : undefined;
+    return scriptedReply(body.model, call, bodies.length);
   } });
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 30_000);
   let completion: string | undefined;
   let cliVersion: string | undefined;
+  const frames: SDKMessage[] = [];
   let overlapped: Awaited<ReturnType<typeof startOverlappedTurn>> | undefined;
   try {
     const sdkEntry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
     const { query } = await import(sdkEntry) as typeof import("@anthropic-ai/claude-agent-sdk");
     const options: Options = {
-      ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: control?.recoverTool ? 3 : 1, persistSession: false,
+      ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: calls.length + 1, persistSession: false,
       abortController,
       mcpServers: { ...prepared.turn.options.mcpServers, ...(bridge ? { "brain-ui": bridge } : {}), brain: core },
       // Capture uses bogus API auth on loopback, not the subscription gate.
@@ -109,6 +120,9 @@ export async function captureSurface(control?: {
           env: spawnOptions.env, stdio: ["pipe", "pipe", "pipe"], signal: spawnOptions.signal });
       } } : {}),
     };
+    if (control?.guard) options.hooks = { ...options.hooks,
+      PreToolUse: [...(options.hooks?.PreToolUse ?? []), { hooks: [control.guard(fixture.root)] }],
+    };
     if (control) {
       overlapped = await startOverlappedTurn({ options, parkingDirectory: home, projectDirectory: fixture.root,
         prompt: String(prepared.turn.prompt), decision: control.decision,
@@ -118,6 +132,7 @@ export async function captureSurface(control?: {
     }
     const stream = overlapped?.query ?? query({ prompt: prepared.turn.prompt, options });
     for await (const message of stream as AsyncIterable<SDKMessage>) {
+      frames.push(message);
       if (message.type === "system" && message.subtype === "init") cliVersion = message.claude_code_version;
       if (message.type === "result") completion = message.subtype;
     }
@@ -128,7 +143,8 @@ export async function captureSurface(control?: {
       && JSON.stringify(body.messages).includes("Explain what a mast does."));
     if (!request) throw new Error("capture did not observe the actual bridge request");
     return { evidence: "offline-installed-cli-serialization", runtime: installedRuntime(), cliVersion,
-      fixtureSkills: fixture.skills, request, requests: bodies.filter(body => body.tools?.some(tool => tool.name === "Read")) };
+      fixtureSkills: fixture.skills, request, frames,
+      requests: bodies.filter(body => body.tools?.some(tool => tool.name === "Read")) };
   } finally {
     clearTimeout(timeout); overlapped?.spare.close(); server.stop(true);
     await bridge?.instance.close();

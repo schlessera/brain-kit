@@ -5,7 +5,9 @@ import { attributeTokenCounts, tokenGroupPayloads, type TokenGroup } from "./tur
 
 export async function countSurfaceTokens(apiKey: string, doFetch: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init)) {
   if (!apiKey.trim()) throw Error("Token-count instrument requires its authorized API key");
-  const capture = await captureSurface();
+  const capture = await captureSurface({ corpus: true,
+    decision: Promise.resolve({ arm: "baseline", routed: false, tools: [], skills: [] }),
+  });
   const counts: Array<{ group: TokenGroup; inputTokens: number }> = [];
   for (const entry of tokenGroupPayloads(capture.request)) {
     const response = await doFetch("https://api.anthropic.com/v1/messages/count_tokens", {
