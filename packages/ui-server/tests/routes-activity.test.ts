@@ -173,10 +173,18 @@ describe("activity routes", () => {
   test("rollups aggregate per day/job/session from root accounting, in the configured zone", async () => {
     const { db, store } = seeded();
     setSetting(db, "activity.timezone", "Europe/Berlin");
+    const utcDayStart = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    // 23:30 UTC is already the next day in Berlin throughout the year.
+    db.query("UPDATE activity_run_rollups SET started_at = ?").run(
+      utcDayStart + 23.5 * 60 * 60 * 1_000
+    );
     const app = createActivityRoutes({ db, store });
     const body = await (await request(app, "/activity/rollups?days=7")).json();
     expect(body.timeZone).toBe("Europe/Berlin");
     expect(body.days).toHaveLength(1);
+    expect(body.days[0].day).toBe(
+      new Date(utcDayStart + 86_400_000).toISOString().slice(0, 10)
+    );
     expect(body.days[0].runs).toBe(2);
     expect(body.days[0].failures).toBe(1);
     expect(body.days[0].costUsd).toBeCloseTo(0.5);
@@ -194,11 +202,21 @@ describe("activity routes", () => {
   test("a negative or zero limit is clamped, never a throw or an unbounded read", async () => {
     const { db, store } = seeded();
     const app = createActivityRoutes({ db, store });
-    for (const q of ["-1", "0", "junk"]) {
+    for (let index = 0; index < 199; index++) {
+      const runId = `extra-${index}`;
+      store.startSpan({
+        spanId: `${runId}:root`, runId, name: "cron sync", kind: "cron",
+        origin: "cron", startedAt: Date.now() - 5_000,
+      });
+      store.endSpan(`${runId}:root`, { outcome: "success" });
+      store.rollupRun(runId);
+    }
+    expect(db.query("SELECT COUNT(*) AS count FROM activity_run_rollups").get()).toEqual({ count: 201 });
+    for (const [q, expected] of [["-1", 1], ["0", 50], ["junk", 50], ["999", 200]] as const) {
       const res = await request(app, `/activity/runs?limit=${q}`);
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.history.length).toBeLessThanOrEqual(200);
+      expect(body.history).toHaveLength(expected);
     }
     db.close();
   });
@@ -233,9 +251,17 @@ describe("activity routes", () => {
   test("an invalid configured zone degrades to UTC instead of failing the route", async () => {
     const { db, store } = seeded();
     setSetting(db, "activity.timezone", "Not/AZone");
+    const utcDayStart = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    db.query("UPDATE activity_run_rollups SET started_at = ?").run(
+      utcDayStart + 30 * 60 * 1_000
+    );
     const app = createActivityRoutes({ db, store });
     const res = await request(app, "/activity/rollups");
     expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.days.map((day: { day: string }) => day.day)).toEqual([
+      new Date(utcDayStart).toISOString().slice(0, 10),
+    ]);
     db.close();
   });
 });
