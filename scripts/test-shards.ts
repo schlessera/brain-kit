@@ -11,6 +11,7 @@
  * Claude follow-up suites are from the same PR's CI run (bzvr9l77k7).
  * Answer delivery's browser suite (#910) is a local measurement until CI
  * re-measures it: 87.54s, including its 35s Liveness B blackhole case.
+ * Parallel sessions' real-host proof (#953) is local too: 140.66s.
  * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
  * New/renamed tests are discovered on every run and receive the small-file cost.
  */
