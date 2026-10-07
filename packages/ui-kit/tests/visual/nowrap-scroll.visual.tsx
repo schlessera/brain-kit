@@ -76,3 +76,22 @@ for (const theme of ["dark", "light"]) for (const kind of ["code", "chips"]) {
     expect(getComputedStyle(scroll).overflowX).toBe("auto");
   });
 }
+
+for (const theme of ["dark", "light"]) {
+  test(`no-wrap printed cost and disabled reason fit the chip ${theme}`, async () => {
+    const click = vi.fn();
+    mount(320, theme, <SuggestionChips wrap={false} items={[{
+      label: "Show me the other landfalls ".repeat(8), cost: "spends 2 credits",
+      disabled: true, why: "needs the host", onClick: click,
+    }]} />);
+    const chip = host!.querySelector<HTMLElement>('[role="button"]')!;
+    expect(chip.textContent).toContain("spends 2 credits");
+    expect(chip.textContent).toContain("needs the host");
+    expect(chip.getBoundingClientRect().width).toBeLessThanOrEqual(320);
+    expect(chip.scrollWidth).toBeLessThanOrEqual(chip.clientWidth + 1);
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+    expect(click).not.toHaveBeenCalled();
+  });
+}

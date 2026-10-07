@@ -170,7 +170,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             alignItems: "center",
             gap: 6,
             flex: "none",
-            maxWidth: p.wrap === false ? undefined : "100%",
+            maxWidth: p.wrap === false && !why && !it.cost ? undefined : "100%",
             border: `1px solid ${tone ? BORDERS[tone] || BORDERS.neutral : color.edge}`,
             background: tone ? TINTS[tone] || TINTS.neutral : "transparent",
             borderRadius: 999,
