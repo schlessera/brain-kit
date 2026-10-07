@@ -90,9 +90,11 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
     let snapshot = structuredClone(snapshotFixture) as ModuleSettingsSnapshot & { values: Record<string, unknown>; inherited: Record<string, unknown> };
     const saves: Array<{ values: Record<string, unknown>; revision: string | null }> = [];
     let reject: "validation" | "conflict" | "network" | null = null;
+    let moduleListRequests = 0;
+    const coldImport = theme === "dark" && width === 320;
     const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
       const path = new URL(url, "http://fixture.example").pathname;
-      if (path.endsWith("/modules")) return Response.json({ enabled: [{ name: "jobs", key: snapshot.key, state: "active", settings: true, description: "Find the next voyage" }, { name: "broken", key: "./broken", state: "unavailable", settings: false, error: "Repair the module config" }], available: [] });
+      if (path.endsWith("/modules")) { moduleListRequests++; return Response.json({ enabled: [{ name: "jobs", key: snapshot.key, state: "active", settings: true, description: "Find the next voyage" }, { name: "broken", key: "./broken", state: "unavailable", settings: false, error: "Repair the module config" }], available: [] }); }
       if (path.endsWith("/settings/preview")) return Response.json({ ...snapshot, notes: [{ key: "scoring.groups", text: "Highest possible score 25" }] });
       if (init?.method === "PUT") {
         const values = JSON.parse(String(init.body)).values;
@@ -106,9 +108,22 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
     } });
     const react = createRoot(host);
     try {
+      if (coldImport) await commands.moduleSettingsImportGate("hold");
       ui.stores.ui.getState().openSettings("modules");
       flushSync(() => react.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
+      expect(ui.stores.ui.getState().settingsTab).toBe("modules");
+      expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
+      if (coldImport) {
+        expect(await commands.moduleSettingsImportGate("arrived")).toBe(1);
+        expect(doc.querySelector("[data-module-settings-editor]")).toBeNull();
+        expect(moduleListRequests).toBe(0);
+        await commands.moduleSettingsImportGate("release");
+      }
+      // The real lazy import has already started. Await its code separately:
+      // Vite cold transforms are not part of the list-response DOM budget.
+      await import("../../../ui-react/src/components/settings/modules-tab.js");
       await expect.poll(() => doc.body.textContent).toContain("Configure Jobs");
+      expect(moduleListRequests).toBe(1);
       expect(button(doc, "View Broken").getAttribute("aria-disabled")).not.toBe("true");
       flushSync(() => button(doc, "View Broken").click());
       await expect.poll(() => doc.body.textContent).toContain("This detail is read-only");
@@ -217,6 +232,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
       expect(saves[1]!.revision).toBe('"fixture-remote"');
       expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
     } finally {
+      if (coldImport) await commands.moduleSettingsImportGate("stop");
       flushSync(() => react.unmount()); ui.dispose(); iframe.remove();
       await restoreViewport();
     }
@@ -311,6 +327,9 @@ test("modules show loading, retry and empty states, and separate migration, dorm
   try {
     ui.stores.ui.getState().openSettings("modules");
     flushSync(() => react.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
+    expect(ui.stores.ui.getState().settingsTab).toBe("modules");
+    expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
+    await import("../../../ui-react/src/components/settings/modules-tab.js");
     await expect.poll(() => host.querySelector('[aria-label="Loading modules"]')).not.toBeNull();
     await commands.moduleSettingsScreenshot("mobile-dark-loading");
     releaseList();

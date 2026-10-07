@@ -8,7 +8,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
 import { formViewport, formConsumerStyles, htmlPreviewFixture, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
-import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
+import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
@@ -175,7 +175,7 @@ export default mergeConfig(
             include: ["tests/visual/module-settings.visual.tsx"],
             browser: {
               enabled: true,
-              commands: { formViewport, formConsumerStyles, moduleSettingsScreenshot },
+              commands: { formViewport, formConsumerStyles, moduleSettingsScreenshot, moduleSettingsImportGate },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],
