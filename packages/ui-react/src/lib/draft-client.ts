@@ -423,6 +423,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       for (const requestId of ids) {
         const send = drafts.getState().sends[requestId];
         if (!send || send.state === "accepted" || send.state === "refused") continue;
+        // Held, its pending entry withdrawn: back as this page's own, so the
+        // report draws the full text and images it kept, not the host's summary.
+        if (send.state === "unconfirmed" && !root.stores.followUp.getState().local[msg.sessionId]?.some((l) => l.requestId === requestId)) {
+          root.stores.followUp.getState().addLocal(msg.sessionId, {
+            requestId, text: send.text, source: send.message.source ?? "typed",
+            ...(send.attachments.length ? { attachments: send.attachments.map((a) => ({ previewUrl: a.previewUrl, mediaType: a.attachment.mediaType })) } : {}),
+            ...(send.files?.length ? { files: send.files } : {}),
+            ...(send.message.thinkingLevel !== undefined ? { thinkingLevel: send.message.thinkingLevel } : {}),
+            queuedAt: send.sentAt,
+          });
+        }
         bumpHost(send.draftId);
         drafts.getState().accepted(requestId, msg.sessionId);
         acceptedTracks(send, msg.sessionId);

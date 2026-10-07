@@ -560,6 +560,8 @@ describe("sends", () => {
     next.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, followUpQueue: true } });
     next.deliver({ type: "session_queue", sessionId: ITHACA, followUps: [{ id: "fu-1", requestId: "req-q", text: "Ask Aeolus", queuedAt: 1 }] });
     expect(drafts().sends["req-q"]?.state).toBe("accepted");
+    // Its own words are the pending entry again, not the host's summary.
+    expect(ui.stores.followUp.getState().local[ITHACA]?.map((l) => l.text)).toEqual(["Ask Aeolus"]);
     expect(ui.connection.drafts.resend("req-q")).toBe(false);
     expect(next.frames("chat_message")).toHaveLength(0);
   });
