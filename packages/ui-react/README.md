@@ -74,6 +74,22 @@ Durable-storage requests and capacity estimates are not guarantees.
 `discard(partition, id)` deletes that recording and its chunks. Playback URLs are revoked on discard, association, auth loss and disposal.
 Recording, playback and recovery perform no upload or transcription.
 
+The composer shows a local recording sheet with the microphone level, timer,
+remaining cap and Stop/Discard controls. Saved recordings appear in a collapsed
+“On this device” tray; expansion preserves the transcript's reading position.
+The tray reads only the held account and the unassigned partition. It offers
+playback and confirmed discard, and says when saved-audio transcription is
+unavailable. Nothing in these actions sends audio or a chat message.
+
+`RecordingsTray` and `LocalRecordingSheet` are exported for other root-scoped
+views. A ready transcript is editable and each input is committed locally.
+Add to draft appends after a newline and commits through the account's local
+work snapshot before marking the recording accepted or deleting its audio and
+transcript. A durable acceptance receipt makes a retry safe after a failed
+cleanup or reload; a failed draft write retains the recording. Unaccepted
+transcripts hold service-worker reloads even after the tray unmounts.
+
+
 A root created with `localCapture: { sink }` also records without the host.
 While the host is unreachable the mic becomes "Record on this device": a tap
 opens the microphone and records with MediaRecorder into the sink, chunk by

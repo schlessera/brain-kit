@@ -65,6 +65,8 @@ export interface LocalWork {
   snapshotNow(): Promise<void>;
   /** A view's report of where the reader is; returns its removal. */
   register(probe: WorkProbe): () => void;
+  /** @internal Append once, committing the draft and recording receipt together. Never sends. */
+  addTranscript(id: string, text: string, draftId: string, sessionId: string | null): Promise<number>;
   /** Something a probe reads changed: write a moment from now. */
   changed(): void;
   /** Resolves once a restore for the held account has finished, if one is under way. */
@@ -209,6 +211,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let generation = 0;
   let revision = 0;
   let committedRevision = 0;
+  // A failed write may leave the appended text in memory. Every later flush
+  // carries its receipt too, so retry/reload can never append it a second time.
+  const accepting = new Map<string, { draftId: string; revision: number; text: string }>();
+  const receiptKey = (id: string) => `recording:accepted:${id}`;
 
   const held = () => stores.connection.getState().accountKey;
   let switching = false;
@@ -243,7 +249,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
     const writingRevision = revision;
     const drafts = stores.drafts.getState().drafts;
-    const changes: PartitionWrite[] = [];
+    for (const [id, receipt] of accepting) {
+      const target = stores.drafts.getState().resolveId(receipt.draftId);
+      if (!drafts[target]?.text.includes(receipt.text)) accepting.delete(id);
+    }
+    const changes: PartitionWrite[] = [...accepting].map(([id, { draftId, revision }]) => ({ put: receiptKey(id), value: { draftId, revision } }));
     const next = new Map<string, ComposerDraft | null>();
     for (const d of Object.values(drafts)) {
       // An emptied draft the host still holds is kept too: its deletion is still owed.
@@ -264,6 +274,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       throw error;
     }
     committedRevision = writingRevision;
+    accepting.clear();
     written = next;
     writtenContext = text;
     status.setState({ failed: false, pending: timer !== null });
@@ -391,6 +402,32 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         await enqueue();
         if (locked || bound === null) throw new PartitionRefusedError("account:");
       } while (committedRevision !== revision);
+    },
+    addTranscript(id, text, draftId, sessionId) {
+      const account = held();
+      const run = chain.then(async () => {
+        if (account === null || account !== bound || held() !== account || !partition || disposed) throw new PartitionRefusedError(accountPartition(account ?? ""));
+        const receipt = await partition.get(receiptKey(id)) as { revision: number } | undefined;
+        if (held() !== account) throw new PartitionRefusedError(accountPartition(account));
+        if (receipt) return receipt.revision;
+        let pending = accepting.get(id);
+        if (pending && !stores.drafts.getState().drafts[stores.drafts.getState().resolveId(pending.draftId)]?.text.includes(pending.text)) {
+          accepting.delete(id);
+          pending = undefined;
+        }
+        if (!pending) {
+          const state = stores.drafts.getState();
+          const target = state.resolveId(draftId);
+          const before = state.drafts[target]?.text ?? "";
+          state.edit(target, sessionId, { text: before ? `${before}\n${text}` : text });
+          pending = { draftId: target, text, revision: stores.drafts.getState().drafts[target]!.edit };
+          accepting.set(id, pending);
+        }
+        await flush();
+        return pending.revision;
+      });
+      chain = run.then(() => {}, () => {});
+      return run;
     },
     register(probe) {
       probes.add(probe);

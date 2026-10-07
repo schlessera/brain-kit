@@ -52,7 +52,7 @@ export function useLocalCapture() {
     openingRef.current = opening;
     let capture: LocalCapture;
     try {
-      const env = { timesliceMs: options.timesliceMs, signal: opening.signal };
+      const env = { timesliceMs: options.timesliceMs, signal: opening.signal, onAudioLevel: (level: number) => root.stores.voice.getState().setAudioLevel(level) };
       capture = root.recordings && options.durable
         ? await root.recordings.start(env)
         : await startLocalCapture({ sink: options.sink(), ...env });

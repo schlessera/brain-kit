@@ -15,6 +15,9 @@ import {
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
+import { RecordingsTray } from "../voice/recordings-tray.js";
+import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
+import { accountPartition } from "../../lib/local-partitions.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { useDictation } from "../../voice/use-dictation.js";
@@ -551,6 +554,22 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     void dictation.stop(true);
   }
 
+  const [recordingNotice, setRecordingNotice] = useState("");
+  useEffect(() => root.recordings?.onEvent(event => { if (event.message) setRecordingNotice(event.message); }), [root]);
+  const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
+    '[aria-label="Record on this device"], [aria-label="Dictate"], [aria-label="Stop and save"]'
+  )?.focus({ preventScroll: true }), 0);
+  const stopLocal = async () => { await localCapture.stop("user"); focusMic(); };
+  const discardLocal = async () => {
+    const key = root.stores.connection.getState().accountKey;
+    const partition = key === null ? "unassigned" : accountPartition(key);
+    const active = (await root.recordings!.list(partition)).find(row => row.state === "recording");
+    await localCapture.stop("user");
+    if (active) await root.recordings!.discard(partition, active.id);
+    setRecordingNotice("Recording discarded from this device.");
+    focusMic();
+  };
+
   function handleMicTap() {
     if (root.stores.voice.getState().mode === "dictate") {
       stopDictation();
@@ -562,7 +581,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       // the tap put it: on the mic, which is also the stop.
       // A tap while the microphone is still opening cancels it.
       const phase = root.stores.voice.getState().local;
-      if (phase === "recording" || phase === "opening") void localCapture.stop("user");
+      if (phase === "recording" || phase === "opening") void stopLocal();
       else if (phase === "idle") void localCapture.start();
     } else if (micMode === "dictate") {
       setAttachMenuOpen(false);
@@ -665,6 +684,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
               notification that has already happened. */}
           <ShareIntake />
 
+          <RecordingsTray composerRef={frameRef} onAccepted={() => setPaletteDismissed(true)} />
+          {recordingNotice && <p role="status" className="mb-2 text-xs text-muted-foreground">{recordingNotice}</p>}
           {/* Voice review card sits above the composer */}
           <ReviewCard
             text={reviewText}
@@ -681,8 +702,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
 
         <ComposerView
-          dictation={<DictationSheet open={voiceMode === "dictate"}
-            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />}
+          dictation={<><DictationSheet open={voiceMode === "dictate"}
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
+            {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
           captureNotice={
             micMode === "unsupported"
               ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."

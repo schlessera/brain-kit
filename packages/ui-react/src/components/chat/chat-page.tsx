@@ -217,6 +217,26 @@ export function ChatPage() {
     return () => observer.disconnect();
   }, [hasColumn]);
 
+  // Tray growth removes space from the bottom, never from the reading
+  // target. Keep the previous scroll position if native anchoring moves it
+  // during that resize; ordinary user scrolling still sets the new anchor.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let height = el.clientHeight;
+    let top = el.scrollTop;
+    const remember = () => { if (el.clientHeight === height) top = el.scrollTop; };
+    const observer = new ResizeObserver(() => {
+      const nextHeight = el.clientHeight;
+      if (nextHeight < height) el.scrollTop = top;
+      height = nextHeight;
+      top = el.scrollTop;
+    });
+    el.addEventListener("scroll", remember, { passive: true });
+    observer.observe(el);
+    return () => { observer.disconnect(); el.removeEventListener("scroll", remember); };
+  }, [hasColumn]);
+
   // Probe the device inventory once on mount so the FIRST message already
   // carries the camera/microphone facts (enumerateDevices is async).
   useEffect(() => {

@@ -102,3 +102,5 @@ export {
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";
 
 export { type RecordingStore, type Recording, type RecordingState, type RecordingBudget, type RecordingEvent, type RecordingRecovery } from "./lib/recordings.js";
+export { RecordingsTray } from "./components/voice/recordings-tray.js";
+export { LocalRecordingSheet } from "./components/voice/local-recording-sheet.js";

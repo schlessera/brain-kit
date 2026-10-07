@@ -191,6 +191,9 @@ export "." (./src/index.ts)
   Receipt
   type ReceiptProps
   type ReceiptRow
+  RecordingRow
+  type RecordingRowProps
+  type RecordingRowState
   type RelatedFileItem
   RelatedFiles
   type RelatedFilesProps
@@ -1663,6 +1666,22 @@ signatures (every public export and the types it is made of)
         v: string;
         tone?: ValueTone;
     }
+  RecordingRow (packages/ui-kit/src/rows/RecordingRow.tsx)
+    export function RecordingRow(p: RecordingRowProps): import("react").JSX.Element;
+  RecordingRowProps (packages/ui-kit/src/rows/RecordingRow.tsx)
+    export interface RecordingRowProps {
+        time: string;
+        length: string;
+        state: RecordingRowState;
+        savedThrough?: string;
+        durationLabel: string;
+        offline?: boolean;
+        onPlay?: () => void;
+        onDiscard?: () => void;
+        children?: ReactNode;
+    }
+  RecordingRowState (packages/ui-kit/src/rows/RecordingRow.tsx)
+    export type RecordingRowState = "recording" | "saved" | "interrupted" | "transcribing" | "transcript-ready" | "failed" | "accepted";
   RelatedFileItem (packages/ui-kit/src/conversation/RelatedFiles.tsx)
     export interface RelatedFileItem {
         path: string;
