@@ -114,7 +114,11 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       record("picked", {files:originals.map(file=>({name:file.name,type:file.type,size:file.size}))});
       input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
       snapshot("change-dispatched");
-      await expect.poll(() => host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
+      await expect.poll(() => {
+        const count = host.querySelectorAll('img[alt="raft.png"]').length;
+        record("preview-poll", {count});
+        return count;
+      }).toBe(1);
       snapshot("preview-ready");
       console.info("TRACK_INTAKE_CONTROL", JSON.stringify({width,initiallyOnline,trace}));
       if (!initiallyOnline) {
