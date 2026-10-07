@@ -218,6 +218,37 @@ for (const torn of [false, true]) test(`Done hands the transcript to review, wor
   expect(reloads(), "the review card closed: one reload").toBe(1);
 });
 
+test("a field's text holds the reload while a replaced root's dictation is torn down", async () => {
+  const ithaca = voiceRoot();
+  const pylos = voiceRoot();
+  const field = emptyComposer();
+  field.value = "Twenty trees for the raft";
+  serviceWorker.controller = {} as ServiceWorker;
+  let reloads = 0;
+  let current = ithaca.root;
+  // Dictation first, as a composer that also hosts the guard would: its
+  // teardown runs before the guard rebinds to the new root.
+  const hook = renderHook(() => {
+    const dictation = useDictation();
+    useServiceWorkerUpdates({ isBusy: false, reload: () => reloads++ });
+    return dictation;
+  }, { wrapper: ({ children }: { children: ReactNode }) => <BrainUiProvider root={current}>{children}</BrainUiProvider> });
+  await act(async () => Promise.resolve());
+  act(() => { void hook.result.current.start(); });
+  takeOver();
+  expect(reloads).toBe(0);
+
+  current = pylos.root;
+  act(() => hook.rerender());
+  expect(ithaca.root.stores.voice.getState().mode, "Ithaca's dictation ended with the switch").toBe("idle");
+  expect(reloads, "no reload while busy: the field still holds text").toBe(0);
+  act(() => {
+    field.value = "";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(reloads, "the field emptied: one reload").toBe(1);
+});
+
 test("a drain that fails still hands what was heard to review and ends the dictation", async () => {
   const { root, sessions, clients } = voiceRoot();
   const { reloads } = await mountGuard(root);

@@ -83,7 +83,10 @@ export function useServiceWorkerUpdates({
         }
       | undefined;
 
-    const busy = () => isBusyRef.current || updateHeld(rootRef.current);
+    // The DOM probe is also asked directly: while a replaced root's holds
+    // are rebinding, the new root has no probe registered yet, and a hold
+    // on the old one ending then must not reload over a field's text.
+    const busy = () => isBusyRef.current || probeUnsentTextRef.current() || updateHeld(rootRef.current);
     const doReload = () => {
       if (refreshingRef.current || disposed) return;
       refreshingRef.current = true;
