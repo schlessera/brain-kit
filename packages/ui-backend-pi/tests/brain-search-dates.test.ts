@@ -125,6 +125,8 @@ describe("upcoming", () => {
 
   test("the premise: score order puts the later deadline first", async () => {
     const ranked = await paths({ query: "ember" });
+    expect(ranked).toContain("notes/ember-late.md");
+    expect(ranked).toContain("notes/ember-soon.md");
     expect(ranked.indexOf("notes/ember-late.md")).toBeLessThan(ranked.indexOf("notes/ember-soon.md"));
   });
   test("excludes a deadline yesterday", async () => {
@@ -145,6 +147,8 @@ describe("upcoming", () => {
   });
   test("an explicit sort wins over the deadline sort", async () => {
     const ranked = await upcoming({ sort: "score" });
+    expect(ranked).toContain("notes/ember-late.md");
+    expect(ranked).toContain("notes/ember-soon.md");
     expect(ranked.indexOf("notes/ember-late.md")).toBeLessThan(ranked.indexOf("notes/ember-soon.md"));
   });
 });
