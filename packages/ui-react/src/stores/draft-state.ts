@@ -433,9 +433,16 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const k of kept) {
           const state = get();
           if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
-          if (k.text.length === 0 && k.attachments.length === 0) continue;
+          // An emptied draft comes back only while its deletion is owed to the host.
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean)) continue;
           // A session whose draft this page already holds keeps that one.
           if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
+          // An id handed to the session before this arrived goes to it, as in
+          // `restore`: work begun on it (an image decoding) lands here.
+          if (k.sessionId !== null) {
+            const handed = minted.get(k.sessionId);
+            if (handed && !state.drafts[handed]) { successors.set(handed, k.draftId); minted.delete(k.sessionId); }
+          }
           const edit = 1;
           put({
             ...blank(k.draftId, k.sessionId, k.editedAt),

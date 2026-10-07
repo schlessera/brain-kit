@@ -34,7 +34,7 @@ export interface WorkContext {
   /** The focused element's stable id (see {@link stableFocusId}). */
   focusId: string | null;
   /** The first message in view and how far its top sat from the transcript's top. */
-  scroll: { anchor: string; offset: number } | null;
+  scroll: { anchor: string; offset: number; fingerprint?: string } | null;
   reviewText: string;
   tracks: SharedFileMeta[];
 }
@@ -46,7 +46,7 @@ export type WorkProbe = () => Partial<Pick<WorkContext, "selectionStart" | "sele
 export interface WorkRestore {
   selection: { draftId: string; start: number; end: number } | null;
   focusId: string | null;
-  scroll: { sessionId: string | null; anchor: string; offset: number } | null;
+  scroll: { sessionId: string | null; anchor: string; offset: number; fingerprint?: string } | null;
 }
 
 export interface LocalWorkStatus {
@@ -74,6 +74,18 @@ export interface LocalWork {
 export const LOCAL_WRITE_DELAY_MS = 250;
 /** The longest a change waits while changes keep coming. */
 export const LOCAL_WRITE_MAX_DELAY_MS = 2_000;
+
+/**
+ * What a transcript message says, in short: a replay rebuilds messages with
+ * new ids, so the anchor is a place in the transcript checked against this,
+ * and a place that now holds another message is looked for by it.
+ */
+export function messageFingerprint(m: { role: string; content: string }): string {
+  let h = 5381;
+  const text = m.content.slice(0, 400);
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `${m.role}:${text.length}:${h.toString(36)}`;
+}
 
 /** The composer's field, by the attribute the kit gives it; else an element's own id. */
 export function stableFocusId(el: Element | null): string | null {
@@ -118,7 +130,8 @@ function parseContext(raw: unknown): WorkContext | null {
   const r = raw as Partial<StoredContext> | null;
   if (!r || r.v !== 1 || !isStrOrNull(r.sessionId ?? null) || !isStr(r.draftId) || !isStr(r.reviewText ?? "")) return null;
   const sel = (v: unknown) => (isNum(v) && v >= 0 ? v : null);
-  const scroll = r.scroll && isStr(r.scroll.anchor) && isNum(r.scroll.offset) ? { anchor: r.scroll.anchor, offset: r.scroll.offset } : null;
+  const scroll = r.scroll && isStr(r.scroll.anchor) && isNum(r.scroll.offset)
+    ? { anchor: r.scroll.anchor, offset: r.scroll.offset, ...(isStr(r.scroll.fingerprint) ? { fingerprint: r.scroll.fingerprint } : {}) } : null;
   return {
     sessionId: r.sessionId ?? null,
     draftId: r.draftId,
@@ -152,6 +165,12 @@ export interface LocalWorkOptions {
   tracks: (sessionId: string | null, draftId: string) => SharedFileMeta[];
   /** Calls back on every change to the root's staged tracks. */
   watchTracks: (fn: () => void) => () => void;
+  /**
+   * The client holds another account than the one this page restored for:
+   * the first account's drafts are in this page's stores, so the page must
+   * not go on under the second. Reloads by default.
+   */
+  onAccountSwitch?: () => void;
 }
 
 export function createLocalWork(options: LocalWorkOptions): LocalWork {
@@ -178,6 +197,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let disposed = false;
 
   const held = () => stores.connection.getState().accountKey;
+  let switching = false;
+  function switchAccount() {
+    if (switching || disposed) return;
+    switching = true;
+    if (timer !== null) { clearTimeout(timer); timer = null; }
+    (options.onAccountSwitch ?? (() => { if (typeof location !== "undefined") location.reload(); }))();
+  }
 
   function context(): WorkContext {
     const sessionId = stores.chat.getState().activeSessionId;
@@ -196,13 +222,16 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   /** One write of everything that changed since the last commit. */
   async function flush(): Promise<void> {
-    if (disposed || bound === null || partition === null) return;
+    // A snapshot asked for and then cancelled by the root going is not a receipt.
+    if (disposed) throw new Error("The work context was disposed before it was written");
+    if (bound === null || partition === null) return;
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
     const drafts = stores.drafts.getState().drafts;
     const changes: PartitionWrite[] = [];
     const next = new Map<string, ComposerDraft | null>();
     for (const d of Object.values(drafts)) {
-      if (!hasContent(d)) continue;
+      // An emptied draft the host still holds is kept too: its deletion is still owed.
+      if (!hasContent(d) && d.host === null) continue;
       next.set(d.draftId, d);
       if (written.get(d.draftId) !== d) changes.push({ put: draftKey(d.draftId), value: storeDraft(d) });
     }
@@ -263,7 +292,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       const activeSession = stores.chat.getState().activeSessionId;
       if (ctx.sessionId === activeSession) {
         // A new chat's own draft goes back into the new-chat view.
-        if (ctx.sessionId === null && drafts.drafts[ctx.draftId]) drafts.openUnbound(ctx.draftId);
+        // Not over a new chat the reader has already started typing in.
+        if (ctx.sessionId === null && drafts.drafts[ctx.draftId] && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
         const draftId = stores.drafts.getState().idFor(activeSession);
         restore.setState({
           selection: ctx.selectionStart !== null && ctx.selectionEnd !== null ? { draftId, start: ctx.selectionStart, end: ctx.selectionEnd } : null,
@@ -305,6 +335,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   const unsubscribers = [
     stores.connection.subscribe((s, prev) => {
+      // Another account while this page holds the first one's work: the page
+      // starts again, as a sign-in as another account does (#578 §1).
+      if (s.accountKey !== null && bound !== null && s.accountKey !== bound) { switchAccount(); return; }
       if (s.accountKey !== prev.accountKey) onAccount();
       // The same account again, after a refusal: what waited is written.
       if (s.accountKey !== null && s.accountKey === bound && prev.accountKey !== bound) changed();

@@ -564,6 +564,30 @@ describe("drafts kept on this device (#1014)", () => {
     expect(state().drafts.dirty!.conflict?.other.text).toBe("Also elsewhere");
   });
 
+  test("an id handed to a session before its kept draft arrived goes to that draft", () => {
+    const { state } = store();
+    // The composer asked first, and an image began decoding under that id.
+    const handed = state().idFor(ITHACA);
+    state().restoreLocal([kept({ draftId: "kept-ithaca", sessionId: ITHACA, text: "Kept for Ithaca" })]);
+    state().edit(handed, ITHACA, { attachments: [image("harbour.png")] });
+    expect(state().idFor(ITHACA)).toBe("kept-ithaca");
+    expect(Object.values(state().drafts).filter((d) => d.sessionId === ITHACA)).toHaveLength(1);
+    expect(state().drafts["kept-ithaca"]!.attachments.map((a) => a.name)).toEqual(["harbour.png"]);
+  });
+
+  test("an emptied draft comes back only while the host still holds it", () => {
+    const { state } = store();
+    state().setSupport(true);
+    state().restoreLocal([
+      kept({ draftId: "owed", sessionId: ITHACA, host: { revision: 2, sessionId: ITHACA, updatedAt: 1, clean: false } }),
+      kept({ draftId: "gone", sessionId: RAFT }),
+    ]);
+    expect(state().drafts.owed).toMatchObject({ text: "", host: { revision: 2 } });
+    // Its deletion is owed: it is not clean.
+    expect(state().drafts.owed!.host!.edit).not.toBe(state().drafts.owed!.edit);
+    expect(state().drafts.gone).toBeUndefined();
+  });
+
   test("a failed device write takes `kept on this device` off the line", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

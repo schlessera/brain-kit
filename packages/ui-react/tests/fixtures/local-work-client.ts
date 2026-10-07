@@ -21,6 +21,8 @@ Object.assign(window, {
     connected: () => root.stores.connection.getState().wsStatus === "connected",
     accountKey: () => root.stores.connection.getState().accountKey,
     vpn: () => root.stores.connection.getState().vpnStatus,
+    /** A probe that names another account, as a proxy's upstream user changing would. */
+    holdKey: (key: string) => root.stores.connection.getState().setVpnStatus("connected", key),
     // A root that keeps nothing has nothing pending.
     status: () => root.localWork?.status.getState() ?? { failed: false, pending: false },
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
@@ -38,6 +40,13 @@ Object.assign(window, {
       root.stores.chat.getState().clearMessages();
       root.stores.chat.getState().setActiveSession(sessionId);
       root.connection.send({ type: "session_resume", sessionId });
+    },
+    /** Type into the view's draft and snapshot at once, in one task: the snapshot is the write. */
+    editAndSnapshot: (text: string) => {
+      const drafts = root.stores.drafts.getState();
+      const sessionId = root.stores.chat.getState().activeSessionId;
+      drafts.edit(drafts.idFor(sessionId), sessionId, { text });
+      return outcome(root.localWork!.snapshotNow());
     },
     snapshotNow: () => outcome(root.localWork ? root.localWork.snapshotNow() : Promise.resolve()),
     /** The partition module itself, past any UI. */

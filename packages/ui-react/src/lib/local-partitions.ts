@@ -147,14 +147,17 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   /** Records are keyed `[partition, key]`, so a partition is one key range. */
   const range = (id: PartitionId, prefix = "") => IDBKeyRange.bound([id, prefix], [id, `${prefix}￿`]);
 
-  async function transact(stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void): Promise<void> {
+  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void): Promise<void> {
     const d = await db();
+    // The key may have gone while the database was opening: checked again before anything is written.
+    check(id);
     await new Promise<void>((resolve, reject) => {
       const tx = d.transaction(stores, mode);
       // `complete`, not a request's success: only then has it committed.
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB write failed"));
-      tx.onabort = () => reject(tx.error ?? new Error("IndexedDB write aborted"));
+      // A request's error bubbles here first; an abort names itself on the request.
+      tx.onerror = (event) => reject(tx.error ?? (event.target as IDBRequest | null)?.error ?? new Error("IndexedDB write failed"));
+      tx.onabort = () => reject(tx.error ?? new DOMException("IndexedDB write aborted", "AbortError"));
       try {
         op(tx);
       } catch (error) {
@@ -168,7 +171,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     async function write(changes: readonly PartitionWrite[]): Promise<void> {
       check(id);
       if (!persistAsked) { persistAsked = true; options.persist?.(); }
-      await transact([RECORDS, SIZES], "readwrite", (tx) => {
+      await transact(id, [RECORDS, SIZES], "readwrite", (tx) => {
         const records = tx.objectStore(RECORDS);
         const sizes = tx.objectStore(SIZES);
         for (const change of changes) {
@@ -215,7 +218,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     open: handle,
     async clear(id) {
       check(id);
-      await transact([RECORDS, SIZES], "readwrite", (tx) => {
+      await transact(id, [RECORDS, SIZES], "readwrite", (tx) => {
         tx.objectStore(RECORDS).delete(range(id));
         tx.objectStore(SIZES).delete(range(id));
       });

@@ -150,6 +150,7 @@ type Fixture = {
   review(text: string): void;
   resume(sessionId: string): void;
   snapshotNow(): Promise<Outcome>;
+  editAndSnapshot(text: string): Promise<Outcome>;
   read(accountKey: string, key: string): Promise<Outcome>;
   list(accountKey: string): Promise<Outcome<Array<{ key: string; value: unknown }>>>;
   write(accountKey: string, key: string): Promise<Outcome>;
@@ -158,7 +159,7 @@ type Fixture = {
 };
 const fixture = <T,>(page: Page, fn: (f: Fixture) => T) => page.evaluate(`(${fn.toString()})(window.__local)`) as Promise<Awaited<T>>;
 async function until(page: Page, predicate: string, timeout = 15_000) {
-  await page.waitForFunction(`(() => { const f = window.__local; return ${predicate}; })()`, undefined, { timeout });
+  await page.waitForFunction(`(() => { const f = window.__local; return !!f && (${predicate}); })()`, undefined, { timeout });
 }
 
 async function signIn(context: BrowserContext) {
@@ -274,6 +275,13 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(await fixture(page, (f) => f.accountKey())).toBe(keyA);
       await until(page, `f.text() === ${JSON.stringify("The Cyclops' cave, and a name: Nobody")}`);
 
+      // Holding another key while A's work is in this page's stores: the page starts again.
+      const navigated = page.waitForEvent("framenavigated", { timeout: 10_000 });
+      await page.evaluate(() => (window as unknown as { __local: { holdKey(key: string): void } }).__local.holdKey("telemachus-key-0001"));
+      await navigated;
+      await ready(page);
+      expect(await fixture(page, (f) => f.accountKey()), "the host's key again, after the reload").toBe(keyA);
+
       // Another host on the same origin: another key. Nothing of A restores or opens.
       await stopHost(host);
       host = await startHost("pylos.db");
@@ -296,7 +304,57 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     }
   }, 120_000);
 
-  test("snapshotNow resolves only once its transaction has committed", async () => {
+  /**
+   * While armed, holds every readwrite transaction over `records` open after
+   * its own requests have succeeded: a request keeps going on each until the
+   * test releases them all, or aborts them all. So whichever write a
+   * snapshot waits on, its own transaction is among the held. Counts the
+   * writes that succeeded meanwhile.
+   */
+  async function armHold(page: Page, outcome: "release" | "abort") {
+    await page.evaluate((outcome) => {
+      const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void } };
+      const transaction = IDBDatabase.prototype.transaction;
+      const put = IDBObjectStore.prototype.put;
+      const held: IDBTransaction[] = [];
+      let done = false;
+      w.__hold = { held: 0, puts: 0, finish: () => {} };
+      IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
+        const tx = transaction.apply(this, args);
+        const names = ([] as string[]).concat(args[0] as string | string[]);
+        if (done || args[1] !== "readwrite" || !names.includes("records")) return tx;
+        held.push(tx);
+        w.__hold.held = held.length;
+        const store = tx.objectStore("records");
+        // Issued first, so every write the caller issues next runs, and succeeds, before the spin goes on.
+        const spin = () => { if (!done) store.get(["held", "held"]).onsuccess = spin; };
+        spin();
+        return tx;
+      };
+      IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...a: Parameters<IDBObjectStore["put"]>) {
+        const req = put.apply(this, a);
+        if (held.includes(this.transaction)) req.addEventListener("success", () => { w.__hold.puts++; });
+        return req;
+      };
+      w.__hold.finish = () => {
+        done = true;
+        IDBDatabase.prototype.transaction = transaction;
+        IDBObjectStore.prototype.put = put;
+        if (outcome === "abort") for (const tx of held) tx.abort();
+      };
+    }, outcome);
+  }
+  const hold = (page: Page) => page.evaluate(() => (window as unknown as { __hold: { held: number; puts: number } }).__hold);
+  async function startSnapshot(page: Page, text: string) {
+    await page.evaluate((text) => {
+      const w = window as unknown as { __local: Fixture; __snap: { done: boolean; result?: Outcome } };
+      w.__snap = { done: false };
+      void w.__local.editAndSnapshot(text).then((result) => { w.__snap = { done: true, result }; });
+    }, text);
+  }
+  const snap = (page: Page) => page.evaluate(() => (window as unknown as { __snap: { done: boolean; result?: Outcome } }).__snap);
+
+  test("snapshotNow resolves only once its transaction has committed, and rejects when it aborts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     try {
@@ -304,36 +362,30 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
       await committed(page);
-      // Another readwrite transaction over the same store, kept open: the
-      // snapshot's transaction queues behind it and cannot commit.
-      await page.evaluate(() => new Promise<void>((started, failed) => {
-        const req = indexedDB.open("brain-ui-local");
-        req.onerror = () => failed(req.error);
-        req.onsuccess = () => {
-          const db = req.result;
-          const tx = db.transaction(["records", "sizes"], "readwrite");
-          const store = tx.objectStore("records");
-          const w = window as unknown as { __hold: { release: boolean } };
-          w.__hold = { release: false };
-          const spin = () => { if (!w.__hold.release) store.get(["held", "held"]).onsuccess = spin; };
-          spin();
-          tx.oncomplete = () => db.close();
-          started();
-        };
-      }));
-      await field(page).fill("The raft, and Calypso's island behind it");
-      await page.evaluate(() => {
-        const w = window as unknown as { __local: Fixture; __snap: { done: boolean; result?: Outcome } };
-        w.__snap = { done: false };
-        void w.__local.snapshotNow().then((result) => { w.__snap = { done: true, result }; });
-      });
-      await page.waitForTimeout(600);
-      expect(await page.evaluate(() => (window as unknown as { __snap: { done: boolean } }).__snap.done), "not resolved while its transaction cannot commit").toBe(false);
-      await page.evaluate(() => { (window as unknown as { __hold: { release: boolean } }).__hold.release = true; });
+
+      // Its own transaction, its writes done, not yet committed.
+      await armHold(page, "release");
+      await startSnapshot(page, "The raft, and Calypso's island behind it");
+      await page.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0, undefined, { timeout: 5_000 });
+      await page.waitForTimeout(500);
+      expect((await hold(page)).held, "its writes are in a held transaction").toBeGreaterThan(0);
+      expect((await snap(page)).done, "not resolved while its transaction is open").toBe(false);
+      await page.evaluate(() => (window as unknown as { __hold: { finish: () => void } }).__hold.finish());
       await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done, undefined, { timeout: 5_000 });
-      expect(await page.evaluate(() => (window as unknown as { __snap: { result?: Outcome } }).__snap.result)).toEqual({ ok: true, value: undefined });
+      expect((await snap(page)).result).toEqual({ ok: true, value: undefined });
       const stored = await fixture(page, (f) => f.list(f.accountKey()!));
       expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Calypso")), "committed when it resolved").toBe(true);
+
+      // The same, aborted after its writes succeeded: no receipt, and the failure is said.
+      await armHold(page, "abort");
+      await startSnapshot(page, "Ogygia, seven years");
+      await page.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0, undefined, { timeout: 5_000 });
+      await page.evaluate(() => (window as unknown as { __hold: { finish: () => void } }).__hold.finish());
+      await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done, undefined, { timeout: 5_000 });
+      expect((await snap(page)).result, "an aborted snapshot rejects").toEqual({ ok: false, error: "AbortError" });
+      expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
+      const after = await fixture(page, (f) => f.list(f.accountKey()!));
+      expect(after.ok && after.value.some((r) => JSON.stringify(r.value).includes("Ogygia")), "nothing of it was kept").toBe(false);
     } finally {
       await context.close();
     }
@@ -341,14 +393,30 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
 
   test("a quota failure is said in the hint, the draft stays editable, and nothing claims it was kept", async () => {
     const context = await browser!.newContext({ viewport: { width: 390, height: 760 } });
+    // A host that keeps no drafts: the line's one claim is `kept on this device`.
+    await context.routeWebSocket(/\/ws$/, (route) => {
+      const upstream = route.connectToServer();
+      route.onMessage((message) => upstream.send(message));
+      upstream.onMessage((message) => {
+        try {
+          const frame = JSON.parse(String(message)) as { type?: string; capabilities?: Record<string, boolean> };
+          if (frame.type === "server_hello" && frame.capabilities) delete frame.capabilities.sessionDrafts;
+          route.send(JSON.stringify(frame));
+        } catch {
+          route.send(message);
+        }
+      });
+    });
     const page = await context.newPage();
     try {
-      // The host keeps no drafts here either, so nothing anywhere can say saved.
-      await page.route("**/api/drafts**", (route) => route.fulfill({ status: 503, body: "{}", contentType: "application/json" }));
       await signIn(context);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
+      const line = page.locator("[data-draft-save]");
+      await field(page).fill("Scylla on one side");
       await committed(page);
+      expect(await line.textContent(), "kept, and said so").toBe("draft · this host doesn't keep drafts · kept on this device");
+
       await page.evaluate(() => {
         IDBObjectStore.prototype.put = function () { throw new DOMException("The quota has been exceeded.", "QuotaExceededError"); };
       });
@@ -357,17 +425,14 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await page.getByText(failure).waitFor({ timeout: 10_000 });
       expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
       expect(await fixture(page, (f) => f.snapshotNow())).toEqual({ ok: false, error: "QuotaExceededError" });
+      expect(await line.textContent(), "no claim that it is kept").toBe("draft · this host doesn't keep drafts");
 
       await field(page).press("End");
       await field(page).pressSequentially(" · six men lost");
       expect(await field(page).inputValue(), "still editable").toBe("Scylla on one side, Charybdis on the other · six men lost");
-      const line = page.locator("[data-draft-save]");
-      if (await line.count()) {
-        expect(await line.getAttribute("data-draft-save")).not.toBe("saved");
-        expect(await line.textContent()).not.toContain("kept on this device");
-      }
+      expect(await line.textContent(), "still no claim").toBe("draft · this host doesn't keep drafts");
       const stored = await fixture(page, (f) => f.list(f.accountKey()!));
-      expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Scylla")), "nothing was kept").toBe(false);
+      expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Charybdis")), "nothing of it was kept").toBe(false);
     } finally {
       await context.close();
     }

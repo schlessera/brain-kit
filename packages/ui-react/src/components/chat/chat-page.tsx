@@ -11,6 +11,7 @@ import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
 import { MessageBubble } from "./message-bubble.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
+import { messageFingerprint } from "../../lib/local-work.js";
 
 /** How long a restored transcript position is held against late layout (#1014). */
 const RESTORE_HOLD_MS = 1_500;
@@ -244,13 +245,18 @@ export function ChatPage() {
   // The transcript's place in each snapshot of the work context (#1014): the
   // first message in view, by its place in the transcript, and how far its
   // top sits from the transcript's top.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   useEffect(() => root.localWork?.register(() => {
     const el = scrollRef.current;
     if (!el) return { scroll: null };
     const top = el.getBoundingClientRect().top;
     for (const node of el.querySelectorAll<HTMLElement>("[data-transcript-anchor]")) {
       const box = node.getBoundingClientRect();
-      if (box.bottom > top) return { scroll: { anchor: node.dataset.transcriptAnchor!, offset: box.top - top } };
+      if (box.bottom <= top) continue;
+      const anchor = node.dataset.transcriptAnchor!;
+      const message = messagesRef.current[Number(anchor)];
+      return { scroll: { anchor, offset: box.top - top, ...(message ? { fingerprint: messageFingerprint(message) } : {}) } };
     }
     return { scroll: null };
   }), [root]);
@@ -262,14 +268,24 @@ export function ChatPage() {
   // scrolls.
   const pendingScroll = useWorkRestore((s) => s.scroll);
   const holdRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => { holdRef.current?.(); holdRef.current = null; }, []);
+  // Leaving the page, or opening another session, ends a hold.
+  useEffect(() => () => { holdRef.current?.(); holdRef.current = null; }, [sessionId]);
   useEffect(() => {
     const work = root.localWork;
     const el = scrollRef.current;
     if (!work || !el || !pendingScroll || pendingScroll.sessionId !== sessionId) return;
-    const ordinal = Number(pendingScroll.anchor);
+    let ordinal = Number(pendingScroll.anchor);
     if (!Number.isInteger(ordinal) || ordinal < 0) { work.restore.setState({ scroll: null }); return; }
-    if (messages.length <= ordinal) return;
+    if (messages.length <= ordinal && !pendingScroll.fingerprint) return;
+    // The replay may hold other rows than the page did (a local exchange it
+    // never kept): the place is checked against what was there, and the
+    // message looked for nearby when it moved. Not found, nothing moves.
+    const print = pendingScroll.fingerprint;
+    if (print && (ordinal >= messages.length || messageFingerprint(messages[ordinal]!) !== print)) {
+      const at = messages.map((m, i) => (messageFingerprint(m) === print ? i : -1)).filter((i) => i >= 0);
+      if (at.length === 0) { if (messages.length > ordinal) work.restore.setState({ scroll: null }); return; }
+      ordinal = at.reduce((a, b) => (Math.abs(b - ordinal) < Math.abs(a - ordinal) ? b : a));
+    }
     if (ordinal < hiddenCount) { setVisibleCount(messages.length - ordinal); return; }
     work.restore.setState({ scroll: null });
     autoScrollRef.current = false;
@@ -297,7 +313,7 @@ export function ChatPage() {
     // Consuming the restore re-runs this effect; only leaving the page ends the hold early.
     holdRef.current?.();
     holdRef.current = stop;
-  }, [root, pendingScroll, sessionId, messages.length, hiddenCount]);
+  }, [root, pendingScroll, sessionId, messages, hiddenCount]);
 
   // A tracker for this session clears only once its latest turn is
   // actually on screen (D52 §4); selecting the session is not enough.
