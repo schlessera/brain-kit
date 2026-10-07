@@ -87,7 +87,6 @@ describe("renderEntityTags", () => {
 
   test("preserves non-entity HTML tags", () => {
     const input = '<a href="#">link</a> and <strong>bold</strong>';
-    const result = renderEntityTags(input);
     expect(markEntityTags(input)).toBe(input); // unchanged
   });
 
