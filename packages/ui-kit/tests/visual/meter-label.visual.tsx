@@ -20,9 +20,10 @@ beforeAll(async () => {
   fonts = document.createElement("style");
   fonts.textContent = await commands.rankFooterFonts();
   document.head.append(fonts);
-  await document.fonts.load('400 10px "JetBrains Mono"');
+  await Promise.all([document.fonts.load('400 10px "JetBrains Mono"'), document.fonts.load('500 10px "JetBrains Mono"')]);
   await document.fonts.ready;
   expect(document.fonts.check('400 10px "JetBrains Mono"')).toBe(true);
+  expect(document.fonts.check('500 10px "JetBrains Mono"')).toBe(true);
 });
 
 afterEach(() => {
