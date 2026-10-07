@@ -10,6 +10,8 @@ import { createFixture, fixtureTurn, connectBrainSurface, installedRuntime } fro
 import { type Peer } from "./turn-surface-routing.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { spawn } from "node:child_process";
+import { gatedSurfaceServer, startOverlappedTurn, type SurfaceDecision } from "./turn-surface-overlap.js";
 
 export const SURFACE_MODEL = "claude-sonnet-5-5";
 export interface CapturedRequest {
@@ -34,14 +36,17 @@ export function coreSdkServer(peer: Peer) {
   return { type: "sdk" as const, name: "brain", instance };
 }
 
-function scriptedReply(model: string): Response {
+function scriptedReply(model: string, recoverTool?: string): Response {
   const events = [
     { type: "message_start", message: { id: "msg_surface_control", type: "message", role: "assistant", model,
       content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } },
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Offline serialization control." } },
+    { type: "content_block_start", index: 0, content_block: recoverTool
+      ? { type: "tool_use", id: "tool_surface_search", name: "ToolSearch", input: {} } : { type: "text", text: "" } },
+    { type: "content_block_delta", index: 0, delta: recoverTool
+      ? { type: "input_json_delta", partial_json: JSON.stringify({ query: `select:${recoverTool}` }) }
+      : { type: "text_delta", text: "Offline serialization control." } },
     { type: "content_block_stop", index: 0 },
-    { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+    { type: "message_delta", delta: { stop_reason: recoverTool ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
     { type: "message_stop" },
   ];
   return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
@@ -49,56 +54,84 @@ function scriptedReply(model: string): Response {
   });
 }
 
-export async function captureSurface() {
+export async function captureSurface(control?: {
+  decision: Promise<SurfaceDecision>;
+  onSpawn?: () => void;
+  recoverTool?: string;
+  skillCatalogue?: readonly string[];
+}) {
   const home = mkdtempSync(join(tmpdir(), "turn-surface-home-"));
   mkdirSync(join(home, ".claude"));
   const fixture = createFixture();
-  const prepared = await fixtureTurn(fixture.root, "Explain what a mast does.");
+  const prepared = await fixtureTurn(fixture.root, "Explain what a mast does.", "normal", undefined, { productionDefaults: true });
   const brain = await connectBrainSurface(fixture.root);
-  const core = coreSdkServer(brain);
+  const core = control ? gatedSurfaceServer("brain", {
+    ...brain, tools: brain.tools.map(tool => ({ ...tool, _meta: { ...tool._meta, "anthropic/alwaysLoad": true } })),
+  }, control.decision) : coreSdkServer(brain);
+  const bridge = control ? gatedSurfaceServer("brain-ui", prepared.peer, control.decision) : undefined;
   const bodies: CapturedRequest[] = [];
+  let mainRequests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path !== "/v1/messages") return Response.json({});
     const body = await request.json() as CapturedRequest;
     // Credentials, headers and filesystem locations are never serialized.
     bodies.push(body);
-    return scriptedReply(body.model);
+    const isMain = body.tools?.some(tool => tool.name === "Read");
+    return scriptedReply(body.model, isMain && mainRequests++ === 0 ? control?.recoverTool : undefined);
   } });
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 30_000);
   let completion: string | undefined;
   let cliVersion: string | undefined;
+  let overlapped: Awaited<ReturnType<typeof startOverlappedTurn>> | undefined;
   try {
     const sdkEntry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
     const { query } = await import(sdkEntry) as typeof import("@anthropic-ai/claude-agent-sdk");
     const options: Options = {
-      ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: 1, persistSession: false,
+      ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: control?.recoverTool ? 3 : 1, persistSession: false,
       abortController,
-      mcpServers: { ...prepared.turn.options.mcpServers, brain: core },
+      mcpServers: { ...prepared.turn.options.mcpServers, ...(bridge ? { "brain-ui": bridge } : {}), brain: core },
       // Capture uses bogus API auth on loopback, not the subscription gate.
-      settings: { apiKeyHelper: "", env: {} },
+      settings: { apiKeyHelper: "", env: {}, autoMemoryEnabled: false },
       env: {
         PATH: dirname(process.execPath) + ":/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-surface-control",
         CLAUDE_CODE_OAUTH_TOKEN: "", ANTHROPIC_AUTH_TOKEN: "", ANTHROPIC_CUSTOM_HEADERS: "",
         CLAUDE_CODE_HOST_CREDS_FILE: "", CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ENABLE_TOOL_SEARCH: "true",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
+        ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL,
       },
+      ...(control?.onSpawn ? { spawnClaudeCodeProcess: spawnOptions => {
+        control.onSpawn!();
+        return spawn(spawnOptions.command, spawnOptions.args, { cwd: spawnOptions.cwd,
+          env: spawnOptions.env, stdio: ["pipe", "pipe", "pipe"], signal: spawnOptions.signal });
+      } } : {}),
     };
-    for await (const message of query({ prompt: prepared.turn.prompt, options }) as AsyncIterable<SDKMessage>) {
+    if (control) {
+      overlapped = await startOverlappedTurn({ options, parkingDirectory: home, projectDirectory: fixture.root,
+        prompt: String(prepared.turn.prompt), decision: control.decision,
+        skillCatalogue: control.skillCatalogue,
+        beforeClaim: decision => { if (decision.routed && decision.arm === "hard-prune") fixture.pruneSkills(decision.skills); },
+      });
+    }
+    const stream = overlapped?.query ?? query({ prompt: prepared.turn.prompt, options });
+    for await (const message of stream as AsyncIterable<SDKMessage>) {
       if (message.type === "system" && message.subtype === "init") cliVersion = message.claude_code_version;
       if (message.type === "result") completion = message.subtype;
     }
     if (completion !== "success") throw new Error(`capture did not complete: ${completion ?? "missing result"}`);
     // Main requests include the real bridge/core tools; auxiliary requests do
     // not establish the prompt surface being measured.
-    const request = bodies.find(body => body.tools?.some(tool => tool.name === "mcp__brain-ui__show_block"));
+    const request = bodies.find(body => body.tools?.some(tool => tool.name === "Read")
+      && JSON.stringify(body.messages).includes("Explain what a mast does."));
     if (!request) throw new Error("capture did not observe the actual bridge request");
     return { evidence: "offline-installed-cli-serialization", runtime: installedRuntime(), cliVersion,
-      fixtureSkills: fixture.skills, request };
+      fixtureSkills: fixture.skills, request, requests: bodies.filter(body => body.tools?.some(tool => tool.name === "Read")) };
   } finally {
-    clearTimeout(timeout); server.stop(true);
+    clearTimeout(timeout); overlapped?.spare.close(); server.stop(true);
+    await bridge?.instance.close();
     await core.instance.close(); await brain.client.close(); await prepared.close();
     fixture.close(); rmSync(home, { recursive: true, force: true });
   }

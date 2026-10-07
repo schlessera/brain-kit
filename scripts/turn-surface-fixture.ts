@@ -10,6 +10,7 @@ import { discoverSkills } from "../packages/core/src/lib/skills/discover.js";
 import { claudeEmitter } from "../packages/core/src/lib/skills/emitters/claude.js";
 import { assembleTurn, connectSurface, type SkillEntry, type Peer } from "./turn-surface-routing.js";
 import cases from "./fixtures/turn-surface-cases.json";
+import { DEFAULT_ALLOWED_TOOLS } from "../packages/ui-backend-claude/src/tool-policy.js";
 
 export const FROZEN_CASES = cases;
 export function createFixture() {
@@ -39,13 +40,16 @@ export function createFixture() {
   };
 }
 
-export async function fixtureTurn(root: string, prompt: string, posture: "normal" | "no-grant" | "autonomous" = "normal", attachments?: StartTurnRequest["attachments"]) {
+export async function fixtureTurn(root: string, prompt: string, posture: "normal" | "no-grant" | "autonomous" = "normal", attachments?: StartTurnRequest["attachments"], control?: {
+  productionDefaults?: boolean;
+  bridge?: Partial<BackendBridge>;
+}) {
   const never = async () => { throw new Error("unexpected host interaction in fixture"); };
   let askUserCalls = 0;
   const bridge: BackendBridge = { emit: () => {}, checkpointPermission: () => {}, requestPermission: never,
     askUser: async () => { askUserCalls++; return { answers: { Harbour: "Ithaca" } }; },
     askUserList: never, askUserRank: never, askUserForm: never,
-    getLocation: never, requestMask: never, queryActivity: never };
+    getLocation: never, requestMask: never, queryActivity: never, ...control?.bridge };
   const abortController = new AbortController();
   const req: StartTurnRequest = {
     prompt, attachments, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",
@@ -54,7 +58,7 @@ export async function fixtureTurn(root: string, prompt: string, posture: "normal
   };
   const input: Parameters<typeof assembleTurn>[0] = { backend: { brainPath: root }, req,
     profile: { id: "fixture", label: "Fixture", requiredEnvKeys: [], billing: "subscription", buildEnv: () => ({}) },
-    abortController, allowedTools: posture === "autonomous" ? ["Read"] : ["Read", "Bash"],
+    abortController, allowedTools: posture === "autonomous" ? ["Read"] : control?.productionDefaults ? DEFAULT_ALLOWED_TOOLS : ["Read", "Bash"],
     confirmPatterns: [/rm/], turnLock: { acquire: async () => {}, release: () => {} } as never, log: () => {},
   };
   const turn = assembleTurn(input);

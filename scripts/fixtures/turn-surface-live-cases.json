@@ -1,0 +1,89 @@
+{
+  "provenance": "Natural Odysseus research prompts and candidate goldens authored for #587; require independent review before live execution. No scripted classifier choices are supplied to the evaluated agent.",
+  "cases": [
+    {
+      "id": "quote-card",
+      "prompt": "Put Athena's advice, 'Keep the Bear on your left through the night', into a quote card. Keep the exact wording.",
+      "neededToolGroups": [["mcp__brain-ui__show_block"]],
+      "neededSkill": null,
+      "evidence": "A structured quote card requires the bridge's validated show_block executor; ordinary Markdown is not a card."
+    },
+    {
+      "id": "comparison-card",
+      "prompt": "Give me a compact comparison card for three departure choices: leave tonight (quick, poor visibility), leave at dawn (slower, clear visibility), or wait a day (slowest, more time to inspect the mast).",
+      "neededToolGroups": [["mcp__brain-ui__show_block"]],
+      "neededSkill": null,
+      "evidence": "The request explicitly asks for an interface card using facts supplied in the prompt; no notebook lookup or skill is necessary."
+    },
+    {
+      "id": "harbour-question",
+      "prompt": "Before planning the landing, ask me to choose the harbour: Ithaca, Scheria or Pylos. Give me the interactive choice, then acknowledge my answer without planning anything yet.",
+      "neededToolGroups": [["mcp__brain-ui__ask_user"]],
+      "neededSkill": null,
+      "evidence": "The live interactive choice belongs to ask_user; no voyage planning is requested yet."
+    },
+    {
+      "id": "activity-record",
+      "prompt": "Check the activity record and tell me whether any work is still running. Do not start or stop anything.",
+      "neededToolGroups": [["mcp__brain-ui__query_activity"]],
+      "neededSkill": null,
+      "evidence": "Only the host activity tool can observe current host runs; invented status is not accepted."
+    },
+    {
+      "id": "raft-status",
+      "prompt": "Read projects/active/raft/status.md in the notebook and tell me the next action. Do not change the note.",
+      "neededToolGroups": [["mcp__brain__brain_read", "Read"]],
+      "neededSkill": null,
+      "evidence": "A document read is necessary. Either the core reader or the existing native Read can legitimately obtain the same Markdown; a summary from memory does not qualify."
+    },
+    {
+      "id": "star-search",
+      "prompt": "Find the notebook's notes about night-sailing star bearings, and give me their paths so I can open them. Do not alter anything.",
+      "neededToolGroups": [["mcp__brain__brain_search", "mcp__brain__brain_list", "Grep", "Glob", "Bash"]],
+      "neededSkill": null,
+      "evidence": "Actual notebook retrieval is required. Valid execution of a core search/list or an equivalent contained filesystem search is acceptable."
+    },
+    {
+      "id": "voyage-procedure",
+      "prompt": "Follow the project's written voyage planning procedure to prepare Odysseus's next leg. Summarize the checks and leave the notebook unchanged.",
+      "neededToolGroups": [],
+      "neededSkill": "voyage-plan",
+      "evidence": "The request asks to follow the existing project procedure whose description covers voyage planning. Additional reads are permitted, but recording a decision is not requested."
+    },
+    {
+      "id": "timber-procedure",
+      "prompt": "Follow the project's written shipbuilding procedure to review the raft's timber and assembly notes. Summarize the review and leave the notebook unchanged.",
+      "neededToolGroups": [],
+      "neededSkill": "shipbuilding",
+      "evidence": "The named written procedure matches the existing shipbuilding skill; the project notebook supplies the actual notes."
+    },
+    {
+      "id": "crew-procedure",
+      "prompt": "Follow the project's written crew-log procedure to draft a decision that the crew will inspect the mast before departure. Show me the draft without saving it.",
+      "neededToolGroups": [],
+      "neededSkill": "crew-log",
+      "evidence": "The user requests the existing crew decision procedure, while explicitly withholding persistence."
+    },
+    {
+      "id": "mast-explanation",
+      "prompt": "In two sentences, explain what a mast does on a sailing vessel.",
+      "neededToolGroups": [],
+      "neededSkill": null,
+      "evidence": "General sailing knowledge in prose needs no notebook, interactive card or written project procedure."
+    },
+    {
+      "id": "harbour-explanation",
+      "prompt": "Explain why a sheltered harbour has smaller waves than the open sea. Keep it to one paragraph.",
+      "neededToolGroups": [],
+      "neededSkill": null,
+      "evidence": "A general explanation requires no notebook lookup or project skill."
+    },
+    {
+      "id": "rewrite-sentence",
+      "prompt": "Rewrite this sentence more clearly, without adding facts: 'Before departure the crew, when the light returns, should see if the mast is sound.'",
+      "neededToolGroups": [],
+      "neededSkill": null,
+      "evidence": "The complete source sentence is supplied; none of the project skills or notebook tools is needed to edit its wording."
+    }
+  ]
+}
