@@ -107,12 +107,13 @@ export function accountPartition(accountKey: string): PartitionId {
 }
 
 export function createLocalPartitions(options: LocalPartitionOptions): LocalPartitions {
-  const factory = options.factory ?? indexedDB;
+  const factory = options.factory ?? (typeof indexedDB === "undefined" ? null : indexedDB);
   let opened: Promise<IDBDatabase> | null = null;
   let persistAsked = false;
 
   function db(): Promise<IDBDatabase> {
     opened ??= new Promise<IDBDatabase>((resolve, reject) => {
+      if (!factory) { reject(new DOMException("IndexedDB is unavailable on this page", "NotSupportedError")); return; }
       const req = factory.open(options.name, 1);
       req.onupgradeneeded = () => {
         const d = req.result;

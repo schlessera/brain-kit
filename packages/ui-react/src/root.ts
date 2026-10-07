@@ -124,7 +124,8 @@ export function createRoot(
     : persistent ? createBrowserTabCoordinator(`${prefix}:answers`) : null;
   // The work context needs a root that is the same one after a reload: an
   // ephemeral root (no prefix given) would only leave records nothing reads.
-  const partitions = persistent && options.storagePrefix !== undefined
+  // A page without IndexedDB still gets one: its writes fail, and say so.
+  const partitions = options.storage !== null && options.storagePrefix !== undefined && typeof document !== "undefined"
     ? createLocalPartitions({
       name: LOCAL_PARTITIONS_DB,
       heldAccountKey: () => stores.connection.getState().accountKey,

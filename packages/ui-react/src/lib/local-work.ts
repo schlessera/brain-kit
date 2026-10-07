@@ -295,9 +295,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         // Not over a new chat the reader has already started typing in.
         if (ctx.sessionId === null && drafts.drafts[ctx.draftId] && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
         const draftId = stores.drafts.getState().idFor(activeSession);
+        // The selection is the kept draft's: a draft this page holds instead keeps its own.
+        const same = stores.drafts.getState().resolveId(ctx.draftId) === draftId;
         restore.setState({
-          selection: ctx.selectionStart !== null && ctx.selectionEnd !== null ? { draftId, start: ctx.selectionStart, end: ctx.selectionEnd } : null,
-          focusId: ctx.focusId,
+          selection: same && ctx.selectionStart !== null && ctx.selectionEnd !== null ? { draftId, start: ctx.selectionStart, end: ctx.selectionEnd } : null,
+          focusId: same || ctx.focusId !== "composer" ? ctx.focusId : null,
           scroll: ctx.scroll ? { sessionId: ctx.sessionId, ...ctx.scroll } : null,
         });
         // The composer refocuses its own field with the selection; anything
