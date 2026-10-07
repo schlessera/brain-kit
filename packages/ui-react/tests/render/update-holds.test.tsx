@@ -71,9 +71,10 @@ const session: VoiceSessionResponse = {
 class FakeClient implements AsrClient {
   constructor(readonly emit: (event: AsrEvent) => void) {}
   drain: (() => void) | null = null;
+  fail: ((error: Error) => void) | null = null;
   async start() {}
   stop() {}
-  drainAndStop() { return new Promise<void>((resolve) => { this.drain = resolve; }); }
+  drainAndStop() { return new Promise<void>((resolve, reject) => { this.drain = resolve; this.fail = reject; }); }
 }
 
 /** A root whose voice session stays pending until the test resolves it. */
@@ -215,6 +216,28 @@ for (const torn of [false, true]) test(`Done hands the transcript to review, wor
 
   act(() => root.stores.voice.getState().clearReview());
   expect(reloads(), "the review card closed: one reload").toBe(1);
+});
+
+test("a drain that fails still hands what was heard to review and ends the dictation", async () => {
+  const { root, sessions, clients } = voiceRoot();
+  const { reloads } = await mountGuard(root);
+  const dictation = mountDictation(root);
+  let started!: Promise<void>;
+  act(() => { started = dictation.result.current.start(); });
+  await act(async () => { sessions[0]!(session); await started; });
+  act(() => clients[0]!.emit({ type: "final", text: "Ask Nestor about the ships", endsTurn: false }));
+  takeOver();
+  let stopped!: Promise<void>;
+  act(() => { stopped = dictation.result.current.stop(); });
+  dictation.unmount();
+  let failure: unknown = null;
+  await act(async () => { clients[0]!.fail!(new Error("socket closed")); await stopped.catch((error) => { failure = error; }); });
+  expect((failure as Error | null)?.message, "the failure is not swallowed").toBe("socket closed");
+  expect(root.stores.voice.getState().mode, "the dictation ended").toBe("idle");
+  expect(root.stores.voice.getState().reviewText, "what was heard waits for review").toBe("Ask Nestor about the ships");
+  expect(reloads(), "no reload while busy: the transcript waits for review").toBe(0);
+  act(() => root.stores.voice.getState().clearReview());
+  expect(reloads(), "nothing holds it: one reload").toBe(1);
 });
 
 test("tearing down one dictation hook leaves a dictation another hook started on the same root live", async () => {

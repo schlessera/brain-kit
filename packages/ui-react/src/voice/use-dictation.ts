@@ -156,11 +156,16 @@ export function useDictation() {
       if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
+      // A failed drain still ends the dictation and keeps what was heard;
+      // the failure is rethrown after, so it is not swallowed.
+      let drainFailure: { error: unknown } | null = null;
       if (client) {
         if (commitToReview) {
           setDraining(true);
           try {
             await client.drainAndStop();
+          } catch (error) {
+            drainFailure = { error };
           } finally {
             setDraining(false);
           }
@@ -183,6 +188,7 @@ export function useDictation() {
       });
       if (capture) release(capture);
       resetCapture();
+      if (drainFailure) throw drainFailure.error;
     },
     [releaseCapture, resetCapture, root]
   );
