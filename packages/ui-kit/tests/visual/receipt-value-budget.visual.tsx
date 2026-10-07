@@ -13,7 +13,7 @@
  * with the component's own key column, the default 56px. The chat's message
  * list pads its scroller `px-4` below `md` and centres a `max-w-3xl` reading
  * column inside it (`scrollRef`,
- * `packages/ui-react/src/components/chat/chat-page.tsx:567-573`); below
+ * `packages/ui-react/src/components/chat/chat-page.tsx:632-638`); below
  * `tablet` the side rail is hidden and the tab bar is fixed to the bottom,
  * so neither takes width. Between that column and the receipt sit the
  * message's `py-4`, the answer's `space-y-3` and `BlockCard`'s bare `div`
