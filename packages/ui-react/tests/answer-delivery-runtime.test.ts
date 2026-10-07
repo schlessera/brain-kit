@@ -39,6 +39,12 @@ const TOOL: Record<Kind, string> = {
 };
 const HARBOUR = "Ithaca — Ἰθάκη";
 const NOTE = "Timber and rope, σχεδία for the raft";
+const EXPECTED_RESULTS = {
+  ask_user: { answers: { "Which harbour first?": HARBOUR } },
+  ask_user_list: { answers: { rope: "Pack" } },
+  ask_user_rank: { order: ["rope", "timber"], unchanged: true },
+  ask_user_form: { answers: { note: NOTE } },
+};
 const INPUT: Record<Kind, Record<string, unknown>> = {
   ask_user: { questions: [{ question: "Which harbour first?", header: "Harbour", multiSelect: false, options: [{ label: HARBOUR, description: "Home" }, { label: "Pylos", description: "Nestor’s court" }] }] },
   ask_user_list: { prompt: "Choose raft supplies", items: [{ id: "rope", label: "Rope" }], scale: [{ label: "Pack" }, { label: "Leave" }], allowSkip: false, notes: false },
@@ -270,6 +276,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
         await waitForState(page, requestId, "answered");
         await page.getByText(`Completed ${kind}`, { exact: true }).first().waitFor();
         expect(settlements.get(requestId)).toHaveLength(1);
+        expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS[kind]);
         expect(await page.locator('[data-answer-delivery="answered"] h4').textContent()).toBe("ANSWERED");
         expect(await page.evaluate(() => (window as unknown as { __answers: { cards(): number } }).__answers.cards())).toBe(1);
       } finally {
@@ -296,13 +303,14 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
         await waitForState(page, requestId, "queued");
         const held = await page.evaluate(() => (window as unknown as { __answers: { held(): Array<{ submissionId: string; payload: unknown }> } }).__answers.held());
         expect(held).toHaveLength(1);
-        expect(JSON.stringify(held[0]!.payload)).not.toBe("{}");
+        expect(held[0]!.payload).toMatchObject({ kind, ...EXPECTED_RESULTS[kind] });
         expect(settlements.get(requestId)).toEqual([]);
 
         net.mode = "pass";
         await online(page);
         await waitForState(page, requestId, "answered");
         expect(settlements.get(requestId)).toHaveLength(1);
+        expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS[kind]);
         // Status before replay: the page asked before it answered again.
         const up = net.frames.filter((f) => f.dir === "up").map((f) => f.type);
         expect(up.indexOf("ask_answer_status")).toBeGreaterThan(-1);

@@ -32,6 +32,12 @@ const PAYLOADS: Record<AnswerPayload["kind"], AnswerPayload> = {
   ask_user_rank: { kind: "ask_user_rank", order: ["scheria", "aeolia"], unchanged: false },
   ask_user_form: { kind: "ask_user_form", answers: { course: { value: "Coast → Scheria" } }, visibleNodes: ["course"] },
 };
+const WIRE_PAYLOADS = {
+  ask_user: { answers: { "Which harbour first?": "Ithaca — Ἰθάκη" } },
+  ask_user_list: { answers: { oars: "Aboard" }, notes: { wine: "Maron’s gift \u{1F377}" } },
+  ask_user_rank: { order: ["scheria", "aeolia"], unchanged: false },
+  ask_user_form: { answers: { course: { value: "Coast → Scheria" } } },
+};
 const KINDS = Object.keys(PAYLOADS) as AnswerPayload["kind"][];
 
 async function harness(options: { storage?: AnswerStorage | null; tabs?: ReturnType<ReturnType<typeof createTabHub>["tab"]> | null; now?: { t: number } } = {}) {
@@ -118,7 +124,7 @@ describe("submitting online", () => {
       await pending;
       expect(h.answers()).toHaveLength(1);
       const frame = h.answers()[0] as ClientMessage & { submissionId: string };
-      expect(frame).toMatchObject({ requestId: "req-1", turnId: "turn-1", sessionId: "s1" });
+      expect(frame).toMatchObject({ type: `${kind}_response`, requestId: "req-1", turnId: "turn-1", sessionId: "s1", ...WIRE_PAYLOADS[kind] });
       expect(frame.submissionId).toBeTruthy();
       // Sent is not accepted.
       expect(h.delivery()?.state).toBe("awaiting");
