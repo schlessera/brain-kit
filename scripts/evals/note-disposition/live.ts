@@ -16,10 +16,16 @@ export const protocol = {
     version: "840-multi-target-v1", models: MODELS, maxOutputTokens: 4096, repetitions: 2,
     caching: "No explicit prompt caching; all reported cache tokens retained. Repeated requests are marked repeat, not assumed warm.",
     gates: { unsafeAccepted: 0, fullDocumentLoss: 0, unsupportedEffect: 0, acceptedRoutePrecision: 1 },
-    thresholdCandidates: [0, 0.5, 0.7, 0.8, 0.9, 0.95, 1],
+    thresholdCandidates: [0.7, 0.8, 0.9, 0.95, 1],
+    noSafeThreshold: "No write-capable classification gate; all items use current completion fallback",
     currentBoundary: "Actual processCommand --keep-note with actual snippet retrieval and instrumented CompletionProvider; no production writes.",
     generation: "One focused full-source/full-target body completion for accepted merge/promote. Keep never generates. Uncertain/invalid classification uses actual processCommand fallback, fully counted.",
-    split: "Entity and representation-template identifiers disjoint; some task operations necessarily occur in both splits. Small authored set is not a population guarantee.",
+    split: "Entity and representation-template identifiers disjoint; task structures repeat across splits, so nominal disjointness is not independence. Small authored set is not a population guarantee.",
+    calibrationLimits: "Six tuning items and a preregistered 0.7 floor; effectively untuned on this small sample. No safe write-capable threshold means current-command fallback for all.",
+    scoring: "Disposition, selected target and safety are primary. Exact files are a strict-format secondary: hybrid promotion paths are fixed while current invents its path. UnsupportedEffect counts every accepted write differing from its complete golden; metadata is projected in memory, not a real writer fidelity measurement.",
+    fixtureNotes: "Exact duplicates require merge by protocol, although safe keep is defensible. Negation goldens retain source because literal retention cannot replace conflicting prior statements. Pen-knot is the most ambiguous recurring-ritual label; pen-once and guest-confirmation add minimal pairs.",
+    baselineLimits: "Current command uses lexical retrieval with no embeddings and reranker disabled; its source note is indexed and may occur among related snippets. This is the measured fixture baseline, not production retrieval.",
+    sampleLimits: "26 authored cases, six tuning and twenty held-out; two correlated repetitions, unset default model sampling parameters and one large-state fixture. Directional evidence only, no population guarantee.",
     pricingSources: ["https://docs.typesafe.ai/models", "https://platform.claude.com/docs/en/about-claude/pricing"],
     budget: "Reserve conservative serialized UTF-8 byte input bounds and maximum output charge before each physical call; unknown billed usage stops further calls.",
 };
@@ -37,6 +43,8 @@ export interface PhysicalCall {
     priceDerivedCostUsd: number | null;
     durationMs: number;
     status: number | null;
+    completionText?: string;
+    stopReason?: string | null;
     outcome: string;
 }
 export class Spend {
@@ -65,11 +73,12 @@ export function instrumentedCompletion(spend: Spend, kind: PhysicalCall["kind"],
                 const response = await transport("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body, signal: AbortSignal.timeout(120000) });
                 status = response.status;
                 const j = await response.json() as any;
+                const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
                 const u = j.usage;
                 const input = tokens(u?.input_tokens), output = tokens(u?.output_tokens), read = tokens(u?.cache_read_input_tokens ?? 0), write = tokens(u?.cache_creation_input_tokens ?? 0);
                 const hour = tokens(u?.cache_creation?.ephemeral_1h_input_tokens ?? 0);
                 const cost = input === null || output === null || read === null || write === null || hour === null || hour > write ? null : input * PRICES.claudeInput + output * PRICES.claudeOutput + read * PRICES.cacheRead + (write - hour) * PRICES.cacheWrite + hour * PRICES.cacheWriteHour;
-                call = { ...call, status, servedModel: typeof j.model === "string" ? j.model : null, inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write, priceDerivedCostUsd: cost, outcome: response.ok ? "answered" : "http_error" };
+                call = { ...call, completionText: text, stopReason: j.stop_reason ?? null, status, servedModel: typeof j.model === "string" ? j.model : null, inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write, priceDerivedCostUsd: cost, outcome: response.ok ? "answered" : "http_error" };
                 if (!response.ok)
                     throw new Error(`Anthropic HTTP ${status}`);
                 if (j.model !== MODELS.current) {
@@ -80,7 +89,7 @@ export function instrumentedCompletion(spend: Spend, kind: PhysicalCall["kind"],
                     call.outcome = "incomplete_completion";
                     throw new Error(`Incomplete completion: ${j.stop_reason}`);
                 }
-                return (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+                return text;
             }
             finally {
                 spend.record({ ...call, status, durationMs: performance.now() - start });
@@ -144,8 +153,8 @@ export async function currentProposal(f: Benchmark, provider: CompletionProvider
         p.close();
     }
 }
-export async function hybridProposal(f: Benchmark, result: JevResult, threshold: number, provider: CompletionProvider, fallback: CompletionProvider) {
-    const route = routeJudgment(judgment(result, f), f.targets.map(t => t.path), threshold);
+export async function hybridProposal(f: Benchmark, result: JevResult, threshold: number | null, provider: CompletionProvider, fallback: CompletionProvider) {
+    const route = threshold === null ? { disposition: "keep", target: null, generate: false, escalated: true } : routeJudgment(judgment(result, f), f.targets.map(t => t.path), threshold);
     if (route.escalated)
         return { proposal: await currentProposal(f, fallback), escalated: true };
     if (!route.generate)
@@ -164,11 +173,13 @@ export function observe(f: Benchmark, input: unknown) {
         const target = raw?.operations?.find((o: any) => o.op === "update")?.path ?? null;
         const expectedTarget = f.targets.find(t => t.id === f.expected.target)?.path ?? null;
         const files = valid.ok ? projectFiles(f, valid.proposal) : p.initialFiles;
-        const exact = exactFiles(files, f.expectedFiles);
-        const originalBodies = [f.source, ...(f.expected.action === "merge" ? [f.targets.find(t => t.id === f.expected.target)!.body] : [])];
+        const exact = valid.ok && exactFiles(files, f.expectedFiles);
+        const write = valid.ok ? valid.proposal.operations.find(o => o.op !== "archive") : undefined;
+        const actualTarget = f.targets.find(t => t.path === write?.path);
+        const originalBodies = [f.source, ...(valid.ok && valid.proposal.action === "merge" && actualTarget ? [actualTarget.body] : [])];
         const written = valid.ok && valid.proposal.action !== "keep";
         const body = written ? valid.proposal.operations.find(o => o.op !== "archive")!.content : "";
-        return { predicted, target, correctDisposition: predicted === f.expected.action, correctTarget: target === expectedTarget, accepted: valid.ok, acceptedWrite: written, rejection: valid.ok ? null : valid.reason, unsafeAccepted: written && (predicted !== f.expected.action || target !== expectedTarget), exactFiles: exact, fullDocumentLoss: written && originalBodies.some(b => !body.includes(b)), files, proposal: input };
+        return { predicted, target, correctDisposition: predicted === f.expected.action, correctTarget: target === expectedTarget, accepted: valid.ok, acceptedWrite: written, rejection: valid.ok ? null : valid.reason, unsafeAccepted: written && (predicted !== f.expected.action || target !== expectedTarget), unsupportedEffect: written && !exact, exactFiles: exact, fullDocumentLoss: written && originalBodies.some(b => !body.includes(b)), files, proposal: input };
     }
     finally {
         p.close();
@@ -184,7 +195,7 @@ export function chooseThreshold(rows: Array<{
         if (writes.length && writes.every(({ f, route }) => route.disposition === f.expected.action && route.target === (f.targets.find(t => t.id === f.expected.target)?.path ?? null)))
             return threshold;
     }
-    return 1;
+    return null;
 }
 export function summarize(rows: any[], repetitions = protocol.repetitions) {
     const summaries = [];
@@ -207,7 +218,7 @@ export function summarize(rows: any[], repetitions = protocol.repetitions) {
         const calls: PhysicalCall[] = group.flatMap(r => r.calls);
         const writes = group.filter(r => r.acceptedWrite);
         const merges = group.filter(r => r.predicted === "merge");
-        summaries.push({ arm, observations: group.length, dispositionAccuracy: group.filter(r => r.correctDisposition).length / group.length, acceptedWritePrecision: writes.length ? writes.filter(r => !r.unsafeAccepted).length / writes.length : null, targetPrecision: merges.length ? merges.filter(r => r.correctTarget).length / merges.length : null, escalationRate: group.filter(r => r.escalated).length / group.length, exactFullDocumentOutcomes: group.filter(r => r.exactFiles).length, unsafeAccepted: group.filter(r => r.unsafeAccepted).length, fullDocumentLoss: group.filter(r => r.fullDocumentLoss).length, rejectedProposals: group.filter(r => !r.accepted).length, calls: calls.length, inputTokens: calls.every(c => c.inputTokens !== null) ? calls.reduce((s, c) => s + c.inputTokens!, 0) : null, outputTokens: calls.every(c => c.outputTokens !== null) ? calls.reduce((s, c) => s + c.outputTokens!, 0) : null, cacheReadTokens: calls.every(c => c.cacheReadTokens !== null) ? calls.reduce((s, c) => s + c.cacheReadTokens!, 0) : null, cacheWriteTokens: calls.every(c => c.cacheWriteTokens !== null) ? calls.reduce((s, c) => s + c.cacheWriteTokens!, 0) : null, priceDerivedCostUsd: calls.every(c => c.priceDerivedCostUsd !== null) ? calls.reduce((s, c) => s + c.priceDerivedCostUsd!, 0) : null, p50Ms: percentile(0.5), p95Ms: percentile(0.95), throughputPerSecond: group.length / (group.reduce((s, r) => s + r.durationMs, 0) / 1000), classificationOutcomes: group.filter(r => r.classification).map(r => ({ fixture: r.fixture, repetition: r.repetition, outcome: r.classification.outcome, judgment: r.rawJudgment })), perClass: ["keep", "merge", "promote"].map(label => { const expected = group.filter(r => benchmark.find(f => f.id === r.fixture)?.expected.action === label), predicted = group.filter(r => r.predicted === label); return { label, expected: expected.length, predicted: predicted.length, precision: predicted.length ? predicted.filter(r => r.correctDisposition).length / predicted.length : null, recall: expected.length ? expected.filter(r => r.correctDisposition).length / expected.length : null }; }), byRepetition: Array.from({ length: repetitions }, (_, repetition) => { const pass = group.filter(r => r.repetition === repetition); return { repetition, exact: pass.filter(r => r.exactFiles).length, unsafeAccepted: pass.filter(r => r.unsafeAccepted).length, calls: pass.flatMap(r => r.calls).length, durationMs: pass.reduce((s, r) => s + r.durationMs, 0), priceDerivedCostUsd: pass.flatMap(r => r.calls).every(c => c.priceDerivedCostUsd !== null) ? pass.flatMap(r => r.calls).reduce((s, c) => s + c.priceDerivedCostUsd!, 0) : null }; }), byStateSize: ["small", "large"].map(size => { const g = group.filter(r => size === "large" ? r.stateBytes > 5000 : r.stateBytes <= 5000); return { size, observations: g.length, exact: g.filter(r => r.exactFiles).length, durationMs: g.reduce((s, r) => s + r.durationMs, 0) }; }), bySplit: ["tuning", "held-out"].map(split => ({ split, observations: group.filter(r => r.split === split).length, exact: group.filter(r => r.split === split && r.exactFiles).length })), confusion: group.map(r => ({ fixture: r.fixture, repetition: r.repetition, predicted: r.predicted, correct: r.correctDisposition, accepted: r.accepted, rejection: r.rejection })) });
+        summaries.push({ arm, observations: group.length, dispositionAccuracy: group.filter(r => r.correctDisposition).length / group.length, acceptedRoutePrecision: writes.length ? writes.filter(r => !r.unsafeAccepted).length / writes.length : null, acceptedWritePrecision: writes.length ? writes.filter(r => !r.unsafeAccepted && !r.unsupportedEffect).length / writes.length : null, targetPrecision: merges.length ? merges.filter(r => r.correctTarget).length / merges.length : null, escalationRate: group.filter(r => r.escalated).length / group.length, exactFullDocumentOutcomes: group.filter(r => r.exactFiles).length, unsafeAccepted: group.filter(r => r.unsafeAccepted).length, unsupportedEffect: group.filter(r => r.unsupportedEffect).length, fullDocumentLoss: group.filter(r => r.fullDocumentLoss).length, rejectedProposals: group.filter(r => !r.accepted).length, calls: calls.length, inputTokens: calls.every(c => c.inputTokens !== null) ? calls.reduce((s, c) => s + c.inputTokens!, 0) : null, outputTokens: calls.every(c => c.outputTokens !== null) ? calls.reduce((s, c) => s + c.outputTokens!, 0) : null, cacheReadTokens: calls.every(c => c.cacheReadTokens !== null) ? calls.reduce((s, c) => s + c.cacheReadTokens!, 0) : null, cacheWriteTokens: calls.every(c => c.cacheWriteTokens !== null) ? calls.reduce((s, c) => s + c.cacheWriteTokens!, 0) : null, priceDerivedCostUsd: calls.every(c => c.priceDerivedCostUsd !== null) ? calls.reduce((s, c) => s + c.priceDerivedCostUsd!, 0) : null, p50Ms: percentile(0.5), p95Ms: percentile(0.95), throughputPerSecond: group.length / (group.reduce((s, r) => s + r.durationMs, 0) / 1000), classificationOutcomes: group.filter(r => r.classification).map(r => ({ fixture: r.fixture, repetition: r.repetition, outcome: r.classification.outcome, judgment: r.rawJudgment })), perClass: ["keep", "merge", "promote"].map(label => { const expected = group.filter(r => benchmark.find(f => f.id === r.fixture)?.expected.action === label), predicted = group.filter(r => r.predicted === label); return { label, expected: expected.length, predicted: predicted.length, precision: predicted.length ? predicted.filter(r => r.correctDisposition).length / predicted.length : null, recall: expected.length ? expected.filter(r => r.correctDisposition).length / expected.length : null }; }), byRepetition: Array.from({ length: repetitions }, (_, repetition) => { const pass = group.filter(r => r.repetition === repetition); return { repetition, exact: pass.filter(r => r.exactFiles).length, unsafeAccepted: pass.filter(r => r.unsafeAccepted).length, unsupportedEffect: pass.filter(r => r.unsupportedEffect).length, calls: pass.flatMap(r => r.calls).length, durationMs: pass.reduce((s, r) => s + r.durationMs, 0), priceDerivedCostUsd: pass.flatMap(r => r.calls).every(c => c.priceDerivedCostUsd !== null) ? pass.flatMap(r => r.calls).reduce((s, c) => s + c.priceDerivedCostUsd!, 0) : null }; }), byStateSize: ["small", "large"].map(size => { const g = group.filter(r => size === "large" ? r.stateBytes > 5000 : r.stateBytes <= 5000); return { size, observations: g.length, exact: g.filter(r => r.exactFiles).length, durationMs: g.reduce((s, r) => s + r.durationMs, 0) }; }), bySplit: ["tuning", "held-out"].map(split => ({ split, observations: group.filter(r => r.split === split).length, exact: group.filter(r => r.split === split && r.exactFiles).length })), confusion: group.map(r => ({ fixture: r.fixture, repetition: r.repetition, predicted: r.predicted, correct: r.correctDisposition, accepted: r.accepted, rejection: r.rejection })) });
     }
     return summaries;
 }
@@ -238,7 +249,7 @@ async function main() {
         tuned.push({ fixture: f, result, calls: spend.calls.slice(from) });
     }
     const threshold = chooseThreshold(tuned);
-    writeFileSync(join(out, "calibration.json"), JSON.stringify({ threshold, selection: "First candidate with nonempty zero-error tuning write routes; all held-out inputs still unqueried", protocolSha, benchmarkSha, tuned, spent: spend.used }, null, 2));
+    writeFileSync(join(out, "calibration.json"), JSON.stringify({ threshold, selection: "First candidate with nonempty zero-error tuning write routes, otherwise all classification routes fall back; all held-out inputs still unqueried", protocolSha, benchmarkSha, tuned, spent: spend.used }, null, 2));
     for (let repetition = 0; repetition < protocol.repetitions; repetition++)
         for (const f of benchmark) {
             for (const arm of ["current", "deterministic", "hybrid"] as const) {

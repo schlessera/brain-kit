@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { benchmark, prepareBenchmark, mechanicalProposal, projectFiles, exactFiles, benchmarkSha } from "../scripts/evals/note-disposition/benchmark";
-import { Spend, instrumentedCompletion, classificationRequest, classify, observe, summarize, MODELS, protocolSha, hybridProposal } from "../scripts/evals/note-disposition/live";
+import { Spend, instrumentedCompletion, classificationRequest, classify, observe, summarize, MODELS, protocolSha, hybridProposal, chooseThreshold } from "../scripts/evals/note-disposition/live";
 import { validateProposal } from "../scripts/evals/note-disposition/guard";
 test("natural benchmark includes every routed class in tuning, competing targets, metadata and disjoint entities/templates", () => {
     const tuning = benchmark.filter(f => f.split === "tuning"), held = benchmark.filter(f => f.split === "held-out");
     expect(new Set(tuning.map(f => f.expected.action))).toEqual(new Set(["merge", "promote", "keep"]));
-    expect(held.length).toBe(18);
+    expect(held.length).toBe(20);
     for (const key of ["entity", "template"] as const) {
         const a = new Set(tuning.map(f => f[key]));
         for (const f of held)
@@ -40,6 +40,7 @@ test("full-document golden detects invented prose even when conservative literal
     const o = observe(f, proposal);
     expect(o.acceptedWrite).toBe(true);
     expect(o.fullDocumentLoss).toBe(false);
+    expect(o.unsupportedEffect).toBe(true);
     expect(o.exactFiles).toBe(false);
     expect(o.files[t.path]).toContain("invented eighth jar");
 });
@@ -62,6 +63,8 @@ test("physical usage/cache accounting uses response tokens and stops after an un
     const spend = new Spend(1, () => { });
     const provider = instrumentedCompletion(spend, "generation", async () => Response.json({ model: MODELS.current, stop_reason: "end_turn", content: [{ type: "text", text: "Actual response" }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 30, cache_creation_input_tokens: 40 } }), "fictional-key");
     expect(await provider.complete({ prompt: "nonempty input" })).toBe("Actual response");
+    expect(spend.calls[0]!.completionText).toBe("Actual response");
+    expect(spend.calls[0]!.stopReason).toBe("end_turn");
     expect(spend.calls[0]!.priceDerivedCostUsd).toBeCloseTo(0.000506, 8);
     expect(spend.used).toBeCloseTo(0.000506, 8);
     const unknown = instrumentedCompletion(spend, "fallback", async () => Response.json({ model: MODELS.current, stop_reason: "end_turn", content: [{ type: "text", text: "unknown usage" }] }), "fictional-key");
@@ -99,4 +102,36 @@ test("balanced arm/repetition manifest refuses missing observations despite one 
     const missing = rows.filter(r => !(r.arm === "current" && r.fixture === benchmark[0]!.id && r.repetition === 1));
     expect(() => summarize(missing, 2)).toThrow(`current/${benchmark[0]!.id}/1`);
     expect(() => summarize([...rows, rows[0]], 2)).toThrow("Duplicate observation");
+});
+
+
+test("calibration cannot authorize confident incorrect writes when no tuning threshold is safe",()=>{
+ const f=benchmark.find(f=>f.id==="raft-duplicate")!;const choice=(selected:string,keys:string[])=>({type:"choice" as const,choice:selected,confidence:1,probabilities:Object.fromEntries(keys.map(key=>[key,key===selected?1:0]))});
+ const wrong={model:MODELS.classifier,outcome:"answered" as const,durationMs:1,answers:{disposition:choice("merge",["keep","merge","promote","complex"]),target:choice("mast",["none",...f.targets.map(t=>t.id)]),type:choice("note",["note","ritual"])}};
+ expect(chooseThreshold([{fixture:f,result:wrong}])).toBeNull();
+});
+
+
+test("uncalibrated classifier routes execute actual current-command fallback without focused generation",async()=>{
+ const f=benchmark.find(f=>f.id==="raft-duplicate")!;let generationCalls=0,fallbackCalls=0;
+ const generation={id:"unused-generation",capabilities:{vision:false},async complete(){generationCalls++;return "wrong";}};
+ const fallback={id:"fixture-current",capabilities:{vision:false},async complete(){fallbackCalls++;return JSON.stringify({action:"keep",reasoning:"Conservative full-completion review",operations:[]});}};
+ const h=await hybridProposal(f,{outcome:"bad_response",answers:null,durationMs:1},null,generation,fallback);
+ expect(fallbackCalls).toBe(1);expect(generationCalls).toBe(0);expect(h.escalated).toBe(true);expect((h.proposal as any).action).toBe("keep");
+});
+
+
+test("rejected keep-shaped proposals cannot score as exact complete-document successes", () => {
+ const f=benchmark.find(f=>f.id==="shell-sighting")!;
+ const o=observe(f,{action:"keep",reasoning:"",operations:[]});
+ expect(o.accepted).toBe(false);expect(o.exactFiles).toBe(false);
+});
+
+
+test("arm summaries expose unsupported effects separately from correct routing precision", () => {
+ const rows=["current","deterministic","hybrid"].flatMap(arm=>benchmark.flatMap(f=>[0,1].map(repetition=>({fixture:f.id,split:f.split,arm,repetition,durationMs:1,calls:[],stateBytes:1,accepted:true,correctDisposition:true,correctTarget:true,acceptedWrite:false,exactFiles:true,unsafeAccepted:false,unsupportedEffect:false,fullDocumentLoss:false,escalated:false}))));
+ const row=rows.find(r=>r.arm==="hybrid"&&r.fixture==="water-check"&&r.repetition===0)!;
+ Object.assign(row,{acceptedWrite:true,unsupportedEffect:true,exactFiles:false});
+ const hybrid=summarize(rows).find(s=>s.arm==="hybrid")!;
+ expect(hybrid.unsupportedEffect).toBe(1);expect(hybrid.acceptedRoutePrecision).toBe(1);expect(hybrid.acceptedWritePrecision).toBe(0);
 });

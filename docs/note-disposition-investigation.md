@@ -173,7 +173,7 @@ prices are not transferred here.
 ## Multi-target comparison instrument
 
 The original sixteen cases above remain offline controls. The separate
-`benchmark.json` adds twenty-four authored cases, six tuning and eighteen
+`benchmark.json` adds twenty-six authored cases, six tuning and twenty
 held-out, with competing targets, realistic observations and recurring
 procedures. Entity and representation-template identifiers are separated across
 partitions. Complete expected files retain original source bytes and existing
@@ -241,3 +241,16 @@ The review receipt contains `fixtureSha`, `protocolSha`, `reviewerFamily:
 `issueReceiptUrl`. Recreated/changed inputs or protocol code require another
 review identity. Partial or capped output does not satisfy the complete
 comparison, and the issue remains open in that case.
+
+
+The [2026-10-07 cap clarification](https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493) applies the $15/$150 ceilings to actual additional billed charges. API-price equivalents for subscription work are separate diagnostics. Review and any reruns still belong in the issue receipt and combined ledger; do not deduct an equivalent estimate as though it were an observed subscription charge. Direct Messages API and TypeSafe request reservations use verified token pricing as conservative charge allowances.
+
+`review.ts` supplies the required complementary Sonnet 5.5 review. It gates the prompt on the existing subscription/settings checks, isolates runtime state, removes unrelated provider credentials, disables tools and automatic memory, and aborts after 180 seconds. Its native stdout tee preserves exact bytes before SDK parsing, including error results, partial final frames and split Unicode characters. Usage is priced independently of the SDK dollar fallback; absent cache TTL produces a price interval. Raw rate-limit overage flags are retained. Missing usage or missing overage evidence remains unknown, never an invented zero. A confirmed withheld prompt records that no model request was released. The protected raw artifact stays outside the repository; public review evidence includes findings, frozen hashes and sanitized billing/usage receipts.
+
+The complementary review rejected the first freeze on 2026-10-07. Its findings corrected two fictional ledgers, added affirmative and one-off minimal pairs, and tightened scoring: rejected proposals cannot count as exact successes, accepted non-golden writes count as unsupported effects, and retention checks use the actual written target. The raw first-review receipt is preserved separately; no live comparison used that rejected freeze.
+
+Six tuning items select only among preregistered thresholds at or above 0.7; this is effectively untuned. If no nonempty error-free write route exists, every classification falls back to the actual current command. Duplicate goldens require merge by protocol although keep is safe. Contradiction goldens keep the note because this verbatim-retention guard cannot replace old conflicting sentences. The event-triggered pen-knot ritual is the most ambiguous promotion.
+
+Disposition, target selection and safety are primary. Exact-file agreement is a strict-format secondary because the hybrid promotion filename is fixed while current invents a filename. Projected metadata does not measure a real writer's fidelity. The current baseline uses lexical retrieval, no embeddings and a disabled reranker; the indexed source can occur in its own snippets. Nominal entity/template separation does not make recurring task structures independent. The large-state group contains one fixture, and two repetitions with default sampling parameters provide directional observations, not a production error bound.
+
+Claude Code's automatic session-title helper is an additional physical model request. The isolated review environment pins both `ANTHROPIC_DEFAULT_HAIKU_MODEL` and the legacy `ANTHROPIC_SMALL_FAST_MODEL` to Sonnet 5.5, as supported by the installed CLI resolver and the official [model configuration](https://code.claude.com/docs/en/model-config). Native model usage must still confirm the exact served model; a main-model initialization row alone is insufficient.
