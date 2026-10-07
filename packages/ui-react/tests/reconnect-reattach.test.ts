@@ -188,6 +188,27 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", `${SIRENS} Landed.`]);
   });
 
+  test("a first chunk that stops early still leaves the turn's end to replay the whole", () => {
+    const { root, socket } = running();
+    const next = reconnect(root, socket);
+    // A first chunk that ends before the question on screen, then the rest.
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [] });
+    next.deliver({ type: "session_history", sessionId: "s1", append: true, messages: history(SIRENS).slice(0, 1) });
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "result", sessionId: "s1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+    expect(next.frames().filter((f) => f.type === "session_resume"), "the reattach, then the turn's end").toHaveLength(2);
+  });
+
+  test("a history with the same text but less of the answer's tools keeps the tool on screen", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS) });
+    expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id)).toEqual(["wax-1"]);
+    expect(buffer(root).isStreaming).toBe(true);
+  });
+
   test("a page ahead of the host's stored answer keeps what it has drawn", () => {
     const { root, socket } = running();
     const next = reconnect(root, socket);

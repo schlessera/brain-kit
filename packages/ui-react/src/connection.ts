@@ -640,9 +640,11 @@ export function createWebSocketClient(root: BrainUiServices) {
   let reattachSessionId: string | null = null;
 
   function markHistoryReplaced(key: ChatKey): void {
-    // A replay while the turn still runs is not the whole answer yet (a
-    // backend may keep it only once it ends): the turn's end replays again.
-    if (key !== null && key === resyncSessionId && !root.stores.chat.getState().buffers[key]?.isStreaming) resyncSessionId = null;
+    // A replay of a transcript that was streaming is not the whole answer
+    // yet (a backend may keep it only once it ends, and a first chunk may
+    // stop before it): the turn's end replays again.
+    const replayed = key === null ? undefined : root.stores.chat.getState().buffers[key];
+    if (key !== null && key === resyncSessionId && !replayed?.isStreaming && !replayed?.replay?.base.isStreaming) resyncSessionId = null;
     coldResumedSessionId = key;
   }
 

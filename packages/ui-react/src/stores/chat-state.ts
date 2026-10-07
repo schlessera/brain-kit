@@ -604,7 +604,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       streaming = true;
       // The page may already hold more of the answer than the host has
       // stored: what it holds stays, turn and all.
-      if (old.content.length > m.content.length && old.toolCalls.length >= m.toolCalls.length) return old;
+      const ahead = old.content.length > m.content.length || old.toolCalls.length > m.toolCalls.length
+        || (old.thinking ?? "").length > (m.thinking ?? "").length || old.parts.length > m.parts.length;
+      if (ahead) return old;
       return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true, turnId: m.turnId ?? old.turnId };
     }
     return { ...m, id: old.id, timestamp: old.timestamp };
