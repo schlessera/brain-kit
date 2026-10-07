@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { captureSurface } from "../scripts/capture-turn-surface";
 import type { SurfaceDecision } from "../scripts/turn-surface-overlap";
 import { observedSkills } from "../scripts/turn-surface-skills";
+import { deferredToolNames } from "../scripts/turn-surface-token-groups";
 
 test("installed CLI spawns before routing settles, then applies MCP load set", async () => {
   let spawned = false;
@@ -52,7 +53,8 @@ test("installed CLI hard pruning removes rejected MCP tools and project skill li
 test("installed CLI relevance hint follows the unchanged complete skill listing", async () => {
   const result = await captureSurface({ decision: Promise.resolve({ arm: "hint", routed: true,
     tools: ["mcp__brain-ui__show_block"], skills: ["voyage-plan"] }) });
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(16);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(8);
+  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
   const messages = JSON.stringify(result.request.messages);
   const hint = messages.indexOf("<tool_relevance>");
   expect(hint).toBeGreaterThan(0);
@@ -81,7 +83,8 @@ test("native skill load set keeps rejected names discoverable without their desc
 
 test("router fallback preserves all actual MCP tools and all project skills", async () => {
   const result = await captureSurface({ decision: Promise.resolve({ arm: "hard-prune", routed: false, tools: [], skills: [] }) });
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(16);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(8);
+  expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
   expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__")).every(tool => tool.defer_loading !== true)).toBe(true);
   const messages = JSON.stringify(result.request.messages);
   for (const name of ["voyage-plan:", "shipbuilding:", "crew-log:"]) expect(messages).toContain(name);

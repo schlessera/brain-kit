@@ -119,8 +119,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       const decision: Promise<SurfaceDecision> = routing.then(value => ({ arm: task.arm, routed: value.outcome === "answered",
         tools: value.tools, skills: value.skills }));
       const bridge = gatedSurfaceServer("brain-ui", prepared.peer, decision);
-      const core = gatedSurfaceServer("brain", { ...brain, tools: brain.tools.map(tool => ({ ...tool,
-        _meta: { ...tool._meta, "anthropic/alwaysLoad": true } })) }, decision);
+      const core = gatedSurfaceServer("brain", brain, decision);
       const abort = prepared.turn.options.abortController!;
       const timeout = setTimeout(() => abort.abort(), 180_000);
       const admission = new SurfaceAdmission(abort, SURFACE_MODEL, runtime.claudeCode);

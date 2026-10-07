@@ -29,9 +29,7 @@ export function coreSdkServer(peer: Peer) {
     capabilities: { tools: {} }, instructions: peer.client.getInstructions(),
   });
   instance.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: peer.tools.map(({ id: _id, serverName: _server, ...tool }) => ({
-      ...tool, _meta: { ...tool._meta, "anthropic/alwaysLoad": true },
-    })),
+    tools: peer.tools.map(({ id: _id, serverName: _server, ...tool }) => tool),
   }));
   instance.server.setRequestHandler(CallToolRequestSchema, request => peer.client.callTool(request.params));
   return { type: "sdk" as const, name: "brain", instance };
@@ -71,9 +69,7 @@ export async function captureSurface(control?: {
   const fixture = createFixture({ corpus: control?.corpus });
   const prepared = await fixtureTurn(fixture.root, "Explain what a mast does.", "normal", undefined, { productionDefaults: true });
   const brain = await connectBrainSurface(fixture.root);
-  const core = control ? gatedSurfaceServer("brain", {
-    ...brain, tools: brain.tools.map(tool => ({ ...tool, _meta: { ...tool._meta, "anthropic/alwaysLoad": true } })),
-  }, control.decision) : coreSdkServer(brain);
+  const core = control ? gatedSurfaceServer("brain", brain, control.decision) : coreSdkServer(brain);
   const bridge = control ? gatedSurfaceServer("brain-ui", prepared.peer, control.decision) : undefined;
   const outside = join(home, "controlled-outside.txt");
   writeFileSync(outside, "OUTSIDE CONTROLLED CONTENT MUST NEVER REACH THE MODEL");
