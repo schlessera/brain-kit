@@ -14,7 +14,7 @@ import { runStats, useChatCommands } from "../../src/components/chat/use-chat-co
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { StatsAnswer } from "../../src/components/chat/stats/stats-answer.js";
 import { composeStatsAnswer } from "../../src/components/chat/stats/compose-stats.js";
-import { CLIENT_RELEASE } from "../../src/components/chat/stats/software.js";
+import packageInfo from "../../package.json";
 import { actionableTrends, corpusStats, runtimeStats, statsHistory } from "../stats-fixtures.js";
 
 afterEach(cleanup);
@@ -108,7 +108,7 @@ describe("/stats", () => {
       const { container } = await answer(root);
       const software = container.querySelector('[aria-label="Software versions"]')!;
       expect(software).not.toBeNull();
-      expect(software.textContent).toContain(`Client release${CLIENT_RELEASE}`);
+      expect(software.textContent).toContain(`Client release${packageInfo.version}`);
       expect(software.textContent).toContain(`Client build${"a".repeat(40)}`);
       expect(software.textContent).toContain("Server release99.0.0");
       expect(software.textContent).toContain("Client and server differ");
@@ -132,7 +132,7 @@ describe("/stats", () => {
       fireEvent.click(drawn.getByText("Stats"));
       const local = root.stores.chat.getState().draft!.messages.at(-1)!;
       expect(local.statsAnswer?.[0]).toMatchObject({ kind: "software", details: {
-        client: { release: CLIENT_RELEASE }, state: "Checking server",
+        client: { release: packageInfo.version }, state: "Checking server",
       } });
       finishStatus({ healthy: true, uptime: 0, cronJobs: [], activeSession: false });
       // Let all three settled requests update the transcript.
@@ -211,7 +211,7 @@ describe("/stats", () => {
     try {
       const { message, container } = await answer(root);
       expect(message.content).toBe("");
-      expect(container.textContent).toContain(CLIENT_RELEASE);
+      expect(container.textContent).toContain(packageInfo.version);
       expect(container.textContent).toContain("Server unavailable: offline");
       expect(message.statsAnswer?.some((s) => s.kind === "software")).toBe(true);
       expect(sections(container)).toEqual(["callout", "callout", "software"]);
