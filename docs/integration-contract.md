@@ -277,6 +277,24 @@ hints while preserving the decision's accessible name; it installs no key
 handler. Existing props and callbacks remain compatible. These additions ship
 in a minor, with the public declarations recorded in `api-report/`.
 
+## Search result cards (additive, #1138)
+
+`SearchResultCardProps` in `@schlessera/brain-ui-kit` gains optional
+`segments?: readonly {text: string; hit: boolean}[]`, `title?: string`,
+`type?: string` and `active?: boolean`. Supplied segments replace the
+single `before`/`highlight`/`after` snippet and preserve each matched span;
+an empty array clears the snippet. Omitted segments retain the existing
+single-highlight API. `active` draws the surrounding list's current
+keyboard selection. Existing props and their defaults remain compatible.
+
+The Search panel and both backend search-output renderers adopt the card.
+They clear absent scores and snippets instead of using presentation defaults.
+The existing search tool and HTTP result schemas are unchanged; pi's
+formatted output carries no score. Incompatible, ambiguous, clipped and
+failed tool output retains a readable original-text fallback. File opening
+uses the current root's authenticated file viewer; unsafe paths have no
+open action.
+
 ## Consumers
 
 | Consumer | Surfaces used |

@@ -44,6 +44,13 @@ export interface SearchResultCardProps {
   /** The matched term, drawn in a `<mark>`. */
   highlight?: string;
   after?: string;
+  /** All snippet segments, in order. Overrides the single-highlight fields. */
+  segments?: readonly { text: string; hit: boolean }[];
+  /** Supplied result identity, above the snippet; absent renders no title. */
+  title?: string;
+  type?: string;
+  /** Keyboard-selected result, controlled by the surrounding search list. */
+  active?: boolean;
   icon?: IconName;
   stateMessage?: string;
   stateDetail?: string;
@@ -72,7 +79,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
   const last = useLastLengths(view === "ready", {
     path: path.length,
     score: score.length,
-    snippet: before.length + highlight.length + after.length,
+    snippet: p.segments?.reduce((n, segment) => n + segment.text.length, 0) ?? before.length + highlight.length + after.length,
   });
   const lengths = useLoadingValue(loading, {
     path: ghostLength(last.path, undefined, 26),
@@ -104,11 +111,12 @@ export function SearchResultCard(p: SearchResultCardProps) {
 
   const box: CSSProperties = {
     border: `1px solid ${color.line}`,
-    background: color.surface,
+    background: p.active ? color.raised : color.surface,
     borderRadius: 12,
     padding: "10px 12px",
     boxSizing: "border-box",
     width: "100%",
+    minHeight: act ? 44 : undefined,
     cursor: act ? "pointer" : "default",
     // A custom property is not in React's CSSProperties, so the entry is cast.
     ...({ "--hv-bg": act ? color.raised : color.surface } as CSSProperties),
@@ -134,6 +142,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
     marginTop: 6,
     font: `400 12px/1.6 ${font.body}`,
     color: color.inkDim,
+    overflowWrap: "anywhere",
   };
   const ghost = (slot: string, length: number, _line: number, role: "sans" | "mono"): GhostTextProps => ({
     role,
@@ -159,6 +168,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
   return (
     <div
       style={{ ...box, position: "relative" }}
+      data-search-result-card=""
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
@@ -187,11 +197,17 @@ export function SearchResultCard(p: SearchResultCardProps) {
           </span>
         ) : null}
       </div>
+      {p.title || p.type ? (
+        <div style={{ marginTop: 6, color: color.ink, font: `500 12px/1.5 ${font.body}`, overflowWrap: "anywhere" }}>
+          {p.title ? <span>{p.title}</span> : null}
+          {p.type ? <span style={{ marginLeft: p.title ? 7 : 0, color: color.inkMute, font: `400 10px/1.5 ${font.mono}` }}>{p.type}</span> : null}
+        </div>
+      ) : null}
       <div style={snippetStyle}>
         <Ghosted loading={loading} arriving={arriving} ghost={ghost("snippet", lengths.snippet, 1, "sans")}>
-          {before}
-          <mark style={markStyle}>{highlight}</mark>
-          {after}
+          {p.segments ? p.segments.map((segment, index) => segment.hit
+            ? <mark key={index} style={markStyle}>{segment.text}</mark>
+            : <span key={index}>{segment.text}</span>) : <>{before}<mark style={markStyle}>{highlight}</mark>{after}</>}
         </Ghosted>
       </div>
       <GhostBand loading={loading} arriving={arriving} />

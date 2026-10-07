@@ -97,6 +97,7 @@ import { FrontmatterPanel } from "../../src/components/files/frontmatter-panel.j
 import { ViewerEmpty, ViewerToolbar, formatSize } from "../../src/components/files/file-viewer-frame.js";
 import { BriefingOutput, StreamingOutput } from "../../src/components/quick-actions/streaming-output.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
+import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
 import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { FilePanel } from "../../src/components/files/file-panel.js";
@@ -7029,4 +7030,81 @@ test("restored closed subagent requests have no decision controls and stale call
     expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
     replyToToolApproval(root,null,message=>{replies.push(message);return true;},permissionTool.id,true,true);expect(replies).toEqual([]);
   }finally{root.dispose();}
+});
+
+
+describe("SearchResultCard integration", () => {
+  const hit = { path: "knowledge/scylla.md", title: "Scylla crossing", type: "note", score: 0.75,
+    snippet: "Row past >>>Scylla<<< and avoid >>>six heads<<<." };
+
+  test("Search panel renders real score and every highlighted segment through the kit card", async () => {
+    const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ results: [hit], warnings: ["FTS only"] }) });
+    const mounted = render(<BrainUiProvider root={ui}><SearchPanel open onClose={() => {}} /></BrainUiProvider>);
+    try {
+      changeControlledInput(mounted.getByPlaceholderText("Search your brain...") as HTMLInputElement, "Scylla");
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)); });
+      expect([...mounted.container.querySelectorAll("mark")].map(mark => mark.textContent)).toEqual(["Scylla", "six heads"]);
+      expect(mounted.getByText("0.75")).toBeTruthy();
+      expect(mounted.getByText("FTS only")).toBeTruthy();
+      expect(mounted.getByText("Scylla crossing")).toBeTruthy();
+    } finally { mounted.unmount(); ui.dispose(); }
+  });
+
+  for (const [backend, name, output] of [
+    ["claude", "mcp__brain__brain_search", JSON.stringify({ results: [hit], warnings: ["FTS only"] })],
+    ["pi", "brain_search", "> FTS only\n- knowledge/scylla.md — Scylla crossing [note]\n    Row past >>>Scylla<<< and avoid >>>six heads<<<."],
+  ] as const) {
+    test(`${backend}: actual registered search output renders cards and opens only its provider root`, () => {
+      const ui = createBrainUiRoot({ storage: null });
+      const opened: string[] = [];
+      ui.stores.file.setState({ openFile: async path => { opened.push(path); } });
+      registerBuiltinRenderers(ui.renderers);
+      const tool = { id: "search-proof", name, input: { query: "Scylla" }, output };
+      const Output = ui.renderers.resolve(tool, backend)!.Output!;
+      const mounted = render(<BrainUiProvider root={ui}><Output tool={tool} /></BrainUiProvider>);
+      try {
+        expect([...mounted.container.querySelectorAll("mark")].map(mark => mark.textContent)).toEqual(["Scylla", "six heads"]);
+        expect(mounted.getByText("FTS only")).toBeTruthy();
+        if (backend === "claude") expect(mounted.getByText("0.75")).toBeTruthy();
+        else expect(mounted.queryByText("0.94")).toBeNull();
+        fireEvent.click(mounted.getByTitle("knowledge/scylla.md"));
+        expect(opened).toEqual(["knowledge/scylla.md"]);
+        expect(ui.stores.ui.getState().filePanelOpen).toBe(true);
+      } finally { mounted.unmount(); ui.dispose(); }
+    });
+  }
+});
+
+
+describe("SearchResultCard adversarial output", () => {
+  function show(output: string, isError = false) {
+    const ui = createBrainUiRoot({ storage: null });
+    registerBuiltinRenderers(ui.renderers);
+    const tool = { id: "hostile-search", name: "brain_search", input: {}, output, isError };
+    const Output = ui.renderers.resolve(tool, "pi")!.Output!;
+    const view = render(<BrainUiProvider root={ui}><Output tool={tool} /></BrainUiProvider>);
+    return { ui, view };
+  }
+  test("unsafe results remain visible but cannot open a file", () => {
+    const { ui, view } = show(JSON.stringify({ results: [{ path: "../secret.md", title: "Untrusted path", snippet: "visible evidence" }], warnings: [] }));
+    const opened: string[] = [];
+    ui.stores.file.setState({ openFile: async path => { opened.push(path); } });
+    try {
+      expect(view.getByText("Untrusted path")).toBeTruthy();
+      expect(view.queryByRole("button")).toBeNull();
+      fireEvent.click(view.getByTitle("../secret.md"));
+      expect(opened).toEqual([]);
+      expect(ui.stores.ui.getState().filePanelOpen).toBe(false);
+      expect(view.queryByText("0.94")).toBeNull();
+    } finally { view.unmount(); ui.dispose(); }
+  });
+  for (const [output, isError] of [["Search refused", true], ["old server prose", false], ["- knowledge/scylla.md — Scylla [note]\n… [truncated 12 bytes]", false]] as const) {
+    test(`fallback retains the original result: ${output}`, () => {
+      const { ui, view } = show(output, isError);
+      try {
+        expect(view.container.querySelector("[data-search-result-card]")).toBeNull();
+        expect(view.container.textContent).toContain(output);
+      } finally { view.unmount(); ui.dispose(); }
+    });
+  }
 });

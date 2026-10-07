@@ -42,6 +42,15 @@ sweep. The owning frame shares one sweep across all of its text slots. See
 D53 in `docs/decisions/design-kit.md` and the `States/GhostSweep` Storybook
 review gallery.
 
+## Search results
+
+`SearchResultCard` accepts `segments` for all matched and unmatched snippet
+parts, overriding `before` / `highlight` / `after`. Optional `title`, `type`
+and controlled `active` preserve result identity and keyboard selection in a
+search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
+metric rather than a calibrated probability. Opening remains the caller's
+`onClick`, and long snippet tokens wrap within the card.
+
 ## Grouped questions
 
 `AskUserGroupCard` presents two to four questions as one exchange, with one
