@@ -31,6 +31,8 @@ const executablePath = candidates.find((path) => path && statSync(path, { throwI
 if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Connection-continuity runtime proof requires real Chrome");
 if (!executablePath) console.warn("SKIPPING connection-continuity runtime proof: no Chrome; drop/reconnect continuity is unverified locally.");
 
+// The DOM declaration omits Bun's native socket headers overload.
+const HeaderWebSocket = WebSocket as unknown as { new(url: string, options: Bun.WebSocketOptions): WebSocket };
 const repo = resolve(import.meta.dir, "../../..");
 let browser: Browser | undefined;
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
@@ -538,7 +540,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       await until(page, `!p.streaming(${JSON.stringify(sessionId)})`); await settle(page);
       // A different client starts a new slot after the captured turn ended.
       // Queued turns reuse the original slot, so its turnId mutates in place.
-      peer = new WebSocket(socketUrl, { headers: { Origin: origin } });
+      peer = new HeaderWebSocket(socketUrl, { headers: { Origin: origin } });
       await new Promise<void>((done, reject) => { peer!.onopen = () => done(); peer!.onerror = reject; });
       peer.send(JSON.stringify({ type: "chat_message", sessionId, text: second }));
       await page.getByText("Setting out: Then bind me to the mast").first().waitFor(); await settle(page);
