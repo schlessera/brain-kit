@@ -4484,6 +4484,10 @@ keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
 after the definitions transform; the description remains **336** characters.
 These updated counts do not supply the live measurements reserved for #550.
 
+The maintainer's 2026-10-07 ruling pins new comparisons to
+`claude-sonnet-5-5`. Earlier observations on `claude-sonnet-5` keep their
+original model identity and are not pooled with the new comparison.
+
 Reproduction commands (live commands require authorized API use):
 
 ```sh
@@ -4497,8 +4501,8 @@ bun scripts/measure-show-block.ts --suggestions --tokens
 
 # Server level: 36 turns per backend, each against a separate fixture copy.
 # Copies live outside any checkout and home directory and are indexed first.
-bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5 --runs 3 --out claude.json
-bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5 --runs 3 --out pi.json
+bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5-5 --runs 3 --out claude.json
+bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5-5 --runs 3 --out pi.json
 bun scripts/measure-show-block-server.ts --report claude.json
 bun scripts/measure-show-block-server.ts --report pi.json
 ```
