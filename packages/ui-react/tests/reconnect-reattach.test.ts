@@ -669,6 +669,41 @@ describe("a reconnect while the turn in view runs", () => {
     expect(messages.map((m) => m.content).slice(-3)).toEqual(["Rowing on. Landed.", "Then bind me to the mast", "Bound."]);
   });
 
+  for (const empty of [false, true]) for (const status of ["thinking", "tool_executing", "idle", "cancelled"] as const) {
+    test(`a stale snapshot status cannot end a newer delivered answer (${empty ? "empty history" : "failed history"}, ${status})`, () => {
+      const { root, socket } = running();
+      root.stores.chat.getState().stampTurn("s1", "turn-1");
+      const next = reconnect(root, socket);
+      next.deliver({ type: "result", sessionId: "s1", turnId: "turn-1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+      const answer = buffer(root).messages.at(-1)!;
+      expect(answer).toMatchObject({ content: "Bound.", turnId: "turn-2", isStreaming: true });
+      if (empty) next.deliver({ type: "session_history", sessionId: "s1", messages: [] });
+      next.deliver({ type: "status", sessionId: "s1", turnId: "turn-1", status });
+      expect(buffer(root).isStreaming, "stale snapshot status cannot end the newer answer").toBe(true);
+      expect(root.stores.chat.getState().runStates.s1, "stale status cannot settle newer work").toBe("streaming");
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rope held." });
+      expect(buffer(root).messages.at(-1)!.id, "the subsequent delta reaches the same newer answer").toBe(answer.id);
+      expect(buffer(root).messages.at(-1)!.content).toBe("Bound. Rope held.");
+    });
+  }
+  test("a failed history read cannot end a turn newly delivered on this socket", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().stampTurn("s1", "turn-1");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "result", sessionId: "s1", turnId: "turn-1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+    const answer = buffer(root).messages.at(-1)!;
+    expect(answer.turnId).toBe("turn-2");
+    next.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: "History unavailable", sessionId: "s1" });
+    expect(buffer(root).isStreaming, "a late load error cannot end a freshly delivered turn").toBe(true);
+    expect(root.stores.connection.getState().lastError?.code, "the history error remains observable").toBe("SESSION_LOAD_ERROR");
+    expect(root.stores.chat.getState().runStates.s1).toBe("streaming");
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Rope held." });
+    expect(buffer(root).messages.at(-1)!.id).toBe(answer.id);
+    expect(buffer(root).messages.at(-1)!.content).toBe("Bound. Rope held.");
+  });
+
   test("a kept answer whose turn the host reports replaced ends, though nothing follows it yet", () => {
     const { root, socket } = running();
     root.stores.chat.getState().finishAssistantMessage("s1");

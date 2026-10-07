@@ -46,7 +46,7 @@ const titles = new Map<string, string>();
 const gates = new Map<string, () => void>();
 const advance = new Map<string, () => void>();
 const missed = new Map<string, () => void>();
-const historyWaiters = new Map<string, { promise: Promise<void>; release(): void; reads: number }>();
+const historyWaiters = new Map<string, { promise: Promise<void>; release(): void; reads: number; mode?: "empty" | "failed"; holdWhile?: () => boolean }>();
 
 /** A long answer, so the transcript scrolls at every width. */
 const LOG = Array.from({ length: 40 }, (_, i) => `Day ${i + 1}: the wax held, and the crew rowed on.`).join("\n\n");
@@ -90,7 +90,11 @@ function scriptedBackend(): AgentBackend {
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
     getHistory: async (sessionId) => {
       const waiting = historyWaiters.get(sessionId);
-      if (waiting) { waiting.reads++; await waiting.promise; }
+      if (waiting && (!waiting.holdWhile || waiting.holdWhile())) {
+        waiting.reads++; await waiting.promise;
+        if (waiting.mode === "failed") throw new Error("History temporarily unavailable");
+        if (waiting.mode === "empty") return [];
+      }
       return structuredClone(transcripts.get(sessionId) ?? []);
     },
     async startTurn({ prompt, bridge, sessionId: resumed, signal, attachments }) {
@@ -424,7 +428,7 @@ function measure(page: Page): Promise<Measure> {
 }
 
 /** A drop as a phone sees one: the host's sockets and the in-flight upload cut, the browser offline. */
-async function drop(s: Scene) {
+async function drop(s: Pick<Scene, "net" | "context" | "page">) {
   // The upload in flight fails first, before the page has seen anything else
   // of the drop: the order that cannot hide a failure behind a pause.
   const uploading = s.net.held.splice(0);
@@ -438,7 +442,7 @@ async function drop(s: Scene) {
 }
 
 /** The network and the host come back; the app finds them on its own. */
-async function recover(s: Scene) {
+async function recover(s: Pick<Scene, "context" | "page">) {
   listen();
   await s.context.setOffline(false);
   await until(s.page, "p.connected() && p.vpnStatus() === 'connected'");
@@ -497,6 +501,76 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
 }
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
+  for (const mode of ["empty", "failed"] as const) test(`single running session: a captured ${mode} history snapshot cannot end a newer turn`, async () => {
+    const context = await browser!.newContext({ viewport: { width: 320, height: 640 }, reducedMotion: "reduce" });
+    await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const page = await context.newPage();
+    const frames: Array<{ type: string; sessionId?: string; turnId?: string; status?: string; detail?: string }> = [];
+    const net: Net = { held: [], holdTracks: false, uploads: 0, sent: [], holdQueues: false, queues: [] };
+    let socketUrl = "";
+    page.on("websocket", (ws) => {
+      socketUrl = ws.url();
+      ws.on("framereceived", ({ payload }) => frames.push(JSON.parse(String(payload))));
+      ws.on("framesent", ({ payload }) => net.sent.push(String(JSON.parse(String(payload)).type)));
+    });
+    page.on("dialog", (dialog) => void dialog.dismiss());
+    let release!: () => void;
+    let peer: WebSocket | undefined;
+    let sessionId = "";
+    const first = `Hold: Sail past the Sirens (snapshot ${mode})`;
+    const second = `Hold: Then bind me to the mast (snapshot ${mode})`;
+    try {
+      await page.goto(origin); await until(page, "p?.connected() && p.draftsSupported() === true"); await settle(page);
+      await send(page, first); await until(page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
+      sessionId = (await probe(page, (p) => p.activeSessionId()))!;
+      await page.getByText("Setting out: Sail past the Sirens").first().waitFor(); await settle(page);
+      const oldTurn = frames.find((f) => f.type === "text_delta" && f.sessionId === sessionId)?.turnId;
+      expect(oldTurn, "the original answer has a host-proven turn").toBeTruthy();
+      const draft = "Steer toward Ithaca"; await composer(page).fill(draft); await composer(page).focus();
+      const waiting = { promise: new Promise<void>((done) => { release = done; }), release: () => release(), reads: 0, mode, holdWhile: () => gates.has(first) };
+      historyWaiters.set(sessionId, waiting);
+      const sentBefore = net.sent.length; expect(net.sent).toContain("chat_message");
+      await drop({ context, page, net }); await recover({ context, page });
+      const readDeadline = Date.now() + 5_000;
+      while (!waiting.reads && Date.now() < readDeadline) await Bun.sleep(10);
+      expect(waiting.reads, "the real reconnect is awaiting history while the original turn runs").toBeGreaterThan(0);
+      expect(gates.has(first)).toBe(true); gates.get(first)!(); gates.delete(first);
+      await until(page, `!p.streaming(${JSON.stringify(sessionId)})`); await settle(page);
+      // A different client starts a new slot after the captured turn ended.
+      // Queued turns reuse the original slot, so its turnId mutates in place.
+      peer = new WebSocket(socketUrl, { headers: { Origin: origin } });
+      await new Promise<void>((done, reject) => { peer!.onopen = () => done(); peer!.onerror = reject; });
+      peer.send(JSON.stringify({ type: "chat_message", sessionId, text: second }));
+      await page.getByText("Setting out: Then bind me to the mast").first().waitFor(); await settle(page);
+      expect(gates.has(second), "a new host turn is really running before history answers").toBe(true);
+      await composer(page).focus();
+      await page.evaluate(() => {
+        const field = document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
+        field.setSelectionRange(6, 12);
+        const answer = document.querySelector("[data-reading-column]")!.lastElementChild!;
+        Object.assign(window, { __snapshotMarks: { field, answer } });
+      });
+      const beforeStatus = frames.length; release(); historyWaiters.delete(sessionId);
+      const statusDeadline = Date.now() + 5_000;
+      while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await Bun.sleep(10);
+      expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === oldTurn && f.detail === "Session in progress"), "the single-running-session snapshot actually reports its captured old turn").toBe(true);
+      await settle(page);
+      expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), "the captured old snapshot cannot end the newer answer").toBe(true);
+      expect(advance.has(second)).toBe(true); advance.get(second)!();
+      await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
+      expect(await page.evaluate(() => {
+        const { field, answer } = (window as unknown as { __snapshotMarks: { field: HTMLTextAreaElement; answer: Element } }).__snapshotMarks;
+        return { sameAnswer: answer.isConnected && document.querySelector("[data-reading-column]")!.lastElementChild === answer,
+          sameField: field === document.querySelector("textarea[data-composer]"), focused: document.activeElement === field,
+          value: field.value, selection: [field.selectionStart, field.selectionEnd] };
+      })).toEqual({ sameAnswer: true, sameField: true, focused: true, value: draft, selection: [6, 12] });
+      expect(net.sent.slice(sentBefore).filter((t) => t === "chat_message"), "snapshot recovery sends no further chat request").toEqual([]);
+      gates.get(second)!(); gates.delete(second); await until(page, `!p.streaming(${JSON.stringify(sessionId)})`);
+    } finally {
+      release?.(); peer?.close(); historyWaiters.delete(sessionId); await context.close();
+    }
+  }, 120_000);
+
   for (const cell of cells) {
     test(`${cell.name}: progress missed during the outage rejoins the original answer`, async () => {
       const s = await scene(cell);

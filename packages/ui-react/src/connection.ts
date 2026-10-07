@@ -27,6 +27,9 @@ export function createWebSocketClient(root: BrainUiServices) {
    * host predates it), so the answer queue can tell what this host supports.
    */
   let answersReady = false;
+  // A connect snapshot may answer after its captured turn ended on this socket.
+  const endedTurns = new Map<string, Set<string>>();
+  const deliveredTurns = new Map<string, string>();
 
   const makeAnswers = () => createAnswerDelivery({
     chat: root.stores.chat,
@@ -302,6 +305,32 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleServerMessage(msg: ServerMessage) {
     if (disposed || root.authLock.state.getState().phase !== "active") return;
+    const { sessionId, turnId } = msg as { sessionId?: string; turnId?: string };
+    if (msg.type === "status" || (msg.type === "error" && msg.code === "SESSION_LOAD_ERROR")) {
+      flushDeltas();
+      const live = sessionId ? root.stores.chat.getState().buffers[sessionId]?.messages.at(-1) : undefined;
+      const currentTurn = live?.streamTurnId ?? live?.turnId;
+      if (live?.isStreaming && currentTurn && sessionId) {
+        if (msg.type === "status" && turnId && turnId !== currentTurn && endedTurns.get(sessionId)?.has(turnId)) return;
+        // The failed read describes history, while this socket has already
+        // delivered the currently running answer. Keep the error observable.
+        if (msg.type === "error" && !msg.requestId && !turnId && deliveredTurns.get(sessionId) === currentTurn) {
+          root.stores.connection.getState().reportError(msg.code, msg.message);
+          if (sessionId === reattachSessionId) reattachSessionId = null;
+          return;
+        }
+      }
+    }
+    if (sessionId && turnId) {
+      if (msg.type === "result" || (msg.type === "status" && (msg.status === "idle" || msg.status === "cancelled"))) {
+        const ended = endedTurns.get(sessionId) ?? new Set<string>();
+        ended.add(turnId); endedTurns.set(sessionId, ended);
+        if (deliveredTurns.get(sessionId) === turnId) deliveredTurns.delete(sessionId);
+      } else if (["text_delta", "thinking_delta", "tool_use_start", "tool_input_delta", "tool_use_complete", "tool_approval_request", "tool_result", "ask_user_request", "ask_user_list_request", "ask_user_rank_request", "ask_user_form_request"].includes(msg.type)
+        && !endedTurns.get(sessionId)?.has(turnId)) {
+        deliveredTurns.set(sessionId, turnId);
+      }
+    }
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
@@ -671,6 +700,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
 
     if (status === "connected") {
+      endedTurns.clear(); deliveredTurns.clear();
       root.stores.connection.getState().noteSocketOpen();
       for (const sessionId of Object.keys(root.stores.chat.getState().turnRetries)) checkRetryDelivery(sessionId);
     }
@@ -839,6 +869,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     answers,
     flushChatDeltas,
     dispose() {
+      endedTurns.clear(); deliveredTurns.clear();
       if (disposed) return;
       disposed = true;
       for (const timer of retryTimers.values()) clearTimeout(timer);
