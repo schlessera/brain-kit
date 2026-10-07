@@ -11,6 +11,10 @@ export interface VoiceState {
   reviewText: string;       // text waiting in the review card (post-stop)
   providerId: string | null; // active speech provider (from the session response)
   error: string | null;
+  /** A recording on the device (#1012), separate from streaming dictation. */
+  local: LocalCapturePhase;
+  /** Why the last tap could not record: the microphone was refused. */
+  localNotice: "denied" | null;
 
   setMode: (mode: VoiceMode) => void;
   setConnecting: (connecting: boolean) => void;
@@ -23,7 +27,12 @@ export interface VoiceState {
   setProviderId: (providerId: string | null) => void;
   setError: (err: string | null) => void;
   resetCapture: () => void;
+  setLocal: (local: LocalCapturePhase) => void;
+  setLocalNotice: (notice: "denied" | null) => void;
 }
+
+/** opening: waiting on the microphone; stopping: the final chunk is on its way. */
+export type LocalCapturePhase = "idle" | "opening" | "recording" | "stopping";
 
 export function createVoiceStore() {
   return createStore<VoiceState>((set) => ({
@@ -36,6 +45,8 @@ export function createVoiceStore() {
     reviewText: "",
     providerId: null,
     error: null,
+    local: "idle",
+    localNotice: null,
 
     setMode: (mode) => set({ mode }),
     setConnecting: (connecting) => set({ connecting }),
@@ -53,5 +64,7 @@ export function createVoiceStore() {
     setError: (error) => set({ error }),
     resetCapture: () =>
       set({ partial: "", finalText: "", audioLevel: 0, error: null }),
+    setLocal: (local) => set({ local }),
+    setLocalNotice: (localNotice) => set({ localNotice }),
   }));
 }

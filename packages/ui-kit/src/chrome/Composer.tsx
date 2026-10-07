@@ -130,6 +130,13 @@ export interface ComposerProps {
   onAttach?: () => void;
   /** Opens capture, or stops it while `dictating`. */
   onMic?: () => void;
+  /**
+   * The microphone. On by default. Off where the app has no capture to offer,
+   * so no mic is drawn as if it worked.
+   */
+  mic?: boolean;
+  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"). */
+  micLabel?: string;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
@@ -182,7 +189,7 @@ export function Composer(p: ComposerProps) {
   const recall = p.recall ?? [];
 
   const showAttach = p.attach !== false && v !== "plain";
-  const showMic = v === "send" || v === "plain";
+  const showMic = p.mic !== false && (v === "send" || v === "plain");
   const showSend = v === "send" && !streaming;
   const showStop = v === "send" && streaming;
   const editable = Boolean(p.onChange) && !dictating;
@@ -309,7 +316,7 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label={dictating ? "Stop dictation" : "Dictate"} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
+          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
               style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}

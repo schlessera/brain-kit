@@ -22,12 +22,22 @@ export "." (./src/index.ts)
   type FileShellState
   type GraphMode
   GraphPage
+  LOCAL_CAPTURE_MIME_TYPES
+  type LocalCapture
+  type LocalCaptureChunk
+  type LocalCaptureEnvironment
+  type LocalCaptureMimeType
+  type LocalCaptureOptions
+  type LocalCaptureSink
+  type LocalCaptureStopReason
+  type LocalCaptureSupport
   type MaskRequest
   type MessageAttachment
   type SessionChat
   ShareHarness
   type ShareShellState
   type ShellStoreHook
+  type StartLocalCaptureOptions
   type ToolCall
   type UIShellState
   type UpdateHold
@@ -39,9 +49,11 @@ export "." (./src/index.ts)
   configureBrainUi
   createBrainApi
   createBrainUiRoot
+  detectLocalCaptureSupport
   hasPendingShare
   hasUnsentText
   registerUpdateHold
+  startLocalCapture
   useBrainApi
   useBrainConfig
   useBrainUiRoot
@@ -194,6 +206,7 @@ signatures (every public export and the types it is made of)
         request?: (url: string, init?: RequestInit) => Promise<Response>;
         storagePrefix?: string;
         storage?: Storage | null;
+        localCapture?: LocalCaptureOptions | null;
     }
   BrainUiServices (packages/ui-react/src/root.ts)
     export interface BrainUiServices {
@@ -208,6 +221,7 @@ signatures (every public export and the types it is made of)
         recheckVpn: () => void;
         answerStorage: AnswerStorage | null;
         answerTabs: TabCoordinator | null;
+        localCapture: LocalCaptureOptions | null;
         registerVpnRecheck: (callback: () => void) => () => void;
     }
   ChatKey (packages/ui-react/src/stores/chat-state.ts)
@@ -383,6 +397,50 @@ signatures (every public export and the types it is made of)
     export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
   GraphPage (packages/ui-react/src/lazy-pages.tsx)
     export function GraphPage(): import("react").JSX.Element;
+  LOCAL_CAPTURE_MIME_TYPES (packages/ui-react/src/voice/local-capture.ts)
+    const LOCAL_CAPTURE_MIME_TYPES: readonly ["audio/webm;codecs=opus", "audio/mp4"];
+  LocalCapture (packages/ui-react/src/voice/local-capture.ts)
+    export interface LocalCapture {
+        readonly mimeType: LocalCaptureMimeType;
+        stop(reason: LocalCaptureStopReason): Promise<LocalCaptureStopReason>;
+        readonly ended: Promise<LocalCaptureStopReason>;
+    }
+  LocalCaptureChunk (packages/ui-react/src/voice/local-capture.ts)
+    export interface LocalCaptureChunk {
+        index: number;
+        data: Blob;
+        startMs: number;
+        endMs: number;
+    }
+  LocalCaptureEnvironment (packages/ui-react/src/voice/local-capture.ts)
+    export interface LocalCaptureEnvironment {
+        mediaDevices?: Pick<MediaDevices, "getUserMedia">;
+        MediaRecorder?: typeof MediaRecorder;
+        now?: () => number;
+    }
+  LocalCaptureMimeType (packages/ui-react/src/voice/local-capture.ts)
+    export type LocalCaptureMimeType = (typeof LOCAL_CAPTURE_MIME_TYPES)[number];
+  LocalCaptureOptions (packages/ui-react/src/root.ts)
+    export interface LocalCaptureOptions {
+        sink: () => LocalCaptureSink;
+        timesliceMs?: number;
+    }
+  LocalCaptureSink (packages/ui-react/src/voice/local-capture.ts)
+    export interface LocalCaptureSink {
+        begin?(info: {
+            mimeType: LocalCaptureMimeType;
+        }): void | Promise<void>;
+        chunk(chunk: LocalCaptureChunk): void | Promise<void>;
+        end?(reason: LocalCaptureStopReason): void | Promise<void>;
+    }
+  LocalCaptureStopReason (packages/ui-react/src/voice/local-capture.ts)
+    export type LocalCaptureStopReason = "user" | "limit" | "storage" | "auth" | "interrupted";
+  LocalCaptureSupport (packages/ui-react/src/voice/local-capture.ts)
+    export interface LocalCaptureSupport {
+        supported: boolean;
+        mimeType: LocalCaptureMimeType | null;
+        missing: ("secure-context" | "media-recorder" | "microphone" | "indexeddb")[];
+    }
   LocalExchangeState (packages/ui-react/src/stores/chat-state.ts)
     export interface LocalExchangeState {
         id: string;
@@ -516,6 +574,11 @@ signatures (every public export and the types it is made of)
     export interface SoftwareInput {
         client: SoftwareIdentity;
         server: Fetched<SoftwareIdentity>;
+    }
+  StartLocalCaptureOptions (packages/ui-react/src/voice/local-capture.ts)
+    export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
+        sink: LocalCaptureSink;
+        timesliceMs?: number;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
     export type StatsSection = {
@@ -964,6 +1027,11 @@ signatures (every public export and the types it is made of)
         retryTurn: (failedTurnId: string) => "pending" | "refused" | "sent";
         send: (msg: ClientMessage) => boolean;
     };
+  detectLocalCaptureSupport (packages/ui-react/src/voice/local-capture.ts)
+    export function detectLocalCaptureSupport(env?: LocalCaptureEnvironment & {
+        isSecureContext?: boolean;
+        indexedDB?: IDBFactory;
+    }): Promise<LocalCaptureSupport>;
   disconnected (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function disconnected(): void;
   dismissed (packages/ui-react/src/lib/answer-delivery/manager.ts)
@@ -1008,6 +1076,8 @@ signatures (every public export and the types it is made of)
     };
   start (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function start(): Promise<void>;
+  startLocalCapture (packages/ui-react/src/voice/local-capture.ts)
+    export function startLocalCapture(options: StartLocalCaptureOptions): Promise<LocalCapture>;
   submit (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function submit(input: SubmitAnswer): Promise<"admitted" | "refused" | "ignored">;
   useBrainApi (packages/ui-react/src/root-context.tsx)
