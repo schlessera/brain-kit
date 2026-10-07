@@ -215,8 +215,8 @@ checks both nonempty priced and mixed-knownness fixtures
 **U — Push ownership and SDK renewal.**
 
 - `SDK push renewal reaches the mounted subscribe handler and retains principal isolation` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`SDK push renewal reaches the mounted subscribe handler and retains principal isolation`, `packages/ui-server/tests/http-principal-boundaries.test.ts:78-135`)
-- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:312-321`)
-- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:323-332`)
+- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:324-333`)
+- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:335-344`)
 
 **Q — Authenticated intake.**
 
