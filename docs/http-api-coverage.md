@@ -129,11 +129,11 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **D — Delegated principal lifecycle.**
 
-- `mint returns a one-time Hono cookie without replacing the owner's session` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`mint returns a one-time Hono cookie without replacing the owner's session`, `packages/ui-server/tests/principal-routes.test.ts:119-178`)
-- `ttlDays validates its bounds and persists the default and maximum` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ttlDays validates its bounds and persists the default and maximum`, `packages/ui-server/tests/principal-routes.test.ts:218-261`)
-- `revocation rejects the cookie on the next request and leaves the owner live` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`revocation rejects the cookie on the next request and leaves the owner live`, `packages/ui-server/tests/principal-routes.test.ts:279-330`)
-- `self-revocation is a logout and missing or already-revoked ids are 404` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`self-revocation is a logout and missing or already-revoked ids are 404`, `packages/ui-server/tests/principal-routes.test.ts:332-378`)
-- `ambient modes return the same not-enabled response on all three routes` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ambient modes return the same not-enabled response on all three routes`, `packages/ui-server/tests/principal-routes.test.ts:380-397`)
+- `mint returns a one-time Hono cookie without replacing the owner's session` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`mint returns a one-time Hono cookie without replacing the owner's session`, `packages/ui-server/tests/principal-routes.test.ts:117-176`)
+- `ttlDays validates its bounds and persists the default and maximum` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ttlDays validates its bounds and persists the default and maximum`, `packages/ui-server/tests/principal-routes.test.ts:216-259`)
+- `revocation rejects the cookie on the next request and leaves the owner live` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`revocation rejects the cookie on the next request and leaves the owner live`, `packages/ui-server/tests/principal-routes.test.ts:277-328`)
+- `self-revocation is a logout and missing or already-revoked ids are 404` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`self-revocation is a logout and missing or already-revoked ids are 404`, `packages/ui-server/tests/principal-routes.test.ts:330-376`)
+- `ambient modes return the same not-enabled response on all three routes` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ambient modes return the same not-enabled response on all three routes`, `packages/ui-server/tests/principal-routes.test.ts:378-395`)
 
 **B — Corpus transport and CLI errors.**
 

@@ -7,14 +7,12 @@ import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
 import {
   createPrincipal,
-  MAX_LIVE_PRINCIPALS,
   resolvePrincipal,
   revokePrincipal,
   type Principal,
 } from "../src/db/principals";
 import {
   authGuard,
-  SESSION_TTL_SECONDS,
   type AuthMode,
   type AuthRuntime,
 } from "../src/middleware/auth";
@@ -53,7 +51,7 @@ function owner(label = "Owner browser"): Principal {
   return createPrincipal(db, {
     authMethod: "password",
     label,
-    ttlSeconds: SESSION_TTL_SECONDS,
+    ttlSeconds: 30 * SECONDS_PER_DAY,
   });
 }
 
@@ -222,7 +220,7 @@ describe("owner-only principal routes", () => {
 
     for (const ttlDays of [
       0,
-      SESSION_TTL_SECONDS / SECONDS_PER_DAY + 1,
+      30 + 1,
       "7",
       null,
     ]) {
@@ -247,7 +245,7 @@ describe("owner-only principal routes", () => {
     );
     expect(defaultStored.expiresAt).toBe(defaultBody.expiresAt);
 
-    const maxDays = SESSION_TTL_SECONDS / SECONDS_PER_DAY;
+    const maxDays = 30;
     const atMaximum = await instance.request(
       "/api/auth/principals",
       jsonRequest("POST", ownerCookie, { label: "Maximum TTL", ttlDays: maxDays })
@@ -446,7 +444,7 @@ describe("owner-only principal routes", () => {
 
   test("mint refuses the live-principal cap with 503 and no credential", async () => {
     const actingOwner = owner();
-    for (let index = 1; index < MAX_LIVE_PRINCIPALS; index++) {
+    for (let index = 1; index < 100; index++) {
       agent(actingOwner.id, `Existing agent ${index}`);
     }
     const ownerCookie = await signedValue(actingOwner.id);
@@ -462,7 +460,7 @@ describe("owner-only principal routes", () => {
     });
     expect(
       db.query("SELECT COUNT(*) AS count FROM principals").get()
-    ).toEqual({ count: MAX_LIVE_PRINCIPALS });
+    ).toEqual({ count: 100 });
   });
 
   test("mint requires JSON before reading its body", async () => {
