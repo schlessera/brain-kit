@@ -10,9 +10,9 @@ import { overflowing, stage, wide } from "../_stage.js";
  * rule has teeth.
  *
  * Every element inside `GraphView` is absolutely positioned, so the box has no
- * intrinsic width to offer a container that sizes itself to its content. The preview's
- * former centred root did exactly that, so a
- * bare `<GraphView />` rendered a 2px vertical sliver here for a whole wave
+ * intrinsic width to offer a container that sizes itself to its content. The
+ * preview's former centred root did exactly that, so a bare `<GraphView />`
+ * rendered a 2px vertical sliver here for a whole wave
  * while all six of these stories passed: percentages of zero are all zero, so
  * nothing overflowed, no node escaped, and the edge count was right.
  *
@@ -156,10 +156,13 @@ export const ItCannotCollapseInAShrinkToFitContainer = meta.story({
     const box = canvasElement.querySelector("svg")!.parentElement!;
     await expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(220);
 
-    const xs = graphNodes.map((n) => {
-      const el = [...box.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent === n.label);
-      return el ? el.getBoundingClientRect().left : 0;
-    });
+    const nodes = graphNodes.map((n) =>
+      [...box.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent === n.label),
+    );
+    for (let i = 0; i < nodes.length; i += 1) {
+      await expect(nodes[i], `node ${graphNodes[i]!.label} is present`).not.toBeUndefined();
+    }
+    const xs = nodes.map((node) => node!.getBoundingClientRect().left);
     // Eight nodes spread across 12-84% of the box. Collapsed, every one of them
     // is at the same pixel.
     await expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(100);
