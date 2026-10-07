@@ -68,19 +68,30 @@ const REPORT = `<!doctype html><html lang="en"><head><title>Beacon report</title
   try { navigator.sendBeacon("/api/files/tree?probe=" + ctx + "-beacon"); } catch (e) {}
   r.image = await new Promise((done) => { const i = new Image(); i.onload = () => done("load"); i.onerror = () => done("error");
     i.src = "/api/files/tree?probe=" + ctx + "-img"; });
-  await new Promise((done) => setTimeout(done, 300));
+  // Violation events are queued apart from the failures above, so a fixed
+  // pause can report before they arrive (#1108). Wait for the two the probe
+  // provokes, within a bound; whatever has arrived by then is reported.
+  const until = Date.now() + 10000;
+  while (!["connect-src", "img-src"].every((d) => r.violations.includes(d)) && Date.now() < until) {
+    await new Promise((done) => setTimeout(done, 25));
+  }
   r.violations = [...new Set(r.violations)].sort();
   document.getElementById("report").textContent = JSON.stringify(r);
 })();
 </script></body></html>`;
 
-/** A page with one button, #go, that attempts one escape on a click. */
+/**
+ * A page with one button, #go, that attempts one escape on a click. It marks
+ * its root when the pointer reaches it and when the click lands, before the
+ * escape, so the test can prove the attempt was made (#1108).
+ */
 const escapePage = (action: string, body = "") => `<!doctype html><html lang="en"><head><title>Escape probe</title></head><body>
 <p id="secret">${OWN_CONTENT}</p>${body}<button id="go" type="button">Go</button>
 <script>
 const ctx = window.parent !== window ? "frame" : "tab";
 const A = ${JSON.stringify("ATTACKER")};
-document.getElementById("go").addEventListener("click", () => { ${action} });
+document.addEventListener("pointermove", () => { document.documentElement.dataset.pointer = "in"; });
+document.getElementById("go").addEventListener("click", () => { document.documentElement.dataset.clicked = ctx; ${action} });
 document.title = "Escape probe ready";
 </script></body></html>`;
 
@@ -222,7 +233,24 @@ function expectIsolated(r: Record<string, unknown>): void {
   expect(r.violations).toEqual(["connect-src", "img-src"]);
 }
 
+/**
+ * The fixed window in which a negative assertion watches for an escape that
+ * must not arrive. It starts only once the click is known to have landed.
+ */
 const settle = (page: Page | Frame) => page.waitForTimeout(1500);
+
+/** Poll until `condition` holds, failing with `what` after a bounded deadline. */
+async function until(what: string, condition: () => boolean | Promise<boolean>, timeout = 15_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error(`Timed out after ${timeout} ms waiting until ${what}`);
+    await Bun.sleep(25);
+  }
+}
+
+/** A mark the escape probe set on its root, or "" (also while it navigates). */
+const mark = (target: Page | Frame, name: "pointer" | "clicked") =>
+  target.evaluate((key) => document.documentElement.dataset[key] ?? "", name).catch(() => "");
 
 describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in an opaque origin", () => {
   for (const mode of ["password", "none"] as const) for (const [theme, width] of [["dark", 320], ["light", 1280]] as const) {
@@ -267,16 +295,33 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
    * in the new tab; return what escaped. A frame that took over the app's
    * window leaves no link to open a tab from, so the tab half is skipped and
    * the caller's first assertion reports the escape itself.
+   *
+   * The preview is an out-of-process frame, and Chrome can route a click that
+   * comes too soon after it loads to the app's <iframe> element instead. The
+   * page never sees it, and every negative assertion passes vacuously (#1108).
+   * So the frame must first report the pointer, and each click must then be
+   * seen to land, or to have navigated something, before its window starts.
+   * An expected hit is awaited rather than assumed to fit in the window.
    */
-  async function attempt(file: string) {
+  async function attempt(file: string, expected: { frame?: string; tab?: string } = {}) {
     const opened = await openViewer("password", file);
     const before = attackerHits.length;
+    const hits = () => attackerHits.slice(before);
     try {
       const appUrl = opened.page.url();
       const frame = await previewFrame(opened.page);
+      const frameUrl = frame.url();
       await frame.waitForFunction(() => document.title === "Escape probe ready");
+      let nudge = 0;
+      await until("the preview frame receives pointer events", async () => {
+        await frame.locator("#go").hover({ position: { x: 4 + (nudge++ % 8), y: 4 } });
+        return (await mark(frame, "pointer")) === "in";
+      });
       const pagesBefore = opened.context.pages().length;
       await frame.locator("#go").click({ noWaitAfter: true });
+      await until("the click lands in the preview frame", async () =>
+        (await mark(frame, "clicked")) === "frame" || frame.isDetached() || frame.url() !== frameUrl || opened.page.url() !== appUrl);
+      if (expected.frame) await until(`the attacker records ${expected.frame}`, () => hits().includes(expected.frame!));
       await settle(opened.page);
       const result = {
         opened,
@@ -288,15 +333,18 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
       };
       if (result.appUrlAfterFrame === appUrl) {
         const tab = await openInTab(opened);
+        const tabUrl = tab.url();
         await tab.waitForFunction(() => document.title === "Escape probe ready");
         const tabPagesBefore = opened.context.pages().length;
         await tab.locator("#go").click({ noWaitAfter: true });
+        await until("the click lands in the tab", async () => (await mark(tab, "clicked")) === "tab" || tab.url() !== tabUrl);
+        if (expected.tab) await until(`the attacker records ${expected.tab}`, () => hits().includes(expected.tab!));
         await settle(tab);
         result.tabPopups = opened.context.pages().length - tabPagesBefore;
         result.tabDownloads = opened.downloads.length - result.frameDownloads;
         result.tabUrl = tab.url();
       }
-      result.hits = attackerHits.slice(before);
+      result.hits = hits();
       return result;
     } catch (error) { await opened.context.close(); throw error; }
   }
@@ -327,7 +375,7 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
   }, 60_000);
 
   test("the preview cannot navigate the app's window", async () => {
-    const r = await attempt("voyage/top.html");
+    const r = await attempt("voyage/top.html", { tab: "/top?ctx=tab" });
     try {
       expect(r.appUrlAfterFrame).toStartWith(`${served.password!.origin}/?`);
       expect(r.hits.filter((hit) => hit.includes("ctx=frame"))).toEqual([]);
@@ -338,9 +386,9 @@ describe.skipIf(!executablePath)("the interactive HTML preview runs scripts in a
   }, 60_000);
 
   test("accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL", async () => {
-    const r = await attempt("voyage/navigate.html");
+    const leak = `leak=${encodeURIComponent(OWN_CONTENT)}`;
+    const r = await attempt("voyage/navigate.html", { frame: `/nav?ctx=frame&${leak}`, tab: `/nav?ctx=tab&${leak}` });
     try {
-      const leak = `leak=${encodeURIComponent(OWN_CONTENT)}`;
       expect(r.hits).toEqual([`/nav?ctx=frame&${leak}`, `/nav?ctx=tab&${leak}`]);
       // The app itself stays where it was; only the frame navigated.
       expect(r.appUrlAfterFrame).toStartWith(`${served.password!.origin}/?`);
