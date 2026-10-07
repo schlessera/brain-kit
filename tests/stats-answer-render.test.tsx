@@ -15,7 +15,7 @@
  * failed file rather than a skipped one.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TOKENS } from "@schlessera/brain-ui-kit/internal";
@@ -36,6 +36,9 @@ if (!chromePath && process.env.BRAIN_REQUIRE_CHROME === "1") {
   throw new Error("BRAIN_REQUIRE_CHROME=1, but no Chrome/Chromium executable was found.");
 }
 
+// Match ui-react’s required kit stylesheet, including component layout rules.
+const KIT_CSS = readFileSync(new URL("../packages/ui-kit/src/tokens.css", import.meta.url), "utf8");
+
 const TOKEN_CSS = `:root{color-scheme:dark;${Object.entries(TOKENS)
   .map(([name, value]) => `--bk-${name}:${value};`)
   .join("")}}`;
@@ -43,7 +46,7 @@ const TOKEN_CSS = `:root{color-scheme:dark;${Object.entries(TOKENS)
 function page(input: StatsInput): string {
   const body = renderToStaticMarkup(<StatsAnswer sections={composeStatsAnswer(input)} />);
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<style>${TOKEN_CSS} body{margin:0;background:var(--bk-color-canvas)} main{padding:0 16px} [data-stats-answer]>*+*{margin-top:12px}</style>
+<style>${KIT_CSS} ${TOKEN_CSS} body{margin:0;background:var(--bk-color-canvas)} main{padding:0 16px} [data-stats-answer]>*+*{margin-top:12px}</style>
 </head><body><main>${body}</main></body></html>`;
 }
 
@@ -66,7 +69,8 @@ async function misfits(p: Page): Promise<string[]> {
     }
     // Two tiles per row, side by side: never stacked, never ragged.
     for (const row of document.querySelectorAll('[data-stats-section="tiles"]')) {
-      const tops = [...row.querySelectorAll(":scope > * > *")].map((t) => Math.round(t.getBoundingClientRect().top));
+      // Values identify actual tiles without assuming the grid’s wrapper depth.
+      const tops = [...row.querySelectorAll("[data-tone]")].map((value) => Math.round(value.parentElement!.getBoundingClientRect().top));
       if (tops.length !== 2 || tops[0] !== tops[1]) out.push(`tile row laid out at tops ${tops.join(", ")}`);
     }
     // A receipt value takes one line: a figure never breaks.
