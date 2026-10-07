@@ -138,10 +138,10 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   useEffect(() => { if (confirm) keep.current?.querySelector<HTMLElement>("[role=button]")?.focus(); }, [confirm]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; playback.current?.revoke(); }; }, []);
   const name = `recording from ${recordingClock(row)}, ${recordingDuration(row)}`;
-  const run = async (fn: () => Promise<void>, needsSavedInput = false) => {
+  const run = async (fn: () => Promise<void>) => {
     if (active.current) return;
     active.current = true; setBusy(true); setError("");
-    try { if (needsSavedInput) await chain.current; else await chain.current.catch(() => {}); await fn(); }
+    try { await chain.current.catch(() => {}); await fn(); }
     catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "The recording is kept."); }
     finally { active.current = false; if (mounted.current) setBusy(false); }
   };
@@ -155,11 +155,24 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
     const chat = root.stores.chat.getState();
     const draftId = root.stores.drafts.getState().idFor(chat.activeSessionId);
     const sessionId = chat.activeSessionId;
+    const version = editVersion.current;
     void run(async () => {
-      try { await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text); }
+      try {
+        try { await chain.current; }
+        catch (error) {
+          if (!dirty.current) throw error;
+          // Retry the displayed correction after a failed input transaction.
+          // Never swallow that failure and accept the older stored text.
+          chain.current = root.recordings!.saveTranscript(row.partition, row.id, text);
+          await chain.current;
+          if (editVersion.current === version) dirty.current = false;
+          if (mounted.current) setSavedVersion(version);
+        }
+        await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text);
+      }
       catch (error) { throw new Error(error instanceof Error && error.message === TRANSCRIPT_CHANGED ? TRANSCRIPT_CHANGED : ACCEPT_FAILED); }
       onAccepted();
-    }, true);
+    });
   };
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
     <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} interrupted={row.interruptedAt !== undefined} offline={offline}>

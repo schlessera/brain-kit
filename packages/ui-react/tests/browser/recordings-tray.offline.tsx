@@ -604,3 +604,17 @@ test("a concurrent ordinary snapshot fences acceptance until its guarded draft c
   expect((await a.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string }).text).toBe("Penelope's newer plan.");
   expect(await a.root.recordings!.get(row.partition, row.id), "refused concurrent acceptance keeps its audio").toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1 });
 });
+
+
+test("Add retries a failed transcript input commit without another edit", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
+  const field = c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!;
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  await userEvent.fill(field, "Penelope confirms the new loom order.");
+  await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe("Couldn\u0027t save the transcript on this device. The recording is kept."); fault.restore();
+  expect(field.value, "the unsaved correction stays visible").toBe("Penelope confirms the new loom order.");
+  expect((await c.root.recordings!.get(row.partition, row.id))?.transcript, "the failed input did not change storage").toBe(TEXT);
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text, { message: "Add retries the displayed correction before committing the draft" }).toBe("Penelope confirms the new loom order.");
+  expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+});
