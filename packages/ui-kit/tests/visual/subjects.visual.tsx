@@ -103,6 +103,7 @@ import * as rankedQuestion from "../../stories/decisions/AskUserRankCard.stories
 import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
+import * as commandPalette from "../../stories/desktop/CommandPalette.stories.js";
 import * as sideRail from "../../stories/desktop/SideRail.stories.js";
 import * as meter from "../../stories/primitives/Meter.stories.js";
 import * as actionsTriage from "../../stories/screens/ActionsTriage.stories.js";
@@ -385,6 +386,20 @@ test("dense: agent run card", async () => {
 test("dense: approval card", async () => {
   await looksRight(approvalCard.Default, "dense-approval-card");
 });
+
+/* ── Palette rows with a reason (#1106) ────────────────────────────────────── */
+// A reason that fits stays on the label's line, where the shortcut would be;
+// one that does not drops under the label and wraps. The design's default
+// (short reasons, chips, shortcuts, a selection) is the one-line half, and the
+// long-reason story the two-line half, on both grounds and at a desktop width.
+
+for (const light of [false, true]) {
+  for (const [story, name] of [[commandPalette.Fallback, "dense-command-palette-default"], [commandPalette.LongReasonDropsUnderLabel, "dense-command-palette-long-reason"]] as const) {
+    test(`dense: ${name.slice("dense-".length)}${light ? ", on paper" : ""}`, async () => {
+      await inViewport(900, 700, () => light ? looksRightOnPaper(story, name) : looksRight(story, name));
+    });
+  }
+}
 
 /* ── The rail with its acts (#944) ─────────────────────────────────────────── */
 // D52 §1: the divider, the acts' geometry, a `spends` chip and a reason line

@@ -208,12 +208,28 @@ for (const c of cases) {
         expect(entry, "the palette offers the entry").toBeTruthy();
         const why = [...entry.querySelectorAll<HTMLElement>("span")].find((s) => s.textContent === COPY[count])!;
         expect(why, "the reason is printed in the row").toBeTruthy();
+        const palette = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Command palette"]')!;
         expectWhole(why, entry, c.width, COPY[count]);
         const label = [...entry.querySelectorAll<HTMLElement>("span")].find((s) => s.textContent === "Continue on another backend")!;
-        // One name leaves the label whole. Three squeeze it to an ellipsis,
-        // carried as its `title`, until the palette row's layout for a long
-        // reason is designed (#1106).
-        if (count === "one") expect(label.scrollWidth, "the entry's own label is not cut off").toBeLessThanOrEqual(label.clientWidth + 0.5);
+        // The label is never shrunk for the reason, however many backends it
+        // names (#1106): neither is cut, and both sit inside the palette (the
+        // reason inside its row, which is inside the palette).
+        expect(label.scrollWidth, "the entry's own label is not cut off").toBeLessThanOrEqual(label.clientWidth + 0.5);
+        const at = label.getBoundingClientRect();
+        const box = palette.getBoundingClientRect();
+        expect(at.left, "the label starts inside the palette").toBeGreaterThanOrEqual(box.left - 0.5);
+        expect(at.right, "the label ends inside the palette").toBeLessThanOrEqual(box.right + 0.5);
+        expect(entry.getBoundingClientRect().right, "the row ends inside the palette").toBeLessThanOrEqual(box.right + 0.5);
+        const reason = why.getBoundingClientRect();
+        if (count === "one") {
+          // One name fits beside the label: it stays on the label's line.
+          const middle = (reason.top + reason.bottom) / 2;
+          expect(middle > at.top && middle < at.bottom, "the reason is on the label's line").toBe(true);
+        } else {
+          // Three do not: the reason drops under the label and wraps there.
+          expect(reason.top, "the reason is under the label").toBeGreaterThanOrEqual(at.bottom - 0.5);
+          expect(Math.abs(reason.left - at.left), "the reason starts at the label's edge").toBeLessThanOrEqual(0.5);
+        }
         expect(label.title).toBe("Continue on another backend");
         expect(entry.getAttribute("aria-label")).toBe(`Continue on another backend, spends, ${COPY[count]}`);
         await expectInert(entry, socket);
