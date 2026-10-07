@@ -102,7 +102,7 @@ export async function captureSurface(control?: {
     const options: Options = {
       ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: calls.length + 1, persistSession: false,
       abortController,
-      mcpServers: { ...prepared.turn.options.mcpServers, ...(bridge ? { "brain-ui": bridge } : {}), brain: core },
+      mcpServers: { brain: core, ...prepared.turn.options.mcpServers, ...(bridge ? { "brain-ui": bridge } : {}) },
       // Capture uses bogus API auth on loopback, not the subscription gate.
       settings: { apiKeyHelper: "", env: {}, autoMemoryEnabled: false },
       env: {

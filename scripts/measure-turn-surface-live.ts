@@ -92,8 +92,8 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
   const tasks: Array<{ arm: Arm; rep: number; test: typeof liveCases.cases[number] }> = [];
   // Interleave arms per prompt and rotate across repetitions. A fixed project
   // path/prompt prefix is retained; cache outcomes are observed, not assumed.
-  for (let rep = 1; rep <= 3; rep++) for (const test of liveCases.cases) {
-    const offset = (rep - 1) % ARMS.length;
+  for (let rep = 1; rep <= 3; rep++) for (const [caseIndex, test] of liveCases.cases.entries()) {
+    const offset = (rep - 1 + caseIndex) % ARMS.length;
     for (const arm of [...ARMS.slice(offset), ...ARMS.slice(0, offset)]) tasks.push({ arm, rep, test });
   }
   try {
