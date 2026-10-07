@@ -30,6 +30,7 @@ export "." (./src/index.ts)
   type ShellStoreHook
   type ToolCall
   type UIShellState
+  type UpdateHold
   type UseServiceWorkerUpdatesOptions
   type VoiceShellState
   activeChat
@@ -40,6 +41,7 @@ export "." (./src/index.ts)
   createBrainUiRoot
   hasPendingShare
   hasUnsentText
+  registerUpdateHold
   useBrainApi
   useBrainConfig
   useBrainUiRoot
@@ -603,6 +605,11 @@ signatures (every public export and the types it is made of)
         setActiveView(view: ActiveView): void;
         setFilePanelOpen(open: boolean): void;
     }
+  UpdateHold (packages/ui-react/src/lib/update-holds.ts)
+    export interface UpdateHold {
+        busy: () => boolean;
+        subscribe: (onChange: () => void) => () => void;
+    }
   UseServiceWorkerUpdatesOptions (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export interface UseServiceWorkerUpdatesOptions {
         isBusy: boolean;
@@ -977,6 +984,8 @@ signatures (every public export and the types it is made of)
     function receipt(frame: ServerAskAnswerReceipt): void;
   reconnectWebSocketNow (packages/ui-react/src/connection.ts)
     function reconnectWebSocketNow(): void;
+  registerUpdateHold (packages/ui-react/src/lib/update-holds.ts)
+    export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void;
   retry (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function retry(requestId: string): Promise<void>;
   retryTurn (packages/ui-react/src/connection.ts)

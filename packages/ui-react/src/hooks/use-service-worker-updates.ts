@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useBrainUiRoot } from "../root-context.js";
-import { holdsUnsaved } from "../stores/draft-state.js";
-import { anyStagedTracks, subscribeAllTracks } from "../lib/draft-tracks.js";
+import { registerUpdateHold, subscribeUpdateHolds, updateHeld } from "../lib/update-holds.js";
 
 /** Default unsaved-text probe used by the service-worker reload guard. */
 export function hasUnsentText(): boolean {
@@ -14,7 +13,10 @@ export function hasUnsentText(): boolean {
 }
 
 export interface UseServiceWorkerUpdatesOptions {
-  /** Store-backed work that a reload would interrupt. */
+  /**
+   * Shell-specific work that a reload would interrupt, in addition to the
+   * root's registered update holds (`registerUpdateHold`).
+   */
   isBusy: boolean;
   /** Override the DOM draft probe, primarily for deterministic tests. */
   hasUnsentText?: () => boolean;
@@ -24,16 +26,28 @@ export interface UseServiceWorkerUpdatesOptions {
   reload?: () => void;
 }
 
-/** Register the worker and reload once an update takeover can do so safely. */
+/**
+ * Register the worker and reload once an update takeover can do so safely.
+ *
+ * The reload waits while the shell's `isBusy` is true or any update hold
+ * registered on the root is busy (`registerUpdateHold`, #1015): an unsaved
+ * draft or unsettled send, a staged track, a live dictation, dictated text
+ * under review, or a nonempty text field (the DOM probe). It fires once, on
+ * the first change that leaves all of them idle.
+ *
+ * A reload held back this way is not a failure state and shows nothing: the
+ * page keeps running its current version until its work is done. A client
+ * the server refuses as incompatible still fails loudly through the existing
+ * stale-client checks (D31), which this guard does not change.
+ */
 export function useServiceWorkerUpdates({
   isBusy,
   hasUnsentText: probeUnsentText = hasUnsentText,
   enabled = true,
   reload,
 }: UseServiceWorkerUpdatesOptions): void {
-  // Every session's draft lives in the root, not on screen (#951): one the
-  // host has not acknowledged, or a send nothing has settled, is unsaved work.
-  // So is a staged track in any view (#1112): it lives in this page only.
+  // Drafts, tracks and voice work live in the root, not on screen, and hold
+  // the reload through the root's update holds (#951, #1112, #1015).
   const root = useBrainUiRoot();
   const rootRef = useRef(root);
   rootRef.current = root;
@@ -69,7 +83,7 @@ export function useServiceWorkerUpdates({
         }
       | undefined;
 
-    const busy = () => isBusyRef.current || probeUnsentTextRef.current() || holdsUnsaved(rootRef.current.stores.drafts.getState()) || anyStagedTracks(rootRef.current);
+    const busy = () => isBusyRef.current || updateHeld(rootRef.current);
     const doReload = () => {
       if (refreshingRef.current || disposed) return;
       refreshingRef.current = true;
@@ -99,11 +113,6 @@ export function useServiceWorkerUpdates({
     };
     serviceWorker.addEventListener("controllerchange", onControllerChange);
 
-    // DOM drafts are component-local rather than store-backed. An input event
-    // supplies their transition-to-idle signal while a reload is pending.
-    const onInput = () => tryReloadRef.current();
-    document.addEventListener("input", onInput);
-
     const trackInstalling = (worker: ServiceWorker | null) => {
       if (!worker || trackedWorkers.has(worker)) return;
       trackedWorkers.add(worker);
@@ -132,7 +141,6 @@ export function useServiceWorkerUpdates({
     return () => {
       disposed = true;
       serviceWorker.removeEventListener("controllerchange", onControllerChange);
-      document.removeEventListener("input", onInput);
       if (registrationListener) {
         registrationListener.registration.removeEventListener(
           "updatefound",
@@ -146,18 +154,29 @@ export function useServiceWorkerUpdates({
     };
   }, [enabled]);
 
-  // A draft saved, a send settled or a queue emptied may be the transition
-  // back to idle. Bound to the root in use, so a replaced root's changes
-  // are the ones heard; the new root may already be idle.
+  // Any hold changing (a draft saved, a send settled, a queue emptied, a
+  // dictation stopped, a review accepted) may be the transition back to
+  // idle. Bound to the root in use, so a replaced root's changes are the
+  // ones heard; the new root may already be idle.
   useEffect(() => {
-    const unsubscribeDrafts = root.stores.drafts.subscribe(() => tryReloadRef.current());
-    const unsubscribeTracks = subscribeAllTracks(root, () => tryReloadRef.current());
+    const unsubscribe = subscribeUpdateHolds(root, () => tryReloadRef.current());
+    // DOM drafts are component-local rather than store-backed. An input
+    // event supplies their transition-to-idle signal.
+    const releaseProbe = typeof document === "undefined" ? () => {} : registerUpdateHold(root, {
+      busy: () => probeUnsentTextRef.current(),
+      subscribe: (onChange) => {
+        document.addEventListener("input", onChange);
+        return () => document.removeEventListener("input", onChange);
+      },
+    });
     tryReloadRef.current();
-    return () => { unsubscribeDrafts(); unsubscribeTracks(); };
+    // Stop listening first: releasing the probe notifies, and a replaced
+    // root must not be judged before its own probe is registered.
+    return () => { unsubscribe(); releaseProbe(); };
   }, [root]);
 
   // Store-driven state changes rerender the caller. This is the normal idle
-  // transition; the input listener above covers the DOM-only equivalent.
+  // transition for the shell's own `isBusy`.
   useEffect(() => {
     tryReloadRef.current();
   }, [isBusy, probeUnsentText]);

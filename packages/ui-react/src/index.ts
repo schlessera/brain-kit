@@ -67,6 +67,7 @@ export {
   hasUnsentText,
   type UseServiceWorkerUpdatesOptions,
 } from "./hooks/use-service-worker-updates.js";
+export { registerUpdateHold, type UpdateHold } from "./lib/update-holds.js";
 export {
   useWebSocket,
 } from "./hooks/use-websocket.js";

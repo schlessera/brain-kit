@@ -8,6 +8,7 @@ import { createWebSocketClient } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
 import { disposeTracks } from "./lib/draft-tracks.js";
+import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 
 export interface BrainUiRootOptions {
   config?: Partial<BrainUiConfig>;
@@ -102,6 +103,8 @@ export function createRoot(
       return () => { if (vpnRecheck === callback) vpnRecheck = null; };
     },
   };
+  // What a service-worker update reload must wait for (#1015).
+  registerBuiltInUpdateHolds(services);
   const connection = createWebSocketClient(services);
   return Object.assign(services, {
     connection,
