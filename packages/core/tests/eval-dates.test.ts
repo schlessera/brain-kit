@@ -128,6 +128,7 @@ describe("stale vs current", () => {
   test("queries without stale paths report current_first as null", async () => {
     const { out } = await evalRun(writeSet("plain.jsonl", [{ ...BIO, expected: ["me/basics/short-bio.md"] }]));
     expect(out.per_query[0].current_first).toBeNull();
+    expect(out.rows.map((r: { class: string | null }) => r.class)).toEqual([null, "stale-vs-current"]);
     expect(out.rows.every((r: { current_first: number | null }) => r.current_first === null)).toBe(true);
   });
 

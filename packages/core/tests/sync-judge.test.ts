@@ -6,7 +6,6 @@ import {
   FILE_HEAD_MAX_BYTES,
   planPairBatches,
   STATE_TOKEN_BUDGET,
-  SYNC_JUDGE_THRESHOLDS,
   type JevLike,
 } from "../src/lib/sync/judge";
 import type { JudgmentPair, UnknownFile } from "../src/lib/sync/types";
@@ -70,12 +69,12 @@ describe("createSyncJudge: enabled", () => {
 
 describe("J1: classifyFiles", () => {
   test("a decision is returned only when it clears the file line", async () => {
-    const confidences: Record<string, number> = { "a.csv": SYNC_JUDGE_THRESHOLDS.file, "b.csv": SYNC_JUDGE_THRESHOLDS.file - 0.01 };
+    const confidences: Record<string, number> = { "a.csv": 0.8, "b.csv": 0.79 };
     const jev = fakeJev((_, item) => ({ choice: "artifact", confidence: confidences[item.path!]! }));
     const judge = createSyncJudge({ apiKey: "k", client: jev });
     const decided = await judge.classifyFiles([file("a", "a.csv", "x,y"), file("b", "b.csv", "x,y")]);
     expect([...decided.keys()]).toEqual(["a"]);
-    expect(decided.get("a")).toEqual({ decision: "artifact", confidence: SYNC_JUDGE_THRESHOLDS.file });
+    expect(decided.get("a")).toEqual({ decision: "artifact", confidence: 0.8 });
     expect(judge.report()).toMatchObject({ calls: 1, asked: 2, decided: 1, outcomes: { answered: 1 } });
   });
 
@@ -130,12 +129,12 @@ describe("J2: decidePairs", () => {
 
   test("each decision has its own line, and both orders must clear it", async () => {
     const cases: [string, number, number, boolean][] = [
-      ["same-fact", SYNC_JUDGE_THRESHOLDS.sameFact, SYNC_JUDGE_THRESHOLDS.sameFact, true],
-      ["same-fact", SYNC_JUDGE_THRESHOLDS.sameFact, SYNC_JUDGE_THRESHOLDS.sameFact - 0.01, false],
-      ["A-replaces-B", SYNC_JUDGE_THRESHOLDS.supersedes, SYNC_JUDGE_THRESHOLDS.supersedes, true],
-      ["A-replaces-B", SYNC_JUDGE_THRESHOLDS.supersedes - 0.01, 0.99, false],
-      ["distinct", SYNC_JUDGE_THRESHOLDS.distinct, SYNC_JUDGE_THRESHOLDS.distinct, true],
-      ["distinct", SYNC_JUDGE_THRESHOLDS.distinct - 0.01, 0.99, false],
+      ["same-fact", 0.8, 0.8, true],
+      ["same-fact", 0.8, 0.79, false],
+      ["A-replaces-B", 0.85, 0.85, true],
+      ["A-replaces-B", 0.84, 0.99, false],
+      ["distinct", 0.6, 0.6, true],
+      ["distinct", 0.59, 0.99, false],
     ];
     for (const [choice, forward, reverse, accepted] of cases) {
       const jev = fakeJev((id) => {

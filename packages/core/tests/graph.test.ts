@@ -507,6 +507,7 @@ describe("queries", () => {
     ]);
 
     // Every edge in the result has both endpoints in it.
+    expect(depth1.edges).toHaveLength(4);
     const ids = new Set(depth1.nodes.map((n) => n.id));
     for (const edge of depth1.edges) {
       expect(ids.has(edge.source) && ids.has(edge.target)).toBe(true);
@@ -561,6 +562,10 @@ describe("queries", () => {
 
     const alphaCommunity = all.nodes.find((n) => n.path === "notes/alpha.md")!.community!;
     const single = getClusterGraph(db, { community: alphaCommunity });
+    expect(single.nodes.map((n) => n.path).sort()).toEqual(
+      all.nodes.filter((n) => n.community === alphaCommunity).map((n) => n.path).sort()
+    );
+    expect(single.nodes.map((n) => n.path)).toContain("notes/alpha.md");
     expect(single.nodes.every((n) => n.community === alphaCommunity)).toBe(true);
 
     db.close();

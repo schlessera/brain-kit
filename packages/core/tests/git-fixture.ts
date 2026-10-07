@@ -8,7 +8,7 @@ import { expect } from "bun:test";
 
 export function git(root: string, ...args: string[]): string {
   const proc = Bun.spawnSync(
-    ["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-C", root, ...args],
+    ["git", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "tag.forceSignAnnotated=false", "-C", root, ...args],
     { stdout: "pipe", stderr: "pipe" }
   );
   const stderr = new TextDecoder().decode(proc.stderr);

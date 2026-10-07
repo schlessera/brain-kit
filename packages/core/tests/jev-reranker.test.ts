@@ -58,7 +58,7 @@ afterEach(() => {
 describe("jevReranker", () => {
   test("identity carries the pinned model and declares every lane + network", () => {
     const r = jevReranker({ apiKeyEnv: KEY_ENV });
-    expect(r.id).toBe(`jev:${JEV_MODEL}`);
+    expect(r.id).toBe("jev:jev-1.13.0");
     expect(r.capabilities).toEqual({ modes: ["fts", "vector", "hybrid"], network: true });
     expect(jevReranker({ apiKeyEnv: KEY_ENV, model: "jev-9.9.9" }).id).toBe("jev:jev-9.9.9");
   });
@@ -77,7 +77,7 @@ describe("jevReranker", () => {
     const headers = calls[0].init.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-key");
     const body = JSON.parse(String(calls[0].init.body));
-    expect(body.model).toBe(JEV_MODEL);
+    expect(body.model).toBe("jev-1.13.0");
     expect(body.state.query).toBe("match");
     expect(body.state.candidates).toHaveLength(3);
     expect(body.state.candidates[0]).toEqual({

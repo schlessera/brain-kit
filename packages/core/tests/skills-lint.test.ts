@@ -230,6 +230,7 @@ describe("lint rules — one fixture per rule", () => {
     const a = mkSkill("a-ok", { name: "a-ok", description: "d", body: shellBlock("brain add") });
     const b = mkSkill("b-bad", { name: "b-bad", description: "d", body: "Claude should do it." });
     const findings = lintSkills([a, b]);
+    expect(findings).toContainEqual(expect.objectContaining({ skill: "b-bad", rule: "acting-agent", severity: "warning" }));
     expect(findings.every((f) => f.skill === "b-bad")).toBe(true);
   });
 });

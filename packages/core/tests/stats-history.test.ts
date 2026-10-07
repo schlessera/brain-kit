@@ -134,7 +134,7 @@ describe("retention", () => {
       date: new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10),
     }));
 
-  test(`keeps every day of the last ${DAILY_DAYS}, then the latest of each ISO week`, () => {
+  test("keeps every day of the last 90, then the latest of each ISO week", () => {
     // 2026-03-02 is a Monday; 210 days runs to 2026-09-27.
     const all = days("2026-03-02", 210);
     const today = "2026-09-27";
@@ -142,7 +142,7 @@ describe("retention", () => {
 
     const cutoff = "2026-06-29"; // today - 90 days
     const recent = kept.filter((d) => d >= cutoff);
-    expect(recent.length).toBe(DAILY_DAYS + 1);
+    expect(recent.length).toBe(91);
     const older = kept.filter((d) => d < cutoff);
     // Every older entry is a Sunday, the last day of its ISO week.
     expect(older.length).toBeGreaterThan(0);

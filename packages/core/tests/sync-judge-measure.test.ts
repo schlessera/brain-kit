@@ -102,6 +102,7 @@ describe("measure-sync-judge", () => {
     expect(err).toContain("files, pairs");
     const report = JSON.parse(out) as { failing: string[]; results: { score: { accuracy: number; atThreshold: { precision: number; harmful: number } } }[] };
     expect(report.failing).toEqual(["files", "pairs"]);
+    expect(report.results).toHaveLength(2);
     for (const r of report.results) {
       expect(r.score.accuracy).toBe(0);
       expect(r.score.atThreshold.precision).toBe(0);

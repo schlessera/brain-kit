@@ -5,9 +5,10 @@
  *
  * Keyless: the run goes to a loopback server with bogus credentials only.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as nodeModule from "node:module";
 import { join } from "node:path";
 
 import { bundledClaudeCandidates, claudeCommand, prefersMusl } from "../src/providers/agents/claude-binary";
@@ -116,7 +117,23 @@ describe("the Claude runner's binary", () => {
   });
 
   test("without the SDK installed where the runner looks, it runs claude from PATH", () => {
-    expect(claudeCommand({}, join(tempDir("no-sdk-"), "index.js"))).toEqual(["claude"]);
+    const from = join(tempDir("no-sdk-"), "index.js");
+    // Bun may find a globally cached package even from an empty directory.
+    // Make the loader's missing-dependency response explicit and observe its call.
+    const attempted: string[] = [];
+    const require = spyOn(nodeModule, "createRequire").mockImplementation(() => ({
+      resolve(id: string) {
+        attempted.push(id);
+        throw Object.assign(new Error("fixture missing SDK"), { code: "MODULE_NOT_FOUND" });
+      },
+    }) as unknown as ReturnType<typeof nodeModule.createRequire>);
+    try {
+      expect(claudeCommand({}, from)).toEqual(["claude"]);
+      expect(attempted).toEqual(["@anthropic-ai/claude-agent-sdk"]);
+      expect(require.mock.calls[0]).toEqual([from]);
+    } finally {
+      require.mockRestore();
+    }
   });
 
   test("tells musl from glibc the way the SDK does", () => {

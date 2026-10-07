@@ -272,6 +272,7 @@ describe("brain_list", () => {
     const sc = res.structuredContent as { documents: Array<{ type: string }>; warnings: unknown[] };
     expect(Array.isArray(sc.documents)).toBe(true);
     expect(Array.isArray(sc.warnings)).toBe(true);
+    expect(sc.documents).toHaveLength(3);
     expect(sc.documents.every((d) => d.type === "health")).toBe(true);
   });
 });

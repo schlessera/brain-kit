@@ -333,12 +333,15 @@ describe("CRLF line endings (#426 review round 3)", () => {
 
   test("a wide header whose separator tips it over is cut at lines", () => {
     const content = crlf(["## Wide", "", `| ${"h".repeat(3990)} |`, "| ----------- |", "| row |"].join("\n"));
-    expect(within(chunkDocument({ title: "T", documentId: 1, content }))).toBe(true);
+    const chunks = chunkDocument({ title: "T", documentId: 1, content });
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(within(chunks)).toBe(true);
   });
 
   test("table pieces repeat the header rows, CRLF kept", () => {
     const table = ["| Id | Name |", "| --- | --- |", ...Array.from({ length: 300 }, (_, i) => `| ${i} | station ${i} |`)].join("\n");
     const chunks = chunkDocument({ title: "T", documentId: 1, content: crlf(`## Registry\n\n${table}`) });
+    expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) expect(chunk.content.split("\n").slice(0, 2)).toEqual(["| Id | Name |\r", "| --- | --- |\r"]);
   });
 
@@ -414,7 +417,9 @@ describe("a table nested in a list or blockquote (#497)", () => {
     // Pad the quote so a cut lands on the table's header rows.
     for (let pad = 3700; pad < 4000; pad += 7) {
       const content = `## Registry\n\n> ${"w".repeat(pad)}\n>\n${nested("> ")}`;
-      for (const chunk of chunkDocument({ title: "T", documentId: 1, content })) {
+      const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
         expect(chunk.content.split("\n")[0]).not.toBe(`> ${separator}`);
       }
     }
@@ -437,6 +442,7 @@ describe("a table nested in a list or blockquote (#497)", () => {
     for (const [lead, prefix] of [["", "> "], ["- Stations:\n\n", "  "]]) {
       const content = `## Registry\n\n${lead}${[wide, "| ----------- |", "| row |"].map((line) => prefix + line).join("\n")}`;
       const chunks = chunkDocument({ title: "T", documentId: 1, content });
+      expect(chunks.length).toBeGreaterThan(1);
       expect({ prefix, over: chunks.map((c) => c.token_estimate).filter((t) => t > MAX_TOKENS) }).toEqual({ prefix, over: [] });
     }
   });
