@@ -148,7 +148,7 @@ export function LaneChart(p: LaneChartProps) {
   };
 
   return (
-    <div style={{ boxSizing: "border-box", width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+    <div data-kit-lane-chart="" style={{ boxSizing: "border-box", width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
       <div
         style={{
           display: "flex",
@@ -167,7 +167,7 @@ export function LaneChart(p: LaneChartProps) {
           const tone = lane.tone || "teal";
           const ink = INKS[tone] || INKS.teal;
           return (
-            <div key={`${lane.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div data-lane-name={lane.name} key={`${lane.name}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span
                 style={{
                   width: labelW,
@@ -175,6 +175,8 @@ export function LaneChart(p: LaneChartProps) {
                   textAlign: "right",
                   font: `500 10.5px/1 ${font.mono}`,
                   color: ink,
+                  overflowWrap: "anywhere",
+                  whiteSpace: "normal",
                 }}
               >
                 {lane.name}
@@ -190,6 +192,8 @@ export function LaneChart(p: LaneChartProps) {
                   return (
                     <span
                       key={j}
+                      data-lane-segment="" data-lane-start={seg.start} data-lane-width={seg.width}
+                      data-lane-hatch={seg.hatch ? "true" : undefined} data-lane-fade={seg.fade ? "true" : undefined}
                       style={{
                         position: "absolute",
                         // A continuation reaches back UNDER its predecessor by
@@ -227,6 +231,7 @@ export function LaneChart(p: LaneChartProps) {
         style={{
           display: "flex",
           gap: 12,
+          flexWrap: "wrap",
           marginTop: 3,
           font: `400 9.5px/1 ${font.mono}`,
           color: color.inkMute,

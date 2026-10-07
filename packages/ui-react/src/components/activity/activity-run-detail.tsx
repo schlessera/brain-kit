@@ -11,7 +11,7 @@ import {
   runEvents,
   runSpans,
 } from "../../stores/activity-store.js";
-import { useBrainApi } from "../../root-context.js";
+import { useBrainApi, useRootStore } from "../../root-context.js";
 import { cn } from "../../lib/utils.js";
 import { CopyButton } from "../chat/copy-button.js";
 import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
@@ -23,6 +23,7 @@ import {
   formatSpanUsage,
   spanToolLabel,
 } from "./span-bits.js";
+import { RunLanes } from "./run-lanes.js";
 import { RunRollupReceipt } from "./activity-views.js";
 import { ReportButton, reportButtonName, type ActivityReportRequest } from "./activity-report.js";
 import { rollupReportRun, type ReportRecord, type ReportRun } from "../../lib/activity-report.js";
@@ -51,6 +52,7 @@ export function RunDetail({
   onReport?: (request: ActivityReportRequest) => void;
 }) {
   const api = useBrainApi();
+  const activitySupported = useRootStore("activity", s => s.supported);
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const events = useActivityStore(useShallow((s) => runEvents(s, runId)));
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
@@ -207,6 +209,7 @@ export function RunDetail({
             </div>
           </div>
         )}
+        {!pruned && !missing && activitySupported && <RunLanes spans={streamed} liveRun={Boolean(root || rollup) && outcome === null}/>}
         <div className={cn("space-y-1", embedded && "wide:hidden")}>
           {streamed.map((span) => (
             <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} />
