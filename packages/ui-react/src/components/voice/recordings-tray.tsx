@@ -156,8 +156,10 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
     const draftId = root.stores.drafts.getState().idFor(chat.activeSessionId);
     const sessionId = chat.activeSessionId;
     const version = editVersion.current;
+    const authEpoch = root.authLock.epoch();
     void run(async () => {
       try {
+        if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") throw new Error(ACCEPT_FAILED);
         try { await chain.current; }
         catch (error) {
           if (!dirty.current) throw error;

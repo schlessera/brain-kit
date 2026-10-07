@@ -90,7 +90,10 @@ work snapshot before marking the recording accepted or deleting its audio and
 transcript. A hash-bound acceptance receipt makes a retry safe after a failed
 cleanup or reload; a failed draft write retains the recording. Tabs sharing a
 storage prefix serialize changed draft writes and refuse stale replacements
-before they can overwrite accepted text. Unaccepted
+before they can overwrite accepted text, including different ids claiming the
+same session. Conflicting stored drafts that restoration does not adopt remain durable.
+Acceptance follows a draft identity’s current session ownership and commits
+any redirected target before audio cleanup. Unaccepted
 transcripts hold service-worker reloads even after the tray unmounts. A surviving
 transcript remains reviewable if the browser removes its audio. Acceptance stays
 device-local even when host draft autosave is available; a subsequent user edit

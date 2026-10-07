@@ -262,7 +262,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   /** One write of everything that changed since the last commit. */
   async function flush(acceptance?: { id: string; draft: ComposerDraft; textHash: string }): Promise<void> {
-    try { await lockWork(`brain-ui:work:${bound}:${scope}`, () => flushLocked(acceptance)); }
+    const writingGeneration = generation;
+    const writingAccount = bound;
+    try { await lockWork(`brain-ui:work:${writingAccount}:${scope}`, () => {
+      if (writingGeneration !== generation || (acceptance && locked)) throw new PartitionRefusedError(accountPartition(writingAccount ?? ""));
+      return flushLocked(acceptance);
+    }); }
     catch (error) {
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
       throw error;
@@ -271,9 +276,18 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   async function flushLocked(acceptance?: { id: string; draft: ComposerDraft; textHash: string }): Promise<void> {
     // A snapshot asked for and then cancelled by the root going is not a receipt.
     if (disposed) throw new Error("The work context was disposed before it was written");
-    if (locked || bound === null || partition === null) return;
+    if (locked || bound === null || partition === null) {
+      if (acceptance) throw new PartitionRefusedError(accountPartition(bound ?? ""));
+      return;
+    }
     if (held() !== bound) throw new PartitionRefusedError(accountPartition(bound));
     const writingRevision = revision;
+    const writingGeneration = generation;
+    const writingAccount = bound;
+    const writingPartition = partition;
+    const checkGeneration = () => {
+      if (disposed || locked || writingGeneration !== generation) throw new PartitionRefusedError(accountPartition(writingAccount));
+    };
     const drafts = { ...stores.drafts.getState().drafts };
     if (acceptance) drafts[acceptance.draft.draftId] = acceptance.draft;
     const changes: PartitionWrite[] = acceptance ? [{ put: receiptKey(acceptance.id), value: { draftId: acceptance.draft.draftId, revision: acceptance.draft.edit, textHash: acceptance.textHash } }] : [];
@@ -304,7 +318,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       const key = "put" in change ? change.put : change.delete;
       if (!key.startsWith(`${scope}/draft/`)) continue;
       const id = key.slice(`${scope}/draft/`.length);
-      if (JSON.stringify(await partition.get(key)) !== committed.get(id)) {
+      const actual = await writingPartition.get(key);
+      checkGeneration();
+      if (JSON.stringify(actual) !== committed.get(id)) {
         throw new Error("The draft changed in another tab. Reload before saving this local work.");
       }
     }
@@ -313,7 +329,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     // may replace its old id only when this write deliberately removes it.
     const removals = new Set(changes.flatMap(c => "delete" in c ? [c.delete] : []));
     const owners = new Map<string, string>();
-    const stored = await partition.list(`${scope}/draft/`);
+    const stored = await writingPartition.list(`${scope}/draft/`);
+    checkGeneration();
     for (const change of changes) {
       if (!("put" in change) || !change.put.startsWith(`${scope}/draft/`)) continue;
       const value = change.value as StoredDraft;
@@ -329,12 +346,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       owners.set(value.sessionId, value.draftId);
     }
     try {
-      await partition.write(changes);
+      await writingPartition.write(changes);
     } catch (error) {
       // Nothing is reported as kept; editing goes on in memory, and the next change tries again.
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
       throw error;
     }
+    checkGeneration();
     committedRevision = writingRevision;
     written = next;
     committed = nextCommitted;
@@ -474,16 +492,19 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     },
     addTranscript(id, text, draftId, sessionId) {
       const account = held();
+      const acceptanceGeneration = generation;
       const run = chain.then(async () => {
-        if (account === null || account !== bound || held() !== account || !partition || disposed) throw new PartitionRefusedError(accountPartition(account ?? ""));
+        if (account === null || account !== bound || held() !== account || !partition || disposed || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account ?? ""));
         const textHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), b => b.toString(16).padStart(2, "0")).join("");
+        if (locked || acceptanceGeneration !== generation || held() !== account) throw new PartitionRefusedError(accountPartition(account));
         const receipt = await partition.get(receiptKey(id)) as { revision: number; textHash: string } | undefined;
-        if (held() !== account) throw new PartitionRefusedError(accountPartition(account));
+        if (held() !== account || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
         if (receipt) {
           if (receipt.textHash !== textHash) throw new Error("This recording was already added with a different transcript");
           // A previous attempt may have committed before its target rotated.
           // Finish the published target snapshot before allowing cleanup.
           await flush();
+          if (held() !== account || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
           return receipt.revision;
         }
         const state = stores.drafts.getState();
@@ -499,9 +520,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         };
         const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
         await flush({ id, draft, textHash });
-        // This root remains bound to the original account even while locked.
-        // Publish its committed append before snapshots can resume: an auth
-        // change must not leave a receipt whose draft an ordinary flush erases.
+        if (locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
+        // Publish into the original, still-held store before its snapshot can
+        // resume. A new auth generation restores this committed draft from disk.
         if (!disposed) {
           const latest = stores.drafts.getState();
           const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
@@ -519,7 +540,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           await flush({ id, draft: redirected, textHash });
           keptDraft = redirected;
         }
-        if (held() !== account || disposed) throw new PartitionRefusedError(accountPartition(account));
+        if (held() !== account || disposed || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
         return keptDraft.edit;
       });
       chain = run.then(() => {}, () => {});
@@ -535,7 +556,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       generation++;
       locked = true;
       if (timer !== null) { clearTimeout(timer); timer = null; }
-      bound = null; partition = null; written.clear(); writtenContext = "";
+      bound = null; partition = null; written.clear(); committed.clear(); retained.clear(); writtenContext = "";
       restore.setState({ selection: null, focusId: null, scroll: null });
       status.setState({ pending: false });
     },

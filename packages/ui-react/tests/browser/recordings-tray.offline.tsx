@@ -726,3 +726,33 @@ for (const failRedirect of [false, true]) {
     expect(await c.partitions.open(row.partition).get(`root:ithaca/draft/${target}`), "ownership changed during commit is saved before deleting audio").toMatchObject({ sessionId: "ithaca", text: TEXT });
   });
 }
+
+test("warm auth invalidates acceptance waiting for the shared draft write lock", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const id = c.root.stores.drafts.getState().idFor(null);
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const lock = navigator.locks.request("brain-ui:work:odysseus:root:ithaca", async () => { entered(); await gate; });
+  ctx.onTestFinished(async () => { release(); await lock; }); await started;
+  const acceptance = c.root.recordings!.accept(row.partition, row.id, id, null).then(() => null, error => error);
+  await wait(50);
+  c.root.localWork!.lock(); c.root.stores.drafts.getState().release();
+  c.root.stores.drafts.setState(c.root.stores.drafts.getInitialState(), true);
+  expect(await c.root.localWork!.resume(), "warm context actually restores before the old operation resumes").toBe(true);
+  release(); await lock;
+  expect(await acceptance, "an old auth generation cannot report acceptance committed").toBeInstanceOf(Error);
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1 });
+  expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`)).toBeUndefined();
+});
+
+test("auth expiry cancels an Add activation queued behind transcript input", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
+  const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:")); ctx.onTestFinished(() => hold.restore());
+  await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea:not([data-composer])")!, "Penelope confirms the fleet."); await hold.started;
+  await tap(button(c.host, "Add transcript"));
+  const expiry = c.root.authLock.expire("session expired");
+  expect(c.root.authLock.state.getState().phase).toBe("saving");
+  hold.release(); await expiry;
+  await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "auth expiry invalidates the queued Add activation" }).toBe(ACCEPT_FAILED);
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", transcript: "Penelope confirms the fleet.", chunkCount: 1 });
+});
