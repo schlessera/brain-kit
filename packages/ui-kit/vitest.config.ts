@@ -67,10 +67,11 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // The app's own rail and palette (#946), phone navigation (#947) and
     // pressing the current destination (#1078) and the working sessions
     // (#950) run here too, for the real
-    // pointer; they need the consumer stylesheet. Button's hover text
+    // pointer; they need the consumer stylesheet. So does the #929 epic's
+    // integrated reach proof (#953). Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx"],
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
