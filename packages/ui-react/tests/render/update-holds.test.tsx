@@ -365,6 +365,23 @@ test("a hold registered through registerUpdateHold holds the reload while busy a
   expect(listeners.size, "releasing the hold unsubscribes it").toBe(0);
 });
 
+test("a hold written as a class keeps its own state when the guard asks it", async () => {
+  const { root } = voiceRoot();
+  class Recording {
+    running = true;
+    listeners = new Set<() => void>();
+    busy() { return this.running; }
+    subscribe(onChange: () => void) { this.listeners.add(onChange); return () => { this.listeners.delete(onChange); }; }
+  }
+  const recording = new Recording();
+  registerUpdateHold(root, recording);
+  const { reloads } = await mountGuard(root);
+  takeOver();
+  expect(reloads(), "no reload while busy: the recording runs").toBe(0);
+  act(() => { recording.running = false; for (const l of recording.listeners) l(); });
+  expect(reloads(), "the recording stopped: one reload").toBe(1);
+});
+
 test("releasing a busy registered hold is itself the transition to idle", async () => {
   const { root } = voiceRoot();
   const release = registerUpdateHold(root, { busy: () => true, subscribe: () => () => {} });

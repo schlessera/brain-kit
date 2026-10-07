@@ -26,7 +26,7 @@ export interface UpdateHold {
   subscribe: (onChange: () => void) => () => void;
 }
 
-type Registry = { holds: Set<UpdateHold>; watchers: Set<() => void> };
+type Registry = { holds: Set<() => boolean>; watchers: Set<() => void> };
 
 const registries = new WeakMap<object, Registry>();
 
@@ -47,7 +47,8 @@ function notify(reg: Registry) {
  */
 export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void {
   const reg = registry(root);
-  const entry: UpdateHold = { busy: hold.busy, subscribe: hold.subscribe };
+  // Its own entry, called through the hold so a method keeps its receiver.
+  const entry = () => hold.busy();
   reg.holds.add(entry);
   const unsubscribe = hold.subscribe(() => notify(reg));
   let released = false;
@@ -62,7 +63,7 @@ export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () 
 
 /** @internal Any hold registered on this root is busy. */
 export function updateHeld(root: BrainUiServices): boolean {
-  for (const hold of registry(root).holds) if (hold.busy()) return true;
+  for (const busy of registry(root).holds) if (busy()) return true;
   return false;
 }
 
