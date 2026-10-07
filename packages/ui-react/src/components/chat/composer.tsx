@@ -529,8 +529,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       setPaletteDismissed(true);
       // A recording on the device leaves the draft editable, and focus where
       // the tap put it: on the mic, which is also the stop.
+      // A tap while the microphone is still opening cancels it.
       const phase = root.stores.voice.getState().local;
-      if (phase === "recording") void localCapture.stop("user");
+      if (phase === "recording" || phase === "opening") void localCapture.stop("user");
       else if (phase === "idle") void localCapture.start();
     } else if (micMode === "dictate") {
       setAttachMenuOpen(false);
@@ -559,6 +560,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   function handleVoiceAppend() {
+    // Dictation never starts beside a recording on the device.
+    if (root.stores.voice.getState().local !== "idle") return;
     // Review text stays in place; the next capture appends to it on stop.
     void dictation.start();
   }

@@ -345,7 +345,7 @@ export function Composer(p: ComposerProps) {
             </span>
           ) : null}
         </div>
-        {v === "voice" ? (
+        {v === "voice" && p.mic !== false ? (
           <span
             style={disc(54, accent.amber.fill, true)}
             className={p.onMic ? "bk-control" : undefined}

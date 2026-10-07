@@ -125,14 +125,21 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
     // After a sink failure nothing more is handed over: the sink said it
     // cannot hold audio, and a later chunk would leave a gap behind it.
     if (data.size === 0 || sinkFailed) return;
-    const endMs = Math.max(lastEnd, Math.round(now() - startedAt));
+    // Strictly after the previous chunk, even when two arrive in the same
+    // millisecond (a periodic chunk, then the one stop flushes).
+    const endMs = Math.max(lastEnd + 1, Math.round(now() - startedAt));
     const chunk: LocalCaptureChunk = { index: index++, data, startMs: lastEnd, endMs };
     lastEnd = endMs;
     delivery = delivery.then(() => sinkFailed ? undefined : sink.chunk(chunk)).then(() => undefined, failSink);
   };
 
   recorder.addEventListener("dataavailable", (event) => deliver((event as BlobEvent).data));
-  recorder.addEventListener("stop", () => resolveStopped());
+  recorder.addEventListener("stop", () => {
+    resolveStopped();
+    // A stop nobody asked for: the stream's tracks were stopped elsewhere,
+    // which fires no `ended` on them.
+    void finish("interrupted");
+  });
   // The browser ending the recording on its own (the track ended, an error):
   // finish it the same way a caller would.
   recorder.addEventListener("error", () => void finish("interrupted"));

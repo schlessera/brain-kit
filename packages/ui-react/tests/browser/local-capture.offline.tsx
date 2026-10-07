@@ -365,3 +365,56 @@ test("support needs a recorder container, a Blob write to IndexedDB and a secure
   expect(await detectLocalCaptureSupport({ MediaRecorder: noContainers })).toEqual({ supported: false, mimeType: null, missing: ["media-recorder"] });
   expect(gum.calls).toBe(0);
 });
+
+test("a tap while the microphone is still opening cancels it: nothing records once the browser answers", async (ctx) => {
+  let answer!: () => void;
+  const opened: MediaStream[] = [];
+  const s = await mount(ctx, {
+    gum: async (constraints) => {
+      await new Promise<void>((resolve) => { answer = resolve; });
+      const stream = await realGetUserMedia.call(navigator.mediaDevices, constraints);
+      opened.push(stream);
+      return stream;
+    },
+  });
+  await expect.poll(() => mic(s), { message: "the composer has a mic" }).not.toBe(null);
+  await userEvent.click(mic(s)!);
+  await expect.poll(() => phase(s), { message: "waiting on the microphone" }).toBe("opening");
+  await userEvent.click(mic(s)!);
+  await expect.poll(() => phase(s), { message: "the second tap cancelled" }).toBe("idle");
+  answer();
+  await expect.poll(() => opened.length).toBe(1);
+  await expect.poll(() => opened[0]!.getTracks().map((t) => t.readyState), { message: "the late stream is released" }).toEqual(["ended"]);
+  await settle(s);
+  expect(phase(s), "no recording started").toBe("idle");
+});
+
+test("a recorder the browser stops on its own ends the recording as interrupted", async (ctx) => {
+  const gum = { calls: 0, streams: [] as MediaStream[] };
+  spyMicrophone(gum);
+  const sink = new TestSink();
+  const capture = await startLocalCapture({ sink, timesliceMs: 200 });
+  await expect.poll(() => sink.chunks.length, { timeout: 5000 }).toBeGreaterThanOrEqual(1);
+  ctx.signal.throwIfAborted();
+  // Stopped by whoever else holds the stream: no `ended` event fires.
+  for (const track of gum.streams[0]!.getTracks()) track.stop();
+  expect(await capture.ended, "the recording ended").toBe("interrupted");
+  expect(sink.ended).toEqual(["interrupted"]);
+});
+
+test("Add on a dictated review never starts dictation beside a recording on the device", async (ctx) => {
+  const s = await mount(ctx);
+  s.ui.stores.voice.getState().setReviewText("Ask Penelope about the loom.");
+  await settle(s);
+  await recordOffline(s);
+  await reconnect(s);
+  const add = s.host.querySelector<HTMLButtonElement>('button[title="Append more voice"]');
+  expect(add, "the review card offers Add").toBeTruthy();
+  await userEvent.click(add!);
+  await settle(s);
+  expect(s.requests.filter((r) => r.path.includes("/voice/")), "no voice session").toEqual([]);
+  expect(s.ui.stores.voice.getState().mode, "no dictation").toBe("idle");
+  expect(phase(s)).toBe("recording");
+  await userEvent.click(mic(s)!);
+  await expect.poll(() => s.sink.ended).toEqual(["user"]);
+});
