@@ -45,6 +45,8 @@ const titles = new Map<string, string>();
 /** Held turns, by prompt. */
 const gates = new Map<string, () => void>();
 const advance = new Map<string, () => void>();
+const missed = new Map<string, () => void>();
+const historyWaiters = new Map<string, { promise: Promise<void>; release(): void; reads: number }>();
 
 /** A long answer, so the transcript scrolls at every width. */
 const LOG = Array.from({ length: 40 }, (_, i) => `Day ${i + 1}: the wax held, and the crew rowed on.`).join("\n\n");
@@ -86,7 +88,11 @@ function scriptedBackend(): AgentBackend {
     capabilities: { resume: true, permissions: false, thinking: false, attachments: true, askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
     listProfiles: () => [{ id: "continuity-scripted", label: "Local fixture" }],
     listSessions: async () => [...transcripts.keys()].map((id, i) => ({ id, title: titles.get(id) ?? "Odysseus", createdAt: 1 + i, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 1 })),
-    getHistory: async (sessionId) => structuredClone(transcripts.get(sessionId) ?? []),
+    getHistory: async (sessionId) => {
+      const waiting = historyWaiters.get(sessionId);
+      if (waiting) { waiting.reads++; await waiting.promise; }
+      return structuredClone(transcripts.get(sessionId) ?? []);
+    },
     async startTurn({ prompt, bridge, sessionId: resumed, signal, attachments }) {
       const sessionId = resumed ?? `odysseus-continuity-${++sequence}`;
       const title = prompt.replace(/^[^:]*:\s*/, "").split(" (")[0]!;
@@ -102,6 +108,10 @@ function scriptedBackend(): AgentBackend {
         bridge.emit({ type: "text_delta", sessionId, text: opening });
         await new Promise<void>((release) => {
           gates.set(prompt, release);
+          missed.set(prompt, () => {
+            partial.content += "Missed tide. ";
+            bridge.emit({ type: "text_delta", sessionId, text: "Missed tide. " });
+          });
           advance.set(prompt, () => {
             partial.content += "Rowing again. ";
             bridge.emit({ type: "text_delta", sessionId, text: "Rowing again. " });
@@ -157,6 +167,9 @@ afterEach(() => {
   for (const release of gates.values()) release();
   gates.clear();
   advance.clear();
+  missed.clear();
+  for (const waiting of historyWaiters.values()) waiting.release();
+  historyWaiters.clear();
 });
 
 afterAll(async () => {
@@ -459,6 +472,40 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
 
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
   for (const cell of cells) {
+    test(`${cell.name}: progress missed during the outage rejoins the original answer`, async () => {
+      const s = await scene(cell);
+      const prompt = `Hold: Sail past the Sirens (${cell.name})`;
+      let release!: () => void;
+      const waiting = { promise: new Promise<void>((done) => { release = done; }), release: () => release(), reads: 0 };
+      try {
+        await mark(s.page);
+        const base = await measure(s.page);
+        await drop(s);
+        expect(missed.get(prompt), "a real running turn can progress while disconnected").toBeDefined();
+        missed.get(prompt)!();
+        expect(transcripts.get(s.A)!.at(-1)!.content, "the host retained the missed delta").toContain("Missed tide.");
+        historyWaiters.set(s.A, waiting);
+        await recover(s);
+        for (let i = 0; waiting.reads === 0 && i < 250; i++) await Bun.sleep(20);
+        expect(waiting.reads, "the real host is reading history asynchronously").toBeGreaterThan(0);
+        advance.get(prompt)!();
+        await s.page.waitForFunction(() => (window as unknown as { __marks: { nodes: Element[] } }).__marks.nodes.at(-1)?.textContent?.includes("Rowing again."));
+        expect(await s.page.evaluate(() => (window as unknown as { __marks: { nodes: Element[] } }).__marks.nodes.at(-1)?.textContent), "the page really has an interior gap before replay").not.toContain("Missed tide.");
+        release();
+        historyWaiters.delete(s.A);
+        await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Missed tide."));
+        same("the recovered interior gap", await measure(s.page), base);
+        expect(await s.page.evaluate(() => {
+          const node = (window as unknown as { __marks: { nodes: Element[] } }).__marks.nodes.at(-1)!;
+          return node.isConnected && node.textContent?.includes("Missed tide. Rowing again.");
+        }), "recovered gap keeps the original answer and correct text order").toBe(true);
+        await finishRecoveredTurn(s, cell);
+      } finally {
+        release();
+        historyWaiters.delete(s.A);
+        await s.context.close();
+      }
+    }, 120_000);
     test(`${cell.name}: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing`, async () => {
       const s = await scene(cell);
       try {

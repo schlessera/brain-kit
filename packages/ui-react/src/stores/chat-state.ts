@@ -595,6 +595,13 @@ function drawnText(message: ChatMessage): string {
   return message.parts.filter((part) => part.kind === "text").map((part) => part.text).join("") || message.content;
 }
 
+/** Lost deltas leave holes; subsequent deltas retain their order. */
+function includesDrawnText(text: string, drawn: string): boolean {
+  let at = 0;
+  for (let i = 0; i < text.length && at < drawn.length; i++) if (text[i] === drawn[at]) at++;
+  return at === drawn.length;
+}
+
 /** The host's display-size bound must not shorten text the page already drew. */
 function keepUnclippedText(next: string | undefined, old: string | undefined): string | undefined {
   const elision = next?.match(/\n…\[\d+ chars elided\]$/);
@@ -619,12 +626,12 @@ function restoreClippedParts(parts: MessagePart[], old: ChatMessage): MessagePar
         end += block.length;
         if (end >= at + elision.index! && end > at) break;
       }
-      // Adjacent stored blocks can share one live block. Its first clipped
-      // prefix stops at the stored boundary; the last keeps live progress.
-      if (parts[index + 1]?.kind === part.kind) end = Math.min(end, at + elision.index! + Number(elision[1]));
+      // Stored blocks can share one live block across missed intervening
+      // parts. Nonfinal prefixes stop at their stored text boundary.
+      if (parts.slice(index + 1).some((p) => p.kind === part.kind)) end = Math.min(end, at + elision.index! + Number(elision[1]));
       text = all.slice(at, prior.length ? end : all.length);
     }
-    offsets[part.kind] = all.startsWith(text, at) ? at + text.length : all.length;
+    offsets[part.kind] = all.startsWith(text, at) ? at + text.length : at;
     return text === part.text ? part : { ...part, text };
   });
 }
@@ -671,7 +678,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     // Claude history adds separators to its aggregate across assistant
     // entries; the chronological text parts are the actual drawn text.
     const mine = drawnText(old), theirs = drawnText(m);
-    const same = mine === theirs || (live && (theirs.startsWith(mine) || mine.startsWith(theirs)));
+    const provenTurn = m.turnId && m.turnId === (old.turnId ?? old.streamTurnId);
+    const same = mine === theirs || (live && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
+      || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
     const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
@@ -714,7 +723,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
  * correlation.
  */
 function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
-  const base = drawnText(old).length >= drawnText(m).length ? old : m;
+  const thinkingSize = (message: ChatMessage) => message.parts.reduce((n, p) => n + (p.kind === "thinking" ? p.text.length : 0), 0);
+  const moreThinking = thinkingSize(m) > thinkingSize(old);
+  const base = drawnText(old).length > drawnText(m).length || (drawnText(old).length === drawnText(m).length && !moreThinking) ? old : m;
   const other = base === old ? m : old;
   const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
   // A tool the other copy saw finish is that copy's, state and all: an

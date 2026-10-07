@@ -70,6 +70,50 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  for (const bounded of [false, true]) for (const proven of [false, true]) {
+    test(`an interior outage gap keeps its answer and stream (${bounded ? "bounded" : "plain"}, ${proven ? "proven" : "legacy"})`, () => {
+      const { root, socket } = running();
+      const first = bounded ? "Crew rowed. ".repeat(4000) : " Crew rowed. ";
+      const late = bounded ? "Rope held. ".repeat(4000) : "Rope held. ";
+      const missed = bounded ? "Wax checked. ".repeat(18000) : "Wax checked. ";
+      root.stores.chat.getState().stampTurn("s1", "turn-1");
+      root.stores.chat.getState().appendText("s1", first + late);
+      const old = buffer(root).messages.at(-1)!;
+      const input = { role: "assistant", content: `${SIRENS}${first}${missed}${late}`, toolCalls: [], parts: [
+        { kind: "text", text: SIRENS + first }, { kind: "text", text: missed }, { kind: "text", text: late },
+      ], ...(proven ? { turnId: "turn-1" } : {}) };
+      const replay = bounded ? shrinkForReplication(input, HISTORY_CHUNK_BYTES) : input;
+      if (bounded) expect(replay.content, "the real host clipped the gap fixture").toContain("chars elided]");
+      const next = reconnect(root, socket);
+      next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+      expect(buffer(root).messages.at(-1)!.id, "an interior gap keeps the original answer").toBe(old.id);
+      expect(buffer(root).messages.at(-1)!.content).toStartWith(SIRENS + first);
+      expect(buffer(root).messages.at(-1)!.content).toEndWith(late);
+      expect(buffer(root).messages.at(-1)!.content.split(late)).toHaveLength(2);
+      expect(buffer(root).messages.at(-1)!.turnId).toBe(proven ? "turn-1" : undefined);
+      next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-1" });
+      const merged = buffer(root).messages.at(-1)!.content;
+      next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-1", text: " Landed." });
+      expect(buffer(root).messages).toHaveLength(2);
+      expect(buffer(root).messages.at(-1)!.content).toBe(`${merged} Landed.`);
+    });
+  }
+  test("clipped text across a missed thinking block does not duplicate live text", () => {
+    const { root, socket } = running();
+    const first = "Wax for the crew. ".repeat(5000), last = "Rope for me. ".repeat(18000);
+    root.stores.chat.getState().appendText("s1", first + last);
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: `${SIRENS}${first}\n\n${last.slice(0, 170000)}`, thinking: "Hold fast.", toolCalls: [], parts: [
+      { kind: "text", text: SIRENS + first }, { kind: "thinking", text: "Hold fast." }, { kind: "text", text: last.slice(0, 170000) },
+    ] }, HISTORY_CHUNK_BYTES);
+    expect(replay.parts.filter((p) => p.kind === "text").every((p) => p.text.includes("chars elided]"))).toBe(true);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.content, "thinking boundaries do not duplicate clipped text").toBe(old.content);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual([
+      { kind: "text", text: SIRENS + first }, { kind: "thinking", text: "Hold fast." }, { kind: "text", text: last },
+    ]);
+  });
   test("bounded Claude text split across entries keeps a coalesced live answer", () => {
     const { root, socket } = running();
     const first = "Wax for the crew. ".repeat(2500);
