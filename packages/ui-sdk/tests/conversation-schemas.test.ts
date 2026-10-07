@@ -4,7 +4,7 @@
  * bound it enforces.
  */
 import { describe, expect, test } from "bun:test";
-import { CONVERSATION_CAPABILITY_KEYS, CONVERSATION_LIMITS } from "../src/protocol";
+import { CONVERSATION_LIMITS } from "../src/protocol";
 import { parseClientMessage, parseServerMessage } from "../src/schemas";
 import {
   assertLiveConversationProvider,
@@ -53,8 +53,8 @@ describe("client conversation frames", () => {
 
   test("audio is bounded, base64 and whole 16-bit samples", () => {
     const base = { type: "conversation_audio", conversationId: "c", epoch: 1, utteranceId: "u", sequence: 0, rate: 16_000 };
-    expect(client({ ...base, pcm: pcm(CONVERSATION_LIMITS.maxAudioChunkBytes) }).ok).toBe(true);
-    expect(client({ ...base, pcm: pcm(CONVERSATION_LIMITS.maxAudioChunkBytes + 2) })).toMatchObject({ ok: false, error: expect.stringContaining("decoded bytes") });
+    expect(client({ ...base, pcm: pcm(65_536) }).ok).toBe(true);
+    expect(client({ ...base, pcm: pcm(65_538) })).toMatchObject({ ok: false, error: expect.stringContaining("decoded bytes") });
     expect(client({ ...base, pcm: pcm(3) })).toMatchObject({ ok: false, error: expect.stringContaining("16-bit samples") });
     expect(client({ ...base, pcm: "not base64!" })).toMatchObject({ ok: false, error: expect.stringContaining("base64") });
     expect(client({ ...base, pcm: pcm(320), rate: 7_999 }).ok).toBe(false);
@@ -64,8 +64,8 @@ describe("client conversation frames", () => {
   test("a commit needs nonempty text within the commit bound", () => {
     const base = { type: "conversation_commit", conversationId: "c", epoch: 1, utteranceId: "u", requestId: "r" };
     expect(client({ ...base, text: "   " })).toMatchObject({ ok: false, error: expect.stringContaining("empty") });
-    expect(client({ ...base, text: "x".repeat(CONVERSATION_LIMITS.maxCommitChars) }).ok).toBe(true);
-    expect(client({ ...base, text: "x".repeat(CONVERSATION_LIMITS.maxCommitChars + 1) }).ok).toBe(false);
+    expect(client({ ...base, text: "x".repeat(8_000) }).ok).toBe(true);
+    expect(client({ ...base, text: "x".repeat(8_001) }).ok).toBe(false);
   });
 });
 
@@ -126,7 +126,7 @@ describe("provider boundary", () => {
   });
 
   test("every capability key must carry an evidence value", () => {
-    for (const key of CONVERSATION_CAPABILITY_KEYS) {
+    for (const key of Object.keys(capabilities) as Array<keyof typeof capabilities>) {
       const { [key]: _omitted, ...rest } = capabilities;
       expect(() => assertLiveConversationProvider(provider({ capabilities: rest as never }))).toThrow(`capabilities.${key}`);
     }
@@ -152,6 +152,6 @@ describe("provider boundary", () => {
       finalization: "final", certainty: "unknown", confidence: 0.5, origin: "user" })).toMatchObject({ ok: false });
     expect(parseLiveConversationEvent({ ...scope, kind: "grant_permission", toolUseId: "tool-1" }).ok).toBe(false);
     expect(parseLiveConversationEvent({ ...scope, kind: "output_transcript", outputId: "o1", sequence: 0,
-      text: "x".repeat(CONVERSATION_LIMITS.maxFragmentChars + 1) }).ok).toBe(false);
+      text: "x".repeat(2_001) }).ok).toBe(false);
   });
 });

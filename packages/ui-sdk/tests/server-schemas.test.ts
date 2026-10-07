@@ -11,11 +11,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  MAX_SERVER_FRAME_BYTES,
   parseServerMessage,
   serverMessageSchema,
 } from "../src/schemas.js";
-import { CONVERSATION_LIMITS, PILL_LABEL_MAX_CHARS, type ServerMessage } from "../src/protocol.js";
+import { CONVERSATION_LIMITS, type ServerMessage } from "../src/protocol.js";
 
 import { actionItem, thread } from "./inbox-fixtures.js";
 
@@ -195,7 +194,7 @@ describe("the additive contract", () => {
   });
 
   test("a pill label that breaks its bounds is dropped, never the queue report (#1004)", () => {
-    for (const label of ["", "x".repeat(PILL_LABEL_MAX_CHARS + 1), 42]) {
+    for (const label of ["", "x".repeat(33), 42]) {
       const result = parse({
         type: "session_queue",
         sessionId: "s1",
@@ -210,9 +209,9 @@ describe("the additive contract", () => {
     const kept = parse({
       type: "session_queue",
       sessionId: "s1",
-      followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label: "x".repeat(PILL_LABEL_MAX_CHARS) }],
+      followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label: "x".repeat(32) }],
     });
-    expect(kept.ok && kept.message.type === "session_queue" && kept.message.followUps[0]!.label).toBe("x".repeat(PILL_LABEL_MAX_CHARS));
+    expect(kept.ok && kept.message.type === "session_queue" && kept.message.followUps[0]!.label).toBe("x".repeat(32));
   });
 
   test("turnId is accepted but never required", () => {
@@ -267,7 +266,7 @@ describe("rejections", () => {
 
   test("malformed JSON and oversized frames are refused, not thrown", () => {
     expect(parseServerMessage("{not json").ok).toBe(false);
-    const huge = "x".repeat(MAX_SERVER_FRAME_BYTES + 1);
+    const huge = "x".repeat(2_000_001);
     const result = parseServerMessage(huge);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("exceeds");

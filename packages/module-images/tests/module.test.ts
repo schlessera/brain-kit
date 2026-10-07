@@ -47,6 +47,7 @@ describe("shipped skills", () => {
       { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
     );
     expect(warnings).toEqual([]);
+    expect(skills.length).toBeGreaterThan(0);
     return skills;
   }
 

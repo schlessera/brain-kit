@@ -3,7 +3,8 @@ import { nearestTrackPoint, trackCoverage } from "../src/spatial.js";
 import { EARTH_RADIUS_M, normalizeTrack } from "../src/track.js";
 
 const equator=(start: number,end: number)=>normalizeTrack([[{lat:0,lon:start},{lat:0,lon:end}]]);
-const degreeM=EARTH_RADIUS_M*Math.PI/180;
+// One degree on the documented 6,371,008.8 m sphere, calculated independently.
+const degreeM=111_195.08023353292;
 describe("spherical track proximity",()=>{
   test("closest point lies inside the segment, with an analytic great-circle distance",()=>{
     const nearest=nearestTrackPoint(equator(-1,1),{lat:1,lon:0},degreeM+1);

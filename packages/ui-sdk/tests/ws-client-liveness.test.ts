@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { BrainUiClient, STALE_SOCKET_CLOSE_CODE, type LivenessEvent } from "../src/client/index.js";
+import { BrainUiClient, type LivenessEvent } from "../src/client/index.js";
 
 
 class FakeSocket {
@@ -170,7 +170,7 @@ describe("a half-open socket", () => {
     client.checkLiveness();
     await wait(40);
     expect(events.map((e) => e.type)).toEqual(["probe", "stale"]);
-    expect(sockets[0]!.closedWith).toBe(STALE_SOCKET_CLOSE_CODE);
+    expect(sockets[0]!.closedWith).toBe(4000);
     expect(sockets).toHaveLength(2);
     expect(statuses.slice(-2)).toEqual(["disconnected", "connecting"]);
     client.close();

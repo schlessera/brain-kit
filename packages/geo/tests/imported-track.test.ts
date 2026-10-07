@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { parseImportedTrack, summarizeTrack } from "../src/index.js";
-import { MAX_ROUTE_BYTES } from "../src/internal.js";
 
 const gpx = '<gpx version="1.1"><wpt lat="2" lon="3"><name>Harbour gate</name></wpt><trk><trkseg><trkpt lat="2" lon="3"/><trkpt lat="2" lon="3.001"/></trkseg></trk></gpx>';
 test("GPX adapters keep the common line measurements and named waypoint evidence", () => {
@@ -50,7 +49,7 @@ for (const [name, source] of [
   ["duplicate coordinates", '<kml><LineString><coordinates>0,0 1,1</coordinates><coordinates>2,2 3,3</coordinates></LineString></kml>'],
 ] as const) test(`${name} remains a structural error`, () => { expect(() => parseImportedTrack(source)).toThrow(); });
 test("byte, depth and aggregate point limits count all evidence", () => {
-  expect(() => parseImportedTrack(" ".repeat(MAX_ROUTE_BYTES + 1))).toThrow("20 MiB");
+  expect(() => parseImportedTrack(" ".repeat(20 * 1024 * 1024 + 1))).toThrow("20 MiB");
   expect(() => parseImportedTrack('<kml>' + '<Folder>'.repeat(129) + '</Folder>'.repeat(129) + '</kml>')).toThrow("nesting");
   expect(() => parseImportedTrack('<gpx version="1.1">' + '<wpt lat="2" lon="3"/>'.repeat(200_001) + '</gpx>')).toThrow("200,000");
 });

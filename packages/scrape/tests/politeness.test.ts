@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { MAX_DELAY_MS, RateLimiter, hostOf, type RateLimiterClock } from "../src/politeness/rate-limit.js";
+import { RateLimiter, hostOf, type RateLimiterClock } from "../src/politeness/rate-limit.js";
 import { RobotsCache, RobotsDisallowedError } from "../src/politeness/robots.js";
 
 /** A clock that never really sleeps, and records what it was asked to wait. */
@@ -293,7 +293,7 @@ describe("RateLimiter", () => {
     clock.waits.length = 0;
     await long.acquire("d.example");
     await long.acquire("d.example", 1e308);
-    expect(clock.waits).toEqual([MAX_DELAY_MS]);
+    expect(clock.waits).toEqual([2_147_483_647]);
 
     // And with no default to fall back on, a non-finite delay is no delay.
     const bare = new RateLimiter({ clock });

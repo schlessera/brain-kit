@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HOURS_PER_YEAR, parseSalaryRange } from "../src/salary";
+import { parseSalaryRange } from "../src/salary";
 
 describe("parseSalaryRange", () => {
   test("annual range parses normally", () => {
@@ -10,23 +10,24 @@ describe("parseSalaryRange", () => {
   });
 
   test("hourly range with decimals is annualized and does not split on the dot", () => {
-    // The old parser turned "$60.50 - $75 per hour" into min 60, max 50
+    // Annualization uses the documented 2,080 hours/year, pinned independently
+    // of the implementation constant. The old parser turned "$60.50 - $75 per hour" into min 60, max 50
     const p = parseSalaryRange("$60.50 - $75 per hour");
-    expect(p.min).toBe(60.5 * HOURS_PER_YEAR);
-    expect(p.max).toBe(75 * HOURS_PER_YEAR);
+    expect(p.min).toBe(125_840);
+    expect(p.max).toBe(156_000);
     expect(p.annualizedFromHourly).toBe(true);
   });
 
   test("'/hr' marker is detected", () => {
     const p = parseSalaryRange("$40 - $55/hr");
-    expect(p.min).toBe(40 * HOURS_PER_YEAR);
-    expect(p.max).toBe(55 * HOURS_PER_YEAR);
+    expect(p.min).toBe(83_200);
+    expect(p.max).toBe(114_400);
     expect(p.annualizedFromHourly).toBe(true);
   });
 
   test("'hourly' marker is detected", () => {
     const p = parseSalaryRange("USD 30 - 45 hourly");
-    expect(p.min).toBe(30 * HOURS_PER_YEAR);
+    expect(p.min).toBe(62_400);
     expect(p.annualizedFromHourly).toBe(true);
   });
 

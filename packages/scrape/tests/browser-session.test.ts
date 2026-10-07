@@ -25,6 +25,10 @@ class FakeBrowser {
   }
 
   /** What Chrome dying looks like from puppeteer's side. */
+  disconnectedHandlers() {
+    return [...(this.handlers.get("disconnected") ?? [])];
+  }
+
   crash() {
     this.live = false;
     for (const fn of this.handlers.get("disconnected") ?? []) fn();
@@ -102,11 +106,15 @@ describe("crash recovery", () => {
 
     await session.load(request);
     const first = l.browsers[0];
+    const lateHandlers = first.disconnectedHandlers();
+    expect(lateHandlers).toHaveLength(1);
     first.crash();
     await session.load(request);
     expect(l.count).toBe(2);
 
-    first.crash(); // late, and must be a no-op
+    // `once` consumes the event. Replay its captured callback explicitly so
+    // the late-handler identity guard really runs against the replacement.
+    for (const handler of lateHandlers) handler();
     await session.load(request);
     expect(l.count).toBe(2);
 

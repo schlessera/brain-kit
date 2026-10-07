@@ -63,6 +63,7 @@ describe("extractCards", () => {
     // The third card has a company but no link. A half-parsed record
     // downstream is worse than a missing one, because it looks like data.
     const records = extractCards(parseHtml(LISTING), SELECTORS, "https://jobs.example.com/list");
+    expect(records).toHaveLength(2);
     expect(records.some((r) => r.company === "No Link Here")).toBe(false);
   });
 

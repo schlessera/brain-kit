@@ -178,6 +178,9 @@ describe("validation", () => {
   test("the reported detail never carries the frame body", () => {
     const { socket, errors } = setup({});
     socket.deliverRaw('{"type":"text_delta","text":"SECRET-PAYLOAD"');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.reason).toBe("parse_error");
+    expect(errors[0]!.detail.length).toBeGreaterThan(0);
     expect(JSON.stringify(errors)).not.toContain("SECRET-PAYLOAD");
   });
 });
