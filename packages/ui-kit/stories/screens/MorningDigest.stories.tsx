@@ -27,14 +27,14 @@ import { overflowing, unreachable } from "../_stage.js";
  * asks for nothing — and it is the last thing above the banner.
  *
  * Nothing here is new. Every figure comes from `events.ts`, the card is the
- * `fyi` entry `actions.ts` already carries, and the two section labels take
+ * `fyi` entry `actions.ts` already carries, and the section headings take
  * their metas from the data beneath them rather than from a typed string: the
  * "Overnight" spend is the same `$0.40` as the spend tile three rows above it,
  * and "Today" reports the group's own item count.
  *
  * The one deviation from §11.1's literal text is that label: the catalog types
  * `meta="2 items"` and the schedule group says three. The group is right and
- * the catalog is stale, so the label reads the group.
+ * the catalog is stale, so ScheduleList owns the day heading and count.
  */
 const on = { card: fn() };
 
@@ -57,7 +57,6 @@ export const MorningDigest = meta.story({
         <Label text="Overnight" icon="activity" meta={overnightSpend} />
         <TimelineList items={overnight} timeWidth={44} />
 
-        <Label text="Today" icon="calendar" meta={today[0]!.meta} />
         <ScheduleList groups={today} timeWidth={44} />
 
         <ActionCard
@@ -100,13 +99,14 @@ export const NothingEscapesTheFrame = MorningDigest.extend({
  */
 export const FactsBeforeAnythingAsks = MorningDigest.extend({
   play: async ({ canvas, canvasElement }) => {
+    await expect(await canvas.findAllByText("Today")).toHaveLength(1);
+    await expect(await canvas.findAllByText(today[0]!.meta!)).toHaveLength(1);
+    for (const item of today[0]!.items) await expect(await canvas.findByText(item.title)).toBeVisible();
     const order = [
       await canvas.findByText(digestStats[0]!.label),
       await canvas.findByText("Overnight"),
       await canvas.findByText(overnight[0]!.title),
-      // "Today" is on the screen twice — the section label and the schedule
-      // group's own day heading — and document order makes the first the label.
-      (await canvas.findAllByText("Today"))[0]!,
+      await canvas.findByText("Today"),
       await canvas.findByText(today[0]!.items[0]!.title),
       await canvas.findByText(fyi.title),
       await canvas.findByText(digestFootnote),
