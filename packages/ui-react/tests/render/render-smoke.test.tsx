@@ -6714,3 +6714,60 @@ for (const backend of ["claude", "pi"] as const) {
     } finally { root.dispose(); }
   });
 }
+
+import { timedSpans as recordedTimedSpans } from "../lane-fixtures.js";
+for (const backend of ["claude","pi"] as const) {
+  test(`${backend} actual run detail renders LaneChart from overlapping recorded intervals`,async()=>{
+    const spans=recordedTimedSpans();const root=createBrainUiRoot({storage:null,request:async()=>Response.json({runId:"crossing-lanes",detailPruned:false,spans,events:[],highWaterSeq:0})});
+    root.stores.activity.setState({supported:true});root.stores.chat.setState({backendIds:{"crossing-chat":backend}});
+    try{
+      const view=render(<BrainUiProvider root={root}><RunDetail runId="crossing-lanes" onBack={()=>{}}/></BrainUiProvider>);
+      await waitFor(()=>expect(root.stores.activity.getState().spanRun['ledger']).toBe('crossing-lanes'));
+      expect(spans.filter(s=>s.parentSpanId)).toHaveLength(4);
+      expect(view.container.querySelectorAll('[data-kit-lane-chart]')).toHaveLength(1);
+      const ledger=view.container.querySelector('[data-lane-name="ledger"] [data-lane-segment]') as HTMLElement;
+      expect(ledger.style.left).toBe('25%');expect(ledger.style.width).toBe('50%');
+      expect(view.container.querySelectorAll('[data-lane-hatch="true"]')).toHaveLength(1);
+      expect(view.container.querySelectorAll('[data-lane-fade="true"]')).toHaveLength(0);
+      expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('cancelled');
+      expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('denied');
+    }finally{root.dispose();}
+  });
+}
+
+import { recordedLanes as actualRecordedLanes } from "../../src/components/activity/run-lanes.js";
+import { laneStart as recordedLaneStart } from "../lane-fixtures.js";
+test("recorded lanes use one independently computed axis and known wait boundaries",()=>{
+  const chart=actualRecordedLanes(recordedTimedSpans(),recordedLaneStart+90000,false);
+  expect(chart.lanes).toHaveLength(4);expect(chart.start).toBe(recordedLaneStart);expect(chart.duration).toBe(60000);
+  expect(chart.ticks).toEqual(['0.0s','20.0s','40.0s','1m 0s']);
+  expect(chart.lanes[1]!.segments).toEqual([{start:25,width:50}]);
+  expect(chart.lanes[0]!.segments[0]!.hatch).toBe(true);expect(chart.lanes[0]!.segments[0]!.width).toBeCloseTo(100/6,8);
+  expect(chart.lanes[0]!.segments[1]!.start).toBeCloseTo(100/6,8);expect(chart.lanes[0]!.segments[1]!.width).toBe(50);
+});
+test("invalid and absent terminal timing never become a live tail or invented approval interval",()=>{
+  const spans=recordedTimedSpans();
+  spans[1]={...spans[1]!,waitUntil:recordedLaneStart+50000};spans[2]={...spans[2]!,endedAt:undefined};spans[3]={...spans[3]!,startedAt:Number.NaN};
+  const chart=actualRecordedLanes(spans,recordedLaneStart+90000,true);
+  expect(chart.rows).toHaveLength(4);expect(chart.lanes).toHaveLength(2);
+  expect(chart.lanes.flatMap(l=>l.segments).filter(s=>s.hatch||s.fade)).toHaveLength(0);
+  expect(chart.rows[0]!.missing).toBe('Approval boundary unavailable');expect(chart.rows[1]!.missing).toBe('End not recorded');expect(chart.rows[2]!.missing).toBe('Start not recorded');
+});
+test("only recorded-active spans get an advancing open tail, then a real terminal end wins",()=>{
+  const spans=recordedTimedSpans();spans[0]={...spans[0]!,endedAt:undefined,outcome:undefined};spans[1]={...spans[1]!,endedAt:undefined,outcome:undefined};
+  const first=actualRecordedLanes(spans,recordedLaneStart+60000,true);const later=actualRecordedLanes(spans,recordedLaneStart+90000,true);
+  expect(first.rows[0]!.active).toBe(true);expect(first.lanes[0]!.segments.at(-1)!.fade).toBe(true);expect(later.duration).toBe(90000);
+  expect(later.rows[0]!.end).toBe(recordedLaneStart+90000);
+  expect(actualRecordedLanes(spans,recordedLaneStart+90000,false).rows[0]!.missing).toBe('End not recorded');
+  spans[1]={...spans[1]!,endedAt:recordedLaneStart+70000,outcome:'denied'};
+  const terminal=actualRecordedLanes(spans,recordedLaneStart+90000,true);expect(terminal.rows[0]!.active).toBe(false);expect(terminal.rows[0]!.end).toBe(recordedLaneStart+70000);expect(terminal.lanes[0]!.segments.at(-1)!.fade).toBeUndefined();expect(terminal.rows[0]!.span.outcome).toBe('denied');
+});
+for(const variant of ['empty','pruned','unsupported'] as const)test(`run lanes stay absent for ${variant} data`,async()=>{
+  const spans=variant==='empty'?[]:recordedTimedSpans();const root=createBrainUiRoot({storage:null,request:async()=>Response.json({runId:'crossing-lanes',detailPruned:variant==='pruned',spans,events:[],highWaterSeq:0})});
+  root.stores.activity.setState({supported:variant!=='unsupported'});
+  try{const view=render(<BrainUiProvider root={root}><RunDetail runId='crossing-lanes' onBack={()=>{}}/></BrainUiProvider>);
+    if(variant==='pruned')await waitFor(()=>expect(view.container.textContent).toContain('Trace pruned'));
+    else await act(async()=>{await Promise.resolve();});
+    expect(view.container.querySelector('[data-kit-lane-chart]')).toBeNull();expect(view.container.textContent).not.toContain('waiting on you');
+  }finally{root.dispose();}
+});

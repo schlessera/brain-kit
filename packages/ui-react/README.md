@@ -367,3 +367,12 @@ works in dark and paper. Mermaid keeps its dedicated renderer. Long lines
 wrap for narrow transcripts, and exports retain the original fence content.
 The Storybook `Conversation/Code fence theme` preview uses the actual consumer
 renderer and shipped CSS within an isolated shadow root.
+
+
+Retained Activity run details draw `LaneChart` from recorded child intervals
+on one shared elapsed-time axis. A valid approval boundary alone creates
+hatching, and only spans still recorded as active in an active run get an open
+tail. Completed spans require a recorded end; invalid or missing timestamps
+are disclosed. A complete textual interval list preserves names and outcomes,
+and the existing expandable trace remains available. No model-authored runtime
+state or timing telemetry is introduced.

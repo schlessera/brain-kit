@@ -125,6 +125,7 @@ export "." (./src/index.ts)
   type GraphNode
   GraphView
   type GraphViewProps
+  HATCH_GLYPH
   ICONS
   Icon
   type IconName
@@ -1092,6 +1093,8 @@ signatures (every public export and the types it is made of)
         nodeMaxWidth?: `${number}%`;
         minWidth?: number;
     }
+  HATCH_GLYPH (packages/ui-kit/src/agents/LaneChart.tsx)
+    const HATCH_GLYPH: "▨";
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;

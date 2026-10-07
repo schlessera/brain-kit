@@ -297,3 +297,9 @@ and review. Other composer states keep their existing behavior.
 head control. It has no sample command, default language or decorative copy
 control. Clipboard access and highlighting belong to the host. `wrap={false}`
 retains native keyboard-accessible horizontal scrolling.
+
+
+`LaneChart` hosts supply the shared percentage time axis and explicit lanes,
+ticks and legend. `HATCH_GLYPH` is exported from the package root for the
+waiting-on-you legend; use it only for a documented human-wait interval.
+Lane names and legends wrap for narrow containers.

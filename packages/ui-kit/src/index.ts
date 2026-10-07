@@ -221,6 +221,7 @@ export {
   type GraphViewProps,
 } from "./agents/GraphView.js";
 export {
+  HATCH_GLYPH,
   LaneChart,
   type Lane,
   type LaneChartProps,
