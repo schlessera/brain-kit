@@ -420,7 +420,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (failedReattach) reattachSessionId = null;
     if (msg.type === "status" && reattachSessionId !== null) {
       // The host's own answer for the session being reattached settles it.
-      if (frameSessionId === reattachSessionId) {
+      // A queued status (another request waiting) names no running turn:
+      // the reattach waits for one that does, or that ends it.
+      if (frameSessionId === reattachSessionId && msg.status !== "queued") {
         reattachSessionId = null;
         // Running, but another turn than the answer kept live (it ended
         // while the page was away and a queued follow-up started): that

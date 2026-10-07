@@ -207,6 +207,41 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)).toMatchObject({ id: opened, content: "Bound. Fast." });
   });
 
+  test("a queued status while reattaching names no running turn: the new-turn check still applies after it", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "status", sessionId: "s1", status: "queued", detail: "1 waiting" });
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [...history(SIRENS), { role: "assistant", content: "Rowing.", toolCalls: [] }] });
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+    expect(buffer(root).messages.map((m) => m.content).slice(-2)).toEqual(["Rowing.", "Bound."]);
+  });
+
+  test("a tool the host saw finish while the page was away is finished on the page too", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendText("s1", " And more the host has not stored.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [
+      history(SIRENS)[0]!,
+      { role: "assistant", content: SIRENS, toolCalls: [{ id: "wax-1", name: "Bash", input: { command: "seal --ears crew" }, output: "Ears sealed.", isError: false }] },
+    ] });
+    const tool = buffer(root).messages.at(-1)!.toolCalls[0]!;
+    expect(tool).toMatchObject({ id: "wax-1", output: "Ears sealed.", status: "complete" });
+  });
+
+  test("thinking the page drew stays drawn when the history's text is as long", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendThinking("s1", "Wax for the crew, rope for me.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS) });
+    const last = buffer(root).messages.at(-1)!;
+    expect(last.parts.filter((p) => p.kind === "thinking").map((p) => (p as { text: string }).text).join("")).toBe("Wax for the crew, rope for me.");
+  });
+
   test("text the page missed and a tool it already drew are both kept", () => {
     const { root, socket } = running();
     root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");

@@ -636,11 +636,20 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   const base = old.content.length > m.content.length ? old : m;
   const other = base === old ? m : old;
   const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
+  // A tool the other copy saw finish is that copy's, state and all: an
+  // approval the host settled meanwhile is not offered again.
   const toolCalls = base.toolCalls.map((t) => {
     const o = theirs.get(t.id);
-    return o && o.output !== undefined && t.output === undefined ? { ...t, output: o.output, isError: o.isError } : t;
+    return o && o.output !== undefined && t.output === undefined ? o : t;
   });
-  const parts = [...base.parts];
+  let parts = [...base.parts];
+  // Thinking renders from the parts: the longer thinking brings its own.
+  if (base === m && (old.thinking ?? "").length > (m.thinking ?? "").length) {
+    const at = parts.findIndex((p) => p.kind === "thinking");
+    const rest = parts.filter((p) => p.kind !== "thinking");
+    const mine = old.parts.filter((p) => p.kind === "thinking");
+    parts = [...rest.slice(0, at < 0 ? 0 : at), ...mine, ...rest.slice(at < 0 ? 0 : at)];
+  }
   for (const t of other.toolCalls) {
     if (toolCalls.some((b) => b.id === t.id)) continue;
     parts.push({ kind: "tool", toolIndex: toolCalls.length });
