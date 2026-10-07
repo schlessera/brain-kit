@@ -25,7 +25,7 @@
       "type": null,
       "forbidden": []
     },
-    "category": "semantic",
+    "category": "protocol-forced-duplicate",
     "sourcePath": "notes/raft-duplicate.md",
     "sourceRaw": "---\ntitle: Odysseus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nThe raft carries twelve cedar planks.\n",
     "expectedFiles": {
@@ -277,7 +277,7 @@
       "type": null,
       "forbidden": []
     },
-    "category": "semantic",
+    "category": "protocol-forced-duplicate",
     "sourcePath": "notes/bread-existing.md",
     "sourceRaw": "---\ntitle: Penelope\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\n| Guest provisions | Count |\n| Bread loaves | 8 |\n",
     "expectedFiles": {
@@ -364,7 +364,7 @@
       "type": "ritual",
       "forbidden": []
     },
-    "category": "semantic",
+    "category": "ambiguous-label",
     "sourcePath": "notes/pen-knot.md",
     "sourceRaw": "---\ntitle: Eumaeus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAfter every pig-pen repair, Eumaeus checks each fence knot by hand and records frayed ropes in the log.\n",
     "expectedFiles": {
@@ -555,9 +555,9 @@
     },
     "category": "target-none",
     "sourcePath": "notes/absent-target.md",
-    "sourceRaw": "---\ntitle: Eumaeus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAdd Eumaeus to the crew list for the voyage named Dawn Crossing.\n",
+    "sourceRaw": "---\ntitle: Eumaeus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAdd Eumaeus to the provisions list for the feast named Dawn Offering.\n",
     "expectedFiles": {
-      "notes/absent-target.md": "---\ntitle: Eumaeus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAdd Eumaeus to the crew list for the voyage named Dawn Crossing.\n",
+      "notes/absent-target.md": "---\ntitle: Eumaeus\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nAdd Eumaeus to the provisions list for the feast named Dawn Offering.\n",
       "projects/active/other-voyage.md": "---\ntitle: other-voyage\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nThe provisions list for the Harvest Feast names three herdsmen.\n"
     }
   },
@@ -773,7 +773,7 @@
     "sourceRaw": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest provisions confirmation: Circe will bring bread. The earlier bread promise is confirmed.\n",
     "expectedFiles": {
       "notes/guest-confirmation.md": "---\ntitle: Circe\ntype: note\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest provisions confirmation: Circe will bring bread. The earlier bread promise is confirmed.\n",
-      "projects/active/bread.md": "---\ntitle: bread\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest provisions: Circe promised bread.\n\nGuest provisions confirmation: Circe will bring bread. The earlier bread promise is confirmed.\n",
+      "projects/active/bread.md": "---\ntitle: bread\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest provisions: Circe promised bread.\nGuest provisions confirmation: Circe will bring bread. The earlier bread promise is confirmed.\n",
       "projects/active/water.md": "---\ntitle: water\ntype: project\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nsummary: Original document summary.\n---\nGuest provisions: two jars of water.\n"
     }
   },

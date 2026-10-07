@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { benchmark, prepareBenchmark, mechanicalProposal, projectFiles, exactFiles, benchmarkSha } from "../scripts/evals/note-disposition/benchmark";
 import { Spend, instrumentedCompletion, classificationRequest, classify, observe, summarize, MODELS, protocolSha, hybridProposal, chooseThreshold } from "../scripts/evals/note-disposition/live";
+import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 import { validateProposal } from "../scripts/evals/note-disposition/guard";
 test("natural benchmark includes every routed class in tuning, competing targets, metadata and disjoint entities/templates", () => {
     const tuning = benchmark.filter(f => f.split === "tuning"), held = benchmark.filter(f => f.split === "held-out");
@@ -134,4 +135,24 @@ test("arm summaries expose unsupported effects separately from correct routing p
  Object.assign(row,{acceptedWrite:true,unsupportedEffect:true,exactFiles:false});
  const hybrid=summarize(rows).find(s=>s.arm==="hybrid")!;
  expect(hybrid.unsupportedEffect).toBe(1);expect(hybrid.acceptedRoutePrecision).toBe(1);expect(hybrid.acceptedWritePrecision).toBe(0);
+});
+
+
+test("every arm receives the same full source and candidate bodies", () => {
+ for(const f of benchmark){
+  expect(parseFrontmatter(f.sourceRaw).content.trimEnd()).toBe(f.source);
+  expect(f.expectedFiles[f.sourcePath]).toBe(f.sourceRaw);
+  for(const target of f.targets)expect(parseFrontmatter(target.raw).content.trimEnd()).toBe(target.body.trimEnd());
+ }
+});
+test("validated disposition and path-normalised content separate unsafe effects from promotion formatting", () => {
+ const f=benchmark.find(f=>f.id==="pen-knot")!;
+ const alternate={action:"promote",reasoning:"Recurring routine",operations:[{op:"create",path:"rituals/fence-inspection.md",content:f.source+"\n"}]};
+ const o=observe(f,alternate);
+ expect(o.accepted).toBe(true);expect(o.exactFiles).toBe(false);expect(o.comparableExactFiles).toBe(true);expect(o.unsupportedEffect).toBe(false);expect(o.formatMismatch).toBe(true);
+ const wrong=observe(f,{...alternate,operations:[{...alternate.operations[0],path:"projects/active/fence-inspection.md"}]});
+ expect(wrong.correctType).toBe(false);expect(wrong.unsafeAccepted).toBe(true);expect(wrong.unsupportedEffect).toBe(true);
+ const merge=benchmark.find(f=>f.id==="water-check")!;
+ const malformed=observe(merge,{action:"merge",reasoning:"Wrong operation",operations:[{op:"create",path:merge.targets[0]!.path,content:merge.source+"\n"}]});
+ expect(malformed.accepted).toBe(false);expect(malformed.correctDisposition).toBe(false);expect(malformed.rawPredicted).toBe("merge");
 });
