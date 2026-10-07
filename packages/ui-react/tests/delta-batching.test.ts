@@ -52,11 +52,20 @@ describe("delta batching", () => {
     expect(activeChat(useChatStore.getState()).messages).toHaveLength(1);
     expect(activeChat(useChatStore.getState()).messages[0].content).toBe("");
 
-    paint();
+    const writes: string[] = [];
+    const unsubscribe = useChatStore.subscribe((state) => {
+      writes.push(activeChat(state).messages[0].content);
+    });
+    try {
+      paint();
+      expect(writes).toEqual(["Hello there, world"]);
+    } finally {
+      unsubscribe();
+    }
 
     const msg = activeChat(useChatStore.getState()).messages[0];
     expect(msg.content).toBe("Hello there, world");
-    // One text part, not three: the chunks merged before they reached the store.
+    // The resulting part remains coalesced as well.
     expect(msg.parts).toEqual([{ kind: "text", text: "Hello there, world" }]);
   });
 
