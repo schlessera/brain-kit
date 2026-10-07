@@ -16,14 +16,16 @@ import { createMemoryAnswerStorage, type AnswerStorage } from "../src/lib/answer
 import { createTabHub } from "../src/lib/answer-delivery/tabs";
 import {
   MAX_QUEUED_ANSWERS,
-  MAX_QUEUED_BYTES,
-  MAX_REPLAY_AGE_MS,
-  RECEIPT_WATCHDOG_MS,
   type AnswerPayload,
   type QueuedAnswer,
 } from "../src/lib/answer-delivery/types";
 
 const T0 = Date.UTC(2026, 6, 12, 7, 41);
+// Independent policy oracle from the answer-delivery decision: changing the
+// implementation bounds must not move the admission, expiry or timer inputs.
+const BYTE_LIMIT = 16 * 1024 * 1024;
+const REPLAY_AGE = 24 * 60 * 60 * 1000;
+const RECEIPT_WAIT = 5_000;
 
 /** One nonempty, multibyte answer per kind. */
 const PAYLOADS: Record<AnswerPayload["kind"], AnswerPayload> = {
@@ -148,7 +150,7 @@ describe("submitting online", () => {
     h.connect();
     await h.submit();
     const id = (h.answers()[0] as { submissionId: string }).submissionId;
-    h.advance(RECEIPT_WATCHDOG_MS - 1);
+    h.advance(RECEIPT_WAIT - 1);
     expect(h.net.probes).toBe(0);
     h.advance(1);
     expect(h.net.probes).toBe(1);
@@ -432,7 +434,7 @@ describe("Queue A bounds", () => {
     const FULL = 1_200_000; // 2.4 MB of thetas per answer, 60 keys of 64
     let used = 0;
     let n = 0;
-    while (MAX_QUEUED_BYTES - used > probe(big(FULL), `big-${n}`)) {
+    while (BYTE_LIMIT - used > probe(big(FULL), `big-${n}`)) {
       used += probe(big(FULL), `big-${n}`);
       await h.queue.submit({ requestId: `big-${n}`, sessionId: "s1", turnId: "turn-1", payload: big(FULL) });
       n++;
@@ -440,7 +442,7 @@ describe("Queue A bounds", () => {
     // The last one fills the budget to the byte: thetas for the bulk, then
     // single-byte characters for the odd remainder, in a key with room.
     const last = `big-${n}`;
-    const target = MAX_QUEUED_BYTES - used;
+    const target = BYTE_LIMIT - used;
     let chars = Math.floor((target - probe(big(0), last)) / 2);
     let payload: AnswerPayload = big(chars);
     for (;;) {
@@ -455,12 +457,12 @@ describe("Queue A bounds", () => {
       }
       chars -= 500;
     }
-    expect(probe(payload, last)).toBe(MAX_QUEUED_BYTES - used);
+    expect(probe(payload, last)).toBe(BYTE_LIMIT - used);
     await h.queue.submit({ requestId: last, sessionId: "s1", turnId: "turn-1", payload });
     expect(h.queue.held()).toHaveLength(n + 1);
     expect(n + 1).toBeLessThan(MAX_QUEUED_ANSWERS);
     const total = h.queue.held().reduce((sum, { owned: _o, ...item }) => sum + Buffer.byteLength(JSON.stringify(item), "utf8"), 0);
-    expect(total).toBe(MAX_QUEUED_BYTES);
+    expect(total).toBe(BYTE_LIMIT);
     // One more small answer does not fit, though fewer than 16 are queued.
     await h.submit();
     expect(h.delivery()).toMatchObject({ state: "full", full: "bytes" });
@@ -472,7 +474,7 @@ describe("Queue A bounds", () => {
     const first = await harness({ storage, now: clock });
     await first.submit();
     first.queue.dispose();
-    clock.t = T0 + MAX_REPLAY_AGE_MS - 1;
+    clock.t = T0 + REPLAY_AGE - 1;
     const second = await harness({ storage, now: clock });
     await second.queue.start();
     expect(second.delivery()?.state).toBe("queued");
@@ -488,7 +490,7 @@ describe("Queue A bounds", () => {
     const storage = createMemoryAnswerStorage();
     const clock = { t: T0 };
     await (await harness({ storage, now: clock })).submit();
-    clock.t = T0 + MAX_REPLAY_AGE_MS;
+    clock.t = T0 + REPLAY_AGE;
     const later = await harness({ storage, now: clock });
     await later.queue.start();
     later.connect();
@@ -545,11 +547,11 @@ describe("review fixes (#910)", () => {
     const first = await harness({ storage, now: clock });
     await first.submit();
     first.queue.dispose();
-    clock.t = T0 + MAX_REPLAY_AGE_MS - 10;
+    clock.t = T0 + REPLAY_AGE - 10;
     const second = await harness({ storage, now: clock });
     expect(second.delivery()?.state).toBe("queued");
     // Frozen: the clock moves, no timer fires, then the socket comes back.
-    clock.t = T0 + MAX_REPLAY_AGE_MS;
+    clock.t = T0 + REPLAY_AGE;
     second.connect();
     expect(second.delivery()?.state).toBe("expired");
     expect(second.sent).toEqual([]);
