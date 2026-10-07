@@ -168,6 +168,8 @@ describe("brain_graph wrapper, review round 1", () => {
       { "notes/hub.md": note("Hub", "[[aaa]]"), "notes/aaa.md": note("Aaa", "A.") },
       "notes/hub.md"
     );
+    expect(parsed.edges).toEqual([{ source: "notes/hub.md", target: "notes/aaa.md", resolved: true }]);
+    expect(parsed.nodes.map((node) => node.path)).toEqual(["notes/aaa.md", "notes/hub.md"]);
     expect(Object.keys(parsed).sort()).toEqual(["edges", "nodes"]);
   });
 
