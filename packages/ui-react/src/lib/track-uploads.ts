@@ -12,6 +12,8 @@ export interface PendingTrack {
   state: TrackUploadState;
   meta?: SharedFileMeta;
   error?: string;
+  /** The request failed in transit: no answer from the host, rather than a refusal. */
+  unanswered?: boolean;
 }
 export const trackReady = (track: PendingTrack) => track.state === "ready" && !!track.meta;
 export const trackPending = (track: PendingTrack) => ["picked", "uploading", "parsing", "paused"].includes(track.state);
@@ -50,7 +52,7 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
     notify();
   }
   async function upload(track: PendingTrack, controller: AbortController) {
-    update(track.id, { state: "uploading", error: undefined });
+    update(track.id, { state: "uploading", error: undefined, unanswered: undefined });
     const form = new FormData();
     form.append("files", track.file, track.file.name);
     try {
@@ -70,7 +72,7 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
       if (!parsed.success || !parsed.data.detected || !parsed.data.summary) throw new Error("invalid_track_response");
       update(track.id, { state: "ready", meta: parsed.data });
     } catch {
-      if (!controller.signal.aborted) update(track.id, { state: "failed", error: "Upload failed: the host didn't answer. Retry when connected." });
+      if (!controller.signal.aborted) update(track.id, { state: "failed", error: "Upload failed: the host didn't answer. Retry when connected.", unanswered: true });
     } finally {
       running.delete(track.id);
       pump();
@@ -119,7 +121,10 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
       online = value;
       if (!value) {
         for (const controller of running.values()) controller.abort();
-        files = files.map(file => trackPending(file) ? { ...file, state: "paused" } : file);
+        // A request can fail in transit a moment before the page sees the
+        // connection go: that was the drop, not a refusal, so it waits with
+        // the others and resumes with them (#1013).
+        files = files.map(file => trackPending(file) || (file.state === "failed" && file.unanswered) ? { ...file, state: "paused", error: undefined, unanswered: undefined } : file);
       } else files = files.map(file => file.state === "paused" ? { ...file, state: "picked" } : file);
       notify(); pump();
     },
