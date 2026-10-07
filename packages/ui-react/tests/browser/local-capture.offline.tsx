@@ -398,7 +398,8 @@ test("a recorder the browser stops on its own ends the recording as interrupted"
   ctx.signal.throwIfAborted();
   // Stopped by whoever else holds the stream: no `ended` event fires.
   for (const track of gum.streams[0]!.getTracks()) track.stop();
-  expect(await capture.ended, "the recording ended").toBe("interrupted");
+  const outcome = await Promise.race([capture.ended, new Promise<string>((resolve) => setTimeout(() => resolve("still recording"), 3000))]);
+  expect(outcome, "the recording ended").toBe("interrupted");
   expect(sink.ended).toEqual(["interrupted"]);
 });
 
