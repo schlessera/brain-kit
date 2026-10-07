@@ -70,6 +70,40 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  for (const proven of [false, true]) test(`complementary tools retain the answer across another replay (${proven ? "proven" : "legacy"})`, () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    chat.stampTurn("s1", "turn-1");
+    for (const id of ["wax-a", "wax-c"]) { chat.startToolCall("s1", id, "Bash"); chat.completeToolCall("s1", id, "Bash", {}); }
+    chat.appendText("s1", " Live oars.");
+    const old = buffer(root).messages.at(-1)!;
+    const next = reconnect(root, socket);
+    const send = (ids: string[]) => next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, toolCalls: ids.map((id) => ({ id, name: "Bash", input: {} })), parts: [{ kind: "text", text: SIRENS }, ...ids.map((_, toolIndex) => ({ kind: "tool", toolIndex }))], ...(proven ? { turnId: "turn-1" } : {}),
+    }] });
+    send(["wax-a", "wax-b"]);
+    expect(buffer(root).messages.at(-1)!.id, "complementary progress retains the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id), "missed tools precede newer live progress").toEqual(["wax-a", "wax-b", "wax-c"]);
+    expect(buffer(root).messages.at(-1)!.parts.filter((p) => p.kind === "tool").map((p) => buffer(root).messages.at(-1)!.toolCalls[p.toolIndex]!.id)).toEqual(["wax-a", "wax-b", "wax-c"]);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-1" });
+    send(["wax-a", "wax-b", "wax-c"]);
+    expect(buffer(root).messages.at(-1)!.id, "the next full replay still keeps the drawn answer").toBe(old.id);
+  });
+  for (const proven of [false, true]) test(`a turn ending before history returns keeps its recovered interior progress (${proven ? "proven" : "legacy"})`, () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    chat.stampTurn("s1", "turn-1");
+    chat.appendText("s1", " Rowing again. Landed.");
+    chat.finishAssistantMessage("s1");
+    const old = buffer(root).messages.at(-1)!;
+    const next = reconnect(root, socket);
+    const text = `${SIRENS} Missed tide. Rowing again. Landed.`;
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], { role: "assistant", content: text, toolCalls: [], ...(proven ? { turnId: "turn-1" } : {}) }] });
+    expect(buffer(root).messages.at(-1)!.id, "completed interior recovery retains the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content).toBe(text);
+    expect(buffer(root).isStreaming).toBe(false);
+  });
+
   for (const bounded of [false, true]) for (const proven of [false, true]) {
     test(`an interior outage gap keeps its answer and stream (${bounded ? "bounded" : "plain"}, ${proven ? "proven" : "legacy"})`, () => {
       const { root, socket } = running();

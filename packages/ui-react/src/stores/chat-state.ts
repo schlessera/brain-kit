@@ -682,18 +682,17 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const clippedPrefix = received.parts.find((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
     const boundedContinuation = clippedPrefix?.kind === "text" && mine.length > 0
       && clippedPrefix.text.slice(0, Math.min(32, mine.length)) === mine.slice(0, Math.min(32, mine.length));
-    const same = mine === theirs || boundedContinuation || (live && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
+    const continuing = live || !!(old.turnId ?? old.streamTurnId);
+    const same = mine === theirs || boundedContinuation || (continuing && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
       || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
     const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
-    const orderedSubset = (a: ChatMessage["toolCalls"], b: ChatMessage["toolCalls"]) => {
-      let at = 0;
-      for (const tool of b) if (tool.id === a[at]?.id) at++;
-      return at === a.length;
-    };
-    const sameTools = live
-      ? orderedSubset(old.toolCalls, m.toolCalls) || orderedSubset(m.toolCalls, old.toolCalls)
+    const sharedOld = old.toolCalls.filter((t) => m.toolCalls.some((n) => n.id === t.id));
+    const sharedNext = m.toolCalls.filter((t) => old.toolCalls.some((n) => n.id === t.id));
+    const compatibleTools = sharedOld.every((t, k) => t.id === sharedNext[k]?.id)
+      && (sharedOld.length > 0 || !old.toolCalls.length || !m.toolCalls.length);
+    const sameTools = continuing ? compatibleTools || (live && provenTurn)
       : old.toolCalls.length === m.toolCalls.length && old.toolCalls.slice(0, shared).every((t, k) => t.id === m.toolCalls[k]!.id);
     const knownTurn = old.turnId ?? old.streamTurnId;
     const sameTurn = !knownTurn || !m.turnId || knownTurn === m.turnId;
@@ -755,7 +754,14 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     {
       const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex]?.id === t.id);
       const following = other.parts.slice(sourceAt + 1).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
-      const at = parts.findIndex((p) => p.kind === "tool" && following.includes(toolCalls[p.toolIndex]!.id));
+      let at = parts.findIndex((p) => p.kind === "tool" && following.includes(toolCalls[p.toolIndex]!.id));
+      if (at < 0 && other === m) {
+        // Stored progress missed while away precedes the live-only suffix
+        // received while this history was being read.
+        const preceding = other.parts.slice(0, sourceAt).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
+        const prior = parts.findLastIndex((p) => p.kind === "tool" && preceding.includes(toolCalls[p.toolIndex]!.id));
+        if (prior >= 0) at = prior + 1;
+      }
       parts.splice(at < 0 ? parts.length : at, 0, { kind: "tool", toolIndex: toolCalls.length });
     }
     toolCalls.push(t);
