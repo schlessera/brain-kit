@@ -6573,3 +6573,73 @@ for(const [backend,name] of [["pi","show_block"],["claude","mcp__brain-ui__show_
     } finally {root.dispose();}
   });
 }
+
+
+
+import { AttachmentRow as SentKitAttachmentRow, type AttachmentRowProps as SentKitAttachmentRowProps } from "@schlessera/brain-ui-kit";
+import { sentTrackFiles } from "../sent-track-fixtures.js";
+for (const backend of ["claude", "pi"] as const) {
+  test(`${backend} actual sent and replayed validated tracks use identical static kit attachment rows`, () => {
+    const root = createBrainUiRoot({ storage: null }); const files = sentTrackFiles(); const sessionId = `sent-tracks-${backend}`;
+    expect(files[0]!.detected).toBe("gpx"); expect(files[0]!.summary!.status).not.toBe("no_line");
+    expect(files[1]!.detected).toBe("kml"); expect(files[1]!.summary!.status).toBe("no_line"); expect(files[1]!.summary!.waypointCount).toBe(4);
+    for (const file of files) { expect(file.bytes).toBeGreaterThan(0); expect(file.bytes).toBeLessThan(1024); }
+    root.stores.chat.getState().setActiveSession(sessionId); root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
+    root.stores.chat.getState().addUserMessage(sessionId, "Here is the route.", undefined, undefined, undefined, files);
+    const noop = () => {};
+    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!}
+      onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
+    try {
+      const view = render(bubble()); expect(root.stores.chat.getState().buffers[sessionId]!.messages[0]!.files).toHaveLength(2);
+      const rows = [...view.container.querySelectorAll('[data-kit-attachment-row]')]; expect(rows).toHaveLength(2);
+      const text = rows.map(row => row.textContent);
+      expect(text[0]).toBe(files[0]!.incomingName + `GPX · ${files[0]!.bytes} B · sentStaged as ${files[0]!.name}`);
+      expect(text[1]).toBe(files[1]!.name + `KML · ${files[1]!.bytes} B · sent4 waypoints; no usable track line. The original is attached.`);
+      for (const row of rows) expect(row.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
+      expect(view.container.textContent).not.toContain("sent · staged");
+      expect(view.container.textContent).not.toContain("0:38"); expect(view.container.textContent).not.toContain("transcribed on device"); expect(view.container.textContent).not.toContain("untrusted");
+      act(() => root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{ role: "user", content: "Here is the route.", toolCalls: [], files }] }));
+      view.rerender(bubble()); expect([...view.container.querySelectorAll('[data-kit-attachment-row]')].map(row => row.textContent)).toEqual(text);
+    } finally { act(() => root.dispose()); }
+  });
+}
+test("no fabricated attachment label when a legacy JavaScript caller supplies none", () => {
+  const view = render(<SentKitAttachmentRow {...({ kind: "doc", actionIcon: "" } as SentKitAttachmentRowProps)}/>);
+  expect(view.container.textContent).toBe("");
+});
+test("an explicit audio identity invents no duration, extract, metadata or waveform", () => {
+  const view = render(<SentKitAttachmentRow kind="audio" label="Crossing directions" actionIcon=""/>);
+  expect(view.container.textContent).toBe("Crossing directions");
+  expect([...view.container.querySelectorAll<HTMLElement>('span')].filter(span => span.style.width === "2px")).toHaveLength(0);
+});
+test("image-count-only history keeps the truthful chip without attachment rows", () => {
+  const root = createBrainUiRoot({ storage: null }); const noop = () => {};
+  try {
+    root.stores.chat.getState().setActiveSession("images-replay");
+    root.connection.handleServerMessage({ type: "session_history", sessionId: "images-replay", messages: [{ role: "user", content: "The crossing.", attachmentCount: 2, toolCalls: [] }] });
+    const message = root.stores.chat.getState().buffers["images-replay"]!.messages[0]!;
+    const view = render(<BrainUiProvider root={root}><SupportingMessageBubble message={message} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>);
+    expect(view.container.textContent).toContain("2 images"); expect(view.container.querySelectorAll('[data-kit-attachment-row],img')).toHaveLength(0);
+    expect(view.container.textContent).not.toContain("Sailing directions");
+  } finally { root.dispose(); }
+});
+
+
+import { renderToStaticMarkup as renderSentAttachmentHtml } from "react-dom/server";
+import { trackRowProps as sentTrackRowProps } from "../../src/lib/track-attachment.js";
+test("static sent-track HTML retains supplied facts as escaped text without pretend controls", () => {
+  const files = sentTrackFiles(); files[0]!.incomingName = '<b>Scylla</b>.gpx';
+  const html = renderSentAttachmentHtml(<>{files.map(file => <SentKitAttachmentRow key={file.path} {...sentTrackRowProps(file)}/>)}</>);
+  const view = document.createElement("div"); view.innerHTML = html;
+  expect(view.querySelectorAll('[data-kit-attachment-row]')).toHaveLength(2);
+  expect(view.textContent).toContain('<b>Scylla</b>.gpx'); expect(view.querySelector('b b')).toBeNull();
+  expect(view.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
+  expect(view.textContent).toContain("4 waypoints; no usable track line. The original is attached.");
+});
+test("missing sent-track metadata invents no original name, byte count or provenance", () => {
+  const file = { path: "voyage/unknown", name: "", mediaType: "application/octet-stream" } as import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta;
+  const view = render(<SentKitAttachmentRow {...sentTrackRowProps(file)}/>);
+  expect(view.container.textContent).toBe("Unnamed tracktrack file · sent");
+  expect(view.container.textContent).not.toContain("Sailing directions"); expect(view.container.textContent).not.toContain("0 B");
+  expect(view.container.querySelectorAll('[role="button"],[tabindex]')).toHaveLength(0);
+});

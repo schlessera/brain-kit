@@ -87,6 +87,17 @@ as the standalone cards do.
 `ScaleList` also exposes `flagged` and `onComplete`, while `RankList` exposes
 `onMoveChange` so an outer form can guard submission during a move.
 
+## Attachments
+
+`AttachmentRow` requires `kind` and `label`. Pass duration, metadata, extracts
+and provenance explicitly; absent fields draw nothing. `meta` accepts one
+string or several lines, and names and metadata wrap. An audio waveform needs
+an explicit finite `seconds` value. Sample values belong in stories.
+
+For a static sent-file record, pass `actionIcon=""` and omit `onClick`.
+The row then has no role or tab stop. The chat consumer uses this form for
+validated tracks; its image thumbnails and zoom controls remain separate.
+
 ## Imported tracks
 
 `TrackMap` draws file-provided lines with start/end shapes, a scale and a full

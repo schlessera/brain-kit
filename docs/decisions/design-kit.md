@@ -4386,7 +4386,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:269`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:270`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -5776,3 +5776,21 @@ blur is 1.2px greater than the base. Single-line text clips before the blur,
 so ellipsis does not cut off blurred ends. Reduced motion hides the entire
 band and disables every translation; print hides ghosts and the band. The
 existing instant reduced-motion handoff and stream tail rules remain.
+
+
+## 2026-10-07 — Sent tracks use AttachmentRow (#1143)
+
+The [approved attachment composition](https://github.com/schlessera/brain-kit/issues/1143#issuecomment-6030745326)
+and [maintainer ruling](https://github.com/schlessera/brain-kit/issues/1143#issuecomment-6030989836)
+use `AttachmentRow kind="doc"` for sent validated tracks. Identity and known
+metadata come from existing intake/history: incoming name, format, byte count,
+`sent`, a differing staged name and a no-line waypoint note. The static row
+opens nothing. It has no role, tab stop, duration, waveform, extract or trust
+line. Images retain their live zoomable thumbnails and count-only history chip;
+the composer's retry/remove chips retain their queue behavior.
+
+`kind` and `label` become required, and prototype attachment facts are removed
+from runtime defaults. Metadata accepts several wrapping lines. The accepted
+pre-1.0 API break ships in a minor: callers pass identity and optional facts
+explicitly. This is an approved exception to D30's parity defaults; examples
+remain in stories. No attachment protocol or persistence contract changes.
