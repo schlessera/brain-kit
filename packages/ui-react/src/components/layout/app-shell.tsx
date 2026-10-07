@@ -6,10 +6,13 @@ import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { OneTimeAgentCredentialDialog } from "../settings/one-time-agent-credential.js";
 import { useApplyTheme } from "./theme.js";
+import { useStagedTracksUnloadGuard } from "../../hooks/use-staged-tracks.js";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
   useApplyTheme();
+  // Staged tracks are lost by any reload or tab close, whichever view is open (#1150).
+  useStagedTracksUnloadGuard();
 
   return (
     <div className="flex h-[100dvh] bg-background text-foreground">
