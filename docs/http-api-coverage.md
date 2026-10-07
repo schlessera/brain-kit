@@ -96,8 +96,8 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:78-84`)
-- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:685-700`)
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:77-83`)
+- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:684-699`)
 
 **T — Operational status.**
 
