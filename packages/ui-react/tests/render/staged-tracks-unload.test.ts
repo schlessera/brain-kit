@@ -64,6 +64,21 @@ test("a staged track in a session not in view guards leaving until the last is r
   }
 });
 
+test("a failed upload still guards leaving: the track is still only in this tab", async () => {
+  const listeners = watchListeners();
+  const root = createBrainUiRoot({ storage: null, request: async () => { throw new TypeError("offline"); } });
+  try {
+    const raft = tracksFor(root, trackKey("odysseus-raft", root.stores.drafts.getState().idFor("odysseus-raft"))).uploads;
+    raft.add([new File(["{}"], "raft-timber-run.gpx")]);
+    for (let i = 0; i < 100 && raft.files[0]?.state !== "failed"; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(raft.files[0]?.state, "the upload failed").toBe("failed");
+    expect(leavingAsks(), "a failed track is still lost by leaving").toBe(true);
+  } finally {
+    listeners.restore();
+    root.dispose();
+  }
+});
+
 test("a queue moving to its session keeps the guard; disposing the root removes it", () => {
   const listeners = watchListeners();
   const root = createBrainUiRoot({ storage: null, request: never });
