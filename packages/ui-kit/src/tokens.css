@@ -1389,9 +1389,14 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  /* Scroll metrics round to whole pixels. Leave the final row a pixel of
-   * trailing room so its full target clears a fractional scrollport edge. */
-  padding-bottom: 1px;
+  /* Trailing room for the final row, which must stay whole at the end of the
+   * scroll. Two things eat into it. Scroll metrics round the scrollport's
+   * fractional height, which costs up to half a pixel. And Chromium can
+   * draw a programmatic scroll that follows a touch pan one pixel short for
+   * a frame: End after a short pan reads 98 between two frames at 99 (#999).
+   * One pixel absorbed only the first. Two keep at least half a pixel spare
+   * after both. */
+  padding-bottom: 2px;
 }
 @media (any-pointer: coarse) {
   .bk-side-rail [role="tab"], .bk-side-rail-act, .bk-side-rail-palette { min-height: 44px; }
