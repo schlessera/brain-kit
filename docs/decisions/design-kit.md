@@ -3765,6 +3765,106 @@ wrapper:* the SDK's `tool()` takes a Zod shape, and one source of truth for the
 schema, the parser and the renderer's types is worth more than eleven
 characters per reference.
 
+## 2026-10-07 — measured: Claude accepts all three schema forms; the shared and trimmed form saves 1,146 counted tokens (#336)
+
+**Question.** D47 identified two schema reductions but had no live provider or
+behavior evidence. This measurement holds the eighteen current variants and
+accepted inputs constant and compares `flat`, `shared`, and `shared-trimmed`
+on **`claude-sonnet-5-5`**. It measures the Claude half; the cross-backend
+shipping decision remains #563's.
+
+**Counted definitions.** The Agent SDK's actual MCP listing, including the same
+4,918-character tool description in every arm, was counted by `count_tokens`
+under `CLAUDE_CODE_OAUTH_TOKEN`. The tool-search-plus-anchor floor is **616**
+tokens. The flat arm is byte-identical to the production listing. The shared
+forms contain three definitions and sixteen reference sites; the trimmed
+form removes the same 23 descriptions pinned by the parser/listing tests.
+
+| form | input-schema JSON characters | loaded tokens | change from flat |
+| --- | ---: | ---: | ---: |
+| flat | 16,702 | 8,723 | 0 |
+| shared | 15,136 | 8,157 | −566 (6.5%) |
+| shared-trimmed | 13,344 | 7,577 | −1,146 (13.1%) |
+
+The full block brief costs 254 counted tokens, nine lines and 705 characters.
+These are the endpoint's counts of the frozen definitions, not a claim that
+every live round-trip loses exactly that many input tokens.
+
+**Method and isolation.** Nine frozen prompts—compare-short, compare-long,
+trend, contact, recommend, table, steps, quote and bars—ran three times per
+form: **81 fresh turns, 27 per arm, no exclusions**. Every arm loads the bridge
+server and block brief. Each form occupies each order position once across
+the three repetitions. Concurrency is two; each turn has the same fourteen
+model-turn limit, 180-second deadline and SDK `maxBudgetUsd: 1` threshold.
+None censored a turn. The threshold is checked after generation and is not a
+hard billing cap.
+
+Bun 1.3.14, Agent SDK 0.3.283 and Claude Code 2.1.283 were used. Every raw init
+reported model `claude-sonnet-5-5` and `apiKeySource: none`. The fictional
+Odysseus corpus was staged outside a home directory and checkout; HOME and
+config were empty, account credential files were never copied, automatic
+memory was disabled, and no other subscription measurement overlapped.
+The same execution hook bounded Read/Glob/Grep to the staged fixture and
+denied delegation and other tools in every arm (`optionsFor`,
+`scripts/measure-show-block.ts:390-458`). This permission restriction and the
+one-tool MCP server remain measurement divergences from production. The
+actual installed CLI denied a controlled outside Read and admitted an inside
+Read under bypassPermissions; removing its hook exposed the sentinel and
+failed the expected assertion. All **332** live hook verdicts were allowed
+fixture reads/searches or block calls; none named an outside target.
+
+Different-family review covered the frozen prompts, schemas, counters and
+execution guard before inference. Historical corpus model authorship was
+unknown, so a complementary Sonnet 5.5 review also examined all textual
+fixture files and canonical facts; binary fixtures were digest-only. It
+returned APPROVED. Native stdout capture preserves split UTF-8, final JSON
+without a newline and error-result receipts even when a consumer throws.
+
+**Observed behavior.** A call-rate numerator requires at least one parsed
+block in a completed turn. Parse rate counts every attempted block call,
+including a rejected call followed by a valid retry.
+
+| form | completed / attempted | turns with parsed block | call rate | parsed / attempted calls | parse rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flat | 27 / 27 | 21 | 77.8% | 22 / 22 | 100% |
+| shared | 27 / 27 | 21 | 77.8% | 23 / 24 | 95.8% |
+| shared-trimmed | 27 / 27 | 21 | 77.8% | 22 / 22 | 100% |
+
+The shared form's compare-long turn in repetition two first sent `block` as a
+string, which failed the object parser, then sent a valid block. Every contact
+and steps prompt produced no block in every arm; the other seven prompts
+produced one on every repetition. Completed shared-form turns demonstrate
+provider acceptance of both definitions-based request shapes. Equal observed
+call rates in this small repeated prompt set do not establish behavioral
+equivalence or bound regressions on other prompts.
+
+**Usage and money.** Independently priced API equivalents sum to **$4.0214248**:
+flat $1.3931550, shared $1.3425880, trimmed $1.2856818. The complementary review
+adds $0.079636. These use actual modelUsage tokens and cache-write TTL counts,
+not SDK fallback dollar estimates (`priceSonnet55Usage`,
+`scripts/measure-sonnet55-cost.ts:18-39`), against the
+[official Sonnet 5.5 rates](https://platform.claude.com/docs/en/models/sonnet-5-5/overview).
+All scored cache writes had known TTLs. Cache state, output length and retries
+also move these totals; they are diagnostics, not an isolated estimate of the
+schema reduction's dollar effect or a subscription billing receipt.
+
+All 86 captured rate-limit events reported `isUsingOverage: false`; no
+additional billed overage was observed. The
+[maintainer's caps](https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493)
+apply to actual additional charges. The counter is
+[free to use](https://platform.claude.com/docs/en/build-with-claude/token-counting).
+Historical Sonnet 5 controls remain excluded: 42 completed and two
+interrupted attempts, $3.0837498 known-plus-recovered partial SDK estimates,
+two missing tails and an unknown aggregate. No final provider bill is asserted
+for those interruptions. Unknown SDK price provenance is tracked in #1206;
+missing error-result accounting is #1191.
+
+**Evidence and consequence.** The [sanitized per-turn artifact](design-kit-schema-forms-2026-10-07.json)
+retains all 81 cells, token columns, verified prices, rate flags, isolation
+verdicts and frozen source/schema/corpus identities. Claude accepted both
+reductions, and the counted saving is real. This result does not switch the
+shipped flat form; #563 owns pi's acceptance and the shipping choice.
+
 ## 2026-09-25 — measured: the Claude backend at server level, beside pi (#137)
 
 **Question.** pi drew a block on 52 of 60 turns (87%, "2026-09-22 — measured: pi draws the block" above). The
