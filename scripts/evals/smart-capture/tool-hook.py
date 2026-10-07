@@ -42,7 +42,7 @@ def verdict(event, root, source):
         command = data.get('command') or ''
         if '$' in command or '`' in command:
             return False
-        return len(words) >= 2 and words[0] == 'brain' and words[1] in ['add', 'search', 'index', 'schema', 'types', 'list', 'read', '--help']
+        return len(words) >= 2 and words[0] == 'brain' and words[1] in ['add', 'search', 'index', 'schema', 'types', 'list', 'read', '--help'] and '--smart' not in words[2:]
     return name in ['Skill', 'TodoWrite']
 
 if __name__ == '__main__':

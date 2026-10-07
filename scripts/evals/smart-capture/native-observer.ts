@@ -61,7 +61,9 @@ async function main() {
     }
     if (event.type === "rate_limit_event") {
       receipt.rates.push(event);
-      if (event.rate_limit_info?.isUsingOverage === true) throw Error("Reported subscription overage; stop");
+      if (event.rate_limit_info?.isUsingOverage === true || event.rate_limit_info?.overageInUse === true) {
+        receipt.overage = "active"; throw Error("Reported subscription overage; stop");
+      }
     }
     if (event.type === "result") {
       receipt.result = event; receipt.apiEquivalent = priceSonnet55Usage(event);
@@ -81,7 +83,7 @@ async function main() {
     await Promise.all([input, stderr]);
     receipt.exitCode = await native.exited;
     if (receipt.exitCode !== 0 || !receipt.result || !receipt.init) throw Error("Native EOF/exit without complete usage receipt");
-    receipt.overage = receipt.rates.some((r: any) => r.rate_limit_info?.isUsingOverage === false) ? "inactive observed" : "unknown";
+    receipt.overage = receipt.rates.length && receipt.rates.every((r: any) => r.rate_limit_info?.isUsingOverage === false || r.rate_limit_info?.overageInUse === false) ? "inactive observed" : "unknown";
     if (receipt.overage === "inactive observed") receipt.additionalBilledUsd = 0;
   } catch (error) {
     receipt.failure = String(error); native.kill(); process.exitCode = 1;
