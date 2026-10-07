@@ -640,6 +640,40 @@ const FILES_BLOCK_SCHEMA = z.object({
   })).min(1).max(20).describe("One to twenty supporting notes in the order the reader should inspect them."),
 });
 
+/** The agent supplies topology, never coordinates or inferred relationships. */
+const graphBlock = (f: BlockFields) => z.object({
+  kind: z.literal("graph"),
+  title: z.string().max(60).optional(),
+  nodes: z.array(z.object({
+    label: z.string().min(1).max(80),
+    path: z.string().max(1024).optional().describe("Optional brain-relative file link; refused destinations are plain text."),
+    tone: f.tone,
+    focus: z.boolean().optional(),
+  })).min(2).max(20).transform(nodes => {
+    let focused = false;
+    return nodes.map(node => {
+      if (!node.focus) return node;
+      const first = !focused; focused = true;
+      return { ...node, focus: first };
+    });
+  }),
+  edges: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])).max(40).transform(edges => {
+    const seen = new Set<string>();
+    return edges.filter(([a,b]) => {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  }),
+  legend: z.array(z.object({ label: z.string().min(1).max(40), tone: f.tone })).max(7).optional(),
+  meta: z.string().max(40).optional(),
+}).superRefine((block, ctx) => {
+  block.edges.forEach(([a,b],i) => {
+    if (a === b || a >= block.nodes.length || b >= block.nodes.length) ctx.addIssue({ code: "custom", path: ["edges",i], message: "Edges must join two different supplied nodes by their indices." });
+  });
+});
+const GRAPH_BLOCK_SCHEMA = graphBlock(SHIPPED_FIELDS);
+
 const OTHER_BLOCK_SCHEMAS = [
   COMPARISON_BLOCK_SCHEMA,
   STATS_BLOCK_SCHEMA,
@@ -654,6 +688,7 @@ const OTHER_BLOCK_SCHEMAS = [
   CONTACT_BLOCK_SCHEMA,
   FILES_BLOCK_SCHEMA,
   MAP_BLOCK_SCHEMA,
+  GRAPH_BLOCK_SCHEMA,
   TRACK_BLOCK_SCHEMA,
   LINK_BLOCK_SCHEMA,
   TRACKER_BLOCK_SCHEMA,
@@ -680,8 +715,9 @@ export const BLOCK_KINDS = BLOCK_SCHEMA.options.map(
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 export const SHOW_BLOCK_DESCRIPTION = [
-  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a supporting-files list, a map of places, an imported track, a link card or a list of tracker changes. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
+  "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a supporting-files list, a map of places, a small graph, an imported track, a link card or a list of tracker changes. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.",
   "files: local notes that support the answer, with optional plain-text reasons. Use exact brain-relative paths; reasons are your claims, not evidence that a file was read. Do not invent retrieval scores. Invalid or unavailable paths never authorize another destination.",
+  "graph: 2-20 nodes, at most 40 indexed edges. Supply labels, optional brain paths and one focus, never coordinates; only supplied relationships are drawn, duplicates are removed. This is your statement, not host-verified graph evidence.",
   "If you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.",
   "The block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.",
   "Values are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.",
@@ -741,6 +777,7 @@ export function showBlockInputSchema(form: ShowBlockSchemaForm): typeof SHOW_BLO
         contactBlock(f),
         FILES_BLOCK_SCHEMA,
         mapBlock(f),
+        graphBlock(f),
         TRACK_BLOCK_SCHEMA,
         // No tone, icon or restated field, so every form shares the one schema.
         LINK_BLOCK_SCHEMA,
@@ -772,12 +809,11 @@ export const SHOW_BLOCK_CONTRACT = defineToolComponentContract({
   brief: (name) =>
     `- **Never write a markdown table; call \`${name}\` instead.** It renders
   one inline block: tables are \`comparison\` (options) or \`table\`
-  (records). When a shape beats prose: \`stats\` for three
-  or four headline figures; a \`trend\` for one figure over time; \`bars\`
+  (records). When a shape beats prose: \`stats\` for 3–4 headline figures; a \`trend\` for one figure over time; \`bars\`
   for shares of a whole; a \`receipt\` for what a tool or a change did;
   \`steps\` for a procedure; a \`timeline\` for what happened when; a
-  \`schedule\` for what is coming; a \`quote\` when the words are the
-  evidence; a \`contact\` when the answer is who; \`files\` for supporting local notes; a \`map\` for several
-  places; a \`track\` for an imported file; a \`link\` for a page to open. Write the prose around the block,
+  \`schedule\` for what is coming; a \`quote\` as
+  evidence; a \`contact\` when the answer is who; \`files\` for local notes; a \`map\` for several
+  places; a \`graph\` for connections; a \`track\` for an imported file; a \`link\` for a page to open. Write the prose around the block,
   never its contents again.`,
 });

@@ -6509,3 +6509,67 @@ for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__
     } finally { root.dispose(); }
   });
 }
+
+import { registerBuiltinRenderers as registerGraphRenderers } from "../../src/components/chat/renderers/index.js";
+const graphInput = { block: { kind: "graph" as const, nodes: [{ label: "Scylla", path: "knowledge/scylla.md", focus: true }, { label: "Circe", path: "javascript:alert(1)" }], edges: [[0,1],[1,0]] } };
+for (const [backend,name] of [["pi","show_block"],["claude","mcp__brain-ui__show_block"]] as const) {
+  test(`${backend} renders actual GraphView, supplied edges and a safe textual node link`, () => {
+    const requests:string[]=[]; const root=createBrainUiRoot({storage:null,request:async url=>{requests.push(String(url));throw new Error("unexpected lookup");}});
+    registerGraphRenderers(root.renderers);
+    try {
+      const tool={id:"graph",name,input:graphInput,output:JSON.stringify(graphInput)};
+      const Output=root.renderers.resolve(tool,backend)!.Output!;
+      const view=render(<BrainUiProvider root={root}><Output tool={tool}/></BrainUiProvider>);
+      expect(graphInput.block.nodes.length).toBeGreaterThan(0); expect(graphInput.block.edges.length).toBeGreaterThan(0);
+      expect(view.container.querySelectorAll('[data-graph-node]')).toHaveLength(2);
+      expect(view.container.querySelectorAll('[data-graph-view] line')).toHaveLength(1);
+      expect([...view.container.querySelectorAll('[data-graph-node-list] li')].map(n=>n.textContent)).toEqual(["Scyllaknowledge/scylla.md","Circejavascript:alert(1)"]);
+      expect([...view.container.querySelectorAll('[data-graph-node-list] a')].map(n=>n.getAttribute("href"))).toEqual(["#/files/knowledge/scylla.md"]);
+      expect(view.container.querySelector('[data-graph-edge-list]')!.textContent).toContain("Scylla ↔ Circe");
+      expect(requests).toEqual([]); expect(view.container.textContent).not.toContain("34 nodes");
+    } finally {root.dispose();}
+  });
+}
+
+import { BlockCard as GraphAnswerCard } from "../../src/components/chat/tool-cards/block-card.js";
+import { MessageBubble as GraphMessageBubble } from "../../src/components/chat/message-bubble.js";
+import { SHOW_BLOCK_CONTRACT as GraphContract, parseToolPayload as parseGraphPayload } from "@schlessera/brain-ui-sdk/client";
+test("graph refused paths stay plain text; safe activation opens only the current root",async()=>{
+  const requests:string[]=[];
+  const root=createBrainUiRoot({storage:null,config:{backendUrl:"https://alpha.example"},request:async url=>{
+    requests.push(String(url));return String(url).includes("/files/content")?Response.json({path:"knowledge/scylla.md",kind:"markdown",content:"# Scylla"}):Response.json({entries:[]});
+  }});
+  const paths=["knowledge/scylla.md","../people/circe.md","knowledge/../scylla.md","javascript:alert(1)","https://ithaca.example/scylla","/scylla.md","knowledge/scylla.md?raw=1"];
+  try {
+    const block={kind:"graph" as const,nodes:paths.map((path,i)=>({label:`Scylla ${i+1}`,path})),edges:[]};
+    const view=render(<BrainUiProvider root={root}><GraphAnswerCard block={block}/></BrainUiProvider>);
+    expect(paths).toHaveLength(7);
+    expect(view.queryAllByRole("link").map(a=>a.getAttribute("href"))).toEqual(["#/files/knowledge/scylla.md"]);
+    expect(requests).toEqual([]);fireEvent.click(view.getByRole("link",{name:"Scylla 1"}));
+    await waitFor(()=>expect(root.stores.file.getState().currentContent?.path).toBe("knowledge/scylla.md"));
+    expect(requests).toHaveLength(2);expect(requests.every(url=>new URL(url).origin==="https://alpha.example"&&new URL(url).searchParams.get("path")==="knowledge/scylla.md")).toBe(true);
+  } finally {root.dispose();}
+});
+test("a static graph retains its nodes and edges, clears sample metadata and makes no requests",()=>{
+  const root=createBrainUiRoot({storage:null});
+  try {
+    const payload=parseGraphPayload(GraphContract,JSON.stringify(graphInput))!;
+    const view=render(<BrainUiProvider root={root}><GraphAnswerCard {...payload} isStatic/></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-graph-node-list] li')).toHaveLength(2);
+    expect(view.container.querySelectorAll('[data-graph-edge-list] li')).toHaveLength(1);
+    expect(view.queryAllByRole("link")).toHaveLength(0);expect(view.queryAllByRole("button")).toHaveLength(0);
+    expect(view.container.textContent).not.toContain("2-hop");
+  } finally {root.dispose();}
+});
+for(const [backend,name] of [["pi","show_block"],["claude","mcp__brain-ui__show_block"]] as const){
+  test(`${backend} session_history draws the graph in the actual replayed answer`,()=>{
+    const root=createBrainUiRoot({storage:null});registerGraphRenderers(root.renderers);const sessionId="graph-replay";
+    try {
+      root.stores.chat.getState().setActiveSession(sessionId);root.stores.chat.setState({backendIds:{[sessionId]:backend}});
+      root.connection.handleServerMessage({type:"session_history",sessionId,messages:[{role:"assistant",content:"Connections at the crossing.",toolCalls:[{id:"graph-replay-tool",name,input:graphInput,output:JSON.stringify(graphInput)}]}]});
+      const messages=root.stores.chat.getState().buffers[sessionId]!.messages;expect(messages).toHaveLength(1);expect(messages[0]!.toolCalls).toHaveLength(1);
+      const noop=()=>{};const view=render(<BrainUiProvider root={root}><GraphMessageBubble message={messages[0]!} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>);
+      expect(view.container.querySelectorAll('[data-graph-node]')).toHaveLength(2);expect(view.container.querySelectorAll('[data-graph-view] line')).toHaveLength(1);
+    } finally {root.dispose();}
+  });
+}

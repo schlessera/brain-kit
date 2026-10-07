@@ -113,6 +113,7 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     { path: "people/circe.md", reason: "Gives the directions for the crossing." },
   ] },
   track: { kind: "track", source: { path: ".brain-ui/inbox/00000000-0000-0000-0000-000000000000/ithaca-loop.gpx" }, title: "Ithaca loop" },
+  graph: { kind: "graph", title: "The crossing", nodes: [{ label: "Scylla", path: "knowledge/scylla.md", focus: true }, { label: "Circe", tone: "teal" }], edges: [[0,1]], legend: [{ label: "person", tone: "teal" }] },
   map: {
     kind: "map",
     title: "Where the crew went ashore",

@@ -47,6 +47,7 @@ import { SupportingFiles } from "./supporting-files.js";
 
 import { TrackBlockCard } from "./track-block.js";
 import type { TrackDisplay } from "../../../lib/track-display.js";
+import { GraphBlockCard } from "./graph-block.js";
 import { MapBlockCard } from "./map-block.js";
 
 /** A kit icon key, or nothing when the model named one the kit lacks. */
@@ -95,6 +96,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `files · ${count(block.items.length, "file")}`;
     case "track":
       return `track · ${block.title ?? block.source.path}`;
+    case "graph":
+      return `graph · ${count(block.nodes.length, "node")} · ${count(block.edges.length, "edge")}`;
     case "map":
       return `map · ${block.title ?? count(block.places.length, "place")}`;
     case "link": {
@@ -169,6 +172,8 @@ function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: 
       return <SupportingFiles block={block} isStatic={isStatic} />;
     case "track":
       return <TrackBlockCard block={block} isStatic={isStatic} resolved={trackDisplay} />;
+    case "graph":
+      return <GraphBlockCard block={block} isStatic={isStatic} />;
     case "map":
       return <MapBlockCard block={block} isStatic={isStatic} />;
     case "link": {

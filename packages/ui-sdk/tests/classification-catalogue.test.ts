@@ -584,12 +584,14 @@ describe("the kinds the catalogue can draw", () => {
     // Supporting paths and their reasons come from an explicit agent call;
     // this pass never infers citations or why a note supports the answer.
     const SUPPORTING_NOTES: readonly string[] = ["files"];
+    // Topology is supplied deliberately, never inferred from a prose span.
+    const SUPPLIED_TOPOLOGY: readonly string[] = ["graph"];
     const leftOver = BLOCK_KINDS.filter(
       (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
     );
-    expect(leftOver).toEqual(["trend", "bars", "files", "map", "track", "link", "tracker"]);
+    expect(leftOver).toEqual(["trend", "bars", "files", "map", "graph", "track", "link", "tracker"]);
     const figures: string[] = leftOver.filter(
-      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind) && !AGENT_ACTS.includes(kind) && !SUPPORTING_NOTES.includes(kind)
+      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind) && !AGENT_ACTS.includes(kind) && !SUPPORTING_NOTES.includes(kind) && !SUPPLIED_TOPOLOGY.includes(kind)
     );
     expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });

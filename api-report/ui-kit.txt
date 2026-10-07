@@ -1086,6 +1086,8 @@ signatures (every public export and the types it is made of)
         label?: string;
         meta?: string;
         minHeight?: number;
+        connectFocus?: boolean;
+        nodeMaxWidth?: `${number}%`;
         minWidth?: number;
     }
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
