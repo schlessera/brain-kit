@@ -40,10 +40,12 @@ for (const [code, ...expected] of table) {
       expect(await response.json(), path).toEqual(body);
     }
     // A 500 is logged by code only — no native text or root path.
-    for (const record of logs.find({ severity: "ERROR" })) {
+    const errors = logs.find({ severity: "ERROR" });
+    for (const record of errors) {
       expect(record.attributes).toEqual({ "error.code": code });
       expect(JSON.stringify(record)).not.toContain("/srv/odysseus");
     }
+    expect(errors).toHaveLength(expected.filter(([status]) => status === 500).length);
   });
 }
 
@@ -57,5 +59,7 @@ test("an unexpected thrown error is a sanitized 500, logged by name", async () =
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "internal_error" });
   }
+  const errors = observability.logs.find({ severity: "ERROR" });
+  expect(errors.map((record) => record.attributes)).toEqual(Array(5).fill({ "error.code": "Error" }));
   expect(JSON.stringify(observability.logs.records())).not.toContain("/srv/odysseus");
 });

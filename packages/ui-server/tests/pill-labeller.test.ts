@@ -5,8 +5,6 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  LABEL_CONCURRENCY,
-  LABEL_MAX_CHARS,
   createLabeller,
   normaliseLabel,
   type LabelCompletionProvider,
@@ -34,13 +32,13 @@ describe("normaliseLabel", () => {
   test("keeps at most four words, then cuts on a word boundary to fit", () => {
     expect(normaliseLabel("Plan the long voyage home to Ithaca")).toBe("Plan the long voyage");
     const label = normaliseLabel("Provisioning Phaeacian shipbuilders' extraordinary celebrations")!;
-    expect(label.length).toBeLessThanOrEqual(LABEL_MAX_CHARS);
+    expect(label.length).toBeLessThanOrEqual(32);
     expect(label).toBe("Provisioning Phaeacian");
   });
 
   test("a single word longer than a pill is cut at the limit", () => {
     const label = normaliseLabel("Antidisestablishmentarianismlikeoratory")!;
-    expect(label).toHaveLength(LABEL_MAX_CHARS);
+    expect(label).toHaveLength(32);
   });
 
   test("nothing usable is null", () => {
@@ -136,7 +134,7 @@ describe("createLabeller", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test(`runs at most ${LABEL_CONCURRENCY} calls at once`, async () => {
+  test("runs at most two calls at once", async () => {
     let running = 0;
     let peak = 0;
     const release: Array<() => void> = [];
@@ -154,7 +152,7 @@ describe("createLabeller", () => {
       release.shift()?.();
     }
     expect(await Promise.all(answers)).toEqual(["Label 1", "Label 2", "Label 3", "Label 4", "Label 5"]);
-    expect(peak).toBe(LABEL_CONCURRENCY);
+    expect(peak).toBe(2);
   });
 
   test("a call past its deadline answers null but keeps its slot until the provider settles", async () => {
@@ -173,16 +171,16 @@ describe("createLabeller", () => {
     // The first two timed out while running; the other two timed out
     // waiting for a slot, and are never started.
     expect(answers).toEqual([null, null, null, null]);
-    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+    expect(calls).toHaveLength(2);
     while (settle.length || running) {
       settle.shift()?.();
       await new Promise((r) => setTimeout(r, 1));
     }
-    expect(peak).toBe(LABEL_CONCURRENCY);
-    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+    expect(peak).toBe(2);
+    expect(calls).toHaveLength(2);
     // A late answer is kept: asking again costs no call.
     expect(await labeller.label("follow-up:1", "Message 1")).toBe("Late 1");
-    expect(calls).toHaveLength(LABEL_CONCURRENCY);
+    expect(calls).toHaveLength(2);
   });
 });
 

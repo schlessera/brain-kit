@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, unlinkSync, readFileSync } from "fs";
 
 const TEST_DB = `/tmp/brain-ui-test-${process.pid}.db`;
 
@@ -13,38 +13,8 @@ describe("database migrations", () => {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
 
-    // Apply migration manually (same as 001_initial.sql)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        created_at INTEGER NOT NULL,
-        last_active_at INTEGER NOT NULL,
-        total_cost_usd REAL DEFAULT 0,
-        num_turns INTEGER DEFAULT 0
-      )
-    `);
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS cron_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_name TEXT NOT NULL,
-        started_at INTEGER NOT NULL,
-        finished_at INTEGER,
-        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'error')),
-        error_message TEXT,
-        duration_ms INTEGER
-      )
-    `);
-    db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job_name, started_at DESC)"
-    );
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS _migrations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT NOT NULL UNIQUE,
-        applied_at INTEGER NOT NULL
-      )
-    `);
+    // Exercise the shipped initial schema instead of reconstructing it here.
+    db.exec(readFileSync(new URL("../migrations/001_initial.sql", import.meta.url), "utf8"));
   });
 
   afterEach(() => {

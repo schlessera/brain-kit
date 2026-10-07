@@ -137,10 +137,10 @@ row's real mounting check. They do not establish mounting by themselves.
 
 **B — Corpus transport and CLI errors.**
 
-- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:114-138`)
-- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:201-211`)
-- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:57-83`)
-- ``stats history runs `brain stats --history` and the route passes its nulls through`` ([source](../packages/ui-server/tests/brain-client.test.ts)), (``stats history runs `brain stats --history` and the route passes its nulls through``, `packages/ui-server/tests/brain-client.test.ts:85-112`)
+- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:118-142`)
+- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:205-215`)
+- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:61-87`)
+- ``stats history runs `brain stats --history` and the route passes its nulls through`` ([source](../packages/ui-server/tests/brain-client.test.ts)), (``stats history runs `brain stats --history` and the route passes its nulls through``, `packages/ui-server/tests/brain-client.test.ts:89-116`)
 - `mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame` ([source](../packages/ui-server/tests/http-cli-errors.test.ts)), (`mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame`, `packages/ui-server/tests/http-cli-errors.test.ts:7-37`)
 
 **C — Capture and index recovery.**

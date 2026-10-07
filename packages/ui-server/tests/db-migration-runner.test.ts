@@ -4,6 +4,8 @@ import {
   existsSync,
   unlinkSync,
   mkdirSync,
+  mkdtempSync,
+  copyFileSync,
   readFileSync,
   writeFileSync,
   rmSync,
@@ -22,52 +24,29 @@ function cleanUp() {
   }
 }
 
-/**
- * Simplified migration runner matching the logic in db/client.ts
- */
-function runMigrations(database: Database, migrationsDir: string) {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS _migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL UNIQUE,
-      applied_at INTEGER NOT NULL
-    )
-  `);
-
-  let files: string[];
-  try {
-    const { readdirSync } = require("fs");
-    files = readdirSync(migrationsDir)
-      .filter((f: string) => f.endsWith(".sql"))
-      .sort();
-  } catch {
-    return;
-  }
-
-  const applied = new Set(
-    database
-      .query("SELECT filename FROM _migrations")
-      .all()
-      .map((r: any) => r.filename)
-  );
-
-  for (const file of files) {
-    if (applied.has(file)) continue;
-    const sql = require("fs").readFileSync(join(migrationsDir, file), "utf-8");
-    database.transaction(() => {
-      database.exec(sql);
-      database
-        .prepare("INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)")
-        .run(file, Date.now());
-    })();
-  }
+// The migration directory is deliberately relative to the production module.
+// Copy that exact module into a temporary package layout so custom SQL fixtures
+// reach the real factory without editing shipped migrations or cloning its logic.
+let fixtureRoot: string;
+let createDatabase: typeof import("../src/db/client").createUiDb;
+function runMigrations(_database: Database, _migrationsDir: string) {
+  const migrated = createDatabase(TEST_DB);
+  migrated.close();
 }
 
 describe("migration runner", () => {
   let db: Database;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cleanUp();
+    fixtureRoot = mkdtempSync("/tmp/brain-ui-migration-source-");
+    const sourceDir = join(fixtureRoot, "src/db");
+    mkdirSync(sourceDir, { recursive: true });
+    copyFileSync(join(import.meta.dir, "../src/db/client.ts"), join(sourceDir, "client.ts"));
+    // Link only fixture SQL, keeping the copied source's relative directory.
+    const { symlinkSync } = await import("fs");
+    symlinkSync(TEST_MIGRATIONS_DIR, join(fixtureRoot, "migrations"));
+    ({ createUiDb: createDatabase } = await import(join(sourceDir, "client.ts")));
     mkdirSync(TEST_MIGRATIONS_DIR, { recursive: true });
     db = new Database(TEST_DB, { create: true });
     db.exec("PRAGMA journal_mode = WAL");
@@ -76,6 +55,7 @@ describe("migration runner", () => {
   afterEach(() => {
     db.close();
     cleanUp();
+    rmSync(fixtureRoot, { recursive: true, force: true });
   });
 
   test("creates _migrations table if not exists", () => {

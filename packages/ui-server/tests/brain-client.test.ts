@@ -1,6 +1,8 @@
-import { afterEach, describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
   chmodSync,
+  cpSync,
+  symlinkSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -9,7 +11,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createApp } from "../src/app";
 import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
@@ -17,6 +19,8 @@ import { resolveServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createBrainRoutes } from "../src/routes/brain";
+
+import { BRAIN_BIN, runCli } from "../../core/tests/cli-harness";
 
 const temporaryRoots: string[] = [];
 
@@ -285,30 +289,39 @@ describe("brain CLI version probe", () => {
   });
 });
 
-// These tests require the brain repo at ~/brain
-const LOCAL_BRAIN_PATH = `${process.env.HOME}/brain`;
-const BRAIN_AVAILABLE = await (async () => {
-  if (Bun.spawnSync(["test", "-d", `${LOCAL_BRAIN_PATH}/.git`]).exitCode !== 0) {
-    return false;
-  }
-  const observability = createRecordingObservability();
-  try {
-    await probeBrainCliVersion(LOCAL_BRAIN_PATH, observability.logger("brain"));
-    return observability.logs.count({ severity: "WARN" }) === 0;
-  } catch {
-    return false;
-  }
-})();
+describe("brain CLI client over the keyless Odysseus corpus", () => {
+  let brainSearch: ReturnType<typeof createBrainClient>["search"];
+  let brainBriefing: ReturnType<typeof createBrainClient>["briefing"];
+  let brainStats: ReturnType<typeof createBrainClient>["stats"];
+  let brainList: ReturnType<typeof createBrainClient>["list"];
+  let brainRead: ReturnType<typeof createBrainClient>["read"];
+  let brainValidate: ReturnType<typeof createBrainClient>["validate"];
 
-const client = createBrainClient({ brainPath: LOCAL_BRAIN_PATH });
-const brainSearch = client.search;
-const brainBriefing = client.briefing;
-const brainStats = client.stats;
-const brainList = client.list;
-const brainRead = client.read;
-const brainValidate = client.validate;
+  beforeEach(async () => {
+    const root = temporaryBrain();
+    cpSync(resolve(import.meta.dir, "../../core/fixtures/corpus"), root, { recursive: true });
+    mkdirSync(join(root, "node_modules"), { recursive: true });
+    symlinkSync(resolve(import.meta.dir, "../../../node_modules/@schlessera"), join(root, "node_modules/@schlessera"));
+    const harness = resolve(import.meta.dir, "../../core/tests/cli-harness.ts");
+    installBrainCli(root, `
+      import { keylessEnv } from ${JSON.stringify(harness)};
+      const child = Bun.spawn([process.execPath, ${JSON.stringify(BRAIN_BIN)}, ...process.argv.slice(2)], {
+        cwd: ${JSON.stringify(root)}, env: keylessEnv(${JSON.stringify(root)}),
+        stdin: "ignore", stdout: "inherit", stderr: "inherit",
+      });
+      process.exit(await child.exited);
+    `);
+    const indexed = await runCli(root, ["index", "--json"]);
+    expect(indexed.code, indexed.stderr).toBe(0);
+    const client = createBrainClient({ brainPath: root });
+    brainSearch = client.search;
+    brainBriefing = client.briefing;
+    brainStats = client.stats;
+    brainList = client.list;
+    brainRead = client.read;
+    brainValidate = client.validate;
+  });
 
-describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
   describe("brainSearch", () => {
     test("returns results for a known query", async () => {
       const { results, warnings } = await brainSearch("identity");
@@ -339,12 +352,12 @@ describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
       for (const r of results) {
         expect(r.type).toBe("identity");
       }
+      expect(results.length).toBeGreaterThan(0);
     });
 
     test("returns empty array for nonsense query", async () => {
       const { results } = await brainSearch("xyzzyplughfoo123nonsense");
-      expect(results).toBeArray();
-      // Might still return fuzzy results, but should be empty or very few
+      expect(results).toEqual([]);
     });
   });
 
@@ -369,7 +382,7 @@ describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
     test("includes expected types", async () => {
       const stats = await brainStats();
       expect(stats.byType.identity).toBeGreaterThan(0);
-      expect(stats.byType.talk).toBeGreaterThan(0);
+      expect(stats.byType.project).toBeGreaterThan(0);
     });
   });
 
@@ -401,6 +414,7 @@ describe.skipIf(!BRAIN_AVAILABLE)("brain CLI client", () => {
       for (const doc of results) {
         expect(doc.type).toBe("identity");
       }
+      expect(results.length).toBeGreaterThan(0);
     });
 
     test("respects limit", async () => {
