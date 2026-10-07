@@ -18,18 +18,46 @@ type Entry = { uploads: ReturnType<typeof createTrackUploads>; listeners: Set<()
  * one, whichever view it belongs to. `version` moves on every change, so a
  * snapshot of the queues is stable between changes.
  */
-type Registry = { entries: Map<string, Entry>; watchers: Set<() => void>; version: number; snapshot: { version: number; views: StagedTracks[] } | null };
+type Registry = {
+  entries: Map<string, Entry>; watchers: Set<() => void>; version: number; snapshot: { version: number; views: StagedTracks[] } | null;
+  /** The page's leave guard while a queue holds a track (#1150), or null. */
+  leaving: ((event: BeforeUnloadEvent) => void) | null;
+};
 
 const registries = new WeakMap<object, Registry>();
 
 function registry(root: BrainUiServices): Registry {
   let reg = registries.get(root.stores);
-  if (!reg) { reg = { entries: new Map(), watchers: new Set(), version: 0, snapshot: null }; registries.set(root.stores, reg); }
+  if (!reg) { reg = { entries: new Map(), watchers: new Set(), version: 0, snapshot: null, leaving: null }; registries.set(root.stores, reg); }
   return reg;
+}
+
+/**
+ * Staged tracks live in this page only, so while any queue of this root
+ * holds one, in any view and any upload state, leaving the page asks the
+ * browser to confirm (#1150): a reload, closing the tab, navigating away.
+ * The browser draws its own words, and may skip the prompt on a page the
+ * user never interacted with. Owned by the root rather than a mounted
+ * component, so a screen that replaces the app (the login gate) or a shell
+ * without `AppShell` keeps it.
+ */
+function guardLeaving(reg: Registry) {
+  if (typeof window === "undefined") return;
+  const staged = [...reg.entries.values()].some((entry) => entry.uploads.files.length > 0);
+  if (staged && !reg.leaving) {
+    reg.leaving = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", reg.leaving);
+  } else if (!staged && reg.leaving) {
+    window.removeEventListener("beforeunload", reg.leaving);
+    reg.leaving = null;
+  }
 }
 
 function changed(reg: Registry) {
   reg.version++;
+  // Before the watchers: the update takeover is one, and reloads at once
+  // when the last track goes. It must not meet this page's guard.
+  guardLeaving(reg);
   for (const watch of [...reg.watchers]) watch();
 }
 
