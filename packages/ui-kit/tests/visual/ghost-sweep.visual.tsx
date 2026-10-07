@@ -70,7 +70,7 @@ for (const width of [200, 800]) {
     const band = t.querySelector<HTMLElement>(".bk-ghost-band")!;
     const em = parseFloat(getComputedStyle(t).fontSize);
     const masks = [...t.querySelectorAll(".bk-ghost-window")].map((w) => getComputedStyle(w).maskImage);
-    for (const mask of masks) expect(mask).toContain("96deg");
+    for (const mask of masks) expect(mask).toContain("110deg");
     expect(masks[0]).toContain("40%");
     expect(masks[2]).toContain("60%");
     expect(rect(band).width, "band spans the whole text block").toBeGreaterThanOrEqual(rect(t).width - .1);
@@ -191,7 +191,10 @@ for (const width of [200, 800]) for (const [label, story] of [["5 characters", s
       const my = samples.reduce((n, v) => n + v.y, 0) / samples.length;
       const slope = samples.reduce((n, v) => n + (v.x - mx) * (v.y - my), 0) / samples.reduce((n, v) => n + (v.x - mx) ** 2, 0);
       const ramp = mx + (1 - my) / slope;
-      expect(Math.abs(ramp - .40 * rect(band).width), `${hue} painted ramp at ${width}px ${JSON.stringify({ ramp, scale, image: img.width, css: bandWidth, peak, peakAt })}`).toBeLessThanOrEqual(1);
+      // A 20° tilt shifts the 40% stop at the middle of the 20px probe:
+      // CSS projects the gradient across W + H*tan(20°), around its centre.
+      const expectedRamp = .40 * bandWidth - .10 * 20 * Math.tan(20 * Math.PI / 180);
+      expect(Math.abs(ramp - expectedRamp), `${hue} painted ramp at ${width}px ${JSON.stringify({ ramp, scale, image: img.width, css: bandWidth, peak, peakAt })}`).toBeLessThanOrEqual(1);
     }
   });
 }

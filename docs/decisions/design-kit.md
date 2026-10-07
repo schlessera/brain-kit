@@ -5727,7 +5727,7 @@ covers the whole frame. The amber leading ramp reaches opacity .08/.3/.65/1 at
 on both sides; each outer fade therefore spans 40% rather than 26% of the band.
 Purple and the inner ends remain percentages. These broad ramps scale with the frame; the earlier
 fixed 2.34em edge ruling is superseded by this revision. The maintainer also requested a slight diagonal stagger within each block:
-all three masks use a 96° gradient, leaving glyph geometry and the horizontal
+all three masks use a 110° gradient, leaving glyph geometry and the horizontal
 motion path unchanged. Visual sign-off at
 320px and desktop, in both themes, remains required before merge.
 
