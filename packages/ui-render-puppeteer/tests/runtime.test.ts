@@ -13,6 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import puppeteer from "puppeteer-core";
 
 import { createRenderer } from "../src/renderer";
 
@@ -155,8 +156,22 @@ describe.skipIf(!hasChrome)("renderer runtime policy", () => {
     const wsUrl = `ws://127.0.0.1:${server.port}/ws`;
 
     try {
-      const r = renderer();
-      const html = `<html><body><h1>x</h1>
+      const titles: string[] = [];
+      const r = renderer({ launch: async args => {
+        const browser = await puppeteer.launch(args);
+        const newPage = browser.newPage.bind(browser);
+        browser.newPage = async () => {
+          const page = await newPage();
+          const setContent = page.setContent.bind(page);
+          page.setContent = async (...args) => {
+            await setContent(...args);
+            titles.push(await page.title());
+          };
+          return page;
+        };
+        return browser;
+      } });
+      const html = `<html><head><title>Default isolated document</title></head><body><h1>x</h1>
         <img src="${url}.png">
         <script>
           fetch(${JSON.stringify(url)});
@@ -166,6 +181,8 @@ describe.skipIf(!hasChrome)("renderer runtime policy", () => {
       </body></html>`;
       const png = await r.renderPng({ html });
       expect(Buffer.isBuffer(png)).toBe(true);
+      // Observe execution independently of the lower network guards.
+      expect(titles).toEqual(["Default isolated document"]);
       // Give any in-flight connection a beat to land before asserting.
       await new Promise((res) => setTimeout(res, 500));
       expect(touched).toBe(false);
@@ -192,6 +209,7 @@ describe.skipIf(!hasChrome)("renderer runtime policy", () => {
       width: 10_000_000,
     });
     expect(Buffer.isBuffer(png)).toBe(true);
+    expect(png.readUInt32BE(16)).toBe(4096);
   }, 60_000);
 });
 
@@ -243,6 +261,8 @@ describe.skipIf(!hasChrome)("renderer hardening regressions", () => {
       html: "<html><body><div style='width:50000px;height:50000px'>x</div></body></html>",
     });
     expect(Buffer.isBuffer(png)).toBe(true);
+    expect(png.readUInt32BE(16)).toBeLessThanOrEqual(4096);
+    expect(png.readUInt32BE(20)).toBe(16_384);
     expect(png.byteLength).toBeLessThan(40_000_000);
   }, 60_000);
 
@@ -255,7 +275,6 @@ describe.skipIf(!hasChrome)("renderer hardening regressions", () => {
     );
   }, 60_000);
 
-  // GAP: browser-crash recovery (the "disconnected" handler) is not covered —
-  // the Browser handle is private to createRenderer, so a test would need an
-  // injection seam. The handler is one line and verified by inspection.
+  // Injectable browser lifecycle and stale callbacks are exercised in
+  // crash-recovery.test.ts; real isolation remains owned by this file.
 });
