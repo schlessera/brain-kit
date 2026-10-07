@@ -122,6 +122,7 @@ import {
 import { listedTool } from "./show-block-schema-forms.ts";
 import type { JsonObject } from "./attribute-show-block-schema.ts";
 import { kvRunColumns, kvRunRows, type KvRunColumns } from "./measure-kv-runs.ts";
+import { disableMeasurementMemory, measurementIsolationHook, type MeasurementToolAccess } from "./measurement-isolation.ts";
 
 /**
  * Pinned rather than left to the CLI default, so a later re-run compares
@@ -147,6 +148,7 @@ function stageBrain(): string {
     dir,
     { recursive: true }
   );
+  disableMeasurementMemory(dir);
   return dir;
 }
 
@@ -354,6 +356,7 @@ interface TurnResult {
   /** The credential the CLI said it used, as its `init` reported it. */
   apiKeySource?: string;
   error?: string;
+  isolation: MeasurementToolAccess[];
   suggestionTurn?: SuggestionTurn;
 }
 
@@ -384,7 +387,7 @@ function measurementTool(arm: ArmName) {
   return tool;
 }
 
-function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: boolean): Options {
+export function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: boolean, isolation: MeasurementToolAccess[]): Options {
   return {
     cwd: BRAIN_PATH,
     // Production aborts a turn at this budget rather than letting it run on
@@ -425,12 +428,13 @@ function optionsFor(arm: ArmName, abortController: AbortController, alwaysLoad: 
     // bills per call. The withholding is identical in both arms, so it cannot
     // move the contrast the A/B measures — only where both arms sit.
     disallowedTools: ["AskUserQuestion", "Bash", "Edit", "Write", "WebSearch", "WebFetch"],
-    // Production's own hook, so a delegated turn behaves the way it does
-    // there. The SDK backgrounds `Agent` calls by default and a background
-    // agent dies with the turn's subprocess before it reports, which would
-    // score the parent on an answer it never got. Registering the hook is why
-    // `Agent` can stay in the roster rather than being disallowed.
-    hooks: { PreToolUse: [{ matcher: "^Agent$", hooks: [createAgentHook()] }] },
+    // Keep the roster fixed but deny execution outside the staged fixture.
+    // Agent is denied too: inherited read guards have not been proven in a
+    // subagent runtime. The production rewrite hook cannot grant it back.
+    hooks: { PreToolUse: [
+      { matcher: ".*", hooks: [measurementIsolationHook(BRAIN_PATH, BLOCK_TOOL, isolation)] },
+      { matcher: "^Agent$", hooks: [createAgentHook({ mayGrant: false })] },
+    ] },
     // One answer, not an investigation: enough turns to read the corpus and
     // reply, few enough that a wandering run cannot stall the measurement.
     maxTurns: 14,
@@ -474,12 +478,14 @@ function assertNoServerLevelAlwaysLoad(): void {
   }
 }
 
-async function runTurn(
+export async function runTurn(
   prompt: (typeof PROMPTS)[number],
   arm: ArmName,
   rep: number,
-  alwaysLoad: boolean = ALWAYS_LOAD
+  alwaysLoad: boolean = ALWAYS_LOAD,
+  queryFn: typeof query = query
 ): Promise<TurnResult> {
+  const isolation: MeasurementToolAccess[] = [];
   const started = Date.now();
   const abortController = new AbortController();
   const deadline = setTimeout(() => abortController.abort(), TURN_BUDGET_MS);
@@ -507,9 +513,9 @@ async function runTurn(
   let apiKeySource: string | undefined;
   const inputSchema = inputSchemaFor(arm);
   try {
-    for await (const message of query({
+    for await (const message of queryFn({
       prompt: prompt.text,
-      options: optionsFor(arm, abortController, alwaysLoad),
+      options: optionsFor(arm, abortController, alwaysLoad, isolation),
     })) {
       if (message.type === "system" && message.subtype === "init") {
         claudeCode = message.claude_code_version;
@@ -563,6 +569,7 @@ async function runTurn(
   // An aborted turn produced no answer a reader could have received, whatever
   // it emitted on the way, so it is excluded rather than scored.
   if (abortController.signal.aborted) error = "turn_budget_exceeded";
+  if (!succeeded && !error) error = "missing_result";
   const plan = planClassification(textParts);
   return {
     prompt: prompt.id,
@@ -586,6 +593,7 @@ async function runTurn(
     modelTurns,
     firstFrameMs,
     ...(ttftMs === undefined ? {} : { ttftMs }),
+    isolation,
     answer: textParts.join("\n\n"),
     alwaysLoad,
     ...(claudeCode ? { claudeCode } : {}),
@@ -800,7 +808,7 @@ async function pool<T>(
 }
 
 function pct(part: number, whole: number): string {
-  return `${((part / Math.max(whole, 1)) * 100).toFixed(0)}%`;
+  return whole ? `${((part / whole) * 100).toFixed(0)}%` : "not measured";
 }
 
 /**
@@ -980,7 +988,7 @@ function report(
       : "The brief's cost was not counted: `count_tokens` refused this credential.",
     "",
     `Calls the contract's schema REJECTED, and which therefore drew nothing, are not counted as calls: ${runs.reduce((sum, run) => sum + run.rejectedCalls, 0)} across the run.`,
-    `Turns that delegated to a subagent (\`Agent\`, foregrounded by production's own hook): ${runs.filter((run) => run.otherTools.includes("Agent")).length}. Subagent frames are never counted.`,
+    `Turns that attempted \`Agent\`: ${runs.filter((run) => run.otherTools.includes("Agent")).length}. The isolation hook denies delegation; subagent frames are never counted.`,
     `Runtime: \`@anthropic-ai/claude-agent-sdk\` ${installedSdkVersion()}, Claude Code ${[...new Set(runs.map((run) => run.claudeCode ?? "unknown"))].join(", ")} as each turn's \`init\` reported it.`,
     new Set(runs.map((run) => run.alwaysLoad)).size > 1
       ? "MCP tools ran BOTH ways (`--both-arms`); the load-mode table below compares them."
@@ -1157,7 +1165,10 @@ async function main(): Promise<void> {
   const loadModes = bothArms ? [true, false] : [ALWAYS_LOAD];
   const tasks: (() => Promise<TurnResult>)[] = [];
   for (let rep = 1; rep <= reps; rep += 1) {
-    for (const arm of ARMS) {
+    // Each schema form occupies each order position once across three reps.
+    const offset = SCHEMA_FORMS ? (rep - 1) % ARMS.length : 0;
+    const orderedArms = [...ARMS.slice(offset), ...ARMS.slice(0, offset)];
+    for (const arm of orderedArms) {
       for (const prompt of prompts) {
         for (const alwaysLoad of loadModes) tasks.push(() => runTurn(prompt, arm, rep, alwaysLoad));
       }
@@ -1192,4 +1203,4 @@ async function main(): Promise<void> {
   console.log(`\n${text}`);
 }
 
-await main();
+if (import.meta.main) await main();
