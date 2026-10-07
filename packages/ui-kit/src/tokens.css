@@ -142,6 +142,18 @@
    * keyframe resolves on the animated element, so one keyframe serves both. */
   --bk-breathe-glow: light-dark(rgba(127,76,8,0.16), rgba(224,159,62,0.15));
 
+  /* Ghost text (#1116): the loading state. Blurred glyphs in `ghost-base`,
+   * with the kit spectrum — amber, purple, blue — sweeping through them. On
+   * paper the base is the edge colour and each hue is deepened until it
+   * contrasts with that base as much as its dark pair does with the dark
+   * base (within 10%, asserted in `tests/ghost-text.test.tsx`): the sweep
+   * reads the same in both themes rather than glowing in one and fading in
+   * the other. */
+  --bk-ghost-base: light-dark(#c8bfac, #3a3d46);
+  --bk-ghost-amber: light-dark(#6d4107, #e09f3e);
+  --bk-ghost-purple: light-dark(#5f4685, #b197d4);
+  --bk-ghost-blue: light-dark(#214d68, #67b8e3);
+
   /* ── Tint and border ramps, per surface ───────────────────────────
    * The rule is tints at 4-10% alpha and borders at 30-50%, and each
    * component picks its own point in that band: a chip is a small dense mark
@@ -898,6 +910,10 @@
   --bk-filament-edge: var(--bk-amber-mark);
   --bk-filament-core: var(--bk-amber-fill);
   --bk-breathe-glow: transparent;
+  --bk-ghost-base: transparent;
+  --bk-ghost-amber: transparent;
+  --bk-ghost-purple: transparent;
+  --bk-ghost-blue: transparent;
   --bk-chip-border-amber: #b09066;
   --bk-chip-border-gold: #9a8755;
   --bk-chip-border-teal: #67938b;
@@ -1220,17 +1236,125 @@
   }
 }
 
+/* ── Ghost text (#1116) ───────────────────────────────────────────────────
+ *
+ * The loading state: blurred text in the replaced content's own type role,
+ * with the kit spectrum sweeping through it left to right. `GhostText` is the
+ * only thing that draws one; it sets the font, size, blur and stagger inline
+ * and takes these classes for everything a stylesheet has to be able to
+ * reach — reduced motion and print.
+ *
+ * NOT AMBIENT MOTION. "The only ambient motion" is still `breathe`. A ghost is
+ * a loading state: it ends when the data does, so the rule's wording stands.
+ *
+ * The sweep: the gradient is 250% of the line wide and its band — amber,
+ * purple, blue — is 16% of that, so the band is 40% of the line. Sliding the
+ * image from 100% to 0% moves the band in from the left edge and out past the
+ * right. `box-decoration-break: clone` gives each wrapped line its own sweep
+ * rather than one band across the concatenated lines.
+ */
+.bk-ghost {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--bk-ghost-base) 0%,
+    var(--bk-ghost-base) 42%,
+    var(--bk-ghost-amber) 45%,
+    var(--bk-ghost-purple) 50%,
+    var(--bk-ghost-blue) 55%,
+    var(--bk-ghost-base) 58%,
+    var(--bk-ghost-base) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 0% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: ghost 2.6s ease-in-out infinite;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* `animate={false}`: the same ghost, still — a baseline can be taken from it. */
+.bk-ghost[data-still] {
+  animation: none;
+}
+
+@keyframes ghost {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+/* The handoff: the ghost layer under the real one, both over 600ms, starting
+ * when that item's data resolves. */
+.bk-ghost-in {
+  animation: ghost-in 600ms ease both;
+}
+
+.bk-ghost-out {
+  animation: ghost-out 600ms ease both;
+}
+
+@keyframes ghost-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ghost-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* A stream's newest characters settle from 0.2 to full opacity, well inside
+ * 250ms of the token that brought them. */
+.bk-ghost-tail {
+  animation: ghost-tail 220ms ease-out both;
+}
+
+@keyframes ghost-tail {
+  from {
+    opacity: 0.2;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Ghosts are not printed: a shared PDF is the content or nothing. The print
+ * theme makes the four ghost tokens transparent, so a ghost in a print-themed
+ * render paints nothing; a browser print hides it. Both
+ * keep its box, so the printed page has the layout the screen had. */
+@media print {
+  .bk-ghost {
+    visibility: hidden;
+  }
+}
+
 /* ── Reduced motion ───────────────────────────────────────────────────────
  *
  * One of the design's five non-negotiable rules: `prefers-reduced-motion`
- * drops `breathe` to a static dot and skeletons to still bars, and NOTHING
- * CONVEYS MEANING THROUGH MOTION ALONE, so nothing is lost when it is off.
+ * drops `breathe` to a static dot and ghost text to plain blurred text with
+ * no spectrum (#1116), and NOTHING CONVEYS MEANING THROUGH MOTION ALONE, so
+ * nothing is lost when it is off.
  *
- * This is ONE RULE because there is one keyframe. Six call sites write
- * `animation: breathe …` on their own INLINE style — StatusDot, Placeholder,
- * StepList, InlineToast and StreamingAnswer twice — and an inline style cannot
- * be overridden from a stylesheet without `!important`, which would have meant
- * six `!important` declarations and a seventh the day someone adds a seventh
+ * `breathe` is ONE RULE because there is one keyframe. Five call sites write
+ * `animation: breathe …` on their own INLINE style — StatusDot, StepList,
+ * InlineToast, the tone cue and StreamingAnswer's caret — and an inline style
+ * cannot be overridden from a stylesheet without `!important`, which would have
+ * meant five `!important` declarations and a sixth the day someone adds a sixth
  * call site. REDEFINING THE KEYFRAME reaches every call site instead, present
  * and future, from the one place the motion is described: the animation still
  * runs, it simply has nowhere to go.
@@ -1255,6 +1379,21 @@
       box-shadow: 0 0 0 0 var(--bk-breathe-glow);
       opacity: 1;
     }
+  }
+
+  /* Ghost text stays as plain blurred placeholder text in the base colour:
+   * no sweep and no spectrum at all — the gradient is dropped, not parked —
+   * the cross-fade is instant and a stream's tail lands at full opacity. */
+  .bk-ghost {
+    animation: none;
+    background-image: none;
+    color: var(--bk-ghost-base);
+  }
+
+  .bk-ghost-in,
+  .bk-ghost-out,
+  .bk-ghost-tail {
+    animation-duration: 0s;
   }
 
   .bk-switch,
