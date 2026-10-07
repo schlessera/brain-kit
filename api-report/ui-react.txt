@@ -579,6 +579,7 @@ signatures (every public export and the types it is made of)
     export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
         sink: LocalCaptureSink;
         timesliceMs?: number;
+        signal?: AbortSignal;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
     export type StatsSection = {

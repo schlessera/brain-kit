@@ -417,3 +417,16 @@ test("Add on a dictated review never starts dictation beside a recording on the 
   await userEvent.click(mic(s)!);
   await expect.poll(() => s.sink.ended).toEqual(["user"]);
 });
+
+test("a recorder that fails to start reaches no sink and leaves no microphone open", async () => {
+  const gum = { calls: 0, streams: [] as MediaStream[] };
+  spyMicrophone(gum);
+  const sink = new TestSink();
+  class Refusing extends MediaRecorder {
+    override start(): void { throw new DOMException("The recorder could not start.", "NotSupportedError"); }
+  }
+  await expect(startLocalCapture({ sink, MediaRecorder: Refusing })).rejects.toThrow("could not start");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sink.mimeType, "begin never ran").toBe("");
+  expect(gum.streams[0]!.getTracks().map((t) => t.readyState), "the stream was released").toEqual(["ended"]);
+});

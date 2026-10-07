@@ -121,7 +121,7 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
     sinkFailed = true;
     void finish("storage");
   };
-  let delivery: Promise<void> = Promise.resolve().then(() => sink.begin?.({ mimeType })).then(() => undefined, failSink);
+  let delivery: Promise<void> = Promise.resolve();
   let index = 0;
   let startedAt = 0;
   let lastEnd = 0;
@@ -186,6 +186,8 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
     throw err;
   }
   startedAt = now();
+  // Only a recording that started reaches the sink, and begin comes first.
+  delivery = delivery.then(() => sink.begin?.({ mimeType })).then(() => undefined, failSink);
 
   return {
     mimeType,
