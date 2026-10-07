@@ -413,14 +413,26 @@ describe("GET /graph/discovery", () => {
   });
 
   test("direction narrows what an ad-hoc root can reach", async () => {
+    useComputedFixture({ links: [
+      { sourceId: 1, target: "alpha", targetId: 2 },
+      { sourceId: 2, target: "beta", targetId: 3 },
+    ] });
+
+    const outgoing = await get<GraphSubgraphResponse>("/graph/discovery?root=alpha.md&direction=out");
+    expect(ids(outgoing.body)).toEqual([2, 3]);
+    expect(outgoing.body.reachableCount).toBe(2);
+    expect(outgoing.body.unreachableCount).toBe(2);
+
+    const both = await get<GraphSubgraphResponse>("/graph/discovery?root=alpha.md&direction=both");
+    expect(ids(both.body)).toEqual([1, 2, 3]);
+    expect(both.body.reachableCount).toBe(3);
+    expect(both.body.unreachableCount).toBe(1);
+  });
+
+  test("an orphan root reaches only itself", async () => {
     useComputedFixture();
-
-    // alpha.md reaches beta.md and index.md following links out; the corpus is
-    // a cycle, so the whole cycle is reachable either way — but the orphan
-    // never is.
     const { body } = await get<GraphSubgraphResponse>("/graph/discovery?root=orphan.md");
-
-    expect(body.reachableCount).toBe(1); // itself, and nothing else
+    expect(body.reachableCount).toBe(1);
     expect(body.unreachableCount).toBe(3);
   });
 
