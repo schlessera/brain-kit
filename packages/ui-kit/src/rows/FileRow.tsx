@@ -1,6 +1,7 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
 import { Chip } from "../primitives/Chip.js";
+import { GhostIconSlot, Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { StatusDot } from "../primitives/StatusDot.js";
 import { edgeFor, focusEdge, focusSibling } from "../internal/roving.js";
@@ -16,6 +17,12 @@ import type { FileKind, Tone, ViewState } from "../types.js";
  * `view` swaps the whole row for a `Placeholder` at row size, with this
  * component's own copy: "Empty folder", "Folder unreadable / Permission denied
  * on the host." Both overridable through `stateMessage` / `stateDetail`.
+ *
+ * Loading is the row itself in ghost text (#1116): borderless as before, at
+ * its depth, with the name as a sans ghost — as long as `label` when the
+ * listing already gave it, else the last name shown, else 14 characters. A
+ * `kind` given while loading draws its real chevron and icon; without one the
+ * icon is a 14px outline slot.
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -96,10 +103,20 @@ export function FileRow(p: FileRowProps) {
   const open = kind === "open";
   const active = p.active === true;
   const depth = Number(p.depth) || 0;
-  const act = Boolean(p.onClick);
+  const act = Boolean(p.onClick) && p.view !== "loading";
   const view = p.view || "ready";
+  const loading = view === "loading";
+  const arriving = useArrival(loading);
+  const label = p.label ?? "notes";
+  const last = useLastLengths(view === "ready", { name: label.length, kind });
+  const nameLength = useLoadingValue(loading, ghostLength(last.name, p.label?.length, 14));
+  // While loading, the kind is data unless the caller already has it or this
+  // row showed one before; then its chevron and icon are drawn from frame 1.
+  const loadingKind = p.kind ?? last.kind;
+  const kindKnown = !loading || loadingKind !== undefined;
+  const drawn = loading && loadingKind ? loadingKind : kind;
 
-  if (view !== "ready") {
+  if (view !== "ready" && !loading) {
     return (
       <Placeholder
         variant={view}
@@ -107,16 +124,14 @@ export function FileRow(p: FileRowProps) {
         detail={p.stateDetail ?? (view === "error" ? "Permission denied on the host." : undefined)}
         actionLabel={view === "error" ? (p.stateAction ?? "Retry") : undefined}
         icon={view === "empty" ? "folder" : "failed"}
-        lines={1}
         pad={9}
         radius={9}
-        bordered={view !== "loading"}
         onAction={p.onStateAction}
       />
     );
   }
 
-  const isFolder = kind === "folder" || open;
+  const isFolder = drawn === "folder" || drawn === "open";
 
   const box: CSSProperties = {
     display: "flex",
@@ -135,6 +150,7 @@ export function FileRow(p: FileRowProps) {
     ...({ "--hv-bg": active ? color.raised : act ? token("hover-veil") : "transparent" } as CSSProperties),
   };
   const nameStyle: CSSProperties = {
+    position: "relative",
     flex: "none",
     maxWidth: "68%",
     overflow: "hidden",
@@ -182,27 +198,40 @@ export function FileRow(p: FileRowProps) {
   return (
     <div
       style={box}
+      aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "treeitem" : undefined}
       aria-expanded={act ? (kind === "folder" ? false : open ? true : undefined) : undefined}
       aria-selected={act && active ? true : undefined}
       tabIndex={act ? 0 : undefined}
-      onClick={p.onClick}
+      onClick={act ? p.onClick : undefined}
       onKeyDown={act ? onKeyDown : undefined}
     >
-      {isFolder ? <Icon icon="next" size={12} color={color.inkMute} /> : null}
-      <Icon
-        icon={ICONS[kind] || "file"}
-        size={isFolder ? 16 : 14}
-        color={open ? token("file-icon-open") : active ? accent.amber.ink : color.inkMute}
-      />
+      {kindKnown && isFolder ? <Icon icon="next" size={12} color={color.inkMute} /> : null}
+      {kindKnown ? (
+        <Icon
+          icon={ICONS[drawn] || "file"}
+          size={isFolder ? 16 : 14}
+          color={drawn === "open" ? token("file-icon-open") : active ? accent.amber.ink : color.inkMute}
+        />
+      ) : (
+        <GhostIconSlot size={14} />
+      )}
       {/* The row OPENS the record, so the ellipsis is allowed — and the full
        * name rides along as a `title`, so a pointer user never has to click
        * to read it. */}
-      <span style={nameStyle} title={p.label ?? "notes"}>{p.label ?? "notes"}</span>
-      {p.badge ? <Chip label={p.badge} variant="count" tone="red" /> : null}
-      {p.flag ? <StatusDot tone={p.flag} pulse={false} size={6} /> : null}
-      {p.meta ? <span style={metaStyle}>{p.meta}</span> : null}
+      <span style={nameStyle} title={loading ? undefined : label}>
+        <Ghosted
+          loading={loading}
+          arriving={arriving}
+          ghost={{ role: "sans", size: 13, length: nameLength, seed: `file:${depth}:${nameLength}` }}
+        >
+          {label}
+        </Ghosted>
+      </span>
+      {p.badge && !loading ? <Chip label={p.badge} variant="count" tone="red" /> : null}
+      {p.flag && !loading ? <StatusDot tone={p.flag} pulse={false} size={6} /> : null}
+      {p.meta && !loading ? <span style={metaStyle}>{p.meta}</span> : null}
     </div>
   );
 }

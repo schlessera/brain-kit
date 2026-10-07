@@ -1,5 +1,6 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
+import { GhostText, INCOMING, useArrival, type GhostSpec } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
 import type { Tone } from "../types.js";
@@ -8,8 +9,9 @@ import type { Tone } from "../types.js";
  * The three states every list and card needs, in one place so they cannot
  * diverge — the design's words:
  *
- *   loading = skeleton bars, breathing on the kit's one ambient keyframe (no
- *             new motion);
+ *   loading = ghost text in the replaced content's type role, the spectrum
+ *             sweeping through it, and a 600ms cross-fade to the real
+ *             content when it lands (#1116) — never a spinner, never bars;
  *   empty   = dashed hairline, mono sentence saying what would be here and why
  *             it isn't;
  *   error   = red hairline with the failure named and, where one exists, a way
@@ -33,6 +35,18 @@ import type { Tone } from "../types.js";
  *
  * Gated on `onAction`, like every other affordance in the kit — a retry with
  * nobody listening stays the label the design draws.
+ *
+ * **Loading is ghost text** (#1116). `ghost` describes the content being
+ * waited for, one entry per text block, each in its own type role and length;
+ * a block wraps where the real text of that length would. Without `ghost`,
+ * `lines` draws neutral one-line ghosts at the old bar widths, so a caller
+ * that never said what it was waiting for still gets the new state.
+ *
+ * `arrived` makes the Placeholder the owner of the handoff: pass the real
+ * content as children and flip `arrived` when it lands. The box stays, the
+ * children fade in over 600ms and the ghost fades out on top of them, laid
+ * over rather than beside, so it leaves no space behind. Until then the box
+ * says `aria-busy`.
  */
 export interface PlaceholderProps {
   variant?: "loading" | "empty" | "error";
@@ -44,10 +58,17 @@ export interface PlaceholderProps {
   actionLabel?: string;
   icon?: IconName;
   tone?: Tone;
-  /** Skeleton bar count, 1-5. */
+  /** Neutral ghost lines when no `ghost` is given, 1-5. */
   lines?: number;
+  /** Loading only: the content being waited for, as ghost text. */
+  ghost?: GhostSpec[];
+  /** The seed for the ghost glyphs — the item's key, so they never flicker. */
+  seed?: string;
+  /** Loading only: the data has landed. Children are the real content. */
+  arrived?: boolean;
+  children?: ReactNode;
   bordered?: boolean;
-  /** Set false to stop the skeleton breathing. */
+  /** Set false to hold the ghost still: a static fill, still blurred. */
   animate?: boolean;
   pad?: number;
   onAction?: () => void;
@@ -55,6 +76,7 @@ export interface PlaceholderProps {
    * data-props, so they are real props with no editor control. Kept, because
    * dropping them would narrow the component's API during a port. */
   iconSize?: number;
+  /** @deprecated Ignored since loading became ghost text (#1116). */
   barHeight?: number;
   gap?: number;
   radius?: number;
@@ -73,11 +95,18 @@ const TONES: Record<Tone, { fg: string; edge: string }> = {
   neutral: { fg: accent.neutral.ink, edge: token("placeholder-action-border-neutral") },
 };
 
-/** Skeleton bar widths, cycled. The first bar is the short one. */
+/** Neutral ghost line widths, cycled. The first line is the short one. */
 const WIDTHS = ["46%", "88%", "64%", "78%", "52%"];
+
+/** Line height per role, so a ghost block wraps into the lines the content
+ * would. The caller's own content sets the real ones. */
+const LINE_HEIGHT = { sans: 1.55, mono: 1.4, title: 1.25 } as const;
 
 export function Placeholder(p: PlaceholderProps) {
   const v = p.variant || "loading";
+  const loading = v === "loading";
+  const arrived = loading && p.arrived === true;
+  const arriving = useArrival(loading && !arrived);
   const err = v === "error";
   const empty = v === "empty";
   const skin = TONES[p.tone || (err ? "red" : "neutral")] || TONES.neutral;
@@ -90,15 +119,28 @@ export function Placeholder(p: PlaceholderProps) {
   const icon = p.icon || (err ? "failed" : "fyi");
   const iconSize = Number(p.iconSize) || 14;
 
-  const bars: CSSProperties[] = Array.from({ length: lines }).map((_, i) => ({
-    display: "block",
-    height: Number(p.barHeight) || 9,
-    borderRadius: 5,
-    width: i === 0 && lines > 1 ? WIDTHS[0] : WIDTHS[(i + 1) % WIDTHS.length],
-    background: color.line,
-    animation: p.animate === false ? undefined : "breathe 2s ease-in-out infinite",
-    animationDelay: `${(i * 0.18).toFixed(2)}s`,
-  }));
+  const seed = p.seed ?? "placeholder";
+  const still = p.animate === false;
+  // Lines inside one card are offset by +0.1s each, so the sweep travels down
+  // the card rather than flashing every line at once.
+  const ghosts = p.ghost?.length
+    ? p.ghost.map((g, i) => (
+        <div key={i} style={{ lineHeight: LINE_HEIGHT[g.role] }}>
+          <GhostText role={g.role} size={g.size} length={g.length} seed={`${seed}:${i}`} delay={i * 0.1} animate={!still} />
+        </div>
+      ))
+    : Array.from({ length: lines }).map((_, i) => (
+        <div key={i} style={{ lineHeight: LINE_HEIGHT.sans }}>
+          <GhostText
+            role="sans"
+            length={120}
+            seed={`${seed}:${i}`}
+            width={i === 0 && lines > 1 ? WIDTHS[0] : WIDTHS[(i + 1) % WIDTHS.length]}
+            delay={i * 0.1}
+            animate={!still}
+          />
+        </div>
+      ));
 
   const box: CSSProperties = {
     boxSizing: "border-box",
@@ -114,7 +156,8 @@ export function Placeholder(p: PlaceholderProps) {
       : "none",
   };
 
-  const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: Number(p.gap) || 8 };
+  const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: Number(p.gap) || 4 };
+  const overlay: CSSProperties = { ...stack, position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" };
   const messageRow: CSSProperties = { display: "flex", alignItems: "center", gap: 9 };
   const textWrap: CSSProperties = {
     flex: 1,
@@ -154,12 +197,21 @@ export function Placeholder(p: PlaceholderProps) {
   }
 
   return (
-    <div style={box}>
-      {v === "loading" ? (
-        <div style={stack}>
-          {bars.map((bar, i) => (
-            <span key={i} style={bar} />
-          ))}
+    <div style={box} aria-busy={loading && !arrived ? true : undefined}>
+      {loading && !arrived ? <div style={stack}>{ghosts}</div> : null}
+      {arrived ? (
+        // One tree from arrival on: ending the handoff drops the overlay and a
+        // class, so stateful children never remount. The overlay comes first
+        // and the content is positioned, so the content paints over it.
+        <div style={{ position: "relative" }}>
+          {arriving ? (
+            <div aria-hidden="true" className="bk-ghost-out" style={overlay}>
+              {ghosts}
+            </div>
+          ) : null}
+          <div className={arriving ? "bk-ghost-in" : undefined} style={INCOMING}>
+            {p.children}
+          </div>
         </div>
       ) : null}
       {message ? (

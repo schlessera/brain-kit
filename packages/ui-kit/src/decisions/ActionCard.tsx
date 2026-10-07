@@ -1,6 +1,17 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
 import { Chip } from "../primitives/Chip.js";
+import {
+  GhostDot,
+  GhostIconSlot,
+  Ghosted,
+  ghostLength,
+  useArrival,
+  useLastLengths,
+  useLoadingValue,
+  type GhostRole,
+  type GhostTextProps,
+} from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { StatusDot } from "../primitives/StatusDot.js";
 import { Placeholder } from "../states/Placeholder.js";
@@ -23,6 +34,15 @@ import type { ActionEmphasis, ActionKind, Tone, ViewState } from "../types.js";
  * `state` swaps the whole card for a `Placeholder` at card size with this
  * component's own copy — "Nothing waiting", "Actions unavailable" — overridable
  * through `stateMessage` / `stateDetail`.
+ *
+ * Loading is the card itself in ghost text (#1116): the kind line and foot
+ * are mono ghosts, the title and body sans ghosts at their own sizes, in a
+ * plain 1px frame with a 14px outline slot for the icon. The kind's skin —
+ * bold, tinted, dashed — is data, so it arrives with the data. The plain
+ * frame pads by one more pixel when the kind it is waiting for draws a 2px
+ * border, so the text sits where it will land. Slots the caller already
+ * passes while loading — a chip, machine facts, children, a foot link — keep
+ * their space, invisibly, so their arrival moves nothing either.
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -145,9 +165,28 @@ export function ActionCard(p: ActionCardProps) {
   const k = KINDS[kind] || KINDS.approval;
   const em = p.emphasis || k.em;
   const st = p.state || "ready";
-  const act = Boolean(p.onClick);
+  const loading = st === "loading";
+  const arriving = useArrival(loading);
+  const title = p.title ?? "Write the corrected seat count into talks/lisbon-2026.md?";
+  const kindLabel = p.kindLabel || k.label;
+  const last = useLastLengths(st === "ready", {
+    kind: kindLabel.length,
+    title: title.length,
+    body: p.body?.length ?? 0,
+    foot: p.footMeta?.length ?? 0,
+    dot: p.footDot ? 1 : 0,
+  });
+  // A card with no history ghosts a typical card: a body and a foot line.
+  const lengths = useLoadingValue(loading, {
+    kind: ghostLength(last.kind, p.kindLabel?.length, 8),
+    title: ghostLength(last.title, p.title?.length, 58),
+    body: ghostLength(last.body, p.body?.length, 44),
+    foot: ghostLength(last.foot, p.footMeta?.length, 24),
+    dot: ghostLength(last.dot, p.footDot ? 1 : undefined, 1),
+  });
+  const act = Boolean(p.onClick) && !loading;
 
-  if (st !== "ready") {
+  if (st !== "ready" && !loading) {
     return (
       <Placeholder
         variant={st}
@@ -162,7 +201,6 @@ export function ActionCard(p: ActionCardProps) {
         }
         actionLabel={st === "error" ? (p.stateAction ?? "Retry") : undefined}
         icon={st === "empty" ? "resolved" : "failed"}
-        lines={3}
         radius={14}
         onAction={p.onStateAction}
       />
@@ -177,7 +215,9 @@ export function ActionCard(p: ActionCardProps) {
     dashed: { border: `1px dashed ${ramp.dashed}`, background: ramp.tint },
     plain: { border: `1px solid ${color.line}`, background: color.surface },
   };
-  const skin = skins[em] || skins.plain;
+  const skin = loading
+    ? { border: `1px solid ${color.line}`, background: color.surface, padding: em === "bold" ? 13 : 12 }
+    : skins[em] || skins.plain;
 
   const box: CSSProperties = {
     borderRadius: 14,
@@ -204,12 +244,14 @@ export function ActionCard(p: ActionCardProps) {
     color: p.rightMetaTone === "red" ? accent.red.ink : color.inkMute,
   };
   const titleStyle: CSSProperties = {
+    position: "relative",
     font: `400 13px/1.55 ${font.body}`,
     color: p.struck ? color.inkMute : color.ink,
     textDecoration: p.struck ? "line-through" : "none",
   };
-  const bodyStyle: CSSProperties = { marginTop: 7, font: `400 11.5px/1.55 ${font.body}`, color: color.inkMute };
+  const bodyStyle: CSSProperties = { position: "relative", marginTop: 7, font: `400 11.5px/1.55 ${font.body}`, color: color.inkMute };
   const foot: CSSProperties = {
+    position: "relative",
     display: "flex",
     alignItems: "center",
     gap: 8,
@@ -218,6 +260,18 @@ export function ActionCard(p: ActionCardProps) {
     color: color.inkMute,
   };
   const chevWrap: CSSProperties = { marginLeft: "auto", display: "flex" };
+  // Lines inside the card are offset by +0.1s each, top to bottom.
+  const ghost = (slot: string, role: GhostRole, size: number, length: number, line: number): GhostTextProps => ({
+    role,
+    size,
+    length,
+    seed: `action:${slot}:${length}`,
+    delay: line * 0.1,
+  });
+  const showBody = loading ? lengths.body > 0 : Boolean(p.body);
+  const showFoot = loading ? lengths.foot > 0 || Boolean(p.footLink) : Boolean(p.footMeta || p.footLink);
+  // Known while loading, invisible until the data says what it holds.
+  const reserved: CSSProperties | undefined = loading ? { visibility: "hidden" } : undefined;
   // 44px tall like every other touch target; the visible text stays the
   // foot's mono size, so the line does not grow a button look.
   const footLinkStyle: CSSProperties = {
@@ -249,24 +303,45 @@ export function ActionCard(p: ActionCardProps) {
   return (
     <div
       style={box}
+      aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
-      onClick={p.onClick}
+      onClick={act ? p.onClick : undefined}
       onKeyDown={act ? onKeyDown : undefined}
     >
       <div style={head}>
-        <Icon icon={p.icon || k.icon} size={14} color={kindColor} />
-        <span style={kindStyle}>{p.kindLabel || k.label}</span>
+        {loading ? (
+          <GhostIconSlot size={14} />
+        ) : (
+          <span className={arriving ? "bk-ghost-in" : undefined} style={{ display: "flex" }}>
+            <Icon icon={p.icon || k.icon} size={14} color={kindColor} />
+          </span>
+        )}
+        <span style={{ ...kindStyle, position: "relative" }}>
+          <Ghosted loading={loading} arriving={arriving} ghost={ghost("kind", "mono", 10, lengths.kind, 0)}>
+            {kindLabel}
+          </Ghosted>
+        </span>
         {p.rightChip ? (
-          <span style={rightWrap}>
+          <span style={{ ...rightWrap, ...reserved }}>
             <Chip label={p.rightChip} tone={p.rightChipTone || "purple"} variant="outline" />
           </span>
         ) : null}
-        {p.rightMeta ? <span style={rightMetaStyle}>{p.rightMeta}</span> : null}
+        {p.rightMeta ? <span style={{ ...rightMetaStyle, ...reserved }}>{p.rightMeta}</span> : null}
       </div>
-      <div style={titleStyle}>{p.title ?? "Write the corrected seat count into talks/lisbon-2026.md?"}</div>
-      {p.body ? <div style={bodyStyle}>{p.body}</div> : null}
+      <div style={titleStyle}>
+        <Ghosted loading={loading} arriving={arriving} ghost={ghost("title", "sans", 13, lengths.title, 1)}>
+          {title}
+        </Ghosted>
+      </div>
+      {showBody ? (
+        <div style={bodyStyle}>
+          <Ghosted loading={loading} arriving={arriving} ghost={ghost("body", "sans", 11.5, lengths.body, 2)}>
+            {p.body}
+          </Ghosted>
+        </div>
+      ) : null}
       {/* Children get their own band. `body` sets `margin-top: 7` and `foot`
        * sets 9; children were the one slot with nothing, so a button row passed
        * in by a caller sat flush against the last line of the body and read as
@@ -274,16 +349,28 @@ export function ActionCard(p: ActionCardProps) {
        * showed up, and the caller could not fix it without putting a one-off
        * margin in a screen — which is the thing §11 says a screen must never
        * need. */}
-      {p.children ? <div style={{ marginTop: 10 }}>{p.children}</div> : null}
-      {p.footMeta || p.footLink ? (
+      {p.children ? <div style={{ marginTop: 10, ...reserved }}>{p.children}</div> : null}
+      {showFoot ? (
         <div style={foot}>
-          {p.footDot ? <StatusDot tone={p.footDot} pulse={p.footPulse === true} size={6} /> : null}
-          {p.footMeta}
+          {loading ? (
+            lengths.dot ? <GhostDot size={6} /> : null
+          ) : p.footDot ? (
+            <StatusDot tone={p.footDot} pulse={p.footPulse === true} size={6} />
+          ) : null}
+          {loading || (arriving && p.footMeta) ? (
+            <span style={{ position: "relative" }}>
+              <Ghosted loading={loading} arriving={arriving} ghost={ghost("foot", "mono", 9.5, lengths.foot, 3)}>
+                {p.footMeta}
+              </Ghosted>
+            </span>
+          ) : (
+            p.footMeta
+          )}
           {p.footLink ? (
             <button
               type="button"
               className="bk-control"
-              style={footLinkStyle}
+              style={{ ...footLinkStyle, ...reserved }}
               aria-label={p.footLink.name}
               onClick={(event) => {
                 // The link is not the card: a card with its own handler must

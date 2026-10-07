@@ -1,5 +1,14 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import {
+  GhostDot,
+  Ghosted,
+  ghostLength,
+  useArrival,
+  useLastLengths,
+  useLoadingValue,
+  type GhostTextProps,
+} from "../internal/GhostText.js";
 import { Icon } from "../primitives/Icon.js";
 import { StatusDot } from "../primitives/StatusDot.js";
 import { Placeholder } from "../states/Placeholder.js";
@@ -14,6 +23,12 @@ import type { QueueState, Tone, ViewState } from "../types.js";
  * `view` swaps the row for a `Placeholder` at card size with this component's
  * own copy — "Queue drained", "Queue unreachable" — overridable through
  * `stateMessage` / `stateDetail`.
+ *
+ * Loading is the row itself in ghost text (#1116): the frame is final, the
+ * state word, subject and meta are ghosts on one mono line, and the dot is a
+ * grey `edge` slot until the state is known. A blocked or failed row takes
+ * its tinted shell on arrival, not before — that emphasis is data. Each row
+ * hands off when its own data lands; `index` offsets its sweep 0.15s per item.
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -44,6 +59,8 @@ export interface QueueItemRowProps {
   stateAction?: string;
   /** Makes the error state's retry real. See the note above. */
   onStateAction?: () => void;
+  /** Position in its list: staggers the loading sweep by 0.15s per item. */
+  index?: number;
   onClick?: () => void;
 }
 
@@ -74,9 +91,25 @@ export function QueueItemRow(p: QueueItemRowProps) {
   const state = p.state || "claimed";
   const s = STATES[state] || STATES.claimed;
   const view = p.view || "ready";
-  const act = Boolean(p.onClick);
+  const loading = view === "loading";
+  const arriving = useArrival(loading);
+  const last = useLastLengths(view === "ready", {
+    state: state.length,
+    subject: (p.subject ?? "triage · share-9f2").length,
+    meta: p.meta?.length,
+    note: p.note?.length,
+    link: p.link?.length,
+  });
+  const lengths = useLoadingValue(loading, {
+    state: ghostLength(last.state, undefined, 7),
+    subject: ghostLength(last.subject, undefined, 22),
+    meta: ghostLength(last.meta, p.meta?.length, 0),
+    note: ghostLength(last.note, p.note?.length, 0),
+    link: ghostLength(last.link, p.link?.length, 0),
+  });
+  const act = Boolean(p.onClick) && !loading;
 
-  if (view !== "ready") {
+  if (view !== "ready" && !loading) {
     return (
       <Placeholder
         variant={view}
@@ -91,7 +124,6 @@ export function QueueItemRow(p: QueueItemRowProps) {
         }
         actionLabel={view === "error" ? (p.stateAction ?? "Retry") : undefined}
         icon={view === "empty" ? "resolved" : "failed"}
-        lines={2}
         radius={12}
         onAction={p.onStateAction}
       />
@@ -99,8 +131,8 @@ export function QueueItemRow(p: QueueItemRowProps) {
   }
 
   const box: CSSProperties = {
-    border: `1px solid ${s.border}`,
-    background: s.bg,
+    border: `1px solid ${loading ? color.line : s.border}`,
+    background: loading ? color.surface : s.bg,
     borderRadius: 12,
     padding: "10px 12px",
     boxSizing: "border-box",
@@ -115,8 +147,9 @@ export function QueueItemRow(p: QueueItemRowProps) {
     ...({ "--hv-bg": act ? color.raised : s.bg } as CSSProperties),
   };
   const topRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, font: `500 11px/1 ${font.mono}` };
-  const stateStyle: CSSProperties = { fontWeight: 600, color: s.fg, flex: "none" };
+  const stateStyle: CSSProperties = { position: "relative", fontWeight: 600, color: s.fg, flex: "none" };
   const subjectStyle: CSSProperties = {
+    position: "relative",
     color: color.inkMute,
     flex: 1,
     minWidth: 0,
@@ -124,8 +157,17 @@ export function QueueItemRow(p: QueueItemRowProps) {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   };
-  const metaStyle: CSSProperties = { flex: "none", color: color.inkMute };
-  const noteStyle: CSSProperties = { marginTop: 6, font: `400 11px/1.5 ${font.body}`, color: color.inkMute };
+  const metaStyle: CSSProperties = { position: "relative", flex: "none", color: color.inkMute };
+
+  const stagger = (Number(p.index) || 0) * 0.15;
+  const ghost = (slot: string, length: number, line: number): GhostTextProps => ({
+    role: "mono",
+    size: 11,
+    length,
+    seed: `queue:${p.index ?? 0}:${slot}`,
+    delay: stagger + line * 0.1,
+  });
+  const noteStyle: CSSProperties = { position: "relative", marginTop: 6, font: `400 11px/1.5 ${font.body}`, color: color.inkMute };
   const linkRow: CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -145,23 +187,52 @@ export function QueueItemRow(p: QueueItemRowProps) {
   return (
     <div
       style={box}
+      aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
-      onClick={p.onClick}
+      onClick={act ? p.onClick : undefined}
       onKeyDown={act ? onKeyDown : undefined}
     >
       <div style={topRow}>
-        <StatusDot tone={s.dot} pulse={s.pulse} size={7} />
-        <b style={stateStyle}>{state}</b>
-        <span style={subjectStyle}>{p.subject ?? "triage · share-9f2"}</span>
-        {p.meta ? <span style={metaStyle}>{p.meta}</span> : null}
+        {loading ? <GhostDot size={7} /> : <StatusDot tone={s.dot} pulse={s.pulse} size={7} />}
+        <b style={stateStyle}>
+          <Ghosted loading={loading} arriving={arriving} ghost={ghost("state", lengths.state, 0)}>
+            {state}
+          </Ghosted>
+        </b>
+        <span style={subjectStyle}>
+          <Ghosted loading={loading} arriving={arriving} ghost={ghost("subject", lengths.subject, 0)}>
+            {p.subject ?? "triage · share-9f2"}
+          </Ghosted>
+        </span>
+        {(loading ? lengths.meta : p.meta) ? (
+          <span style={metaStyle}>
+            <Ghosted loading={loading} arriving={arriving} ghost={ghost("meta", lengths.meta, 0)}>
+              {p.meta}
+            </Ghosted>
+          </span>
+        ) : null}
       </div>
-      {p.note ? <div style={noteStyle}>{p.note}</div> : null}
-      {p.link ? (
+      {(loading ? lengths.note : p.note) ? (
+        <div style={noteStyle}>
+          <Ghosted
+            loading={loading}
+            arriving={arriving}
+            ghost={{ role: "sans", size: 11, length: lengths.note, seed: `queue:${p.index ?? 0}:note`, delay: stagger + 0.1 }}
+          >
+            {p.note}
+          </Ghosted>
+        </div>
+      ) : null}
+      {(loading ? lengths.link : p.link) ? (
         <div style={linkRow}>
           <Icon icon="link" size={12} />
-          {p.link}
+          <span style={{ position: "relative" }}>
+            <Ghosted loading={loading} arriving={arriving} ghost={{ ...ghost("link", lengths.link, 2), size: 10.5 }}>
+              {p.link}
+            </Ghosted>
+          </span>
           <span style={linkChevron}>
             <Icon icon="next" size={12} color={color.inkMute} />
           </span>

@@ -5,6 +5,7 @@ import { queueItems } from "../../fixtures/actions.js";
 import { QueueItemRow } from "../../src/rows/QueueItemRow.js";
 import type { QueueState } from "../../src/types.js";
 import { stage, wide } from "../_stage.js";
+import { Handoff, playHandoff } from "../_ghost.js";
 
 const STATES: QueueState[] = ["claimed", "blocked", "ready", "scheduled", "failed", "superseded"];
 
@@ -121,4 +122,22 @@ export const Static = meta.story({
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },
+});
+
+/**
+ * Loading → ready (#1116). Ghost text in the row's own frame: the state word
+ * and subject as mono ghosts, an `edge` dot until the state is known, and the
+ * blocked row's amber shell only once the data says it is blocked. Each row
+ * hands off when its own data lands, in 600ms; nothing below it moves.
+ */
+export const LoadingToReady = meta.story({
+  parameters: wide,
+  render: () => (
+    <Handoff
+      render={(loading) => (
+        <QueueItemRow view={loading ? "loading" : "ready"} state="blocked" subject="edit · voyage/_index.md" meta="4m" />
+      )}
+    />
+  ),
+  play: playHandoff,
 });

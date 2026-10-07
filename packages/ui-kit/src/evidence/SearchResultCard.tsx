@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 
+import { Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue, type GhostTextProps } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Placeholder } from "../states/Placeholder.js";
 import { accent, color, font, token } from "../tokens.js";
@@ -17,6 +18,13 @@ import type { ViewState } from "../types.js";
  * `view` swaps the card for a `Placeholder` with this component's own copy —
  * "No matches / Searched 4,812 docs · try fewer words", "Search index offline"
  * with a "Re-index" affordance.
+ *
+ * Loading is the card itself in ghost text (#1116): the frame and the teal
+ * file icon are final from the first frame, the path and score are mono
+ * ghosts, and the snippet is a sans ghost as long as the snippet will be —
+ * `snippetLength` when the search knows it, else the last one shown, else a
+ * typical 120 characters. Results hand off in ranked order: `index` offsets
+ * each one's sweep by 0.25s.
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -42,14 +50,35 @@ export interface SearchResultCardProps {
   stateAction?: string;
   /** Makes the error state's re-index real. See the note above. */
   onStateAction?: () => void;
+  /** Loading only: the snippet's length, when the search reports it. */
+  snippetLength?: number;
+  /** Rank in its result list: staggers the loading sweep by 0.25s per result. */
+  index?: number;
   onClick?: () => void;
 }
 
 export function SearchResultCard(p: SearchResultCardProps) {
   const view = p.view || "ready";
-  const act = Boolean(p.onClick);
+  const loading = view === "loading";
+  const arriving = useArrival(loading);
+  const path = p.path ?? "knowledge/scylla.md";
+  const score = p.score ?? "0.94";
+  const before = p.before ?? "…she named her before we were out of the bay: ";
+  const highlight = p.highlight ?? "six heads, six men, one pass";
+  const after = p.after ?? ". Not a fight. Row hard and accept the count…";
+  const last = useLastLengths(view === "ready", {
+    path: path.length,
+    score: score.length,
+    snippet: before.length + highlight.length + after.length,
+  });
+  const lengths = useLoadingValue(loading, {
+    path: ghostLength(last.path, undefined, 26),
+    score: ghostLength(last.score, undefined, 4),
+    snippet: ghostLength(last.snippet, p.snippetLength, 120),
+  });
+  const act = Boolean(p.onClick) && !loading;
 
-  if (view !== "ready") {
+  if (view !== "ready" && !loading) {
     return (
       <Placeholder
         variant={view}
@@ -64,7 +93,6 @@ export function SearchResultCard(p: SearchResultCardProps) {
         }
         actionLabel={view === "error" ? (p.stateAction ?? "Re-index") : undefined}
         icon={view === "empty" ? "search" : "failed"}
-        lines={2}
         radius={12}
         onAction={p.onStateAction}
       />
@@ -90,14 +118,29 @@ export function SearchResultCard(p: SearchResultCardProps) {
     color: accent.teal.ink,
   };
   const pathStyle: CSSProperties = {
+    position: "relative",
     flex: 1,
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   };
-  const scoreStyle: CSSProperties = { flex: "none", color: color.inkMute };
-  const snippetStyle: CSSProperties = { marginTop: 6, font: `400 12px/1.6 ${font.body}`, color: color.inkDim };
+  const scoreStyle: CSSProperties = { position: "relative", flex: "none", color: color.inkMute };
+  const snippetStyle: CSSProperties = {
+    position: "relative",
+    marginTop: 6,
+    font: `400 12px/1.6 ${font.body}`,
+    color: color.inkDim,
+  };
+  const stagger = (Number(p.index) || 0) * 0.25;
+  const ghost = (slot: string, length: number, line: number, role: "sans" | "mono"): GhostTextProps => ({
+    role,
+    size: role === "mono" ? 11 : 12,
+    length,
+    seed: `search:${p.index ?? 0}:${slot}`,
+    delay: stagger + line * 0.1,
+    path: slot === "path",
+  });
   const markStyle: CSSProperties = {
     background: token("search-mark-bg"),
     color: accent.gold.ink,
@@ -114,10 +157,11 @@ export function SearchResultCard(p: SearchResultCardProps) {
   return (
     <div
       style={box}
+      aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
       tabIndex={act ? 0 : undefined}
-      onClick={p.onClick}
+      onClick={act ? p.onClick : undefined}
       onKeyDown={act ? onKeyDown : undefined}
     >
       <div style={head}>
@@ -125,16 +169,28 @@ export function SearchResultCard(p: SearchResultCardProps) {
         {/* The design's own defaults for this component name a real company and
             quote its rates. Replaced with this world's, which is the standing
             rule for fixture content and applies to a runtime fallback too. */}
-        <span style={pathStyle} title={p.path ?? "knowledge/scylla.md"}>{p.path ?? "knowledge/scylla.md"}</span>
+        <span style={pathStyle} title={loading ? undefined : path}>
+          <Ghosted loading={loading} arriving={arriving} ghost={ghost("path", lengths.path, 0, "mono")}>
+            {path}
+          </Ghosted>
+        </span>
         {/* `score` carries a fallback in the source, so an unset score still
             renders one — it is content the card cannot be understood without,
             which is the design's own test for which props get a fallback. */}
-        {p.score ?? "0.94" ? <span style={scoreStyle}>{p.score ?? "0.94"}</span> : null}
+        {score ? (
+          <span style={scoreStyle}>
+            <Ghosted loading={loading} arriving={arriving} ghost={ghost("score", lengths.score, 0, "mono")}>
+              {score}
+            </Ghosted>
+          </span>
+        ) : null}
       </div>
       <div style={snippetStyle}>
-        {p.before ?? "…she named her before we were out of the bay: "}
-        <mark style={markStyle}>{p.highlight ?? "six heads, six men, one pass"}</mark>
-        {p.after ?? ". Not a fight. Row hard and accept the count…"}
+        <Ghosted loading={loading} arriving={arriving} ghost={ghost("snippet", lengths.snippet, 1, "sans")}>
+          {before}
+          <mark style={markStyle}>{highlight}</mark>
+          {after}
+        </Ghosted>
       </div>
     </div>
   );

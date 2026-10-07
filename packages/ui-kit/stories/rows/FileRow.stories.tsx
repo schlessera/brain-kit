@@ -6,6 +6,7 @@ import { fileTree } from "../../fixtures/files.js";
 import { FileRow } from "../../src/rows/FileRow.js";
 import type { FileKind, Tone } from "../../src/types.js";
 import { stage, wide } from "../_stage.js";
+import { Handoff, playHandoff } from "../_ghost.js";
 
 const KINDS: FileKind[] = ["folder", "open", "file", "image"];
 const TONES: Tone[] = ["neutral", "gold", "red", "teal"];
@@ -221,4 +222,23 @@ export const NameCarriesATitle = meta.story({
   play: async ({ canvasElement, args }) => {
     await expect(canvasElement.querySelector(`[title="${args.label}"]`)).not.toBeNull();
   },
+});
+
+/**
+ * Loading → ready (#1116). Borderless as before, at its depth, the name a sans
+ * ghost as long as the name the listing gave. The kind is known here, so the
+ * chevron and icon are real from the first frame.
+ */
+export const LoadingToReady = meta.story({
+  // No handler: a row nobody can open is not a treeitem, so no tree wraps it.
+  args: { onClick: undefined },
+  parameters: wide,
+  render: () => (
+    <Handoff
+      render={(loading) => (
+        <FileRow view={loading ? "loading" : "ready"} kind="file" depth={1} label="day-3651-eagle.md" />
+      )}
+    />
+  ),
+  play: playHandoff,
 });
