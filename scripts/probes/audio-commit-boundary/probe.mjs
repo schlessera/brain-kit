@@ -9,12 +9,16 @@
  * `savedThroughMs` (page.js), interrupts the recording, and then reads what
  * survived from a fresh tab or a relaunched browser on the same profile.
  *
- * Loss for one run = (wall time of the interruption - recorder start) -
- * savedThroughMs from the index that survived. The interruption time is taken
- * by this runner (kills, hides, freezes) or by the page (track end, failed
- * write); both read the container's one clock. A negative loss means the
- * last committed chunk was delivered after the interruption instant, i.e.
- * nothing captured before it was lost.
+ * Two losses per run, both against captured = (wall time of the interruption
+ * - recorder start):
+ *   index loss    = captured - savedThroughMs, what "Saved up to m:ss" would
+ *                   under-report. savedThroughMs is the delivery time of the
+ *                   last committed chunk: a proxy for where its audio ends.
+ *   playable loss = captured - decoded duration of the committed chunks, the
+ *                   audio a user could actually play back.
+ * The interruption instant is taken by this runner right at dispatch (kills,
+ * crashes, closes) or by the page (track end, failed write); both read the
+ * container's one clock.
  *
  * It runs inside the pinned Playwright image, headed under Xvfb:
  *
@@ -342,28 +346,47 @@ function sigkill(pids) {
   }
 }
 
-/** SIGKILL the whole browser: no unload, no shutdown, no flush. */
+/**
+ * SIGKILL the whole browser: no unload, no shutdown, no flush. The process
+ * list is taken first; the returned wall time is taken just before the first
+ * signal, so the scan does not count as recording time.
+ */
 function killBrowser(dir) {
   const procs = profileProcesses(dir);
   if (!procs.length) throw Error(`no processes found for ${dir}`);
+  const wall = Date.now();
   sigkill(procs.map((p) => p.pid));
-  return procs.length;
+  return { wall, processes: procs.length };
 }
 
-/** Kill only the tab's content process, leaving the browser process alive. */
+/**
+ * Kill only the recording tab's content process, leaving the browser alive.
+ * Everything is prepared first; the wall time is taken at dispatch, and the
+ * run only counts if Playwright then reports the page as crashed.
+ */
 async function crashRenderer(name, driver, dir) {
+  const crashed = driver.page.waitForEvent("crash", { timeout: 10000 });
+  crashed.catch(() => {}); // still awaited below; this only keeps an early throw from leaving it unhandled
+  let wall;
+  let how;
   if (name === "chromium") {
     const cdp = await driver.context.newCDPSession(driver.page);
+    wall = Date.now();
+    // Page.crash never answers: the renderer dies under it.
     cdp.send("Page.crash").catch(() => {});
-    return "CDP Page.crash on the recording tab";
+    how = "CDP Page.crash on the recording tab";
+  } else {
+    // Firefox content processes come from its fork server; they name their parent with -parentPid.
+    const parents = new Set(profileProcesses(dir).filter((p) => !p.cmd.includes("-contentproc")).map((p) => String(p.pid)));
+    const all = listProcesses();
+    const tabs = all.filter((p) => p.cmd.includes("-contentproc") && parents.has(p.cmd[p.cmd.indexOf("-parentPid") + 1]) && p.cmd.at(-1) === "tab");
+    if (!tabs.length) throw Error(`no Firefox tab content process found among ${JSON.stringify(all.map((p) => [p.pid, p.ppid, p.cmd.slice(0, 2), p.cmd.at(-1)]))}`);
+    wall = Date.now();
+    sigkill(tabs.map((p) => p.pid));
+    how = `SIGKILL of the ${tabs.length} Firefox web-content ("tab") processes`;
   }
-  // Firefox content processes come from its fork server; they name their parent with -parentPid.
-  const parents = new Set(profileProcesses(dir).filter((p) => !p.cmd.includes("-contentproc")).map((p) => String(p.pid)));
-  const all = listProcesses();
-  const tabs = all.filter((p) => p.cmd.includes("-contentproc") && parents.has(p.cmd[p.cmd.indexOf("-parentPid") + 1]) && p.cmd.at(-1) === "tab");
-  if (!tabs.length) throw Error(`no Firefox tab content process found among ${JSON.stringify(all.map((p) => [p.pid, p.ppid, p.cmd.slice(0, 2), p.cmd.at(-1)]))}`);
-  sigkill(tabs.map((p) => p.pid));
-  return `SIGKILL of the ${tabs.length} Firefox web-content ("tab") processes`;
+  await crashed; // throws on timeout: no observed crash, no measurement
+  return { wall, how: `${how}; page crash observed` };
 }
 
 const rand = prng(seed ^ 0x5eed);
@@ -422,7 +445,7 @@ async function runOnce(name, kase, run) {
       record.before = await waitDrained(driver, 5000);
       record.interruptWall = record.before.stopWall;
       record.interruptedBy = "the first failed chunk write; the probe then stops the recorder";
-      record.killedProcesses = killBrowser(dir);
+      record.killedProcesses = killBrowser(dir).processes;
       browserAlive = false;
       // The reader relaunches after space was freed again, as after the user clears storage.
       rmSync(ballast, { force: true });
@@ -435,15 +458,18 @@ async function runOnce(name, kase, run) {
         record.before = await driver.ev("window.probe.snapshot()");
         record.interruptWall = Date.now();
         await driver.page.close({ runBeforeUnload: false });
+        if (!driver.page.isClosed()) throw Error("the recording tab is still open after page.close");
         record.interruptedBy = "page.close without unload handlers; browser stays up";
       } else if (kase === "crash-renderer") {
         record.before = await driver.ev("window.probe.snapshot()");
-        record.interruptWall = Date.now();
-        record.interruptedBy = await crashRenderer(name, driver, dir);
+        const crash = await crashRenderer(name, driver, dir);
+        record.interruptWall = crash.wall;
+        record.interruptedBy = crash.how;
       } else if (kase === "kill-browser") {
         record.before = await driver.ev("window.probe.snapshot()");
-        record.interruptWall = Date.now();
-        record.killedProcesses = killBrowser(dir);
+        const kill = killBrowser(dir);
+        record.interruptWall = kill.wall;
+        record.killedProcesses = kill.processes;
         browserAlive = false;
         record.interruptedBy = "SIGKILL of every browser process";
       } else if (kase === "hidden-then-kill") {
@@ -453,14 +479,16 @@ async function runOnce(name, kase, run) {
         record.hiddenAtMs = Date.now() - startWall;
         await sleep(6000);
         record.before = await driver.ev("window.probe.snapshot()");
-        record.interruptWall = Date.now();
-        record.killedProcesses = killBrowser(dir);
+        if (record.before.visibility !== "hidden") throw Error("the recording tab became visible again before the kill");
+        const kill = killBrowser(dir);
+        record.interruptWall = kill.wall;
+        record.killedProcesses = kill.processes;
         browserAlive = false;
         record.interruptedBy = "SIGKILL of every browser process after 6 s hidden";
       } else if (kase === "track-ended") {
         record.interruptWall = await driver.ev("window.probe.interruptTrack()");
         record.before = await waitDrained(driver, 5000);
-        record.killedProcesses = killBrowser(dir);
+        record.killedProcesses = killBrowser(dir).processes;
         browserAlive = false;
         record.interruptedBy = "MediaStreamTrack.stop() on the capture track; SIGKILL once the write chain drained (or after 5 s)";
       }
@@ -495,9 +523,16 @@ async function runOnce(name, kase, run) {
   rmSync(dir, { recursive: true, force: true });
   if (ballast) rmSync(ballast, { force: true });
   if (record.failed) return record;
+  if (!record.after?.indexReadable) return { ...record, failed: `storage could not be opened after the interruption: ${record.after?.error}` };
+  if (record.after.chunkRows && record.after.decodedMs == null)
+    return { ...record, failed: `committed chunks did not decode: ${record.after.decodeError}` };
   record.capturedMs = record.interruptWall - record.started.startWall;
   record.savedThroughMs = record.after.index ? record.after.index.savedThroughMs : null;
+  // What the UI would show ("saved up to"), against what was captured.
   record.lossMs = record.capturedMs - (record.savedThroughMs ?? 0);
+  // What is actually playable: the decoded duration of the committed chunks.
+  record.decodedMs = record.after.decodedMs ?? 0;
+  record.audioLossMs = record.capturedMs - record.decodedMs;
   record.survival = survival(record.after);
   return record;
 }
@@ -515,6 +550,7 @@ const versions = {
   os: readFileSync("/etc/os-release", "utf8").match(/PRETTY_NAME="(.*)"/)?.[1],
   kernel: readFileSync("/proc/version", "utf8").trim(),
   display: "Xvfb (headed browsers), no window manager",
+  config: { timesliceMs, seed, runsPerCell, browsers, cases },
 };
 const capabilities = {};
 
@@ -589,6 +625,8 @@ writeFileSync(resolve(out, "capabilities.json"), JSON.stringify({ versions, capa
 console.log(JSON.stringify({ versions, capabilities }, null, 2));
 
 const resultsFile = resolve(out, "results.jsonl");
+// One invocation = one result set; never fold a different configuration into an old one.
+rmSync(resultsFile, { force: true });
 for (const name of browsers) {
   for (const kase of cases) {
     if (!capabilities[name]?.mediaRecorder) {
@@ -625,24 +663,29 @@ function summarize(runs, caps) {
     const m = s.length >> 1;
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   };
-  const lines = ["| Browser | Case | n | Loss ms min / median / max | Raw loss ms | Survival rows |", "| --- | --- | --- | --- | --- | --- |"];
+  const lines = [
+    "| Browser | Case | n | Index loss ms (captured - savedThroughMs) min / median / max | Raw | Playable loss ms (captured - decoded) min / median / max | Raw | Survival rows |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  ];
   for (const [key, rs] of cells) {
     const [browser, kase] = key.split("|");
     const measured = rs.filter((r) => typeof r.lossMs === "number");
     const failed = rs.filter((r) => r.failed);
     if (!measured.length) {
       const why = rs.find((r) => r.skipped)?.skipped ?? failed[0]?.failed.split("\n")[0] ?? "no runs";
-      lines.push(`| ${browser} | ${kase} | 0 | not measured: ${why} | | |`);
+      lines.push(`| ${browser} | ${kase} | 0 | not measured: ${why} | | | | |`);
       continue;
     }
     const loss = measured.map((r) => r.lossMs);
+    const audio = measured.map((r) => r.audioLossMs);
+    const spread = (xs) => `${Math.min(...xs)} / ${median(xs)} / ${Math.max(...xs)}`;
     const rows = {};
     for (const r of measured) rows[r.survival] = (rows[r.survival] ?? 0) + 1;
     const n = `${measured.length}${failed.length ? ` (+${failed.length} failed)` : ""}`;
     const survivalText = Object.entries(rows)
       .map(([k, v]) => `${k} ×${v}`)
       .join("; ");
-    lines.push(`| ${browser} | ${kase} | ${n} | ${Math.min(...loss)} / ${median(loss)} / ${Math.max(...loss)} | ${loss.join(", ")} | ${survivalText} |`);
+    lines.push(`| ${browser} | ${kase} | ${n} | ${spread(loss)} | ${loss.join(", ")} | ${spread(audio)} | ${audio.join(", ")} | ${survivalText} |`);
   }
   return `${lines.join("\n")}\n\nVersions: ${JSON.stringify(caps.versions)}\n`;
 }

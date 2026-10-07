@@ -65,6 +65,7 @@ const live = {
   stopWall: null,
   stoppedBy: null,
   drained: false,
+  completed: false,
 };
 
 function log(type, extra = {}) {
@@ -159,6 +160,7 @@ async function start({ id, timesliceMs, mime }) {
   live.recorder = recorder;
   let chain = Promise.resolve();
   let seq = 0;
+  let lastRow = {};
 
   const index = (patch) => ({
     id,
@@ -186,22 +188,16 @@ async function start({ id, timesliceMs, mime }) {
     if (event.data.size === 0) return;
     const mySeq = seq++;
     const endMs = deliveredWall - live.startWall;
-    const final = recorder.state === "inactive";
     chain = chain.then(async () => {
       if (live.writeErrors.length) return;
       try {
+        const row = { savedThroughMs: endMs, chunks: mySeq + 1, lastCommitWall: Date.now() };
         const tx = db.transaction(["chunks", "recordings"], "readwrite");
         tx.objectStore("chunks").put({ id, seq: mySeq, blob: event.data, size: event.data.size, endMs, deliveredWall });
-        tx.objectStore("recordings").put(
-          index({
-            savedThroughMs: endMs,
-            chunks: mySeq + 1,
-            lastCommitWall: Date.now(),
-            state: final ? `stopped:${live.stoppedBy ?? "unknown"}` : "recording",
-          })
-        );
+        tx.objectStore("recordings").put(index(row));
         await done(tx);
-        live.committed.push({ seq: mySeq, endMs, committedWall: Date.now(), final });
+        lastRow = row;
+        live.committed.push({ seq: mySeq, endMs, committedWall: Date.now() });
       } catch (error) {
         live.writeErrors.push({ seq: mySeq, wall: Date.now(), name: error?.name, message: String(error?.message) });
         log("write-error", { name: error?.name });
@@ -215,7 +211,19 @@ async function start({ id, timesliceMs, mime }) {
       live.stopWall = Date.now();
       live.stoppedBy = "recorder-stopped-itself";
     }
-    chain = chain.then(() => {
+    // Mark the recording complete once every delivered chunk has committed,
+    // even when the final blob was empty. The audio boundary does not move.
+    chain = chain.then(async () => {
+      if (!live.writeErrors.length) {
+        try {
+          const tx = db.transaction("recordings", "readwrite");
+          tx.objectStore("recordings").put(index({ ...lastRow, state: `stopped:${live.stoppedBy}` }));
+          await done(tx);
+          live.completed = true;
+        } catch (error) {
+          live.writeErrors.push({ seq: "completion", wall: Date.now(), name: error?.name, message: String(error?.message) });
+        }
+      }
       live.drained = true;
       log("chain-drained-after-stop");
     });
@@ -264,6 +272,7 @@ function snapshot() {
     stopWall: live.stopWall,
     stoppedBy: live.stoppedBy,
     drained: live.drained,
+    completed: live.completed,
     visibility: document.visibilityState,
     events: live.events,
   };
