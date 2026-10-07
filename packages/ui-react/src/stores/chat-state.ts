@@ -603,11 +603,13 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     if (live && i === tail) {
       streaming = true;
       // The page may already hold more of the answer than the host has
-      // stored: what it holds stays, turn and all.
+      // stored: what it holds stays.
       const ahead = old.content.length > m.content.length || old.toolCalls.length > m.toolCalls.length
         || (old.thinking ?? "").length > (m.thinking ?? "").length || old.parts.length > m.parts.length;
-      if (ahead) return old;
-      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true, turnId: m.turnId ?? old.turnId };
+      // Its turn is the history's alone, as for any replayed message: only a
+      // host-proven turn may let the reader's view clear a tracker (D52 §4).
+      if (ahead) return { ...old, turnId: m.turnId };
+      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };
     }
     return { ...m, id: old.id, timestamp: old.timestamp };
   });
@@ -617,7 +619,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
   const live = previous.messages.at(-1);
   if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
     && next.length === previous.messages.length - 1 && messages.every((m, i) => m.id === previous.messages[i]!.id)) {
-    return { messages: [...messages, live], isStreaming: true };
+    return { messages: [...messages, { ...live, turnId: undefined }], isStreaming: true };
   }
   return { messages, isStreaming: streaming };
 }

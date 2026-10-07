@@ -162,17 +162,18 @@ describe("a reconnect while the turn in view runs", () => {
     expect(next.frames().filter((f) => f.type === "session_resume"), "the reattach, then the turn's end").toHaveLength(2);
   });
 
-  test("a replay that names no turn keeps the turn the page knew, so a new turn still ends the answer", () => {
+  test("a replay that names no turn leaves the answer turnless (D52's seen needs a host-proven turn), and a new turn still ends it", () => {
     const { root, socket } = running();
     root.stores.chat.getState().finishAssistantMessage("s1");
     root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
     root.stores.chat.getState().appendText("s1", "Bound.");
     const next = reconnect(root, socket);
     next.deliver({ type: "session_history", sessionId: "s1", messages: [...history(SIRENS), { role: "assistant", content: "Bound.", toolCalls: [] }] });
-    expect(buffer(root).messages.at(-1)).toMatchObject({ turnId: "turn-1", isStreaming: true });
+    expect(buffer(root).messages.at(-1)!.turnId, "no turn the history did not prove").toBeUndefined();
+    expect(buffer(root).isStreaming).toBe(true);
     next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
     next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Row on." });
-    expect(buffer(root).messages.map((m) => [m.content, m.turnId ?? null]).slice(-2)).toEqual([["Bound.", "turn-1"], ["Row on.", "turn-2"]]);
+    expect(buffer(root).messages.map((m) => [m.content, m.turnId ?? null]).slice(-2)).toEqual([["Bound.", null], ["Row on.", "turn-2"]]);
   });
 
   test("a replay in chunks that splits just before the answer draws it once", () => {
