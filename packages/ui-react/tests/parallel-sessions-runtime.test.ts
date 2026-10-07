@@ -538,11 +538,13 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await press(run, disc);
         await until(a.page, `${state(C)}?.cleared === true`);
 
-        // Each change was spoken once; nothing was aborted or confirmed, and
-        // each prompt ran exactly once.
-        const spoken = await probe(a.page, (p) => p.spoken());
-        expect(new Set(spoken).size, `spoken once each: ${JSON.stringify(spoken)}`).toBe(spoken.length);
-        expect(spoken.filter((s) => s === `${titles.get(B)} failed.`)).toHaveLength(1);
+        // Each change was spoken exactly once, in order: B's failure, A
+        // finishing behind the panel, C finishing while scrolled up. Nothing
+        // else (no age tick, no replay, no reopening) was spoken. Nothing was
+        // aborted or confirmed, and each prompt ran exactly once.
+        expect(await probe(a.page, (p) => p.spoken()), "every change spoken once, and nothing else").toEqual([
+          `${titles.get(B)} failed.`, `${titles.get(A)} is done.`, `${titles.get(C)} is done.`,
+        ]);
         expect(aborted.filter((p) => [pa, pb, draftA, pc].includes(p)), "nothing aborted").toEqual([]);
         expect(a.dialogs, "no native dialog").toEqual([]);
         expect(await confirmations(a.page), "no confirmation").toBe(0);

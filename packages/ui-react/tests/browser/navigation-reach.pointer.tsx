@@ -465,6 +465,114 @@ for (const width of [320, 390, ...DESKTOP]) for (const [name, target] of Object.
 }
 
 /**
+ * The palette's one conditional row: Continue on another backend (#61), shown
+ * for a stored session with a settled turn. Here the session runs on one
+ * backend and another backend has a runnable profile, so the row is listed
+ * and enabled. Its pointer route is the session row's overflow, in the
+ * Sessions drawer below 1280 and the pane from 1280; both it and the palette
+ * row open the same review for the same session.
+ */
+const ITHACA = { id: "odysseus-ithaca", title: "The way home to Ithaca", createdAt: T0, lastActiveAt: T0, totalCostUsd: 0, numTurns: 1, backendId: "claude" };
+const HANDOFF = "Continue on another backend";
+async function mountHandoff(ctx: TestContext, width: number, theme: "dark" | "light"): Promise<Scene> {
+  const providers = [
+    { id: "claude", label: "Claude Opus", backendId: "claude" },
+    { id: "ithaca-proxy", label: "Ithaca proxy · gpt-5.5", backendId: "pi" },
+  ];
+  const backends = {
+    claude: { id: "claude", capabilities: { concurrentSessions: true, followUp: false, autonomous: true } },
+    pi: { id: "pi", capabilities: { concurrentSessions: true, followUp: true, autonomous: false } },
+  };
+  const height = 760;
+  ctx.signal.throwIfAborted();
+  vi.stubGlobal("WebSocket", FixtureSocket);
+  if (sized !== `${width}x${height}`) {
+    sized = undefined;
+    await page.viewport(width, height);
+    await commands.formViewport(width, height);
+    sized = `${width}x${height}`;
+  }
+  document.documentElement.dataset.theme = theme;
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px`;
+  document.body.append(host);
+  const writes: string[] = [];
+  const request = async (url: string, init?: RequestInit): Promise<Response> => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    const path = new URL(url, "http://fixture.invalid").pathname;
+    if (method !== "GET") writes.push(`${method} ${path}`);
+    if (path.endsWith("/sessions")) return Response.json({ sessions: [ITHACA] });
+    if (path.endsWith("/providers")) return Response.json({ providers, backends, unavailable: [] });
+    if (/\/sessions\/[^/]+/.test(path)) return Response.json({ messages: [] });
+    return new Response("{}", { status: 404 });
+  };
+  const ui = createBrainUiRoot({ storage: null, request });
+  const renderer: Root = createRoot(host);
+  const s: Scene = { ui, host, writes, signal: ctx.signal, width };
+  ctx.onTestFinished(() => {
+    flushSync(() => renderer.unmount());
+    ui.dispose();
+    host.remove();
+  });
+  ui.stores.ui.getState().setTheme(theme);
+  const roster = { available: providers as never, unavailable: [] as never, backends, pinnedId: "claude", loaded: true };
+  ui.stores.provider.setState(roster);
+  const chat = ui.stores.chat.getState();
+  chat.setActiveSession(ITHACA.id);
+  chat.setSessionBackend(ITHACA.id, "claude");
+  chat.addUserMessage(ITHACA.id, "Plan the return to Ithaca; the notes are in plans/ithaca.md.", "typed");
+  chat.startAssistantMessage(ITHACA.id);
+  chat.appendText(ITHACA.id, "Sail past the Sirens, then keep clear of Scylla.");
+  chat.finishAssistantMessage(ITHACA.id);
+  flushSync(() => renderer.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
+  await document.fonts.ready;
+  await settle(s, 6);
+  ui.stores.connection.setState({ wsStatus: "connected" } as never);
+  flushSync(() => ui.stores.provider.setState(roster));
+  await settle(s);
+  return s;
+}
+/** The review the handoff opens, for which session. */
+const handoffOpen = (s: Scene) => s.ui.stores.handoff.getState().sheet?.sourceSessionId ?? null;
+
+for (const width of [320, 390, ...DESKTOP]) {
+  test(`the conditional row at ${width}: ${HANDOFF} is listed for a stored session, and its row's overflow does what the palette row does`, async (ctx) => {
+    const mode = pointer();
+    const theme = width % 2 ? "light" : "dark";
+    const reference = await (async () => {
+      const s = await mountHandoff(ctx, width, theme);
+      ui$(s).setPaletteOpen(true);
+      await settle(s);
+      expect([...paletteRows(s)].sort(), "the palette lists the routed commands and the handoff").toEqual([...PALETTE_ROWS, HANDOFF].sort());
+      if (width < 480) {
+        const row = [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')]
+          .find((o) => (o.textContent ?? "").startsWith(HANDOFF))!;
+        // Not drawn below 480: the row's handler, not a press, is the reference.
+        row.click();
+      } else {
+        ui$(s).setPaletteOpen(false);
+        await settle(s);
+        await walk(s, palette(HANDOFF), mode, `${HANDOFF} by the palette`);
+      }
+      await expect.poll(() => handoffOpen(s), { message: `${HANDOFF} by the palette row` }).toBe(ITHACA.id);
+      await settle(s);
+      return { ...effect(s), review: handoffOpen(s) };
+    })();
+    expect(reference.review, "the palette row opened a review").toBe(ITHACA.id);
+    const s = await mountHandoff(ctx, width, theme);
+    const overflow: Step = { name: `More for ${ITHACA.title}`, find: (x) => find(x, `More for ${ITHACA.title}`) };
+    const item: Step = { name: HANDOFF, find: (x) => find(x, new RegExp(`^${HANDOFF}`), "menuitem") };
+    await walk(s, [...(wideAt(width) ? [] : [tab("Sessions")]), overflow, item], mode, `${HANDOFF} by the row's overflow`);
+    await expect.poll(() => handoffOpen(s), { message: `${HANDOFF} by the row's overflow` }).toBe(ITHACA.id);
+    await settle(s);
+    // The Sessions drawer the route went through is the only difference.
+    const routed = { ...effect(s), review: handoffOpen(s) };
+    expect({ ...routed, panels: routed.panels.filter((p) => p !== "sessionPanelOpen"), paneFocused: null },
+      `${HANDOFF}: the overflow and the palette agree`).toEqual({ ...reference, panels: reference.panels.filter((p) => p !== "sessionPanelOpen"), paneFocused: null });
+  });
+}
+
+/**
  * The palette's rows are the only pointer route to Graph, Sync and Stats
  * (D52 §1), so under a coarse pointer each must be a 44px target (D20). They
  * are 34px today: #1120. Until that lands this cell pins the measured gap,
