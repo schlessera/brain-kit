@@ -174,7 +174,7 @@ row's real mounting check. They do not establish mounting by themselves.
 - `a pruned run resolves to its rollup; an unknown id 404s (R26)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`a pruned run resolves to its rollup; an unknown id 404s (R26)`, `packages/ui-server/tests/routes-activity.test.ts:145-171`)
 - `rollups aggregate per day/job/session from root accounting, in the configured zone` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups aggregate per day/job/session from root accounting, in the configured zone`, `packages/ui-server/tests/routes-activity.test.ts:173-192`)
 - `rollups route sums only priced runs and counts the NULLs at every group (AE3)` ([source](../packages/ui-server/tests/routes-activity.test.ts)), (`rollups route sums only priced runs and counts the NULLs at every group (AE3)`, `packages/ui-server/tests/routes-activity.test.ts:304-324`)
-- `GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90` ([source](../packages/ui-server/tests/activity-stats.test.ts)), (`GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90`, `packages/ui-server/tests/activity-stats.test.ts:497-529`)
+- `GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90` ([source](../packages/ui-server/tests/activity-stats.test.ts)), (`GET /activity/stats serves the figures; days defaults to 30 and is clamped to 1..90`, `packages/ui-server/tests/activity-stats.test.ts:499-531`)
 
 The six named `GROUP AXIS rounds the completed multi-run sum to four decimals`
 cases cover days/jobs/sessions and costUsd/effectiveCostUsd separately

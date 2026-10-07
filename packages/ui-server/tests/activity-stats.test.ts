@@ -228,7 +228,9 @@ describe("runtime stats: lifetime from sessions, windowed from rollups", () => {
     const stats = computeRuntimeStats(db, { days: 30, now: NOW });
     const pageSize = (db.query("PRAGMA page_size").get() as { page_size: number }).page_size;
     expect(stats.database.sizeBytes).toBeGreaterThan(0);
-    expect(stats.database.sizeBytes % pageSize).toBe(0);
+    const pages = (db.query("PRAGMA page_count").get() as { page_count: number }).page_count;
+    expect(pages).toBeGreaterThan(1);
+    expect(stats.database.sizeBytes).toBe(pages * pageSize);
     db.close();
   });
 });

@@ -250,20 +250,20 @@ describe("per-connection state through the socket handlers", () => {
     }
     send({ type: "chat_message", text: "A" });
     await waitFor(() => controls.length === 1);
-    let decision: string | null = null;
+    const decision = { value: null as string | null };
     void controls[0]!.approve().then((result) => {
-      decision = result.behavior;
+      decision.value = result.behavior;
     });
     await waitFor(() => sent.some((frame) => frame.type === "tool_approval_request"));
     const turnId = turnIdOf(sent.find((frame) => frame.type === "tool_approval_request")!);
     send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(decision).toBe(revision === 3 || revision === 99 ? null : "allow");
-    if (decision === null) {
+    expect(decision.value).toBe(revision === 3 || revision === 99 ? null : "allow");
+    if (decision.value === null) {
       send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId, turnId });
-      await waitFor(() => decision !== null);
+      await waitFor(() => decision.value !== null);
     }
-    expect(decision).toBe("allow");
+    expect(decision.value).toBe("allow");
     controls[0]!.finish();
   });
 
