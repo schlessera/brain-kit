@@ -751,6 +751,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
       disposed = true;
       unsubscribe?.();
       for (const entry of [...entries.values()]) forget(entry);
+      cancelled.clear(); refused.clear(); byRequest.clear();
     },
   };
 }

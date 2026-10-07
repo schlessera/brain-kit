@@ -50,6 +50,18 @@ Partitioning is an app boundary, not protection against someone with access
 to the device. `stop("auth")` stops capture, accepts at most the in-flight
 write, and retains the originating partition.
 
+`ConnectionGate` stops capture on a 401 or a 1008 close, commits the work
+snapshot, then unmounts protected views and drops their account payloads. A
+failed snapshot is reported on the re-auth screen. Signing in as the same
+account confirms the account key on the existing authenticated probe and
+restores text, images, uploaded track references, selection, focus and the
+transcript anchor without reloading. An unfinished IME composition is not
+recoverable. A different account, or a missing snapshot, reloads; other
+accounts' recordings remain locked, with only their aggregate size shown.
+The account key is retained only through the ordered stop and snapshot, then
+cleared after unmount. Transport loss keeps the views and capture running.
+Service-worker takeover stays held through this auth transition.
+
 Call `recover(partition)` on a readable partition after launch. If capacity
 prevents a repair write, the store still returns and plays the committed
 prefix, and retries the durable classification on later recovery. It never opens

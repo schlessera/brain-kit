@@ -1,0 +1,79 @@
+import { createStore, type StoreApi } from "zustand/vanilla";
+import type { BrainUiServices } from "../root.js";
+import { disposeTracks } from "./draft-tracks.js";
+import { registerUpdateHold } from "./update-holds.js";
+
+/** The ordered warm-auth transition (#1018, #578 §1). No account content is kept here. */
+export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void; restore(): void }) {
+  const state = createStore(() => ({ phase: "active" as "active" | "saving" | "locked" | "restoring", revoked: false, snapshotFailed: false, savedThroughMs: null as number | null }));
+  const stops = new Set<() => Promise<unknown>>();
+  let lockedKey: string | null = null;
+  let transition: Promise<void> | null = null;
+  let snapshot = false;
+  let disposed = false;
+  let dropped = false;
+  let epoch = 0;
+  const releaseHold = registerUpdateHold(root, { busy: () => state.getState().phase !== "active", subscribe: (fn) => state.subscribe(fn) });
+  const unwatch = root.recordings?.onEvent((event) => {
+    if (state.getState().phase === "saving" && event.kind === "stopped") state.setState({ savedThroughMs: event.savedThroughMs });
+  });
+  return {
+    state,
+    epoch: () => epoch,
+    registerStop(stop: () => Promise<unknown>) { stops.add(stop); return () => { stops.delete(stop); }; },
+    expire(reason = "") {
+      if (/revok|signed out|invalidated/i.test(reason)) state.setState({ revoked: true });
+      if (transition || disposed || state.getState().phase !== "active") return transition ?? Promise.resolve();
+      const connection = root.stores.connection.getState();
+      // A cold unauthenticated visit has no protected work to lock.
+      if (!connection.accountKey && connection.vpnStatus !== "connected" && connection.wsStatus !== "connected") return Promise.resolve();
+      lockedKey = connection.accountKey;
+      epoch++;
+      state.setState({ phase: "saving", snapshotFailed: false, savedThroughMs: null });
+      // Stop immediately, including permission/session requests still opening.
+      // The durable store accepts at most its one already-started chunk write.
+      transition = (async () => {
+        await Promise.allSettled([root.recordings?.stop("auth"), ...[...stops].map((stop) => stop())]);
+        if (disposed) return;
+        try { await root.localWork?.snapshotNow(); snapshot = root.localWork !== null; }
+        catch { state.setState({ snapshotFailed: true }); snapshot = false; }
+        if (!disposed) state.setState({ phase: "locked" });
+      })();
+      return transition;
+    },
+    /** Called in the gate's layout effect, after React removed the protected DOM. */
+    dropContext() {
+      if (disposed || dropped || state.getState().phase !== "locked") return;
+      dropped = true;
+      lifecycle.drop();
+      root.localWork?.lock();
+      root.stores.connection.getState().setVpnStatus("unauthorized");
+      root.stores.drafts.getState().release();
+      disposeTracks(root);
+      root.stores.file.getState().reset();
+      root.stores.graph.getState().reset();
+      root.stores.graph.clearSceneCache();
+      root.stores.activity.getState().setSupported(false);
+      // Keep the store objects/hooks, drop their account payloads. Methods stay
+      // the same; reads started under the old epoch are refused by root.request.
+      for (const [name, store] of Object.entries(root.stores)) {
+        if (name === "connection") continue;
+        (store as StoreApi<unknown>).setState(store.getInitialState(), true);
+      }
+    },
+    /** Only the explicit successful sign-in path may unlock a warm page. */
+    async signedIn(key: string | null): Promise<boolean> {
+      await transition;
+      if (disposed || !dropped || !key || key !== lockedKey || !snapshot) return false;
+      state.setState({ phase: "restoring" });
+      root.stores.connection.getState().setVpnStatus("connected", key);
+      const restored = await root.localWork!.resume();
+      if (restored) lifecycle.restore();
+      if (disposed || !restored) return false;
+      transition = null; dropped = false; lockedKey = null; snapshot = false;
+      state.setState({ phase: "active", revoked: false });
+      return true;
+    },
+    dispose() { disposed = true; epoch++; stops.clear(); unwatch?.(); releaseHold(); },
+  };
+}

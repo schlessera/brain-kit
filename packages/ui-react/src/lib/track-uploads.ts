@@ -101,6 +101,11 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
       }
       notify(); pump(); return errors;
     },
+    /** Warm auth restore: these are host references, not a re-upload. */
+    restore(references: readonly SharedFileMeta[]) {
+      files = references.map((meta) => ({ id: crypto.randomUUID(), file: new File([], meta.name), name: trackDisplayName(meta.name), state: "ready", meta }));
+      notify();
+    },
     remove(id: string) {
       running.get(id)?.abort();
       files = files.filter(file => file.id !== id);

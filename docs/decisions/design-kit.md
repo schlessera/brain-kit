@@ -5009,7 +5009,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:108-114`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:134-140`).
 There is no global key.
 
 ```ts

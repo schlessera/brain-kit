@@ -44,7 +44,7 @@ export function useLocalCapture() {
   const start = useCallback(async () => {
     const options = root.localCapture;
     const voice = root.stores.voice.getState();
-    if (!options || voice.local !== "idle") return;
+    if (!options || voice.local !== "idle" || root.authLock.state.getState().phase !== "active") return;
     const gen = ++genRef.current;
     voice.setLocalNotice(null);
     voice.setLocal("opening");
@@ -95,8 +95,11 @@ export function useLocalCapture() {
       return;
     }
     voice.setLocal("stopping");
-    await capture.stop(reason);
+    if (reason === "auth" && root.localCapture?.durable) await root.recordings?.stop(reason);
+    else await capture.stop(reason);
   }, [root]);
+
+  useEffect(() => root.authLock.registerStop(() => stop("auth")), [root, stop]);
 
   useEffect(() => () => {
     // The composer going away leaves no microphone open behind it.

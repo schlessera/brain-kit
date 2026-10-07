@@ -1,5 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { recordingTime } from "../../lib/recordings.js";
 import { LoginForm } from "./login-form.js";
 import {
   isUserCancel,
@@ -18,7 +19,7 @@ import {
  * passkeys and the browser supports WebAuthn. On success the browser has the
  * HttpOnly session cookie; a reload boots the authenticated app.
  */
-export function LoginScreen() {
+export function LoginScreen({ reauth }: { reauth?: { revoked: boolean; snapshotFailed: boolean; savedThroughMs: number | null } } = {}) {
   const root = useBrainUiRoot();
   const api = root.api;
   const uiConfig = root.config;
@@ -31,6 +32,21 @@ export function LoginScreen() {
   // server enforces the real policy, and hiding the only working method on a
   // transient error would be a self-inflicted lockout.
   const [passwordAvailable, setPasswordAvailable] = useState(true);
+
+  const isReauth = reauth !== undefined;
+  const signedIn = useCallback(async (signal: AbortSignal) => {
+    if (signal.aborted) return;
+    if (isReauth) {
+      // The cookie alone does not identify an account. Confirm through the
+      // existing authenticated route, before opening any account partition.
+      const response = await root.request(root.backendUrl("/api/vpn-check"), { signal });
+      const body = response.ok ? await response.json() as { accountKey?: unknown } : null;
+      const key = typeof body?.accountKey === "string" ? body.accountKey : null;
+      if (signal.aborted) return;
+      if (await root.authLock.signedIn(key)) { root.recheckVpn(); return; }
+    }
+    if (!signal.aborted) window.location.reload();
+  }, [root, isReauth]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -53,7 +69,7 @@ export function LoginScreen() {
         if (!(await supportsAutofill()) || signal.aborted) return;
         try {
           await loginWithPasskey(api, { useBrowserAutofill: true, signal });
-          if (!signal.aborted) window.location.reload();
+          await signedIn(signal);
         } catch (err) {
           if (!signal.aborted && !isUserCancel(err)) {
             console.warn("[passkeys] conditional UI failed:", err);
@@ -64,7 +80,7 @@ export function LoginScreen() {
         // Methods probe failing degrades to password-only — unchanged behavior.
       });
     return () => controller.abort();
-  }, [root, api]);
+  }, [root, api, signedIn]);
 
   async function onPasswordLogin() {
     if (!password || submitting) return;
@@ -74,7 +90,7 @@ export function LoginScreen() {
     try {
       await api.login(password);
       // Cookie is set; reload so the app boots authenticated.
-      if (!signal.aborted) window.location.reload();
+      await signedIn(signal);
     } catch (err) {
       if (signal.aborted) return;
       setError(err instanceof Error ? err.message : "Login failed");
@@ -89,7 +105,7 @@ export function LoginScreen() {
     setError(null);
     try {
       await loginWithPasskey(api, { signal });
-      if (!signal.aborted) window.location.reload();
+      await signedIn(signal);
     } catch (err) {
       if (signal.aborted) return;
       if (!isUserCancel(err)) {
@@ -102,6 +118,12 @@ export function LoginScreen() {
   return (
     <LoginForm
       appName={uiConfig.appName}
+      title={reauth ? reauth.revoked ? "This device was signed out" : "Your sign-in has expired" : undefined}
+      notice={reauth ? <>
+        {reauth.savedThroughMs !== null && <p>Recording stopped. Saved up to {recordingTime(reauth.savedThroughMs)}.</p>}
+        <p>Your draft and recordings are kept on this device, locked until you sign in again as the same account.</p>
+        {reauth.snapshotFailed && <p role="alert">Your draft couldn't be saved on this device.</p>}
+      </> : undefined}
       methods={{ password: passwordAvailable, passkey: passkeyAvailable }}
       password={password}
       busy={submitting}

@@ -3,7 +3,8 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useStore } from "zustand";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
 import {
@@ -37,6 +38,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
   const reportError = useConnectionStore((s) => s.reportError);
   const socketOpens = useConnectionStore((s) => s.socketOpens);
+  const auth = useStore(root.authLock.state);
+  useLayoutEffect(() => { if (auth.phase === "locked") root.authLock.dropContext(); }, [root, auth.phase]);
   const issue = deriveConnectionIssue({
     vpnStatus,
     handshakeFailures,
@@ -134,7 +137,10 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
 
   // Auth required (password mode) and no valid session: show the login screen,
   // even if we were connected before (an expired session must re-prompt).
-  if (issue === "unauthorized") {
+  if (auth.phase === "locked" || auth.phase === "restoring") {
+    return <LoginScreen reauth={auth} />;
+  }
+  if (issue === "unauthorized" && auth.phase !== "saving") {
     return <LoginScreen />;
   }
 
@@ -146,6 +152,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           issue={issue}
         />
         {children}
+        <LockedRecordingSize />
       </>
     );
   }
@@ -265,4 +272,19 @@ function OfflineBanner({
       )}
     </AnimatePresence>
   );
+}
+
+/** Capacity honesty only: never opens a locked partition or returns its metadata. */
+function LockedRecordingSize() {
+  const root = useBrainUiRoot();
+  const key = useConnectionStore((s) => s.accountKey);
+  const [bytes, setBytes] = useState(0);
+  useEffect(() => {
+    let current = true;
+    void root.partitions?.sizes("recording:chunk:").then((sizes) => {
+      if (current) setBytes(sizes.filter((s) => s.partition !== "unassigned" && s.partition !== `account:${key}`).reduce((n, s) => n + s.bytes, 0));
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [root, key]);
+  return bytes > 0 ? <p data-locked-recordings className="text-xs text-muted-foreground">Locked recordings from another account · {(bytes / (1024 * 1024)).toFixed(1)} MB</p> : null;
 }

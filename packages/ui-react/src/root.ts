@@ -7,11 +7,12 @@ import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
-import { disposeTracks, subscribeAllTracks, trackKey, trackRefs } from "./lib/draft-tracks.js";
+import { disposeTracks, tracksFor, subscribeAllTracks, trackKey, trackRefs } from "./lib/draft-tracks.js";
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 import type { LocalCaptureSink } from "./voice/local-capture.js";
 import { createLocalPartitions, type LocalPartitions } from "./lib/local-partitions.js";
 import { createRecordingStore, type RecordingStore } from "./lib/recordings.js";
+import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
@@ -80,6 +81,8 @@ export interface BrainUiServices {
   recordings: RecordingStore | null;
   /** @internal The work context kept in the signed-in account's partition (#1014). */
   localWork: LocalWork | null;
+  /** @internal Ordered stop, snapshot, lock and same-account restore. */
+  authLock: ReturnType<typeof createAuthLock>;
   registerVpnRecheck: (callback: () => void) => () => void;
 }
 
@@ -102,7 +105,30 @@ export function createRoot(
   renderers = createToolRendererRegistry(),
   asr = createAsrClientRegistry(),
 ): BrainUiRoot {
-  const request = options.request ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  const transport = options.request ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  let authLock: ReturnType<typeof createAuthLock> | undefined;
+  const request = async (url: string, init?: RequestInit): Promise<Response> => {
+    const authRoute = /\/api\/auth\/(?:login|methods|passkey\/login-(?:options|verify))$/.test(new URL(url, typeof location === "undefined" ? "http://localhost" : location.href).pathname);
+    const epoch = authLock?.epoch();
+    const phase = authLock?.state.getState().phase;
+    if (!authRoute && phase && phase !== "active" && phase !== "restoring" && !url.includes("/api/vpn-check")) throw new DOMException("Sign in again", "AbortError");
+    const response = await transport(url, init);
+    if (!authRoute && response.status === 401) await authLock?.expire();
+    else if (!authRoute && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+    // A body can still be decoding when auth is lost. Refuse that old
+    // account payload before an async store callback can publish it.
+    const responseEpoch = authLock?.epoch();
+    return new Proxy(response, { get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (["json", "text", "blob", "arrayBuffer", "formData"].includes(String(property))) return async (...args: unknown[]) => {
+        const result = await value.apply(target, args);
+        if (!authRoute && responseEpoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+        return result;
+      };
+      return value.bind(target);
+    } });
+  };
   const apiBase = () => apiBaseFor(config);
   const api = options.api ?? createBrainApi(apiBase, request);
   const prefix = options.storagePrefix ?? `brain-ui:${crypto.randomUUID()}`;
@@ -140,6 +166,7 @@ export function createRoot(
     : null;
   const services: BrainUiServices = {
     answerStorage, answerTabs, partitions, recordings: null, localWork: null,
+    authLock: undefined as unknown as ReturnType<typeof createAuthLock>,
     localCapture: options.localCapture === true ? null : options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
     backendUrl: (path) => getBackendUrlFor(config, path),
@@ -160,13 +187,19 @@ export function createRoot(
       scope: `root:${prefix}`,
       tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
       watchTracks: (fn) => subscribeAllTracks(services, fn),
+      restoreTracks: (sessionId, origin, refs) => tracksFor(services, trackKey(sessionId, origin)).uploads.restore(refs),
     });
   }
+  services.authLock = authLock = createAuthLock(services, {
+    drop: () => connection.lockContext(),
+    restore: () => connection.restoreContext(),
+  });
   const connection = createWebSocketClient(services);
-  return Object.assign(services, {
+  const root = Object.assign(services, {
     connection,
     answers: connection.answers,
     dispose() {
+      services.authLock.dispose();
       connection.dispose();
       services.localWork?.dispose();
       services.recordings?.dispose();
@@ -180,4 +213,6 @@ export function createRoot(
       vpnRecheck = null;
     },
   });
+  Object.defineProperty(root, "answers", { get: () => connection.answers });
+  return root;
 }

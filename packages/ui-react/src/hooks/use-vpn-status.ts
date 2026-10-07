@@ -79,6 +79,9 @@ export function useVpnStatus() {
         const socketOpenedDuringCheck =
           root.stores.connection.getState().socketOpens !== opensAtStart;
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
+          // A locked page is unlocked only by the explicit sign-in completion,
+          // never by a background poll (including another tab signing in).
+          if (root.authLock.state.getState().phase !== "active") return;
           root.stores.connection.getState().setVpnStatus(status, accountKey);
           if (status === "connected") {
             setSuccessfulProbe((previous) => ({ root, count: previous.root === root ? previous.count + 1 : 1 }));

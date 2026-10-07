@@ -49,6 +49,7 @@ export function useDictation() {
   const resetCapture = useVoiceStore((s) => s.resetCapture);
 
   const start = useCallback(async () => {
+    if (root.authLock.state.getState().phase !== "active") return;
     const gen = ++startGenRef.current;
     const capture: Capture = { root: root.stores, client: null };
     captureRef.current = capture;
@@ -204,6 +205,8 @@ export function useDictation() {
     },
     [releaseCapture, resetCapture, root]
   );
+
+  useEffect(() => root.authLock.registerStop(() => stop(false)), [root, stop]);
 
   const cancel = useCallback(() => {
     void stop(false);
