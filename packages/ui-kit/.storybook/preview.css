@@ -1,0 +1,9 @@
+/* Centered Storybook previews otherwise shrink-wrap size-contained children.
+ * Give stages a definite available width while keeping narrow stages centered.
+ * Inline primitives retain their own intrinsic widths inside the stage. */
+#storybook-root {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}

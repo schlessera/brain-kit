@@ -6,6 +6,7 @@ import { definePreview } from "@storybook/react-vite";
 // published `dist/styles.css` — so the Storybook and the shipped stylesheet
 // cannot drift apart.
 import "../src/styles.css";
+import "./preview.css";
 
 export default definePreview({
   addons: [addonA11y(), addonThemes()],

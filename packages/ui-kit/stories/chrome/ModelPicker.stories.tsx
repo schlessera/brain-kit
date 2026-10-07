@@ -14,7 +14,7 @@ const meta = preview.meta({
     selectedModelId: "opus", defaultEffort: "medium", effortLevels: ["low", "medium", "high", "xhigh", "max"],
     selectedEffort: null, onModel: fn(), onEffort: fn(), onDismiss: fn(),
   },
-  render: (args) => <div style={{ position: "relative", height: 590 }}>
+  render: (args) => <div style={{ position: "relative", width: "100%", height: 590 }}>
     <div style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
       <ModelPicker {...args} />
       <Composer provider="Claude Opus 5.5" providerDetail={args.selectedEffort ?? undefined} />
