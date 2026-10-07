@@ -162,6 +162,39 @@ describe("a reconnect while the turn in view runs", () => {
     expect(next.frames().filter((f) => f.type === "session_resume"), "the reattach, then the turn's end").toHaveLength(2);
   });
 
+  test("a replay that names no turn keeps the turn the page knew, so a new turn still ends the answer", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Bound.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [...history(SIRENS), { role: "assistant", content: "Bound.", toolCalls: [] }] });
+    expect(buffer(root).messages.at(-1)).toMatchObject({ turnId: "turn-1", isStreaming: true });
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Row on." });
+    expect(buffer(root).messages.map((m) => [m.content, m.turnId ?? null]).slice(-2)).toEqual([["Bound.", "turn-1"], ["Row on.", "turn-2"]]);
+  });
+
+  test("a replay in chunks that splits just before the answer draws it once", () => {
+    const { root, socket } = running();
+    const next = reconnect(root, socket);
+    const before = buffer(root).messages.map((m) => m.id);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS).slice(0, 1) });
+    next.deliver({ type: "session_history", sessionId: "s1", append: true, messages: history(SIRENS).slice(1) });
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    expect(buffer(root).messages.map((m) => m.id), "one answer, the one on screen").toEqual(before);
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages.map((m) => m.content)).toEqual(["Hold: Sail past the Sirens", `${SIRENS} Landed.`]);
+  });
+
+  test("a page ahead of the host's stored answer keeps what it has drawn", () => {
+    const { root, socket } = running();
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history("Setting out:") });
+    expect(buffer(root).messages.at(-1)).toMatchObject({ content: SIRENS, isStreaming: true });
+  });
+
   test("a refusal of another request while reattaching is not the resume failing", () => {
     const { root, socket } = running();
     const next = reconnect(root, socket);

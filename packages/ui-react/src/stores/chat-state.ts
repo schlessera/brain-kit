@@ -291,6 +291,12 @@ export interface SessionChat {
   askUser: AskUserExchange | null;
   /** LRU stamp for buffer eviction. */
   lastTouched: number;
+  /**
+   * @internal The latest history replay (#1013): what was on screen before
+   * it, and every message its chunks have brought so far, so each appended
+   * chunk is reconciled against the same transcript the first one was.
+   */
+  replay?: { base: Pick<SessionChat, "messages" | "isStreaming">; received: ChatMessage[] };
 }
 
 /**
@@ -577,7 +583,7 @@ function withKnownTurns(next: ChatMessage[], previous: ChatMessage[]): ChatMessa
  * continues the other, and it stays streaming: the host's status after the
  * history says whether the turn is still running, and only that ends it.
  */
-function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<SessionChat, "messages" | "isStreaming"> {
+function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
   const tail = next.length - 1;
@@ -596,7 +602,10 @@ function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<Ses
     if (!same || !sameTools || !sameTurn) return m;
     if (live && i === tail) {
       streaming = true;
-      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };
+      // The page may already hold more of the answer than the host has
+      // stored: what it holds stays, turn and all.
+      if (old.content.length > m.content.length && old.toolCalls.length >= m.toolCalls.length) return old;
+      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true, turnId: m.turnId ?? old.turnId };
     }
     return { ...m, id: old.id, timestamp: old.timestamp };
   });
@@ -1452,10 +1461,12 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           }
           const existing = state.buffers[key];
           if (existing) revokeAttachmentUrls(existing.messages);
-          const replay = existing ? keepDrawnMessages(withKnownTurns(messages, existing.messages), existing) : null;
+          const base = existing ? { messages: existing.messages, isStreaming: existing.isStreaming } : null;
           const buffers = {
             ...state.buffers,
-            [key]: { ...emptyChat(), ...(replay ?? { messages }) },
+            [key]: base
+              ? { ...emptyChat(), ...keepDrawnMessages(withKnownTurns(messages, base.messages), base), replay: { base, received: messages } }
+              : { ...emptyChat(), messages },
           };
           return { buffers: evictStale(buffers, state.activeSessionId) };
         }),
@@ -1467,6 +1478,23 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
             return { draft: { ...draft, messages: [...draft.messages, ...messages] } };
           }
           const existing = state.buffers[key] ?? emptyChat();
+          if (existing.replay) {
+            // A later chunk of the same replay: reconcile the whole replay so
+            // far against the transcript it replaced, so a message the first
+            // chunk kept back as still being written is not drawn twice. The
+            // answer as it stands now (deltas since) is the live one.
+            const { base, received } = existing.replay;
+            const now = existing.messages.at(-1);
+            const live = base.messages.at(-1);
+            const current = now && live && now.id === live.id ? { ...base, messages: [...base.messages.slice(0, -1), now] } : base;
+            const all = [...received, ...messages];
+            return {
+              buffers: {
+                ...state.buffers,
+                [key]: { ...existing, ...keepDrawnMessages(withKnownTurns(all, current.messages), current), replay: { base: current, received: all }, lastTouched: Date.now() },
+              },
+            };
+          }
           return {
             buffers: {
               ...state.buffers,
