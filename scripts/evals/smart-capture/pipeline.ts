@@ -141,14 +141,14 @@ export async function capture(f: Fixture, root: string, plan: Plan) {
       const target = plan.target && safeResolve(root, plan.target);
       const before = plan.target && plan.snapshot[plan.target];
       const candidate = plan.proposedRaw;
-      const existingBody = before ? parseFrontmatter(before).content.trim() : "";
+      const existingBody = before ? parseFrontmatter(before).content : "";
+      const expectedBody = `${existingBody.replace(/\n*$/, "\n\n")}## 2026-07-12 Update\n\n${f.content.trim()}\n`;
       const metadataKept = before && candidate && Object.entries(parseFrontmatter(before).data)
         .filter(([key]) => key !== "updated")
         .every(([key, value]) => JSON.stringify(parseFrontmatter(candidate).data[key]) === JSON.stringify(value));
       if (!target || !before || matches.length !== 1 || matches[0]!.path !== plan.target ||
           current[plan.target!] !== before || !candidate || !existingBody || !metadataKept ||
-          !parseFrontmatter(candidate).content.includes(existingBody) ||
-          !parseFrontmatter(candidate).content.includes(f.content.trim()) ||
+          parseFrontmatter(candidate).content !== expectedBody ||
           parseFrontmatter(candidate).data.type !== matches[0]!.type ||
           parseFrontmatter(candidate).data.title !== matches[0]!.title) {
         plan = { ...deterministic({ ...f, explicit: { type: taxonomy.inboxType(), tags: plan.tags } }, root), reason: "Append revalidation refused; original captured in inbox" };

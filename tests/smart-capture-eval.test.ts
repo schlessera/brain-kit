@@ -177,6 +177,10 @@ test("held-out answers cannot calibrate; absent or unsafe semantic judgments can
     const good = scripted(f, p.root);
     expect(chooseThreshold([{ fixture: f, plan: t => hybrid(f, p.root, good, t) }])).toBe(0.7);
     expect(() => chooseThreshold([{ fixture: find("h-recurring"), plan: t => hybrid(f, p.root, good, t) }])).toThrow("Held-out");
+    const fallback = hybrid(f, p.root, { outcome: "no_key", answers: null, durationMs: 0 }, .7);
+    expect(fallback.tags).toEqual(["departure", "water"]);
+    expect(fallback.inferred).toBe(false);
+    expect(chooseThreshold([{ fixture: f, plan: () => fallback }])).toBeNull();
     const wrong = structuredClone(good);
     if (wrong.answers!.type!.type === "choice") wrong.answers!.type!.choice = "study";
     expect(chooseThreshold([{ fixture: f, plan: t => hybrid(f, p.root, wrong, t) }])).toBeNull();
@@ -202,4 +206,31 @@ test("actual rewrite files retain paraphrased facts without accepting a changed 
       expect(Object.keys(result.files)).toHaveLength(2);
     } finally { p.close(); }
   }
+});
+
+
+test("prepended or duplicated existing body cannot authorize an exact-title append", async () => {
+  const f = find("t-exact");
+  for (const prefix of ["An injected prefix.\n\n", parseFrontmatter(f.files["projects/active/raft.md"]!).content]) {
+    const p = await prepare(f);
+    try {
+      const plan = deterministic(f, p.root), body = parseFrontmatter(plan.proposedRaw!).content;
+      plan.proposedRaw = plan.proposedRaw!.replace(body, `${prefix}${body}`);
+      await capture(f, p.root, plan);
+      expect(readFileSync(join(p.root, "projects/active/raft.md"), "utf8")).toBe(f.files["projects/active/raft.md"]!);
+      expect(retained(p.root, f.content)).toBe(true);
+    } finally { p.close(); }
+  }
+});
+
+test("a rewrite quoting the original cannot replace the actual capture in type or tag scoring", async () => {
+  const f = find("h-rewrite"), p = await prepare(f);
+  try {
+    const plan = deterministic(f, p.root), captured = await capture(f, p.root, plan);
+    writeFileSync(join(p.root, "notes/aaa-draft.md"), `---\ntype: study\ntitle: Quoted inventory\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [navigation]\n---\n\n${f.content}\n\nPenelope counted three sealed jars. Keep the cracked jar separately.\n`);
+    const result = observe(f, p.root, plan, captured.path);
+    expect(result.actualType).toBe("note"); expect(result.actualTags).toEqual([]);
+    expect(result.capturePath).toBe(captured.path); expect(result.captureCandidateCount).toBe(2);
+    expect(result.generatedFactsKept).toBe(true);
+  } finally { p.close(); }
 });

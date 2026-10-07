@@ -36,9 +36,11 @@ test("actual loopback relay counts separate main/helper calls and keeps split UT
 });
 test("missing final message usage is retained and refuses subsequent physical dispatch", async () => {
   let dispatches = 0;
-  const relay = startRelay({ oauthToken: "offline-token", save: () => {}, async fetch() { dispatches++; return new Response('data: {"type":"message_stop"}\n\n', { headers: { "content-type": "text/event-stream" } }); } });
+  const relay = startRelay({ oauthToken: "offline-token", save: () => {}, async fetch() { dispatches++; return new Response(dispatches === 1 ? 'data: {"type":"message_stop"}\n\n' : sse(), { headers: { "content-type": "text/event-stream" } }); } });
   try {
-    const first = await send(relay.url); await first.text().catch(() => {});
+    // Bun may reject before headers or while reading an already returned body.
+    // Either way, the actual usage receipt and next-dispatch guard must hold.
+    await send(relay.url).then(response => response.text()).catch(() => {});
     expect(relay.calls[0]!.outcome).toBe("missing_usage");
     expect(relay.calls[0]!.apiEquivalent).toBeNull();
     expect(relay.complete()).toBe(false);

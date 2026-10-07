@@ -58,7 +58,7 @@
         "departure"
       ]
     },
-    "annotation": "Recurring routine belongs to the user-configured ritual type, not a one-time project."
+    "annotation": "Recurring routine belongs to the user-configured ritual type, not a one-time project. Water matches the hyphenated water-jug at a word boundary; departure is explicit. These tags test literal vocabulary matching."
   },
   {
     "id": "t-module",
@@ -320,7 +320,7 @@
         "weaving"
       ]
     },
-    "annotation": "A one-time instruction alone is not a recurring ritual or an established project."
+    "annotation": "A one-time instruction alone is not a recurring ritual or an established project. The weaving tag is an explicit literal vocabulary match, not semantic recall."
   },
   {
     "id": "h-module",
@@ -470,7 +470,7 @@
         "stores"
       ]
     },
-    "annotation": "Explicit neither-target instruction and larger retained state test abstention without content loss."
+    "annotation": "Explicit neither-target instruction and larger retained state test abstention without content loss. The stores tag is a literal bounded-vocabulary match independent of the disclaimed destinations."
   },
   {
     "id": "h-unsupported-type",
@@ -504,6 +504,6 @@
         "weaving"
       ]
     },
-    "annotation": "Explicitly negated recurrence is a minimal pair with the repeated loom check; preserve the original one-time observation."
+    "annotation": "Explicitly negated recurrence is a minimal pair with the repeated loom check; preserve the original one-time observation. The weaving tag is an explicit literal vocabulary match, not semantic recall."
   }
 ]

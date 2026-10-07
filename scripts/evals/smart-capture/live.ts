@@ -125,7 +125,7 @@ async function main() {
   writeFileSync(join(out, "frozen-threshold.json"), JSON.stringify({ threshold, fixtureSha, protocolSha, tuningOnly: true }));
   for (const f of fixtures) for (let repetition = 0; repetition < protocol.repetitions; repetition++) for (const arm of protocol.arms) {
     const p = await prepare(f), cell = join(out, `${f.id}-${repetition}-${arm}`); mkdirSync(cell);
-    let calls: Call[] = [], plan = deterministic(f, p.root), failure: string | null = null;
+    let calls: Call[] = [], plan = deterministic(f, p.root), failure: string | null = null, capturePath: string | undefined;
     try {
       installBrainSurface(p.root, new URL("../../../", import.meta.url).pathname);
       const started = performance.now(), classificationEligible = needsInference(f, p.root);
@@ -142,9 +142,10 @@ async function main() {
           plan = hybrid(f, p.root, result.result, threshold); calls = result.calls;
         }
         const captured = await atReferenceDate(() => capture(f, p.root, plan));
+        capturePath = captured.path; plan = captured.plan;
         if (f.generation) calls.push(...(await native(f, p.root, cell, "generation", token, captured.path)).calls);
       }
-      const result = observe(f, p.root, arm === "current" ? undefined : plan);
+      const result = observe(f, p.root, arm === "current" ? undefined : plan, capturePath);
       rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, threshold, classificationEligible, durationMs: performance.now() - started +
         (arm === "hybrid" && repetition === 0 ? tuned.find(t => t.fixture.id === f.id)?.durationMs ?? 0 : 0), ...result, calls, failure }); save();
       if (spend.uncertain) throw Error("Unknown actual billed usage; no further dispatch");

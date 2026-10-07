@@ -2,7 +2,7 @@ import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-par
 import { documents, type Fixture, type Plan, vocabulary } from "./pipeline";
 
 /** Evaluate real post-write documents; counters are not inferred from a planner. */
-export function observe(f: Fixture, root: string, plan?: Plan) {
+export function observe(f: Fixture, root: string, plan?: Plan, capturePath?: string) {
   const after = documents(root), before = f.files;
   const changedExisting = Object.keys(before).filter(path => after.find(d => d.path === path)?.raw !== before[path]);
   const captured = after.filter(d => parseFrontmatter(d.raw).content.includes(f.content.trim()));
@@ -19,19 +19,26 @@ export function observe(f: Fixture, root: string, plan?: Plan) {
   const unintendedCreates = Math.max(0, created.length - (f.generation ? 2 : f.expected.appendTarget ? 0 : 1));
   const wrongTargetAppend = changedExisting.some(path => path !== f.expected.appendTarget);
   const appendTarget = changedExisting.length === 1 ? changedExisting[0]! : null;
-  const capture = captured.find(d => !Object.hasOwn(before, d.path)) ?? captured[0];
+  const capture = capturePath ? captured.find(d => d.path === capturePath)
+    : captured.find(d => parseFrontmatter(d.raw).content.trim() === f.content.trim()) ?? (captured.length === 1 ? captured[0] : undefined);
+  const appendShapeViolation = changedExisting.some(path => {
+    const body = after.find(d => d.path === path);
+    const originalBody = parseFrontmatter(before[path]!).content;
+    return !body || parseFrontmatter(body.raw).content !== `${originalBody.replace(/\n*$/, "\n\n")}## 2026-07-12 Update\n\n${f.content.trim()}\n`;
+  });
   const parsed = capture ? parseFrontmatter(capture.raw) : null;
   const actualTags = parsed && Array.isArray(parsed.data.tags) ? parsed.data.tags.map(String) : [];
   const truePositiveTags = actualTags.filter(tag => f.expected.tags.includes(tag)).length;
-  const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && !parseFrontmatter(d.raw).content.includes(f.content.trim())).map(d => `${String(parseFrontmatter(d.raw).data.title ?? "")}\n${parseFrontmatter(d.raw).content}`);
+  const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && (capturePath ? d.path !== capturePath : parseFrontmatter(d.raw).content.trim() !== f.content.trim())).map(d => `${String(parseFrontmatter(d.raw).data.title ?? "")}\n${parseFrontmatter(d.raw).content}`);
   const generatedFactsKept = f.generation ? draftBodies.some(body => /\b(?:Penelope|she)\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\b(?:separat\w*|apart|aside|distinct)\b|\baway from\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
   return {
     actualType: capture?.type ?? null, expectedType: f.expected.type,
-    correctType: capture?.type === f.expected.type, captureRetained: captured.length > 0,
-    originalsRetained, metadataRetained, contentLoss: !captured.length || !originalsRetained || !metadataRetained, unintendedCreates,
+    correctType: capture?.type === f.expected.type, capturePath: capture?.path ?? null, captureCandidateCount: captured.length, captureRetained: capturePath ? Boolean(capture) : captured.length > 0,
+    originalsRetained, metadataRetained, contentLoss: !(capturePath ? capture : captured.length) || !originalsRetained || !metadataRetained, appendShapeViolation, unintendedCreates,
     changedExisting, appendTarget, correctAppendTarget: appendTarget === f.expected.appendTarget,
     wrongTargetAppend, expectedReviewTarget: f.expected.reviewTarget, reviewTarget: plan?.reviewTarget ?? null,
     correctReviewTarget: (plan?.reviewTarget ?? null) === f.expected.reviewTarget,
+    tagMetricBasis: !plan?.inferred && (Object.keys(f.explicit).length || f.expected.appendTarget || f.generation) ? "metadata/explicit/reserved" : f.expected.tags.length && f.expected.tags.every(tag => new RegExp(`\\b${tag}\\b`, "i").test(f.content)) ? "literal vocabulary" : "semantic/negative vocabulary",
     actualTags, truePositiveTags, predictedTags: actualTags.length, expectedTags: f.expected.tags.length,
     tagPrecision: actualTags.length ? truePositiveTags / actualTags.length : null,
     tagRecall: f.expected.tags.length ? truePositiveTags / f.expected.tags.length : null,
@@ -47,6 +54,7 @@ export function chooseThreshold(rows: Array<{ fixture: Fixture; plan: (threshold
     let accepted = 0, errors = 0;
     for (const row of rows) {
       const plan = row.plan(threshold), expected = row.fixture.expected;
+      if (!plan.inferred) continue;
       if (plan.type !== "note") { accepted++; errors += Number(plan.type !== expected.type); }
       if (plan.reviewTarget) { accepted++; errors += Number(plan.reviewTarget !== expected.reviewTarget); }
       for (const tag of plan.tags) { accepted++; errors += Number(!expected.tags.includes(tag)); }
@@ -65,7 +73,7 @@ export function summarize(rows: any[]) {
     const calls = group.flatMap(r => r.calls ?? []);
     return { arm, split, observations: group.length, correctTypes: group.filter(r => r.correctType).length,
       confusion: group.map(r => ({ fixture: r.fixture, repetition: r.repetition, expected: r.expectedType, actual: r.actualType })),
-      wrongTargetAppends: group.filter(r => r.wrongTargetAppend).length, contentLoss: group.filter(r => r.contentLoss).length,
+      wrongTargetAppends: group.filter(r => r.wrongTargetAppend).length, appendShapeViolations: group.filter(r => r.appendShapeViolation).length, contentLoss: group.filter(r => r.contentLoss).length,
       unintendedCreates: group.reduce((s, r) => s + r.unintendedCreates, 0),
       correctAppendTargets: group.filter(r => r.correctAppendTarget).length, correctReviewTargets: group.filter(r => r.correctReviewTarget).length,
       appendPrecision: group.some(r => r.appendTarget) ? group.filter(r => r.appendTarget && r.correctAppendTarget).length / group.filter(r => r.appendTarget).length : null,
@@ -73,6 +81,7 @@ export function summarize(rows: any[]) {
       requestedGeneration: group.filter(r => r.generationRequested).length, generatedFactsKept: group.filter(r => r.generatedFactsKept === true).length,
       abstentions: group.filter(r => r.abstained).length, abstentionMetrics: { expectedNotes: group.filter(r => r.expectedType === "note").length, safeExpectedNoteAbstentions: group.filter(r => r.expectedType === "note" && r.abstained).length, nonNoteAbstentions: group.filter(r => r.expectedType !== "note" && r.abstained).length }, reviewTargetRecall: group.some(r => r.expectedReviewTarget) ? group.filter(r => r.expectedReviewTarget && r.correctReviewTarget).length / group.filter(r => r.expectedReviewTarget).length : null, tagPrecision: tags.predicted ? tags.correct / tags.predicted : null,
       tagRecall: tags.expected ? tags.correct / tags.expected : null, classificationEligibleTagMetrics: { observations: eligible.length, ...eligibleTags, precision: eligibleTags.predicted ? eligibleTags.correct / eligibleTags.predicted : null, recall: eligibleTags.expected ? eligibleTags.correct / eligibleTags.expected : null }, inventedTags: group.flatMap(r => r.inventedTags).length,
+      tagMetricGroups: ["metadata/explicit/reserved", "literal vocabulary", "semantic/negative vocabulary"].map(basis => { const subset = group.filter(r => r.tagMetricBasis === basis), counts = subset.reduce((a, r) => ({ correct: a.correct + r.truePositiveTags, predicted: a.predicted + r.predictedTags, expected: a.expected + r.expectedTags }), { correct: 0, predicted: 0, expected: 0 }); return { basis, observations: subset.length, ...counts, precision: counts.predicted ? counts.correct / counts.predicted : null, recall: counts.expected ? counts.correct / counts.expected : null }; }),
       calls: calls.length, callsWithUnknownUsage: calls.filter(c => c.inputTokens == null || c.outputTokens == null).length,
       inputTokens: calls.every(c => c.inputTokens != null) ? calls.reduce((s, c) => s + c.inputTokens, 0) : null,
       outputTokens: calls.every(c => c.outputTokens != null) ? calls.reduce((s, c) => s + c.outputTokens, 0) : null,
@@ -83,7 +92,7 @@ export function summarize(rows: any[]) {
       observedAdditionalBilledUsd: calls.every(c => c.observedAdditionalBilledUsd != null) ? calls.reduce((s, c) => s + c.observedAdditionalBilledUsd, 0) : null,
       p50Ms: percentile(0.5), p95Ms: percentile(0.95), durationMs: group.reduce((s, r) => s + r.durationMs, 0),
       throughputPerSecond: group.length ? group.length / (group.reduce((s, r) => s + r.durationMs, 0) / 1000) : null,
-      gate: !group.length ? "not evaluable" : group.some(r => r.wrongTargetAppend || r.contentLoss || r.unintendedCreates) ? "safety veto" : "safety retained on observed sample only",
+      gate: !group.length ? "not evaluable" : group.some(r => r.wrongTargetAppend || r.contentLoss || r.appendShapeViolation || r.unintendedCreates) ? "safety veto" : "safety retained on observed sample only",
     };
   }));
 }
