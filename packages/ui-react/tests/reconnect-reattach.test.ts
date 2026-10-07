@@ -70,6 +70,67 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  test("bounded legacy history without parts keeps text before its tool", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendText("s1", " Row through the strait.".repeat(20_000));
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: old.toolCalls }, HISTORY_CHUNK_BYTES);
+    expect(replay.content, "legacy fixture is actually clipped").toContain("chars elided]");
+    expect(replay).not.toHaveProperty("parts");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "clipped legacy parts keep the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual(old.parts);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toBe(`${old.content} Landed.`);
+  });
+  test("reopening a background failure preserves its failure and retry handle", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().stampTurn("s1", "turn-1");
+    const old = buffer(root).messages.at(-1)!;
+    root.stores.chat.getState().setActiveSession("s2");
+    const next = reconnect(root, socket);
+    root.stores.chat.getState().setActiveSession("s1");
+    root.connection.send({ type: "session_resume", sessionId: "s1" });
+    const failure = { errorClass: "server_error", message: "The harbour did not answer." };
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, toolCalls: [], turnId: "turn-1", failure, retryOfTurnId: "turn-1",
+    }] });
+    next.deliver({ type: "status", sessionId: "s1", status: "idle" });
+    expect(buffer(root).messages.at(-1)!.failure, "replayed terminal failure survives the live text merge").toEqual(failure);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+    expect(root.connection.retryTurn("turn-1"), "the recovered failure still offers a working retry").toBe("sent");
+    expect(next.frames().filter((f) => f.type === "retry_turn")).toHaveLength(1);
+  });
+  test("an ordinary background resume ends the old answer when the host names a new turn", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().stampTurn("s1", "turn-1");
+    root.stores.chat.getState().setActiveSession("s2");
+    const next = reconnect(root, socket);
+    root.stores.chat.getState().setActiveSession("s1");
+    root.connection.send({ type: "session_resume", sessionId: "s1" });
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, toolCalls: [], turnId: "turn-1",
+    }] });
+    expect(buffer(root).isStreaming).toBe(true);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    expect(buffer(root).isStreaming, "ordinary resume finishes the old turn's answer").toBe(false);
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound to the mast." });
+    expect(buffer(root).messages.map((m) => m.content)).toEqual([history(SIRENS)[0].content, SIRENS, "Bound to the mast."]);
+  });
+  test("an ordinary background resume failure does not leave its old answer streaming", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().stampTurn("s1", "turn-1");
+    root.stores.chat.getState().setActiveSession("s2");
+    const next = reconnect(root, socket);
+    root.stores.chat.getState().setActiveSession("s1");
+    root.connection.send({ type: "session_resume", sessionId: "s1" });
+    next.deliver({ type: "error", sessionId: "s1", code: "SESSION_LOAD_ERROR", message: "The harbour did not answer." });
+    expect(buffer(root).isStreaming, "ordinary failed resume ends the stream").toBe(false);
+  });
   test("a size-bounded tool array keeps the tool cards already drawn", () => {
     const { root, socket } = running();
     for (let i = 0; i < 150; i++) {

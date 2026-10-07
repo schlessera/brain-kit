@@ -613,11 +613,12 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const boundedTools = toolsElided && Number(toolsElided[1]) <= old.toolCalls.length - received.toolCalls.length
       && received.toolCalls.every((tool, k) => tool.id === old.toolCalls[k]?.id);
     const content = boundedTools ? received.content.slice(0, toolsElided.index) : received.content;
+    const unclippedContent = keepUnclippedText(content, old.content)!;
     const m = {
       ...received,
-      content: keepUnclippedText(content, old.content)!,
+      content: unclippedContent,
       thinking: keepUnclippedText(received.thinking, old.thinking),
-      parts: boundedTools ? old.parts : received.parts.map((part, k) => {
+      parts: boundedTools || unclippedContent !== content ? old.parts : received.parts.map((part, k) => {
         const before = old.parts[k];
         return part.kind !== "tool" && before?.kind === part.kind
           ? { ...part, text: keepUnclippedText(part.text, before.text)! } : part;
@@ -719,6 +720,12 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   const askUserExchanges = asks.size ? [...asks.values()] : undefined;
   return {
     ...base, toolCalls, parts, thinking, askUserExchanges,
+    // Terminal history is authoritative even when the drawn text is longer.
+    failure: m.failure ?? base.failure,
+    retryOfTurnId: m.failure ? m.retryOfTurnId : base.retryOfTurnId,
+    failureLive: m.failure ? false : base.failureLive,
+    files: m.files ?? base.files,
+    blocks: m.blocks ?? base.blocks,
     id: old.id, timestamp: old.timestamp, isStreaming: true,
     turnId: m.turnId, streamTurnId: old.turnId ?? old.streamTurnId,
   };

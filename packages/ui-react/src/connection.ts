@@ -415,24 +415,21 @@ export function createWebSocketClient(root: BrainUiServices) {
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
     // A resume the host could not serve answers with an error and no status:
     // nothing will say whether the turn still runs (#1013).
-    const failedReattach = msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && !msg.requestId
-      && reattachSessionId !== null && frameSessionId === reattachSessionId;
-    if (failedReattach) reattachSessionId = null;
+    const failedResume = msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && !msg.requestId && !!frameSessionId;
+    if (failedResume && frameSessionId === reattachSessionId) reattachSessionId = null;
+    if (msg.type === "status" && frameSessionId && msg.status !== "queued" && msg.status !== "idle" && msg.status !== "cancelled") {
+      // Any resumed buffer may have missed an old turn ending, including a
+      // background session reopened after reconnect. New turns get new answers.
+      const live = state.buffers[frameSessionId]?.messages.at(-1);
+      const oldTurn = live?.streamTurnId ?? live?.turnId;
+      if (msg.turnId && live?.isStreaming && oldTurn && oldTurn !== msg.turnId) state.finishAssistantMessage(frameSessionId);
+    }
     if (msg.type === "status" && reattachSessionId !== null) {
       // The host's own answer for the session being reattached settles it.
       // A queued status (another request waiting) names no running turn:
       // the reattach waits for one that does, or that ends it.
       if (frameSessionId === reattachSessionId && msg.status !== "queued") {
         reattachSessionId = null;
-        // Running, but another turn than the answer kept live (it ended
-        // while the page was away and a queued follow-up started): that
-        // answer is finished, and the new turn's text starts its own.
-        const live = state.buffers[frameSessionId]?.messages.at(-1);
-        const turnId = (msg as { turnId?: string }).turnId;
-        if (msg.status !== "idle" && msg.status !== "cancelled" && turnId && live?.isStreaming
-          && live.id === reattachMessageId && reattachTurnId && reattachTurnId !== turnId) {
-          state.finishAssistantMessage(frameSessionId);
-        }
       }
       // The host greets every connection with an unscoped idle, also while
       // this session's turn is still running beside others. That greeting is
@@ -520,7 +517,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     });
     // After the error has been drawn as it would be anyway: a stream still
     // open has no answer coming, so it ends here rather than never.
-    if (failedReattach && root.stores.chat.getState().buffers[frameSessionId!]?.isStreaming) {
+    if (failedResume && root.stores.chat.getState().buffers[frameSessionId!]?.isStreaming) {
       root.stores.chat.getState().finishAssistantMessage(frameSessionId!);
     }
   }
@@ -641,9 +638,6 @@ export function createWebSocketClient(root: BrainUiServices) {
   let coldResumedSessionId: string | null = null;
   /** The running session in view that a reconnect reattached, until the host answers for it. */
   let reattachSessionId: string | null = null;
-  /** The reattached answer, and the turn it belonged to when the connection went, if the page knew it. */
-  let reattachMessageId: string | undefined;
-  let reattachTurnId: string | undefined;
 
   function markHistoryReplaced(key: ChatKey): void {
     // A replay of a transcript that was streaming is not the whole answer
@@ -706,9 +700,6 @@ export function createWebSocketClient(root: BrainUiServices) {
           // history that keeps the messages already drawn (#1013). The
           // resync flag stays: the turn's end replays the finished answer.
           reattachSessionId = chat.activeSessionId;
-          const live = active.messages.at(-1);
-          reattachMessageId = live?.id;
-          reattachTurnId = live?.turnId ?? live?.streamTurnId;
           wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
         }
       }
