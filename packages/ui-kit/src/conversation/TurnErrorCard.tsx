@@ -43,7 +43,8 @@ export function TurnErrorCard(p: TurnErrorCardProps) {
   const identityRows = p.rows.filter(r => r.k === "model" || r.k === "backend");
   return (
     <section aria-label="Turn failed" className="bk-turn-error" style={{ overflowWrap: "anywhere", width: "100%", minWidth: 0, containerType: "inline-size" }}>
-      {announcement ? <div role="alert" className="bk-sr-only">{announcement}</div> : null}
+      {/* Withdrawn, never re-spoken, once the failure stops being the new one. */}
+      {announcement && p.announce ? <div role="alert" className="bk-sr-only">{announcement}</div> : null}
       <Surface tone={p.tone} tint emphasis="hairline" label="Turn failed" labelIcon="failed">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
