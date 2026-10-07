@@ -43,6 +43,8 @@ import {
 import { classifyLink } from "@schlessera/brain-ui-kit/links";
 import type { Block, ShowBlockPayload } from "@schlessera/brain-ui-sdk/client";
 
+import { SupportingFiles } from "./supporting-files.js";
+
 import { TrackBlockCard } from "./track-block.js";
 import type { TrackDisplay } from "../../../lib/track-display.js";
 import { MapBlockCard } from "./map-block.js";
@@ -89,6 +91,8 @@ export function blockSummary({ block }: ShowBlockPayload): string {
       return `quote · ${block.source ?? "unattributed"}`;
     case "contact":
       return `contact · ${block.label}`;
+    case "files":
+      return `files · ${count(block.items.length, "file")}`;
     case "track":
       return `track · ${block.title ?? block.source.path}`;
     case "map":
@@ -161,6 +165,8 @@ function BlockView({ block, isStatic, trackDisplay }: { block: Block; isStatic: 
       const { kind: _kind, contactKind, role, facts, ...props } = block;
       return <ContactCard {...props} kind={contactKind} role={text(role)} facts={facts ?? []} />;
     }
+    case "files":
+      return <SupportingFiles block={block} isStatic={isStatic} />;
     case "track":
       return <TrackBlockCard block={block} isStatic={isStatic} resolved={trackDisplay} />;
     case "map":

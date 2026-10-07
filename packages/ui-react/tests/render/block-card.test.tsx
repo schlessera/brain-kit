@@ -89,6 +89,7 @@ const EXPECTED_TEXT: Record<AnswerBlockKind, string[]> = {
   schedule: ["Today", "Open the bag", "conflict"],
   quote: ["Sing to me of the man, Muse.", "Book 1, line 1"],
   contact: ["Eumaeus", "swineherd", "20 years ago"],
+  files: ["knowledge/scylla.md", "Names the cost in men.", "people/circe.md"],
   track: ["Reading original track", "ithaca-loop.gpx"],
   map: ["Where the crew went ashore", "Harbour steps", "Agora well", "Raft timber stand", "no position"],
   link: ["ithaca-harbour.", "example", "Harbour tide tables, week 39", "Title and summary by the brain"],
@@ -171,6 +172,7 @@ describe("BlockCard", () => {
     expect(blockSummary({ block: BLOCKS.schedule })).toBe("schedule · 1 day");
     expect(blockSummary({ block: BLOCKS.quote })).toBe("quote · Odyssey");
     expect(blockSummary({ block: BLOCKS.contact })).toBe("contact · Eumaeus");
+    expect(blockSummary({ block: BLOCKS.files })).toBe("files · 2 files");
     expect(blockSummary({ block: BLOCKS.map })).toBe("map · Where the crew went ashore");
     expect(blockSummary({ block: { kind: "map", places: [{ label: "Vathy" }] } })).toBe("map · 1 place");
     expect(blockSummary({ block: SUGGESTIONS })).toBe("suggestions · 2");

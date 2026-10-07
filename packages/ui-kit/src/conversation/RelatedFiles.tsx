@@ -116,6 +116,8 @@ export function RelatedFiles(p: RelatedFilesProps) {
           alignItems: "center",
           gap: 9,
           padding: "8px 10px",
+          boxSizing: "border-box",
+          minHeight: act ? 44 : undefined,
           borderRadius: 10,
           background: color.surface,
           border: `1px solid ${color.line}`,
@@ -173,6 +175,7 @@ export function RelatedFiles(p: RelatedFilesProps) {
                 <div
                   style={{
                     marginTop: 3,
+                    overflowWrap: "anywhere",
                     font: `400 11px/1.5 ${font.body}`,
                     color: accent.neutral.ink,
                   }}

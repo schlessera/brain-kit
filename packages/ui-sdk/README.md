@@ -276,3 +276,7 @@ A frame that fails validation is dropped and passed to `onProtocolError`, never
 thrown — the protocol is additive, so an unrecognised frame must not break an
 older client. Register `onAny` instead of per-type handlers when your dispatch
 shares a preamble; it counts as handling.
+
+### Supporting files in an answer
+
+`show_block` accepts `{block:{kind:"files",items:[{path:"knowledge/scylla.md",reason:"Names the cost in men."}]}}`. The list has 1–20 entries; paths are exact brain-relative strings (1–1024 characters), and optional plain-text reasons have at most 240 characters. Reasons are the agent's claims. The tool validates and echoes data without reading a file or inventing retrieval scores; the reader can open a permitted local path in the current root.

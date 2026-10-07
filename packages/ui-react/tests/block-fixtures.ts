@@ -1,6 +1,6 @@
 // One valid `show_block` payload per block kind, in the Odysseus world.
 // Shared by the block-card render tests and the share-document tests, so both
-// draw the same twelve blocks.
+// draw the same answer blocks.
 import type { Block } from "@schlessera/brain-ui-sdk/client";
 
 /** The kinds drawn inside the answer: every kind but `suggestions` (D50). */
@@ -108,6 +108,10 @@ export const BLOCKS: Record<AnswerBlockKind, Block> = {
     badge: "loyal",
     facts: [{ k: "last seen", v: "20 years ago", tone: "red" }],
   },
+  files: { kind: "files", items: [
+    { path: "knowledge/scylla.md", reason: "Names the cost in men." },
+    { path: "people/circe.md", reason: "Gives the directions for the crossing." },
+  ] },
   track: { kind: "track", source: { path: ".brain-ui/inbox/00000000-0000-0000-0000-000000000000/ithaca-loop.gpx" }, title: "Ithaca loop" },
   map: {
     kind: "map",
