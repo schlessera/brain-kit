@@ -9,7 +9,7 @@ import { color, font } from "../tokens.js";
  * A ghost is blurred text set in the same type role, size and length as the
  * content it stands in for, so it has that content's shape and the layout
  * does not move when the content arrives. The kit spectrum sweeps through it
- * (`.bk-ghost` in `tokens.css`); when that item's data resolves the ghost
+ * (one `GhostBand` per frame); when that item's data resolves the ghost
  * cross-fades out under the real text over 600ms.
  *
  * What this file owns, so no component re-derives it:
@@ -126,13 +126,13 @@ export interface GhostTextProps {
   size?: number;
   /** Overrides the role's blur. */
   blur?: number;
-  /** Stagger, in seconds: +0.1 per line in a card, plus the item's list offset. */
-  delay?: number;
   /** `false` holds the ghost still: a static base fill, still blurred. */
   animate?: boolean;
   /** `line` sets the ghost as one non-wrapping line clipped to the given
    * width, rather than as text that wraps where the real text would. */
   width?: string;
+  /** Clip a single-line slot before blurring, leaving its blurred edges free. */
+  line?: boolean;
   /** Glyphs with a path's separators. Mono only. */
   path?: boolean;
 }
@@ -148,9 +148,8 @@ export function GhostText(p: GhostTextProps) {
     fontFamily: ghostFamily(p.role),
     fontSize: size,
     filter: `blur(${p.blur ?? ghostBlur(p.role, size)}px)`,
-    animationDelay: p.delay ? `${p.delay.toFixed(2)}s` : undefined,
-    ...(p.width
-      ? { display: "inline-block", width: p.width, maxWidth: "100%", whiteSpace: "nowrap", overflow: "hidden", verticalAlign: "top" }
+    ...(p.width || p.line
+      ? { display: "inline-block", width: p.width, maxWidth: "100%", whiteSpace: "nowrap", verticalAlign: "top" }
       : null),
   };
   return (
@@ -161,7 +160,9 @@ export function GhostText(p: GhostTextProps) {
       data-still={p.animate === false ? "" : undefined}
       style={style}
     >
-      {ghostString(p.length, p.seed, p.path === true && p.role === "mono")}
+      {p.width || p.line ? (
+        <span aria-hidden="true" className="bk-ghost-clip">{ghostString(p.length, p.seed, p.path === true && p.role === "mono")}</span>
+      ) : ghostString(p.length, p.seed, p.path === true && p.role === "mono")}
     </span>
   );
 }

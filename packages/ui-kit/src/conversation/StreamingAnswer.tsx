@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import type { CSSProperties, KeyboardEvent } from "react";
 
 import { GhostText, INCOMING, useArrival } from "../internal/GhostText.js";
@@ -144,15 +145,16 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
             <div
               aria-hidden="true"
               className={arriving ? "bk-ghost-out" : undefined}
-              style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}
+              style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
             >
               {Array.from({ length: lines }).map((_, i) => (
                 <div key={i}>
-                  <GhostText role="sans" size={13.5} length={160} seed={`answer:${i}`} width={WIDTHS[i % WIDTHS.length]} delay={i * 0.1} />
+                  <GhostText role="sans" size={13.5} length={160} seed={`answer:${i}`} width={WIDTHS[i % WIDTHS.length]} />
                 </div>
               ))}
             </div>
           ) : null}
+          <GhostBand loading={waiting} arriving={arriving} />
           {/* Positioned, so the text paints over the ghost that precedes it.
               The first chunk fades in over the same 600ms the ghost fades out
               in; the tail ramp settles the newest characters on top of that. */}

@@ -22,6 +22,10 @@ for (const [name, story] of [["animated", placeholder.Loading], ["still", placeh
       await commands.ghostMedia("reduce", "screen");
       await run(story, theme);
       expect(ghosts().length).toBeGreaterThan(0);
+      for (const layer of document.querySelectorAll(".bk-ghost-track, .bk-ghost-track *")) {
+        expect(getComputedStyle(layer).animationName).toBe("none");
+      }
+      expect(getComputedStyle(document.querySelector(".bk-ghost-track")!).display).toBe("none");
       for (const g of ghosts()) {
         const c = getComputedStyle(g);
         expect(c.animationName).toBe("none");
@@ -34,13 +38,20 @@ for (const [name, story] of [["animated", placeholder.Loading], ["still", placeh
   }
 }
 
-test("without reduced motion the sweep runs, through a spectrum gradient", async () => {
+test("without reduced motion the frame sweep runs through three masked windows", async () => {
   await run(placeholder.Loading);
   for (const g of ghosts()) {
     const c = getComputedStyle(g);
-    expect(c.animationName).toBe("ghost");
-    expect(c.backgroundImage).toContain("linear-gradient");
-    expect(c.color).toBe("rgba(0, 0, 0, 0)");
+    expect(c.animationName).toBe("none");
+    expect(c.backgroundImage).toBe("none");
+    expect(c.color).toBe("rgb(58, 61, 70)");
+  }
+  expect(document.querySelectorAll(".bk-ghost-track")).toHaveLength(1);
+  expect(getComputedStyle(document.querySelector(".bk-ghost-track")!).animationName).toBe("ghost");
+  expect(document.querySelectorAll(".bk-ghost-window")).toHaveLength(3);
+  for (const w of document.querySelectorAll(".bk-ghost-window")) {
+    expect(getComputedStyle(w).maskImage).toContain("linear-gradient");
+    expect(getComputedStyle(w).maskRepeat).toBe("no-repeat");
   }
 });
 

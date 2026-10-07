@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import { useId, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue, type GhostTextProps } from "../internal/GhostText.js";
@@ -23,8 +24,7 @@ import type { ViewState } from "../types.js";
  * file icon are final from the first frame, the path and score are mono
  * ghosts, and the snippet is a sans ghost as long as the snippet will be —
  * `snippetLength` when the search knows it, else the last one shown, else a
- * typical 120 characters. Results hand off in ranked order: `index` offsets
- * each one's sweep by 0.25s.
+ * typical 120 characters. One band sweeps the whole frame (#1126).
  *
  * The error variant's retry becomes a real control when the caller passes
  * `onStateAction`, and stays the label the source draws when they do not. The
@@ -52,7 +52,7 @@ export interface SearchResultCardProps {
   onStateAction?: () => void;
   /** Loading only: the snippet's length, when the search reports it. */
   snippetLength?: number;
-  /** Rank in its result list: staggers the loading sweep by 0.25s per result. */
+  /** Result rank, retained for compatibility; block sweeps no longer stagger. */
   index?: number;
   onClick?: () => void;
 }
@@ -124,7 +124,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
     position: "relative",
     flex: 1,
     minWidth: 0,
-    overflow: "hidden",
+    overflow: loading || arriving ? "visible" : "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   };
@@ -135,13 +135,12 @@ export function SearchResultCard(p: SearchResultCardProps) {
     font: `400 12px/1.6 ${font.body}`,
     color: color.inkDim,
   };
-  const stagger = (Number(p.index) || 0) * 0.25;
-  const ghost = (slot: string, length: number, line: number, role: "sans" | "mono"): GhostTextProps => ({
+  const ghost = (slot: string, length: number, _line: number, role: "sans" | "mono"): GhostTextProps => ({
     role,
+    line: role === "mono",
     size: role === "mono" ? 11 : 12,
     length,
     seed: `${id}:${slot}`,
-    delay: stagger + line * 0.1,
     path: slot === "path",
   });
   const markStyle: CSSProperties = {
@@ -159,7 +158,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
 
   return (
     <div
-      style={box}
+      style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
@@ -195,6 +194,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
           {after}
         </Ghosted>
       </div>
+      <GhostBand loading={loading} arriving={arriving} />
     </div>
   );
 }

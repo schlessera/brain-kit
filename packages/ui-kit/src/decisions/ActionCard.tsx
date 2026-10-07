@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { Chip } from "../primitives/Chip.js";
@@ -264,12 +265,11 @@ export function ActionCard(p: ActionCardProps) {
   };
   const chevWrap: CSSProperties = { marginLeft: "auto", display: "flex" };
   // Lines inside the card are offset by +0.1s each, top to bottom.
-  const ghost = (slot: string, role: GhostRole, size: number, length: number, line: number): GhostTextProps => ({
+  const ghost = (slot: string, role: GhostRole, size: number, length: number, _line: number): GhostTextProps => ({
     role,
     size,
     length,
     seed: `${id}:${slot}`,
-    delay: line * 0.1,
   });
   const showBody = loading ? lengths.body > 0 : Boolean(p.body);
   const showFoot = loading ? lengths.foot > 0 || Boolean(p.footLink) : Boolean(p.footMeta || p.footLink);
@@ -307,7 +307,7 @@ export function ActionCard(p: ActionCardProps) {
 
   return (
     <div
-      style={box}
+      style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
       role={act ? "button" : undefined}
@@ -405,6 +405,7 @@ export function ActionCard(p: ActionCardProps) {
           ) : null}
         </div>
       ) : null}
+      <GhostBand loading={loading} arriving={arriving} />
     </div>
   );
 }

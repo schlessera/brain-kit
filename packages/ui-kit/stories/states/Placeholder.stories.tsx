@@ -178,9 +178,9 @@ export const GhostRoles = meta.story({
     for (const g of ghosts) {
       await expect(g.getAttribute("aria-hidden")).toBe("true");
       // The glyphs are drawn by the gradient, through the text.
-      await expect(getComputedStyle(g).color).toBe("rgba(0, 0, 0, 0)");
+      await expect(["rgb(58, 61, 70)", "rgb(200, 191, 172)"]).toContain(getComputedStyle(g).color);
       await expect(getComputedStyle(g).filter).toMatch(/^blur\(/);
-      await expect(getComputedStyle(g).animationName).toBe("ghost");
+      await expect(getComputedStyle(g).animationName).toBe("none");
     }
   },
 });
@@ -234,9 +234,9 @@ export const NotPrinted = meta.story({
     const ghosts = canvasElement.querySelectorAll<HTMLElement>(".bk-ghost");
     await expect(ghosts).toHaveLength(3);
     for (const g of ghosts) {
-      // Every stop resolves to transparent: no opaque `rgb(` survives.
-      await expect(getComputedStyle(g).backgroundImage).toContain("rgba(0, 0, 0, 0)");
-      await expect(getComputedStyle(g).backgroundImage).not.toContain("rgb(");
+      // Print tokens paint neither the static base nor any coloured copy.
+      await expect(getComputedStyle(g).backgroundImage).toBe("none");
+      await expect(getComputedStyle(g).color).toBe("rgba(0, 0, 0, 0)");
     }
     let printRule = false;
     for (const sheet of document.styleSheets) {

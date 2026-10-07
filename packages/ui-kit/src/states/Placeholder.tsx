@@ -1,3 +1,4 @@
+import { GhostBand } from "../internal/GhostBand.js";
 import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { DEFAULT_SIZE, GhostText, INCOMING, ghostFamily, useArrival, type GhostSpec } from "../internal/GhostText.js";
@@ -127,14 +128,13 @@ export function Placeholder(p: PlaceholderProps) {
   const id = useId();
   const seed = p.seed ?? id;
   const still = p.animate === false;
-  // Lines inside one card are offset by +0.1s each, so the sweep travels down
-  // the card rather than flashing every line at once.
+  // Static slots share one owning-frame sweep.
   const ghosts = p.ghost?.length
     ? p.ghost.map((g, i) => (
         // The line box takes the role's own font, not the surrounding one: a
         // 12px ghost in a 16px parent would otherwise sit in a 16px strut.
         <div key={i} style={ghostLine(g.role, g.size ?? DEFAULT_SIZE[g.role])}>
-          <GhostText role={g.role} size={g.size} length={g.length} seed={`${seed}:${i}`} delay={i * 0.1} animate={!still} />
+          <GhostText role={g.role} size={g.size} length={g.length} seed={`${seed}:${i}`} animate={!still} />
         </div>
       ))
     : Array.from({ length: lines }).map((_, i) => (
@@ -144,7 +144,6 @@ export function Placeholder(p: PlaceholderProps) {
             length={120}
             seed={`${seed}:${i}`}
             width={i === 0 && lines > 1 ? WIDTHS[0] : WIDTHS[(i + 1) % WIDTHS.length]}
-            delay={i * 0.1}
             animate={!still}
           />
         </div>
@@ -205,7 +204,7 @@ export function Placeholder(p: PlaceholderProps) {
   }
 
   return (
-    <div style={box} aria-busy={loading && !arrived ? true : undefined}>
+    <div style={{ ...box, position: "relative" }} aria-busy={loading && !arrived ? true : undefined}>
       {loading && !arrived ? <div style={stack}>{ghosts}</div> : null}
       {arrived ? (
         // One tree from arrival on: ending the handoff drops the overlay and a
@@ -243,6 +242,7 @@ export function Placeholder(p: PlaceholderProps) {
           ) : null}
         </div>
       ) : null}
+      <GhostBand loading={loading && !arrived} arriving={arriving} animate={!still} />
     </div>
   );
 }

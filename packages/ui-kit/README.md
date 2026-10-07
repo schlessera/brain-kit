@@ -27,6 +27,21 @@ accessibility gate — is in `docs/decisions/design-kit.md`, and the measured
 design divergences several components ship on purpose are in
 `docs/decisions/design-feedback.md`.
 
+## Loading
+
+Loading is blurred ghost text in the replaced content's type role, with one
+spectrum band per frame and a 600ms cross-fade when that item's data arrives.
+Glyphs stay static; only the band's transforms move. The band spans the text block; broad edge fades scale with the frame, so the
+text lights up gradually across its width. Frames,
+icons and status-dot slots keep their final geometry. Loading states are not
+ambient motion: they end when the data does. Reduced motion shows plain blurred
+base text and makes the handoff instant; print hides ghosts.
+
+Queue and search `index` props remain accepted, but no longer stagger the
+sweep. The owning frame shares one sweep across all of its text slots. See
+D53 in `docs/decisions/design-kit.md` and the `States/GhostSweep` Storybook
+review gallery.
+
 ## Grouped questions
 
 `AskUserGroupCard` presents two to four questions as one exchange, with one
