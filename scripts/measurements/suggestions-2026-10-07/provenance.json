@@ -283,5 +283,7 @@
       "requestedServiceTier": "standard_only",
       "requestedInferenceGeography": "global"
     }
-  }
+  },
+  "transportAmendmentReceipt": "transport-amendment-receipt.json",
+  "historicalCapPlanningNote": "Frozen snapshots retain original planning fields. historical incrementalApiBillingUsd0 denotes no API-key invocation, not a subscription invoice receipt; the obsolete $2 API-equivalent reserve was heuristic and was not the actual-charge cap basis."
 }

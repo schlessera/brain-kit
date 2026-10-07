@@ -1,0 +1,16 @@
+{
+  "scope": "pi-api-key-standard-transport-only",
+  "fromApprovedManifestHash": "7f9a36ba843f09d118bd1df581dfd519a2c4a4be12b1abd698ac21aec224b918",
+  "toExecutedManifestHash": "d5a8c415dc3ba4cf515bb1fc0fa6a8b73c930be94571dba9b4c57225fc431d29",
+  "controllerHash": "6bfcea3b4d34e89fae0c438ea18295f33aeec7a7f7f22d9c2a63eb889bfa8f04",
+  "preloadHash": "a854669526bf9dc4a18a231d062feab42aa8bae0054f807360a9fc169a0f136a",
+  "fixtureRuntimeHash": "f7a6c7bfef701a2f2f4c3f1c425ab77dd46f12e51296b01e9f2d1118e3b03594",
+  "fixtureWrapperHash": "00084e08a3ea8184b6b1d7d3fa2087db08cfb89f5562738d35bc098015ab7ea1",
+  "runtimeSourcesHash": "3aa70a48c051f6ce26dd1ef536c1eb085f62d29dd1fed67fc36ffc83b80ae739",
+  "review": "Root exact transport/source audit approved API fallback already covered by standing authorization6025723682. Frozen semantic/model/corpus inputs unchanged.19 actual guard controls +real Pi server/SDK fakeHTTP seam +restored budget/UTF8 mutations passed. Isolated x-api-key only; official standard/global selectors; complete raw stream usage including nullable delta semantics and EOF;5.28 maximum per physical request, cumulative upper+next bound<=15. Exact prior rejectedOAuth400 retained with unknown billing provenance, not claimed zero invoice. No subscription profile override or topup.",
+  "launcherHash": "293266030a41919fae2bc290f80f933d39f14574f2445fd151df1b6b6467d155",
+  "piApiCaptureHash": "acdd6b1896139a225c0a3082c5104c4e7a0f6af9503c753f0336507349f94a7b",
+  "piApiPreloadHash": "064de9a443db3ad2207ad3dd118c70c94c373cdbc899238d8cd910d1b8aff21d",
+  "rejectedOAuthReceiptHash": "03f4b17b17c391b1f6838c0a39cc0d673cd780b7617f496e135ec1a5f3f98b3a",
+  "receiptKind": "Parent implementation audit; exact narrow transport amendment, no provider inference"
+}
