@@ -33,6 +33,12 @@ export "." (./src/index.ts)
   type LocalCaptureSupport
   type MaskRequest
   type MessageAttachment
+  type Recording
+  type RecordingBudget
+  type RecordingEvent
+  type RecordingRecovery
+  type RecordingState
+  type RecordingStore
   type SessionChat
   ShareHarness
   type ShareShellState
@@ -206,7 +212,7 @@ signatures (every public export and the types it is made of)
         request?: (url: string, init?: RequestInit) => Promise<Response>;
         storagePrefix?: string;
         storage?: Storage | null;
-        localCapture?: LocalCaptureOptions | null;
+        localCapture?: LocalCaptureOptions | true | null;
     }
   BrainUiServices (packages/ui-react/src/root.ts)
     export interface BrainUiServices {
@@ -222,6 +228,7 @@ signatures (every public export and the types it is made of)
         answerStorage: AnswerStorage | null;
         answerTabs: TabCoordinator | null;
         localCapture: LocalCaptureOptions | null;
+        recordings: RecordingStore | null;
         registerVpnRecheck: (callback: () => void) => () => void;
     }
   ChatKey (packages/ui-react/src/stores/chat-state.ts)
@@ -429,6 +436,7 @@ signatures (every public export and the types it is made of)
     export interface LocalCaptureSink {
         begin?(info: {
             mimeType: LocalCaptureMimeType;
+            stop?: (reason: LocalCaptureStopReason) => Promise<LocalCaptureStopReason>;
         }): void | Promise<void>;
         chunk(chunk: LocalCaptureChunk): void | Promise<void>;
         end?(reason: LocalCaptureStopReason): void | Promise<void>;
@@ -470,6 +478,8 @@ signatures (every public export and the types it is made of)
         expiresAt: number;
         cookie: string;
     }
+  PartitionId (packages/ui-react/src/lib/local-partitions.ts)
+    export type PartitionId = `account:${string}` | "unassigned";
   PiAuthProviderStatus (packages/ui-react/src/lib/api-client.ts)
     export interface PiAuthProviderStatus {
         providerId: string;
@@ -520,6 +530,63 @@ signatures (every public export and the types it is made of)
         payload: AnswerPayload;
         submittedAt: number;
         sent: boolean;
+    }
+  Recording (packages/ui-react/src/lib/recordings.ts)
+    export interface Recording {
+        id: string;
+        partition: PartitionId;
+        state: RecordingState;
+        mime: string;
+        durationMs: number;
+        bytes: number;
+        savedThroughMs: number;
+        interruptedAt?: number;
+        contentHash: string;
+        transcript?: string;
+        acceptedDraftRev?: number;
+        transcribeRequestId?: string;
+        chunkCount: number;
+    }
+  RecordingBudget (packages/ui-react/src/lib/recordings.ts)
+    export interface RecordingBudget {
+        bytes: number;
+        canRecord: boolean;
+        message: string | null;
+    }
+  RecordingEvent (packages/ui-react/src/lib/recordings.ts)
+    export interface RecordingEvent {
+        kind: "warning" | "stopped" | "refused" | "committed";
+        message: string | null;
+        savedThroughMs: number;
+    }
+  RecordingRecovery (packages/ui-react/src/lib/recordings.ts)
+    export interface RecordingRecovery {
+        recordings: Recording[];
+        removedCount: number;
+        removedMessage: string | null;
+    }
+  RecordingState (packages/ui-react/src/lib/recordings.ts)
+    export type RecordingState = "recording" | "saved" | "interrupted" | "transcribing" | "transcript-ready" | "failed" | "accepted";
+  RecordingStore (packages/ui-react/src/lib/recordings.ts)
+    export interface RecordingStore {
+        budget(): Promise<RecordingBudget>;
+        start(options?: Omit<StartLocalCaptureOptions, "sink">): Promise<LocalCapture>;
+        sink(): LocalCaptureSink;
+        stop(reason: LocalCaptureStopReason): Promise<void>;
+        list(partition: PartitionId): Promise<Recording[]>;
+        get(partition: PartitionId, id: string): Promise<Recording | undefined>;
+        recover(partition: PartitionId): Promise<RecordingRecovery>;
+        dismissRemoved(partition: PartitionId): Promise<void>;
+        playback(partition: PartitionId, id: string): Promise<{
+            url: string;
+            revoke(): void;
+        }>;
+        discard(partition: PartitionId, id: string): Promise<void>;
+        assign(id: string): Promise<void>;
+        busy(): boolean;
+        subscribe(listener: () => void): () => void;
+        onEvent(listener: (event: RecordingEvent) => void): () => void;
+        dispose(): void;
     }
   RestoredApprovalClosure (packages/ui-react/src/lib/restored-approvals.ts)
     export type RestoredApprovalClosure = "answered" | "ended" | "revoked" | "unlisted";

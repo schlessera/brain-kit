@@ -55,7 +55,9 @@ export interface LocalPartitions {
   /** Remove everything one partition holds. */
   clear(id: PartitionId): Promise<void>;
   /** Each partition's aggregate size: no keys and no content. */
-  sizes(): Promise<PartitionSize[]>;
+  sizes(prefix?: string): Promise<PartitionSize[]>;
+  /** Atomically move named records; both partitions must be accessible. */
+  move(from: PartitionId, to: PartitionId, keys: readonly string[]): Promise<void>;
 }
 
 const RECORDS = "records";
@@ -224,13 +226,33 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
         tx.objectStore(SIZES).delete(range(id));
       });
     },
-    async sizes() {
+    async move(from, to, keys) {
+      check(from); check(to);
+      await transact(from, [RECORDS, SIZES], "readwrite", (tx) => {
+        check(to);
+        const records = tx.objectStore(RECORDS);
+        const sizes = tx.objectStore(SIZES);
+        for (const key of keys) {
+          const req = records.get([from, key]);
+          req.onsuccess = () => {
+            try { check(from); check(to); } catch { tx.abort(); return; }
+            if (req.result === undefined) return;
+            records.put(req.result, [to, key]);
+            sizes.put(measure(req.result), [to, key]);
+            records.delete([from, key]);
+            sizes.delete([from, key]);
+          };
+        }
+      });
+    },
+    async sizes(prefix = "") {
       const d = await db();
       const store = d.transaction(SIZES, "readonly").objectStore(SIZES);
       const [keys, values] = await Promise.all([request(store.getAllKeys()), request(store.getAll())]);
       const totals = new Map<PartitionId, PartitionSize>();
       keys.forEach((k, i) => {
-        const partition = (k as [PartitionId, string])[0];
+        const [partition, key] = k as [PartitionId, string];
+        if (!key.startsWith(prefix)) return;
         const entry = totals.get(partition) ?? { partition, bytes: 0, records: 0 };
         entry.bytes += typeof values[i] === "number" ? values[i] as number : 0;
         entry.records += 1;

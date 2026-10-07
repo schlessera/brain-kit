@@ -52,7 +52,10 @@ export function useLocalCapture() {
     openingRef.current = opening;
     let capture: LocalCapture;
     try {
-      capture = await startLocalCapture({ sink: options.sink(), timesliceMs: options.timesliceMs, signal: opening.signal });
+      const env = { timesliceMs: options.timesliceMs, signal: opening.signal };
+      capture = root.recordings && options.durable
+        ? await root.recordings.start(env)
+        : await startLocalCapture({ sink: options.sink(), ...env });
     } catch (err) {
       if (openingRef.current === opening) openingRef.current = null;
       if (genRef.current !== gen) return;

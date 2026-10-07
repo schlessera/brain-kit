@@ -100,3 +100,5 @@ export {
   type LocalCaptureEnvironment,
 } from "./voice/local-capture.js";
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";
+
+export { type RecordingStore, type Recording, type RecordingState, type RecordingBudget, type RecordingEvent, type RecordingRecovery } from "./lib/recordings.js";

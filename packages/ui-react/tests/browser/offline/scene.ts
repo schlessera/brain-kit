@@ -26,6 +26,8 @@ declare module "vitest/browser" {
 export interface SceneHandle {
   /** Run one of the scene's actions and return its (awaited) result. */
   call<T = unknown>(action: string, ...args: unknown[]): Promise<T>;
+  /** Another tab sharing this scene's origin and browser storage. */
+  sibling(): Promise<SceneHandle>;
   /** A user's reload. Resolves once the reloaded scene has registered again. */
   reload(): Promise<void>;
   /** Kill the renderer with no unload handler running, then launch the scene again. */
@@ -35,7 +37,12 @@ export interface SceneHandle {
 
 export async function openScene(module: URL): Promise<SceneHandle> {
   const id = (await commands.offlineScene({ op: "open", module: module.pathname })) as string;
+  return sceneHandle(id);
+}
+
+function sceneHandle(id: string): SceneHandle {
   return {
+    async sibling() { return sceneHandle(await commands.offlineScene({ op: "sibling", id }) as string); },
     async call<T>(action: string, ...args: unknown[]) {
       return (await commands.offlineScene({ op: "call", id, action, args })) as T;
     },
