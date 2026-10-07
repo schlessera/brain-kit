@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { composeHandoffText } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend";
@@ -23,7 +22,7 @@ import { createActivityStream, type ActivityStream } from "../src/activity/strea
 import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
-import { HANDOFF_PREPARATION_RUN_NAME, throughTurns } from "../src/ws/handoff";
+import { throughTurns } from "../src/ws/handoff";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { testPrincipal } from "./helpers/principal";
@@ -268,7 +267,7 @@ for (const pair of PAIRS) describe(`${pair.source} → ${pair.destination}`, () 
     expect(info.sessionId).not.toBe(source);
     expect(r.starts[pair.destination]).toHaveLength(1);
     expect(r.starts[pair.source]).toHaveLength(0);
-    const expected = composeHandoffText("Odysseus is sailing home; Penelope keeps the house.", ["plans/ithaca.md"]);
+    const expected = "Odysseus is sailing home; Penelope keeps the house.\n\nReferences:\n- plans/ithaca.md";
     expect(r.starts[pair.destination].map((start) => start.prompt)).toEqual([expected]);
     if (pair.destination === "pi") expect(r.scripts.pi.prompts).toEqual([expected]);
 
@@ -430,7 +429,7 @@ describe("handoff preparation", () => {
     // One run on the source session, named for what it was, with its cost.
     const run = r.db.query("SELECT name, session_id AS sessionId, cost_usd AS cost, outcome FROM activity_run_rollups WHERE run_id = ?").get(draft.runId) as
       { name: string; sessionId: string; cost: number | null; outcome: string } | null;
-    expect(run).toEqual({ name: HANDOFF_PREPARATION_RUN_NAME, sessionId: source, cost: 0.03, outcome: "success" });
+    expect(run).toEqual({ name: "handoff preparation", sessionId: source, cost: 0.03, outcome: "success" });
     // The cost joins the source's total; it is not a turn of its conversation.
     expect(row(r, source)).toMatchObject({ turns: 4 });
     expect(row(r, source)!.cost).toBeCloseTo(0.53, 6);
