@@ -98,3 +98,14 @@ test("classified recovery 401 from the injected real client locks auth",async()=
   expect(root.authLock.state.getState().phase,"classified unauthorized is auth evidence").toBe("locked");
  } finally {root.dispose();}
 });
+
+test("only the exact account-confirmation route remains readable while locked",async()=>{
+ const requests:string[]=[];
+ const root=createBrainUiRoot({storage:null,request:async(url)=>{requests.push(url);return Response.json({accountKey:"odysseus-key"});}});
+ try {
+  work(root,async()=>true); await lock(root);
+  await expect(root.request("/api/files?path=/api/vpn-check")).rejects.toMatchObject({name:"AbortError"});
+  expect(requests,"a protected URL containing the probe name is never dispatched").toEqual([]);
+  expect(await (await root.request("/api/vpn-check")).json(),"the actual confirmation route is available").toEqual({accountKey:"odysseus-key"});
+ } finally {root.dispose();}
+});
