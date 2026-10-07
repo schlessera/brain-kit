@@ -559,6 +559,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
     '[aria-label="Record on this device"], [aria-label="Dictate"], [aria-label="Stop and save"]'
   )?.focus({ preventScroll: true }), 0);
+  useEffect(() => root.stores.voice.subscribe((state, previous) => {
+    // Observe the end before React removes the sheet's focused control.
+    // Automatic limits and track interruptions share this idle transition.
+    if (state.local === "idle" && previous.local !== "idle" &&
+      frameRef.current?.querySelector("[data-local-recording-sheet]")?.contains(document.activeElement)) focusMic();
+  }), [root]);
   const stopLocal = async () => { await localCapture.stop("user"); focusMic(); };
   const discardLocal = async () => {
     const key = root.stores.connection.getState().accountKey;

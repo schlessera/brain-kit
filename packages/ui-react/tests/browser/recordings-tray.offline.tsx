@@ -15,7 +15,7 @@ import { RecordingsTray, ACCEPT_FAILED, SAVED_AUDIO_UNAVAILABLE } from "../../sr
 import { LocalRecordingSheet } from "../../src/components/voice/local-recording-sheet.js";
 import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-faults.ts";
 import { installFaultNetwork } from "./offline/fault-network.ts";
-import { installWavMicrophone } from "./offline/fake-microphone.ts";
+import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
 
 const TEXT = "Ask Penelope whether the loom order arrived.";
@@ -617,4 +617,34 @@ test("Add retries a failed transcript input commit without another edit", async 
   await tap(button(c.host, "Add transcript"));
   await expect.poll(() => c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text, { message: "Add retries the displayed correction before committing the draft" }).toBe("Penelope confirms the new loom order.");
   expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+});
+
+for (const reason of ["limit", "storage", "interrupted"] as const) {
+  test(`automatic ${reason} capture termination restores focus from the sheet`, async ctx => {
+    await commands.formViewport(390, 900); await page.viewport(390, 900);
+    const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s));
+    const watch = watchMicrophone(); ctx.onTestFinished(() => { watch.restore(); mic.restore(); });
+    const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
+    await tap(button(c.host, "Record on this device"));
+    await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+    await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
+    await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
+    if (reason === "interrupted") watch.interrupt(); else await c.root.recordings!.stop(reason);
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "automatic stop returns sheet focus to the mic" }).toBe("Record on this device");
+    expect(c.host.querySelector("[data-local-recording-sheet]")).toBeNull();
+    expect(await c.root.recordings!.list("account:odysseus")).toHaveLength(1);
+  });
+}
+
+test("automatic capture termination leaves composer editing focus alone", async ctx => {
+  await commands.formViewport(390, 900); await page.viewport(390, 900);
+  const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s));
+  const watch = watchMicrophone(); ctx.onTestFinished(() => { watch.restore(); mic.restore(); });
+  const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
+  await tap(button(c.host, "Record on this device"));
+  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+  const field = c.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!; field.focus();
+  expect(document.activeElement).toBe(field); watch.interrupt();
+  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeNull(); await wait(100);
+  expect(document.activeElement, "automatic stop does not steal editing focus").toBe(field);
 });
