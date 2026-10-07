@@ -206,8 +206,9 @@ for (const torn of [false, true]) test(`Done hands the transcript to review, wor
 
   let stopped!: Promise<void>;
   act(() => { stopped = dictation.result.current.stop(); });
-  act(() => clients[0]!.emit({ type: "final", text: "about the ships", endsTurn: false }));
+  // Torn down first, the last words arrive after the hook is gone.
   if (torn) dictation.unmount();
+  act(() => clients[0]!.emit({ type: "final", text: "about the ships", endsTurn: false }));
   expect(reloads(), "no reload while busy: the transcript still drains").toBe(0);
   await act(async () => { clients[0]!.drain!(); await stopped; });
   expect(root.stores.voice.getState().reviewText, "the whole transcript waits for review").toBe("Ask Nestor about the ships");
