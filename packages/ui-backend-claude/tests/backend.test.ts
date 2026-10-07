@@ -171,6 +171,7 @@ function toolTurn(
     toolName: string;
     input?: Record<string, unknown>;
     gate: Promise<void>;
+    afterResult?: Promise<void>;
     onResolved?: () => void;
   }
 ): AsyncGenerator<unknown> {
@@ -190,6 +191,7 @@ function toolTurn(
         ],
       },
     };
+    if (cfg.afterResult) await cfg.afterResult;
     yield resultMsg(cfg.sessionId);
   })();
 }
@@ -259,6 +261,7 @@ function autoAllowedToolTurn(
     toolName: string;
     input?: Record<string, unknown>;
     gate: Promise<void>;
+    afterResult?: Promise<void>;
     onAcquired?: () => void;
   }
 ): AsyncGenerator<unknown> {
@@ -275,6 +278,7 @@ function autoAllowedToolTurn(
         ],
       },
     };
+    if (cfg.afterResult) await cfg.afterResult;
     yield resultMsg(cfg.sessionId);
   })();
 }
@@ -425,6 +429,7 @@ describe("startTurn", () => {
   test("emits session_info before content and forwards result frames", async () => {
     async function* successGen(): AsyncGenerator<unknown> {
       yield initMsg("sess-1");
+      yield textMsg("sess-1", "Hello");
       yield resultMsg("sess-1");
     }
     const backend = createClaudeBackend({
@@ -441,6 +446,7 @@ describe("startTurn", () => {
       providerId: "claude",
       backendId: "claude",
     });
+    expect(frames).toContainEqual({ type: "text_delta", text: "Hello", sessionId: "sess-1" });
     expect(frames).toContainEqual({
       type: "result",
       sessionId: "sess-1",
@@ -587,6 +593,7 @@ describe("writeLock", () => {
     const writeLock = createKeyedLock();
     const gate1 = deferred();
     const gate2 = deferred();
+    const endFirst = deferred();
     let t1Resolved = false;
     let t2Resolved = false;
 
@@ -600,6 +607,7 @@ describe("writeLock", () => {
             toolName: "Bash",
             input: { command: "git add notes/a.md" },
             gate: gate1.promise,
+            afterResult: endFirst.promise,
             onResolved: () => (t1Resolved = true),
           })
         : toolTurn(options, {
@@ -628,8 +636,15 @@ describe("writeLock", () => {
 
     // turn1 emits its tool_result → lock releases → turn2 acquires.
     gate1.resolve();
-    await turn1;
-    await until(() => t2Resolved);
+    try {
+      await tick();
+      await tick();
+      expect(t2Resolved).toBe(true);
+    } finally {
+      endFirst.resolve();
+      gate2.resolve();
+      await Promise.allSettled([turn1, turn2]);
+    }
     expect(t2Resolved).toBe(true);
 
     gate2.resolve();
@@ -739,6 +754,7 @@ describe("writeLock", () => {
     const writeLock = createKeyedLock();
     const gate1 = deferred();
     const gate2 = deferred();
+    const endFirst = deferred();
     let t1Acquired = false;
     let t2Acquired = false;
 
@@ -752,6 +768,7 @@ describe("writeLock", () => {
             toolName: "Bash",
             input: { command: "git add ." },
             gate: gate1.promise,
+            afterResult: endFirst.promise,
             onAcquired: () => (t1Acquired = true),
           })
         : autoAllowedToolTurn(options, {
@@ -780,8 +797,15 @@ describe("writeLock", () => {
 
     // turn1's tool_result streams → lock frees → turn2's hook resolves.
     gate1.resolve();
-    await turn1;
-    await until(() => t2Acquired);
+    try {
+      await tick();
+      await tick();
+      expect(t2Acquired).toBe(true);
+    } finally {
+      endFirst.resolve();
+      gate2.resolve();
+      await Promise.allSettled([turn1, turn2]);
+    }
 
     gate2.resolve();
     await turn2;
@@ -791,12 +815,16 @@ describe("writeLock", () => {
   test("read-only tool never matches the PreToolUse lock hook", async () => {
     const writeLock = createKeyedLock();
     let hookRan = false;
+    let matchesRead: boolean | undefined;
+    let heldAfterHook: string[] = [];
 
     const queryFn = ((params: { options?: Options }) => {
       const options = params.options!;
+      matchesRead = new RegExp(options.hooks!.PreToolUse![0]!.matcher!).test("Read");
       return (async function* () {
         yield initMsg("s1");
         await firePreToolUse(options, { toolName: "Read", toolUseId: "t1" });
+        heldAfterHook = [...writeLock.heldKeys];
         hookRan = true;
         yield resultMsg("s1");
       })();
@@ -807,6 +835,8 @@ describe("writeLock", () => {
     await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
 
     expect(hookRan).toBe(true);
+    expect(matchesRead).toBe(false);
+    expect(heldAfterHook).toEqual([]);
     expect(writeLock.locked).toBe(false);
   });
 
@@ -814,6 +844,7 @@ describe("writeLock", () => {
     const writeLock = createKeyedLock();
     let approvalPending: (() => void) | null = null;
     let decisionResolved = false;
+    let heldOnAllow: string[] = [];
 
     const queryFn = ((params: { options?: Options }) => {
       const options = params.options!;
@@ -829,6 +860,7 @@ describe("writeLock", () => {
           signal: new AbortController().signal,
           toolUseID: "t1",
         } as never);
+        heldOnAllow = [...writeLock.heldKeys];
         decisionResolved = true;
         yield {
           type: "user",
@@ -861,12 +893,15 @@ describe("writeLock", () => {
     await until(() => decisionResolved);
     await turn;
     expect(writeLock.locked).toBe(false);
+    expect(heldOnAllow).toEqual([GIT_LOCK_KEY]);
     expect(frames.some((f) => f.type === "result")).toBe(true);
   });
 
   test("PermissionDenied hook frees a lock the PreToolUse hook took", async () => {
     const writeLock = createKeyedLock();
     let denied = false;
+    let heldBeforeDenial: string[] = [];
+    let heldAfterDenial: string[] = [];
 
     const queryFn = ((params: { options?: Options }) => {
       const options = params.options!;
@@ -879,7 +914,9 @@ describe("writeLock", () => {
           toolUseId: "t1",
           input: { file_path: "notes/a.md" },
         });
+        heldBeforeDenial = [...writeLock.heldKeys];
         await firePermissionDenied(options, "t1");
+        heldAfterDenial = [...writeLock.heldKeys];
         denied = true;
         yield resultMsg("s1");
       })();
@@ -890,6 +927,8 @@ describe("writeLock", () => {
     await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
 
     expect(denied).toBe(true);
+    expect(heldBeforeDenial).toEqual(["path:/brain/notes/a.md"]);
+    expect(heldAfterDenial).toEqual([]);
     expect(writeLock.locked).toBe(false);
   });
 
@@ -1033,6 +1072,7 @@ describe("brain MCP tools", () => {
   test("a brain read tool never takes the write lock", async () => {
     const writeLock = createKeyedLock();
     let hookRan = false;
+    let heldAfterHook: string[] = [];
     const queryFn = ((params: { options?: Options }) => {
       const options = params.options!;
       return (async function* () {
@@ -1041,6 +1081,7 @@ describe("brain MCP tools", () => {
           toolName: "mcp__brain__brain_read",
           toolUseId: "t1",
         });
+        heldAfterHook = [...writeLock.heldKeys];
         hookRan = true;
         yield resultMsg("s1");
       })();
@@ -1050,6 +1091,7 @@ describe("brain MCP tools", () => {
     const b1 = makeBridge();
     await backend.startTurn(makeReq(b1.bridge, new AbortController().signal));
     expect(hookRan).toBe(true);
+    expect(heldAfterHook).toEqual([]);
     expect(writeLock.locked).toBe(false);
   });
 });
