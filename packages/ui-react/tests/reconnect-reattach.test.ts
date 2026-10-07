@@ -442,8 +442,8 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)!.parts).toEqual([...old.parts, { kind: "text", text: " Landed." }]);
     expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
   });
-  for (const trailing of ["", " Landed."]) {
-    test(`a completed bounded answer keeps every tool part and trailing text (${trailing ? "text" : "tools"})`, () => {
+  for (const claude of [false, true]) for (const trailing of ["", " Landed."]) {
+    test(`a completed bounded answer keeps every tool part and trailing text (${trailing ? "text" : "tools"}, ${claude ? "Claude separators" : "plain"})`, () => {
       const { root, socket } = running();
       for (let i = 0; i < 150; i++) {
         root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
@@ -453,8 +453,9 @@ describe("a reconnect while the turn in view runs", () => {
       root.stores.chat.getState().finishAssistantMessage("s1");
       const old = buffer(root).messages.at(-1)!;
       expect(buffer(root).isStreaming).toBe(false);
-      const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: old.toolCalls, parts: old.parts }, HISTORY_CHUNK_BYTES);
+      const replay = shrinkForReplication({ role: "assistant", content: claude ? old.parts.filter((p) => p.kind === "text").map((p) => p.text).join("\n\n") : old.content, toolCalls: old.toolCalls, parts: old.parts }, HISTORY_CHUNK_BYTES);
       expect(replay.toolCalls.length, "the completed fixture is genuinely bounded").toBeLessThan(150);
+      if (claude && trailing) expect(replay.content.startsWith(old.content), "Claude aggregate separators actually differ").toBe(false);
       const next = reconnect(root, socket);
       next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
       expect(buffer(root).messages.at(-1)!.parts, "completed replay keeps all drawn parts").toEqual(old.parts);

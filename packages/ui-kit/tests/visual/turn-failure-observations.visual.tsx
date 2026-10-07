@@ -35,7 +35,7 @@ class Socket {
   send(raw: string) { this.sent.push(raw); }
   open() { this.readyState = 1; this.onopen?.(); }
   close() { this.readyState = 3; this.onclose?.({ code: 1000 } as CloseEvent); }
-  deliver(frame: ServerMessage) { this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent); }
+  deliver(frame: ServerMessage & { turnId?: string }) { this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent); }
   frames() { return this.sent.map(raw => JSON.parse(raw)); }
 }
 
@@ -117,6 +117,31 @@ const retryValue = (card: HTMLElement) => [...card.querySelectorAll(".bk-turn-er
   .find(node => node.textContent === "retries")?.nextElementSibling?.textContent;
 
 for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
+  test(`${theme} ${width}: a retained failure card withdraws its replayed announcement`, async () => {
+    await page.viewport(width, 1000); mount(width, theme);
+    const failure = { errorClass: "rate_limit" as const, message: "Reported limit", attempts: 2 };
+    flushSync(() => {
+      const chat = root!.stores.chat.getState();
+      chat.addUserMessage(SESSION, ORIGINAL); chat.startAssistantMessage(SESSION, "failed-first");
+      chat.appendText(SESSION, "The crew prepared the wax.");
+      for (const id of ["wax-a", "wax-c"]) {
+        chat.startToolCall(SESSION, id, "Bash"); chat.setToolResult(SESSION, id, "Wax ready.", false);
+      }
+      socket.deliver({ type: "result", sessionId: SESSION, turnId: "failed-first", outcome: "error", isError: true,
+        durationMs: 800, numTurns: 1, failure, retryOfTurnId: "failed-first" });
+    });
+    const card = cards()[0]!; expect(card.querySelector('[role="alert"]')).not.toBeNull();
+    const old = root!.stores.chat.getState().buffers[SESSION].messages.at(-1)!;
+    expect(old.toolCalls).toHaveLength(2);
+    const tools = [old.toolCalls[0]!, { ...old.toolCalls[0]!, id: "wax-b" }];
+    const saved = history(); saved[saved.length - 1] = { ...saved.at(-1)!, toolCalls: tools,
+      turnId: "failed-first", parts: [{ kind: "text", text: old.content }, { kind: "tool", toolIndex: 0 }, { kind: "tool", toolIndex: 1 }] };
+    replay(saved);
+    expect(cards()[0], "replay keeps the original mounted failure card").toBe(card);
+    expect(root!.stores.chat.getState().buffers[SESSION].messages.at(-1)!.failureLive, "the complementary merge marks this failure as replayed").toBe(false);
+    expect(card.querySelector('[role="alert"]'), "a retained replayed card withdraws its live announcement").toBeNull();
+  });
+
   test(`${theme} ${width}: observed retries agree live and replay; unknown values stay absent`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);

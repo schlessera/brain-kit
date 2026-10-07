@@ -708,7 +708,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       return mergeLive(old, m);
     }
     if ((continuing && m.role === "assistant" && old.toolCalls.some((t) => !m.toolCalls.some((n) => n.id === t.id)))
-      || (boundedContinuation && m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text)))) {
+      || (boundedContinuation && (boundedTools || m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text))))) {
       return { ...mergeLive(old, m), isStreaming: false };
     }
     return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
