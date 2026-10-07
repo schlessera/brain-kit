@@ -4517,6 +4517,42 @@ through the server instrument over a real socket. Removing each guard makes
 its named behavioural assertion fail.
 
 
+### D50 Sonnet 5.5 measurement and verdict (#550, 2026-10-07)
+
+Keep the shipped description and variant. The completed comparison used six
+prompts, both description arms and three repetitions through the SDK, Claude
+server and Pi server: 108 completed turns, with no scored exclusions.
+
+| Instrument | Answer turns with suggestions, rule | No-rule | Question controls, each arm |
+| --- | ---: | ---: | ---: |
+| SDK / Claude subscription | 0/9 | 0/9 | 0/9 |
+| Claude server / subscription | 0/9 | 0/9 | 0/9 |
+| Pi server / Anthropic API key | 2/9 | 0/9 | 0/9 |
+
+Actual question-ending turns also had zero calls in every arm. No question
+control emitted a row, so this does not prove active client suppression.
+Pi's rule arm emitted four items; all four passed the client predicates, with
+zero empty, duplicate, prompt-echo or filler drops. Zero-item arms have null
+drop and quality denominators. All four labels are concrete and grounded in
+the prose or accepted rendered comparison; the combined-workflow label is
+weaker because the answer already supplies a workflow outline.
+
+The subscription-authenticated token-count endpoint estimates a marginal
+107 input tokens for the description and 377 for the variant. The updated
+866 flat-schema and 709 definitions-transform characters imply D47 calibrated
+ranges of 338–361 and 276–296 tokens; the 336-character description implies
+131–140. These counted endpoint observations are not future invoice proofs.
+
+This supports a small observed Pi benefit and no demonstrated Claude benefit.
+The fixed arm order, three repeated answer prompts, backend/tool differences
+and Pi API-key route limit generalization. No brief, variant, runtime filter
+or payload change follows. The
+[full report](../../scripts/measurements/suggestions-2026-10-07/report.md)
+retains all transcripts, item judgments, exact models/runtime versions,
+reviewed input hashes, private-data isolation limits, usage and billing
+provenance, and parameterized reproduction sources.
+
+
 ## 2026-09-30 — D51: recoverable failures stay in their turn, and outward diagnostics require review (#576)
 
 **Ruling.** The [recovered composition](https://github.com/schlessera/brain-kit/issues/576#issuecomment-5906135339)

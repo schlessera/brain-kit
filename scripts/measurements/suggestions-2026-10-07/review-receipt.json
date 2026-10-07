@@ -1,0 +1,21 @@
+{
+  "model": "claude-sonnet-5-5",
+  "purpose": "complementary independent input review",
+  "frozenManifestHash": "7f9a36ba843f09d118bd1df581dfd519a2c4a4be12b1abd698ac21aec224b918",
+  "approved": true,
+  "init": {
+    "model": "claude-sonnet-5-5",
+    "apiKeySource": "none",
+    "claudeCodeVersion": "2.1.292"
+  },
+  "text": [
+    "**Findings**\n\n- **Prompts:** There are 6 prompts in two groups, 3 answer and 3 question. The question prompts explicitly request a closing question. That gives a deliberate test of the \"omit when the answer ends by asking\" clause, and the actual endings are measured separately from the prompted condition.\n- **Description-only arms:** `noRule` equals `rule` minus the single `suggestions:` line, and the code throws unless exactly one such line exists. The first sentence of the shared preamble still names `suggestions` as a kind drawn under the answer, so the no-rule arm is a reduced description, not a total absence.\n- **Schema:** Both arms use one schema hash, and the suggestions variant stays in the schema for both. The experiment therefore isolates the description line only.\n- **Counters vs client:** Parse-before-count matches the client's use of `parseToolPayload`. The drop precedence matches exactly: empty or duplicate comes first, and duplicates are added to `seen` before the prompt and filler checks. The fold function, filler set and question-ending regex are identical. The client trims the label before folding, but fold trims anyway, so there is no divergence. The last non-empty text part is used for question endings in both.\n- **Denominators:** Incomplete turns are excluded and reported. A valid call whose items all drop still counts as a call. The per-turn question-ending rate is computed over the ending-in-question subset only.\n- **Quality labels:** The plan is exhaustive over the last accepted call's kept items in every complete turn. The report states that survivors are listed before visibility suppression and that no automatic verdict is inferred. Empty-survivor turns are correctly omitted.\n- **Corpus:** The 31 listed files match `corpusFileCount`, and the hash method is stated.\n- **Cap:** The historical attempt's API-equivalent upper bound is not established, and the $2 reservation is heuristic. The ruling is referenced and dispatch is not blocked, so this is accepted as a disclosed limitation.\n\nNo flaw invalidating the measurement was found.\n\n**Limitations**\n1. The no-rule arm retains the schema variant and the preamble sentence naming suggestions. The result measures the effect of the `suggestions:` line, not the effect of the feature's absence.\n2. Order is fixed, rule then no-rule, so cache and time effects are confounded with the arm.\n3. Isolation covers private data only. Public source, runtime and scratch are still admitted, and relative-path escapes are only heuristically detected.\n4. The survivor-quality labels are manual and judged by a reviewer.\n5. The sample is small (6 prompts, one run per arm).\n6. The historical cost bound is unknown, as noted above.\n7. I could not recompute the hashes, so the hashes below are taken as stated in the snapshot.\n\nAPPROVED\n\n- prompts: 10af37b566bf7e3cd6456ac2eade4f3451114bb1e2a2b7f357c99a71889d3996\n- ruleDescription: 9d135b7e8e281d107452596bbe1db5b89c97665fbd318ceebf5025c90e94eb03\n- noRuleDescription: 42722c223feb99610811038e0e6e2709fa7f7edb972836233b08b6c1b6590b05\n- schema: 2c5d1b30a9671ba2da5a435b1608fc26f3a56795d0d0ac1123c5cf338d5adb6a\n- corpus: d0f5d979e715e9c34cb4cdc25278c283e003bc0940040880d5a60eaa9b926bbd"
+  ],
+  "apiEquivalent": {
+    "lowerUsd": 0.179572,
+    "upperUsd": 0.179572,
+    "exact": true,
+    "reason": "actual model token usage with cache TTL breakdown"
+  },
+  "subscriptionOverageState": "reported inactive"
+}

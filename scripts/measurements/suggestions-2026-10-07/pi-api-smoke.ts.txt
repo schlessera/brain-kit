@@ -1,0 +1,32 @@
+import {strict as assert} from "node:assert";
+import {mkdtempSync,mkdirSync,cpSync,readFileSync,writeFileSync} from "node:fs";
+import {installPiApiCapture} from "./pi-api-capture.ts";
+const root=mkdtempSync("/tmp/550-pi-api-smoke-");mkdirSync(`${root}/runs`);cpSync("packages/core/fixtures/corpus",`${root}/brain`,{recursive:true});
+assert.equal(Bun.spawnSync([process.env.BRAIN_MEASUREMENT_RTK!,"proxy","python3",`${process.env.BRAIN_MEASUREMENT_SCRATCH}/fixture-runtime.py`,`${root}/brain`]).exitCode,0);
+process.env.TMPDIR=root;process.env.HOME=root;process.env.PI_CODING_AGENT_DIR=`${root}/pi`;mkdirSync(process.env.PI_CODING_AGENT_DIR);
+process.env.ANTHROPIC_API_KEY="offline-fictional-api-key";for(const name of ["ANTHROPIC_OAUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_AUTH_TOKEN","TYPESAFE_API_KEY"])delete process.env[name];
+process.env.BRAIN_MEASURE_CELL="offline-real-pi-seam";
+let providerRequests=0;const original=globalThis.fetch.bind(globalThis);
+const text="Odysseus checks the raft lashings.";
+const events=[{type:"message_start",message:{id:"msg_offline",type:"message",role:"assistant",content:[],model:"claude-sonnet-5-5",stop_reason:null,stop_sequence:null,usage:{input_tokens:100,output_tokens:0,cache_read_input_tokens:10,cache_creation_input_tokens:20,cache_creation:{ephemeral_5m_input_tokens:15,ephemeral_1h_input_tokens:5}}}},{type:"content_block_start",index:0,content_block:{type:"text",text:""}},{type:"content_block_delta",index:0,delta:{type:"text_delta",text}},{type:"content_block_stop",index:0},{type:"message_delta",delta:{stop_reason:"end_turn",stop_sequence:null},usage:{output_tokens:8}},{type:"message_stop"}];
+const wire=events.map(event=>`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+const bytes=new TextEncoder().encode(wire);
+const delegate=(async(input:any,init?:RequestInit)=>{
+ const url=new URL(typeof input==="string"?input:input.url??String(input));if(["localhost","127.0.0.1","[::1]"].includes(url.hostname))return original(input,init);
+ assert.equal(url.origin,"https://api.anthropic.com");assert.equal(url.pathname,"/v1/messages");providerRequests++;const sent=JSON.parse(String(init?.body));assert.equal(sent.service_tier,"standard_only");assert.equal(sent.inference_geo,"global");
+ let at=0;return new Response(new ReadableStream({pull(controller){if(at===bytes.length){controller.close();return}controller.enqueue(bytes.slice(at,++at));}}),{headers:{"content-type":"text/event-stream"}});
+}) as typeof fetch;
+installPiApiCapture(delegate);
+const {resolveServerConfig}=await import(`${process.env.BRAIN_MEASUREMENT_CHECKOUT}/packages/ui-server/src/config/env.ts`);
+const {createApp}=await import(`${process.env.BRAIN_MEASUREMENT_CHECKOUT}/packages/ui-server/src/app.ts`);
+const {runOnce}=await import(`${process.env.BRAIN_MEASUREMENT_CHECKOUT}/scripts/measure-show-block-server.ts`);
+const config=resolveServerConfig({...process.env,AUTH_MODE:"none",HOST:"127.0.0.1",BRAIN_PATH:`${root}/brain`,DB_PATH:`${root}/ui.db`,AGENT_BACKEND:"pi",BRAIN_UI_PI_PROFILES:JSON.stringify([{id:"measure",label:"Offline Pi Sonnet5.5",vendor:"anthropic",model:"claude-sonnet-5-5"}]),BRAIN_UI_MODEL_DISCOVERY:"0",BRAIN_UI_PRICING_DISCOVERY:"0",BRAIN_UI_COASTLINE:"0"});
+const app=await createApp({config,dbPath:`${root}/ui.db`});const server=Bun.serve({hostname:"127.0.0.1",port:0,fetch:app.fetch,websocket:app.websocket});
+try{
+ const record=await runOnce(`ws://127.0.0.1:${server.port}/ws`,"measure",`${root}/brain`,"show_block",1,0,undefined,"rule");
+ writeFileSync(`${root}/runs/control-result.json`,JSON.stringify(record,null,2));
+ assert.equal(record.result?.outcome,"success",JSON.stringify(record.result));assert.equal(record.completed,true);assert(record.textParts.join(" ").includes(text));assert.equal(providerRequests,1);
+ const rows=JSON.parse(readFileSync(`${root}/runs/pi-api-raw-receipts.json`,"utf8"));assert.equal(rows.length,1);assert.equal(rows[0].finished,true);assert.equal(rows[0].error,undefined);assert.equal(rows[0].responseModel,"claude-sonnet-5-5");assert.equal(rows[0].apiEquivalent.upperUsd,.0003395);assert.equal(rows[0].apiEquivalent.exact,true);assert.equal(rows[0].billingRoute,"anthropic-api-key");assert.equal(rows[0].requestHeaderSelector,"x-api-key matches isolated key; Authorization absent");
+ assert.equal(readFileSync(`${root}/runs/pi-api-stdout-${rows[0].id}.sse`,"utf8"),wire);
+ console.log("actual Pi server/bootstrap/profile/catalog/API-key headers/chat/SSE split-by-byte/rawEOF/TTL-exact price seam passed; no real provider request");
+}finally{server.stop(true);await app.close();globalThis.fetch=original}
