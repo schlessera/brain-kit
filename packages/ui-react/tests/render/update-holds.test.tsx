@@ -10,7 +10,7 @@ import { unregisterUpdateHoldsDom } from "./update-holds-dom.js";
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { AsrClient, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
+import type { AsrClient, AsrEvent, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
@@ -69,6 +69,7 @@ const session: VoiceSessionResponse = {
 };
 
 class FakeClient implements AsrClient {
+  constructor(readonly emit: (event: AsrEvent) => void) {}
   drain: (() => void) | null = null;
   async start() {}
   stop() {}
@@ -84,8 +85,8 @@ function voiceRoot() {
     voiceOverrides: async () => ({ overrides: [] }),
   } as unknown as BrainApi;
   const root = createBrainUiRoot({ storage: null, api });
-  root.asr.register("fake", () => {
-    const client = new FakeClient();
+  root.asr.register("fake", (opts) => {
+    const client = new FakeClient(opts.onEvent);
     clients.push(client);
     return client;
   });
@@ -158,6 +159,27 @@ test("a dictation draining its transcript after Done holds the reload until it s
   await act(async () => { clients[0]!.drain!(); await stopped; });
   expect(root.stores.voice.getState().reviewText).toBe("");
   expect(reloads(), "drained and idle: one reload").toBe(1);
+});
+
+test("Done hands the transcript to review without a moment in which nothing holds the reload", async () => {
+  const { root, sessions, clients } = voiceRoot();
+  emptyComposer();
+  const { hook, reloads } = await mountGuard(root);
+  let started!: Promise<void>;
+  act(() => { started = hook.result.current.start(); });
+  await act(async () => { sessions[0]!(session); await started; });
+  act(() => clients[0]!.emit({ type: "final", text: "Ask Nestor about the ships", endsTurn: false }));
+  takeOver();
+  expect(reloads()).toBe(0);
+
+  let stopped!: Promise<void>;
+  act(() => { stopped = hook.result.current.stop(); });
+  await act(async () => { clients[0]!.drain!(); await stopped; });
+  expect(root.stores.voice.getState().reviewText, "the transcript waits for review").toBe("Ask Nestor about the ships");
+  expect(reloads(), "no reload while busy: the transcript moved from capture to review").toBe(0);
+
+  act(() => root.stores.voice.getState().clearReview());
+  expect(reloads(), "the review card closed: one reload").toBe(1);
 });
 
 test("dictated text waiting for review holds the reload with the composer's field empty; accepting it releases one reload", async () => {

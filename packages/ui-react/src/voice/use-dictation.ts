@@ -44,7 +44,6 @@ export function useDictation() {
   const appendFinal = useVoiceStore((s) => s.appendFinal);
   const setError = useVoiceStore((s) => s.setError);
   const resetCapture = useVoiceStore((s) => s.resetCapture);
-  const setReviewText = useVoiceStore((s) => s.setReviewText);
 
   const start = useCallback(async () => {
     const gen = ++startGenRef.current;
@@ -162,16 +161,19 @@ export function useDictation() {
 
       const { finalText, partial, reviewText } = root.stores.voice.getState();
       const merged = [finalText, partial].filter(Boolean).join(" ").trim();
-      setConnecting(false);
-      setMode("idle");
-      if (commitToReview && merged) {
-        // Append to any text already under review so a prompt can be built up
-        // across multiple record/edit rounds without losing earlier takes.
-        setReviewText(reviewText ? `${reviewText} ${merged}` : merged);
-      }
+      // Append to any text already under review so a prompt can be built up
+      // across multiple record/edit rounds without losing earlier takes.
+      // One update: the transcript reaches review in the same change that
+      // ends the dictation, so no listener (the update reload guard, #1015)
+      // sees a moment in which it is in neither.
+      root.stores.voice.setState({
+        connecting: false,
+        mode: "idle",
+        ...(commitToReview && merged ? { reviewText: reviewText ? `${reviewText} ${merged}` : merged } : {}),
+      });
       resetCapture();
     },
-    [releaseCapture, resetCapture, setMode, setConnecting, setReviewText, root]
+    [releaseCapture, resetCapture, root]
   );
 
   const cancel = useCallback(() => {
