@@ -181,7 +181,7 @@ frontmatter. These author goldens require the standing opposite-family review
 before live execution; literal expected-file agreement is stricter than semantic
 equivalence and cannot replace independent review of actual output documents.
 
-`live.ts` compares the actual `processCommand --keep-note`, unique exact-body
+`live.ts` compares the actual `brain process --keep-note`, unique exact-body
 matching, and bounded JEV disposition/target/type judgments followed by focused
 full-document generation. The current path retains its actual retrieval snippets
 and proposal-only semantics. Experimental full-document projections preserve
@@ -232,11 +232,12 @@ The live entry point is deliberately excluded from ordinary tests:
 
 ```sh
 BRAIN_LIVE_EVALS=840 BRAIN_EVAL_REMAINING_USD=<checked-remaining-total> \
+  BRAIN_EVAL_ISSUE_SPENT_USD=<prior-issue-spend-including-review> \
   bun scripts/evals/note-disposition/live.ts <fresh-output-directory> <review.json>
 ```
 
 The review receipt contains `fixtureSha`, `protocolSha`, `reviewerFamily:
-"Claude"`, `approved: true`, concrete `findings`, and the published
+"Claude"`, `reviewerModel: "claude-sonnet-5-5"`, `approved: true`, concrete `findings`, and the published
 `issueReceiptUrl`. Recreated/changed inputs or protocol code require another
 review identity. Partial or capped output does not satisfy the complete
 comparison, and the issue remains open in that case.

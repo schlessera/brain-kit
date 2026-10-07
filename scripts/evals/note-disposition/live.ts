@@ -217,14 +217,15 @@ async function main() {
     const out = process.argv[2];
     const reviewFile = process.argv[3];
     const totalRemaining = Number(process.env.BRAIN_EVAL_REMAINING_USD);
-    if (!out || !reviewFile || !Number.isFinite(totalRemaining) || totalRemaining <= 0)
-        throw new Error("Require output directory, independent-review receipt and checked combined remaining spend");
+    const issuePrior = Number(process.env.BRAIN_EVAL_ISSUE_SPENT_USD);
+    if (!out || !reviewFile || !Number.isFinite(totalRemaining) || totalRemaining <= 0 || !Number.isFinite(issuePrior) || issuePrior < 0 || issuePrior >= 15)
+        throw new Error("Require output directory, independent-review receipt, checked combined remaining spend and prior issue spend including review");
     if (existsSync(join(out, "physical-calls.json")))
         throw new Error("Existing run requires explicit separately accounted resumption; do not overwrite spend receipts");
-    const review = z.strictObject({ fixtureSha: z.literal(benchmarkSha), protocolSha: z.literal(protocolSha), reviewerFamily: z.literal("Claude"), approved: z.literal(true), findings: z.array(z.string()), issueReceiptUrl: z.string().startsWith("https://github.com/schlessera/brain-kit/issues/840#issuecomment-") }).parse(JSON.parse(readFileSync(reviewFile, "utf8")));
+    const review = z.strictObject({ fixtureSha: z.literal(benchmarkSha), protocolSha: z.literal(protocolSha), reviewerFamily: z.literal("Claude"), reviewerModel: z.literal(MODELS.current), approved: z.literal(true), findings: z.array(z.string()), issueReceiptUrl: z.string().startsWith("https://github.com/schlessera/brain-kit/issues/840#issuecomment-") }).parse(JSON.parse(readFileSync(reviewFile, "utf8")));
     mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, "protocol.json"), JSON.stringify({ protocol, sourceHashes, protocolSha, benchmarkSha, review, runtime: Bun.version, cap: Math.min(15, totalRemaining), startedAt: new Date().toISOString() }, null, 2));
-    const spend = new Spend(Math.min(15, totalRemaining), calls => writeFileSync(join(out, "physical-calls.json"), JSON.stringify({ used: spend.used, uncertain: spend.uncertain, calls }, null, 2)));
+    writeFileSync(join(out, "protocol.json"), JSON.stringify({ protocol, sourceHashes, protocolSha, benchmarkSha, review, runtime: Bun.version, issuePrior, cap: Math.min(15 - issuePrior, totalRemaining), startedAt: new Date().toISOString() }, null, 2));
+    const spend = new Spend(Math.min(15 - issuePrior, totalRemaining), calls => writeFileSync(join(out, "physical-calls.json"), JSON.stringify({ used: spend.used, uncertain: spend.uncertain, calls }, null, 2)));
     const rows: any[] = [];
     const tuned: Array<{
         fixture: Benchmark;
@@ -274,7 +275,7 @@ async function main() {
             }
         }
     const summary = summarize(rows);
-    writeFileSync(join(out, "summary.json"), JSON.stringify({ summary, threshold, spent: spend.used, calibrationCalls: tuned.length, accounting: "Anthropic Messages API billing: direct CompletionProvider instrument; TypeSafe API. Charge estimates from provider-reported usage and verified public prices, invoice not independently observed.", finishedAt: new Date().toISOString() }, null, 2));
+    writeFileSync(join(out, "summary.json"), JSON.stringify({ summary, threshold, spent: spend.used, issuePrior, issueTotal: issuePrior + spend.used, calibrationCalls: tuned.length, accounting: "Anthropic Messages API billing: direct CompletionProvider instrument; TypeSafe API. Charge estimates from provider-reported usage and verified public prices, invoice not independently observed.", finishedAt: new Date().toISOString() }, null, 2));
     console.log(JSON.stringify({ out, spent: spend.used, summary }, null, 2));
 }
 if (import.meta.main)
