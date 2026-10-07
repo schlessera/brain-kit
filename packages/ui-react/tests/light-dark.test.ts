@@ -38,7 +38,9 @@ describe("readToken", () => {
   });
 
   test("never returns an unresolved expression for any token", () => {
-    for (const name of Object.keys(TOKENS) as (keyof typeof TOKENS)[]) {
+    const names = Object.keys(TOKENS) as (keyof typeof TOKENS)[];
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) {
       for (const scheme of ["light", "dark"] as const) {
         expect(readToken(name, scheme)).not.toContain("light-dark(");
       }

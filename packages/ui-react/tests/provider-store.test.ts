@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ProviderInfo } from "@schlessera/brain-ui-sdk/protocol";
+import { createBrainUiRoot } from "../src/root.js";
 import { api } from "../src/lib/api-client.js";
 import { useProviderStore } from "../src/stores/provider-store.js";
 
@@ -49,15 +50,25 @@ describe("provider store — reloading the roster", () => {
   });
 
   test("persists the fallback so the stale id is not re-read on boot", async () => {
-    if (typeof localStorage === "undefined") return;
-    serveProviders([{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }]);
-    localStorage.setItem("brain-ui:provider-id", "claude-haiku-4-5");
-    useProviderStore.setState({ selectedId: "claude-haiku-4-5" });
-
-    await useProviderStore.getState().loadProviders();
-
-    expect(localStorage.getItem("brain-ui:provider-id")).toBe("claude-opus-5-5");
-    localStorage.removeItem("brain-ui:provider-id");
+    const values = new Map([["brain-ui:provider-id", "claude-haiku-4-5"]]);
+    const storage: Storage = {
+      get length() { return values.size; },
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); },
+      removeItem: (key) => { values.delete(key); },
+      clear: () => { values.clear(); },
+      key: (index) => [...values.keys()][index] ?? null,
+    };
+    const options = { storage, storagePrefix: "", request: async () => Response.json({ providers: [{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }], backends: {} }) };
+    const root = createBrainUiRoot(options);
+    try {
+      expect(root.stores.provider.getState().selectedId).toBe("claude-haiku-4-5");
+      await root.stores.provider.getState().loadProviders();
+      expect(storage.getItem("brain-ui:provider-id")).toBe("claude-opus-5-5");
+      const rebooted = createBrainUiRoot(options);
+      try { expect(rebooted.stores.provider.getState().selectedId).toBe("claude-opus-5-5"); }
+      finally { rebooted.dispose(); }
+    } finally { root.dispose(); }
   });
 
   test("picks up a model that has just appeared", async () => {
