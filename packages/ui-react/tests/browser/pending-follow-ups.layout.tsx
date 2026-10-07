@@ -181,6 +181,7 @@ for (const [width, height] of [[320, 640], [1280, 800]] as const) {
       expect(pills()).toHaveLength(1);
       const text = transcript().textContent!;
       expect(text.split("Ask Aeolus about the west wind").length - 1, "exactly once").toBe(1);
+      expect(text, "the preceding answer is still rendered").toContain("Plotting the course past the Sirens");
       expect(text.indexOf("Plotting the course"), "after the turn it waited for").toBeLessThan(text.indexOf("Ask Aeolus"));
       expect(document.querySelector("[data-pending-live]")!.textContent).toBe("Follow-up sent to the agent");
 

@@ -17,8 +17,22 @@ export const formViewport: BrowserCommand<
 export const formConsumerStyles: BrowserCommand<[], string> = async () =>
   readFile(resolve("../ui-react/dist/styles.css"), "utf8");
 
+/** Serve a native sandboxed preview request, which browser fetch mocks cannot intercept. */
+export const htmlPreviewFixture: BrowserCommand<[string | null, string?], void> = async (ctx, path, html) => {
+  await ctx.page.unroute("**/api/files/html?*");
+  if (path === null) return;
+  if (!html) throw new Error("HTML preview fixture must contain a document");
+  await ctx.page.route("**/api/files/html?*", async (route) => {
+    const requested = new URL(route.request().url()).searchParams.get("path");
+    await route.fulfill(requested === path
+      ? { status: 200, contentType: "text/html", body: html }
+      : { status: 404, contentType: "text/plain", body: "Unknown fixture file" });
+  });
+};
+
 declare module "vitest/browser" {
   interface BrowserCommands {
+    htmlPreviewFixture(path: string | null, html?: string): Promise<void>;
     formViewport(
       width: number,
       height: number,
