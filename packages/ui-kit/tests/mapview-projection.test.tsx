@@ -543,6 +543,7 @@ describe("the card", () => {
     expect(html).toContain("The fix is the harbour front; the hall is a street back.");
     // After the foot row's `meta`, which is the last thing the row renders,
     // and before the card's closing tag.
+    expect(html).toContain("628 km");
     expect(html.indexOf("628 km")).toBeLessThan(html.indexOf("The fix is the harbour front"));
     expect(html.endsWith("</div></div>")).toBe(true);
     expect(html).toContain("font:400 11.5px/1.55");
