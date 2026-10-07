@@ -361,6 +361,29 @@ test("a Done after the provider ended the dictation does not reopen it to late w
   expect(voice(root).reviewText, "review holds the words once").toBe("Ask Nestor about the ships");
 });
 
+test("a second Done while the first still drains changes nothing: the drain hands every word to review", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation, reloads } = await mount(root);
+  await listen(root, dictation);
+  const draining = recognition();
+  act(() => webspeech.hear("Ask Nestor", true));
+  takeOver();
+
+  let first!: Promise<void>;
+  act(() => { first = dictation.result.current.stop(); });
+  await act(async () => { await dictation.result.current.stop(); });
+  expect(voice(root).finalText, "the heard words are still waiting for the drain").toBe("Ask Nestor");
+  expect(reloads(), "no reload while busy: the transcript drains").toBe(0);
+
+  await act(async () => {
+    draining.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "about the ships" } }] });
+    draining.onend?.();
+    await first;
+  });
+  expect(voice(root).reviewText, "every word waits for review, once").toBe("Ask Nestor about the ships");
+  expect(reloads(), "no reload while busy: the transcript waits for review").toBe(0);
+});
+
 for (const end of ["Done", "Cancel"] as const) test(`a dictation ${end} has ended takes no late words`, async () => {
   const root = voiceRoot(deepgram);
   const { dictation } = await mount(root);

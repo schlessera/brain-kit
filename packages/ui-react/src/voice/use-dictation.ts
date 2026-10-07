@@ -156,8 +156,6 @@ export function useDictation() {
 
   const stop = useCallback(
     async (commitToReview = true) => {
-      // A slow connect must not open the mic after the user asked it to stop.
-      const client = releaseCapture();
       // This stop now ends the capture, even if the hook is torn down while
       // it drains: the transcript still reaches review before it goes idle.
       // Only a capture still showing on its root: one its provider already
@@ -165,6 +163,11 @@ export function useDictation() {
       // late event commit them twice.
       const owned = captureRef.current?.root === root.stores ? captureRef.current : null;
       const capture = owned && owners.get(owned.root) === owned ? owned : null;
+      // A second Done while the first still drains: the first hands
+      // everything to review, this one has nothing to add.
+      if (commitToReview && capture && stopping.has(capture)) return;
+      // A slow connect must not open the mic after the user asked it to stop.
+      const client = releaseCapture();
       if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
