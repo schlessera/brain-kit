@@ -1,3 +1,4 @@
+import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { watchMicrophone } from "../browser/offline/fake-microphone.ts";
 import { trackKey, tracksFor } from "../../src/lib/draft-tracks.ts";
 import { updateHeld } from "../../src/lib/update-holds.ts";
@@ -53,6 +54,8 @@ Object.assign(window, {
     // A root that keeps nothing has nothing pending.
     status: () => root.localWork?.status.getState() ?? { failed: false, pending: false },
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
+    rotateUnbound: () => { const drafts=root.stores.drafts.getState(); drafts.edit(drafts.fresh,null,{text:"Nestor keeps the route"}); drafts.removed(drafts.fresh); },
+    nearLimitTracks: () => { const drafts=root.stores.drafts.getState(); const session=root.stores.chat.getState().activeSessionId; const queue=tracksFor(root,trackKey(session,drafts.originOf(drafts.idFor(session)))).uploads; const meta=queue.files[0]!.meta!; queue.restore([0,1,2].map(i=>({...meta,name:`ithaca-${i}.gpx`,bytes:Math.floor(SHARE_MAX_TOTAL_BYTES/3)}))); },
     draftId: () => root.stores.drafts.getState().fresh,
     openUnbound: (id: string) => { root.stores.drafts.getState().openUnbound(id); root.stores.chat.getState().setActiveSession(null); },
     messages: () => {

@@ -146,6 +146,8 @@ type Fixture = {
   allImages(): unknown[];
   draftId(): string;
   openUnbound(id: string): void;
+  rotateUnbound(): void;
+  nearLimitTracks(): void;
   savedThrough(): number | null;
   chunkEnds(): Promise<number[]>;
   ended(): boolean[];
@@ -433,6 +435,7 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
     await page.getByRole("button",{name:"New chat",exact:true}).click(); await until(page,"f.activeSessionId() === null");
     await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx"));
     await until(page,"f.tracks().length === 1");
+    if(!i) { const old=await fixture(page,f=>f.draftId()); await fixture(page,f=>f.rotateUnbound()); expect(await fixture(page,f=>f.draftId()),"rotated draft has a distinct identity").not.toBe(old); }
     inactive.push({id:await fixture(page,f=>f.draftId()),refs:await fixture(page,f=>f.tracks())});
    }
    await page.evaluate((id)=>(window as unknown as {__local:Fixture}).__local.resume(id),SESSION); await ready(page);
@@ -445,6 +448,25 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
     await page.evaluate(id=>(window as unknown as {__local:Fixture}).__local.openUnbound(id),view.id);
     expect(await fixture(page,f=>f.tracks()),"inactive staged references restored").toEqual(view.refs);
    }
+  } finally {await context.close();}
+ },120_000);
+ test("restored uploaded reference bytes still govern the mixed composer budget",async()=>{
+  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+  try {
+   await boot(page);
+   await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx")); await until(page,"f.tracks().length === 1");
+   // Controlled canonical host metadata at the combined cap; the tiny original
+   // is not uploaded again. The real Composer measures these saved references.
+   await fixture(page,f=>f.nearLimitTracks()); await committed(page);
+   await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   await page.waitForTimeout(400); await loginForm(page); await ready(page);
+   expect(await page.locator('[data-track-chip]').count()).toBe(3);
+   expect(await page.locator('[data-track-chip]').first().getAttribute("aria-label"),"restored chip reports retained bytes").toContain("15.9 MB");
+   expect(await fixture(page,f=>f.images()),"image fixture starts empty").toEqual([]);
+   await page.locator('input[type="file"][accept^="image/"][multiple]').setInputFiles(resolve(scratch!,"shroud.png"));
+   await until(page,'f.images().length > 0 || document.body.textContent.includes("shroud.png: not added (message limit reached)")');
+   expect(await fixture(page,f=>f.images()),"restored track bytes refuse a mixed image over the cap").toEqual([]);
+   expect(await page.getByText("shroud.png: not added (message limit reached)",{exact:true}).count()).toBe(1);
   } finally {await context.close();}
  },120_000);
  test("an image decode finishing after lock cannot recreate account drafts",async()=>{

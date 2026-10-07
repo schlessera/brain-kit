@@ -353,7 +353,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       ...current,
       ...fresh,
     ]);
-    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + track.file.size, 0);
+    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
     const accepted = imageAccepted.filter((image, index) => {
       combinedBytes += image.bytes;
       return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;

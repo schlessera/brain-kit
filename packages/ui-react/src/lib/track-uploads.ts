@@ -90,7 +90,7 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
     get files() { return files; },
     add(incoming: File[], otherCount = 0, otherBytes = 0): string[] {
       const errors: string[] = [];
-      let bytes = files.reduce((sum, file) => sum + file.file.size, otherBytes);
+      let bytes = files.reduce((sum, file) => sum + (file.meta?.bytes ?? file.file.size), otherBytes);
       for (const file of incoming) {
         const name = trackDisplayName(file.name);
         if (file.size > TRACK_MAX_BYTES) { errors.push(`${name}: too large. Tracks up to ${trackBytes(TRACK_MAX_BYTES)} each.`); continue; }

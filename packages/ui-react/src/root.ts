@@ -213,7 +213,17 @@ export function createRoot(
       tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
       watchTracks: (fn) => subscribeAllTracks(services, fn),
       restoreTracks: (sessionId, origin, refs) => tracksFor(services, trackKey(sessionId, origin)).uploads.restore(refs),
-      allTracks: () => stagedTrackViews(services).map(({ key }) => ({ key, tracks: trackRefs(services, key) })).filter((v) => v.tracks.length > 0),
+      allTracks: () => {
+        const drafts = stores.drafts.getState();
+        return stagedTrackViews(services).map(({ key }) => {
+          // Rotation keeps a queue under its first id only in this lifetime.
+          // A restored draft has its current id, so save that ownership now.
+          const origin = key.startsWith("draft:") ? key.slice(6) : null;
+          const owner = origin === null ? null : Object.values(drafts.drafts).find((d) => drafts.originOf(d.draftId) === origin)?.draftId
+            ?? (drafts.originOf(drafts.fresh) === origin ? drafts.fresh : origin);
+          return { key: owner === null ? key : `draft:${owner}`, tracks: trackRefs(services, key) };
+        }).filter((v) => v.tracks.length > 0);
+      },
       restoreAllTracks: (views) => { for (const { key, tracks } of views) tracksFor(services, key).uploads.restore(tracks); },
     });
   }
