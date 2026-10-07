@@ -118,6 +118,15 @@ therefore did not prove the final combined tree. The [outcome](https://github.co
 records the separate post-merge reconstruction and scoped checks without
 calling them the older full CI run.
 
+A local `depot ci run` is evidence for local changes only when its patch was
+actually applied. Inspect dispatch warnings and the job's checkout/patch
+logs: repository or default-branch detection can fail in a worktree and the
+CLI can continue with `skipping patch`. Explicit `--repo` and `--forge`
+selection may resolve repository detection without resolving patch creation.
+Treat an unpatched run as a control of its actual checkout, or push the
+scoped diagnostic commit and pin checkout to it, then verify that SHA in the
+logs. Do not attribute the control's result to unuploaded changes.
+
 When Depot is enabled, use its results and logs directly:
 
 ```sh

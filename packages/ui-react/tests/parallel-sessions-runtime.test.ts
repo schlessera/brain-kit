@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
-import type { DraftListResponse, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -321,7 +321,8 @@ function waitingWorker() {
   Object.assign(window, { __worker: container, __loads: loads });
 }
 
-type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[] };
+type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
+type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
 async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -337,7 +338,26 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   const dialogs: string[] = [];
   // Every socket the page opens, so a reconnect is observed rather than inferred.
   const sockets: string[] = [];
-  page.on("websocket", (ws) => sockets.push(ws.url()));
+  const approvals: ApprovalFrame[] = [];
+  page.on("websocket", (ws) => {
+    const socket = sockets.push(ws.url()) - 1;
+    const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
+      const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
+      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_result", "result", "error"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+    };
+    ws.on("framesent", ({ payload }) => record("framesent", payload));
+    ws.on("framereceived", ({ payload }) => record("framereceived", payload));
+  });
+  // A tap may return without a click. Capture its input events before page
+  // load, without adding a synchronization point before the action (#1217).
+  await page.addInitScript(() => {
+    const events: Array<{ type: string; target: string | null; at: number }> = [];
+    Object.assign(window, { __approvalTouches: events });
+    for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"]) document.addEventListener(type, (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-approval-card]")) events.push({ type, target: target.textContent, at: Date.now() });
+    }, true);
+  });
   // A native confirm, alert or prompt is recorded and refused: none may
   // appear. A leave confirmation is recorded by its type, and refused too:
   // the page stays (#1150).
@@ -345,7 +365,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   await page.goto(opts.update ? `${origin}/?update` : origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
-  return { context, page, dialogs, sockets };
+  return { context, page, dialogs, sockets, approvals };
 }
 
 /** A real tap under a coarse pointer, a real click otherwise; Playwright waits until the control is at rest (#992). */
@@ -685,10 +705,51 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const card = a.page.locator("[data-approval-card]");
         await card.waitFor();
         expect(answers.has(approve), "nothing answered by opening").toBe(false);
-        await press(run, card.getByRole("button", { name: "Allow", exact: true }));
-        await a.page.getByText(`Sealed: Seal the crew's ears ${tag}.`.replace(` ${tag}`, "")).first().waitFor({ state: "attached" }).catch(() => undefined);
-        await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[approve])})?.cleared === true`);
-        expect(answers.get(approve)).toBe("allow");
+        const original = a.approvals.map((entry) => entry.frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === ids[approve]);
+        expect(original?.type, "the original approval request was observed").toBe("tool_approval_request");
+        if (original?.type !== "tool_approval_request") throw new Error("Missing original approval request");
+        expect(original.turnId, "the host bound the approval to a turn").toBeTruthy();
+        const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && frame.type === "tool_approval" && frame.toolUseId === original.toolUseId);
+        expect(replies(), "opening and restoring never sends an approval").toHaveLength(0);
+        try {
+          await press(run, card.getByRole("button", { name: "Allow", exact: true }));
+          // `cleared` means seen (D52 §4), and may already be true while the
+          // card still waits. It cannot prove delivery or completion (#1217).
+          const replyDeadline = Date.now() + 5_000;
+          while (replies().length === 0 && Date.now() < replyDeadline) await Bun.sleep(10);
+          expect(replies(), "Allow emits exactly one reply for the original approval").toHaveLength(1);
+          expect(replies()[0]!.frame).toMatchObject({ type: "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card" });
+          const decisionDeadline = Date.now() + 5_000;
+          while (!answers.has(approve) && Date.now() < decisionDeadline) await Bun.sleep(10);
+          expect(answers.get(approve), "the backend settled the original approval").toBe("allow");
+          await a.page.getByText("Sealed: Seal the crew's ears.", { exact: true }).first().waitFor({ state: "attached" });
+          await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(ids[approve])} && v.turnId === ${JSON.stringify(original.turnId)} && v.state === "done" && v.cleared)`);
+          expect(a.approvals.filter(({ event, frame }) => event === "framereceived" && frame.type === "tool_result" && frame.toolUseId === original.toolUseId).map(({ frame }) => frame)).toEqual([
+            expect.objectContaining({ type: "tool_result", sessionId: ids[approve], turnId: original.turnId, isError: false, output: "Ears sealed." }),
+          ]);
+          const response = await fetch(`${origin}/api/sessions/${ids[approve]}/recovery`);
+          expect(response.status, "the host supplied completion evidence").toBe(200);
+          const recovery = await response.json() as SessionRecovery;
+          expect(recovery).toMatchObject({ sessionId: ids[approve], latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+          expect(replies(), "completion introduced no duplicate decision").toHaveLength(1);
+          for (const v of (await states()).filter((v) => v.sessionId !== ids[approve])) {
+            expect(expected(v), `approval completion does not settle ${v.sessionId}`).toBe(true);
+            expect(v.cleared, `approval completion does not clear ${v.sessionId}`).toBe(false);
+          }
+        } catch (error) {
+          // Keep the failed assertion, plus evidence separating a missed
+          // gesture, a missing/wrong reply and a host that did not settle.
+          const [touches, views, records, recovery] = await Promise.allSettled([
+            a.page.evaluate(() => (window as unknown as { __approvalTouches: unknown[] }).__approvalTouches),
+            states(), probe(a.page, (p) => p.records()),
+            fetch(`${origin}/api/sessions/${ids[approve]}/recovery`).then((response) => response.json()),
+          ]);
+          console.error("Restored approval diagnostic", JSON.stringify({
+            run: run.name, original, frames: a.approvals, answer: answers.get(approve) ?? null,
+            touches, views, records, recovery,
+          }));
+          throw error;
+        }
 
         // A normal host restart ends the running turn and the waiting
         // questions with the process. The trackers stay, and none reads done.
@@ -699,9 +760,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const left = all.filter((id) => id !== ids[approve]);
         // The host no longer holds any of this work, so only the root's own
         // stored set can bring these trackers back.
-        await until(a.page, "p.views().length > 0 && p.views().every((v) => v.settled)").catch(() => undefined);
-        expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
         await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
+        expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
         await neverDone(run, a.page, left);
         for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
           expect(["failed", "cancelled", "unknown"], `after a restart, ${v.sessionId} is ${v.state}`).toContain(v.state);
