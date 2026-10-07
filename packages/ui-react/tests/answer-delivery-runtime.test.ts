@@ -490,8 +490,12 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       // At most 15 s idle + 5 s for the pong, plus timer slack.
       expect(replacedAfter).toBeLessThan(15_000 + 5_000 + 2_000);
       await page.waitForFunction("window.__answers.connected()");
-      const hellos = net.frames.filter((f) => f.dir === "down" && f.type === "server_hello").length;
-      expect(hellos).toBe(2);
+      // A routed socket is counted before its upstream handshake completes,
+      // and connected() can still reflect the previous socket in that gap.
+      // Observe the replacement host greeting within the same deadline.
+      const helloCount = () => net.frames.filter((f) => f.dir === "down" && f.type === "server_hello").length;
+      while (helloCount() < 2 && Date.now() < deadline) await page.waitForTimeout(100);
+      expect(helloCount()).toBe(2);
       console.log(`[measure] idle ${Date.now() - idleStart} ms, ${healthyPings} probe(s) while healthy; blackhole replaced after ${replacedAfter} ms`);
     } finally {
       await context.close();
