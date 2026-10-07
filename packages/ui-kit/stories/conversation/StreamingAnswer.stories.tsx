@@ -155,10 +155,14 @@ export const LoadingToReady = meta.story({
 
     for (let i = 1; i < TOKENS.length; i++) await userEvent.click(token);
     const tail = [...canvasElement.querySelectorAll<HTMLElement>(".bk-ghost-tail")];
+    await expect(tail).toHaveLength(9);
     // Just landed: the newest character is still settling.
     await expect(Number(getComputedStyle(tail[tail.length - 1]!).opacity)).toBeLessThan(1);
     await expect(tail.map((t) => t.textContent).join("")).toBe(TOKENS.join("").slice(-9));
-    await new Promise((r) => setTimeout(r, 250));
-    for (const t of tail) await expect(getComputedStyle(t).opacity).toBe("1");
+    // A timer can run before Chromium paints the animation's final frame.
+    // Wait for the rendered result, while still rejecting a tail that stalls.
+    await waitFor(async () => {
+      for (const t of tail) await expect(getComputedStyle(t).opacity).toBe("1");
+    }, { timeout: 1000, interval: 20 });
   },
 });
