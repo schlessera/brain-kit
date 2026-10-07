@@ -22,6 +22,10 @@ issue when you are not sure.
 
 - [Bun](https://bun.sh) ≥ 1.3.5 — `brain doctor` warns below 1.3.5, citing
   CVE-2026-24910.
+- Running this repository's test suite requires Bun ≥ 1.4.0; CI pins 1.4.2.
+  Earlier Bun versions can close an unrelated recycled descriptor after an
+  extra-pipe subprocess is collected (#1043). Consumer runtime minimums
+  remain governed by the published packages' engines.
 - A local Chrome or Chromium for the puppeteer runtime tests
   (`packages/ui-render-puppeteer/tests/runtime.test.ts`). Without one those
   tests skip, so a green **local** run on a Chrome-less machine has not

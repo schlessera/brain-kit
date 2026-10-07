@@ -160,11 +160,9 @@ on, links to or describes them.
   refused, including absolute executable paths and both spawn argument forms.
   Attempts are recorded: test hooks fail even when a client catches/retries
   the error. Saved originals and restored spies refer to the guarded functions;
-  install mocks after preload and restore them in teardown. On Bun before
-  1.4.0 the same wrapper keeps every subprocess with an extra stdio pipe
-  (`stdio[3]` and up, as in Playwright's Chrome launch) reachable: collecting
-  one closes that fd number again, after the kernel may have reused it for
-  another child's pidfd or pipes (#1043).
+  install mocks after preload and restore them in teardown. The test suite
+  requires Bun >=1.4.0; CI pins 1.4.2, whose extra-stdio finalizer fix is
+  exercised by the recycled-fd runtime probe (#1043, #1059).
 - Run tests from the repository root with `bun run test [paths/flags]` or
   `bun test [paths/flags]` (the latter still needs the documented timeout).
   Each package's own `bun run test`/`bun test` also loads its local preload;

@@ -5,28 +5,6 @@ const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 let installed: { assertNoEscapes(): void } | undefined;
 
-/**
- * Bun before 1.4.0 closes a subprocess's extra stdio pipes (`stdio[3]` and up)
- * a second time when the Subprocess is garbage-collected (oven-sh/bun#33828).
- * `node:child_process` hands the same fd to a `net.Socket`, which already
- * closed it when the child exited, so the kernel may have given that number
- * to a newer fd. Playwright launches Chrome this way (`--remote-debugging-pipe`
- * on fds 3 and 4), and a later collection in the same test process then closed
- * the pidfd and output pipes of an unrelated Bun.spawn child: its exit and
- * output were never observed, and the test hung (#1043). Keeping those
- * Subprocess objects reachable means the finalizer never runs. The cost is one
- * small object per such spawn, plus, for a direct Bun.spawn caller that never
- * takes and closes `stdio[N]`, that fd staying open until the process exits.
- */
-const STALE_EXTRA_STDIO_CLOSE = Bun.semver.order(Bun.version, "1.4.0") < 0;
-const retainedSubprocesses: unknown[] = [];
-
-function retainExtraStdio(subprocess: unknown, options: unknown): void {
-  if (!STALE_EXTRA_STDIO_CLOSE) return;
-  const stdio = (options as { stdio?: unknown } | undefined)?.stdio;
-  if (Array.isArray(stdio) && stdio.slice(3).includes("pipe")) retainedSubprocesses.push(subprocess);
-}
-
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
   const escapes: string[] = [];
@@ -98,7 +76,6 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
       }
       const result = Reflect.apply(native, Bun, args);
-      if (key === "spawn") retainExtraStdio(result, Array.isArray(first) ? args[1] : first);
       return result;
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
