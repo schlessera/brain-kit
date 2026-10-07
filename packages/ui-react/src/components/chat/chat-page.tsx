@@ -479,7 +479,7 @@ export function ChatPage() {
       ? [...(area?.querySelectorAll<HTMLElement>("[data-turn-failure]") ?? [])].at(-1)
       : undefined;
     if (focusFirst([
-      waiting?.querySelector<HTMLElement>(FIRST_CONTROL),
+      (waiting?.querySelector<HTMLElement>("[data-kit-approval-actions]") ?? waiting)?.querySelector<HTMLElement>(FIRST_CONTROL),
       failed?.querySelector<HTMLElement>(".bk-turn-error-actions [data-bk-button]"),
     ], keyboard)) return true;
     if (phone || openModal()) return false;

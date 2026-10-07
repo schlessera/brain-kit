@@ -149,7 +149,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
           {risk}
         </div>
       ) : null}
-      <div style={actions}>
+      <div style={actions} data-kit-approval-actions>
         <Button
           label={`${p.allowLabel || "Allow"}${p.shortcuts ? ` ${p.shortcuts.allow}` : ""}`}
           ariaLabel={p.shortcuts ? [p.allowLabel || "Allow", p.allowEffect].filter(Boolean).join(", ") : undefined}
