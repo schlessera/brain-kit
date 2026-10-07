@@ -7,12 +7,9 @@ import { join } from "path";
 
 import { createUiDb } from "../src/db/client";
 import {
-  LAST_SEEN_WRITE_INTERVAL_MS,
-  PRINCIPAL_RETENTION_MS,
   countLivePrincipals,
   createPrincipal,
   isUsablePrincipal,
-  MAX_LIVE_PRINCIPALS,
   PrincipalLimitError,
   prunePrincipals,
   resolveAmbientPrincipal,
@@ -260,9 +257,9 @@ describe("principal store", () => {
       }
 
       // A stale hit does write, and the timestamp advances.
-      now.mockReturnValue(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
+      now.mockReturnValue(BASE_NOW + 60_000 + 1);
       const fourth = resolveAmbientPrincipal(db, "proxy", "odysseus", "Odysseus");
-      expect(fourth.lastSeenAt).toBe(BASE_NOW + LAST_SEEN_WRITE_INTERVAL_MS + 1);
+      expect(fourth.lastSeenAt).toBe(BASE_NOW + 60_000 + 1);
       const afterStale = db.query("SELECT total_changes() AS count").get() as {
         count: number;
       };
@@ -314,18 +311,18 @@ describe("principal store", () => {
       "recent@example.test",
       "Recent proxy user"
     );
-    const old = BASE_NOW - PRINCIPAL_RETENTION_MS - 1;
-    const recent = BASE_NOW - PRINCIPAL_RETENTION_MS + 1;
+    const old = BASE_NOW - (30 * 24 * 60 * 60 * 1_000) - 1;
+    const recent = BASE_NOW - (30 * 24 * 60 * 60 * 1_000) + 1;
     setTimes(revokedOld.id, { revokedAt: old, expiresAt: BASE_NOW + 1 });
     setTimes(revokedRecent.id, { revokedAt: recent, expiresAt: BASE_NOW + 1 });
     setTimes(expiredOld.id, { expiresAt: old });
     setTimes(expiredRecent.id, { expiresAt: recent });
     setTimes(live.id, { expiresAt: BASE_NOW + 1 });
     setTimes(ambientOld.id, {
-      lastSeenAt: BASE_NOW - PRINCIPAL_RETENTION_MS - 1,
+      lastSeenAt: BASE_NOW - (30 * 24 * 60 * 60 * 1_000) - 1,
     });
     setTimes(ambientRecent.id, {
-      lastSeenAt: BASE_NOW - PRINCIPAL_RETENTION_MS + 1,
+      lastSeenAt: BASE_NOW - (30 * 24 * 60 * 60 * 1_000) + 1,
     });
 
     prunePrincipals(db, BASE_NOW);
@@ -340,19 +337,19 @@ describe("principal store", () => {
   });
 
   test("more than 100 historical ambient identities do not consume credential admission", () => {
-    for (let i = 0; i <= MAX_LIVE_PRINCIPALS; i++) {
+    for (let i = 0; i <= 100; i++) {
       resolveAmbientPrincipal(db, "proxy", `proxy-user-${i}`, `Proxy user ${i}`);
     }
 
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM principals WHERE kind = 'ambient'").get()
-    ).toEqual({ count: MAX_LIVE_PRINCIPALS + 1 });
+    ).toEqual({ count: 100 + 1 });
     expect(countLivePrincipals(db, Date.now())).toBe(0);
     expect(create({ label: "Credential after ambient history" })).toBeDefined();
   });
 
   test("the live-principal cap rejects overflow and revocation makes room", () => {
-    const principals = Array.from({ length: MAX_LIVE_PRINCIPALS }, (_, i) =>
+    const principals = Array.from({ length: 100 }, (_, i) =>
       create({ label: `Principal ${i}` })
     );
 
