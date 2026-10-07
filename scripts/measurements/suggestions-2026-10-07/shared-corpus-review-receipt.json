@@ -1,0 +1,20 @@
+{
+  "sourceIssue": 336,
+  "scopeReusedByIssue550": "textual corpus and canonical facts only; its nine schema-form prompts are not the suggestions prompt set",
+  "reviewer": "claude-sonnet-5-5",
+  "corpusSha256": "d0f5d979e715e9c34cb4cdc25278c283e003bc0940040880d5a60eaa9b926bbd",
+  "corpusFileCount": 31,
+  "corpusFilesMatchIssue550Exactly": true,
+  "coverage": "all textual fixture content; binary artifacts digest only",
+  "init": {
+    "apiKeySource": "none",
+    "cli": "2.1.283",
+    "model": "claude-sonnet-5-5"
+  },
+  "result": {
+    "subtype": "success",
+    "isError": false,
+    "text": "**APPROVED**\n\nI found no blocking findings. This review covers only the text shown. I did not see the binary PNG/PDF contents, only their hashes.\n\n**Odysseus fiction, no real data**\n- All 25 text documents are Odysseus fiction, and the count matches the compact 25-document core shape.\n- The only contact details are `odysseus@example.com` and `https://example.com/odysseus`, which use a reserved domain.\n- There are no real names, deployments, infrastructure or personal content.\n- `me/avatar.png` and `projects/active/raft/photos/frame.png` share one hash. That is a reused placeholder and not a problem.\n\n**Compatibility with the canonical world**\n- FACTS.md has `troy_fell: 2016`, which matches the reference date of 2026-07-12 minus ten years.\n- Calypso has kept Odysseus for seven years. The crew is 600 men in 12 ships, with none surviving Thrinacia.\n- The raft deadline of 2026-07-29 is the end of the seventeen-day passage, and the file says explicitly that it is not a claim the raft is built.\n- The four-day raft build is consistent with the UI staging of July 12.\n- Penelope holds Ithaca and Telemachus seeks news in Sparta.\n- The date arithmetic in the fixtures holds:\n  - knee-injury is 83 days stale;\n  - sleep-tracking is 133 days stale;\n  - the raft index lags status by 15 days.\n- The long bio's \"Troy fell in 2015\" is clearly marked as the deliberate fact-drift negative case and is never a second canonical account. The short bio's propagation lag is likewise labelled.\n- The July 5 focus snapshot against the July 12 retrieval date is the permitted planning-observation versus later-snapshot difference.\n- The \"ten at Troy and ten returning\" line in identity.md and the \"one year on Aeaea\" line in FACTS.md add Homeric colour without contradicting the canonical facts.\n- The unresolved `[[does-not-exist]]` links are intentional engineered gaps.\n\n**Nine fixed prompts**\n- Each prompt only invites a structure: comparison, trend, contact, recommended column, table, steps, quote, bars. None names a block type or schema arm.\n- The `classifiable: false` flags on trend and bars fit the stated purpose of measuring structure and parsing, not answer quality.\n- The identity file carries a key-and-value contact run, so the contact prompt has something to find.\n- The two Bun/Node comparison prompts are generic technical prompts and carry no personal data. They are not corpus files, so they do not conflict with the Odysseus requirement.\n\n**Manifest**\n- 9 prompts \u00d7 3 reps \u00d7 3 arms = 81 turns, which matches the manifest.\n- The binary artifacts are hashed only, as stated."
+  },
+  "accounting": "This shared review belongs to issue336; it is not added again to issue550 native invocations or equivalents."
+}

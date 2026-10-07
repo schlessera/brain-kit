@@ -125,8 +125,8 @@ import { kvRunColumns, kvRunRows, type KvRunColumns } from "./measure-kv-runs.ts
 import { disableMeasurementMemory, measurementIsolationHook, type MeasurementToolAccess } from "./measurement-isolation.ts";
 
 /**
- * Pinned rather than left to the CLI default, so a later re-run compares
- * against the same model this measurement was taken on.
+ * Pinned to the maintainer's 2026-10-07 model ruling. Earlier D43/D44
+ * observations used claude-sonnet-5; fresh 5.5 runs are recorded separately.
  */
 const MODEL = "claude-sonnet-5-5";
 

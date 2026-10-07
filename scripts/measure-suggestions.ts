@@ -26,7 +26,7 @@ export function suggestionDescription(arm: SuggestionArm): string {
 }
 
 export type SuggestionBlock = Extract<Block, { kind: "suggestions" }>;
-export type DropReason = "duplicate" | "user-prompt" | "filler";
+export type DropReason = "empty" | "duplicate" | "user-prompt" | "filler";
 export interface SuggestionObservation {
   block: SuggestionBlock;
   kept: SuggestionBlock["items"];
@@ -49,7 +49,8 @@ export function observeSuggestions(input: unknown, userPrompt: string): Suggesti
   for (const item of block.items) {
     const key = fold(item.label);
     let reason: DropReason | undefined;
-    if (seen.has(key)) reason = "duplicate";
+    if (!key) reason = "empty";
+    else if (seen.has(key)) reason = "duplicate";
     else {
       seen.add(key);
       if (key === fold(userPrompt)) reason = "user-prompt";
@@ -86,7 +87,7 @@ export function suggestionSummary(turns: readonly SuggestionTurn[]) {
     });
     const observations = counted.flatMap((turn) => turn.suggestions);
     const emitted = observations.reduce((sum, call) => sum + call.block.items.length, 0);
-    const drops = { duplicate: 0, "user-prompt": 0, filler: 0 };
+    const drops = { empty: 0, duplicate: 0, "user-prompt": 0, filler: 0 };
     for (const call of observations) for (const item of call.dropped) drops[item.reason]++;
     return {
       arm, excluded: all.length - counted.length,
@@ -108,12 +109,12 @@ export function suggestionReport(turns: readonly SuggestionTurn[]): string {
     "| arm | answer prompts | question prompts | answers ending in a question | excluded |",
     "| --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row.arm} | ${rate(row.answers)} | ${rate(row.questionPrompts)} | ${rate(row.questionEndings)} | ${row.excluded} |`), "",
-    "Drops are per emitted item across every accepted suggestions call, in client order. Duplicate takes precedence, then a repeated user prompt, then filler. Only the last accepted call can supply the closing row.", "",
-    "| arm | emitted items | duplicate | user prompt | filler | total dropped |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "Drops are per emitted item across every accepted suggestions call, in client order. Empty normalized labels take precedence, then duplicates, a repeated user prompt, and filler. Only the last accepted call can supply the closing row.", "",
+    "| arm | emitted items | empty label | duplicate | user prompt | filler | total dropped |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => {
       const dropped = Object.values(row.drops).reduce((sum, n) => sum + n, 0);
-      return `| ${row.arm} | ${row.emitted} | ${row.drops.duplicate} | ${row.drops["user-prompt"]} | ${row.drops.filler} | ${dropped}/${row.emitted} (${row.emitted ? (100 * dropped / row.emitted).toFixed(1) + "%" : "not measured"}) |`;
+      return `| ${row.arm} | ${row.emitted} | ${row.drops.empty} | ${row.drops.duplicate} | ${row.drops["user-prompt"]} | ${row.drops.filler} | ${dropped}/${row.emitted} (${row.emitted ? (100 * dropped / row.emitted).toFixed(1) + "%" : "not measured"}) |`;
     }), "",
     "### Transcripts for quality review", "",
     "Review each kept item as a concrete answer-grounded next step or filler. These are the last accepted call's survivors before other visibility suppression; an answer ending in a question hides the row. No automatic quality verdict is inferred.", "",

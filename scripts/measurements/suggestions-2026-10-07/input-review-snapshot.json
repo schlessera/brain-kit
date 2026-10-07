@@ -1,0 +1,1321 @@
+{
+  "manifest": {
+    "model": "claude-sonnet-5-5",
+    "promptCount": 6,
+    "prompts": "10af37b566bf7e3cd6456ac2eade4f3451114bb1e2a2b7f357c99a71889d3996",
+    "ruleDescription": "9d135b7e8e281d107452596bbe1db5b89c97665fbd318ceebf5025c90e94eb03",
+    "noRuleDescription": "42722c223feb99610811038e0e6e2709fa7f7edb972836233b08b6c1b6590b05",
+    "schema": "2c5d1b30a9671ba2da5a435b1608fc26f3a56795d0d0ac1123c5cf338d5adb6a",
+    "corpus": "d0f5d979e715e9c34cb4cdc25278c283e003bc0940040880d5a60eaa9b926bbd",
+    "corpusFileCount": 31,
+    "sources": {
+      "scripts/measure-suggestions.ts": "120b5897563b9f82228d5abc3899696592fc43d418300e5260e8b6e3a1376da1",
+      "scripts/measure-show-block.ts": "8131bbfafe17109ce1b0b1fb1e5780d074264f8da6523689c0ff4ce7e406c836",
+      "scripts/measure-show-block-server.ts": "5847d097f22abf3052f72051c06274b6b24dc01288c8a874de4d05bd1324e9ad",
+      "scripts/measure-suggestions-preload.ts": "c41a2a4e5b9339d47330e1b0cdc17f81edd6d2ace726cffe40d9fa9179803c41",
+      "tests/measure-suggestions.test.ts": "9ec01ce4933ed3258f9d86983f3c54eb1452f874c0a6e1640453ab380b5b5736"
+    },
+    "launcher": "d62eaed66f96cbc087e3ea1a306d612cf03736013743c0d44e40fcebbad943d7",
+    "qualityReview": "all kept items in the final accepted call of every complete turn",
+    "order": "rule then no-rule; fixed-order cache/time confound disclosed",
+    "previousTextSerializedCorpusHash": "d1bee8a3b2319b89fd6a72c18bedddcf93eca09427a33f7d681128c0bb9cca13",
+    "corpusHashMethod": "SHA256 of JSON object mapping sorted relative paths to SHA256 of original file bytes",
+    "corpusFiles": {
+      "_index.md": "aa076fd170289bb7c26aa8af57356f94fa8911bcdb8542665dd018dd58a32496",
+      "brain.config.ts": "a7cda8d52202489267543c4a3b558fd259a12f3ddcc8a62ccc02de07cfd55cb5",
+      "context/current-focus.md": "8121c3d7b0c195d2c368fb36581ab4e528748895163c411f15bfe1f062ba1b5c",
+      "context/reading-list.md": "78a119b987930a578443c3c72b5006c93a456a709848e91afd5437af566a81a4",
+      "evals/expected-ranks.json": "afecfb9a1b82c1a50a595334533f63821f8ccc62bf49b849cbe74856dc67a1f5",
+      "evals/retrieval.jsonl": "5c5a60178321dc4a00df118fb7b0a305639f114f26becb7d9e9b52078c67a458",
+      "health/checkup-log.md": "1a07b43e618fa64bb3c52c45ee4b4988afb4c23bef906bc1a1039f7945aae38e",
+      "health/knee-injury.md": "5da759c2e2e43f1d40e408fb025e69895707f90a87adc59fcadbdf16e5e81094",
+      "health/sleep-tracking.md": "99fbb632a911ad927c277faa35c3fcdd73fcb411bb410b481400d9c1f91754d0",
+      "journal/2026-06-15.md": "d7a1cc27cc5595b81b524731a96761b1f129b94f9dc7db9d2df9b1128b6ddaf8",
+      "journal/2026-07-01.md": "8e6be37dc7c896dfb587a7427aa4fbbe6da4cb15d2e78d8542841a5c17b6386d",
+      "me/avatar.png": "0d1413a775cd1c2d428821de0af3923003067d5c2c633033251af4064b3ed758",
+      "me/basics/FACTS.md": "38c89859feb66e43ab5832e969d98002238c7b933c8ab9bf86da6ae1df266872",
+      "me/basics/long-bio.md": "43364271088255da945c155b59fdffb8734bd2641ea381f97105e95eda4b566d",
+      "me/basics/short-bio.md": "0f5b3b0b284ac7525cda79da0c6b92deff05edac3550c39048d695a22dfc6c8a",
+      "me/identity.md": "48315b5524f30880ea1d1edc4bf486cfccd44b0854706aead3da233f931541fc",
+      "notes/loose-idea.md": "11b5509153c3e9f68bb9482d5ccc66c39fb2cf64532be0875fe17ca7352d7bb5",
+      "notes/quick-note-eagle.md": "86df05e9115f60509b4d1737d4d1a7bf98a6e6972ed44770e1368c85686e7412",
+      "notes/quick-note-water.md": "ed2a34c3280d4a7b34b0563c06e2a54fd8fb5444212a272be14061245c980a9b",
+      "projects/active/raft/_index.md": "25596a396f8f5fa505c86a2568ad04d4c25024efd53960927ef270ed4b2c3bb6",
+      "projects/active/raft/overview.md": "52d32701eb7922810e98024bb4826bdefb4ac78699e5d60e84a5a04edac5c721",
+      "projects/active/raft/photos/frame.png": "0d1413a775cd1c2d428821de0af3923003067d5c2c633033251af4064b3ed758",
+      "projects/active/raft/plan.md": "96dc8c198dc59f719b7a1fbcf38471c397d3cb966054dd6bfa55e9274da5b075",
+      "projects/active/raft/status.md": "cb30881cfc682c92a12ee4b778989a6c659ca8d0a3e506b7dd4a4f77310373f7",
+      "projects/active/sail-repairs/materials.md": "6b31606e2ebcfc3233c87f7d7e440e810ffdd851265bdfcffaaa535b7c3d06ec",
+      "projects/active/sail-repairs/status.md": "a7ff4b7ce5dbf1fa62384d1ceabc9e02bdd162aad7326761ab904aebf59e139b",
+      "projects/archive/one-old-build.md": "375d07ba4f1d8c4095cff19db2f244a35fc785d2c3dd5d146148b84f938f1d15",
+      "studies/navigation/overview.md": "df1e38c3b514ff8496b54c7e48b7c2e10d6b2981b76c3c605c505dfcb9ff22d0",
+      "studies/navigation/star-catalog.md": "95059575341f112344314d09a8419feae29025fb4a1cde423c0a9800694ed63e",
+      "studies/star-bearings.md": "3053d36327f5016c5e1a20e2fb0b57600ef8250eab76e4572d134323b4004c7e",
+      "studies/star-chart.pdf": "67171743a7bc9ade5f906cd6f318fb152f99bf8a495d42b38a826ceff4058c10"
+    },
+    "complementaryReviewSource": "7ba1d64a8cf98f2dd6c0ca47ee0fda0990c4f9de7556f06e1809fdfbf3be1f15",
+    "capPlanning": {
+      "issueCapUsd": 15,
+      "historicalAttempt": {
+        "model": "claude-sonnet-5",
+        "reportedApiEquivalentUsd": null,
+        "incrementalApiBillingUsd": 0,
+        "reservedApiEquivalentUsd": 2,
+        "reservationIsHeuristic": true,
+        "subscriptionOverageState": "not captured",
+        "apiEquivalentUpperBoundEstablished": false,
+        "doesNotConsumeSubscriptionApiEquivalentCap": true
+      },
+      "reviewRetryApiEquivalentBudgetUsd": 1,
+      "actualApiBillingUsd": 0,
+      "dispatchBlockedPendingHistoricalBoundOrUserCapInterpretation": false,
+      "billingMode": "actual-additional",
+      "ruling": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493"
+    },
+    "executionObservers": {
+      "query-capture.ts": "b9297834838ef3adb2733b5a74bc0268cd2d67441534f6bd404ab08383e58383",
+      "raw-capture-preload.ts": "65dcae0acba03477a176f200045b843dad08277eedccfb53d20f04f2c65c3387",
+      "capture-probe.ts": "e6151310c4998a7e1ed27cb9ba871155e42618f6b46c887721f1409d94270674",
+      "auth-probe.ts": "453c487eeb05b6ebf94060d29e5ee726d1ff3a7498462c210ab72a560a797692",
+      "matrix-controller.py": "b2568a964ee6d3e9b2170d424aa5e90778ae7765cc8d09b87e744b8be99d020b"
+    },
+    "isolation": {
+      "freshFixture": "per scored turn",
+      "nativeHomeConfig": "per native turn; pi per invocation",
+      "autoMemoryEnabled": false,
+      "toolRoster": "unchanged per instrument",
+      "filesystemBoundary": "private-data isolation; public source/runtime/scratch still admitted"
+    },
+    "nativeModelRouting": {
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5-5",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-sonnet-5-5",
+      "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5-5",
+      "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+      "source": "https://code.claude.com/docs/en/model-config#environment-variables",
+      "ANTHROPIC_SMALL_FAST_MODEL": "claude-sonnet-5-5"
+    }
+  },
+  "prompts": [
+    {
+      "id": "note-approaches",
+      "group": "answer",
+      "text": "Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each."
+    },
+    {
+      "id": "raft-plan",
+      "group": "answer",
+      "text": "Summarise the raft project in this brain and identify its next concrete step."
+    },
+    {
+      "id": "journal-pattern",
+      "group": "answer",
+      "text": "Read the journal in this brain and explain one recurring theme, with evidence from the entries."
+    },
+    {
+      "id": "note-choice",
+      "group": "question",
+      "text": "Help me choose between daily journal entries and topic notes. Explain the trade-off, then end your answer by asking me one question to decide between them."
+    },
+    {
+      "id": "raft-question",
+      "group": "question",
+      "text": "Read the raft project in this brain. Explain the next decision, then end your answer by asking me one question about it."
+    },
+    {
+      "id": "journal-question",
+      "group": "question",
+      "text": "Read the journal in this brain. Explain one recurring theme, then end your answer by asking me one question to reflect on it."
+    }
+  ],
+  "rule": "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a supporting-files list, a map of places, a small graph, an imported track, a link card or a list of tracker changes. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.\nfiles: local notes that support the answer, with optional plain-text reasons. Use exact brain-relative paths; reasons are your claims, not evidence that a file was read. Do not invent retrieval scores. Invalid or unavailable paths never authorize another destination.\ngraph: 2-20 nodes, at most 40 indexed edges. Supply labels, optional brain paths and one focus, never coordinates; only supplied relationships are drawn, duplicates are removed. This is your statement, not host-verified graph evidence.\nIf you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.\nThe block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.\nValues are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.\ncomparison: the reader is choosing between 2-4 options. Three columns fit a phone; use four only when the reader is on a wide screen. Mark at most one column recommended, and then give a footnote that states what the recommendation costs.\nstats: 3-4 headline figures with a one-line meta each; they wrap in threes. trend: one figure over time, values oldest first, a delta pill only when there is a comparison. table: records with 2-6 columns, right-align numbers. bars: shares of a whole, pct 0-100; tone is the class of work (the same class draws the same colour on every chart), not a judgement of the row.\nreceipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).\ntimeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.\nmap: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.\ntrack: a validated GPX, KML or supported GeoJSON attachment. Give only source.path from intake; the surface reads the original, calculates shared measurements and draws it without inferring recorded travel. Never restate coordinates or choose a viewport.\nlink: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.\ntracker: issues and pull requests you just opened, closed, reopened, merged, labeled, commented on or reviewed, 1-20 events in the order you made them, each with the item's url, the action and its title. Use it instead of listing tracker changes in prose: each event is drawn as one tappable line that opens the item. Give closed its reason, labeled its label and reviewed its verdict as the qualifier. Never state the repository, number or type: they are read from a github.com url, and a field naming them is rejected. A url the link policy refuses is rejected with the reason, as for link.\nsuggestions: at most two follow-ups the reader would plausibly ask next, each grounded in this answer and phrased as the reader would type it; omit it when the answer ends by asking the reader something, and never add generic ones. Tapping one only puts it in the reader's composer to edit; it never sends. Call it last, at most once.\nThe tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's or tracker event's address was refused, so fix the shape or the address rather than retrying it unchanged.",
+  "noRule": "Render one structured block inline in your answer, at the point where you call it: a comparison table, stat tiles, a trend chart, a data table, a bar list, a receipt, a step list, a timeline, a schedule, a quote card, a contact card, a supporting-files list, a map of places, a small graph, an imported track, a link card or a list of tracker changes. One kind is the exception: suggestions is not drawn where you call it but under the finished answer.\nfiles: local notes that support the answer, with optional plain-text reasons. Use exact brain-relative paths; reasons are your claims, not evidence that a file was read. Do not invent retrieval scores. Invalid or unavailable paths never authorize another destination.\ngraph: 2-20 nodes, at most 40 indexed edges. Supply labels, optional brain paths and one focus, never coordinates; only supplied relationships are drawn, duplicates are removed. This is your statement, not host-verified graph evidence.\nIf you are about to write a markdown table, stop and call this instead: kind=comparison when the columns are options the reader is choosing between, kind=table otherwise. A markdown table in this chat is a block that was not drawn.\nThe block IS part of the answer, so call it where the block belongs and write the prose around it; do not repeat the block's contents in prose, and do not draw the same thing as a markdown table. One or two blocks per answer; more than three is a dashboard, not an answer.\nValues are strings you have already formatted with their unit and precision; the blocks do no arithmetic, no rounding and no currency. Keep labels short: they are read on a phone.\ncomparison: the reader is choosing between 2-4 options. Three columns fit a phone; use four only when the reader is on a wide screen. Mark at most one column recommended, and then give a footnote that states what the recommendation costs.\nstats: 3-4 headline figures with a one-line meta each; they wrap in threes. trend: one figure over time, values oldest first, a delta pill only when there is a comparison. table: records with 2-6 columns, right-align numbers. bars: shares of a whole, pct 0-100; tone is the class of work (the same class draws the same colour on every chart), not a judgement of the row.\nreceipt: what a tool or a change did, as key/value rows, with a footnote for scope; a toned value fits one phone line at 25 characters (28 untoned) and wraps past it. steps: a procedure (numbered), things to tick off (checklist) or work being done for the reader (progress, exactly one current step).\ntimeline: what happened when, oldest first, pulse only on the one thing still happening. schedule: what is coming, grouped by day. quote: the exact words with a source and a locator, when the words themselves are the evidence. contact: a person, company or project with facts, when the answer is who.\nmap: 1-30 named places in reading order; the surface numbers them, draws them on real geography and lists every one under the map. Give lat/lon only when a source states them and name the source; list a place without them rather than estimating. You choose the places, never the zoom or the drawing.\ntrack: a validated GPX, KML or supported GeoJSON attachment. Give only source.path from intake; the surface reads the original, calculates shared measurements and draws it without inferring recorded travel. Never restate coordinates or choose a viewport.\nlink: one external page the reader may want to open, with an absolute http(s) url and no user:password@. Brain shows its address and marks your title and description as yours; it never opens the page. A url that is relative, not http(s), carries credentials, or mixes alphabets in one part of its name is rejected with the reason.\ntracker: issues and pull requests you just opened, closed, reopened, merged, labeled, commented on or reviewed, 1-20 events in the order you made them, each with the item's url, the action and its title. Use it instead of listing tracker changes in prose: each event is drawn as one tappable line that opens the item. Give closed its reason, labeled its label and reviewed its verdict as the qualifier. Never state the repository, number or type: they are read from a github.com url, and a field naming them is rejected. A url the link policy refuses is rejected with the reason, as for link.\nThe tool has no side effect and returns what it was given; a rejected call means the block did not fit its schema, or a link's or tracker event's address was refused, so fix the shape or the address rather than retrying it unchanged.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "block": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "comparison"
+              },
+              "columns": {
+                "minItems": 2,
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "The option's name."
+                    },
+                    "note": {
+                      "description": "A quiet mono line under the label: provenance, not a second value.",
+                      "type": "string"
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents, or \"ink\" (primary text) / \"dim\" (secondary text); omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral",
+                        "ink",
+                        "dim"
+                      ]
+                    },
+                    "recommended": {
+                      "description": "Tints the whole column. At most one column, and only with a footnote.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ]
+                },
+                "description": "The options being compared. Three fit a phone; four only on a wide screen."
+              },
+              "rows": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "The criterion."
+                    },
+                    "cells": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "v": {
+                                "type": "string"
+                              },
+                              "tone": {
+                                "description": "One of the kit's accents, or \"ink\" (primary text) / \"dim\" (secondary text); omit for the default.",
+                                "type": "string",
+                                "enum": [
+                                  "amber",
+                                  "gold",
+                                  "teal",
+                                  "purple",
+                                  "blue",
+                                  "red",
+                                  "neutral",
+                                  "ink",
+                                  "dim"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "v"
+                            ]
+                          }
+                        ]
+                      },
+                      "description": "One cell per column, in column order. A string, or {v, tone} to colour it."
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "cells"
+                  ]
+                },
+                "description": "The criteria, one row each."
+              },
+              "corner": {
+                "description": "The top-left cell. Usually empty.",
+                "type": "string"
+              },
+              "footnote": {
+                "description": "Why the recommendation is the recommendation, stated as a cost. Required when a column is recommended.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "columns",
+              "rows"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "stats"
+              },
+              "tiles": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "Short uppercase-able label."
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "The figure, pre-formatted with its unit."
+                    },
+                    "meta": {
+                      "description": "A line under the value: the comparison or the period.",
+                      "type": "string"
+                    },
+                    "icon": {
+                      "description": "A kit icon key such as \"wallet\", \"calendar\", \"deadline\", \"ledger\", \"health\", \"link\", \"file\", \"agent\". Omit when unsure: an unknown key is dropped.",
+                      "type": "string"
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents, or \"ink\" (primary text) / \"dim\" (secondary text); omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral",
+                        "ink",
+                        "dim"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ]
+                },
+                "description": "Headline figures. Three or four read best; they wrap in threes on a phone."
+              }
+            },
+            "required": [
+              "kind",
+              "tiles"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "trend"
+              },
+              "label": {
+                "description": "The uppercase mono line above the number.",
+                "type": "string"
+              },
+              "value": {
+                "description": "The headline figure, pre-formatted. The chart does no arithmetic.",
+                "type": "string"
+              },
+              "delta": {
+                "description": "The change pill, e.g. \"+12%\" or \"\u22123 days\". Omit when there is no comparison.",
+                "type": "string"
+              },
+              "deltaTone": {
+                "description": "\"teal\" for a good change, \"red\" for a bad one.",
+                "type": "string",
+                "enum": [
+                  "teal",
+                  "red"
+                ]
+              },
+              "values": {
+                "minItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "The series in its own unit, oldest first. Scaled against its own maximum."
+              },
+              "ticks": {
+                "description": "One label per bucket; empty strings are unlabelled slots. Same length as values.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tone": {
+                "description": "One of the kit's accents; omit for the default.",
+                "type": "string",
+                "enum": [
+                  "amber",
+                  "gold",
+                  "teal",
+                  "purple",
+                  "blue",
+                  "red",
+                  "neutral"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "values"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "table"
+              },
+              "columns": {
+                "minItems": 1,
+                "maxItems": 6,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "align": {
+                      "description": "Right-align numbers.",
+                      "type": "string",
+                      "enum": [
+                        "left",
+                        "right"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ]
+                }
+              },
+              "rows": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "cells": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "v": {
+                            "type": "string"
+                          },
+                          "tone": {
+                            "description": "One of the kit's accents; omit for the default.",
+                            "type": "string",
+                            "enum": [
+                              "amber",
+                              "gold",
+                              "teal",
+                              "purple",
+                              "blue",
+                              "red",
+                              "neutral"
+                            ]
+                          },
+                          "mono": {
+                            "description": "Monospace, for ids and figures.",
+                            "type": "boolean"
+                          },
+                          "bold": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "v"
+                        ]
+                      },
+                      "description": "One cell per column, in column order."
+                    }
+                  },
+                  "required": [
+                    "cells"
+                  ]
+                },
+                "description": "Records, one row each."
+              }
+            },
+            "required": [
+              "kind",
+              "columns",
+              "rows"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bars"
+              },
+              "rows": {
+                "minItems": 1,
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "pct": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "The bar length, 0-100."
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "The figure shown beside the bar, pre-formatted."
+                    },
+                    "tone": {
+                      "description": "The class of work this row is, not a judgement of it; the same class draws the same colour on every chart. Omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "pct",
+                    "value"
+                  ]
+                },
+                "description": "Shares of a whole, largest first unless the order means something."
+              }
+            },
+            "required": [
+              "kind",
+              "rows"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "receipt"
+              },
+              "title": {
+                "description": "The uppercase mono header. Omit for a bare row list.",
+                "type": "string"
+              },
+              "titleIcon": {
+                "description": "A kit icon key such as \"wallet\", \"calendar\", \"deadline\", \"ledger\", \"health\", \"link\", \"file\", \"agent\". Omit when unsure: an unknown key is dropped.",
+                "type": "string"
+              },
+              "titleTone": {
+                "description": "One of the kit's accents; omit for the default.",
+                "type": "string",
+                "enum": [
+                  "amber",
+                  "gold",
+                  "teal",
+                  "purple",
+                  "blue",
+                  "red",
+                  "neutral"
+                ]
+              },
+              "rows": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "k": {
+                      "type": "string",
+                      "description": "The key, short."
+                    },
+                    "v": {
+                      "type": "string",
+                      "description": "The value, pre-formatted."
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents, or \"ink\" (primary text) / \"dim\" (secondary text); omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral",
+                        "ink",
+                        "dim"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              },
+              "diff": {
+                "description": "A unified diff, rendered inset under the rows.",
+                "type": "string"
+              },
+              "footnote": {
+                "description": "The scope line: what this receipt covers.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "rows"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "steps"
+              },
+              "steps": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "meta": {
+                      "description": "A short right-aligned note: a duration, a place.",
+                      "type": "string"
+                    },
+                    "code": {
+                      "description": "A mono line under the detail: a command, a bearing.",
+                      "type": "string"
+                    },
+                    "state": {
+                      "description": "For \"progress\": exactly one \"current\".",
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "current",
+                        "todo"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              },
+              "variant": {
+                "description": "numbered = a recipe to follow, checklist = things to tick off, progress = something being done for the reader.",
+                "type": "string",
+                "enum": [
+                  "numbered",
+                  "checklist",
+                  "progress"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "steps"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "timeline"
+              },
+              "items": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "time": {
+                      "type": "string",
+                      "description": "Short, mono: \"09:40\", \"Tue\", \"2019\"."
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "meta": {
+                      "type": "string"
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents; omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral"
+                      ]
+                    },
+                    "pulse": {
+                      "description": "Reserved for the one event still happening.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "time",
+                    "title"
+                  ]
+                },
+                "description": "What happened, in order."
+              }
+            },
+            "required": [
+              "kind",
+              "items"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "schedule"
+              },
+              "groups": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "day": {
+                      "type": "string",
+                      "description": "\"Today\", \"Tomorrow\", \"Thu 24\"."
+                    },
+                    "meta": {
+                      "description": "A note beside the day: a count, a place.",
+                      "type": "string"
+                    },
+                    "items": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "time": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "tag": {
+                            "description": "A small pill. \"conflict\" is drawn gold.",
+                            "type": "string"
+                          },
+                          "tone": {
+                            "description": "One of the kit's accents; omit for the default.",
+                            "type": "string",
+                            "enum": [
+                              "amber",
+                              "gold",
+                              "teal",
+                              "purple",
+                              "blue",
+                              "red",
+                              "neutral"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "time",
+                          "title"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "day",
+                    "items"
+                  ]
+                },
+                "description": "What is coming, grouped by day."
+              }
+            },
+            "required": [
+              "kind",
+              "groups"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "quote"
+              },
+              "quote": {
+                "type": "string",
+                "description": "The words themselves, verbatim."
+              },
+              "source": {
+                "description": "Whose words: a document title, a person, a page.",
+                "type": "string"
+              },
+              "locator": {
+                "description": "Line or section, so the reader can check it.",
+                "type": "string"
+              },
+              "note": {
+                "description": "Why this is being surfaced.",
+                "type": "string"
+              },
+              "tone": {
+                "description": "Provenance colour; omit for the default.",
+                "type": "string",
+                "enum": [
+                  "teal",
+                  "amber",
+                  "purple",
+                  "blue",
+                  "neutral"
+                ]
+              },
+              "icon": {
+                "description": "A kit icon key such as \"wallet\", \"calendar\", \"deadline\", \"ledger\", \"health\", \"link\", \"file\", \"agent\". Omit when unsure: an unknown key is dropped.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "quote"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "contact"
+              },
+              "label": {
+                "type": "string",
+                "description": "The display name."
+              },
+              "role": {
+                "description": "What they are to the reader, or their title.",
+                "type": "string"
+              },
+              "contactKind": {
+                "description": "Decides the avatar shape and the default colour.",
+                "type": "string",
+                "enum": [
+                  "person",
+                  "company",
+                  "project"
+                ]
+              },
+              "badge": {
+                "description": "A soft chip beside the name: standing, not status.",
+                "type": "string"
+              },
+              "tone": {
+                "description": "The entity colour; omit for the kind's default.",
+                "type": "string",
+                "enum": [
+                  "teal",
+                  "blue",
+                  "purple",
+                  "amber",
+                  "neutral"
+                ]
+              },
+              "facts": {
+                "description": "Key-value facts: last contact, company, city.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "k": {
+                      "type": "string"
+                    },
+                    "v": {
+                      "type": "string"
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents, or \"ink\" (primary text) / \"dim\" (secondary text); omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral",
+                        "ink",
+                        "dim"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              },
+              "initials": {
+                "description": "Derived from the label when absent.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "label"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "files"
+              },
+              "items": {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "description": "The exact brain-relative file path; never an external URL."
+                    },
+                    "reason": {
+                      "description": "Why this note supports the answer, as your own claim; plain text, not a retrieval score.",
+                      "type": "string",
+                      "maxLength": 240
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ]
+                },
+                "description": "One to twenty supporting notes in the order the reader should inspect them."
+              }
+            },
+            "required": [
+              "kind",
+              "items"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "map"
+              },
+              "title": {
+                "description": "What the set is: 'Where the crew went ashore'.",
+                "type": "string",
+                "maxLength": 60
+              },
+              "places": {
+                "minItems": 1,
+                "maxItems": 30,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "description": "The place's name. Wraps; never cut."
+                    },
+                    "lat": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    },
+                    "lon": {
+                      "type": "number",
+                      "minimum": -180,
+                      "maximum": 180
+                    },
+                    "meta": {
+                      "description": "A short fact: a time, a day, a count.",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "source": {
+                      "description": "Where you got the position: a note path, a document.",
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "accuracyM": {
+                      "description": "How sure the position is, in metres, if a source says so. Omit rather than guess.",
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ]
+                },
+                "description": "In the order the reader should read them; the numbers follow this order. A place with no known position goes in WITHOUT lat/lon; never estimate one."
+              }
+            },
+            "required": [
+              "kind",
+              "places"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "graph"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "nodes": {
+                "minItems": 2,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "path": {
+                      "description": "Optional brain-relative file link; refused destinations are plain text.",
+                      "type": "string",
+                      "maxLength": 1024
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents; omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral"
+                      ]
+                    },
+                    "focus": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ]
+                }
+              },
+              "edges": {
+                "maxItems": 40,
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  ],
+                  "additionalItems": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "legend": {
+                "maxItems": 7,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
+                    },
+                    "tone": {
+                      "description": "One of the kit's accents; omit for the default.",
+                      "type": "string",
+                      "enum": [
+                        "amber",
+                        "gold",
+                        "teal",
+                        "purple",
+                        "blue",
+                        "red",
+                        "neutral"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ]
+                }
+              },
+              "meta": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "kind",
+              "nodes",
+              "edges"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "track"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "The staged track file path returned by attachment intake. The surface reads this file; do not restate its coordinates."
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              },
+              "title": {
+                "description": "A short title. Source provenance and measurements come from the file.",
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "required": [
+              "kind",
+              "source"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "link"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "The absolute http(s) address, exactly as the reader should open it. No user:password@. Brain does not open or check it."
+              },
+              "title": {
+                "description": "What the page is, in your words. Plain text; shown as written by you.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "description": {
+                "description": "One or two sentences on why it is relevant. Plain text; shown as written by you.",
+                "type": "string",
+                "maxLength": 240
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "tracker"
+              },
+              "events": {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048,
+                      "description": "The item's absolute https address, e.g. https://github.com/<owner>/<name>/issues/<n> or .../pull/<n>. Repository, number and type are read from it; never state them."
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "opened",
+                        "closed",
+                        "reopened",
+                        "merged",
+                        "labeled",
+                        "commented",
+                        "reviewed"
+                      ],
+                      "description": "What you did to the item."
+                    },
+                    "qualifier": {
+                      "description": "A short note on the action: the close reason (\"completed\", \"not planned\", \"duplicate\"), the label name, or the review verdict (\"approved\", \"changes requested\"). Omit otherwise.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60,
+                      "pattern": "^[^\\r\\n]*$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[^\\r\\n]*$",
+                      "description": "The item's title, one line. Shown as written by you, truncated to the line."
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "action",
+                    "title"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "The changes in the order you made them. 1-20."
+              }
+            },
+            "required": [
+              "kind",
+              "events"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "suggestions"
+              },
+              "label": {
+                "description": "The uppercase mono line above the chips. Omit for the default, \"Ask next\".",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              },
+              "items": {
+                "minItems": 1,
+                "maxItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 4,
+                      "maxLength": 80,
+                      "pattern": "^[^\\r\\n]*$",
+                      "description": "The follow-up as the reader would type it; one line, at most 80 characters."
+                    },
+                    "icon": {
+                      "description": "A kit icon key such as \"wallet\", \"calendar\", \"deadline\", \"ledger\", \"health\", \"link\", \"file\", \"agent\". Omit when unsure: an unknown key is dropped.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "One or two follow-ups grounded in this answer."
+              }
+            },
+            "required": [
+              "kind",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "required": [
+      "block"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "counter": "/** Keyless instruments for #550; both live harnesses use these prompts and rules. */\nimport {\n  SHOW_BLOCK_DESCRIPTION,\n  SHOW_BLOCK_INPUT_SCHEMA,\n  type Block,\n} from \"@schlessera/brain-ui-sdk/server\";\nimport { calibrate, shareDefinitions, variantsOf, type JsonObject } from \"./attribute-show-block-schema.ts\";\n\nexport const SUGGESTION_ARMS = [\"rule\", \"no-rule\"] as const;\nexport type SuggestionArm = (typeof SUGGESTION_ARMS)[number];\nexport const SUGGESTION_PROMPTS = [\n  { id: \"note-approaches\", group: \"answer\", text: \"Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each.\" },\n  { id: \"raft-plan\", group: \"answer\", text: \"Summarise the raft project in this brain and identify its next concrete step.\" },\n  { id: \"journal-pattern\", group: \"answer\", text: \"Read the journal in this brain and explain one recurring theme, with evidence from the entries.\" },\n  { id: \"note-choice\", group: \"question\", text: \"Help me choose between daily journal entries and topic notes. Explain the trade-off, then end your answer by asking me one question to decide between them.\" },\n  { id: \"raft-question\", group: \"question\", text: \"Read the raft project in this brain. Explain the next decision, then end your answer by asking me one question about it.\" },\n  { id: \"journal-question\", group: \"question\", text: \"Read the journal in this brain. Explain one recurring theme, then end your answer by asking me one question to reflect on it.\" },\n] as const;\n\nexport function suggestionDescription(arm: SuggestionArm): string {\n  const lines = SHOW_BLOCK_DESCRIPTION.split(\"\\n\");\n  if (lines.filter((line) => line.startsWith(\"suggestions:\")).length !== 1) {\n    throw new Error(\"Expected exactly one suggestions: description line; the measurement needs updating.\");\n  }\n  return (arm === \"rule\" ? lines : lines.filter((line) => !line.startsWith(\"suggestions:\"))).join(\"\\n\");\n}\n\nexport type SuggestionBlock = Extract<Block, { kind: \"suggestions\" }>;\nexport type DropReason = \"empty\" | \"duplicate\" | \"user-prompt\" | \"filler\";\nexport interface SuggestionObservation {\n  block: SuggestionBlock;\n  kept: SuggestionBlock[\"items\"];\n  dropped: Array<{ label: string; reason: DropReason }>;\n}\n\nfunction fold(text: string): string {\n  return text.toLowerCase().replace(/[^\\p{L}\\p{N}\\s]/gu, \"\").replace(/\\s+/g, \" \").trim();\n}\nconst FILLER = new Set([\"Tell me more\", \"Anything else?\", \"Can you elaborate?\", \"What else?\"].map(fold));\n\n/** Parse first, then apply #40's client drop rules in the client's order. */\nexport function observeSuggestions(input: unknown, userPrompt: string): SuggestionObservation | null {\n  const parsed = SHOW_BLOCK_INPUT_SCHEMA.safeParse(input);\n  if (!parsed.success || parsed.data.block.kind !== \"suggestions\") return null;\n  const block = parsed.data.block;\n  const kept: SuggestionBlock[\"items\"] = [];\n  const dropped: SuggestionObservation[\"dropped\"] = [];\n  const seen = new Set<string>();\n  for (const item of block.items) {\n    const key = fold(item.label);\n    let reason: DropReason | undefined;\n    if (!key) reason = \"empty\";\n    else if (seen.has(key)) reason = \"duplicate\";\n    else {\n      seen.add(key);\n      if (key === fold(userPrompt)) reason = \"user-prompt\";\n      else if (FILLER.has(key)) reason = \"filler\";\n    }\n    if (reason) dropped.push({ label: item.label, reason });\n    else kept.push(item);\n  }\n  return { block, kept, dropped };\n}\n\nexport function answerEndsInQuestion(parts: readonly string[]): boolean {\n  const last = parts.findLast((text) => text.trim());\n  return last !== undefined && /\\?[\\s\"'\u201d\u2019)\\]*_`]*$/u.test(last);\n}\n\nexport interface SuggestionTurn {\n  arm: SuggestionArm;\n  prompt: string;\n  group: \"answer\" | \"question\";\n  answerParts: string[];\n  suggestions: SuggestionObservation[];\n  completed: boolean;\n}\n\n/** Complete turns only; a call counts only after a successful schema parse. */\nexport function suggestionSummary(turns: readonly SuggestionTurn[]) {\n  return SUGGESTION_ARMS.map((arm) => {\n    const all = turns.filter((turn) => turn.arm === arm);\n    const counted = all.filter((turn) => turn.completed);\n    const rate = (list: SuggestionTurn[]) => ({\n      turns: list.length,\n      called: list.filter((turn) => turn.suggestions.length > 0).length,\n    });\n    const observations = counted.flatMap((turn) => turn.suggestions);\n    const emitted = observations.reduce((sum, call) => sum + call.block.items.length, 0);\n    const drops = { empty: 0, duplicate: 0, \"user-prompt\": 0, filler: 0 };\n    for (const call of observations) for (const item of call.dropped) drops[item.reason]++;\n    return {\n      arm, excluded: all.length - counted.length,\n      answers: rate(counted.filter((turn) => turn.group === \"answer\")),\n      questionPrompts: rate(counted.filter((turn) => turn.group === \"question\")),\n      questionEndings: rate(counted.filter((turn) => answerEndsInQuestion(turn.answerParts))),\n      emitted, drops,\n    };\n  });\n}\n\nexport function suggestionReport(turns: readonly SuggestionTurn[]): string {\n  const rate = ({ called, turns }: { called: number; turns: number }) =>\n    `${called}/${turns} (${turns ? (100 * called / turns).toFixed(1) + \"%\" : \"not measured\"})`;\n  const rows = suggestionSummary(turns);\n  const lines = [\n    \"## Suggestions (#550)\", \"\",\n    \"Calls count only after parsing. Failed/incomplete turns and server turns that left the corpus are excluded. Rates are per turn, including a valid call whose items all drop. Question-ending rate uses the actual last non-empty text part; question-prompt rate separately shows whether the prompted condition occurred.\", \"\",\n    \"| arm | answer prompts | question prompts | answers ending in a question | excluded |\",\n    \"| --- | --- | --- | --- | --- |\",\n    ...rows.map((row) => `| ${row.arm} | ${rate(row.answers)} | ${rate(row.questionPrompts)} | ${rate(row.questionEndings)} | ${row.excluded} |`), \"\",\n    \"Drops are per emitted item across every accepted suggestions call, in client order. Empty normalized labels take precedence, then duplicates, a repeated user prompt, and filler. Only the last accepted call can supply the closing row.\", \"\",\n    \"| arm | emitted items | empty label | duplicate | user prompt | filler | total dropped |\",\n    \"| --- | --- | --- | --- | --- | --- | --- |\",\n    ...rows.map((row) => {\n      const dropped = Object.values(row.drops).reduce((sum, n) => sum + n, 0);\n      return `| ${row.arm} | ${row.emitted} | ${row.drops.empty} | ${row.drops.duplicate} | ${row.drops[\"user-prompt\"]} | ${row.drops.filler} | ${dropped}/${row.emitted} (${row.emitted ? (100 * dropped / row.emitted).toFixed(1) + \"%\" : \"not measured\"}) |`;\n    }), \"\",\n    \"### Transcripts for quality review\", \"\",\n    \"Review each kept item as a concrete answer-grounded next step or filler. These are the last accepted call's survivors before other visibility suppression; an answer ending in a question hides the row. No automatic quality verdict is inferred.\", \"\",\n  ];\n  for (const [index, turn] of turns.entries()) {\n    if (!turn.completed) continue;\n    const kept = turn.suggestions.at(-1)?.kept ?? [];\n    if (!kept.length) continue;\n    lines.push(`#### ${index + 1}: ${turn.arm}`, \"\", `Prompt: ${turn.prompt}`, \"\", turn.answerParts.join(\"\\n\\n\"), \"\",\n      `Row suppressed by question ending: ${answerEndsInQuestion(turn.answerParts) ? \"yes\" : \"no\"}`, \"\",\n      ...kept.map((item) => `- ${item.label}`), \"\");\n  }\n  return lines.join(\"\\n\");\n}\n\n/** D47 arithmetic over the listed schema, with and without the suggestions variant. */\nexport function suggestionSchemaCost(schema: JsonObject) {\n  const variants = variantsOf(schema);\n  const without = variants.filter((variant) =>\n    (variant as { properties?: { kind?: { const?: string } } }).properties?.kind?.const !== \"suggestions\");\n  if (variants.length - without.length !== 1) throw new Error(\"Expected exactly one suggestions schema variant.\");\n  const baseline = structuredClone(schema);\n  (baseline.properties as JsonObject).block = {\n    ...((baseline.properties as JsonObject).block as JsonObject), oneOf: without,\n  };\n  const chars = (value: unknown) => JSON.stringify(value).length;\n  const calibration = calibrate();\n  const range = (n: number) => [Math.round(n * calibration.low), Math.round(n * calibration.high)];\n  const descriptionChars = chars(suggestionDescription(\"rule\")) - chars(suggestionDescription(\"no-rule\"));\n  const flatChars = chars(schema) - chars(baseline);\n  const sharedChars = chars(shareDefinitions(schema)) - chars(shareDefinitions(baseline));\n  return { descriptionChars, flatChars, sharedChars,\n    estimatedDescriptionTokens: range(descriptionChars),\n    estimatedFlatTokens: range(flatChars), estimatedSharedTokens: range(sharedChars) };\n}\n",
+  "client": "/**\n * Answer suggestions (#40, D50): the follow-ups the model offers under its\n * own answer, as pure functions so the live transcript and a replayed one go\n * through exactly the same decisions.\n *\n * Every input here is read off the transcript (the message, the messages\n * around it) or off state that is current either way (voice, run state), never\n * off a live-only event. That is what makes a replayed session draw the same\n * closing row the live one did.\n */\n\nimport {\n  SHOW_BLOCK_CONTRACT,\n  parseToolPayload,\n  type Block,\n} from \"@schlessera/brain-ui-sdk/client\";\nimport type { VoiceMode } from \"@schlessera/brain-ui-sdk/protocol\";\n\nimport type { ChatMessage } from \"../stores/chat-state.js\";\nimport { isShowBlockTool } from \"./tool-names.js\";\n\nexport type SuggestionsBlock = Extract<Block, { kind: \"suggestions\" }>;\nexport type SuggestionsItem = SuggestionsBlock[\"items\"][number];\n\n/** The row label when the model gives none. */\nexport const DEFAULT_SUGGESTIONS_LABEL = \"Ask next\";\n\n/**\n * Chips that suggest nothing: exact after case and punctuation folding, so\n * \"Tell me more.\" and \"tell me more\" both go, and \"Tell me more about the\n * Cyclops\" stays.\n */\nconst FILLER = [\"Tell me more\", \"Anything else?\", \"Can you elaborate?\", \"What else?\"];\n\nfunction fold(text: string): string {\n  return text\n    .toLowerCase()\n    .replace(/[^\\p{L}\\p{N}\\s]/gu, \"\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nconst FOLDED_FILLER = new Set(FILLER.map(fold));\n\n/**\n * The turn's suggestions block: the LAST `show_block` call of kind\n * `suggestions` whose echo parses. A rejected or unparsed call is not a\n * candidate \u2014 it stays in the tool timeline, where its fallback says why.\n */\nexport function suggestionsOf(message: ChatMessage): SuggestionsBlock | null {\n  let found: SuggestionsBlock | null = null;\n  for (const part of message.parts) {\n    if (part.kind !== \"tool\") continue;\n    const tool = message.toolCalls[part.toolIndex];\n    if (!tool || !isShowBlockTool(tool.name)) continue;\n    const payload = parseToolPayload(SHOW_BLOCK_CONTRACT, tool.output);\n    if (payload?.block.kind === \"suggestions\") found = payload.block;\n  }\n  return found;\n}\n\n/**\n * The items worth drawing: duplicates of each other, a restatement of the\n * user's own question, and generic filler are dropped. The schema already\n * trimmed them, bounded them and capped them at two.\n */\nexport function keptSuggestions(block: SuggestionsBlock, userPrompt: string | undefined): SuggestionsItem[] {\n  const asked = userPrompt ? fold(userPrompt) : null;\n  const seen = new Set<string>();\n  const kept: SuggestionsItem[] = [];\n  for (const item of block.items) {\n    const label = item.label.trim();\n    const key = fold(label);\n    if (!key || seen.has(key)) continue;\n    seen.add(key);\n    if (key === asked || FOLDED_FILLER.has(key)) continue;\n    kept.push({ ...item, label });\n  }\n  return kept;\n}\n\n/** Does the answer's last text end by asking the reader something? */\nexport function endsWithQuestion(message: ChatMessage): boolean {\n  for (let i = message.parts.length - 1; i >= 0; i--) {\n    const part = message.parts[i]!;\n    if (part.kind !== \"text\" || !part.text.trim()) continue;\n    // Closing quotes, brackets, emphasis and trailing whitespace do not hide\n    // the question mark: \"\u2026is that right?**\" still asks.\n    return /\\?[\\s\"'\u201d\u2019)\\]*_`]*$/u.test(part.text);\n  }\n  return false;\n}\n\n/** The facts the closing row depends on beyond the message itself. */\nexport interface SuggestionsContext {\n  /** Every message of the session, in order. */\n  messages: readonly ChatMessage[];\n  /** The session still has a turn running or queued. */\n  running: boolean;\n  voiceMode: VoiceMode;\n  /** Voice text waiting in the review card. */\n  voiceReviewPending: boolean;\n}\n\n/** The user message that started the turn `message` answers. */\nexport function promptOf(message: ChatMessage, messages: readonly ChatMessage[]): ChatMessage | undefined {\n  const index = messages.indexOf(message);\n  for (let i = index - 1; i >= 0; i--) {\n    if (messages[i]!.role === \"user\") return messages[i];\n  }\n  return undefined;\n}\n\n/**\n * The chips the closing row draws under `message`, or none. One rule for\n * live and replay; each branch is a suppression case from #40 \u00a73.\n */\nexport function visibleSuggestions(message: ChatMessage, context: SuggestionsContext): SuggestionsItem[] {\n  if (message.role !== \"assistant\") return [];\n  // S7: the flip. Any message after this one \u2014 a user message, or a newer\n  // answer \u2014 means the row is gone for good.\n  if (context.messages[context.messages.length - 1] !== message) return [];\n  // S1: nothing until the turn has ended.\n  if (message.isStreaming || context.running) return [];\n  // S3: the turn is waiting on the reader's answer.\n  if (message.askUserExchanges?.some((exchange) => !exchange.answers && !exchange.order && !exchange.formAnswers)) return [];\n  // S4: an answer that ends in a question has already asked what is next.\n  if (endsWithQuestion(message)) return [];\n  // S5, S6: voice owns the composer.\n  if (context.voiceMode !== \"idle\" || context.voiceReviewPending) return [];\n  const prompt = promptOf(message, context.messages);\n  // S9: the reader never saw the answer.\n  if (prompt?.source === \"voice-conversation\") return [];\n  // S2: failed turns keep their partial output but make no follow-up offer.\n  if (message.failure) return [];\n  // S8: no valid call, or nothing survived the drops.\n  const block = suggestionsOf(message);\n  return block ? keptSuggestions(block, prompt?.content) : [];\n}\n\n/**\n * The composer's text after a chip is taken, per #40 \u00a74: the reader's draft\n * is kept byte for byte and the suggestion goes on a line of its own below\n * it; a suggestion already on a line of the draft is not added twice.\n */\nexport function insertSuggestion(draft: string, label: string): string {\n  if (!draft.trim()) return label;\n  if (draft.split(\"\\n\").some((line) => line.trim() === label)) return draft;\n  return draft.endsWith(\"\\n\") ? draft + label : `${draft}\\n${label}`;\n}\n",
+  "conditions": {
+    "backendArmClones": true,
+    "classifier": "disabled for all arms",
+    "model": "claude-sonnet-5-5",
+    "quality": "all kept items in every final accepted call",
+    "isolation": "bwrap private-data isolation: source/runtime readonly, dedicated fictional scratch; no actual user home; outside-corpus observed tool paths excluded; relative escapes heuristic limits disclosed",
+    "order": "rule then no-rule; cache/time confound disclosed"
+  },
+  "isolation": {
+    "freshFixture": "per scored turn",
+    "nativeHomeConfig": "per native turn; pi per invocation",
+    "autoMemoryEnabled": false,
+    "toolRoster": "unchanged per instrument",
+    "filesystemBoundary": "private-data isolation; public source/runtime/scratch still admitted"
+  }
+}

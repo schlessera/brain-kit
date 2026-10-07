@@ -17,7 +17,7 @@
 // Two modes:
 //
 //   bun scripts/measure-show-block-server.ts --brain <dir> --out runs.json \
-//     [--backend pi|claude] [--model claude-sonnet-5] [--prompts 0,1,2,3] [--runs 6]
+//     [--backend pi|claude] [--model claude-sonnet-5-5] [--prompts 0,1,2,3] [--runs 6]
 //   bun scripts/measure-show-block-server.ts --suggestions --brain <dir> --backend pi --runs 3 --out suggestions.json
 //   bun scripts/measure-show-block-server.ts --report runs.json [more.json …]
 //
@@ -358,7 +358,7 @@ async function measure(): Promise<void> {
   assertMeasurableBrainPath(brainPath);
 
   const backend = (flag("backend") ?? "pi") as ToolAdapter;
-  const model = flag("model") ?? "claude-sonnet-4-6";
+  const model = flag("model") ?? "claude-sonnet-5-5";
   const vendor = flag("vendor") ?? "anthropic";
   const profile = backend === "pi" ? "measure" : "claude";
   // The Claude backend exposes the tool MCP-prefixed, so the name matched in

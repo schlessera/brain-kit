@@ -65,6 +65,20 @@ describe("parsed calls and client drops", () => {
     expect(answerEndsInQuestion(["Which step?**", "  "])).toBe(true);
   });
 
+  test("empty normalized labels drop before duplicate or user-prompt checks", () => {
+    const observed = observeSuggestions(input("!!!!!!!!", "????????"), "Plan the raft")!;
+    expect(observed.block.items).toHaveLength(2);
+    expect(observed.kept).toEqual([]);
+    expect(observed.kept).toEqual(keptSuggestions(observed.block, "Plan the raft"));
+    expect(observed.dropped.map(({ reason }) => reason)).toEqual(["empty", "empty"]);
+    expect(observeSuggestions(input("!!!!!!!!", "????????"), "!!!!!!!!")!.dropped.map(({ reason }) => reason)).toEqual(["empty", "empty"]);
+    const summary = suggestionSummary([turn({ suggestions: [observed] })])[0];
+    expect(summary.answers).toEqual({ called: 1, turns: 1 });
+    expect(summary.emitted).toBe(2);
+    expect(summary.drops).toEqual({ empty: 2, duplicate: 0, "user-prompt": 0, filler: 0 });
+    expect(suggestionReport([turn({ suggestions: [observed] })])).toContain("2/2 (100.0%)");
+  });
+
   test("reports rates only over completed turns and keeps question controls separate", () => {
     const parsed = observeSuggestions(input("Choose the timber"), "Plan a raft")!;
     const turns = [turn({ suggestions: [parsed] }), turn(),
