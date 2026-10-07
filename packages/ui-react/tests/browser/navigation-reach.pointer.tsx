@@ -242,6 +242,43 @@ const onlyPanel = (s: Scene, key: string) => {
 const pane = (s: Scene) => s.host.querySelector<HTMLElement>("section[data-sessions-pane]");
 const wideAt = (width: number) => width >= 1280;
 
+/** Whether `el` is on screen and is what a press at its upper middle hits. */
+function onScreen(el: Element | null | undefined) {
+  if (!el) return false;
+  const r = rect(el);
+  if (r.width === 0 || r.height === 0 || r.left < -0.5 || r.right > innerWidth + 0.5 || r.bottom <= 0 || r.top >= innerHeight) return false;
+  const hit = document.elementFromPoint((r.left + r.right) / 2, Math.max(r.top, 0) + Math.min(r.height / 2, 24));
+  return hit !== null && el.contains(hit);
+}
+/** A panel titled `title` is drawn: a pane named for it, or a drawer whose heading is it. */
+function panelShown(s: Scene, title: string) {
+  const named = [...s.host.querySelectorAll<HTMLElement>(`section[aria-label="${title}"], [role="dialog"][aria-label="${title}"]`)];
+  const drawers = [...s.host.querySelectorAll<HTMLElement>("h2")].filter((h) => h.textContent === title).map((h) => h.parentElement!.parentElement!);
+  return [...named, ...drawers].some(onScreen);
+}
+/**
+ * What the screen shows for each target, beyond the store's flags: the
+ * panel or view is drawn and takes a press, so a flag set behind a surface
+ * that never mounts does not count as reached.
+ */
+const SURFACE: Record<string, (s: Scene) => boolean> = {
+  Chat: (s) => onScreen(s.host.querySelector("textarea[data-composer]")),
+  Sessions: (s) => wideAt(s.width) ? onScreen(pane(s)) : panelShown(s, "Sessions"),
+  Actions: (s) => onScreen(s.host.querySelector('[aria-label="Actions queue"]')),
+  Files: (s) => panelShown(s, "Files"),
+  Settings: (s) => panelShown(s, "Settings"),
+  // Its mode tabs below the laptop width, its controls column from it.
+  Graph: (s) => onScreen(s.host.querySelector('[aria-label="Graph modes"], [aria-label="Graph controls"]')),
+  "New chat": (s) => onScreen(s.host.querySelector("textarea[data-composer]")) && !s.host.querySelector(".chat-message-body"),
+  Search: (s) => panelShown(s, "Search"),
+  "Add a note": (s) => panelShown(s, "Add to brain"),
+  "Daily briefing": (s) => panelShown(s, "Whatsup"),
+  Sync: (s) => panelShown(s, "Brain Sync"),
+  // The answer's own question, drawn in the transcript.
+  Stats: (s) => [...s.host.querySelectorAll<HTMLElement>("p, span, div")].some((el) => el.childElementCount === 0 && el.textContent?.trim() === "Stats" && rect(el).width > 0),
+  "Open a session": (s) => onScreen(s.host.querySelector("textarea[data-composer]")),
+};
+
 /** What a command did, compared between routes: never the route itself. */
 function effect(s: Scene) {
   const ui = ui$(s) as unknown as Record<string, unknown>;
@@ -405,6 +442,7 @@ for (const width of DESKTOP) for (const start of startsAt(width)) for (const [na
     const steps = target.reached(s) ? [] : target.path(start, width);
     await walk(s, steps, mode, `${name} from ${start}`);
     await expect.poll(() => target.reached(s), { message: `${name} from ${start} at ${width} (${mode}) after ${steps.length}` }).toBe(true);
+    await expect.poll(() => SURFACE[name]!(s), { message: `${name} is drawn, not only flagged, from ${start} at ${width}` }).toBe(true);
     expect(steps.length, `activations to ${name} from ${start} at ${width} (D52 §2)`).toBe(allowed(name, start, width));
     // Opening Search, Add or a panel writes nothing; Sync and the briefing
     // start their own job and nothing else.
@@ -637,6 +675,7 @@ for (const width of DESKTOP) for (const [name, target] of Object.entries(targets
     await userEvent.keyboard("{Enter}");
     await settle(s);
     await expect.poll(() => target.reached(s), { message: `${name} by keyboard` }).toBe(true);
+    await expect.poll(() => SURFACE[name]!(s), { message: `${name} is drawn after the keyboard route` }).toBe(true);
     expect(dialog(), "running a row closes the palette").toBeNull();
   });
 }
