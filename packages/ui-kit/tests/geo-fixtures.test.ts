@@ -168,7 +168,9 @@ describe("the geometry is geometry", () => {
       const acrossKm = fixture.spanKm * 0.75 + 0.01;
       const downKm = fixture.spanKm * 0.5 + 0.01;
       const far: string[] = [];
-      for (const line of [...fixture.coastline, ...fixture.roads, ...(fixture.streets ?? [])]) {
+      const strokes = [...fixture.coastline, ...fixture.roads, ...(fixture.streets ?? [])];
+      expect(strokes.length, `${id}: surrounding strokes are nonempty`).toBeGreaterThan(0);
+      for (const line of strokes) {
         for (const [pLon, pLat] of line) {
           const dLatKm = (pLat - lat) * 111;
           const dLonKm = (pLon - lon) * 111 * Math.cos((lat * Math.PI) / 180);
@@ -225,6 +227,7 @@ describe("the geometry is geometry", () => {
     const backwards: string[] = [];
     for (const id of geoIds) {
       const rings = geo[id].land ?? [];
+      expect(rings.length, `${id}: land rings are nonempty`).toBeGreaterThan(0);
       for (const ring of rings) {
         const nested = rings.some((other) => other !== ring && fills([other], ring[0]!));
         if (!nested && signedArea(ring) <= 0) backwards.push(`${id}: a ring of ${ring.length} points`);

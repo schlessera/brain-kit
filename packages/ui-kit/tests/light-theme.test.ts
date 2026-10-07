@@ -80,12 +80,15 @@ describe("light theme", () => {
       amber: "127,76,8", gold: "111,84,12", teal: "21,89,76",
       purple: "93,68,137", blue: "26,92,127", red: "156,42,36",
     };
+    let checked = 0;
     for (const [name, value] of Object.entries(LIGHT_TOKENS)) {
       const m = /^(chip|surface|callout|action|toast|quote|avatar|medallion)-(tint|border)-(amber|gold|teal|purple|blue|red)$/.exec(name);
       if (!m) continue;
+      checked++;
       const [, , kind, tone] = m;
       expect(`${name}: ${value}`).toContain(kind === "tint" ? fills[tone!]! : inks[tone!]!);
     }
+    expect(checked, "tint and border hues were measured").toBeGreaterThan(0);
   });
 
   test("the hover veils invert to ink at the same alpha", () => {

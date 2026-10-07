@@ -98,6 +98,7 @@ for (const theme of THEMES) {
       test("1. the whole 44px row is the target, and neighbouring targets do not overlap", () => {
         const el = mount(trackerMixed.slice(0, 3), width, theme);
         const anchors = pills(el);
+        expect(anchors, "the three target rows are drawn").toHaveLength(3);
         for (const anchor of anchors) {
           const row = anchor.parentElement!.getBoundingClientRect();
           const x = row.left + row.width / 2;
@@ -200,6 +201,8 @@ for (const theme of THEMES) {
         const el = mount(trackerEveryAction, width, theme, true);
         const probe = document.createElement("span");
         el.append(probe);
+        expect(trackerEveryAction.length, "the action fixture is nonempty").toBeGreaterThan(0);
+        expect(pills(el), "every action reaches the measured DOM").toHaveLength(trackerEveryAction.length);
         pills(el).forEach((pill, i) => {
           const event = trackerEveryAction[i]!;
           const tone = trackerTone(event.action, event.qualifier);
