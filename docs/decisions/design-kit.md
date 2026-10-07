@@ -5628,7 +5628,8 @@ text. The aurora field has no shape at all and says nothing about what is
 coming. Decode noise is legible glyph churn: it animates the text itself, reads
 as content, and cannot honour reduced motion without becoming a frozen
 nonsense string. Ghost text has the replaced content's own shape, so the frame
-is final from the first frame and the handoff moves nothing.
+is final from the first frame and, when the ghost knows what it stands in
+for, the handoff moves nothing.
 
 **Length-sized ghosts.** A ghost is as long as what it replaces: the value
 this item showed last time on a re-fetch, else a length hint the caller has (a
@@ -5636,12 +5637,16 @@ search snippet's length, a file name from a listing), else the component's
 typical length (an ActionCard title 58 characters, a body 44, a queue subject
 22, a search path 26 and snippet 120, a file name 14, an answer three lines of
 the measure). The glyphs are seeded words of 2–9 characters at roughly English
-letter frequency, stable per item key so they never flicker. A single-line
+letter frequency, seeded by the component instance — which React keeps per
+item key, not per list position — so they never flicker and re-ranking a row
+does not regenerate them. A single-line
 slot matches its ready line exactly. A wrapping slot can still break onto one
 line more or fewer than the real text, because seeded words do not break
 where the real ones do; a sweep of the fixture strings at 110–380px measured
 that in about one case in eight. That is the cost of not drawing the stale
-value, and it is accepted.
+value, and it is accepted. So is the cold load: with no history and no hint,
+an ActionCard ghosts a typical card — kind, title, body and foot — and a
+title-only card loses those two bands when it arrives.
 
 **Paper hues tuned for contrast.** All three hues stay on paper, deepened
 along their own hue until each contrasts with the paper ghost base (`#c8bfac`)
@@ -5655,7 +5660,10 @@ its own for as long as a state lasts. A ghost moves only while something is
 being waited for and ends when the data does, which is the line between the
 two. `ghost` is therefore a second keyframe beside `breathe`, not a second
 ambient one. Reduced motion shows the ghost as plain blurred text in the base
-colour, with no sweep and no spectrum, makes the handoff instant and lands a stream's tail at once; print hides it.
+colour, with no sweep and no spectrum, makes the handoff instant and lands a
+stream's tail at once; print hides it. `tests/visual/ghost-media.visual.tsx`
+checks the computed result under the emulated media, so a rule that wins the
+cascade back cannot pass it.
 
 **What is never ghosted.** The frame — borders, radii, padding, icons, the
 status-dot slot — is final from the first frame. Emphasis that depends on the
@@ -5663,7 +5671,8 @@ data waits for it: an approval's 2px border, a blocked row's amber shell, a
 dot's tone. An icon that depends on the data is a 14px outline slot until then.
 Slots the caller already passes while loading — an ActionCard's chip,
 machine facts, children or foot link, a queue row's note and link — keep their
-space: the text ones as ghosts, the rest invisibly. A streaming answer holds
+space: the text ones as ghosts, the rest invisible and inert. A streaming
+answer's first chunk fades in over the same 600ms, and it holds
 its ghost's height while it streams, so the first token, shorter than the
 ghost, moves nothing below it; past that height the answer grows downward.
 Nothing is a control while it loads: no role, no tab stop, and a click does
