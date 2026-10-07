@@ -278,6 +278,7 @@ export function Composer(p: ComposerProps) {
   const stopAct = Boolean(p.onStop);
 
   const mono = (weight: number, size: number): string => `${weight} ${size}px/1.5 ${font.mono}`;
+  const oneLine: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
   return (
     <div
@@ -360,12 +361,18 @@ export function Composer(p: ComposerProps) {
         ) : null}
       </div>
       {hintRow ? (
-        <div id={hintId} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 14 }}>
+        // One line, whatever it holds (#1013): a reason that arrives or leaves
+        // with the connection must not change the composer's height, which
+        // would move the field under the writer. Text that does not fit ends
+        // in an ellipsis, and the hint gives way first.
+        <div id={hintId} data-composer-hint="" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minHeight: 14, minWidth: 0 }}>
           {p.provider ? (
             <span
               style={
                 {
-                  flex: "none",
+                  flex: "0 1 auto",
+                  minWidth: 0,
+                  ...oneLine,
                   border: `1px solid ${color.edge}`,
                   borderRadius: 5,
                   padding: "2px 6px",
@@ -391,8 +398,8 @@ export function Composer(p: ComposerProps) {
               {p.providerDetail ? <span style={{ color: accent.amber.ink }}> · {p.providerDetail}</span> : null}
             </span>
           ) : null}
-          {hint ? <span style={{ flex: 1, minWidth: 0, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}
-          {blockedWhy ? <span style={{ flex: "none", font: mono(500, 10), color: accent.gold.ink }}>{blockedWhy}</span> : null}
+          {hint ? <span style={{ flex: "1 1 0", minWidth: 0, ...oneLine, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}
+          {blockedWhy ? <span style={{ flex: "0 1 auto", minWidth: 0, ...oneLine, font: mono(500, 10), color: accent.gold.ink }}>{blockedWhy}</span> : null}
         </div>
       ) : null}
     </div>
