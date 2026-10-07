@@ -283,7 +283,7 @@ async function openSessions(s: Scene, mode: string) {
 
 const THEMES = ["dark", "light"] as const;
 
-for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of THEMES) {
+for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme of THEMES) {
   test(`${width} (${theme}): A's text and image survive New chat, B, Sessions and Actions; B is a Draft entry`, async (ctx) => {
     const mode = pointer();
     const s = await mount(ctx, width, 800, theme);
