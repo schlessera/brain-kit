@@ -216,7 +216,7 @@ export function useDictation() {
       if (!capture || capture.root !== root.stores || stopping.has(capture)) return;
       if (owners.get(root.stores) !== capture) return;
       release(capture);
-      endDictation(root.stores.voice, true, { draining: false });
+      endDictation(root.stores.voice, true);
     };
   }, [root, releaseCapture]);
 

@@ -39,16 +39,23 @@ export function live(capture: Capture): boolean {
  * final and interim, joins any text already under review, so a prompt can be
  * built up across several takes. One update: the transcript reaches review
  * in the same change that ends the dictation, so no listener (the update
- * reload guard, #1015) sees a moment in which it is in neither. `draining`
- * belongs to whoever drains, unless `also` says otherwise: another hook's
- * Done may still be flushing its last words.
+ * reload guard, #1015) sees a moment in which it is in neither.
+ *
+ * `draining` belongs to whoever drains; only the drainer passes
+ * `{ draining: false }`. While another hook's Done is still draining into
+ * the root's one transcript buffer, a commit here leaves the buffer to that
+ * drain, which hands everything in it to review once (#1223).
  */
 export function endDictation(
   voice: VoiceStore,
   commitToReview: boolean,
   also: Partial<Pick<VoiceState, "draining">> = {},
 ): void {
-  const { finalText, partial, reviewText } = voice.getState();
+  const { finalText, partial, reviewText, draining } = voice.getState();
+  if (commitToReview && draining && also.draining !== false) {
+    voice.setState({ connecting: false, mode: "idle", audioLevel: 0 });
+    return;
+  }
   const merged = [finalText, partial].filter(Boolean).join(" ").trim();
   voice.setState({
     ...also,

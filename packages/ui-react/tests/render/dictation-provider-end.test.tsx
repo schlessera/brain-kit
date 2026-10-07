@@ -382,7 +382,7 @@ for (const end of ["Done", "Cancel"] as const) test(`a dictation ${end} has ende
   expect(voice(root).reviewText, "review holds the words once").toBe(expected);
 });
 
-test("another dictation ending on its own does not release the reload while a Done is still draining", async () => {
+test("another dictation ending on its own neither releases the reload nor commits the words a Done is still draining", async () => {
   const root = voiceRoot(webspeech);
   const { dictation: first, reloads } = await mount(root);
   const second = renderHook(() => useDictation(), { wrapper: wrapper(root) });
@@ -394,8 +394,11 @@ test("another dictation ending on its own does not release the reload while a Do
   let stopped!: Promise<void>;
   act(() => { stopped = first.result.current.stop(); });
   expect(voice(root).draining, "the first transcript drains").toBe(true);
-  // Meanwhile a second starts, and its provider ends it with nothing heard.
+  // Meanwhile a second starts; the first reports its tail as interim; then
+  // the second's provider ends it with nothing of its own heard.
   await listen(root, second);
+  act(() => draining.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: "Sail at dawn" } }] }));
+  expect(voice(root).partial, "the draining tail is in the buffer").toBe("Sail at dawn");
   act(() => recognition().onend?.());
   expect(voice(root).mode).toBe("idle");
   expect(voice(root).draining, "the first drain still holds").toBe(true);
