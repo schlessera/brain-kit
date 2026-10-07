@@ -59,8 +59,20 @@ describe("chunked history replay", () => {
   });
 
   test("appendMessages leaves streaming state untouched", () => {
-    useChatStore.getState().appendMessages(null, [msg("a", "one")]);
-    expect(useChatStore.getState().draft!.isStreaming).toBe(false);
+    for (const key of [null, "sess-running"]) {
+      const store = useChatStore.getState();
+      store.setMessages(key, [msg("a", "one")]);
+      store.setStreaming(key, true);
+      store.appendMessages(key, [msg("b", "two")]);
+      const state = useChatStore.getState();
+      const buffer = key === null ? state.draft! : state.buffers[key];
+      expect(buffer.messages.map((message) => message.id)).toEqual(["a", "b"]);
+      expect(buffer.isStreaming).toBe(true);
+      store.setStreaming(key, false);
+      store.appendMessages(key, [msg("c", "three")]);
+      const updated = useChatStore.getState();
+      expect((key === null ? updated.draft! : updated.buffers[key]).isStreaming).toBe(false);
+    }
   });
 
   test("setMessages and appendMessages create the buffer for their session key", () => {

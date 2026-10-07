@@ -139,14 +139,14 @@ describe("chat store edge cases", () => {
     expect(msgs[3].content).toBe("A2");
   });
 
-  test("appendText always targets the last message", () => {
+  test("appendText continues the last assistant after a follow-up without changing the user", () => {
     const s = useChatStore.getState();
     s.addUserMessage(null, "Q1");
     s.startAssistantMessage(null);
     s.appendText(null, "First ");
     s.addUserMessage(null, "Q2"); // user sends another while streaming
-    // appendText should target the last message which is now a user message
-    s.appendText(null, "should not append to user");
+    s.appendText(null, "then the return route.");
+    expect(draftMessages()[1].content).toBe("First then the return route.");
     // The user message should be unchanged
     expect(draftMessages()[2].content).toBe("Q2");
   });
