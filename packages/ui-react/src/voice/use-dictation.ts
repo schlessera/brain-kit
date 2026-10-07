@@ -37,6 +37,8 @@ export function useDictation() {
   // AbortController for the in-flight session fetch, so stop/cancel/unmount
   // can actually cancel a pending connect rather than just ignoring its result.
   const sessionAbortRef = useRef<AbortController | null>(null);
+  // The last capture this hook started, on the root it started it on.
+  const captureRef = useRef<Capture | null>(null);
   const setMode = useVoiceStore((s) => s.setMode);
   const setConnecting = useVoiceStore((s) => s.setConnecting);
   const setProviderId = useVoiceStore((s) => s.setProviderId);
@@ -44,10 +46,12 @@ export function useDictation() {
   const appendFinal = useVoiceStore((s) => s.appendFinal);
   const setError = useVoiceStore((s) => s.setError);
   const resetCapture = useVoiceStore((s) => s.resetCapture);
-  const setReviewText = useVoiceStore((s) => s.setReviewText);
 
   const start = useCallback(async () => {
     const gen = ++startGenRef.current;
+    const capture: Capture = { root: root.stores };
+    captureRef.current = capture;
+    owners.set(root.stores, capture);
     resetCapture();
     setProviderId(null);
     // Show the sheet immediately, but as "connecting" — the mic is still shut
@@ -114,6 +118,7 @@ export function useDictation() {
       if (startGenRef.current !== gen) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
       setError(err instanceof Error ? err.message : "Voice start failed");
+      release(capture);
       setConnecting(false);
       setMode("idle");
     }
@@ -145,13 +150,22 @@ export function useDictation() {
     async (commitToReview = true) => {
       // A slow connect must not open the mic after the user asked it to stop.
       const client = releaseCapture();
+      // This stop now ends the capture, even if the hook is torn down while
+      // it drains: the transcript still reaches review before it goes idle.
+      const capture = captureRef.current?.root === root.stores ? captureRef.current : null;
+      if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
+      // A failed drain still ends the dictation and keeps what was heard;
+      // the failure is rethrown after, so it is not swallowed.
+      let drainFailure: { error: unknown } | null = null;
       if (client) {
         if (commitToReview) {
           setDraining(true);
           try {
             await client.drainAndStop();
+          } catch (error) {
+            drainFailure = { error };
           } finally {
             setDraining(false);
           }
@@ -162,16 +176,21 @@ export function useDictation() {
 
       const { finalText, partial, reviewText } = root.stores.voice.getState();
       const merged = [finalText, partial].filter(Boolean).join(" ").trim();
-      setConnecting(false);
-      setMode("idle");
-      if (commitToReview && merged) {
-        // Append to any text already under review so a prompt can be built up
-        // across multiple record/edit rounds without losing earlier takes.
-        setReviewText(reviewText ? `${reviewText} ${merged}` : merged);
-      }
+      // Append to any text already under review so a prompt can be built up
+      // across multiple record/edit rounds without losing earlier takes.
+      // One update: the transcript reaches review in the same change that
+      // ends the dictation, so no listener (the update reload guard, #1015)
+      // sees a moment in which it is in neither.
+      root.stores.voice.setState({
+        connecting: false,
+        mode: "idle",
+        ...(commitToReview && merged ? { reviewText: reviewText ? `${reviewText} ${merged}` : merged } : {}),
+      });
+      if (capture) release(capture);
       resetCapture();
+      if (drainFailure) throw drainFailure.error;
     },
-    [releaseCapture, resetCapture, setMode, setConnecting, setReviewText, root]
+    [releaseCapture, resetCapture, root]
   );
 
   const cancel = useCallback(() => {
@@ -181,8 +200,33 @@ export function useDictation() {
   useEffect(() => {
     // Tear down on unmount or root change: invalidate the in-flight start,
     // abort its fetch, and stop the client so no MediaStream survives.
-    return () => releaseCapture()?.stop();
+    // The dictation this hook started has ended, so the store says so: a
+    // live dictation holds update reloads (#1015), and one nobody can stop
+    // would hold them for good. Text already under review stays.
+    return () => {
+      releaseCapture()?.stop();
+      const capture = captureRef.current;
+      if (!capture || capture.root !== root.stores || stopping.has(capture)) return;
+      if (owners.get(root.stores) !== capture) return;
+      release(capture);
+      root.stores.voice.setState({ mode: "idle", connecting: false, draining: false });
+    };
   }, [root, releaseCapture]);
 
   return { start, stop, cancel };
+}
+
+/**
+ * The dictation each root's voice store is showing, by the capture that
+ * started it. A hook torn down while it owns its root's dictation ends it in
+ * the store (#1015); one that a newer start, another hook, or a pending
+ * stop() has taken over leaves it alone.
+ */
+type Capture = { root: object };
+const owners = new WeakMap<object, Capture>();
+/** Captures a stop() has taken over: it ends them, not a teardown. */
+const stopping = new WeakSet<Capture>();
+
+function release(capture: Capture) {
+  if (owners.get(capture.root) === capture) owners.delete(capture.root);
 }
