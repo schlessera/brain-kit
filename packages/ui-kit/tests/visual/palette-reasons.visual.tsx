@@ -128,6 +128,33 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
+/** Under a coarse pointer every row, enabled or disabled, one line or two, is
+ * a 44px target that its own box answers at each inset corner; a mouse keeps
+ * the 34px density, 35.7px with a chip (#1120). */
+for (const theme of ["dark", "light"] as const) {
+  for (const width of [768, 1024, 1280, 1440]) {
+    test(`every row is a 44px target under a coarse pointer, and keeps its density under a fine one: ${theme}, ${width}`, async () => {
+      const mode = pointerScene();
+      const { rows } = await mount(width, theme);
+      ROWS.forEach((item, i) => {
+        const row = rows[i];
+        const box = row.getBoundingClientRect();
+        const name = `${item.label}${item.why ? ` (${item.why === THREE ? "three" : item.why})` : ""}`;
+        for (const [x, y] of [[box.left + 1, box.top + 1], [box.right - 1, box.top + 1], [box.left + 1, box.bottom - 1], [box.right - 1, box.bottom - 1]] as const) {
+          expect(row.contains(document.elementFromPoint(x, y)), `${name}: its own box at ${x},${y}`).toBe(true);
+        }
+        const twoLines = item.why === THREE;
+        if (mode === "fine") {
+          if (!twoLines) expect(Math.round(box.height * 10) / 10, `${name}: mouse density`).toBe(item.cost || item.effect ? 35.7 : 34);
+        } else {
+          expect(box.height, `${name}: 44px target height`).toBeGreaterThanOrEqual(43.5);
+          if (!twoLines) expect(Math.round(box.height * 10) / 10, `${name}: one line, padded to 44`).toBe(item.cost || item.effect ? 45.7 : 44);
+        }
+      });
+    });
+  }
+}
+
 test("pressing a two-line disabled row, on its reason, runs nothing", async () => {
   pointerScene();
   const { rows, clicks } = await mount(1280, "dark");

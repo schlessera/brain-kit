@@ -14,11 +14,14 @@ const meta = preview.meta({
 });
 
 /**
- * Four numbers that answer a question at a glance. Display serif, so they read
+ * Numbers that answer a question at a glance. Display serif, so they read
  * as an answer rather than as a dashboard, and only the numbers that imply
  * something to do about them are coloured.
  */
 export const Default = meta.story({});
+
+/** Exercise the component's no-props example, rather than the story args. */
+export const Fallback = meta.story({ render: () => <StatTiles /> });
 
 /** Three, above a structured answer. Three is the shape at a phone width; D22
  * allows a fourth past 1100px. */
@@ -42,5 +45,8 @@ export const UntonedIsInk = Default.extend({
   },
 });
 
-/** A wider basis packs fewer per row; `wide` shows all four on one line. */
+/** The wider prose measure retains D22's three-column cap. */
 export const Wide = Default.extend({ parameters: wide });
+
+/** D22 allows all four fallback tiles on a row past 1100px. */
+export const DesktopFallback = Fallback.extend({ parameters: { stageWidth: 1280 } });

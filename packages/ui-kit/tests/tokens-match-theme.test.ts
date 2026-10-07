@@ -98,10 +98,26 @@ describe("tokens match the stylesheet", () => {
     );
     // --hv-* are set by the component on its own inline style and read by the
     // stylesheet's hover rule; they are deliberately not theme tokens.
+    // --target-* run the other way: a coarse-pointer rule in tokens.css sets
+    // them, and the component reads them with its fine-pointer value as the
+    // fallback. They are checked separately, below.
     const undeclared = [...referenced].filter(
-      (name) => !DECLARED.has(name) && !name.startsWith("--hv-"),
+      (name) => !DECLARED.has(name) && !name.startsWith("--hv-") && !name.startsWith("--target-"),
     );
     expect(undeclared).toEqual([]);
+  });
+
+  test("every --target-* read in src/ has a fallback and is set by tokens.css", () => {
+    // A hit-target size the stylesheet raises under a coarse pointer. The
+    // fallback is the fine-pointer layout, so it must be there; and a name
+    // the stylesheet never sets would silently keep every pointer at it.
+    const reads = files.flatMap((f) => [...f.code.matchAll(/var\((--target-[\w-]+)(,?)/g)].map((m) => ({ name: m[1], fallback: m[2] === "," })));
+    expect(reads.length, "the palette rows read their target size").toBeGreaterThan(0);
+    const css = readFileSync(join(SRC, "tokens.css"), "utf8");
+    for (const { name, fallback } of reads) {
+      expect(fallback, `${name} has a fallback`).toBe(true);
+      expect(css.includes(`${name}:`), `${name} is set by tokens.css`).toBe(true);
+    }
   });
 
   test("a token that refers to another names one that exists", () => {

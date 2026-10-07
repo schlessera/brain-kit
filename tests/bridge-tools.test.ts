@@ -826,3 +826,21 @@ describe("bridge tool loading posture", () => {
     }
   });
 });
+
+test("both actual backend show_block tools echo nonempty supporting-file data", async () => {
+  const root = mkdtempSync(join(tmpdir(), "supporting-files-bridge-"));
+  const input = { block: { kind: "files" as const, items: [
+    { path: "knowledge/scylla.md", reason: "Names the cost in men." },
+    { path: "people/circe.md", reason: "Gives the directions for the crossing." },
+  ] } };
+  try {
+    const adapters = makeAdapters(root);
+    expect(input.block.items).toHaveLength(2);
+    for (const adapter of ["claude", "pi"] as const) {
+      const definition = adapters[adapter].find(item => item.name === "show_block")!;
+      const result = adapter === "claude" ? await definition.handler(input, {}) : await definition.execute("supporting-files", input);
+      expect(result.isError).not.toBe(true);
+      expect(shared.parseToolPayload(shared.SHOW_BLOCK_CONTRACT, result.content[0].text)).toEqual(input);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

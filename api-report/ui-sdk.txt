@@ -2964,6 +2964,12 @@ signatures (every public export and the types it is made of)
             teal: "teal";
         }>>;
     }, z.core.$strip>, z.ZodObject<{
+        items: z.ZodArray<z.ZodObject<{
+            path: z.ZodString;
+            reason: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>>;
+        kind: z.ZodLiteral<"files">;
+    }, z.core.$strip>, z.ZodObject<{
         kind: z.ZodLiteral<"map">;
         places: z.ZodArray<z.ZodObject<{
             accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -3452,6 +3458,12 @@ signatures (every public export and the types it is made of)
                 teal: "teal";
             }>>;
         }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
                 accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -3749,6 +3761,12 @@ signatures (every public export and the types it is made of)
                 purple: "purple";
                 teal: "teal";
             }>>;
+        }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
@@ -6043,6 +6061,12 @@ signatures (every public export and the types it is made of)
                 teal: "teal";
             }>>;
         }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
                 accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -6340,6 +6364,12 @@ signatures (every public export and the types it is made of)
                 purple: "purple";
                 teal: "teal";
             }>>;
+        }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
@@ -6643,6 +6673,12 @@ signatures (every public export and the types it is made of)
                 teal: "teal";
             }>>;
         }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
                 accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -6942,6 +6978,12 @@ signatures (every public export and the types it is made of)
                 purple: "purple";
                 teal: "teal";
             }>>;
+        }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
@@ -10099,6 +10141,12 @@ signatures (every public export and the types it is made of)
                 teal: "teal";
             }>>;
         }, z.core.$strip>, z.ZodObject<{
+            items: z.ZodArray<z.ZodObject<{
+                path: z.ZodString;
+                reason: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>>;
+            kind: z.ZodLiteral<"files">;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"map">;
             places: z.ZodArray<z.ZodObject<{
                 accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -11196,6 +11244,12 @@ signatures (every public export and the types it is made of)
                     teal: "teal";
                 }>>;
             }, z.core.$strip>, z.ZodObject<{
+                items: z.ZodArray<z.ZodObject<{
+                    path: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>>;
+                kind: z.ZodLiteral<"files">;
+            }, z.core.$strip>, z.ZodObject<{
                 kind: z.ZodLiteral<"map">;
                 places: z.ZodArray<z.ZodObject<{
                     accuracyM: z.ZodOptional<z.ZodNumber>;
@@ -11682,6 +11736,12 @@ signatures (every public export and the types it is made of)
                         purple: "purple";
                         teal: "teal";
                     }>>;
+                }, z.core.$strip>, z.ZodObject<{
+                    items: z.ZodArray<z.ZodObject<{
+                        path: z.ZodString;
+                        reason: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strip>>;
+                    kind: z.ZodLiteral<"files">;
                 }, z.core.$strip>, z.ZodObject<{
                     kind: z.ZodLiteral<"map">;
                     places: z.ZodArray<z.ZodObject<{
@@ -12417,6 +12477,12 @@ signatures (every public export and the types it is made of)
                     purple: "purple";
                     teal: "teal";
                 }>>;
+            }, z.core.$strip>, z.ZodObject<{
+                items: z.ZodArray<z.ZodObject<{
+                    path: z.ZodString;
+                    reason: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>>;
+                kind: z.ZodLiteral<"files">;
             }, z.core.$strip>, z.ZodObject<{
                 kind: z.ZodLiteral<"map">;
                 places: z.ZodArray<z.ZodObject<{
@@ -13486,6 +13552,12 @@ signatures (every public export and the types it is made of)
                         purple: "purple";
                         teal: "teal";
                     }>>;
+                }, z.core.$strip>, z.ZodObject<{
+                    items: z.ZodArray<z.ZodObject<{
+                        path: z.ZodString;
+                        reason: z.ZodOptional<z.ZodString>;
+                    }, z.core.$strip>>;
+                    kind: z.ZodLiteral<"files">;
                 }, z.core.$strip>, z.ZodObject<{
                     kind: z.ZodLiteral<"map">;
                     places: z.ZodArray<z.ZodObject<{

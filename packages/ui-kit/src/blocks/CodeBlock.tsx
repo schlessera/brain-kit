@@ -23,7 +23,7 @@ export interface CodeBlockProps {
   caption?: string;
   /** Show the head. On by default. */
   head?: boolean;
-  /** Wrap long lines. On by default; off scrolls nothing, it clips. */
+  /** Wrap long lines. On by default; off enables native horizontal scrolling. */
   wrap?: boolean;
   fontSize?: number;
   /* Read by the source's renderVals(), absent from its data-props. */
@@ -82,13 +82,18 @@ export function CodeBlock(p: CodeBlockProps) {
         </div>
       ) : null}
       <pre
+        className={p.wrap === false ? "bk-scroll-x" : undefined}
+        tabIndex={p.wrap === false ? 0 : undefined}
+        role={p.wrap === false ? "region" : undefined}
+        aria-label={p.wrap === false ? "Code" : undefined}
         style={{
           margin: 0,
           padding: Number(p.pad) || 11,
           font: `400 ${Number(p.fontSize) || 11}px/1.7 ${font.mono}`,
           color: color.inkDim,
           whiteSpace: p.wrap === false ? "pre" : "pre-wrap",
-          overflow: "hidden",
+          overflowX: p.wrap === false ? "auto" : "hidden",
+          overflowWrap: p.wrap === false ? undefined : "anywhere",
         }}
       >
         {p.code ?? "brain reindex --path talks/ --force"}

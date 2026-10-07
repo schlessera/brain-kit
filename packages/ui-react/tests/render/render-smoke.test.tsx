@@ -9,6 +9,7 @@ import { unregisterDom } from "./dom.js";
 
 import { BrainMarkdown } from "../../src/components/chat/brain-markdown.js";
 import { MaskEditor } from "../../src/components/images/mask-editor.js";
+import { trackKey, tracksFor } from "../../src/lib/draft-tracks.js";
 import { ShareMenu } from "../../src/components/share/share-menu.js";
 import { DiscoveryStart } from "../../src/components/graph/graph-scene.js";
 import { ShareBlock } from "../../src/components/chat/share-block.js";
@@ -1899,6 +1900,64 @@ describe("useServiceWorkerUpdates", () => {
     expect(reloads).toBe(1);
     root.dispose();
   });
+
+  test("a staged track in a session not in view keeps the page from reloading until it is removed; then it reloads once (#1112)", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    // Uploads never answer: the track stays staged, as it does in a composer.
+    const root = createBrainUiRoot({ storage: null, request: () => new Promise<Response>(() => {}) });
+    // Staged in the raft's session; the new chat is what is in view.
+    const raft = tracksFor(root, trackKey("odysseus-raft", root.stores.drafts.getState().idFor("odysseus-raft"))).uploads;
+    raft.add([new File(["{}"], "raft-timber-run.gpx", { type: "application/octet-stream" })]);
+    expect(raft.files, "the track is staged").toHaveLength(1);
+    let reloads = 0;
+    renderHook(() => useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ }), {
+      wrapper: ({ children }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
+    });
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "the raft's staged track would be lost").toBe(0);
+    act(() => raft.remove(raft.files[0]!.id));
+    expect(reloads, "the queue emptied: one reload").toBe(1);
+    act(() => raft.add([new File(["{}"], "again.gpx")]));
+    act(() => raft.remove(raft.files[0]!.id));
+    expect(reloads, "never a second").toBe(1);
+    root.dispose();
+  });
+
+  for (const last of ["draft", "track"] as const) test(`a replaced root's own ${last} change is the one that releases a waiting update`, async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    const never = () => new Promise<Response>(() => {});
+    const ithaca = createBrainUiRoot({ storage: null, request: never });
+    const pylos = createBrainUiRoot({ storage: null, request: never });
+    const track = tracksFor(pylos, trackKey(null, pylos.stores.drafts.getState().fresh)).uploads;
+    track.add([new File(["{}"], "pylos-harbour.gpx")]);
+    const letter = pylos.stores.drafts.getState().idFor("odysseus-raft");
+    pylos.stores.drafts.getState().edit(letter, "odysseus-raft", { text: "Ask Nestor about the ships" });
+    let reloads = 0;
+    function Guard() {
+      useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ });
+      return null;
+    }
+    // The same hook instance, its provider's root replaced under it.
+    const view = render(<BrainUiProvider root={ithaca}><Guard /></BrainUiProvider>);
+    view.rerender(<BrainUiProvider root={pylos}><Guard /></BrainUiProvider>);
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "Pylos holds a track and an unsaved draft").toBe(0);
+    const releaseTrack = () => act(() => track.remove(track.files[0]!.id));
+    const releaseDraft = () => act(() => pylos.stores.drafts.getState().edit(letter, "odysseus-raft", { text: "" }));
+    if (last === "draft") releaseTrack(); else releaseDraft();
+    expect(reloads, "the other still holds it").toBe(0);
+    if (last === "draft") releaseDraft(); else releaseTrack();
+    expect(reloads, "Pylos's own change released it").toBe(1);
+    view.unmount();
+    ithaca.dispose();
+    pylos.dispose();
+  });
 });
 
 describe("MarkdownContent", () => {
@@ -2202,6 +2261,43 @@ describe("SessionDrawer recovery", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(view.getByText("Saved conversation")).toBeTruthy();
     expect(view.getByRole("status").textContent).toContain("Could not refresh sessions");
+  });
+
+  test("staged tracks join a new chat's Draft entry or are one, failed before uploading before this tab (#1112)", async () => {
+    const uploads: Array<(response: Response) => void> = [];
+    const root = createBrainUiRoot({ storage: null, request: async (url) => {
+      if (url.endsWith("/track-upload")) return new Promise<Response>((resolve) => uploads.push(resolve));
+      return Response.json({ sessions: [] });
+    } });
+    const gpx = (name: string) => new File(["{}"], name, { type: "application/octet-stream" });
+    const drafts = root.stores.drafts.getState();
+    // A mixed draft: words, one track the host refused, one still uploading.
+    const routes = drafts.fresh;
+    drafts.edit(routes, null, { text: "Compare day 3 and day 4 routes" });
+    tracksFor(root, trackKey(null, routes)).uploads.add([gpx("day-3.gpx"), gpx("day-4.gpx")]);
+    // Later, a new chat holding only a track, still uploading: listed first.
+    await Bun.sleep(5);
+    drafts.newChat();
+    const pylos = root.stores.drafts.getState().fresh;
+    tracksFor(root, trackKey(null, pylos)).uploads.add([gpx("pylos.gpx")]);
+    const view = render(<BrainUiProvider root={root}><SessionDrawer open onClose={() => {}} onResume={() => {}} /></BrainUiProvider>);
+    try {
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const rows = () => [...view.baseElement.querySelectorAll<HTMLElement>("[data-draft-row] [role=\"button\"]")].map((el) => el.getAttribute("aria-label"));
+      expect(rows()).toEqual([
+        "Draft: Draft with 1 track file, uploading 1 track. Open draft.",
+        "Draft: Compare day 3 and day 4 routes, not saved yet, uploading 2 tracks. Open draft.",
+      ]);
+      await act(async () => { uploads[0]!(Response.json({ error: "unsupported_track" }, { status: 422 })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const row = (title: string) => rows().find((name) => name?.startsWith(`Draft: ${title},`));
+      expect(rows()[0], "the newest change first").toMatch(/^Draft: Compare/);
+      expect(row("Compare day 3 and day 4 routes"), "a failed upload wins").toBe("Draft: Compare day 3 and day 4 routes, not saved yet, 1 track failed. Open draft.");
+      expect(view.baseElement.textContent).toContain("draft · not saved yet · 1 track failed");
+      await act(async () => { uploads[2]!(Response.json({ files: [trackView().file] })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(row("Draft with 1 track file"), "ready: where it lives").toBe("Draft: Draft with 1 track file, tracks in this tab only. Open draft.");
+      expect(view.baseElement.textContent).toContain("draft · tracks in this tab only");
+      expect(view.baseElement.textContent).not.toMatch(/track[^·]*saved|saved[^·]*track/);
+    } finally { view.unmount(); root.dispose(); }
   });
 });
 
@@ -6296,3 +6392,120 @@ describe("track share review", () => {
     } finally { h.done(); }
   });
 });
+
+import { BlockCard as SupportingFilesCard } from "../../src/components/chat/tool-cards/block-card.js";
+import { registerBuiltinRenderers as registerSupportingRenderers } from "../../src/components/chat/renderers/index.js";
+import type { Block as SupportingBlock } from "@schlessera/brain-ui-sdk/client";
+const supportingInput = { block: { kind: "files" as const, items: [
+  { path: "knowledge/scylla.md", reason: "Names the cost in men." },
+  { path: "people/circe.md", reason: "Gives the directions for the crossing." },
+] } };
+
+describe("supporting answer files", () => {
+  for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+    test(`${backend} renders the echoed nonempty supporting list through RelatedFiles`, () => {
+      const root = createBrainUiRoot({ storage: null });
+      registerSupportingRenderers(root.renderers);
+      const tool = { id: "supporting-files", name, input: supportingInput, output: JSON.stringify(supportingInput) };
+      const Output = root.renderers.resolve(tool, backend)!.Output!;
+      const view = render(<BrainUiProvider root={root}><Output tool={tool} /></BrainUiProvider>);
+      expect(supportingInput.block.items).toHaveLength(2);
+      expect([...view.container.querySelectorAll('.bk-row[role="button"]')].map(row => row.textContent)).toEqual([
+        "knowledge/scylla.mdNames the cost in men.", "people/circe.mdGives the directions for the crossing.",
+      ]);
+      expect(view.container.textContent).not.toContain("4,812");
+      root.dispose();
+    });
+  }
+  test("static supporting lists retain both complete reasons without controls or requests", () => {
+    const requested: string[] = [];
+    const root = createBrainUiRoot({ storage: null, request: async url => { requested.push(String(url)); throw new Error("unexpected request"); } });
+    const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={supportingInput.block} isStatic /></BrainUiProvider>);
+    expect(view.container.textContent).toContain("Gives the directions for the crossing.");
+    expect(view.queryAllByRole("button")).toHaveLength(0);
+    expect(requested).toEqual([]);
+    root.dispose();
+  });
+});
+
+describe("supporting file navigation and fallback", () => {
+  test("activation opens only the supplied file in its provider root; missing files keep the existing readable error", async () => {
+    const aRequests: string[] = [], bRequests: string[] = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" }, request: async url => {
+      aRequests.push(String(url));
+      const request = new URL(String(url));
+      if (request.pathname.endsWith("/files/content") && request.searchParams.get("path") === "knowledge/scylla.md") return Response.json({ path: "knowledge/scylla.md", kind: "markdown", content: "# Scylla" });
+      return Response.json({ error: "File not found" }, { status: 404 });
+    } });
+    const other = createBrainUiRoot({ storage: null, config: { backendUrl: "https://beta.example" }, request: async url => { bRequests.push(String(url)); throw new Error("wrong root"); } });
+    const block = { kind: "files", items: [{ path: "knowledge/scylla.md" }, { path: "knowledge/missing.md" }] } as SupportingBlock;
+    try {
+      const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={block} /></BrainUiProvider>);
+      fireEvent.click(view.getByRole("button", { name: /knowledge\/scylla.md/ }));
+      await waitFor(() => expect(root.stores.file.getState().currentContent).toMatchObject({ path: "knowledge/scylla.md" }));
+      expect(root.stores.ui.getState().filePanelOpen).toBe(true);
+      expect(aRequests).toHaveLength(2);
+      expect(aRequests.every(url => new URL(url).origin === "https://alpha.example")).toBe(true);
+      fireEvent.click(view.getByRole("button", { name: /knowledge\/missing.md/ }));
+      await waitFor(() => expect(root.stores.file.getState().contentError).toBe("File not found."));
+      expect(aRequests).toHaveLength(4);
+      expect(aRequests.slice(2).every(url => new URL(url).searchParams.get("path") === "knowledge/missing.md")).toBe(true);
+      expect(bRequests).toEqual([]);
+      expect(view.container.textContent).not.toContain("0.98");
+      expect(view.container.textContent).not.toContain("the file the question was about");
+    } finally { root.dispose(); other.dispose(); }
+  });
+
+  test("unsafe supporting paths stay readable and every activation sends nothing", () => {
+    const requested: string[] = [];
+    const root = createBrainUiRoot({ storage: null, request: async url => { requested.push(String(url)); throw new Error("unexpected request"); } });
+    const paths = ["../people/circe.md", "knowledge/../people/circe.md", "https://ithaca.example/scylla", "//ithaca.example/scylla", "/people/circe.md", "C:\\scylla.md", "knowledge/scylla.md?raw=1", "knowledge/./scylla.md"];
+    try {
+      const block = { kind: "files", items: paths.map(path => ({ path, reason: "Supporting claim." })) } as SupportingBlock;
+      const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={block} /></BrainUiProvider>);
+      expect(paths).toHaveLength(8);
+      expect(view.queryAllByRole("button")).toHaveLength(0);
+      for (const path of paths) fireEvent.click(view.getByText(path));
+      expect(requested).toEqual([]);
+      expect(view.container.textContent).toContain("https://ithaca.example/scylla");
+    } finally { root.dispose(); }
+  });
+
+  for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+    test(`${backend} keeps malformed supporting output readable without controls`, () => {
+      const root = createBrainUiRoot({ storage: null }); registerSupportingRenderers(root.renderers);
+      try {
+        const tool = { id: "malformed-files", name, input: {}, output: '{"block":{"kind":"files","items":"broken"}}' };
+        const Output = root.renderers.resolve(tool, backend)!.Output!;
+        const view = render(<BrainUiProvider root={root}><Output tool={tool} /></BrainUiProvider>);
+        expect(view.container.textContent).toContain('"items":"broken"');
+        expect(view.container.querySelectorAll('.bk-row[role="button"]')).toHaveLength(0);
+      } finally { root.dispose(); }
+    });
+  }
+});
+
+import { MessageBubble as SupportingMessageBubble } from "../../src/components/chat/message-bubble.js";
+for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+  test(`${backend} session_history replays the supporting list inline in the actual message bubble`, () => {
+    const root = createBrainUiRoot({ storage: null }); registerSupportingRenderers(root.renderers);
+    const sessionId = "supporting-replay";
+    try {
+      root.stores.chat.getState().setActiveSession(sessionId);
+      root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
+      root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{
+        role: "assistant", content: "Supporting notes for the crossing.",
+        toolCalls: [{ id: "supporting-replay-tool", name, input: supportingInput, output: JSON.stringify(supportingInput) }],
+      }] });
+      const messages = root.stores.chat.getState().buffers[sessionId]!.messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.toolCalls).toHaveLength(1);
+      const noop = () => {};
+      const view = render(<BrainUiProvider root={root}><SupportingMessageBubble message={messages[0]!} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} /></BrainUiProvider>);
+      expect(view.container.querySelectorAll('[data-block="files"]')).toHaveLength(1);
+      expect([...view.container.querySelectorAll('.bk-row[role="button"]')].map(row => row.textContent)).toEqual([
+        "knowledge/scylla.mdNames the cost in men.", "people/circe.mdGives the directions for the crossing.",
+      ]);
+    } finally { root.dispose(); }
+  });
+}

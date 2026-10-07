@@ -544,7 +544,7 @@ describe("the kinds the catalogue can draw", () => {
     expect([...drawn].sort()).toEqual([...CATALOGUE_BLOCK_KINDS].sort());
   });
 
-  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map`, `track`, `link` and `tracker` are the tool's alone", () => {
+  test("the pass draws the nine kinds a text can carry; `trend`, `bars`, `map`, `track`, `link`, `tracker` and `files` are the tool's alone", () => {
     expect([...CATALOGUE_BLOCK_KINDS]).toEqual([
       "comparison",
       "table",
@@ -581,12 +581,15 @@ describe("the kinds the catalogue can draw", () => {
     // to read it from, and deriving pills from tool output is a follow-up,
     // not this pass.
     const AGENT_ACTS: readonly string[] = ["tracker"];
+    // Supporting paths and their reasons come from an explicit agent call;
+    // this pass never infers citations or why a note supports the answer.
+    const SUPPORTING_NOTES: readonly string[] = ["files"];
     const leftOver = BLOCK_KINDS.filter(
       (kind) => !CATALOGUE_BLOCK_KINDS.includes(kind) && !NOT_ANSWER_CONTENT.includes(kind)
     );
-    expect(leftOver).toEqual(["trend", "bars", "map", "track", "link", "tracker"]);
+    expect(leftOver).toEqual(["trend", "bars", "files", "map", "track", "link", "tracker"]);
     const figures: string[] = leftOver.filter(
-      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind) && !AGENT_ACTS.includes(kind)
+      (kind) => !LINKS_STAY_IN_PROSE.includes(kind) && !FILE_BACKED.includes(kind) && !AGENT_ACTS.includes(kind) && !SUPPORTING_NOTES.includes(kind)
     );
     expect(figures).toEqual(BLOCK_KINDS.filter(carriesAFigure));
   });

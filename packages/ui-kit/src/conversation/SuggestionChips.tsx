@@ -65,7 +65,7 @@ export interface SuggestionChipsProps {
   /** The uppercase mono line above the row. */
   label?: string;
   items?: SuggestionItem[];
-  /** Wrap to a second line. On by default; off clips. */
+  /** Wrap to a second line. On by default; off enables native horizontal scrolling. */
   wrap?: boolean;
 }
 
@@ -142,11 +142,16 @@ export function SuggestionChips(p: SuggestionChipsProps) {
         </div>
       ) : null}
       <div
+        className={p.wrap === false ? "bk-scroll-x" : undefined}
+        tabIndex={p.wrap === false ? 0 : undefined}
+        role={p.wrap === false ? "region" : undefined}
+        aria-label={p.wrap === false ? (p.label || "Next") : undefined}
         style={{
           display: "flex",
           flexWrap: p.wrap === false ? "nowrap" : "wrap",
           gap: 7,
-          overflow: "hidden",
+          overflowX: p.wrap === false ? "auto" : "hidden",
+          ...(p.wrap === false ? { padding: 4 } : {}),
         }}
       >
         {src.map((it, i) => {
@@ -165,7 +170,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             alignItems: "center",
             gap: 6,
             flex: "none",
-            maxWidth: "100%",
+            maxWidth: p.wrap === false && !why && !it.cost ? undefined : "100%",
             border: `1px solid ${tone ? BORDERS[tone] || BORDERS.neutral : color.edge}`,
             background: tone ? TINTS[tone] || TINTS.neutral : "transparent",
             borderRadius: 999,

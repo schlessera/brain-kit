@@ -1600,6 +1600,16 @@
   }
 }
 
+/* `CommandPalette` rows: 34px for a mouse, 44px targets under a coarse
+ * pointer (D20; D52 verification item 7). The palette is the only pointer
+ * route to Graph, Sync and Stats (D52 §1), and its rows sit 2px apart, so
+ * the row grows rather than reaching past its paint. 13px of padding around
+ * the 18px label line keeps the label centred on it, and a reason that wraps
+ * still grows the row downward (#1106, #1120). */
+@media (any-pointer: coarse) {
+  .bk-palette-row { --target-palette-row-min: 44px; --target-palette-row-pad: 13px; }
+}
+
 .bk-row:hover {
   /* The `transparent` fallback is not decoration. `.bk-row-fg` below exists
    * for the nav items whose hover moves the FOREGROUND only, and those set no
@@ -2189,4 +2199,25 @@
   .bk-pill-title { flex: 1; }
   .bk-pill-narrow { display: none; }
   .bk-pill-wide { display: block; }
+}
+
+/* D22: three stat columns through the prose measure, four only on desktop.
+ * auto-fit collapses unused columns; a remainder stays the size of its peers. */
+.bk-stattiles-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(var(--bk-stattiles-min, 96px), calc((100% - 18px) / 3))), 1fr));
+}
+@container bk-stattiles (min-width: 1100px) {
+  .bk-stattiles-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, max(var(--bk-stattiles-min, 96px), calc((100% - 27px) / 4))), 1fr));
+  }
+}
+
+/* Native no-wrap scrollports keep the keyboard ring inside clipped cards. */
+.bk-scroll-x {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bk-color-edge) transparent;
+}
+.bk-scroll-x:focus-visible {
+  outline: 2px solid var(--bk-focus-ring);
+  outline-offset: -2px;
 }
