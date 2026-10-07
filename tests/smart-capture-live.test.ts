@@ -10,7 +10,7 @@ test("actual core Jev transport keeps physical usage, output count and complete 
     const spend = new Spend(15), expected = scripted(f, p.root);
     const result = await classify(f, p.root, spend, async (_url, init) => {
       const body = JSON.parse(String(init.body));
-      expect(body.model).toBe("jev-1.13.0"); expect(Object.keys(body.questions)).toHaveLength(9);
+      expect(body.model).toBe("jev-1.13.0"); expect(Object.keys(body.questions)).toHaveLength(8); expect(body.questions.target).toBeUndefined();
       expect(body.state.capture).toBe(f.content); dispatches++;
       return Response.json({ model: "jev-1.13.0", answers: expected.answers, usage: { input_tokens: 300, output_tokens: 24 } });
     }, "offline-key", () => saves++);
@@ -68,4 +68,16 @@ test("document reference clock leaves provider deadline clock intact and restore
     });
     expect(Date).toBe(original); expect(Date.now()).toBe(123456789);
   } finally { Date.now = now; }
+});
+
+
+test("inferred-tag reporting excludes metadata, explicit flags and reserved generation", () => {
+  const common = { arm: "hybrid", split: "held-out", fixture: "fixture", repetition: 0, correctType: true, wrongTargetAppend: false, contentLoss: false, unintendedCreates: 0,
+    correctAppendTarget: true, correctReviewTarget: true, appendTarget: null, reviewTarget: null, abstained: true, inventedTags: [], durationMs: 10, generationRequested: false, calls: [] };
+  const summary = summarize([
+    { ...common, classificationEligible: false, truePositiveTags: 10, predictedTags: 10, expectedTags: 10 },
+    { ...common, classificationEligible: true, truePositiveTags: 1, predictedTags: 2, expectedTags: 4 },
+  ]).find(r => r.arm === "hybrid" && r.split === "held-out")!;
+  expect(summary.classificationEligibleTagMetrics).toEqual({ observations: 1, correct: 1, predicted: 2, expected: 4, precision: .5, recall: .25 });
+  expect(summary.tagPrecision).toBeCloseTo(11 / 12);
 });

@@ -24,7 +24,7 @@ export function observe(f: Fixture, root: string, plan?: Plan) {
   const actualTags = parsed && Array.isArray(parsed.data.tags) ? parsed.data.tags.map(String) : [];
   const truePositiveTags = actualTags.filter(tag => f.expected.tags.includes(tag)).length;
   const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && !parseFrontmatter(d.raw).content.includes(f.content.trim())).map(d => parseFrontmatter(d.raw).content);
-  const generatedFactsKept = f.generation ? draftBodies.some(body => /\bPenelope\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\bseparate\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
+  const generatedFactsKept = f.generation ? draftBodies.some(body => /\bPenelope\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\b(?:separate|apart)\b|\baway from\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
   return {
     actualType: capture?.type ?? null, expectedType: f.expected.type,
     correctType: capture?.type === f.expected.type, captureRetained: captured.length > 0,
@@ -61,6 +61,7 @@ export function summarize(rows: any[]) {
     const ordered = group.map(r => r.durationMs).sort((a, b) => a - b);
     const percentile = (q: number) => ordered[Math.max(0, Math.ceil(ordered.length * q) - 1)] ?? null;
     const tags = group.reduce((s, r) => ({ correct: s.correct + r.truePositiveTags, predicted: s.predicted + r.predictedTags, expected: s.expected + r.expectedTags }), { correct: 0, predicted: 0, expected: 0 });
+    const eligible = group.filter(r => r.classificationEligible), eligibleTags = eligible.reduce((s, r) => ({ correct: s.correct + r.truePositiveTags, predicted: s.predicted + r.predictedTags, expected: s.expected + r.expectedTags }), { correct: 0, predicted: 0, expected: 0 });
     const calls = group.flatMap(r => r.calls ?? []);
     return { arm, split, observations: group.length, correctTypes: group.filter(r => r.correctType).length,
       confusion: group.map(r => ({ fixture: r.fixture, repetition: r.repetition, expected: r.expectedType, actual: r.actualType })),
@@ -71,7 +72,7 @@ export function summarize(rows: any[]) {
       reviewTargetPrecision: group.some(r => r.reviewTarget) ? group.filter(r => r.reviewTarget && r.correctReviewTarget).length / group.filter(r => r.reviewTarget).length : null,
       requestedGeneration: group.filter(r => r.generationRequested).length, generatedFactsKept: group.filter(r => r.generatedFactsKept === true).length,
       abstentions: group.filter(r => r.abstained).length, tagPrecision: tags.predicted ? tags.correct / tags.predicted : null,
-      tagRecall: tags.expected ? tags.correct / tags.expected : null, inventedTags: group.flatMap(r => r.inventedTags).length,
+      tagRecall: tags.expected ? tags.correct / tags.expected : null, classificationEligibleTagMetrics: { observations: eligible.length, ...eligibleTags, precision: eligibleTags.predicted ? eligibleTags.correct / eligibleTags.predicted : null, recall: eligibleTags.expected ? eligibleTags.correct / eligibleTags.expected : null }, inventedTags: group.flatMap(r => r.inventedTags).length,
       calls: calls.length, callsWithUnknownUsage: calls.filter(c => c.inputTokens == null || c.outputTokens == null).length,
       inputTokens: calls.every(c => c.inputTokens != null) ? calls.reduce((s, c) => s + c.inputTokens, 0) : null,
       outputTokens: calls.every(c => c.outputTokens != null) ? calls.reduce((s, c) => s + c.outputTokens, 0) : null,

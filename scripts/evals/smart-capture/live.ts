@@ -72,7 +72,7 @@ export async function native(f: Fixture, root: string, out: string, purpose: str
   let failure: string | null = null;
   try {
     const brain = await initContext({ root });
-    if (reviewPrompt) await claudeRunner().run(reviewPrompt, { cwd: root, timeoutMs: 180_000 });
+    if (reviewPrompt) await claudeRunner().run(reviewPrompt, { cwd: root, timeoutMs: 300_000 });
     else if (generationPath) await claudeRunner().run(
       `Rewrite the captured note at ${generationPath} clearly, retaining every stated fact. The request was: ${f.content}\nKeep that original file and all existing documents unchanged. Save a separate draft to notes/rewrite-draft.md using normal Markdown frontmatter.`, { cwd: root, timeoutMs: 180_000 });
     else await addCommand.run([f.content, "--smart"], { brain, json: true, agentRunner: claudeRunner() });
@@ -89,7 +89,7 @@ export async function native(f: Fixture, root: string, out: string, purpose: str
     observedAdditionalBilledUsd: receipt.additionalBilledUsd === 0 ? 0 : null,
     requestSha: call.requestSha, stateBytes: call.stateBytes, status: call.status, outcome: call.outcome, durationMs: call.durationMs, rawUsage: call.usage,
   }));
-  if (failure || receipt.failure || !receipt.finished || !receipt.result || !relay.complete()) throw Error(`Stop native dispatch after retained receipts: ${failure ?? receipt.failure ?? "incomplete physical usage"}`);
+  if (failure || receipt.failure || !receipt.finished || !receipt.result || !relay.complete() || receipt.overage !== "inactive observed") throw Error(`Stop native dispatch after retained receipts: ${failure ?? receipt.failure ?? "incomplete physical usage"}`);
   return { calls, receipt };
 }
 async function main() {
@@ -128,7 +128,7 @@ async function main() {
     let calls: Call[] = [], plan = deterministic(f, p.root), failure: string | null = null;
     try {
       installBrainSurface(p.root, new URL("../../../", import.meta.url).pathname);
-      const started = performance.now();
+      const started = performance.now(), classificationEligible = needsInference(f, p.root);
       if (arm === "current") {
         if (Object.keys(f.explicit).length) {
           const brain = await initContext({ root: p.root });
@@ -145,7 +145,7 @@ async function main() {
         if (f.generation) calls.push(...(await native(f, p.root, cell, "generation", token, captured.path)).calls);
       }
       const result = observe(f, p.root, arm === "current" ? undefined : plan);
-      rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, threshold, durationMs: performance.now() - started +
+      rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, threshold, classificationEligible, durationMs: performance.now() - started +
         (arm === "hybrid" && repetition === 0 ? tuned.find(t => t.fixture.id === f.id)?.durationMs ?? 0 : 0), ...result, calls, failure }); save();
       if (spend.uncertain) throw Error("Unknown actual billed usage; no further dispatch");
     } catch (error) { failure = String(error); rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, failure, calls, files: observe(f, p.root, plan).files }); save(); throw error; }
