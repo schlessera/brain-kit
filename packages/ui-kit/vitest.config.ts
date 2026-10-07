@@ -6,6 +6,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
+import { grantMicrophone } from "./tests/visual/microphone-permission.ts";
 import { formViewport, formConsumerStyles, htmlPreviewFixture, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
@@ -102,7 +103,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene },
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

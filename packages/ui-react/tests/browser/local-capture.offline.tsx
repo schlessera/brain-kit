@@ -4,10 +4,11 @@
  * in real Chromium with its fake microphone.
  *
  * The real ChatPage renders against a real client root with "Record on this
- * device" turned on and a test sink. Only the transports are fixtures: a
- * socket the test opens and drops, and a `request` that records every call
- * and answers the voice session. Playwright's own request log, which sits on
- * the browser's network stack, proves the capture path asks for nothing.
+ * device" turned on and a test sink. Only the transports are fixtures: #1016's
+ * fault network, which drops and recovers the host and records every request
+ * and socket frame, and answers the voice session while the host is up.
+ * Playwright's own request log, which sits on the browser's network stack,
+ * also proves the capture path asks for nothing.
  *
  * Every test owns its scene: a fresh root and mount per cell, removed when it
  * ends, and nothing is pressed before entrances settle (#992).
@@ -15,6 +16,7 @@
 import { afterEach, beforeAll, afterAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
+import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
 import { createRoot, type Root } from "react-dom/client";
 import type { AsrClient, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -28,21 +30,6 @@ declare module "vitest/browser" {
     requestLog: () => Promise<string[]>;
     grantMicrophone: () => Promise<void>;
   }
-}
-
-class FixtureSocket {
-  static all: FixtureSocket[] = [];
-  readyState = 0;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  onerror = null;
-  constructor() { FixtureSocket.all.push(this); }
-  send() {}
-  close() { this.readyState = 3; }
-  open() { this.readyState = 1; flushSync(() => this.onopen?.()); }
-  drop() { this.readyState = 3; flushSync(() => this.onclose?.({ code: 1006, reason: "" } as CloseEvent)); }
-  deliver(frame: unknown) { flushSync(() => this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent)); }
 }
 
 const ITHACA = "odysseus-ithaca";
@@ -69,7 +56,9 @@ type Scene = {
   ui: BrainUiRoot;
   host: HTMLDivElement;
   sink: TestSink;
-  requests: { path: string; method: string }[];
+  net: FaultNetwork;
+  /** Requests through the root's transport, as paths. */
+  requests: () => { path: string; method: string }[];
   gum: { calls: number; streams: MediaStream[] };
   signal: AbortSignal;
   /** Tears the app down, as a reload does. */
@@ -92,7 +81,6 @@ afterEach(() => {
   navigator.mediaDevices.getUserMedia = realGetUserMedia;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  FixtureSocket.all = [];
   FixtureAsr.started = 0;
 });
 
@@ -115,61 +103,61 @@ const settle = async (s: { signal: AbortSignal }, n = 3) => {
   await expect.poll(() => document.getAnimations().some((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity), { message: "entrances settled" }).toBe(false);
 };
 
-const socket = () => FixtureSocket.all.at(-1)!;
+const HELLO = [
+  { type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true } },
+  { type: "session_info", sessionId: ITHACA, isNew: false },
+  { type: "session_history", sessionId: ITHACA, messages: [] },
+  { type: "status", sessionId: ITHACA, status: "idle" },
+];
 
-function hello() {
-  socket().open();
-  socket().deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true } });
-  socket().deliver({ type: "session_info", sessionId: ITHACA, isNew: false });
-  socket().deliver({ type: "session_history", sessionId: ITHACA, messages: [] });
-  socket().deliver({ type: "status", sessionId: ITHACA, status: "idle" });
+const SESSION: VoiceSessionResponse = {
+  providerId: "fixture", url: "", expiresAt: Date.now() + 60 * 60_000,
+  capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false },
+};
+
+/** One fault network per test: the host's socket says hello; its voice routes answer while it is up. */
+function network(ctx: TestContext): FaultNetwork {
+  const net = installFaultNetwork({
+    routes: (url) => {
+      if (url.pathname.endsWith("/voice/session")) return Response.json(SESSION);
+      if (url.pathname.endsWith("/voice/overrides")) return Response.json({ overrides: [] });
+      if (url.pathname.endsWith("/sessions")) return Response.json({ sessions: [] });
+      return undefined;
+    },
+    onOpen: (socket) => { for (const frame of HELLO) socket.deliver(frame); },
+  });
+  ctx.onTestFinished(() => net.restore());
+  return net;
 }
 
-/** The host answers again: the app's next socket opens and says hello. */
+const connected = (s: Scene) => s.ui.stores.connection.getState().wsStatus === "connected";
+
+/** The host answers again, and the app reconnects to it. */
 async function reconnect(s: Scene) {
-  const n = FixtureSocket.all.length;
+  s.net.recover();
   s.ui.connection.reconnectNow();
-  await expect.poll(() => FixtureSocket.all.length, { message: "the app opened a new socket" }).toBeGreaterThan(n);
-  hello();
+  await expect.poll(() => connected(s), { message: "the host is reachable" }).toBe(true);
   await settle(s);
-  expect(s.ui.stores.connection.getState().wsStatus, "the host is reachable").toBe("connected");
 }
 
 /** The host goes away. */
 async function drop(s: Scene) {
-  socket().drop();
+  s.net.drop();
+  await expect.poll(() => connected(s), { message: "the host is unreachable" }).toBe(false);
   await settle(s);
-  expect(s.ui.stores.connection.getState().wsStatus, "the host is unreachable").not.toBe("connected");
 }
 
-async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevices["getUserMedia"]; counts?: Scene["gum"] } = {}): Promise<Scene> {
+async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevices["getUserMedia"]; counts?: Scene["gum"]; net?: FaultNetwork } = {}): Promise<Scene> {
   ctx.signal.throwIfAborted();
-  vi.stubGlobal("WebSocket", FixtureSocket);
+  const net = opts.net ?? network(ctx);
+  net.recover();
   const gum = opts.counts ?? { calls: 0, streams: [] };
   if (!opts.counts) spyMicrophone(gum, opts.gum);
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;inset:0;width:390px;height:780px";
   document.body.append(host);
   const sink = new TestSink();
-  const requests: Scene["requests"] = [];
-  const session: VoiceSessionResponse = {
-    providerId: "fixture", url: "", expiresAt: Date.now() + 60_000,
-    capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false },
-  };
-  const ui = createBrainUiRoot({
-    storage: null,
-    localCapture: { sink: () => sink, timesliceMs: 200 },
-    request: async (url, init = {}) => {
-      const path = new URL(url, "http://fixture.invalid").pathname;
-      requests.push({ path, method: init.method ?? "GET" });
-      // The host's routes go away with its socket, as they do offline.
-      if (ui.stores.connection.getState().wsStatus !== "connected") throw new TypeError("Failed to fetch");
-      if (path.endsWith("/voice/session")) return Response.json(session);
-      if (path.endsWith("/voice/overrides")) return Response.json({ overrides: [] });
-      if (path.endsWith("/sessions")) return Response.json({ sessions: [] });
-      return new Response("{}", { status: 404 });
-    },
-  });
+  const ui = createBrainUiRoot({ storage: null, localCapture: { sink: () => sink, timesliceMs: 200 }, request: net.request });
   ui.asr.register("fixture", () => new FixtureAsr());
   const renderer: Root = createRoot(host);
   let closed = false;
@@ -184,10 +172,11 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   ui.stores.chat.getState().setActiveSession(ITHACA);
   flushSync(() => renderer.render(<BrainUiProvider root={ui}><ChatPage /></BrainUiProvider>));
   ui.connection.connect();
-  hello();
-  // "No host": the socket the app had is gone; its reconnect is pending.
-  if (!opts.online) socket().drop();
-  const s: Scene = { ui, host, sink, requests, gum, signal: ctx.signal, close };
+  const requests = () => net.requests.filter((r) => r.via === "request").map((r) => ({ path: new URL(r.url).pathname, method: r.method }));
+  const s: Scene = { ui, host, sink, net, requests, gum, signal: ctx.signal, close };
+  await expect.poll(() => connected(s), { message: "the app reached the host" }).toBe(true);
+  // "No host": the socket the app had is gone, and so are its routes.
+  if (!opts.online) await drop(s);
   await document.fonts.ready;
   await settle(s, 4);
   return s;
@@ -208,7 +197,7 @@ async function recordOffline(s: Scene) {
 test("offline, a tap records on the device: the sink gets ordered chunks and the network sees nothing", async (ctx) => {
   const s = await mount(ctx);
   await commands.startRequestLog();
-  const before = s.requests.length;
+  const before = { requests: s.net.requests.length, frames: s.net.frames.length };
   await recordOffline(s);
   await expect.poll(() => s.sink.chunks.length, { timeout: 5000 }).toBeGreaterThanOrEqual(3);
   expect(mic(s)?.getAttribute("aria-label"), "the mic is the recording's stop").toBe("Stop and save");
@@ -221,11 +210,13 @@ test("offline, a tap records on the device: the sink gets ordered chunks and the
   expect(s.sink.chunks.every((c) => c.data.size > 0), "every chunk holds audio").toBe(true);
   expect(s.sink.chunks.map((c) => c.startMs).slice(1)).toEqual(ends.slice(0, -1));
   expect(s.sink.ended).toEqual(["user"]);
-  expect(s.requests.slice(before), "no request through the app's transport").toEqual([]);
+  expect(s.net.requests.slice(before.requests), "no request: the app's transport, fetch, XHR or beacon").toEqual([]);
+  expect(s.net.frames.slice(before.frames), "no socket frame").toEqual([]);
   expect(await commands.requestLog(), "no request on the browser's network").toEqual([]);
   // The log could see one: a request now shows up in it.
   await fetch("/__local-capture-probe").catch(() => undefined);
   expect((await commands.requestLog()).some((url) => url.endsWith("/__local-capture-probe")), "the request log observes the page").toBe(true);
+  expect(s.net.requests.at(-1)?.url, "and so does the in-page spy").toMatch(/\/__local-capture-probe$/);
 });
 
 test("offline, the mic is labelled for a recording on the device", async (ctx) => {
@@ -240,7 +231,7 @@ test("with the host reachable, the mic still runs the streaming dictation throug
   await userEvent.click(mic(s)!);
   await expect.poll(() => FixtureAsr.started, { message: "the existing dictation client started" }).toBe(1);
   expect(mic(s)?.getAttribute("aria-label")).toBe("Stop dictation");
-  expect(s.requests.filter((r) => r.path.endsWith("/voice/session")), "the voice session was requested").toEqual([{ path: "/api/voice/session", method: "POST" }]);
+  expect(s.requests().filter((r) => r.path.endsWith("/voice/session")), "the voice session was requested").toEqual([{ path: "/api/voice/session", method: "POST" }]);
   expect(s.ui.stores.voice.getState().mode).toBe("dictate");
   expect(phase(s)).toBe("idle");
   expect(s.sink.chunks).toEqual([]);
@@ -257,7 +248,7 @@ test("nothing opens the microphone without a tap: load, reconnect, reload and a 
   expect(counts.calls, "reconnecting and dropping again").toBe(0);
   // A reload: the page's app is torn down and a fresh root mounts.
   s.close();
-  const reloaded = await mount(ctx, { counts });
+  const reloaded = await mount(ctx, { counts, net: s.net });
   expect(counts.calls, "reloading").toBe(0);
   await commands.grantMicrophone();
   await settle(reloaded);
@@ -283,7 +274,7 @@ test("a recording on the device survives losing and regaining the host, and a di
   await expect.poll(() => s.sink.chunks.length, { message: "and after it goes again", timeout: 5000 }).toBeGreaterThan(atDrop + 1);
   expect(phase(s)).toBe("recording");
   expect(s.ui.stores.voice.getState().mode, "never switched to streaming").toBe("idle");
-  expect(s.requests.filter((r) => r.path.includes("/voice/")), "no voice session asked for").toEqual([]);
+  expect(s.requests().filter((r) => r.path.includes("/voice/")), "no voice session asked for").toEqual([]);
   expect(s.gum.calls, "never restarted").toBe(1);
   expect(s.sink.ended, "never stopped").toEqual([]);
   await userEvent.click(mic(s)!);
@@ -413,7 +404,7 @@ test("Add on a dictated review never starts dictation beside a recording on the 
   expect(add, "the review card offers Add").toBeTruthy();
   await userEvent.click(add!);
   await settle(s);
-  expect(s.requests.filter((r) => r.path.includes("/voice/")), "no voice session").toEqual([]);
+  expect(s.requests().filter((r) => r.path.includes("/voice/")), "no voice session").toEqual([]);
   expect(s.ui.stores.voice.getState().mode, "no dictation").toBe("idle");
   expect(phase(s)).toBe("recording");
   await userEvent.click(mic(s)!);
