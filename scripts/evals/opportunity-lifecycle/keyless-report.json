@@ -1,7 +1,7 @@
 {
   "mode": "keyless controls; proposed goldens are not independently reviewed",
-  "fixtureSha256": "fab7e6ab3dfd35915550851640ff9dbac1ae571efb72a3a66c649cc85008d19a",
-  "expectedSha256": "190d08db6a841cf468e688acbcd9bb8d810cf44d793c9fc3dc9f02f7b9bb0ca8",
+  "fixtureSha256": "36a0447045d7316f0ea09579c847942827e55d2afafebc014f89ad6b2fce3abb",
+  "expectedSha256": "b76e730af26c0f276fbf2b73aff791ccce1d1baa0c9ab7cc4eb979bfc798f67f",
   "schemaSha256": "8f0e75b43ffd9bc6761f8e3e6124a1a8c4e29933efad972098923f6de829a4aa",
   "prototypeSha256": "4ef3a231f2b98996ed760d21ebf4ee5ff2e08cbd7b292142c63f611eb0384f7e",
   "runtime": "Bun 1.3.14",
@@ -53,11 +53,11 @@
   ],
   "localMs": {
     "scope": "inspect + apply + pipeline + index + briefing; excludes lab setup and replay",
-    "p50": 56.66,
-    "p95": 66.19,
-    "min": 37.75,
-    "max": 595.88,
-    "throughputEventsPerSecond": 16.58
+    "p50": 61.23,
+    "p95": 79.23,
+    "min": 40.32,
+    "max": 90.96,
+    "throughputEventsPerSecond": 16.37
   },
   "deterministic": {
     "inferenceCalls": 0,
