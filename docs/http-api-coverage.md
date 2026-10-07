@@ -264,10 +264,10 @@ checks both nonempty priced and mixed-knownness fixtures
 **J — Confirmed share intake.**
 
 - `mounted share replay creates one untrusted thread, triage item and staging area` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`mounted share replay creates one untrusted thread, triage item and staging area`, `packages/ui-server/tests/inbox-intake.test.ts:40-60`)
-- `stages files under the staging dir with their bytes intact` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`stages files under the staging dir with their bytes intact`, `packages/ui-server/tests/share-routes.test.ts:78-96`)
-- `a body with no content-length is still capped while streaming` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`a body with no content-length is still capped while streaming`, `packages/ui-server/tests/share-routes.test.ts:193-221`)
-- `too many files is refused with the limit` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`too many files is refused with the limit`, `packages/ui-server/tests/share-routes.test.ts:164-177`)
-- `counts overlapping uploads before their first body-read await` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`counts overlapping uploads before their first body-read await`, `packages/ui-server/tests/share-routes.test.ts:265-332`)
+- `stages files under the staging dir with their bytes intact` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`stages files under the staging dir with their bytes intact`, `packages/ui-server/tests/share-routes.test.ts:73-91`)
+- `a body with no content-length is still capped while streaming` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`a body with no content-length is still capped while streaming`, `packages/ui-server/tests/share-routes.test.ts:188-216`)
+- `too many files is refused with the limit` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`too many files is refused with the limit`, `packages/ui-server/tests/share-routes.test.ts:159-172`)
+- `counts overlapping uploads before their first body-read await` ([source](../packages/ui-server/tests/share-routes.test.ts)), (`counts overlapping uploads before their first body-read await`, `packages/ui-server/tests/share-routes.test.ts:260-327`)
 - `staging followed by a database failure rolls back work and compensates files before retry` ([source](../packages/ui-server/tests/inbox-intake.test.ts)), (`staging followed by a database failure rolls back work and compensates files before retry`, `packages/ui-server/tests/inbox-intake.test.ts:120-136`)
 
 **L — Share-target fallback and interception.**
