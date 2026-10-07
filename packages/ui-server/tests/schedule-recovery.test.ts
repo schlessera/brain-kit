@@ -49,14 +49,14 @@ test("restore keeps every schedule relation but pauses enabled tasks until verif
     for (const table of ["schedule_proposals", "schedule_approvals", "schedule_cancel_receipts", "schedule_root"])
       expect(restored.query(`SELECT * FROM ${table} ORDER BY rowid`).all()).toEqual(fixture.db.query(`SELECT * FROM ${table} ORDER BY rowid`).all());
     // Matching restored bytes do not reopen dispatch: the task stays paused for the operator.
-    const service = createScheduleService(restored, { brainRoot: brain, executionPolicy: () => POLICY, gitIgnored: () => false });
+    const service = createScheduleService(restored, { brainRoot: brain, executionPolicy: () => POLICY, gitIgnored: () => false, now: () => at + 7 * 86_400_000 });
     await service.ready;
     const view = (await service.list(fixture.owner, { id: active.id })).tasks[0]!;
     expect(view).toMatchObject({ state: "paused", blockedReason: "restore_pending", executionAvailable: false });
     // Due stays visible but never admittable, and a different brain root is
     // not the approved root identity, so nothing new can be proposed there.
-    for (const candidate of (await service.due(fixture.owner, {})).due)
-      expect(candidate).toMatchObject({ taskId: active.id, admittable: false, blockedReason: "restore_pending" });
+    const due = (await service.due(fixture.owner, {})).due;
+    expect(due).toEqual([expect.objectContaining({ taskId: active.id, admittable: false, blockedReason: "restore_pending" })]);
     const proposal = service.propose(fixture.owner, { key: "after-restore", definition: cronDefinition() });
     await expect(proposal).rejects.toMatchObject({ code: "unsupported_capability" });
   } finally { restored.close(); }

@@ -98,6 +98,7 @@ describe("pi-auth routes", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.flow.providerId).toBe("openai-codex");
     expect(body.flow.userCode).toBe("ABCD-1234");
   });
 

@@ -1,6 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, unlinkSync } from "fs";
+import { createUiDb } from "../src/db/client";
+import { createSessionCatalog } from "../src/ws/session-catalog";
 
 const TEST_DB = `/tmp/brain-ui-cost-test-${process.pid}.db`;
 
@@ -9,18 +11,7 @@ describe("session cost persistence", () => {
 
   beforeEach(() => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
-    db = new Database(TEST_DB, { create: true });
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec(`
-      CREATE TABLE sessions (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        created_at INTEGER NOT NULL,
-        last_active_at INTEGER NOT NULL,
-        total_cost_usd REAL DEFAULT 0,
-        num_turns INTEGER DEFAULT 0
-      )
-    `);
+    db = createUiDb(TEST_DB);
   });
 
   afterEach(() => {
@@ -30,21 +21,11 @@ describe("session cost persistence", () => {
     }
   });
 
-  // This mirrors the INSERT ... ON CONFLICT in ws/handler.ts
-  function upsertSession(
-    id: string,
-    title: string,
-    costUsd: number,
-    numTurns: number
-  ) {
-    db.prepare(`
-      INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        last_active_at = excluded.last_active_at,
-        total_cost_usd = total_cost_usd + excluded.total_cost_usd,
-        num_turns = num_turns + excluded.num_turns
-    `).run(id, title, Date.now(), Date.now(), costUsd, numTurns);
+  function upsertSession(id: string, title: string, costUsd: number, numTurns: number) {
+    createSessionCatalog(() => db).persistSession({
+      type: "result", sessionId: id, costUsd, numTurns,
+      durationMs: 1, isError: false, outcome: "success",
+    }, title, "fixture-profile", "fixture-backend");
   }
 
   test("inserts new session on first result", () => {
@@ -67,21 +48,14 @@ describe("session cost persistence", () => {
   });
 
   test("updates last_active_at on each result", () => {
-    upsertSession("s1", "Query", 0.01, 1);
-    const first = (
-      db.query("SELECT last_active_at FROM sessions WHERE id = 's1'").get() as any
-    ).last_active_at;
-
-    // Small delay to ensure different timestamp
-    const start = Date.now();
-    while (Date.now() - start < 5) {} // busy wait 5ms
-
-    upsertSession("s1", "Query 2", 0.01, 1);
-    const second = (
-      db.query("SELECT last_active_at FROM sessions WHERE id = 's1'").get() as any
-    ).last_active_at;
-
-    expect(second).toBeGreaterThanOrEqual(first);
+    const clock = spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      upsertSession("s1", "Query", 0.01, 1);
+      expect((db.query("SELECT last_active_at FROM sessions WHERE id = 's1'").get() as any).last_active_at).toBe(1_000);
+      clock.mockReturnValue(2_000);
+      upsertSession("s1", "Query 2", 0.01, 1);
+      expect((db.query("SELECT last_active_at FROM sessions WHERE id = 's1'").get() as any).last_active_at).toBe(2_000);
+    } finally { clock.mockRestore(); }
   });
 
   test("preserves original title (does not overwrite)", () => {

@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { sendSessionHistory } from "../src/ws/history";
 import { type WSContext } from "../src/ws/clients";
-import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink";
+// Independent default frame budget, so the cap cannot drift with its oracle.
+const FRAME_BUDGET_BYTES = 512_000;
 import type { SessionHistoryMessage, ServerSessionHistory } from "@schlessera/brain-ui-sdk/protocol";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 
@@ -20,7 +21,7 @@ function frames(ws: { sent: string[] }): ServerSessionHistory[] {
   return ws.sent.map((s) => {
     const parsed = parseServerMessage(s);
     expect(parsed.ok).toBe(true);
-    expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+    expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     return JSON.parse(s) as ServerSessionHistory;
   });
 }
@@ -71,7 +72,7 @@ describe("sendSessionHistory chunking", () => {
 
     // Every frame stays under the per-message cap.
     for (const s of ws.sent) {
-      expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+      expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     }
 
     // Concatenating all chunks reconstructs the full transcript in order.
@@ -87,7 +88,7 @@ describe("sendSessionHistory chunking", () => {
     sendSessionHistory(ws, "sess-huge", history);
 
     for (const s of ws.sent) {
-      expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
+      expect(Buffer.byteLength(s, "utf8")).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     }
     const flat = frames(ws).flatMap((frame) => frame.messages);
     expect(flat).toHaveLength(1);
