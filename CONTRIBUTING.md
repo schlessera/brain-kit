@@ -137,6 +137,22 @@ an isolated root with seeded messages and fixture transports, and checks pixels
 without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
 unit-test discovery does not claim them.
 
+The same project runs offline fault tests, named `.offline.tsx`. Their
+harness lives in `packages/ui-react/tests/browser/offline/`, and each module's
+header documents its API:
+
+- `audio-fixtures.ts` generates seeded WAVs: 10 s, 95 s and 10 min 5 s.
+- A fake microphone plays the 10-second WAV. The project's Chromium launch
+  flags feed it, and `fake-microphone.ts` injects it for other engines and can
+  interrupt the microphone or hide the page.
+- `fault-network.ts` provides the transport drop, the auth expiry (a 401 and a
+  1008 close) and a request and frame spy.
+- `indexeddb-faults.ts` simulates a full quota.
+- `scene.ts` reloads or terminates a whole page.
+
+`offline-faults.offline.tsx` checks each primitive against today's app. A
+feature test should use these helpers instead of building its own.
+
 The complete dictation browser fixture has its own `dictation` project so its
 Chromium touch emulation and consumer styles stay outside the shared `visual`
 page. The default browser wrapper includes it in both shards; use
