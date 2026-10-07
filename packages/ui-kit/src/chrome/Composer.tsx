@@ -350,7 +350,7 @@ export function Composer(p: ComposerProps) {
             style={disc(54, accent.amber.fill, true)}
             className={p.onMic ? "bk-control" : undefined}
             role={p.onMic ? "button" : undefined}
-            aria-label={p.onMic ? "Hold to talk" : undefined}
+            aria-label={p.onMic ? (p.micLabel ?? "Hold to talk") : undefined}
             tabIndex={p.onMic ? 0 : undefined}
             onClick={p.onMic}
             onKeyDown={p.onMic ? pressable(() => p.onMic?.()) : undefined}

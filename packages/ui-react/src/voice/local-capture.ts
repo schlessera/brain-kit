@@ -67,8 +67,14 @@ export interface LocalCaptureEnvironment {
 }
 
 export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
+  /** Nothing reaches it before the microphone opened and the start was not aborted. */
   sink: LocalCaptureSink;
   timesliceMs?: number;
+  /**
+   * Cancels a start still waiting on the microphone: the stream it gets is
+   * released, nothing records and the sink is never called.
+   */
+  signal?: AbortSignal;
 }
 
 /** The first container this browser's MediaRecorder records, or null. */
@@ -90,8 +96,13 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
   if (!mimeType || !mediaDevices?.getUserMedia) {
     throw new DOMException("This browser can't record audio on the device.", "NotSupportedError");
   }
+  options.signal?.throwIfAborted();
   const stream = await mediaDevices.getUserMedia({ audio: true });
   const release = () => { for (const track of stream.getTracks()) track.stop(); };
+  if (options.signal?.aborted) {
+    release();
+    options.signal.throwIfAborted();
+  }
   let recorder: MediaRecorder;
   try {
     recorder = new Recorder(stream, { mimeType });

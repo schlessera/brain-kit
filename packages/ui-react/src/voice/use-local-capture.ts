@@ -36,6 +36,10 @@ export function useLocalCapture() {
   // Bumped by every start and every stop: a start whose microphone opens
   // after the user already stopped (or the composer went away) closes it.
   const genRef = useRef(0);
+  // Aborts a start still waiting on the microphone, so a cancelled one never
+  // records or reaches the sink.
+  const openingRef = useRef<AbortController | null>(null);
+  const cancelOpening = () => { openingRef.current?.abort(); openingRef.current = null; };
 
   const start = useCallback(async () => {
     const options = root.localCapture;
@@ -44,10 +48,13 @@ export function useLocalCapture() {
     const gen = ++genRef.current;
     voice.setLocalNotice(null);
     voice.setLocal("opening");
+    const opening = new AbortController();
+    openingRef.current = opening;
     let capture: LocalCapture;
     try {
-      capture = await startLocalCapture({ sink: options.sink(), timesliceMs: options.timesliceMs });
+      capture = await startLocalCapture({ sink: options.sink(), timesliceMs: options.timesliceMs, signal: opening.signal });
     } catch (err) {
+      if (openingRef.current === opening) openingRef.current = null;
       if (genRef.current !== gen) return;
       const state = root.stores.voice.getState();
       state.setLocal("idle");
@@ -59,6 +66,7 @@ export function useLocalCapture() {
       }
       return;
     }
+    if (openingRef.current === opening) openingRef.current = null;
     if (genRef.current !== gen) {
       await capture.stop("user");
       return;
@@ -76,6 +84,7 @@ export function useLocalCapture() {
 
   const stop = useCallback(async (reason: LocalCaptureStopReason = "user") => {
     genRef.current++;
+    cancelOpening();
     const capture = captureRef.current;
     const voice = root.stores.voice.getState();
     if (!capture) {
@@ -89,6 +98,7 @@ export function useLocalCapture() {
   useEffect(() => () => {
     // The composer going away leaves no microphone open behind it.
     genRef.current++;
+    cancelOpening();
     const capture = captureRef.current;
     captureRef.current = null;
     if (capture) void capture.stop("interrupted");

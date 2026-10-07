@@ -20,10 +20,13 @@ describe("Composer microphone", () => {
     expect(renderToStaticMarkup(<Composer variant="voice" onMic={onMic} />)).toContain("lucide-mic");
   });
 
-  test("micLabel renames it", () => {
+  test("micLabel renames it, in the send and the voice variant", () => {
     const html = renderToStaticMarkup(<Composer onMic={onMic} micLabel="Record on this device" />);
     expect(labels(html)).toContain("Record on this device");
     expect(labels(html)).not.toContain("Dictate");
+    const voice = renderToStaticMarkup(<Composer variant="voice" onMic={onMic} micLabel="Record on this device" />);
+    expect(labels(voice)).toContain("Record on this device");
+    expect(labels(voice)).not.toContain("Hold to talk");
   });
 
   test("mic={false} draws none, in the send and the voice variant", () => {

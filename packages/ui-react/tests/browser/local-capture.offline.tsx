@@ -197,7 +197,7 @@ async function recordOffline(s: Scene) {
 test("offline, a tap records on the device: the sink gets ordered chunks and the network sees nothing", async (ctx) => {
   const s = await mount(ctx);
   await commands.startRequestLog();
-  const before = { requests: s.net.requests.length, frames: s.net.frames.length };
+  const before = { requests: s.net.requests.length, frames: s.net.frames.length, sockets: s.net.sockets.length };
   await recordOffline(s);
   await expect.poll(() => s.sink.chunks.length, { timeout: 5000 }).toBeGreaterThanOrEqual(3);
   expect(mic(s)?.getAttribute("aria-label"), "the mic is the recording's stop").toBe("Stop and save");
@@ -212,11 +212,15 @@ test("offline, a tap records on the device: the sink gets ordered chunks and the
   expect(s.sink.ended).toEqual(["user"]);
   expect(s.net.requests.slice(before.requests), "no request: the app's transport, fetch, XHR or beacon").toEqual([]);
   expect(s.net.frames.slice(before.frames), "no socket frame").toEqual([]);
+  // The app keeps retrying its own socket while the host is away; nothing else opens one.
+  expect(s.net.sockets.slice(before.sockets).filter((socket) => socket.url !== s.ui.wsUrl()), "no socket but the app's own retries").toEqual([]);
   expect(await commands.requestLog(), "no request on the browser's network").toEqual([]);
   // The log could see one: a request now shows up in it.
   await fetch("/__local-capture-probe").catch(() => undefined);
   expect((await commands.requestLog()).some((url) => url.endsWith("/__local-capture-probe")), "the request log observes the page").toBe(true);
   expect(s.net.requests.at(-1)?.url, "and so does the in-page spy").toMatch(/\/__local-capture-probe$/);
+  new WebSocket("ws://local-capture.invalid/");
+  expect(s.net.sockets.slice(before.sockets).filter((socket) => socket.url !== s.ui.wsUrl()).length, "and a socket of anyone else's").toBe(1);
 });
 
 test("offline, the mic is labelled for a recording on the device", async (ctx) => {
@@ -378,6 +382,9 @@ test("a tap while the microphone is still opening cancels it: nothing records on
   await expect.poll(() => opened[0]!.getTracks().map((t) => t.readyState), { message: "the late stream is released" }).toEqual(["ended"]);
   await settle(s);
   expect(phase(s), "no recording started").toBe("idle");
+  expect(s.sink.mimeType, "the sink never heard of it").toBe("");
+  expect(s.sink.chunks).toEqual([]);
+  expect(s.sink.ended).toEqual([]);
 });
 
 test("a recorder the browser stops on its own ends the recording as interrupted", async (ctx) => {
