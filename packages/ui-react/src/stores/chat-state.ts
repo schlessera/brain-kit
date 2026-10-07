@@ -601,6 +601,34 @@ function keepUnclippedText(next: string | undefined, old: string | undefined): s
   return elision && old?.startsWith(next!.slice(0, elision.index)) ? old : next;
 }
 
+/** Clipped blocks may split a live text part differently from stored entries. */
+function restoreClippedParts(parts: MessagePart[], old: ChatMessage): MessagePart[] {
+  const offsets = { text: 0, thinking: 0 };
+  return parts.map((part, index) => {
+    if (part.kind === "tool") return part;
+    const prior = old.parts.filter((p) => p.kind === part.kind).map((p) => (p as { text: string }).text);
+    const all = prior.join("") || (part.kind === "text" ? old.content : old.thinking ?? "");
+    const at = offsets[part.kind];
+    const elision = part.text.match(/\n…\[(\d+) chars elided\]$/);
+    let text = part.text;
+    if (elision && all.startsWith(text.slice(0, elision.index), at)) {
+      // Restore through the drawn block containing this prefix, rather than
+      // swallowing later blocks around a tool or thinking section.
+      let end = 0;
+      for (const block of prior) {
+        end += block.length;
+        if (end >= at + elision.index! && end > at) break;
+      }
+      // Adjacent stored blocks can share one live block. Its first clipped
+      // prefix stops at the stored boundary; the last keeps live progress.
+      if (parts[index + 1]?.kind === part.kind) end = Math.min(end, at + elision.index! + Number(elision[1]));
+      text = all.slice(at, prior.length ? end : all.length);
+    }
+    offsets[part.kind] = all.startsWith(text, at) ? at + text.length : all.length;
+    return text === part.text ? part : { ...part, text };
+  });
+}
+
 function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
@@ -618,15 +646,24 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       ...received,
       content: unclippedContent,
       thinking: keepUnclippedText(received.thinking, old.thinking),
-      parts: boundedTools || unclippedContent !== content ? old.parts : received.parts.map((part, k) => {
-        const before = old.parts[k];
-        return part.kind !== "tool" && before?.kind === part.kind
-          ? { ...part, text: keepUnclippedText(part.text, before.text)! } : part;
-      }),
+      parts: restoreClippedParts(received.parts.filter((part) => !boundedTools || part.kind !== "text" || part.text !== toolsElided![0]), old),
       toolCalls: [...received.toolCalls, ...(boundedTools ? old.toolCalls.slice(received.toolCalls.length) : [])].map((tool) => ({
         ...tool, output: keepUnclippedText(tool.output, old.toolCalls.find((t) => t.id === tool.id)?.output),
       })),
     };
+    if (/\n…\[\d+ chars elided\]/.test(content)) m.content = drawnText(m);
+    // The array bound can omit a new trailing block while the aggregate
+    // still carries it. Keep drawn cards, then add the newly proven suffix.
+    if (m.content.startsWith(old.content) && m.content.length > old.content.length
+      && drawnText(m).length <= drawnText(old).length
+      && (!old.turnId || !m.turnId || old.turnId === m.turnId)
+      && old.toolCalls.slice(0, Math.min(old.toolCalls.length, m.toolCalls.length)).every((t, k) => t.id === m.toolCalls[k]!.id)) {
+      const parts = [...old.parts];
+      for (const [toolIndex, tool] of m.toolCalls.entries()) {
+        if (!old.toolCalls.some((t) => t.id === tool.id)) parts.push({ kind: "tool", toolIndex });
+      }
+      m.parts = appendPart(parts, "text", m.content.slice(old.content.length));
+    }
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
     // Claude history adds separators to its aggregate across assistant
     // entries; the chronological text parts are the actual drawn text.
@@ -681,12 +718,16 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   // approval the host settled meanwhile is not offered again.
   const toolCalls = base.toolCalls.map((t) => {
     const o = theirs.get(t.id);
-    return o && o.output !== undefined && t.output === undefined ? o : t;
+    return o && ((o.output !== undefined && t.output === undefined) || (t.status === "streaming" && o.status !== "streaming")) ? o : t;
   });
   let parts = [...base.parts];
+  const keptToolParts = base !== old && old.toolCalls.some((tool) => !parts.some((p) => p.kind === "tool" && base.toolCalls[p.toolIndex]?.id === tool.id));
+  if (keptToolParts) {
+    parts = appendPart(old.parts, "text", drawnText(m).slice(drawnText(old).length));
+  }
   for (const t of other.toolCalls) {
     if (toolCalls.some((b) => b.id === t.id)) continue;
-    parts.push({ kind: "tool", toolIndex: toolCalls.length });
+    if (!keptToolParts) parts.push({ kind: "tool", toolIndex: toolCalls.length });
     toolCalls.push(t);
   }
   // Thinking stays between the text/tool parts that bracketed it. Host

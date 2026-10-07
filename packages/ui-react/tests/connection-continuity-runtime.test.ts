@@ -467,12 +467,14 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         const caret = draft.indexOf("Scylla") + 3;
         const word = [draft.indexOf("Ithaca"), draft.indexOf("Ithaca") + "Ithaca".length] as const;
         await mark(page);
+        const initial = await measure(page);
         const sentBefore = net.sent.length;
         const log: Array<{ cycle: number; phase: string; fieldTop: number; firstTop: number | null; scrollTop: number; track: string }> = [];
         for (let cycle = 1; cycle <= 10; cycle++) {
           const [start, end] = cycle % 2 ? [caret, caret] : word;
           await page.evaluate(([a, b]) => document.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!.setSelectionRange(a!, b!), [start, end]);
-          const base = await measure(page);
+          const base = { ...initial, selectionStart: start, selectionEnd: end };
+          same(`cycle ${cycle}, before`, await measure(page), base);
           if (cycle === 1) {
             expect(base.previews[0], "the image previews from an object URL").toStartWith("blob:");
             expect(base.pills, "a real pending follow-up is guarded").toHaveLength(1);

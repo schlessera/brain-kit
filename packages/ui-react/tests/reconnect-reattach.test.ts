@@ -70,6 +70,68 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  test("bounded Claude text split across entries keeps a coalesced live answer", () => {
+    const { root, socket } = running();
+    const first = "Wax for the crew. ".repeat(2500);
+    const live = "Rope for me. ".repeat(18000);
+    const stored = live.slice(0, 170000);
+    root.stores.chat.getState().appendText("s1", first + live);
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: `${SIRENS}${first}\n\n${stored}`, toolCalls: [], parts: [
+      { kind: "text", text: SIRENS + first }, { kind: "text", text: stored },
+    ] }, HISTORY_CHUNK_BYTES);
+    expect(replay.parts[1]!.text, "the second stored block is actually clipped").toContain("chars elided]");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "clipped split text keeps the coalesced answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual(old.parts);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toBe(`${old.content} Landed.`);
+  });
+  test("two clipped stored blocks do not duplicate a coalesced live part", () => {
+    const { root, socket } = running();
+    const first = "Wax for the crew. ".repeat(5000);
+    const second = "Rope for me. ".repeat(18000);
+    root.stores.chat.getState().appendText("s1", first + second);
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: `${SIRENS}${first}\n\n${second.slice(0, 170000)}`, toolCalls: [], parts: [
+      { kind: "text", text: SIRENS + first }, { kind: "text", text: second.slice(0, 170000) },
+    ] }, HISTORY_CHUNK_BYTES);
+    expect(replay.parts.every((p) => p.text.includes("chars elided]")), "both stored blocks are actually clipped").toBe(true);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.parts, "multiple clipped blocks do not duplicate drawn text").toEqual(old.parts);
+    expect(buffer(root).messages.at(-1)!.content).toBe(old.content);
+  });
+  test("a clipped aggregate retains newly received tool and trailing text parts", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendText("s1", "Row through the strait. ".repeat(5000));
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: `${old.content} Landed.`, toolCalls: [
+      { id: "wax-1", name: "Bash", input: {}, output: "The wax held. ".repeat(30000) },
+    ], parts: [{ kind: "text", text: old.content }, { kind: "tool", toolIndex: 0 }, { kind: "text", text: " Landed." }] }, HISTORY_CHUNK_BYTES);
+    expect(replay.content, "the aggregate is actually clipped").toContain("chars elided]");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.content, "new replay text survives aggregate restoration").toBe(`${old.content} Landed.`);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts.map((p) => p.kind)).toEqual(["text", "tool", "text"]);
+  });
+  test("a replay completes tool input before its output arrives", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendToolInput("s1", '{"command":"check');
+    expect(buffer(root).messages.at(-1)!.toolCalls[0]!.inputJson, "a real partial input is guarded").not.toBe("");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, toolCalls: [{ id: "wax-1", name: "Bash", input: { command: "check wax" } }],
+    }] });
+    expect(buffer(root).messages.at(-1)!.toolCalls[0]!.input, "replayed completed input replaces partial input").toEqual({ command: "check wax" });
+    next.deliver({ type: "tool_result", sessionId: "s1", toolUseId: "wax-1", output: "The wax held.", isError: false });
+    expect(buffer(root).messages.at(-1)!.toolCalls[0]!).toMatchObject({ input: { command: "check wax" }, output: "The wax held.", status: "complete" });
+  });
   test("bounded legacy history without parts keeps text before its tool", () => {
     const { root, socket } = running();
     root.stores.chat.getState().appendText("s1", " Row through the strait.".repeat(20_000));
@@ -130,6 +192,22 @@ describe("a reconnect while the turn in view runs", () => {
     root.connection.send({ type: "session_resume", sessionId: "s1" });
     next.deliver({ type: "error", sessionId: "s1", code: "SESSION_LOAD_ERROR", message: "The harbour did not answer." });
     expect(buffer(root).isStreaming, "ordinary failed resume ends the stream").toBe(false);
+  });
+  test("bounded part arrays keep new trailing text carried by the aggregate", () => {
+    const { root, socket } = running();
+    for (let i = 0; i < 150; i++) {
+      root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
+      root.stores.chat.getState().setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+    }
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: `${old.content} Landed.`, toolCalls: old.toolCalls, parts: [...old.parts, { kind: "text", text: " Landed." }] }, HISTORY_CHUNK_BYTES);
+    expect(replay.content).toContain("Landed.");
+    expect(replay.parts.some((p) => p.kind === "text" && p.text === " Landed."), "the actual array bound omitted the new part").toBe(false);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.content, "aggregate progress survives a clipped parts array").toBe(`${old.content} Landed.`);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual([...old.parts, { kind: "text", text: " Landed." }]);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
   });
   test("a size-bounded tool array keeps the tool cards already drawn", () => {
     const { root, socket } = running();
