@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
-import { createDraftStore, holdsUnsaved, type DraftSend } from "../src/stores/draft-state.ts";
+import { createDraftStore, holdsUnsaved, type DraftSend, type LocalDraft } from "../src/stores/draft-state.ts";
 import { draftSaveView, draftTitle, unboundDrafts } from "../src/lib/drafts.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
@@ -520,5 +520,60 @@ describe("the host's versions", () => {
     expect(view().copy).toBe("draft · 100 drafts saved · delete one to save this");
     state().setSupport(false);
     expect(view().copy).toBe("draft · this host doesn't keep drafts · kept on this device");
+  });
+});
+
+describe("drafts kept on this device (#1014)", () => {
+  const kept = (over: Partial<LocalDraft> & Pick<LocalDraft, "draftId">): LocalDraft =>
+    ({ sessionId: null, text: "", attachments: [], editedAt: 900, host: null, ...over });
+
+  test("a kept draft fills a gap; whatever this page holds already stays", () => {
+    const { state } = store();
+    const live = state().idFor(ITHACA);
+    state().edit(live, ITHACA, { text: "Typed on this page" });
+    state().restoreLocal([
+      kept({ draftId: "kept-ithaca", sessionId: ITHACA, text: "Kept for Ithaca" }),
+      kept({ draftId: "kept-raft", sessionId: RAFT, text: "Kept for the raft", attachments: [image("sail.png")] }),
+      kept({ draftId: "kept-empty", text: "" }),
+    ]);
+    expect(state().drafts[state().idFor(ITHACA)]!.text).toBe("Typed on this page");
+    expect(state().drafts["kept-ithaca"]).toBeUndefined();
+    const raft = state().drafts[state().idFor(RAFT)]!;
+    expect(raft.draftId).toBe("kept-raft");
+    expect(raft.text).toBe("Kept for the raft");
+    expect(raft.attachments.map((a) => a.name)).toEqual(["sail.png"]);
+    expect(state().drafts["kept-empty"]).toBeUndefined();
+  });
+
+  test("a kept draft keeps the host revision it knew: clean stays clean, dirty is owed a save", () => {
+    const { state } = store();
+    state().setSupport(true);
+    state().restoreLocal([
+      kept({ draftId: "clean", sessionId: ITHACA, text: "Saved words", host: { revision: 3, sessionId: ITHACA, updatedAt: 1, clean: true } }),
+      kept({ draftId: "dirty", sessionId: RAFT, text: "Newer words", host: { revision: 2, sessionId: RAFT, updatedAt: 1, clean: false } }),
+    ]);
+    const view = (id: string) => draftSaveView(state().drafts[id], state(), Date.now());
+    expect(view("clean").state).toBe("saved");
+    expect(view("dirty").state).not.toBe("saved");
+    expect(state().drafts.dirty!.host!.revision).toBe(2);
+    // The host's newer revision replaces the clean one, and meets the dirty one as a conflict.
+    state().restore(hostDraft({ draftId: "clean", sessionId: ITHACA, revision: 4, text: "From the other device" }));
+    expect(state().drafts.clean!.text).toBe("From the other device");
+    state().restore(hostDraft({ draftId: "dirty", sessionId: RAFT, revision: 3, text: "Also elsewhere" }));
+    expect(state().drafts.dirty!.text).toBe("Newer words");
+    expect(state().drafts.dirty!.conflict?.other.text).toBe("Also elsewhere");
+  });
+
+  test("a failed device write takes `kept on this device` off the line", () => {
+    const { state } = store();
+    const id = state().idFor(ITHACA);
+    state().edit(id, ITHACA, { text: "Plug the ears with wax" });
+    state().setSupport(false);
+    expect(draftSaveView(state().drafts[id], { ...state(), localFailed: true }, Date.now()))
+      .toMatchObject({ state: "unavailable", copy: "draft · this host doesn't keep drafts", word: "not saved yet" });
+    state().setSupport(true);
+    state().saveFailed(id, { kind: "too_large", limit: 65_536, bound: "text" });
+    expect(draftSaveView(state().drafts[id], { ...state(), localFailed: true }, Date.now()))
+      .toMatchObject({ state: "too_large", copy: "draft · too large to save (64 KB max)" });
   });
 });

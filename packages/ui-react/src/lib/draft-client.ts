@@ -270,6 +270,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   async function refresh(): Promise<void> {
     if (!live() || listing) return;
     listing = true;
+    try {
+      // What this device kept goes back first (#1014), so the host's
+      // versions meet it as they would meet the page that wrote it.
+      await root.localWork?.restoring();
+    } catch { /* restoring never rejects; nothing to wait for */ }
+    if (disposed) { listing = false; return; }
     const before = new Map(hostSeq);
     try {
       const result = await api.list();

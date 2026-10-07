@@ -11,7 +11,20 @@ const POLL_INTERVAL = 15_000;
 const OFFLINE_POLL_INTERVAL = 3_000;
 const TIMEOUT_MS = 5_000;
 
-async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnStatus> {
+type VpnReading = { status: VpnStatus; accountKey?: string | null };
+
+/** The host's account partition key (#1014): an opaque name, read defensively. */
+async function readAccountKey(res: Response): Promise<string | null> {
+  try {
+    const body = await res.json() as { accountKey?: unknown } | null;
+    const key = body?.accountKey;
+    return typeof key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnReading> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -19,12 +32,12 @@ async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnStatus> {
       signal: controller.signal,
     });
 
-    if (res.ok) return "connected";
-    if (res.status === 401) return "unauthorized";
-    if (res.status === 403) return "forbidden";
-    return "unreachable";
+    if (res.ok) return { status: "connected", accountKey: await readAccountKey(res) };
+    if (res.status === 401) return { status: "unauthorized" };
+    if (res.status === 403) return { status: "forbidden" };
+    return { status: "unreachable" };
   } catch {
-    return "unreachable";
+    return { status: "unreachable" };
   } finally {
     clearTimeout(timeout);
   }
@@ -57,7 +70,7 @@ export function useVpnStatus() {
       inFlight = true;
       const opensAtStart = root.stores.connection.getState().socketOpens;
       try {
-        const status = await fetchVpnStatus(root);
+        const { status, accountKey } = await fetchVpnStatus(root);
         // A socket that reached `open` while this probe was in flight is newer
         // reachability evidence than a failure the probe was started for.
         // Counting opens rather than sampling wsStatus twice also catches a
@@ -66,7 +79,7 @@ export function useVpnStatus() {
         const socketOpenedDuringCheck =
           root.stores.connection.getState().socketOpens !== opensAtStart;
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
-          root.stores.connection.getState().setVpnStatus(status);
+          root.stores.connection.getState().setVpnStatus(status, accountKey);
           if (status === "connected") {
             setSuccessfulProbe((previous) => ({ root, count: previous.root === root ? previous.count + 1 : 1 }));
           }

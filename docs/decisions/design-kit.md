@@ -5310,6 +5310,32 @@ question-answer rules are independent.
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
 
+> **2026-10-07 — Drafts kept on this device across a reload, implemented by
+> #1014.** Every draft in the root's store, with its images, and the work
+> context around it (the voice review text, the uploaded tracks of the view
+> by reference, the selection, the focused element and the first transcript
+> message in view with its offset) are written to IndexedDB a moment after
+> each change, in the signed-in account's partition. The partition is named
+> by the host's `accountKey` on `/api/vpn-check`, which every sign-in as the
+> same owner shares (the
+> [contract](../integration-contract.md#account-partition-key-additive-1014)
+> has the table per auth mode); the client opens it only while it holds that
+> key, and never writes one account's work into another's. After an
+> authenticated boot as the same account the drafts come back first, before
+> the host's list is read, so a host version meets them as it would meet
+> the page that wrote them; then the selection and focus, then the
+> transcript's place. *Kept on this device* now holds across a reload. A
+> write the browser refuses (quota, private mode, no storage) puts `Couldn't
+> save your draft on this device.` in the composer's hint and takes the words
+> `kept on this device` off the save line until a write succeeds; editing
+> goes on in memory. The store asks once for persistent storage and promises
+> nothing from the answer. Staged tracks keep #1112's lifetime: their
+> references are in the snapshot, and a reload does not bring the queue back.
+> This is not encryption and not protection against someone with access to
+> the device. The modules are `lib/local-partitions.ts` (the partition
+> primitive) and `lib/local-work.ts` (the snapshot, and `snapshotNow`, which
+> resolves only once its transaction has committed).
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
