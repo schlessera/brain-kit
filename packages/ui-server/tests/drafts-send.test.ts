@@ -185,14 +185,14 @@ test("a refused message consumes nothing", async () => {
   expect(await (await h.call("/api/drafts/draft-ithaca")).json()).toMatchObject({ revision: 1, text: "Sail" });
 });
 
-test("saving, listing, deleting and binding drafts never starts a turn", async () => {
+test("draft storage operations and a refused bind never start a turn", async () => {
   const h = await harness();
   const image = await h.upload("draft-quiet", "u");
-  await h.put("draft-quiet", 0, "s", { sessionId: null, text: "Hush", attachmentIds: [image] });
-  await h.call("/api/drafts");
-  await h.call("/api/drafts/draft-quiet");
-  await h.bind("draft-quiet", "voyage-1", "r");
-  await h.call("/api/drafts/draft-quiet", { method: "DELETE", headers: { "if-match": "1" } });
+  expect((await h.put("draft-quiet", 0, "s", { sessionId: null, text: "Hush", attachmentIds: [image] })).status).toBe(200);
+  expect((await h.call("/api/drafts")).status).toBe(200);
+  expect((await h.call("/api/drafts/draft-quiet")).status).toBe(200);
+  expect(await (await h.bind("draft-quiet", "voyage-1", "r")).json()).toMatchObject({ error: "DRAFT_NOT_ACCEPTED" });
+  expect((await h.call("/api/drafts/draft-quiet", { method: "DELETE", headers: { "if-match": "1" } })).status).toBe(204);
   await Bun.sleep(20);
   expect(h.held.starts).toHaveLength(0);
   // Only the connection's own hello and idle status: no session, turn or reply frame.
