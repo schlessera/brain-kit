@@ -181,7 +181,13 @@ describe("ask answer receipts", () => {
         ]);
         await waitFor(() => settlements.length === 1);
         // The answer that settled is the one that was sent, nonempty.
-        expect(JSON.stringify(settlements[0])).not.toBe("{}");
+        const expected = {
+          ask_user: { answers: { "Which harbour first?": "Ithaca — Ὀθάκη" }, annotations: undefined },
+          ask_user_list: { answers: { oars: "Aboard" }, notes: { wine: "Maron’s gift \u{1F377}" } },
+          ask_user_rank: { order: ["scheria", "aeolia"], unchanged: false },
+          ask_user_form: { answers: { course: { value: "Coast" } } },
+        };
+        expect(settlements[0]).toEqual(expected[kind]);
 
         const again = await send(answer);
         expect(receipts(again)).toEqual([
