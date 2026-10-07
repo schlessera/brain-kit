@@ -1996,8 +1996,9 @@ describe("contract-bound tool renderers", () => {
 
     // The geometry lands as paths and land, and the credit comes with it.
     await waitFor(() => expect(result.baseElement.textContent).toContain("OpenStreetMap contributors"));
-    // Coastline + road as strokes, land as one filled path, the pin's own marks besides.
-    expect(result.baseElement.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(3);
+    // Count the geographic marks themselves; toolbar/pin icons also contain paths.
+    expect(result.baseElement.querySelectorAll('svg polyline[stroke-width="1"], svg polyline[stroke-width="0.6"]')).toHaveLength(2);
+    expect(result.baseElement.querySelectorAll('svg path[fill-rule="evenodd"]')).toHaveLength(1);
   });
 
   test("without a server the map still draws the pin, and carries no credit for geometry it has not got", async () => {
@@ -2075,7 +2076,7 @@ describe("AskUserCard", () => {
   });
 
   test("cancelled card collapses to a summary row without options", () => {
-    const { queryByText } = render(
+    const { getByText, queryByText } = render(
       <AskUserCard
         requestId="req-2"
         questions={questions}
@@ -2084,6 +2085,8 @@ describe("AskUserCard", () => {
         onCancel={() => {}}
       />
     );
+    expect(getByText("Which draft should I keep?")).toBeTruthy();
+    expect(getByText("dismissed · the agent got no answer")).toBeTruthy();
     expect(queryByText("Beta")).toBeNull();
   });
 });
@@ -3955,8 +3958,10 @@ describe("SideRail on the kit SideRail", () => {
     expect(useUIStore.getState().filePanelOpen, "Settings replaces Files").toBe(false);
     fireEvent.keyDown(window, { key: "5", metaKey: true });
     expect(useUIStore.getState().settingsPanelOpen, "⌘5 again leaves Settings open (D52 N3)").toBe(true);
+    act(() => useUIStore.getState().setActiveView("activity"));
     fireEvent.keyDown(window, { key: "1", metaKey: true });
     expect(useUIStore.getState().activeView).toBe("chat");
+    expect(useUIStore.getState().settingsPanelOpen).toBe(false);
     // Nothing is bound past the five, so Graph has no chord.
     fireEvent.keyDown(window, { key: "6", metaKey: true });
     expect(useUIStore.getState().activeView).toBe("chat");
@@ -4353,8 +4358,18 @@ describe("printed keys follow the pointer (#86)", () => {
       fireEvent.click(view.getByRole("button", { name: "All commands" }));
       expect(view.getAllByRole("option").slice(0, 5).map((o) => o.textContent?.replace("⏎", ""))).toEqual(["Chat", "Sessions", "Actions", "Files", "Settings"]);
       fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      act(() => useUIStore.getState().setActiveView("activity"));
+      fireEvent.keyDown(window, { key: "1", metaKey: true });
+      expect(useUIStore.getState().activeView).toBe("chat");
+      fireEvent.keyDown(window, { key: "2", metaKey: true });
+      expect(useUIStore.getState().sessionPanelOpen).toBe(true);
+      fireEvent.keyDown(window, { key: "3", metaKey: true });
+      expect(useUIStore.getState().activeView).toBe("activity");
       fireEvent.keyDown(window, { key: "4", metaKey: true });
       expect(useUIStore.getState().filePanelOpen).toBe(true);
+      fireEvent.keyDown(window, { key: "5", metaKey: true });
+      expect(useUIStore.getState().settingsPanelOpen).toBe(true);
+      expect(useUIStore.getState().filePanelOpen).toBe(false);
       view.unmount();
     });
     useUIStore.getState().setActiveView("chat");
@@ -4687,7 +4702,7 @@ describe("WebSearchChain", () => {
     onSaveKey: mock((_id: string) => {}), onClearKey: mock((_id: string) => {}), onClearOverride: mock(() => {}),
   });
 
-  test("a keyless provider that is off cannot be switched on; one that is on can always be switched off", () => {
+  test("keyless providers can enable, configured providers can disable, and missing keys block enable", () => {
     const h = handlers();
     const config = { configured: true, order: ["paid"], overriddenBy: null, appliesTo: ["pi-1"], providers: [
       provider({ id: "free", label: "Free search", keyless: true }),
@@ -4704,10 +4719,12 @@ describe("WebSearchChain", () => {
     const paid = view.getByRole("switch", { name: "Enable Paid search for web search" });
     expect(paid.getAttribute("aria-checked")).toBe("true");
     expect(paid.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(paid);
+    expect(h.onToggle).toHaveBeenLastCalledWith("paid");
     const bare = view.getByRole("switch", { name: "Enable Bare search for web search" });
     expect(bare.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(bare);
-    expect(h.onToggle).toHaveBeenCalledTimes(1);
+    expect(h.onToggle).toHaveBeenCalledTimes(2);
     fireEvent.click(view.getAllByRole("button", { name: "Needs key" })[0]);
     expect(h.onToggleKey).toHaveBeenCalledWith("free");
     view.unmount();
@@ -5553,6 +5570,8 @@ describe("graph views", () => {
     expect(view.getByText("topic: travel")).toBeTruthy();
     expect(view.getByText("talks/lisbon.md")).toBeTruthy();
     expect(view.getByText("2 hops")).toBeTruthy();
+    expect(view.getByText("3 in")).toBeTruthy();
+    expect(view.getByText("1 out")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: "Open note" }));
     fireEvent.click(view.getByRole("button", { name: "Focus here" }));
     fireEvent.click(view.getByRole("button", { name: "Expand" }));
@@ -5664,7 +5683,7 @@ describe("ModelsCatalogView", () => {
     } finally { view.unmount(); }
   });
 
-  test("the roster: hidden rows say so at full contrast, selects keep their names, refresh and add are kit buttons", () => {
+  test("the roster: hidden rows say so without opacity dimming, selects keep their names, refresh and add are kit buttons", () => {
     const h = { onToggleHidden: mock(() => {}), onBilling: mock(() => {}), onThinking: mock(() => {}), onDefault: mock(() => {}), onCustomModels: mock((_m: string[]) => {}), onRefresh: mock(() => {}) };
     const catalog = {
       models: [
@@ -5675,6 +5694,10 @@ describe("ModelsCatalogView", () => {
       discovery: { enabled: true, error: "rate limited" },
     } as unknown as Parameters<typeof ModelsCatalogView>[0]["catalog"];
     const view = render(<ModelsCatalogView catalog={catalog} loading={false} refreshing={false} error={null} sections={<p>sections here</p>} {...h} />);
+    const hiddenRow = view.getByText("Model two").closest("li")!;
+    expect(hiddenRow).toBeTruthy();
+    expect(Number(getComputedStyle(hiddenRow).opacity || "1")).toBe(1);
+    expect(hiddenRow.className).not.toMatch(/opacity-(?!100(?:\s|$))/);
     expect(view.getByText("hidden")).toBeTruthy();
     expect(view.getByLabelText("Billing for Model one")).toBeTruthy();
     expect(view.getByLabelText("Reasoning effort for Model one")).toBeTruthy();
