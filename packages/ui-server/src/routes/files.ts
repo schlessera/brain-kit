@@ -166,9 +166,21 @@ export function createFilesRoutes(deps: { brainRoot: string; log?: Logger }): Ho
           const partial = await rangeResponse(path, abs, c.req.header("Range"), size, headers);
           if (partial) return partial;
         }
-        return new Response(Bun.file(abs), {
+        const file = Bun.file(abs);
+        // Bun.serve can apply the original Range again to a native file body,
+        // even after this route chose 200 for an unmatched If-Range or HEAD.
+        // Materialize only ignored-range GET responses; the size cap still
+        // bounds the read. HEAD reads no body, and ordinary full-file GET
+        // keeps its native body. A shortened file names the bytes actually read.
+        const body = c.req.method === "HEAD" ? null
+          : c.req.header("Range") === undefined ? file
+          : await file.slice(0, size).bytes();
+        return new Response(body, {
           status: 200,
-          headers: { ...headers, "Content-Length": String(size) },
+          headers: {
+            ...headers,
+            "Content-Length": String(body instanceof Uint8Array ? body.byteLength : size),
+          },
         });
       }
       const result = await readFileContent(path, brainRoot);
