@@ -545,8 +545,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         // Sent while A still runs: a follow-up the host queues. Leaving A
         // through Sessions tracks its newest request, queued, over the older
         // running turn; B, opened there, shows its failure and is seen.
-        if (phone(run)) await press(run, button(a.page, "Send"));
-        else await composer(a.page).press("Enter");
+        // A is still running, so its composer offers Stop, not Send, at
+        // every width: the follow-up goes with the keyboard's Enter. (The
+        // phone run pressed Send while a history replay wrongly ended A's
+        // stream; #1013 keeps it running.)
+        await composer(a.page).press("Enter");
         await a.page.locator('[data-row-half="right"] [data-pill]').first().waitFor();
         await openFromSessions(run, a.page, B);
         await until(a.page, `${state(A)}?.state === "queued"`);
