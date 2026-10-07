@@ -7,6 +7,7 @@ import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents
 import { claudeRunner } from "../../../packages/core/src/providers/agents/cli-runners";
 import { installBrainSurface } from "./brain-fixture";
 import { fixtures, prepare } from "./pipeline";
+import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
 import { MODEL, startRelay } from "./relay";
 
 function response(id: number, tool: boolean, command: string) {
@@ -59,7 +60,10 @@ async function main() {
     if (!receipt.finished || receipt.failure || !receipt.result || receipt.init.model !== MODEL || receipt.account.tokenSource !== "CLAUDE_CODE_OAUTH_TOKEN" || !relay.complete() || !dispatched) throw Error("Actual CLI/auth/relay/close seam did not complete");
     const found = [...new Bun.Glob("studies/*.md").scanSync({ cwd: p.root })];
     if (readOnlyReview ? found.length !== 0 : found.length !== 1 || !readFileSync(join(p.root, found[0]!), "utf8").includes(f.content)) throw Error("Actual native tool surface/write control failed");
-    console.log(JSON.stringify({ passed: true, actualCli: receipt.init.claude_code_version, model: receipt.init.model, accountSource: receipt.account.tokenSource, physicalRequests: relay.calls.length, actualToolWrite: !readOnlyReview, readOnlyReview, externalRequests: 0 }));
+    const createdValue = readOnlyReview ? null : parseFrontmatter(readFileSync(join(p.root, found[0]!), "utf8")).data.created;
+    const created = createdValue instanceof Date ? createdValue.toISOString().slice(0, 10) : createdValue;
+    if (!readOnlyReview && created !== "2026-07-12") throw Error("Native brain shim did not retain the canonical document date");
+    console.log(JSON.stringify({ passed: true, actualCli: receipt.init.claude_code_version, model: receipt.init.model, accountSource: receipt.account.tokenSource, physicalRequests: relay.calls.length, actualToolWrite: !readOnlyReview, created, readOnlyReview, externalRequests: 0 }));
   } finally { relay.stop(); p.close(); }
 }
 if (import.meta.main) await main();

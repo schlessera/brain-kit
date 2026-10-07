@@ -39,7 +39,7 @@
         "departure"
       ]
     },
-    "annotation": "Semantic candidate is review-only; no exact-title evidence authorizes an append."
+    "annotation": "Semantic candidate is review-only; no exact-title evidence authorizes an append. The semantic type golden remains project: a safe deterministic inbox note is scored as a type miss and non-note abstention, never as an unsafe append or content loss. Type accuracy and write safety are separate outcomes."
   },
   {
     "id": "t-custom",
@@ -220,7 +220,7 @@
         "ithaca"
       ]
     },
-    "annotation": "Court and orchard are distinct; court is a semantic review candidate only."
+    "annotation": "Court and orchard are distinct; court is a semantic review candidate only. The semantic type golden remains project: a safe deterministic inbox note is scored as a type miss and non-note abstention, never as an unsafe append or content loss. Type accuracy and write safety are separate outcomes."
   },
   {
     "id": "h-ambiguous",
@@ -242,7 +242,7 @@
         "ithaca"
       ]
     },
-    "annotation": "The source explicitly leaves the destination unresolved; select none and preserve both."
+    "annotation": "The source explicitly leaves the destination unresolved; select none and preserve both. Expected stores/ithaca tags that occur literally in the input are literal vocabulary controls even where the destination is disclaimed; they are reported separately from semantic/negative vocabulary evidence."
   },
   {
     "id": "h-duplicate",
@@ -470,7 +470,7 @@
         "stores"
       ]
     },
-    "annotation": "Explicit neither-target instruction and larger retained state test abstention without content loss. The stores tag is a literal bounded-vocabulary match independent of the disclaimed destinations."
+    "annotation": "Explicit neither-target instruction and larger retained state test abstention without content loss. The stores tag is a literal bounded-vocabulary match independent of the disclaimed destinations. Expected stores/ithaca tags that occur literally in the input are literal vocabulary controls even where the destination is disclaimed; they are reported separately from semantic/negative vocabulary evidence."
   },
   {
     "id": "h-unsupported-type",

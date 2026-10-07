@@ -6,7 +6,7 @@ import { getContext, initContext, setContext } from "../packages/core/src/lib/co
 import { addCommand } from "../packages/core/src/cli/commands/add";
 import { chooseThreshold, observe } from "../scripts/evals/smart-capture/metrics";
 import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
-import { capture, deterministic, documents, fixtures, hybrid, MODEL, needsInference, prepare, request, scripted, snapshot, taxonomy } from "../scripts/evals/smart-capture/pipeline";
+import { atReferenceDate, capture, deterministic, documents, fixtures, hybrid, MODEL, needsInference, prepare, request, scripted, snapshot, taxonomy } from "../scripts/evals/smart-capture/pipeline";
 
 beforeEach(() => setSystemTime(new Date("2026-07-12T04:40:00Z")));
 afterEach(() => setSystemTime());
@@ -49,6 +49,16 @@ test("complete expected append bytes are independent of the planner and writer",
     const expected = "---\ntype: project\ntitle: Raft departure\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [\"raft\", \"departure\"]\nstatus: active\n---\n\nCalypso's tools and sailcloth are needed. Odysseus checks the planned lashings before leaving Ogygia.\n\n## 2026-07-12 Update\n\nRaft departure\n\nOdysseus checked the mast support.\n";
     await capture(f, p.root, deterministic(f, p.root));
     expect(readFileSync(join(p.root, "projects/active/raft.md"), "utf8")).toBe(expected);
+  } finally { p.close(); }
+});
+test("the live reference-date wrapper pins actual created files without freezing timeout clocks", async () => {
+  setSystemTime();
+  const f = find("t-module"), p = await prepare(f), before = Date.now();
+  try {
+    const out = await atReferenceDate(() => capture(f, p.root, deterministic(f, p.root)));
+    const created = parseFrontmatter(readFileSync(join(p.root, out.path), "utf8")).data.created;
+    expect(created instanceof Date ? created.toISOString().slice(0, 10) : created).toBe("2026-07-12");
+    expect(Date.now()).toBeGreaterThanOrEqual(before);
   } finally { p.close(); }
 });
 test("a provider's content-losing complete target cannot touch the disk", async () => {
