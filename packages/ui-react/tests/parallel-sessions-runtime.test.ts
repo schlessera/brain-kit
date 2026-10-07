@@ -463,8 +463,9 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         // B fails unwatched: failed, and announced once.
         await release(pb, "fail");
         await until(a.page, `${state(B)}?.state === "failed"`);
-        await until(a.page, "p.spoken().length === 1");
-        expect(await probe(a.page, (p) => p.spoken())).toEqual([`${titles.get(B)} failed.`]);
+        await until(a.page, "p.spoken().length >= 1");
+        await a.page.waitForTimeout(300);
+        expect(await probe(a.page, (p) => p.spoken()), "B's failure is spoken once").toEqual([`${titles.get(B)} failed.`]);
 
         // Two minutes pass: A's age is redrawn, and nothing is announced for it.
         await a.page.clock.fastForward("02:05");

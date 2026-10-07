@@ -17,12 +17,26 @@ const mount = document.getElementById("app");
 if (!mount) throw new Error("Parallel-sessions fixture mount is missing");
 createRoot(mount).render(<BrainUiProvider root={root}><Shell /></BrainUiProvider>);
 
-/** Every text the Working group's live region has spoken, in order. */
+/**
+ * Every announcement the Working group's live region has spoken, in order:
+ * each node added to the region (`aria-relevant="additions"`), and each text
+ * rewritten inside one, recorded as it happens and never deduplicated, so a
+ * repeat shows up as a second entry.
+ */
 const spoken: string[] = [];
-new MutationObserver(() => {
-  const live = document.querySelector("[data-working-live]");
-  const text = live?.textContent ?? "";
-  if (text && spoken.at(-1) !== text) spoken.push(text);
+const inRegion = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)?.closest("[data-working-live]") ?? null;
+new MutationObserver((records) => {
+  for (const record of records) {
+    if (record.type === "characterData") {
+      if (inRegion(record.target) && record.target.textContent) spoken.push(record.target.textContent);
+      continue;
+    }
+    for (const node of record.addedNodes) {
+      // A region mounted with its children is a mount, not an addition to it.
+      if (node instanceof Element && node.matches("[data-working-live]")) continue;
+      if (inRegion(record.target) && node.textContent) spoken.push(node.textContent);
+    }
+  }
 }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
 Object.assign(window, {
