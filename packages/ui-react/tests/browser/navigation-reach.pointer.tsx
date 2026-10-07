@@ -218,9 +218,7 @@ async function press(s: Scene, el: HTMLElement, mode: string) {
   const name = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim();
   expect(name, `a named control: ${el.outerHTML.slice(0, 80)}`).not.toBe("");
   const r = rect(el);
-  // Palette rows are 34px under every pointer: #1120, measured by its own
-  // cell below, so that defect does not hide the rest of each cell.
-  if (mode !== "fine" && el.getAttribute("role") !== "option") {
+  if (mode !== "fine") {
     expect(r.height, `44px target height: ${name}`).toBeGreaterThanOrEqual(43.5);
     expect(r.width, `44px target width: ${name}`).toBeGreaterThanOrEqual(43.5);
   }
@@ -612,15 +610,16 @@ for (const width of [320, 390, ...DESKTOP]) {
 
 /**
  * The palette's rows are the only pointer route to Graph, Sync and Stats
- * (D52 §1), so under a coarse pointer each must be a 44px target (D20). They
- * are 34px today: #1120. Until that lands this cell pins the measured gap,
- * exactly, so it goes red both when the rows shrink further and when the fix
- * lands, which is the prompt to make it the plain 44px assertion.
+ * (D52 §1), so under a coarse pointer each must be a 44px target (D20), and
+ * the row's own box must take a press at each of its four inset corners:
+ * the rows sit 2px apart, so a neighbour's reach would show up there. Under
+ * a fine pointer the rows keep their 34px density (35.7px with a chip)
+ * (#1120).
  */
-for (const width of DESKTOP) {
-  test(`palette rows under a coarse pointer at ${width}: the known #1120 gap, and nothing worse`, async (ctx) => {
+for (const width of DESKTOP) for (const theme of ["dark", "light"] as const) {
+  test(`palette rows at ${width} (${theme}): 44px targets under a coarse pointer, mouse density under a fine one`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, "occupied", { width, theme: width % 2 ? "light" : "dark" });
+    const s = await mount(ctx, "occupied", { width, theme });
     await walk(s, [allCommands], mode, "the palette");
     const rows = [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')];
     expect(rows.length, "the palette lists its rows").toBe(PALETTE_ROWS.length);
@@ -629,12 +628,17 @@ for (const width of DESKTOP) {
       row.scrollIntoView({ block: "nearest" });
       await settle(s, 1);
       const r = rect(row);
-      const corner = document.elementFromPoint(r.left + 1, r.bottom - 1);
-      expect(row.contains(corner), `the row's own box takes a press at its corner: ${row.textContent}`).toBe(true);
-      const height = Math.round(r.height * 10) / 10;
-      if (mode === "fine") continue;
-      // #1120: a chipped row is 35.7px, every other row 34px.
-      expect(height, `#1120 is still open: ${row.textContent} measures ${height}px; at 44px, replace this with the 44px rule`).toBe(/sync|spends/.test(row.textContent ?? "") ? 35.7 : 34);
+      const name = row.textContent ?? "";
+      for (const [x, y] of [[r.left + 1, r.top + 1], [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]] as const) {
+        const hit = document.elementFromPoint(x, y);
+        expect(row.contains(hit), `the row's own box takes a press at ${x},${y}: ${name} hit ${hit?.outerHTML.slice(0, 120)}`).toBe(true);
+      }
+      if (mode === "fine") {
+        expect(Math.round(r.height * 10) / 10, `fine-pointer density: ${name}`).toBe(/sync|spends/.test(name) ? 35.7 : 34);
+      } else {
+        expect(r.height, `44px target height: ${name}`).toBeGreaterThanOrEqual(43.5);
+        expect(r.width, `44px target width: ${name}`).toBeGreaterThanOrEqual(43.5);
+      }
     }
   });
 }

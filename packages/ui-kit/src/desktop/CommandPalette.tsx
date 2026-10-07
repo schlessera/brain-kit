@@ -157,7 +157,9 @@ const FALLBACK: PaletteGroup[] = [
 ];
 
 /** The label's line in a row without a chip: `minHeight: 34` less 8px of
- * padding top and bottom. */
+ * padding top and bottom. Under a coarse pointer `.bk-palette-row` pads the
+ * same line 13px top and bottom instead, to the 44px target D20 requires: the
+ * line keeps its height, so the label stays centred on it (#1120). */
 const FIRST_LINE = 18;
 
 const ENABLED_OPTION = '[role="option"]:not([aria-disabled="true"])';
@@ -363,8 +365,13 @@ export function CommandPalette(p: CommandPaletteProps) {
                   // that wraps under the label grows the row downward.
                   alignItems: "flex-start",
                   gap: 10,
-                  minHeight: 34,
-                  padding: "8px 12px",
+                  // 34px for a mouse; `.bk-palette-row` sets both to a 44px
+                  // target under a coarse pointer (#1120), since these rows are
+                  // the only pointer route to Graph, Sync and Stats (D52 §1).
+                  // The rows sit 2px apart, so the row itself has to grow: a
+                  // reach past its paint would land on its neighbour.
+                  minHeight: "var(--bk-palette-row-min, 34px)",
+                  padding: "var(--bk-palette-row-pad, 8px) 12px",
                   cursor: act ? "pointer" : "default",
                   opacity: off ? 0.45 : 1,
                   background: on ? token("palette-tint-selected") : "transparent",
@@ -385,7 +392,7 @@ export function CommandPalette(p: CommandPaletteProps) {
                     data-index={listed ? idx : undefined}
                     // A palette row fills its container, so `.bk-row`: ring
                     // inside at -2, background-only hover, no transform.
-                    className={act ? "bk-row" : undefined}
+                    className={act ? "bk-palette-row bk-row" : "bk-palette-row"}
                     role={listed ? "option" : undefined}
                     aria-selected={listed ? on : undefined}
                     // Disabled in the picture too: the reason is on screen

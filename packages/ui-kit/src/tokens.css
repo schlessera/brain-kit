@@ -1552,6 +1552,16 @@
   }
 }
 
+/* `CommandPalette` rows: 34px for a mouse, 44px targets under a coarse
+ * pointer (D20; D52 verification item 7). The palette is the only pointer
+ * route to Graph, Sync and Stats (D52 §1), and its rows sit 2px apart, so
+ * the row grows rather than reaching past its paint. 13px of padding around
+ * the 18px label line keeps the label centred on it, and a reason that wraps
+ * still grows the row downward (#1106, #1120). */
+@media (any-pointer: coarse) {
+  .bk-palette-row { --bk-palette-row-min: 44px; --bk-palette-row-pad: 13px; }
+}
+
 .bk-row:hover {
   /* The `transparent` fallback is not decoration. `.bk-row-fg` below exists
    * for the nav items whose hover moves the FOREGROUND only, and those set no
