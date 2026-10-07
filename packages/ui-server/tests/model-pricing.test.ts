@@ -407,11 +407,13 @@ describe("createModelPricing snapshot fallback", () => {
     const seeded = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
     await seeded.refresh();
 
-    const pricing = createModelPricing({ brainPath, fetchImpl: failingFetch });
+    const calls: string[] = [];
+    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({ calls }) });
     expect(pricing.state().source).toBe("remote");
     expect(pricing.state().stale).toBe(false);
     expect(pricing.resolve("claude-sonnet-4-5")?.estimate).toBe(false);
-    await pricing.ensureFresh(); // fresh — must not fetch (fetchImpl would throw)
+    await pricing.ensureFresh();
+    expect(calls).toEqual([]);
   });
 });
 
@@ -481,11 +483,18 @@ describe("createModelPricing refresh behavior", () => {
 
   test("ensureFresh awaits a cold start but returns immediately when stale", async () => {
     let now = 1_000_000;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let hold = false;
+    const inner = stubFetch({});
     const pricing = createModelPricing({
       brainPath,
       ttlMs: 1_000,
       now: () => now,
-      fetchImpl: stubFetch({}),
+      fetchImpl: (async (input, options) => {
+        if (hold) await held;
+        return inner(input, options);
+      }) as typeof fetch,
     });
 
     // Cold: the caller waits and gets remote data.
@@ -495,8 +504,17 @@ describe("createModelPricing refresh behavior", () => {
     // Stale: returns without awaiting, table still served.
     now += 5_000;
     expect(pricing.state().stale).toBe(true);
-    await pricing.ensureFresh();
-    expect(pricing.resolve("claude-sonnet-4-5")).not.toBeNull();
+    hold = true;
+    try {
+      expect(await Promise.race([
+        pricing.ensureFresh().then(() => "returned"),
+        Bun.sleep(100).then(() => "blocked"),
+      ])).toBe("returned");
+      expect(pricing.resolve("claude-sonnet-4-5")).not.toBeNull();
+    } finally {
+      release();
+      await pricing.refresh();
+    }
   });
 
   test("an oversized catalog body is rejected; the last good table keeps serving", async () => {
