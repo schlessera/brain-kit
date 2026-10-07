@@ -19,7 +19,6 @@ import {
   MAX_QUEUED_BYTES,
   MAX_REPLAY_AGE_MS,
   RECEIPT_WATCHDOG_MS,
-  queuedBytes,
   type AnswerPayload,
   type QueuedAnswer,
 } from "../src/lib/answer-delivery/types";
@@ -423,7 +422,7 @@ describe("Queue A bounds", () => {
       return { kind: "ask_user", answers };
     };
     const probe = (payload: AnswerPayload, requestId: string) =>
-      queuedBytes({ v: 1, submissionId: "00000000-0000-4000-8000-000000000000", principalKey: "principal-odysseus", requestId, sessionId: "s1", turnId: "turn-1", payload, submittedAt: T0, sent: false });
+      Buffer.byteLength(JSON.stringify({ v: 1, submissionId: "00000000-0000-4000-8000-000000000000", principalKey: "principal-odysseus", requestId, sessionId: "s1", turnId: "turn-1", payload, submittedAt: T0, sent: false }), "utf8");
     const FULL = 1_200_000; // 2.4 MB of thetas per answer, 60 keys of 64
     let used = 0;
     let n = 0;
@@ -454,7 +453,7 @@ describe("Queue A bounds", () => {
     await h.queue.submit({ requestId: last, sessionId: "s1", turnId: "turn-1", payload });
     expect(h.queue.held()).toHaveLength(n + 1);
     expect(n + 1).toBeLessThan(MAX_QUEUED_ANSWERS);
-    const total = h.queue.held().reduce((sum, { owned: _o, ...item }) => sum + queuedBytes(item), 0);
+    const total = h.queue.held().reduce((sum, { owned: _o, ...item }) => sum + Buffer.byteLength(JSON.stringify(item), "utf8"), 0);
     expect(total).toBe(MAX_QUEUED_BYTES);
     // One more small answer does not fit, though fewer than 16 are queued.
     await h.submit();
