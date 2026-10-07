@@ -62,6 +62,16 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   );
 }
 
+/** Each side's images, so two versions with the same count can still be told apart. */
+function Thumbs({ urls, names }: { urls: string[]; names: string[] }) {
+  if (urls.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2" data-compare-images="">
+      {urls.map((url, i) => <img key={i} src={url} alt={names[i]} className="h-12 w-12 rounded-lg border border-border object-cover" />)}
+    </div>
+  );
+}
+
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
@@ -99,10 +109,12 @@ export function CompareDrafts({ draftId, onClose }: { draftId: string; onClose: 
         <section className="mb-3" data-compare-side="this">
           <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clock(draft.editedAt)}{images(draft.attachments.length)}</div>
           <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{draft.text || "(images only)"}</p>
+          <Thumbs urls={draft.attachments.map((a) => a.previewUrl)} names={draft.attachments.map((a) => a.name)} />
         </section>
         <section className="mb-4" data-compare-side="other">
           <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clock(other.updatedAt)}{images(other.attachments.length)}</div>
           <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{other.text || "(images only)"}</p>
+          <Thumbs urls={other.attachments.map((a) => `data:${a.mime};base64,${a.bytes}`)} names={other.attachments.map((a) => a.name ?? "image")} />
         </section>
         <div className="flex flex-wrap gap-2 pb-2">
           <Button label="Keep this device's" tone="primary" size="md" block={false} onClick={() => choose("mine")} />

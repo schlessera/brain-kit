@@ -640,7 +640,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (local.text === draft.text && local.attachments.length === draft.attachments.length
           && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)) {
           // Bound on another device meanwhile: it is that session's draft here too.
-          put({ ...local, sessionId: local.sessionId ?? draft.sessionId, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null });
+          put({ ...local, sessionId: local.sessionId ?? draft.sessionId, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null, uncertain: false });
           return;
         }
         // A host refresh never overwrites dirty visible content (D52 §5).

@@ -19,6 +19,7 @@ function fakeHost() {
   let full = false;
   let losePut = false;
   let deleteHold: Promise<void> | null = null;
+  let deleteFailure = 0;
   let maxText = Infinity;
   let getHold: Promise<void> | null = null;
   let slow: Promise<void> | null = null;
@@ -53,6 +54,7 @@ function fakeHost() {
     }
     if (method === "DELETE") {
       if (deleteHold) await deleteHold;
+      if (deleteFailure) { const status = deleteFailure; deleteFailure = 0; return json({ error: "unavailable" }, status); }
       if (!row) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
       if (row.deleted) return json({ error: "DRAFT_DELETED", message: "", tombstoneRevision: row.revision }, 410);
       if (ifMatch !== row.revision) return conflict(row);
@@ -85,6 +87,7 @@ function fakeHost() {
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
     loseNextPut: () => { losePut = true; },
+    failNextDelete: (status: number) => { deleteFailure = status; },
     holdDeletes: () => { let release!: () => void; deleteHold = new Promise<void>((r) => { release = r; }); return () => { deleteHold = null; release(); }; },
     setMaxText: (value: number) => { maxText = value; },
     /** Hold every draft read until the returned release is called. */
@@ -442,6 +445,17 @@ describe("late answers", () => {
     await until(() => host.rows.get("d-other")?.deleted === true);
     await wait(100);
     expect(drafts().drafts[mine]?.conflict, "the choice stands").toBeNull();
+  });
+});
+
+describe("orphans, retried", () => {
+  test("an orphan delete refused by a briefly unavailable host is tried again", async () => {
+    const host = fakeHost();
+    const { ui } = boot(host);
+    host.rows.set("d-gone", { draftId: "d-gone", sessionId: null, revision: 3, updatedAt: 1, text: "Old", attachments: [] });
+    host.failNextDelete(503);
+    ui.stores.drafts.setState((s) => ({ orphans: [...s.orphans, { draftId: "d-gone", revision: 3 }] }));
+    await until(() => host.rows.get("d-gone")?.deleted === true, 5_000);
   });
 });
 

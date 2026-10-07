@@ -481,6 +481,17 @@ describe("the host's versions", () => {
     expect(draftTitle(entries[0]!)).toBe("Letter to Telemachus");
   });
 
+  test("a read that confirms a save whose answer was lost settles the doubt", () => {
+    const { state } = store();
+    const id = state().idFor(ITHACA);
+    state().edit(id, ITHACA, { text: "Ask Aeolus" });
+    state().saveFailed(id, { kind: "unsaved" }, true);
+    expect(holdsUnsaved(state())).toBe(true);
+    state().restore(hostDraft({ draftId: id, sessionId: ITHACA, revision: 1, text: "Ask Aeolus" }));
+    expect(state().drafts[id]?.uncertain).toBe(false);
+    expect(holdsUnsaved(state())).toBe(false);
+  });
+
   test("saved is printed only for the acknowledged edit", () => {
     const { state } = store();
     const id = state().idFor(ITHACA);

@@ -239,10 +239,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       bumpHost(orphan.draftId);
       if (disposed) return;
       orphanRetries.delete(orphan.draftId);
-      if (result.ok || result.status !== 0) deleting.delete(orphan.draftId);
+      if (result.ok || !transient(result.status)) deleting.delete(orphan.draftId);
       // No answer: try again later, backing off as saves do. A conflict means
       // another device changed it since: it is theirs, and the next list shows it.
-      if (!result.ok && result.status === 0) {
+      if (!result.ok && transient(result.status)) {
         const timer = setTimeout(() => removeOrphan(orphan, tries + 1), RETRY_MS[Math.min(tries, RETRY_MS.length - 1)]);
         orphanRetries.set(orphan.draftId, { orphan, tries: tries + 1, timer });
       } else if (result.ok) retryFull();
