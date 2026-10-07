@@ -391,9 +391,14 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    expect(await field(page).count()).toBe(0);
    expect(await page.getByText("This device was signed out",{exact:true}).count()).toBe(1);
    let navigations=0; page.on("framenavigated",()=>navigations++);
+   // A broken confirmation read must not prevent the approved cold fallback.
+   await page.route("**/api/vpn-check",route=>route.abort("failed"));
+   const navigation=page.waitForEvent("framenavigated",{timeout:5_000}).then(()=>true,()=>false);
    await page.waitForTimeout(400); await loginForm(page);
-   await until(page,"f.connected() && f.accountKey() !== null");
+   expect(await navigation,"failed snapshot reloads even when account confirmation fails").toBe(true);
    expect(navigations,"same-account sign-in reloads after a failed snapshot").toBeGreaterThan(0);
+   await page.unroute("**/api/vpn-check");
+   await until(page,"f.connected() && f.accountKey() !== null");
   } finally { await context.close(); }
  },120_000);
  test("different account navigates and cannot read or restore prior drafts or audio",async()=>{

@@ -139,18 +139,33 @@ export function createRoot(
     const value = Reflect.get(target, property);
     if (typeof value !== "function") return value;
     return async (...args: unknown[]) => {
+      const recovery = property === "sessionRecovery";
+      const unavailable = { ok: false as const, reason: "host_unreachable" as const };
       const auth = ["login", "authMethods", "passkeyLoginOptions", "passkeyLoginVerify"].includes(String(property));
       const epoch = authLock?.epoch();
       const phase = authLock?.state.getState().phase;
-      if (!auth && phase && phase !== "active" && phase !== "restoring") throw new DOMException("Sign in again", "AbortError");
+      if (!auth && phase && phase !== "active" && phase !== "restoring") {
+        if (recovery) return unavailable;
+        throw new DOMException("Sign in again", "AbortError");
+      }
       try {
         const result = await value.apply(target, args);
-        if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+        if (!auth && epoch !== authLock?.epoch()) {
+          if (recovery) return unavailable;
+          throw new DOMException("Account context changed", "AbortError");
+        }
         if (property === "sessionRecovery" && result?.ok === false && result.reason === "unauthorized") await authLock?.expire();
         return result;
       } catch (error) {
-        if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
-        if (!auth && error instanceof Error && error.name === "ApiRequestError" && "status" in error && error.status === 401) await authLock?.expire();
+        if (!auth && epoch !== authLock?.epoch()) {
+          if (recovery) return unavailable;
+          throw new DOMException("Account context changed", "AbortError");
+        }
+        if (!auth && error instanceof Error && error.name === "ApiRequestError" && "status" in error && error.status === 401) {
+          await authLock?.expire();
+          if (recovery) return { ok: false, reason: "unauthorized" };
+        }
+        if (recovery) return unavailable;
         throw error;
       }
     };

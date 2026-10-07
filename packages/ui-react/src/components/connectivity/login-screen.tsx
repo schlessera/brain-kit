@@ -36,7 +36,7 @@ export function LoginScreen({ reauth }: { reauth?: { revoked: boolean; snapshotF
   const isReauth = reauth !== undefined;
   const signedIn = useCallback(async (signal: AbortSignal) => {
     if (signal.aborted) return;
-    if (isReauth) {
+    if (isReauth && root.authLock.hasSnapshot()) {
       // The cookie alone does not identify an account. Confirm through the
       // existing authenticated route, before opening any account partition.
       const response = await root.request(root.backendUrl("/api/vpn-check"), { signal });

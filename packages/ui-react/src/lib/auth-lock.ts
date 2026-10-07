@@ -46,6 +46,7 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
   return {
     state,
     epoch: () => epoch,
+    hasSnapshot: () => snapshot && !disposed,
     registerStop(stop: () => Promise<unknown>) { stops.add(stop); return () => { stops.delete(stop); }; },
     expire(reason = "") {
       if (/revok|signed out|invalidated/i.test(reason)) state.setState({ revoked: true });

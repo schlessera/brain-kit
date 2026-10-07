@@ -133,3 +133,20 @@ test("lock cannot reintroduce account metadata captured in a persisted boot stat
   expect(root.stores.trackers.getInitialState().records,"reset target also drops boot metadata").toEqual({});
  } finally {root.dispose();}
 });
+
+
+for(const invalidate of ["lock","dispose"] as const) test(`classified recovery remains a result after ${invalidate}`,async()=>{
+ const pending=deferred<Response>(); let calls=0;
+ const api=createBrainApi(()=>"/api",async()=>{calls++;return pending.promise;});
+ const root=createBrainUiRoot({storage:null,api});
+ try {
+  work(root,async()=>true);
+  const read=root.api.sessionRecovery("odysseus-ithaca").then(result=>({result}),error=>({error}));
+  expect(calls,"the recovery read really started").toBe(1);
+  if(invalidate === "lock") await lock(root); else root.dispose();
+  pending.resolve(new Response(null,{status:401}));
+  expect(await read,"classified recovery remains a result after invalidation").toEqual({result:{ok:false,reason:"host_unreachable"}});
+  if(invalidate === "lock") expect(await root.api.sessionRecovery("odysseus-ithaca"),"locked recovery is classified without a request").toEqual({ok:false,reason:"host_unreachable"});
+  expect(calls).toBe(1);
+ } finally {pending.resolve(new Response(null,{status:401}));root.dispose();}
+});
