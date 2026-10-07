@@ -31,7 +31,7 @@ try {
       const command = `touch ${original}`;
       // Controlled rewrite oracle, invoked by the production RTK hook. Other
       // scenarios explicitly decline, so host RTK installations cannot vary it.
-      writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\n' +
+      writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
         (scenario === "rtk-rewrite" ? `printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command: `touch ${rewritten}` } } })}'\n` : "exit 0\n"));
       chmodSync(join(bin, "rtk"), 0o755);
       if (scenario.startsWith("settings-")) {
