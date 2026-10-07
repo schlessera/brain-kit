@@ -204,9 +204,13 @@ test("editing a transcript commits input; unaccepted transcript holds updates wh
   expect(updateHeld(c.root), "unaccepted transcript keeps a root reload held without Chat").toBe(true);
 });
 
-test("local sheet has honest copy, a silent timer and Keep focus; Stop calls its local handler", async ctx => {
+for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]) {
+  test(`local sheet has honest copy, a silent timer and Keep focus; Stop calls its local handler at ${width}px ${theme}`, async ctx => {
+  await commands.formViewport(width, 900); await page.viewport(width, 900);
+  document.documentElement.dataset.theme = theme;
+  expect(window.innerWidth, "actual sheet cell width").toBe(width);
   const c = fixture(ctx); await c.ready();
-  c.host.style.cssText += ";position:relative;overflow:visible;margin-top:500px;height:0";
+  c.host.style.cssText += ";position:relative;overflow:visible;margin-top:500px;height:0;max-width:720px;margin-inline:auto";
   c.root.stores.voice.getState().setLocal("recording");
   let stopped = 0;
   flushSync(() => c.react.render(<BrainUiProvider root={c.root}><LocalRecordingSheet open onStop={async () => { stopped++; }} onDiscard={async () => {}} /></BrainUiProvider>));
@@ -214,6 +218,13 @@ test("local sheet has honest copy, a silent timer and Keep focus; Stop calls its
   expect(c.host.textContent).toContain("Recording on this device"); expect(c.host.textContent).toContain("Stays on this device. Nothing is uploaded until you tap Transcribe.");
   expect(c.host.textContent).toContain("left");
   expect((await axe.run(c.host, { rules: { region: { enabled: false } } })).violations.map(v => v.id)).toEqual([]);
+  const box = c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!.getBoundingClientRect();
+  expect(box.left, "sheet stays inside the viewport").toBeGreaterThanOrEqual(0);
+  expect(box.right, "sheet stays inside the viewport").toBeLessThanOrEqual(width);
+  for (const control of c.host.querySelectorAll<HTMLElement>("button,[role=button]")) {
+    expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
+  }
   const status = c.host.querySelector("[role=status]")!.textContent;
   await wait(1100); expect(c.host.querySelector("[role=status]")!.textContent, "timer never changes live text").toBe(status);
   await tap(button(c.host, "Discard")); await settled();
@@ -222,10 +233,14 @@ test("local sheet has honest copy, a silent timer and Keep focus; Stop calls its
   await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Keep restores sheet Discard focus" }).toBe("Discard");
   await tap(button(c.host, "Stop and save")); expect(stopped).toBe(1);
 });
+}
 
 
-test("real local capture sheet Stop restores mic focus and Discard keeps its explicit confirm", async ctx => {
-  await commands.formViewport(390, 900); await page.viewport(390, 900);
+for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]) {
+  test(`real local capture sheet Stop restores mic focus and Discard keeps its explicit confirm at ${width}px ${theme}`, async ctx => {
+  await commands.formViewport(width, 900); await page.viewport(width, 900);
+  document.documentElement.dataset.theme = theme;
+  expect(window.innerWidth, "actual sheet cell width").toBe(width);
   const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
   const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
   await expect.poll(() => button(c.host, "Record on this device")).toBeTruthy();
@@ -246,6 +261,7 @@ test("real local capture sheet Stop restores mic focus and Discard keeps its exp
   await expect.poll(() => c.root.stores.voice.getState().local).toBe("idle");
   await expect.poll(async () => (await c.root.recordings!.list("account:odysseus")).length, { message: "discard only removes current capture" }).toBe(1);
 });
+}
 
 
 test("accept focuses the composer at the end without sending or answering a tool approval", async ctx => {
