@@ -22,7 +22,8 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
  * trailing value `draft`, its subtitle the save state, never `saved` before
  * the host acknowledged it. Opening one opens an empty Chat with that draft
  * restored; nothing is sent and no session is created. An empty new chat
- * is never listed.
+ * is never listed. A new chat holding only staged tracks is one (#1112):
+ * `Draft with 1 track file`, `draft · tracks in this tab only`.
  *
  * The date groups follow, unchanged: a session is the kit's card `ListRow`
  * with its title, when it was last active and what it cost, the live run

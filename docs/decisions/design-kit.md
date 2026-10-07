@@ -387,7 +387,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:177,178`, `getInitialState()`,
+`render-smoke.test.tsx:178,179`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -5177,6 +5177,22 @@ question-answer rules are independent.
 >   a second first message would start a second conversation beside it.
 > - In empty Chat the pane's `New conversation` stays `aria-disabled` (§2);
 >   a nonempty new-chat draft reaches a fresh one through the palette row.
+
+> **2026-10-08 — Track-only drafts, implemented by #1112.** The design
+> approved on #1112: a new chat whose staged-track queue holds a track is a
+> Draft entry even with no text or images, `Draft with 1 track file`
+> (`Draft with 2 images, 1 track file` beside images), with the state line
+> `draft · tracks in this tab only`, or `draft · {save word} · tracks in
+> this tab only` in a mixed draft. `1 track failed` comes before `uploading
+> 1 track`, which comes before the lifetime words; tracks are never called
+> saved. Opening it shows that new chat's queue again and sends nothing;
+> removing its last track, with no text or images left, takes it out of
+> Drafts and focuses the field. While the new chat holds a staged track,
+> the pane's `New conversation` is not `aria-disabled`. The words are
+> `trackStateWord` and `draftEntries` in `lib/drafts.ts`; the queues are
+> watched as one by `subscribeAllTracks` in `lib/draft-tracks.ts`, which
+> the service-worker update also waits on: any root-owned queue holding a
+> track, in any view, is unsaved work.
 
 ### 6. Host contracts the implementations add
 

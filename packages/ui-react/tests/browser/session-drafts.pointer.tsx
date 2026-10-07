@@ -28,6 +28,8 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
 import { trackerViews } from "../../src/stores/tracker-state.js";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
+import { useServiceWorkerUpdates } from "../../src/hooks/use-service-worker-updates.js";
+import { trackView } from "../track-fixtures.js";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -110,6 +112,8 @@ function fixtureRequest(host: ReturnType<typeof draftHost>) {
   return async (url: string, init: RequestInit = {}): Promise<Response> => {
     const path = new URL(url, "http://fixture.invalid").pathname;
     if (path.includes("/drafts")) return host.handle(path, init);
+    // The host's track intake: every staged file comes back as the invented Ithaca loop.
+    if (path.endsWith("/track-upload")) return Response.json({ files: [trackView().file] });
     if (path.endsWith("/sessions")) return Response.json({ sessions: LISTED });
     if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
@@ -117,9 +121,29 @@ function fixtureRequest(host: ReturnType<typeof draftHost>) {
   };
 }
 
-function Shell() {
+function Shell({ reload }: { reload?: () => void }) {
   const view = useUIStore((s) => s.activeView);
-  return <AppShell>{view === "activity" ? <ActivityPage /> : <ChatPage />}</AppShell>;
+  return <AppShell>{reload && <UpdateGuard reload={reload} />}{view === "activity" ? <ActivityPage /> : <ChatPage />}</AppShell>;
+}
+
+/** The hosting shell's service-worker hook, with its reload observed rather than performed. */
+function UpdateGuard({ reload }: { reload: () => void }) {
+  useServiceWorkerUpdates({ isBusy: false, reload });
+  return null;
+}
+
+/** A browser that has an update waiting: the test installs it and lets it take control. */
+class WaitingWorker extends EventTarget {
+  controller: object | null = {};
+  readonly worker = Object.assign(new EventTarget(), { state: "installing" });
+  readonly registration = Object.assign(new EventTarget(), { installing: this.worker });
+  async register() { return this.registration; }
+  takeover() {
+    this.worker.state = "installed";
+    this.worker.dispatchEvent(new Event("statechange"));
+    this.controller = this.worker;
+    this.dispatchEvent(new Event("controllerchange"));
+  }
 }
 
 type Scene = { ui: BrainUiRoot; host: HTMLDivElement; socket: FixtureSocket; drafts: ReturnType<typeof draftHost>; width: number; signal: AbortSignal };
@@ -179,7 +203,7 @@ function history() {
   ]).flat();
 }
 
-async function mount(ctx: TestContext, width: number, height: number, theme: "dark" | "light", opts: { drafts?: boolean } = {}): Promise<Scene> {
+async function mount(ctx: TestContext, width: number, height: number, theme: "dark" | "light", opts: { drafts?: boolean; reload?: () => void } = {}): Promise<Scene> {
   ctx.signal.throwIfAborted();
   vi.stubGlobal("WebSocket", FixtureSocket);
   await resize(width, height);
@@ -198,7 +222,7 @@ async function mount(ctx: TestContext, width: number, height: number, theme: "da
   });
   ui.stores.ui.getState().setTheme(theme);
   ui.stores.chat.getState().setActiveSession(ITHACA.id);
-  flushSync(() => renderer.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
+  flushSync(() => renderer.render(<BrainUiProvider root={ui}><Shell reload={opts.reload} /></BrainUiProvider>));
   ui.connection.connect();
   const socket = FixtureSocket.last!;
   flushSync(() => socket.open());
@@ -505,5 +529,127 @@ for (const width of [390, 1440] as const) for (const theme of THEMES) {
     await expect.poll(() => saveLine(s)?.dataset.draftSave, { message: "this device's version saved" }).toBe("saved");
     await openSessions(s, mode);
     await must(s, /^Draft: Ask Eumaeus at dawn, /);
+  });
+}
+
+// Track files staged for a new chat's first message, and nothing else
+// (#1112): a Draft entry of their own, kept by this tab only.
+const TRACK = "ithaca-to-pylos-coastal-route-day-3.gpx";
+const TRACK_ENTRY = "Draft: Draft with 1 track file, tracks in this tab only. Open draft.";
+const removeTrack = (name = TRACK) => find(`Remove ${name}`);
+
+/** The track picker's input, given a picked file as the system picker would. */
+function stageTrack(s: Scene, name = TRACK) {
+  const input = s.host.querySelector<HTMLInputElement>('input[type="file"][accept*=".gpx"]')!;
+  const transfer = new DataTransfer();
+  transfer.items.add(new File(['{"type":"LineString","coordinates":[[20.71,38.31],[21.69,37.03]]}'], name, { type: "application/octet-stream" }));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/** The chip is back in this composer, its upload done. */
+async function expectTrackChip(message: string) {
+  await expect.poll(() => removeTrack(), { message }).not.toBeNull();
+  const chip = removeTrack()!.closest<HTMLElement>("[data-track-chip]")!;
+  await expect.poll(() => chip.getAttribute("aria-label"), { message: `${message}: ready` }).toMatch(/km/);
+}
+
+/** Opens the track-only Draft entry from Sessions and checks what it says. */
+async function openTrackEntry(s: Scene, mode: string) {
+  await openSessions(s, mode);
+  const entry = await must(s, TRACK_ENTRY);
+  expect(entry.closest("[data-drafts-group]"), "under Drafts").not.toBeNull();
+  expect(entry.textContent, "the title").toContain("Draft with 1 track file");
+  expect(entry.textContent, "the state line").toContain("draft · tracks in this tab only");
+  expect(entry.textContent, "tracks are never called saved").not.toMatch(/saved/);
+  if (mode !== "fine") expect(rect(entry).height, "the row reaches 44px").toBeGreaterThanOrEqual(43.5);
+  await press(s, entry, mode);
+  await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "the new-chat view" }).toBeNull();
+  await expectTrackChip("the staged track is back");
+  expect(composer(s).value, "no words appeared").toBe("");
+}
+
+for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of THEMES) {
+  test(`${width} (${theme}): a new chat holding only a staged track stays reachable through New chat; removing it ends the entry`, async (ctx) => {
+    const mode = pointer();
+    const s = await mount(ctx, width, 800, theme);
+    await press(s, await must(s, newChatName(width)), mode);
+    await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "a new chat" }).toBeNull();
+    stageTrack(s);
+    await expectTrackChip("the track is staged");
+
+    // New chat from the palette, where the width has one.
+    if (width >= 900) {
+      await press(s, await must(s, /All commands/), mode);
+      const palette = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="Command palette"]');
+      await expect.poll(() => find(/^New chat/, "option", palette() ?? document), { message: "the palette's New chat row" }).not.toBeNull();
+      await press(s, find(/^New chat/, "option", palette()!)!, mode);
+      await expect.poll(() => removeTrack(), { message: "the new chat opens without the track" }).toBeNull();
+      expect(s.ui.stores.chat.getState().activeSessionId).toBeNull();
+      await openTrackEntry(s, mode);
+    }
+
+    // New conversation in Sessions: the drawer's, or the pane's, which a staged track makes available.
+    await openSessions(s, mode);
+    // Found by its word whatever it prints under it, so the disabled state is what is judged.
+    const start = await must(s, /^New conversation/);
+    expect(start.closest('[aria-disabled="true"]'), "a staged track is not an empty chat").toBeNull();
+    await press(s, start, mode);
+    await expect.poll(() => removeTrack(), { message: "the new chat opens without the track" }).toBeNull();
+    await openTrackEntry(s, mode);
+    expect(s.socket.frames("chat_message"), "nothing was sent").toHaveLength(0);
+
+    // The last track removed: an empty chat, out of Drafts, the field focused, nothing asked.
+    await press(s, removeTrack()!, mode);
+    await expect.poll(() => removeTrack(), { message: "the chip is gone" }).toBeNull();
+    await expect.poll(() => document.activeElement, { message: "focus goes to the field" }).toBe(composer(s));
+    expect(document.querySelector('[role="alertdialog"]'), "no confirmation").toBeNull();
+    await openSessions(s, mode);
+    await expect.poll(() => s.host.querySelector("[data-drafts-group]"), { message: "no Draft entry is left" }).toBeNull();
+    expect(s.socket.frames("chat_message"), "nothing was sent").toHaveLength(0);
+  });
+}
+
+// The reload guard (#1112): a track staged in A while B is in view.
+for (const width of [390, 1280] as const) for (const theme of THEMES) for (const ending of ["removed", "sent"] as const) {
+  test(`${width} (${theme}): an update waits while A holds a staged track and B is in view; it reloads once the track is ${ending}`, async (ctx) => {
+    const mode = pointer();
+    const waiting = new WaitingWorker();
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: waiting });
+    ctx.onTestFinished(() => { delete (navigator as { serviceWorker?: unknown }).serviceWorker; });
+    let reloads = 0;
+    const s = await mount(ctx, width, 800, theme, { reload: () => reloads++ });
+    stageTrack(s);
+    await expectTrackChip("A's track is staged");
+
+    // B in view, through its Sessions row.
+    await openSessions(s, mode);
+    await press(s, await must(s, new RegExp(`^${RAFT.title}`)), mode);
+    await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "B is in view" }).toBe(RAFT.id);
+    expect(removeTrack(), "B's composer has no track").toBeNull();
+    waiting.takeover();
+    await settle(s, 4);
+    expect(reloads, "A's staged track would be lost").toBe(0);
+
+    await openSessions(s, mode);
+    await press(s, await must(s, new RegExp(`^${ITHACA.title}`)), mode);
+    await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "A is in view" }).toBe(ITHACA.id);
+    await expectTrackChip("A's track is still there");
+    expect(reloads, "nothing changed yet").toBe(0);
+    if (ending === "removed") {
+      await press(s, removeTrack()!, mode);
+    } else {
+      await type(s, "Which harbour on this route?");
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => s.socket.frames("chat_message").length, { message: "sent once" }).toBe(1);
+      const sent = s.socket.frames("chat_message")[0];
+      expect(sent.files, "the track went with it").toHaveLength(1);
+      await settle(s, 2);
+      expect(reloads, "a send the host has not accepted holds the track").toBe(0);
+      s.socket.deliver({ type: "session_info", sessionId: ITHACA.id, isNew: false, requestId: sent.requestId });
+    }
+    await expect.poll(() => reloads, { message: "one reload" }).toBe(1);
+    await settle(s, 4);
+    expect(reloads, "never a second").toBe(1);
   });
 }

@@ -4,7 +4,8 @@ import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { SessionList, type DraftRowData, type SessionListProps, type WorkingRowData } from "./session-list.js";
-import { boundDrafts, draftEntryWord, draftSaveView, draftTitle, unboundDrafts } from "../../lib/drafts.js";
+import { boundDrafts, draftEntries, draftEntryWord, draftSaveView, draftTitle, trackStateWord } from "../../lib/drafts.js";
+import { useStagedTracks } from "../../hooks/use-staged-tracks.js";
 import { formatRelativeTime } from "./tool-views.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
@@ -57,14 +58,26 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
 
+  const staged = useStagedTracks();
+
   // Drafts (D52 §5): unbound ones are entries of their own; a session's own
   // marks its row. Content stays in the draft store; only words come here.
-  const draftRows: DraftRowData[] = useMemo(() => unboundDrafts(drafts).map((d) => {
+  // A new chat's staged tracks join its entry, or are one (#1112): they
+  // live in this page only, so their words never say saved.
+  const draftRows: DraftRowData[] = useMemo(() => draftEntries(drafts, staged, root.stores.drafts.getState().originOf).map(({ id, draft: d, tracks }) => {
+    const current = currentSessionId === null && id === fresh;
+    const trackWord = tracks ? trackStateWord(tracks) : null;
+    if (!d) {
+      const title = draftTitle({ text: "", attachments: [], tracks: tracks!.count });
+      return { id, title, state: `draft · ${trackWord}`, name: `Draft: ${title}, ${trackWord}. Open draft.`, current };
+    }
+    const word = draftEntryWord(d, { supported, limits }, now);
+    const title = draftTitle({ ...d, tracks: tracks?.count ?? 0 });
+    if (trackWord) return { id, title, state: `draft · ${word} · ${trackWord}`, name: `Draft: ${title}, ${word}, ${trackWord}. Open draft.`, current };
     const view = draftSaveView(d, { supported, limits }, now);
     const state = view.state === "none" ? "draft · not saved yet" : view.copy;
-    const title = draftTitle(d);
-    return { id: d.draftId, title, state, name: `Draft: ${title}, ${draftEntryWord(d, { supported, limits }, now)}. Open draft.`, current: currentSessionId === null && d.draftId === fresh };
-  }), [drafts, supported, limits, now, currentSessionId, fresh]);
+    return { id, title, state, name: `Draft: ${title}, ${word}. Open draft.`, current };
+  }), [drafts, staged, root, supported, limits, now, currentSessionId, fresh]);
   const sessionDrafts = useMemo(() => boundDrafts(drafts), [drafts]);
 
   useEffect(() => {

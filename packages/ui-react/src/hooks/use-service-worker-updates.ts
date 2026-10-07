@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useBrainUiRoot } from "../root-context.js";
 import { holdsUnsaved } from "../stores/draft-state.js";
+import { anyStagedTracks, subscribeAllTracks } from "../lib/draft-tracks.js";
 
 /** Default unsaved-text probe used by the service-worker reload guard. */
 export function hasUnsentText(): boolean {
@@ -32,6 +33,7 @@ export function useServiceWorkerUpdates({
 }: UseServiceWorkerUpdatesOptions): void {
   // Every session's draft lives in the root, not on screen (#951): one the
   // host has not acknowledged, or a send nothing has settled, is unsaved work.
+  // So is a staged track in any view (#1112): it lives in this page only.
   const root = useBrainUiRoot();
   const rootRef = useRef(root);
   rootRef.current = root;
@@ -67,9 +69,7 @@ export function useServiceWorkerUpdates({
         }
       | undefined;
 
-    const busy = () => isBusyRef.current || probeUnsentTextRef.current() || holdsUnsaved(rootRef.current.stores.drafts.getState());
-    // A draft saved, or a send settled, may be the transition back to idle.
-    const unsubscribeDrafts = rootRef.current.stores.drafts.subscribe(() => tryReloadRef.current());
+    const busy = () => isBusyRef.current || probeUnsentTextRef.current() || holdsUnsaved(rootRef.current.stores.drafts.getState()) || anyStagedTracks(rootRef.current);
     const doReload = () => {
       if (refreshingRef.current || disposed) return;
       refreshingRef.current = true;
@@ -133,7 +133,6 @@ export function useServiceWorkerUpdates({
       disposed = true;
       serviceWorker.removeEventListener("controllerchange", onControllerChange);
       document.removeEventListener("input", onInput);
-      unsubscribeDrafts();
       if (registrationListener) {
         registrationListener.registration.removeEventListener(
           "updatefound",
@@ -146,6 +145,16 @@ export function useServiceWorkerUpdates({
       tryReloadRef.current = () => {};
     };
   }, [enabled]);
+
+  // A draft saved, a send settled or a queue emptied may be the transition
+  // back to idle. Bound to the root in use, so a replaced root's changes
+  // are the ones heard; the new root may already be idle.
+  useEffect(() => {
+    const unsubscribeDrafts = root.stores.drafts.subscribe(() => tryReloadRef.current());
+    const unsubscribeTracks = subscribeAllTracks(root, () => tryReloadRef.current());
+    tryReloadRef.current();
+    return () => { unsubscribeDrafts(); unsubscribeTracks(); };
+  }, [root]);
 
   // Store-driven state changes rerender the caller. This is the normal idle
   // transition; the input listener above covers the DOM-only equivalent.

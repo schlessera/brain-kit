@@ -33,7 +33,8 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 //   restart and another device; a save the host refuses (offline, too
 //   large, full) is never called saved and keeps the words; New chat opens
 //   empty with no confirmation, and leaving a streaming session aborts
-//   nothing.
+//   nothing. A new chat holding only a track the real host read stays a
+//   Draft entry through New chat, and sends nothing (#1112).
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Parallel-sessions runtime proof requires real Chrome");
@@ -848,5 +849,67 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await clearHostDrafts();
       }
     }, 240_000);
+
+    test(`${run.name}: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
+      const tag = `(${run.name})`;
+      const a = await device(run);
+      const plan = `Plan: Route to Pylos ${tag}`;
+      const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
+      const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
+      const tab = (page: Page, label: string) => page.getByRole("tab", { name: new RegExp(`^${label}`) }).locator("visible=true").first();
+      const remove = () => a.page.getByRole("button", { name: `Remove ${name}`, exact: true });
+      const entry = () => a.page.locator("[data-drafts-group] [data-draft-row] [role='button']").locator("visible=true");
+      /** The staged track is in this composer, read by the real host. */
+      const chipReady = async () => {
+        await remove().waitFor();
+        await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+      };
+      const openEntry = async () => {
+        if (!wide(run)) await press(run, tab(a.page, "Sessions"));
+        expect(await entry().count(), "one Draft entry").toBe(1);
+        expect(await entry().first().getAttribute("aria-label")).toBe("Draft: Draft with 1 track file, tracks in this tab only. Open draft.");
+        await press(run, entry().first());
+        await until(a.page, "p.activeSessionId() === null && p.view() === 'chat'");
+        await chipReady();
+        expect(await composer(a.page).inputValue(), "no words appeared").toBe("");
+      };
+      try {
+        await send(run, a.page, plan);
+        await until(a.page, "p.activeSessionId() !== null");
+        await a.page.getByText("Noted: Route to Pylos").first().waitFor();
+        await newChat(run, a.page);
+        await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+        await chipReady();
+        const before = started.length;
+
+        // New chat by the palette from 480 up, and by Sessions' New conversation at every width.
+        if (!phone(run)) {
+          await press(run, a.page.getByRole("button", { name: /^All commands/ }).locator("visible=true").first());
+          await press(run, a.page.getByRole("option", { name: /^New chat/ }));
+          await until(a.page, "p.activeSessionId() === null");
+          expect(await remove().count(), "the new chat opens without the track").toBe(0);
+          await openEntry();
+        }
+        if (!wide(run)) await press(run, tab(a.page, "Sessions"));
+        await press(run, button(a.page, "New conversation"));
+        await until(a.page, "p.activeSessionId() === null");
+        expect(await remove().count(), "the new chat opens without the track").toBe(0);
+        await openEntry();
+        expect(started.length, "nothing was sent").toBe(before);
+
+        // The last track removed: out of Drafts, the field focused, nothing asked.
+        await press(run, remove());
+        await remove().waitFor({ state: "detached" });
+        expect(await a.page.evaluate(() => document.activeElement?.matches("textarea[data-composer]") ?? false), "focus is in the field").toBe(true);
+        if (!wide(run)) await press(run, tab(a.page, "Sessions"));
+        expect(await a.page.locator("[data-drafts-group]").count(), "no Draft entry is left").toBe(0);
+        expect(await confirmations(a.page)).toBe(0);
+        expect(a.dialogs).toEqual([]);
+        expect(started.length, "nothing was sent").toBe(before);
+      } finally {
+        await a.context.close();
+        await clearHostDrafts();
+      }
+    }, 120_000);
   }
 });
