@@ -1,4 +1,5 @@
 import { createTrackRoutes } from "./routes/tracks.js";
+import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
@@ -536,7 +537,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
   // (tailscale) from /api/vpn-check and shows the login / VPN screen.
   app.use("/api/*", authGuard(authMode, auth, db));
-  app.get("/api/vpn-check", (c) => c.json({ vpn: true }));
+  // The account partition key rides on the probe every client already makes
+  // before it mounts anything (#1014): an agent principal gets none.
+  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode);
+  app.get("/api/vpn-check", (c) => {
+    const accountKey = accountKeys(c.get("principal"));
+    return c.json(accountKey ? { vpn: true, accountKey } : { vpn: true });
+  });
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
   app.route("/api", passkeyManagementRoutes(authMode, passkeyCtx));
