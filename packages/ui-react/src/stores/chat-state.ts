@@ -705,7 +705,8 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       streaming = true;
       return mergeLive(old, m);
     }
-    if (boundedContinuation && m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text))) {
+    if ((continuing && m.role === "assistant" && old.toolCalls.some((t) => !m.toolCalls.some((n) => n.id === t.id)))
+      || (boundedContinuation && m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text)))) {
       return { ...mergeLive(old, m), isStreaming: false };
     }
     return { ...m, id: old.id, timestamp: old.timestamp, ...(old.attachments ? { attachments: old.attachments } : {}) };
@@ -759,15 +760,34 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     if (toolCalls.some((b) => b.id === t.id)) continue;
     {
       const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex]?.id === t.id);
-      const following = other.parts.slice(sourceAt + 1).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
-      let at = parts.findIndex((p) => p.kind === "tool" && following.includes(toolCalls[p.toolIndex]!.id));
-      if (at < 0 && other === m) {
-        // Stored progress missed while away precedes the live-only suffix
-        // received while this history was being read.
-        const preceding = other.parts.slice(0, sourceAt).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
-        const prior = parts.findLastIndex((p) => p.kind === "tool" && preceding.includes(toolCalls[p.toolIndex]!.id));
-        if (prior >= 0) at = prior + 1;
+      const following = sourceAt < 0 ? [] : other.parts.slice(sourceAt + 1);
+      const preceding = sourceAt < 0 ? [] : other.parts.slice(0, sourceAt).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
+      const start = parts.findLastIndex((p) => p.kind === "tool" && preceding.includes(toolCalls[p.toolIndex]!.id)) + 1;
+      let at = -1;
+      // A text block can be the nearest shared boundary. A missed tool may
+      // also have coalesced two drawn text blocks: split at that boundary.
+      for (const next of following) {
+        for (let index = start; index < parts.length; index++) {
+          const part = parts[index]!;
+          if (next.kind === "tool") {
+            if (part.kind === "tool" && toolCalls[part.toolIndex]!.id === other.toolCalls[next.toolIndex]!.id) at = index;
+          } else if (part.kind === next.kind && next.text.trim().length > 0 && part.text.trim().length > 0) {
+            const needle = next.text.replace(/\n…\[\d+ chars elided\]$/, "");
+            if (!needle.trim()) continue;
+            const offset = part.text.indexOf(needle);
+            if (offset >= 0 || needle.startsWith(part.text)) {
+              at = index;
+              if (offset > 0) {
+                parts.splice(index, 1, { ...part, text: part.text.slice(0, offset) }, { ...part, text: part.text.slice(offset) });
+                at++;
+              }
+            }
+          }
+          if (at >= 0) break;
+        }
+        if (at >= 0) break;
       }
+      if (at < 0 && sourceAt >= 0 && other === m && start > 0) at = start;
       parts.splice(at < 0 ? parts.length : at, 0, { kind: "tool", toolIndex: toolCalls.length });
     }
     toolCalls.push(other === old && t.status === "pending_approval"

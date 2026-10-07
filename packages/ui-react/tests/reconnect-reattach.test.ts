@@ -70,6 +70,41 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  for (const anchor of [false, true]) test(`recovered tools preserve neighboring text boundaries (${anchor ? "separate" : "coalesced"})`, () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    if (anchor) { chat.startToolCall("s1", "wax-a", "Bash"); chat.completeToolCall("s1", "wax-a", "Bash", {}); }
+    chat.appendText("s1", " The crew rowed past Scylla.");
+    chat.startToolCall("s1", "wax-c", "Bash"); chat.completeToolCall("s1", "wax-c", "Bash", {});
+    chat.appendText("s1", " Rope held. Live oars.");
+    const old = buffer(root).messages.at(-1)!;
+    const ids = anchor ? ["wax-a", "wax-b", "wax-c"] : ["wax-b", "wax-c"];
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS + " The crew rowed past Scylla. Rope held.", toolCalls: ids.map((id) => ({ id, name: "Bash", input: {} })), parts: [
+        { kind: "text", text: SIRENS }, ...(anchor ? [{ kind: "tool", toolIndex: 0 }] : []), { kind: "tool", toolIndex: anchor ? 1 : 0 },
+        { kind: "text", text: " The crew rowed past Scylla." }, { kind: "tool", toolIndex: anchor ? 2 : 1 }, { kind: "text", text: " Rope held." },
+      ],
+    }] });
+    const got = buffer(root).messages.at(-1)!;
+    expect(got.parts.map((p) => p.kind === "tool" ? got.toolCalls[p.toolIndex]!.id : p.text), "the recovered tool keeps its surrounding text boundaries").toEqual([
+      SIRENS, ...(anchor ? ["wax-a"] : []), "wax-b", " The crew rowed past Scylla.", "wax-c", " Rope held. Live oars.",
+    ]);
+    expect(got.id).toBe(old.id);
+  });
+  test("a completed complementary replay keeps every already drawn tool", () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState(); chat.stampTurn("s1", "turn-1");
+    for (const id of ["wax-a", "wax-c"]) { chat.startToolCall("s1", id, "Bash"); chat.completeToolCall("s1", id, "Bash", {}); }
+    chat.finishAssistantMessage("s1");
+    const old = buffer(root).messages.at(-1)!;
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], { role: "assistant", content: SIRENS, turnId: "turn-1", toolCalls: ["wax-a", "wax-b"].map((id) => ({ id, name: "Bash", input: {} })) }] });
+    const got = buffer(root).messages.at(-1)!;
+    expect(got.parts.filter((p) => p.kind === "tool").map((p) => got.toolCalls[p.toolIndex]!.id), "completed recovery retains the already drawn cards").toEqual(["wax-a", "wax-b", "wax-c"]);
+    expect(got.id).toBe(old.id); expect(got.isStreaming).toBe(false);
+  });
+
   for (const split of [false, true]) test(`clipped later progress keeps a short opening and drawn suffix (${split ? "split" : "coalesced"})`, () => {
     const { root, socket } = running("Row on.");
     const chat = root.stores.chat.getState();

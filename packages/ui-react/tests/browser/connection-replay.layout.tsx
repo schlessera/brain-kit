@@ -83,3 +83,59 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
     expect(net.frames.slice(sentBefore).filter((f) => JSON.parse(String(f.data)).type === "chat_message")).toEqual([]);
   });
 }
+
+for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
+  test(`${theme} ${width}: a recovered tool splits text without remounting an expanded live card`, async (ctx) => {
+    const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
+    const outer = await commands.formViewport(width, 800);
+    await page.viewport(width, 800);
+    document.documentElement.dataset.theme = theme;
+    const net = installFaultNetwork({ routes: () => Response.json({ entries: [], providers: [], backends: {}, slugs: {}, models: [], sessions: [] }) });
+    const ui = createBrainUiRoot({ storage: null, request: net.request });
+    const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+    const host = document.createElement("div"); host.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column"; document.body.append(host);
+    const renderer = createRoot(host);
+    ctx.onTestFinished(async () => {
+      flushSync(() => renderer.unmount()); ui.dispose(); net.restore(); host.remove(); style.remove();
+      document.documentElement.dataset.theme = before.theme;
+      await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120);
+    });
+    ui.connection.connect(); await expect.poll(() => net.socket()?.readyState).toBe(1);
+    const chat = ui.stores.chat.getState(); chat.setActiveSession("ithaca");
+    const user = { role: "user", content: "Hold: Sail past the Sirens", toolCalls: [] };
+    net.socket()!.deliver({ type: "session_history", sessionId: "ithaca", messages: [user] });
+    const opening = "Setting out: Sail past the Sirens.";
+    const middle = " The crew rowed past Scylla.";
+    chat.startAssistantMessage("ithaca", "turn-1"); chat.appendText("ithaca", opening + middle);
+    chat.startToolCall("ithaca", "rope-c", "Bash"); chat.completeToolCall("ithaca", "rope-c", "Bash", { command: "check rope" });
+    chat.appendText("ithaca", " Rope held. Live oars.");
+    flushSync(() => renderer.render(<BrainUiProvider root={ui}><ChatPage /></BrainUiProvider>));
+    await new Promise((done) => setTimeout(done, 500)); await frame();
+    const header = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("check rope"))!;
+    expect(header, "a real live tool card is present").toBeDefined();
+    await page.getByRole("button", { name: /check rope/ }).click();
+    await new Promise((done) => setTimeout(done, 500)); await frame();
+    const detail = header.parentElement!.querySelector(".whitespace-pre-wrap");
+    expect(detail, "the card is expanded before the fault").not.toBeNull();
+    const field = host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!; field.focus(); await frame();
+    const message = header.closest("[data-reading-column]")!.children[1]!;
+    net.drop({ announce: true }); await frame();
+    net.recover(); ui.connection.reconnectNow(); await expect.poll(() => net.socket()?.readyState).toBe(1);
+    net.socket()!.deliver({ type: "session_history", sessionId: "ithaca", messages: [user, {
+      role: "assistant", content: opening + middle + " Rope held.", toolCalls: [
+        { id: "wax-b", name: "Bash", input: { command: "check wax" } }, { id: "rope-c", name: "Bash", input: { command: "check rope" } },
+      ], parts: [{ kind: "text", text: opening }, { kind: "tool", toolIndex: 0 }, { kind: "text", text: middle }, { kind: "tool", toolIndex: 1 }, { kind: "text", text: " Rope held." }],
+    }] });
+    net.socket()!.deliver({ type: "status", sessionId: "ithaca", status: "thinking", turnId: "turn-1" });
+    await frame();
+    expect(header.isConnected, "the expanded card keeps its original header node").toBe(true);
+    expect(detail!.isConnected, "the expanded input stays mounted").toBe(true);
+    expect(message.isConnected, "the answer stays mounted").toBe(true);
+    const recovered = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("check wax"))!;
+    const between = [...host.querySelectorAll(".chat-message-body")].find((b) => b.textContent?.trim() === middle.trim())!;
+    expect(between, "recovered text keeps its distinct chronological block").toBeDefined();
+    expect(recovered.compareDocumentPosition(between) & Node.DOCUMENT_POSITION_FOLLOWING, "the recovered tool precedes its following text").not.toBe(0);
+    expect(between.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING, "the retained tool still follows that text").not.toBe(0);
+    expect(document.activeElement).toBe(field);
+  });
+}

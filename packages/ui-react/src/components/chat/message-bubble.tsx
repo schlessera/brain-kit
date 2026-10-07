@@ -347,6 +347,9 @@ function AssistantContent({
 }) {
   const root = useBrainUiRoot();
   const contentRef = useRef<HTMLDivElement>(null);
+  // Recovered text/tool boundaries can move a run without replacing its cards.
+  const toolRunKeys = useRef(new Map<string, string>());
+  const usedToolRunKeys = new Set<string>();
   const showShare =
     !message.isStreaming && !!message.content && message.content.trim().length > 0;
   const shareOptions = showShare
@@ -400,15 +403,21 @@ function AssistantContent({
                 isStreaming={message.isStreaming && group.isLast}
               />
             );
-          case "tools":
+          case "tools": {
+            const retained = group.toolCalls.map((tool) => toolRunKeys.current.get(tool.id))
+              .find((key) => key !== undefined && !usedToolRunKeys.has(key));
+            const key = retained ?? `tool-run:${group.toolCalls[0]!.id}`;
+            usedToolRunKeys.add(key);
+            for (const tool of group.toolCalls) toolRunKeys.current.set(tool.id, key);
             return (
               <ToolCallTimeline
-                key={i}
+                key={key}
                 toolCalls={group.toolCalls}
                 onApproval={onToolApproval}
                 live={message.isStreaming}
               />
             );
+          }
           case "block":
             return <BlockCard key={i} {...group.payload} />;
           case "askUser":
