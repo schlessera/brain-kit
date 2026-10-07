@@ -436,6 +436,7 @@ signatures (every public export and the types it is made of)
     export interface LocalCaptureSink {
         begin?(info: {
             mimeType: LocalCaptureMimeType;
+            stop?: (reason: LocalCaptureStopReason) => Promise<LocalCaptureStopReason>;
         }): void | Promise<void>;
         chunk(chunk: LocalCaptureChunk): void | Promise<void>;
         end?(reason: LocalCaptureStopReason): void | Promise<void>;

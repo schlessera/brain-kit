@@ -42,7 +42,7 @@ export interface LocalCaptureChunk {
  */
 export interface LocalCaptureSink {
   /** Once, before the first chunk, with the container the recorder chose. */
-  begin?(info: { mimeType: LocalCaptureMimeType }): void | Promise<void>;
+  begin?(info: { mimeType: LocalCaptureMimeType; stop?: (reason: LocalCaptureStopReason) => Promise<LocalCaptureStopReason> }): void | Promise<void>;
   chunk(chunk: LocalCaptureChunk): void | Promise<void>;
   /** Once, after the final chunk and after the microphone was released. */
   end?(reason: LocalCaptureStopReason): void | Promise<void>;
@@ -187,7 +187,7 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
   }
   startedAt = now();
   // Only a recording that started reaches the sink, and begin comes first.
-  delivery = delivery.then(() => sink.begin?.({ mimeType })).then(() => undefined, failSink);
+  delivery = delivery.then(() => sink.begin?.({ mimeType, stop: (why) => finish(why) })).then(() => undefined, failSink);
 
   return {
     mimeType,

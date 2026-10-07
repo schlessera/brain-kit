@@ -50,15 +50,17 @@ Partitioning is an app boundary, not protection against someone with access
 to the device. `stop("auth")` stops capture, accepts at most the in-flight
 write, and retains the originating partition.
 
-Call `recover(partition)` on a readable partition after launch. It never opens
+Call `recover(partition)` on a readable partition after launch. If capacity
+prevents a repair write, the store still returns and plays the committed
+prefix, and retries the durable classification on later recovery. It never opens
 the microphone: live indexes and partial audio become interrupted recordings,
 using the last contiguous committed end. An index with no playable chunks
 adds a durable removed-by-browser notice until `dismissRemoved(partition)`.
 If both index and chunks disappear, the browser leaves nothing detectable.
 Durable-storage requests and capacity estimates are not guarantees.
 `playback(partition, id)` returns a Blob URL and its `revoke()` cleanup;
-`discard(partition, id)` deletes that recording and its chunks. Recording,
-playback and recovery perform no upload or transcription.
+`discard(partition, id)` deletes that recording and its chunks. Playback URLs are revoked on discard, association, auth loss and disposal.
+Recording, playback and recovery perform no upload or transcription.
 
 A root created with `localCapture: { sink }` also records without the host.
 While the host is unreachable the mic becomes "Record on this device": a tap
