@@ -30,6 +30,36 @@ prevents typing or sending while capture or its final drain is active.
 
 ### Recording on the device
 
+Set `localCapture: true` and a stable `storagePrefix` on a persistent root to
+use its durable `root.recordings` store. Recording remains opt-in. `start()`
+checks the origin's audio budget and acquires the single recording tab lock
+before asking for microphone permission. Each chunk and its saved boundary
+commit together; events report only committed `savedThroughMs`. The store
+holds service-worker update reloads until capture and finalization finish.
+
+Pending audio has no age expiry and is never evicted to make room. The store
+limits each recording to ten minutes and all partitions together to 100 MiB,
+with the browser's estimated headroom as a tighter budget. A failed write
+stops capture and keeps the committed prefix. Encoded chunks are never sliced
+to fit a limit: playback uses the contiguous chunks that committed.
+
+Account audio is accessible only while the matching `accountKey` is held;
+locked audio still counts toward the cap. New captures without an account are
+`unassigned`, and `assign(id)` requires an explicit choice by the caller.
+Partitioning is an app boundary, not protection against someone with access
+to the device. `stop("auth")` stops capture, accepts at most the in-flight
+write, and retains the originating partition.
+
+Call `recover(partition)` on a readable partition after launch. It never opens
+the microphone: live indexes and partial audio become interrupted recordings,
+using the last contiguous committed end. An index with no playable chunks
+adds a durable removed-by-browser notice until `dismissRemoved(partition)`.
+If both index and chunks disappear, the browser leaves nothing detectable.
+Durable-storage requests and capacity estimates are not guarantees.
+`playback(partition, id)` returns a Blob URL and its `revoke()` cleanup;
+`discard(partition, id)` deletes that recording and its chunks. Recording,
+playback and recovery perform no upload or transcription.
+
 A root created with `localCapture: { sink }` also records without the host.
 While the host is unreachable the mic becomes "Record on this device": a tap
 opens the microphone and records with MediaRecorder into the sink, chunk by

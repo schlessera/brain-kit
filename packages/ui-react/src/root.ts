@@ -11,6 +11,7 @@ import { disposeTracks, subscribeAllTracks, trackKey, trackRefs } from "./lib/dr
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 import type { LocalCaptureSink } from "./voice/local-capture.js";
 import { createLocalPartitions, type LocalPartitions } from "./lib/local-partitions.js";
+import { createRecordingStore, type RecordingStore } from "./lib/recordings.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
@@ -18,6 +19,8 @@ const LOCAL_PARTITIONS_DB = "brain-ui-local";
 
 /** Recording on the device while the host is unreachable (#1012). */
 export interface LocalCaptureOptions {
+  /** @internal Use the root recording store with preflight before permission. */
+  durable?: boolean;
   /** A sink for one recording; called once per tap that starts one. */
   sink: () => LocalCaptureSink;
   /** MediaRecorder's chunk interval. A tuning default, never shown. */
@@ -41,11 +44,11 @@ export interface BrainUiRootOptions {
   /** @internal Cross-tab coordination for the answer queue. */
   answerTabs?: TabCoordinator | null;
   /**
-   * Turns on "Record on this device": with the host unreachable, the mic
-   * records locally into this sink. Off when omitted, so no build offers a
-   * recording it cannot save before the durable store (#1017) supplies one.
+   * Turns on "Record on this device". `true` uses this root's durable store
+   * (requires persistence and a stable storagePrefix); `{ sink }` supplies
+   * a caller-owned sink. Off when omitted.
    */
-  localCapture?: LocalCaptureOptions | null;
+  localCapture?: LocalCaptureOptions | true | null;
 }
 
 /** Dependencies the connection closes over; none are resolved from React. */
@@ -73,6 +76,8 @@ export interface BrainUiServices {
    * a page without IndexedDB.
    */
   partitions: LocalPartitions | null;
+  /** Device-local audio on this root; null when persistence is disabled. */
+  recordings: RecordingStore | null;
   /** @internal The work context kept in the signed-in account's partition (#1014). */
   localWork: LocalWork | null;
   registerVpnRecheck: (callback: () => void) => () => void;
@@ -134,8 +139,8 @@ export function createRoot(
     })
     : null;
   const services: BrainUiServices = {
-    answerStorage, answerTabs, partitions, localWork: null,
-    localCapture: options.localCapture ?? null,
+    answerStorage, answerTabs, partitions, recordings: null, localWork: null,
+    localCapture: options.localCapture === true ? null : options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
     backendUrl: (path) => getBackendUrlFor(config, path),
     wsUrl: () => getWsUrlFor(config),
@@ -148,6 +153,8 @@ export function createRoot(
   // What a service-worker update reload must wait for (#1015).
   registerBuiltInUpdateHolds(services);
   if (partitions) {
+    services.recordings = createRecordingStore({ partitions, root: services, heldAccountKey: () => stores.connection.getState().accountKey });
+    if (options.localCapture === true) services.localCapture = { sink: () => services.recordings!.sink(), durable: true };
     services.localWork = createLocalWork({
       stores, partitions,
       scope: `root:${prefix}`,
@@ -162,6 +169,7 @@ export function createRoot(
     dispose() {
       connection.dispose();
       services.localWork?.dispose();
+      services.recordings?.dispose();
       // Previews of images still in a draft or a held send: nothing else will release them.
       stores.drafts.getState().release();
       disposeTracks(services);

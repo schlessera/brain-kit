@@ -27,6 +27,7 @@ import type { BrowserCommand } from "vitest/node";
 export type SceneOp =
   /** `module`: the scene's path on the Vite server, `new URL(file, import.meta.url).pathname`. */
   | { op: "open"; module: string }
+  | { op: "sibling"; id: string }
   | { op: "call"; id: string; action: string; args: unknown[] }
   | { op: "reload"; id: string }
   | { op: "terminate"; id: string }
@@ -90,6 +91,15 @@ export const offlineScene: BrowserCommand<[SceneOp], unknown> = async (ctx, requ
   }
   const s = scene(request.id);
   switch (request.op) {
+    case "sibling": {
+      const id = `scene-${++next}`;
+      const sibling = { context: s.context, url: s.url } as Scene;
+      await attach(sibling, await s.context.newPage());
+      await sibling.page.goto(sibling.url);
+      await registered(sibling.page);
+      scenes.set(id, sibling);
+      return id;
+    }
     case "call":
       return s.page.evaluate(
         ([action, args]) => {
@@ -117,7 +127,8 @@ export const offlineScene: BrowserCommand<[SceneOp], unknown> = async (ctx, requ
     }
     case "close":
       scenes.delete(request.id);
-      await s.context.close();
+      await s.page.close().catch(() => {});
+      if (![...scenes.values()].some((other) => other.context === s.context)) await s.context.close();
       return null;
   }
 };

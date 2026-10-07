@@ -20,7 +20,7 @@
  * covered. Call `restore()` when the test ends.
  */
 
-export type QuotaFault = { next: true } | { afterBytes: number };
+export type QuotaFault = ({ next: true } | { afterBytes: number }) & { errorName?: "QuotaExceededError" | "DataError" };
 
 export interface QuotaFaultHandle {
   /** Writes failed so far. */
@@ -110,7 +110,7 @@ export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
       if ("next" in fault) armed = false;
       else full = true;
       failures++;
-      const error = new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      const error = new DOMException(fault.errorName === "DataError" ? "Failed to write blobs (IOError)" : "The quota has been exceeded.", fault.errorName ?? "QuotaExceededError");
       // Registered before the caller can add its own handlers: the caller still
       // sees this write succeed, then the transaction abort.
       req.addEventListener("success", () => {
@@ -136,4 +136,32 @@ export function failIndexedDbWrites(fault: QuotaFault): QuotaFaultHandle {
       txProto.abort = original.abort;
     },
   };
+}
+
+/** Keep the next matching write transaction alive, after request success but before commit. */
+export function holdIndexedDbWrite(matches: (key: IDBValidKey | undefined) => boolean): { started: Promise<void>; release(): void; restore(): void } {
+  const proto = IDBObjectStore.prototype;
+  const put = proto.put;
+  let held = false;
+  let released = false;
+  let started!: () => void;
+  const waiting = new Promise<void>((resolve) => { started = resolve; });
+  proto.put = function(value: unknown, key?: IDBValidKey) {
+    const req = put.call(this, value, key);
+    if (!held && matches(key)) {
+      held = true;
+      const read = () => this.get(key!);
+      req.addEventListener("success", () => {
+        started();
+        const pump = () => {
+          if (released) return;
+          const pending = read();
+          pending.addEventListener("success", pump);
+        };
+        pump();
+      });
+    }
+    return req;
+  };
+  return { started: waiting, release() { released = true; }, restore() { released = true; proto.put = put; } };
 }
