@@ -31,6 +31,13 @@ for files the server could not write. Nothing else is guaranteed to exist.
 
 Branch on what the manifest holds, in this order:
 
+When the video module is enabled, a public YouTube link or staged file with
+`mediaType: video/*` can be handed to `/watch`: offer to watch it with the user's
+question, explain that Google receives the source and question and that free-tier
+data may be used for training, and get agreement before calling. Pass the staged
+path unchanged; do not download or change video git-tracking policy. If the module
+is disabled or the user declines, file the source reference and say it was not watched.
+
 - **A link.** Fetch it and work from the page, not from the shared title — a title is often the
   site name, not the subject. Without a fetch tool available, file the link with whatever text
   came with it and say plainly that the page was not read.

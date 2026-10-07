@@ -30,6 +30,11 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // Content modules extend core; concrete web imports also share scrape below.
   "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  // #1205's approved module-images pattern uses core's manifest, command
+  // context and concrete Gemini completion implementation at runtime.
+  // This opt-in module therefore requires core; the vendor SDK remains
+  // core's optional peer rather than a new hard vendor dependency.
+  "@schlessera/brain-module-video": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
   // jobs fetches public boards through the polite scraping base.
   // `puppeteer-core` stays optional underneath it.
   "@schlessera/brain-module-jobs": {

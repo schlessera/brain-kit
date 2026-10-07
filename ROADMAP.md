@@ -19,14 +19,14 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Sixteen packages version in lockstep under `@schlessera/brain-*`. Published
+Seventeen packages version in lockstep under `@schlessera/brain-*`. Published
 packages remain independently consumable:
 
 | Package | What it is |
 | --- | --- |
 | `brain-geo` | Shared geo services, track measurements and static maps |
 | `brain` | Core: CLI, MCP server, hybrid search, indexer, config/taxonomy, skills |
-| `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` | First-party content modules |
+| `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` / `-video` | First-party content modules |
 | `brain-ui-sdk` | Chat-UI wire protocol, runtime schemas, `AgentBackend`/`SpeechProvider` seams |
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |

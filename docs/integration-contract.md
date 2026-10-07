@@ -5109,3 +5109,26 @@ relations; old tests/images are not schedule recovery proof. Matching restored
 bytes alone cannot disprove later cancellation/revocation: require authoritative
 later receipts or verified operator reconciliation and keep uncertain tasks paused. The 24-hour recovery
 point and unknown-effect investigation remain binding.
+
+## Video watching (opt-in module)
+
+`brain video watch <url|path> [--question TEXT] [--start T] [--end T] --json`
+returns `{ source, engine, model, clip, answer, timestamps, warnings }`.
+`source` contains `kind: "youtube" | "file"`, nullable `url`, `path`, `title`,
+and `durationSeconds`. `engine` is `"gemini"`, `model` and `answer` are strings,
+`clip` has nullable numeric `start`/`end` in seconds, and `timestamps` and
+`warnings` are string arrays. Unknown metadata is null; model observations are
+never metadata. Timestamps are deduplicated in answer order, inside the clip;
+invalid/outside citations produce warnings rather than fabricated evidence.
+The answer is returned verbatim. Failure emits no success envelope and exits
+nonzero. Disclosure and diagnostics use stderr, preserving JSON stdout.
+
+The experimental `ContentPart` union adds a `kind: "video"` variant with
+`mimeType`, optional numeric `clip: { start?, end? }`, and exactly one source
+(`uri`, `path` or `data`). `CompletionProvider.capabilities.video?: boolean`
+treats omission as unsupported, preserving existing providers; built-in Gemini
+reports true and Anthropic false. `complete` adds optional `signal: AbortSignal`.
+Video requests do not use configured completion fallback. Uploads created by
+a request are deleted after success or failure; failed cleanup throws.
+See [the module README](../packages/module-video/README.md) for defaults,
+source restrictions and privacy disclosure. These are additive minor changes.

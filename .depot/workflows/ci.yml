@@ -176,6 +176,7 @@ jobs:
             ui-react \
             module-finance \
             module-images \
+            module-video \
             module-jobs \
             module-speaking \
             module-travel
@@ -233,6 +234,7 @@ jobs:
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
                 "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
                 "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
+                "@schlessera/brain-module-video": `file:${tarballs}/module-video.tgz`,
                 "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
                 "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
                 "@schlessera/brain-module-travel": `file:${tarballs}/module-travel.tgz`,
@@ -255,6 +257,7 @@ jobs:
               "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
               "@schlessera/brain-module-images",
+              "@schlessera/brain-module-video",
               "@schlessera/brain-module-jobs",
               "@schlessera/brain-module-speaking",
               "@schlessera/brain-module-travel",
@@ -391,6 +394,7 @@ jobs:
             "@schlessera/brain",
             "@schlessera/brain-module-finance",
             "@schlessera/brain-module-images",
+            "@schlessera/brain-module-video",
             "@schlessera/brain-module-jobs",
             "@schlessera/brain-module-speaking",
             "@schlessera/brain-module-travel",

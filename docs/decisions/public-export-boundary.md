@@ -275,3 +275,9 @@ Moved to an internal entry by #1053:
 - `@schlessera/brain-ui-kit/internal`: `LIGHT_TOKENS`, `TOKENS`, `TokenName`, `canvas`.
 - `@schlessera/brain-ui-sdk/internal`: `ImageMaskHandlerOptions`, `LocationHandlerOptions`, `canonicalModelId`, `describeRetry`, `execWrapperSpawnOptions`, `handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, `resolveThinkingLevel`, `wrapCommand` (from `/server`, and the three helpers from `.`, `/client` and `/protocol` too).
 - `@schlessera/brain-ui-sdk/internal/client`: `ShareTargetError`, `canonicalModelId`, `createToolRendererRegistry`, `describeRetry`, `handleShareTargetRequest`, `isShareTargetRequest`, `pruneStoredShares`, `resolveThinkingLevel`.
+
+First-party additions for the video module (#1205):
+`@schlessera/brain/internal` shares `getContext`, `resolveCompletionProvider`,
+`geminiCompletions` and `GEMINI_FLASH_MODEL`. They do not expand the supported
+public API. The video package supports its manifest, schema and config type;
+its watch implementation and CLI remain implementation details.

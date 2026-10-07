@@ -238,7 +238,7 @@ with a standard XML parser and inspect its testcase names and counts.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all sixteen packages, including packages whose own code did
+   `fixed` group: all seventeen packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line

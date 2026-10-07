@@ -74,6 +74,7 @@ export "./internal" (./src/internal.ts)
   type BrainContext
   type CollectStatsOptions
   type FrontmatterValue
+  GEMINI_FLASH_MODEL
   type IngestInput
   type IngestOutcome
   SCRATCH_DIR
@@ -88,6 +89,8 @@ export "./internal" (./src/internal.ts)
   buildTaxonomy
   collectStats
   estimateTokens
+  geminiCompletions
+  getContext
   getMarkdownFiles
   hybridSearch
   indexAll
@@ -103,6 +106,7 @@ export "./internal" (./src/internal.ts)
   readDocumentPart
   relevanceOnArchive
   rerankSetup
+  resolveCompletionProvider
   resolveEmbeddingProvider
   resolveWritable
   rewriteGeneratedRegion
@@ -285,12 +289,14 @@ signatures (every public export and the types it is made of)
         id: string;
         capabilities: {
             vision: boolean;
+            video?: boolean;
         };
         complete(req: {
             system?: string;
             prompt: string;
             parts?: ContentPart[];
             maxTokens?: number;
+            signal?: AbortSignal;
         }): Promise<string>;
     }
   CompletionProviderContractHarness (packages/core/src/testing/completions.ts)
@@ -321,7 +327,20 @@ signatures (every public export and the types it is made of)
     } | {
         kind: "pdf";
         data: Uint8Array;
-    };
+    } | ({
+        kind: "video";
+        mimeType: string;
+        clip?: {
+            start?: number;
+            end?: number;
+        };
+    } & ({
+        uri: string;
+    } | {
+        path: string;
+    } | {
+        data: Uint8Array;
+    }));
   ContractMatchers (packages/core/src/testing/primitives.ts)
     interface ContractMatchers {
         toBe(expected: unknown): void;

@@ -23,6 +23,7 @@ const packages = [
   "ui-react",
   "module-finance",
   "module-images",
+  "module-video",
   "module-jobs",
   "module-speaking",
   "module-travel",

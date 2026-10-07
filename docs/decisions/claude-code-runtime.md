@@ -71,7 +71,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:48`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:421`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:439`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,10 +85,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:421`, eight
+  (`optionalDependencies`, `bun.lock:439`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:431`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:449`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -618,7 +618,7 @@ subscription authenticates.
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
    completions, have to keep working under a separately named key. The
    provider can already read one
-   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`),
+   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:61`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
    (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry
