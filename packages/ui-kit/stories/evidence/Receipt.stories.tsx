@@ -39,6 +39,17 @@ const meta = preview.meta({
  */
 export const Default = meta.story({});
 
+/** The actual no-props path, rather than the story's inherited fixture rows. */
+export const NoProps = meta.story({
+  render: () => <Receipt />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("voyage/aeaea-landing.md")).toBeInTheDocument();
+    await expect(canvas.getByText("Edit")).toBeInTheDocument();
+  },
+});
+
+export const NoPropsWide = NoProps.extend({ parameters: wide });
+
 /** A diff belongs inside the receipt when the fact being attested IS the
  * change: the reader should not have to hold two cards in their head. */
 export const WithDiff = Default.extend({ args: { diff: forecastDiff } });

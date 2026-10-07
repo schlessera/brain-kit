@@ -73,7 +73,7 @@ const KEY_MAX = 90;
 
 const FALLBACK: ReceiptRow[] = [
   { k: "tool", v: "Edit" },
-  { k: "path", v: "talks/lisbon-2026.md", tone: "teal" },
+  { k: "path", v: "voyage/aeaea-landing.md", tone: "teal" },
 ];
 
 export function Receipt(p: ReceiptProps) {
