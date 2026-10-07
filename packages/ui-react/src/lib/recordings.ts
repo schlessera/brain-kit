@@ -478,7 +478,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         for (const entry of await handle.list(INDEX)) {
           const row = entry.value as Index;
           const audio = await chunks(partition, row.id);
-          if (!contiguousChunks(audio).length) {
+          if (!contiguousChunks(audio).length && typeof row.transcript !== "string") {
             changes.push({ delete: indexKey(row.id) }, ...audio.map((c) => ({ delete: chunkKey(row.id, c.index) })));
             removed.push(row.id);
           }

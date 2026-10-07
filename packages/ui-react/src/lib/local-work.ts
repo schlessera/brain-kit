@@ -186,6 +186,23 @@ export interface LocalWorkOptions {
   onAccountSwitch?: () => void;
 }
 
+const memoryWriteLocks = new Map<string, Promise<void>>();
+async function lockWork(name: string, work: () => Promise<void>): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    await navigator.locks.request(name, work);
+    return;
+  }
+  // Non-browser roots still serialize independent roots in this runtime.
+  const previous = memoryWriteLocks.get(name) ?? Promise.resolve();
+  let release!: () => void;
+  const done = new Promise<void>(resolve => { release = resolve; });
+  const waiting = previous.then(() => done);
+  memoryWriteLocks.set(name, waiting);
+  await previous;
+  try { await work(); }
+  finally { release(); if (memoryWriteLocks.get(name) === waiting) memoryWriteLocks.delete(name); }
+}
+
 export function createLocalWork(options: LocalWorkOptions): LocalWork {
   const { stores, partitions, scope } = options;
   const draftKey = (id: string) => `${scope}/draft/${id}`;
@@ -203,6 +220,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
    * here), and the context as text.
    */
   let written = new Map<string, ComposerDraft | null>();
+  let committed = new Map<string, string>();
   let writtenContext = "";
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pendingSince = 0;
@@ -241,6 +259,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   /** One write of everything that changed since the last commit. */
   async function flush(acceptance?: { id: string; draft: ComposerDraft; textHash: string }): Promise<void> {
+    try { await lockWork(`brain-ui:work:${bound}:${scope}`, () => flushLocked(acceptance)); }
+    catch (error) {
+      if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
+      throw error;
+    }
+  }
+  async function flushLocked(acceptance?: { id: string; draft: ComposerDraft; textHash: string }): Promise<void> {
     // A snapshot asked for and then cancelled by the root going is not a receipt.
     if (disposed) throw new Error("The work context was disposed before it was written");
     if (locked || bound === null || partition === null) return;
@@ -250,17 +275,32 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     if (acceptance) drafts[acceptance.draft.draftId] = acceptance.draft;
     const changes: PartitionWrite[] = acceptance ? [{ put: receiptKey(acceptance.id), value: { draftId: acceptance.draft.draftId, revision: acceptance.draft.edit, textHash: acceptance.textHash } }] : [];
     const next = new Map<string, ComposerDraft | null>();
+    const nextCommitted = new Map<string, string>();
     for (const d of Object.values(drafts)) {
       // An emptied draft the host still holds is kept too: its deletion is still owed.
       if (!hasContent(d) && d.host === null) continue;
       next.set(d.draftId, d);
-      if (written.get(d.draftId) !== d) changes.push({ put: draftKey(d.draftId), value: storeDraft(d) });
+      const value = storeDraft(d);
+      const serialized = JSON.stringify(value);
+      nextCommitted.set(d.draftId, serialized);
+      if (committed.get(d.draftId) !== serialized) changes.push({ put: draftKey(d.draftId), value });
     }
     for (const id of written.keys()) if (!next.has(id)) changes.push({ delete: draftKey(id) });
     const ctx = context();
     const text = JSON.stringify(ctx);
     if (text !== writtenContext) changes.push({ put: contextKey, value: { v: 1, ...ctx } satisfies StoredContext });
     if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
+    // A tab may hold an older draft from this same storage prefix. Compare
+    // under the shared lock before putting or deleting any changed draft;
+    // stale snapshots cannot erase text whose recording was already deleted.
+    for (const change of changes) {
+      const key = "put" in change ? change.put : change.delete;
+      if (!key.startsWith(`${scope}/draft/`)) continue;
+      const id = key.slice(`${scope}/draft/`.length);
+      if (JSON.stringify(await partition.get(key)) !== committed.get(id)) {
+        throw new Error("The draft changed in another tab. Reload before saving this local work.");
+      }
+    }
     try {
       await partition.write(changes);
     } catch (error) {
@@ -270,6 +310,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     committedRevision = writingRevision;
     written = next;
+    committed = nextCommitted;
     writtenContext = text;
     status.setState({ failed: false, pending: timer !== null });
   }
@@ -313,7 +354,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const drafts = stores.drafts.getState();
     // These are in storage now. The next write puts back each one this page
     // holds and deletes the rest, which a newer draft here replaced.
-    for (const { key: k } of records) if (k.startsWith(`${scope}/draft/`)) written.set(k.slice(`${scope}/draft/`.length), null);
+    for (const { key: k, value } of records) if (k.startsWith(`${scope}/draft/`)) {
+      const id = k.slice(`${scope}/draft/`.length);
+      written.set(id, null);
+      committed.set(id, JSON.stringify(value));
+    }
     if (ctx) {
       const activeSession = stores.chat.getState().activeSessionId;
       if (ctx.sessionId === activeSession) {

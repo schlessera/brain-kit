@@ -88,7 +88,9 @@ that differs from the text the user reviewed.
 Add to draft appends after a newline and commits through the account's local
 work snapshot before marking the recording accepted or deleting its audio and
 transcript. A hash-bound acceptance receipt makes a retry safe after a failed
-cleanup or reload; a failed draft write retains the recording. Unaccepted
+cleanup or reload; a failed draft write retains the recording. Tabs sharing a
+storage prefix serialize changed draft writes and refuse stale replacements
+before they can overwrite accepted text. Unaccepted
 transcripts hold service-worker reloads even after the tray unmounts. A surviving
 transcript remains reviewable if the browser removes its audio. Acceptance stays
 device-local even when host draft autosave is available; a subsequent user edit

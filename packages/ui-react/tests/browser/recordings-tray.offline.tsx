@@ -231,7 +231,8 @@ test("real local capture sheet Stop restores mic focus and Discard keeps its exp
   await expect.poll(() => button(c.host, "Record on this device")).toBeTruthy();
   await tap(button(c.host, "Record on this device"));
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
-  await expect.poll(() => c.root.stores.voice.getState().audioLevel, { message: "real microphone level reaches the sheet" }).toBeGreaterThan(0);
+  await expect.poll(() => Number(c.host.querySelector('[role="meter"][aria-label="Microphone level"]')?.getAttribute("aria-valuenow")), { message: "recorded audio reaches the rendered meter" }).toBeGreaterThan(0);
+  await expect.poll(() => c.host.querySelector<HTMLElement>('[role="meter"] > div')?.getBoundingClientRect().width ?? 0, { message: "microphone activity paints a nonzero bar" }).toBeGreaterThan(0);
   await wait(1100); await settled();
   await tap(button(c.host, "Stop and save"));
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeNull();
@@ -523,4 +524,67 @@ test("failed capture discard stays visible after Stop and restores mic focus", a
   await expect.poll(() => [...c.host.querySelectorAll("[role=status]")].find(el => el.textContent?.includes("discard this recording"))?.textContent, { message: "discard failure survives the sheet closing" }).toBe("Couldn\u0027t discard this recording on this device. The recording is kept.");
   await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "failed discard restores mic focus" }).toBe("Record on this device");
   expect(await c.root.recordings!.list("account:odysseus")).toHaveLength(1);
+});
+
+
+test("stale same-scope tabs cannot overwrite an accepted transcript with another acceptance or snapshot", async ctx => {
+  const a = fixture(ctx); await a.ready(); const draftId = a.root.stores.drafts.getState().idFor(null);
+  a.root.stores.drafts.getState().edit(draftId, null, { text: "Inspect the fleet." }); await a.root.localWork!.snapshotNow();
+  const first = await a.seed(), second = await a.seed("transcript-ready", "Telemachus confirms the route.");
+  const b = fixture(ctx); await b.ready(); b.root.recordings!.dispose(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
+  b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+  b.root.recordings = createRecordingStore({ root: b.root, partitions: a.partitions, heldAccountKey: () => b.root.stores.connection.getState().accountKey });
+  await b.root.localWork.restoring();
+  expect(b.root.stores.drafts.getState().drafts[draftId]?.text, "second tab restores the shared non-empty draft").toBe("Inspect the fleet.");
+  await a.root.recordings!.accept(first.partition, first.id, draftId, null); await a.root.localWork!.snapshotNow();
+  const outcome = await b.root.recordings.accept(second.partition, second.id, draftId, null).then(() => null, error => error);
+  expect(outcome, "stale acceptance refuses to overwrite already accepted text").toBeInstanceOf(Error);
+  expect((await a.partitions.open(first.partition).get(`root:ithaca/draft/${draftId}`) as { text: string }).text, "first transcript stays durable after its audio is gone").toBe(`Inspect the fleet.\n${TEXT}`);
+  expect(await b.root.recordings.get(second.partition, second.id)).toMatchObject({ state: "transcript-ready", transcript: "Telemachus confirms the route.", chunkCount: 1 });
+  b.root.stores.drafts.getState().edit(draftId, null, { text: "A stale tab's new plan." });
+  await expect(b.root.localWork.snapshotNow(), "stale ordinary snapshot is refused too").rejects.toThrow("changed in another tab");
+  expect((await a.partitions.open(first.partition).get(`root:ithaca/draft/${draftId}`) as { text: string }).text).toBe(`Inspect the fleet.\n${TEXT}`);
+});
+
+test("dismissing mixed audio-loss notices never discards a surviving transcript", async ctx => {
+  const c = fixture(ctx); await c.ready(); const ready = await c.seed(), lost = await c.seed("saved", ""); const h = c.partitions.open(ready.partition);
+  const { transcript: _transcript, ...lostIndex } = await h.get(`recording:index:${lost.id}`) as Recording;
+  await h.put(`recording:index:${lost.id}`, lostIndex);
+  for (const row of [ready, lost]) await h.write((await h.list(`recording:chunk:${row.id}:`)).map(r => ({ delete: r.key })));
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  const recovered = await c.root.recordings!.recover(ready.partition); fault.restore();
+  expect(recovered.removedCount, "loss witness is present beside the surviving review").toBe(1);
+  expect(recovered.recordings).toMatchObject([{ id: ready.id, transcript: TEXT }]);
+  await c.root.recordings!.dismissRemoved(ready.partition);
+  expect(await h.get(`recording:index:${ready.id}`), "dismissal cannot erase independently surviving text").toMatchObject({ transcript: TEXT });
+  expect(await h.get(`recording:index:${lost.id}`)).toBeUndefined();
+  await c.root.recordings!.accept(ready.partition, ready.id, c.root.stores.drafts.getState().idFor(null), null);
+  expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text).toBe(TEXT);
+});
+
+
+test("a concurrent ordinary snapshot fences acceptance until its guarded draft commit", async ctx => {
+  const a = fixture(ctx); await a.ready(); const id = a.root.stores.drafts.getState().idFor(null);
+  a.root.stores.drafts.getState().edit(id, null, { text: "Inspect the fleet." }); await a.root.localWork!.snapshotNow(); const row = await a.seed();
+  const b = fixture(ctx); await b.ready(); b.root.recordings!.dispose(); b.root.localWork!.dispose();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; }); ctx.onTestFinished(() => release());
+  const partitions = { ...a.partitions, open: (partition: Recording["partition"]) => {
+    const handle = a.partitions.open(partition); return { ...handle, async write(changes: Parameters<typeof handle.write>[0]) {
+      if (changes.some(c => "put" in c && c.put === `root:ithaca/draft/${id}` && (c.value as { text?: string }).text === "Penelope's newer plan.")) { entered(); await gate; }
+      await handle.write(changes);
+    } };
+  } };
+  b.root.localWork = createLocalWork({ stores: b.root.stores, partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+  await b.root.localWork.restoring(); b.root.stores.drafts.getState().edit(id, null, { text: "Penelope's newer plan." });
+  const snapshot = b.root.localWork.snapshotNow(); await started;
+  let completed = false;
+  const accepting = a.root.recordings!.accept(row.partition, row.id, id, null).then(() => { completed = true; return null; }, error => { completed = true; return error; });
+  await wait(500);
+  expect(completed, "acceptance waits for the competing draft commit").toBe(false);
+  release(); await snapshot;
+  expect(await accepting, "stale acceptance refuses the newer committed draft").toBeInstanceOf(Error);
+  expect((await a.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string }).text).toBe("Penelope's newer plan.");
+  expect(await a.root.recordings!.get(row.partition, row.id), "refused concurrent acceptance keeps its audio").toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1 });
 });
