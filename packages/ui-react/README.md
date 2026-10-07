@@ -87,8 +87,11 @@ A clean editor follows edits from other tabs; Add refuses a stored revision
 that differs from the text the user reviewed.
 Add to draft appends after a newline and commits through the account's local
 work snapshot before marking the recording accepted or deleting its audio and
-transcript. A hash-bound acceptance receipt makes a retry safe after a failed
-cleanup or reload; a failed draft write retains the recording. Tabs sharing a
+transcript. A hash-bound finalized receipt makes a retry safe after a failed
+cleanup or reload; a failed draft write retains the recording. A provisional
+receipt cannot authorize cleanup after restart when its target owner is unknown.
+Finalization co-commits the resolved draft owner and aborts the native transaction
+if that identity changes while the transaction is open. Tabs sharing a
 storage prefix serialize changed draft writes and refuse stale replacements
 before they can overwrite accepted text, including different ids claiming the
 same session. Conflicting stored drafts that restoration does not adopt remain durable.

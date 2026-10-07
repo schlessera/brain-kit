@@ -626,7 +626,9 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     const watch = watchMicrophone(); ctx.onTestFinished(() => { watch.restore(); mic.restore(); });
     const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
     await tap(button(c.host, "Record on this device"));
-    await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+    await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
+    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs, { message: "the real microphone has committed an audio boundary" }).toBeGreaterThanOrEqual(1000);
+    await expect.poll(() => button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"), { message: "the settled sheet offers Discard before confirmation" }).toBeTruthy();
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
     if (reason === "interrupted") watch.interrupt(); else await c.root.recordings!.stop(reason);
@@ -701,8 +703,8 @@ test("delayed Add follows a New chat draft's acknowledged session ownership dura
   expect(c.root.stores.drafts.getState().drafts[target]?.sessionId).toBe("ithaca");
 });
 
-for (const failRedirect of [false, true]) {
-  test(`session ownership changing inside the draft commit is durable before cleanup${failRedirect ? " after a retry" : ""}`, async ctx => {
+for (const failRedirect of [false, true, "restart", "removed"] as const) {
+  test(`session ownership changing inside the draft commit is durable before cleanup${failRedirect === "removed" ? " after the pending text is removed" : failRedirect === "restart" ? " across a restart" : failRedirect ? " after a retry" : ""}`, async ctx => {
     const c = fixture(ctx); await c.ready(); const row = await c.seed();
     const id = c.root.stores.drafts.getState().idFor(null);
     c.root.stores.drafts.getState().edit(id, null, { text: "Inspect the harbour." }); await c.root.localWork!.snapshotNow();
@@ -720,12 +722,51 @@ for (const failRedirect of [false, true]) {
     if (fault) {
       await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe(ACCEPT_FAILED);
       expect(await c.root.recordings!.get(row.partition, row.id), "failed redirected commit keeps audio").toMatchObject({ chunkCount: 1 });
-      fault.restore(); await tap(button(c.host, "Add transcript"));
+      fault.restore();
+      if (failRedirect === "removed") {
+        c.root.stores.drafts.getState().edit(target, "ithaca", { text: "Telemachus revises the route." });
+        const result = await c.root.recordings!.accept(row.partition, row.id, target, "ithaca").then(() => null, error => error);
+        expect(result, "a provisional receipt cannot finalize a draft whose accepted text was removed").toBeInstanceOf(Error);
+        expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ chunkCount: 1, transcript: TEXT });
+        return;
+      }
+      if (failRedirect === "restart") {
+        c.root.localWork!.dispose(); c.root.recordings!.dispose();
+        const restored = fixture(ctx); await restored.ready(); restored.root.localWork!.dispose(); restored.root.recordings!.dispose(); restored.root.partitions = c.partitions;
+        restored.root.localWork = createLocalWork({ stores: restored.root.stores, partitions: c.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+        restored.root.recordings = createRecordingStore({ root: restored.root, partitions: c.partitions, heldAccountKey: () => restored.root.stores.connection.getState().accountKey });
+        await restored.root.localWork.restoring();
+        const restoredId = restored.root.stores.drafts.getState().idFor("ithaca");
+        const result = await restored.root.recordings.accept(row.partition, row.id, restoredId, "ithaca").then(() => null, error => error);
+        expect(result, "restart cannot finalize an acceptance whose draft owner was not committed").toBeInstanceOf(Error);
+        expect(await restored.root.recordings.get(row.partition, row.id), "unresolved acceptance keeps the original audio after restart").toMatchObject({ chunkCount: 1, transcript: TEXT });
+        return;
+      }
+      await tap(button(c.host, "Add transcript"));
     }
     await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
     expect(await c.partitions.open(row.partition).get(`root:ithaca/draft/${target}`), "ownership changed during commit is saved before deleting audio").toMatchObject({ sessionId: "ithaca", text: TEXT });
   });
 }
+
+test("ownership rotation aborts the native finalization transaction before cleanup permission commits", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const id = c.root.stores.drafts.getState().idFor(null);
+  c.root.stores.drafts.getState().edit(id, null, { text: "Inspect the harbour." }); await c.root.localWork!.snapshotNow();
+  const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]) === `recording:accepted:${row.id}` && (value as { finalized?: boolean }).finalized === true);
+  ctx.onTestFinished(() => hold.restore());
+  const result = c.root.recordings!.accept(row.partition, row.id, id, null).then(() => null, error => error);
+  await hold.started;
+  const schedule = globalThis.setTimeout;
+  vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => schedule(fn, ms === 250 ? 60000 : ms, ...args)) as typeof setTimeout);
+  const fault = failIndexedDbWrites({ afterBytes: 0 }); ctx.onTestFinished(() => fault.restore());
+  c.root.stores.drafts.getState().beginSend({ requestId: "harbour-final", draftId: id, sessionId: null, text: "Inspect the harbour.", attachments: [], message: { type: "chat_message", text: "Inspect the harbour.", source: "typed" } }, "Inspect the harbour.");
+  c.root.stores.drafts.getState().accepted("harbour-final", "ithaca");
+  hold.release();
+  expect(await result, "a failed repair cannot authorize audio cleanup").toBeInstanceOf(Error);
+  expect(await c.partitions.open(row.partition).get(`recording:accepted:${row.id}`), "native abort leaves the receipt provisional").toMatchObject({ finalized: false });
+  expect(await c.root.recordings!.get(row.partition, row.id), "audio remains available after the failed owner repair").toMatchObject({ chunkCount: 1 });
+});
 
 test("warm auth invalidates acceptance waiting for the shared draft write lock", async ctx => {
   const c = fixture(ctx); await c.ready(); const row = await c.seed(); const id = c.root.stores.drafts.getState().idFor(null);
