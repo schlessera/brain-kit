@@ -2,6 +2,14 @@ import { defineMain } from "@storybook/react-vite/node";
 
 export default defineMain({
   framework: "@storybook/react-vite",
+  // D32 requires native light-dark() evaluation at each using subtree.
+  // The builder discards vite.config.ts's build options except target, so this
+  // belongs in viteFinal. Older CSS targets lower tokens into variables that
+  // resolve at :root and break the Paper frame in a dark document.
+  viteFinal: async (config) => ({
+    ...config,
+    build: { ...config.build, cssTarget: ["chrome123", "firefox128", "safari17.5"] },
+  }),
   // stories/ mirrors src/, so a component and its stories line up without
   // stories living inside the directory that ships. src/ may not import a
   // devDependency (tests/dependency-edges.test.ts), and every story imports

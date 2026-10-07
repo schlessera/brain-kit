@@ -6,6 +6,7 @@ import { CAPTURE_BROWSER_ARGUMENTS, captureStill, launchCaptureBrowser, startSta
 import { captureDemo } from "./demo.ts";
 import { captureRuntime } from "./runtime.ts";
 import { checkStorybookLayout } from "./storybook-layout.ts";
+import { checkStorybookTheme } from "./storybook-theme.ts";
 import { sha256,variantFile } from "./provenance.ts";
 
 export interface CaptureJob {
@@ -38,6 +39,7 @@ async function run(): Promise<void> {
   try {
     browser = await launchCaptureBrowser();
     await checkStorybookLayout(browser, root, cache, catalogue, server.origin);
+    await checkStorybookTheme(browser, root, cache, catalogue, server.origin);
     const browserEvidence = {
       version: browser.version(),
       executable_sha256: sha256(await readFile(chromium.executablePath())),

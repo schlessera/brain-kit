@@ -3,8 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 // Storybook's Vite builder auto-loads this file and merges it into its own
-// config, so Tailwind and the React plugin are declared once, here, and no
-// `viteFinal` is needed.
+// config, so Tailwind and the React plugin are declared once, here.
+// Storybook-specific build options live in .storybook/main.ts.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   // Cross-workspace browser tests must share the renderer's React instance.
