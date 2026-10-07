@@ -270,8 +270,6 @@ test("a crash after a possible effect, before its receipt, is unknown: never rep
   expect(await h.admission.admit()).toEqual([]);
   expect((await h.runtime.tick()).claimed).toBe(0);
   expect(h.calls).toHaveLength(0);
-  for (const candidate of (await h.service.due(f.owner, {})).due)
-    expect(candidate).toMatchObject({ admittable: false, blockedReason: "unknown_effect" });
 
   // Only the operator can state the effect was investigated.
   await expect(h.service.reopen(f.agent, task.id, { key: "agent-reopen", decision: "reopen" })).rejects.toMatchObject({ code: "not_found" });
@@ -288,6 +286,26 @@ test("a crash after a possible effect, before its receipt, is unknown: never rep
   expect(next).not.toBe(id);
   expect((await h.runtime.tick()).claimed).toBe(1);
   expect(occurrences(f).map((o) => o.state)).toEqual(["unknown", "completed"]);
+});
+
+test("a fresh due instant reports the unknown-effect pause after recovery", async () => {
+  const f = fixture = start();
+  const first = f.clock.now + MINUTE;
+  const task = await create(f, "ithaca-paused-due", cronDefinition("*/5 * * * *"));
+  f.clock.now = Math.ceil(first / (5 * MINUTE)) * 5 * MINUTE;
+  const h = harness(f, succeed("Should not run while paused."));
+  await h.admission.admit();
+  await crash(f, "crash-after-effect");
+  f.clock.now += 11 * MINUTE;
+  expect(h.admission.recover()).toBe(1);
+  f.clock.now += 5 * MINUTE;
+  const due = (await h.service.due(f.owner, {})).due;
+  expect(due).toEqual([expect.objectContaining({
+    taskId: task.id, admittable: false, blockedReason: "unknown_effect",
+  })]);
+  expect(await h.admission.admit()).toEqual([]);
+  expect((await h.runtime.tick()).claimed).toBe(0);
+  expect(h.calls).toHaveLength(0);
 });
 
 const limited = (at: number, maxOperations: number) =>
