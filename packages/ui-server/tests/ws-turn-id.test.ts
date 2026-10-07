@@ -203,7 +203,6 @@ describe("turnId stamping and correlation", () => {
 describe("the rev-3 deprecation window", () => {
   // The real predicate from dispatch.ts, not a copy of it — a mirrored
   // version would pass long after the rule it mirrors had changed.
-  const rev3 = PROTOCOL_REV_CLIENT_ECHO;
 
   test("a client that declares nothing is still tolerated without an echo", () => {
     // Every client older than client_hello. Enforcing on them would break
@@ -225,14 +224,7 @@ describe("the rev-3 deprecation window", () => {
     expect(turnIdMatches({ turnId: "t1" }, "t-other", true)).toBe(false);
   });
 
-  test("the gate is keyed on the declared revision", () => {
-    const requires = (declared: number | undefined) => (declared ?? 2) >= rev3;
-    expect(requires(undefined)).toBe(false);
-    expect(requires(2)).toBe(false);
-    expect(requires(3)).toBe(true);
-    // A client from the future is held to the rules this host knows.
-    expect(requires(99)).toBe(true);
-  });
+
 });
 
 describe("per-connection state through the socket handlers", () => {
@@ -243,6 +235,36 @@ describe("per-connection state through the socket handlers", () => {
   afterEach(() => {
     resetForTests();
     closeDb();
+  });
+
+  test.each([undefined, 2, 3, 99])("the socket echo gate is keyed on declared revision %s", async (revision) => {
+    const { backend, controls } = approvalBackend();
+    setBackendForTests(backend);
+    const { ws, sent } = fakeClient();
+    addClient(ws);
+    const handlers = createWsHandlers(testHost(), testPrincipal());
+    const send = (msg: unknown) =>
+      handlers.onMessage({ data: JSON.stringify(msg) } as MessageEvent, ws);
+    if (revision !== undefined) {
+      send({ type: "client_hello", protocolRev: revision, capabilities: {} });
+    }
+    send({ type: "chat_message", text: "A" });
+    await waitFor(() => controls.length === 1);
+    let decision: string | null = null;
+    void controls[0]!.approve().then((result) => {
+      decision = result.behavior;
+    });
+    await waitFor(() => sent.some((frame) => frame.type === "tool_approval_request"));
+    const turnId = turnIdOf(sent.find((frame) => frame.type === "tool_approval_request")!);
+    send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(decision).toBe(revision === 3 || revision === 99 ? null : "allow");
+    if (decision === null) {
+      send({ type: "tool_approval", toolUseId: controls[0]!.toolUseId, turnId });
+      await waitFor(() => decision !== null);
+    }
+    expect(decision).toBe("allow");
+    controls[0]!.finish();
   });
 
   // Regression: createWsHandlers used to build its ConnectionState and then
