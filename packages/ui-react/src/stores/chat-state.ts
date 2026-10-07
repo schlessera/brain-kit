@@ -610,7 +610,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const old = previous.messages[i];
     if (!old || old.role !== received.role) return received;
     const toolsElided = received.content.match(/\n…\[(\d+) tool calls elided\]$/);
-    const boundedTools = toolsElided && Number(toolsElided[1]) === old.toolCalls.length - received.toolCalls.length
+    const boundedTools = toolsElided && Number(toolsElided[1]) <= old.toolCalls.length - received.toolCalls.length
       && received.toolCalls.every((tool, k) => tool.id === old.toolCalls[k]?.id);
     const content = boundedTools ? received.content.slice(0, toolsElided.index) : received.content;
     const m = {
@@ -683,21 +683,31 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     return o && o.output !== undefined && t.output === undefined ? o : t;
   });
   let parts = [...base.parts];
-  // Thinking renders from the parts: the longer thinking brings its own,
-  // whichever copy the text came from.
-  const thinker = (old.thinking ?? "").length > (m.thinking ?? "").length ? old : m;
-  if (thinker !== base && (thinker.thinking ?? "").length > (base.thinking ?? "").length) {
-    const at = parts.findIndex((p) => p.kind === "thinking");
-    const rest = parts.filter((p) => p.kind !== "thinking");
-    const mine = thinker.parts.filter((p) => p.kind === "thinking");
-    parts = [...rest.slice(0, at < 0 ? 0 : at), ...mine, ...rest.slice(at < 0 ? 0 : at)];
-  }
   for (const t of other.toolCalls) {
     if (toolCalls.some((b) => b.id === t.id)) continue;
     parts.push({ kind: "tool", toolIndex: toolCalls.length });
     toolCalls.push(t);
   }
-  const thinking = thinker.thinking;
+  // Thinking stays between the text/tool parts that bracketed it. Host
+  // aggregates add separators, so compare the drawn blocks, not that field.
+  const thinkingSlots = (source: MessagePart[]) => {
+    const slots = new Map<number, Extract<MessagePart, { kind: "thinking" }>[]>();
+    let at = 0;
+    for (const part of source) {
+      if (part.kind !== "thinking") { at++; continue; }
+      slots.set(at, [...(slots.get(at) ?? []), part]);
+    }
+    return slots;
+  };
+  const slots = thinkingSlots(parts);
+  for (const [at, blocks] of thinkingSlots(other.parts)) {
+    const mine = slots.get(at) ?? [];
+    if (blocks.reduce((n, p) => n + p.text.length, 0) > mine.reduce((n, p) => n + p.text.length, 0)) slots.set(at, blocks);
+  }
+  const body = parts.filter((p) => p.kind !== "thinking");
+  parts = body.flatMap((part, at) => [...(slots.get(at) ?? []), part]);
+  parts.push(...(slots.get(body.length) ?? []));
+  const thinking = parts.filter((p) => p.kind === "thinking").map((p) => p.text).join("") || undefined;
   // Questions by request: one either copy saw settled is settled, and one
   // only the page has drawn stays (its card is the reader's).
   const settled = (e: AskUserExchange) => e.answers !== undefined || e.cancelled === true || e.order !== undefined || e.formAnswers !== undefined;

@@ -85,6 +85,64 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)!.parts, "elided tools keep chronological parts").toEqual(old.parts);
     expect(buffer(root).messages.at(-1)!.toolCalls).toEqual(old.toolCalls);
   });
+  test("a bounded stored tool prefix keeps the unstored live tool and trailing text", () => {
+    const { root, socket } = running();
+    for (let i = 0; i < 149; i++) {
+      root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
+      root.stores.chat.getState().setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+    }
+    const stored = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: stored.content, toolCalls: stored.toolCalls, parts: stored.parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.toolCalls.length, "the stored prefix is actually bounded").toBeLessThan(149);
+    root.stores.chat.getState().startToolCall("s1", "wax-live", "Bash");
+    root.stores.chat.getState().appendText("s1", " The mast held.");
+    const old = buffer(root).messages.at(-1)!;
+    expect(old.toolCalls).toHaveLength(150);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "a bounded stored prefix keeps the live answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual(old.parts);
+    expect(buffer(root).messages.at(-1)!.toolCalls.map((t) => t.id)).toEqual(old.toolCalls.map((t) => t.id));
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toBe(`${old.content} Landed.`);
+  });
+  test("Claude thinking separators preserve every chronological part", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendThinking("s1", "Wax for the crew.");
+    root.stores.chat.getState().appendText("s1", " Keep rowing.");
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendThinking("s1", "Rope for me.");
+    root.stores.chat.getState().appendText("s1", " Landed.");
+    const old = buffer(root).messages.at(-1)!;
+    expect(old.parts.filter((p) => p.kind === "thinking")).toHaveLength(2);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: `${SIRENS} Keep rowing.\n\n Landed.`,
+      thinking: "Wax for the crew.\n\nRope for me.", toolCalls: old.toolCalls, parts: old.parts,
+    }] });
+    expect(buffer(root).messages.at(-1)!.parts, "thinking separators do not reorder text or tools").toEqual(old.parts);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+  });
+  test("longer thinking merges in its original slot around text and tools", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendThinking("s1", "Wax.");
+    root.stores.chat.getState().appendText("s1", " Keep rowing.");
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendThinking("s1", "Rope.");
+    root.stores.chat.getState().appendText("s1", " Landed. More drawn text.");
+    const old = buffer(root).messages.at(-1)!;
+    const parts = old.parts.map((p) => p.kind === "thinking" ? { ...p, text: `${p.text} Hold fast.` } : p);
+    const last = parts.at(-1)!;
+    if (last.kind === "text") last.text = " Landed.";
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: `${SIRENS} Keep rowing. Landed.`, thinking: "Wax. Hold fast.\n\nRope. Hold fast.", toolCalls: old.toolCalls, parts,
+    }] });
+    const expected = old.parts.map((p) => p.kind === "thinking" ? { ...p, text: `${p.text} Hold fast.` } : p);
+    expect(buffer(root).messages.at(-1)!.parts, "longer thinking stays at each chronological slot").toEqual(expected);
+  });
   test("a size-bounded history keeps the full answer already drawn and continues it", () => {
     const { root, socket } = running();
     const text = " Row through the strait.".repeat(20_000);
@@ -300,6 +358,19 @@ describe("a reconnect while the turn in view runs", () => {
     expect(exchange?.order, "the host's answer").toEqual(["timber", "rope"]);
   });
 
+  test("thinking after a newly replayed tool stays after that tool", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().appendText("s1", " More drawn text.");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, thinking: "The wax held.",
+      toolCalls: [{ id: "wax-1", name: "Bash", input: {} }],
+      parts: [{ kind: "text", text: SIRENS }, { kind: "tool", toolIndex: 0 }, { kind: "thinking", text: "The wax held." }],
+    }] });
+    expect(buffer(root).messages.at(-1)!.parts, "thinking stays after its newly replayed tool").toEqual([
+      { kind: "text", text: `${SIRENS} More drawn text.` }, { kind: "tool", toolIndex: 0 }, { kind: "thinking", text: "The wax held." },
+    ]);
+  });
   test("longer thinking from the host shows even when the page has more text", () => {
     const { root, socket } = running();
     root.stores.chat.getState().appendText("s1", " And more the host has not stored.");
