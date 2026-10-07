@@ -1,3 +1,5 @@
+import { expect, waitFor } from "storybook/test";
+
 import preview from "#.storybook/preview";
 
 import { reindexCommand } from "../../fixtures/notes.js";
@@ -22,9 +24,7 @@ export const Default = meta.story({});
 /** Head off, for a block already introduced by its surrounding prose. */
 export const NoHead = Default.extend({ args: { head: false } });
 
-/** Several lines, wrapped. Wrapping is on by default because a chat column is
- * narrow and a horizontally scrolling code block inside a transcript is a
- * scroll container nobody finds. */
+/** Several lines, wrapped by default to fit a narrow chat column. */
 export const Multiline = Default.extend({
   args: {
     code: "brain index --path omens/ --force\nbrain search 'scylla' --json\nbrain doctor",
@@ -32,12 +32,19 @@ export const Multiline = Default.extend({
   },
 });
 
-/** `wrap: false` clips rather than scrolls, which is the source's behaviour and
+/** `wrap: false` preserves lines with native horizontal scrolling;
  * worth seeing before choosing it. */
 export const NoWrap = Default.extend({
   args: {
     wrap: false,
     code: "brain index --path omens/ --force --reembed --model text-embedding-3-large",
+  },
+  play: async ({ canvasElement, userEvent }) => {
+    const pre = canvasElement.querySelector("pre")!;
+    await userEvent.tab();
+    await expect(pre).toHaveFocus();
+    pre.scrollLeft = pre.scrollWidth;
+    await waitFor(() => expect(Math.abs(pre.scrollWidth - pre.clientWidth - pre.scrollLeft)).toBeLessThanOrEqual(1));
   },
 });
 
