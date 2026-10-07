@@ -48,6 +48,7 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
     const snapshot = (stage: string) => {
       const drafts = ui.stores.drafts.getState();
       record(stage, { online: navigator.onLine, uploadCount,
+        activeDraft: drafts.idFor(ui.stores.chat.getState().activeSessionId),
         images: Array.from(host.querySelectorAll('img'), img => ({alt:img.alt,complete:img.complete,width:img.naturalWidth})),
         text: host.textContent?.slice(0,1200), field:host.querySelector('textarea')?.value,
         drafts: Object.entries(drafts.drafts).map(([id,draft]) => ({id,textLength:draft.text.length,attachments:draft.attachments.map(image=>({name:image.name,bytes:image.bytes}))})),
@@ -88,12 +89,13 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       const originals = Array.from(transfer.files);
       expect(originals).toHaveLength(2);
       const input = host.querySelector<HTMLInputElement>('input[accept*=".gpx"]')!;
-      const bitmap = vi.spyOn(globalThis, "createImageBitmap").mockImplementation((async (...args: unknown[]) => {
+      const bitmap = vi.spyOn(globalThis, "createImageBitmap").mockImplementation(((...args: unknown[]) => {
         record("bitmap-start", {size:(args[0] as Blob).size,type:(args[0] as Blob).type});
-        try {
-          const result: ImageBitmap = await Reflect.apply(nativeBitmap, globalThis, args);
-          record("bitmap-done", {width:result.width,height:result.height}); return result;
-        } catch (error) { record("bitmap-error", {message:String(error)}); throw error; }
+        const result: Promise<ImageBitmap> = Reflect.apply(nativeBitmap, globalThis, args);
+        void result.then(bitmap => record("bitmap-done", {width:bitmap.width,height:bitmap.height}),
+          error => record("bitmap-error", {message:String(error)}));
+        // Return the native promise, preserving the product's continuation.
+        return result;
       }) as typeof nativeBitmap);
       restores.push(() => bitmap.mockRestore());
       const encoding = vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function(this:HTMLCanvasElement, callback, type, quality) {
