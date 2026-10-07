@@ -265,6 +265,18 @@ from a null or absent timestamp. `ListRowProps` gains four optional props,
 `finished` and `withdrawn`. A `ListRow` given none of the new props renders
 as before.
 
+## Runtime approval composition (additive, #1141)
+
+`@schlessera/brain-ui-kit` extends `ApprovalCardProps` with optional
+`onAlwaysAllow?: () => void`, `children?: ReactNode`, `wrapHeader?: boolean`
+and `shortcuts?: { allow: string; deny: string }`. `onAlwaysAllow` offers a
+remembered-grant action only when supplied; the host determines its eligibility.
+`children` carries actual tool input or permission details. `wrapHeader` lets
+tool names and full targets wrap in the header. `shortcuts` prints decision
+hints while preserving the decision's accessible name; it installs no key
+handler. Existing props and callbacks remain compatible. These additions ship
+in a minor, with the public declarations recorded in `api-report/`.
+
 ## Consumers
 
 | Consumer | Surfaces used |

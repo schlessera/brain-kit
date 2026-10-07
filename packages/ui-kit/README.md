@@ -323,3 +323,9 @@ Interrupted rows name the committed boundary and say the end may be missing.
 Its optional playback/discard callbacks and children let a root-scoped view
 provide local actions and transcript editing. The row does not transcribe or
 send anything; dark and light stories cover every recording state.
+
+For real pending tool permissions, ApprovalCard accepts `children` for the
+existing renderer's full input/diff, `wrapHeader` for long tool names and
+targets, and `onAlwaysAllow` only when a remembered grant is eligible.
+Pass empty `diff`/`risk` when no such data exists to clear demo defaults.
+The optional Always allow control names its `write_policy` effect.
