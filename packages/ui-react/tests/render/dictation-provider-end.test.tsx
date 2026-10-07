@@ -323,3 +323,49 @@ test("a dictation torn down while listening hands what was heard to review, with
   act(() => voice(root).clearReview());
   expect(reloads(), "one reload").toBe(1);
 });
+
+test("words a client reports after its provider ended the dictation are not committed a second time", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation } = await mount(root);
+  await listen(root, dictation);
+  const ended = recognition();
+  act(() => webspeech.hear("Ask Nestor", true));
+  act(() => ended.onend?.());
+  expect(voice(root).reviewText).toBe("Ask Nestor");
+
+  // A client that keeps talking after it ended: nothing would show its words.
+  act(() => ended.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "Ask Nestor" } }] }));
+  expect(voice(root).finalText, "the ended capture takes no more words").toBe("");
+  await act(async () => { await dictation.result.current.stop(); });
+  expect(voice(root).reviewText, "review holds the words once").toBe("Ask Nestor");
+});
+
+test("another dictation ending on its own does not release the reload while a Done is still draining", async () => {
+  const root = voiceRoot(webspeech);
+  const { dictation: first, reloads } = await mount(root);
+  const second = renderHook(() => useDictation(), { wrapper: wrapper(root) });
+  await listen(root, first);
+  const draining = recognition();
+  takeOver();
+
+  // The first dictation's Done waits for its recognizer's last words.
+  let stopped!: Promise<void>;
+  act(() => { stopped = first.result.current.stop(); });
+  expect(voice(root).draining, "the first transcript drains").toBe(true);
+  // Meanwhile a second starts, and its provider ends it with nothing heard.
+  await listen(root, second);
+  act(() => recognition().onend?.());
+  expect(voice(root).mode).toBe("idle");
+  expect(voice(root).draining, "the first drain still holds").toBe(true);
+  expect(reloads(), "no reload while busy: a transcript still drains").toBe(0);
+
+  await act(async () => {
+    draining.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "Sail at dawn" } }] });
+    draining.onend?.();
+    await stopped;
+  });
+  expect(voice(root).reviewText, "the drained words wait for review").toBe("Sail at dawn");
+  expect(reloads(), "no reload while busy: the drain ended in the update that moved its words to review").toBe(0);
+  act(() => voice(root).clearReview());
+  expect(reloads(), "one reload").toBe(1);
+});

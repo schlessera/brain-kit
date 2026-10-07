@@ -5,6 +5,7 @@
 
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { BrainUiRoot } from "../root.js";
+import type { VoiceState } from "./voice-state.js";
 
 type VoiceStore = BrainUiRoot["stores"]["voice"];
 
@@ -28,19 +29,30 @@ export function release(capture: Capture) {
   if (owners.get(capture.root) === capture) owners.delete(capture.root);
 }
 
+/** The capture is still its root's dictation, or a stop() is draining it. */
+export function live(capture: Capture): boolean {
+  return owners.get(capture.root) === capture || stopping.has(capture);
+}
+
 /**
  * End the dictation in one update. With `commitToReview`, what was heard,
  * final and interim, joins any text already under review, so a prompt can be
  * built up across several takes. One update: the transcript reaches review
  * in the same change that ends the dictation, so no listener (the update
- * reload guard, #1015) sees a moment in which it is in neither.
+ * reload guard, #1015) sees a moment in which it is in neither. `draining`
+ * belongs to whoever drains, unless `also` says otherwise: another hook's
+ * Done may still be flushing its last words.
  */
-export function endDictation(voice: VoiceStore, commitToReview: boolean): void {
+export function endDictation(
+  voice: VoiceStore,
+  commitToReview: boolean,
+  also: Partial<Pick<VoiceState, "draining">> = {},
+): void {
   const { finalText, partial, reviewText } = voice.getState();
   const merged = [finalText, partial].filter(Boolean).join(" ").trim();
   voice.setState({
+    ...also,
     connecting: false,
-    draining: false,
     mode: "idle",
     finalText: "",
     partial: "",

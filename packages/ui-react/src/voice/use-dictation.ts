@@ -5,7 +5,7 @@ import { type AsrClient } from "@schlessera/brain-ui-sdk/client";
 import { speechUiHints } from "@schlessera/brain-ui-sdk/internal/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
 import { registerAsrClients } from "./asr-clients.js";
-import { endDictation, owners, release, stopping, type Capture } from "./dictation-capture.js";
+import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
 
 /** Apply pronunciation overrides client-side to a finalized transcript. */
 function applyOverrides(
@@ -88,6 +88,12 @@ export function useDictation() {
       const client = root.asr.create({
         session,
         onEvent: (evt) => {
+          // Only the capture still showing on this root, or one a stop() is
+          // draining, writes to it: words from a client whose dictation has
+          // ended (by its provider, a teardown or a newer start) would sit
+          // where nothing shows them, and a later stop() would commit them
+          // a second time.
+          if (!live(capture)) return;
           if (evt.type === "partial") {
             // Providers without interim results skip live partials.
             if (hints.showPartials) {
@@ -97,7 +103,7 @@ export function useDictation() {
             appendFinal(applyOverrides(evt.text, overridesRef.current));
           }
         },
-        onError: (err) => setError(err.message),
+        onError: (err) => { if (live(capture)) setError(err.message); },
       });
       // Publish the client before awaiting start() so a concurrent stop() can
       // grab and close it (releasing its MediaStream) while the mic is opening.
@@ -161,6 +167,7 @@ export function useDictation() {
       // A failed drain still ends the dictation and keeps what was heard;
       // the failure is rethrown after, so it is not swallowed.
       let drainFailure: { error: unknown } | null = null;
+      const drained = Boolean(client && commitToReview);
       if (client) {
         if (commitToReview) {
           setDraining(true);
@@ -168,16 +175,15 @@ export function useDictation() {
             await client.drainAndStop();
           } catch (error) {
             drainFailure = { error };
-          } finally {
-            setDraining(false);
           }
         } else {
           client.stop();
         }
       }
 
-      // What was heard joins the review text in the update that ends it.
-      endDictation(root.stores.voice, commitToReview);
+      // What was heard joins the review text in the update that ends the
+      // drain, so nothing sees the drain over and the words not yet in review.
+      endDictation(root.stores.voice, commitToReview, drained ? { draining: false } : {});
       if (capture) release(capture);
       resetCapture();
       if (drainFailure) throw drainFailure.error;
@@ -202,7 +208,7 @@ export function useDictation() {
       if (!capture || capture.root !== root.stores || stopping.has(capture)) return;
       if (owners.get(root.stores) !== capture) return;
       release(capture);
-      endDictation(root.stores.voice, true);
+      endDictation(root.stores.voice, true, { draining: false });
     };
   }, [root, releaseCapture]);
 
