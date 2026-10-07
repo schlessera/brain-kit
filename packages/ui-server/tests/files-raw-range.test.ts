@@ -243,7 +243,19 @@ describe("over HTTP, through every middleware", () => {
     const response = await fetch(`http://127.0.0.1:${server.port}${URL_PATH}`, { headers: { Range: "bytes=0-1", "If-Range": '"some-etag"' } });
 
     expect(response.status).toBe(200);
-    expect((await bytesOf(response)).length).toBe(SIZE);
+    expect(response.headers.get("content-range")).toBeNull();
+    expect(response.headers.get("content-length")).toBe(String(SIZE));
+    expect(await bytesOf(response)).toEqual([...BYTES]);
+  });
+
+  test("HEAD ignores Range across the native server boundary", async () => {
+    const response = await fetch(`http://127.0.0.1:${server.port}${URL_PATH}`, {
+      method: "HEAD", headers: { Range: "bytes=0-1" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-range")).toBeNull();
+    expect(response.headers.get("content-length")).toBe(String(SIZE));
+    expect(await bytesOf(response)).toEqual([]);
   });
 
   test("a range in the middle carries only its own bytes", async () => {
