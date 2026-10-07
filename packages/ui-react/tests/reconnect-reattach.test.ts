@@ -13,6 +13,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { resolveObjectURL } from "node:buffer";
+import { shrinkForReplication, HISTORY_CHUNK_BYTES } from "../../ui-server/src/ws/shrink.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 
 class Socket {
@@ -69,6 +70,37 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  test("a size-bounded tool array keeps the tool cards already drawn", () => {
+    const { root, socket } = running();
+    for (let i = 0; i < 150; i++) {
+      root.stores.chat.getState().startToolCall("s1", `wax-${i}`, "Bash");
+      root.stores.chat.getState().setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+    }
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: old.toolCalls, parts: old.parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.toolCalls.length, "the actual shrinker omitted tool cards").toBeLessThan(old.toolCalls.length);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "elided tools do not replace the answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts, "elided tools keep chronological parts").toEqual(old.parts);
+    expect(buffer(root).messages.at(-1)!.toolCalls).toEqual(old.toolCalls);
+  });
+  test("a size-bounded history keeps the full answer already drawn and continues it", () => {
+    const { root, socket } = running();
+    const text = " Row through the strait.".repeat(20_000);
+    root.stores.chat.getState().appendText("s1", text);
+    const old = buffer(root).messages.at(-1)!;
+    const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: [], parts: old.parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.content, "the real host shrinker clipped the fixture").toContain("chars elided]");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    expect(buffer(root).messages.at(-1)!.id, "the bounded replay keeps the drawn answer").toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.parts).toEqual(old.parts);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.content).toBe(`${old.content} Landed.`);
+  });
   test("Claude's aggregate separators around a tool do not replace a live answer", () => {
     const { root, socket } = running();
     root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");

@@ -595,14 +595,37 @@ function drawnText(message: ChatMessage): string {
   return message.parts.filter((part) => part.kind === "text").map((part) => part.text).join("") || message.content;
 }
 
+/** The host's display-size bound must not shorten text the page already drew. */
+function keepUnclippedText(next: string | undefined, old: string | undefined): string | undefined {
+  const elision = next?.match(/\n…\[\d+ chars elided\]$/);
+  return elision && old?.startsWith(next!.slice(0, elision.index)) ? old : next;
+}
+
 function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "messages" | "isStreaming">, partial = true): Pick<SessionChat, "messages" | "isStreaming"> {
   // Only the transcript's tail can still be streaming: a message after it
   // (a follow-up that started) means its turn is over.
   const tail = next.length - 1;
   let streaming = false;
-  const messages = next.map((m, i) => {
+  const messages = next.map((received, i) => {
     const old = previous.messages[i];
-    if (!old || old.role !== m.role) return m;
+    if (!old || old.role !== received.role) return received;
+    const toolsElided = received.content.match(/\n…\[(\d+) tool calls elided\]$/);
+    const boundedTools = toolsElided && Number(toolsElided[1]) === old.toolCalls.length - received.toolCalls.length
+      && received.toolCalls.every((tool, k) => tool.id === old.toolCalls[k]?.id);
+    const content = boundedTools ? received.content.slice(0, toolsElided.index) : received.content;
+    const m = {
+      ...received,
+      content: keepUnclippedText(content, old.content)!,
+      thinking: keepUnclippedText(received.thinking, old.thinking),
+      parts: boundedTools ? old.parts : received.parts.map((part, k) => {
+        const before = old.parts[k];
+        return part.kind !== "tool" && before?.kind === part.kind
+          ? { ...part, text: keepUnclippedText(part.text, before.text)! } : part;
+      }),
+      toolCalls: [...received.toolCalls, ...(boundedTools ? old.toolCalls.slice(received.toolCalls.length) : [])].map((tool) => ({
+        ...tool, output: keepUnclippedText(tool.output, old.toolCalls.find((t) => t.id === tool.id)?.output),
+      })),
+    };
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
     // Claude history adds separators to its aggregate across assistant
     // entries; the chronological text parts are the actual drawn text.

@@ -44,6 +44,7 @@ const transcripts = new Map<string, SessionHistoryMessage[]>();
 const titles = new Map<string, string>();
 /** Held turns, by prompt. */
 const gates = new Map<string, () => void>();
+const advance = new Map<string, () => void>();
 
 /** A long answer, so the transcript scrolls at every width. */
 const LOG = Array.from({ length: 40 }, (_, i) => `Day ${i + 1}: the wax held, and the crew rowed on.`).join("\n\n");
@@ -99,10 +100,16 @@ function scriptedBackend(): AgentBackend {
         const partial: SessionHistoryMessage = { role: "assistant", content: opening, toolCalls: [] };
         transcript.push(partial);
         bridge.emit({ type: "text_delta", sessionId, text: opening });
-        await new Promise<void>((release) => gates.set(prompt, release));
+        await new Promise<void>((release) => {
+          gates.set(prompt, release);
+          advance.set(prompt, () => {
+            partial.content += "Rowing again. ";
+            bridge.emit({ type: "text_delta", sessionId, text: "Rowing again. " });
+          });
+        });
         if (signal.aborted) return;
         const end = `Landed: ${title}.`;
-        partial.content = opening + end;
+        partial.content += end;
         bridge.emit({ type: "text_delta", sessionId, text: end });
       } else {
         transcript.push({ role: "assistant", content: `Noted: ${title}.`, toolCalls: [] });
@@ -149,6 +156,7 @@ beforeAll(async () => {
 afterEach(() => {
   for (const release of gates.values()) release();
   gates.clear();
+  advance.clear();
 });
 
 afterAll(async () => {
@@ -421,6 +429,34 @@ function same(label: string, now: Measure, base: Measure) {
   expect(now.pills, `${label}: the pending follow-up keeps its text and state`).toEqual(base.pills);
 }
 
+/** The restored socket must deliver into the retained answer, then drain the queue. */
+async function finishRecoveredTurn(s: Scene, cell: Cell) {
+  const prompt = `Hold: Sail past the Sirens (${cell.name})`;
+  const release = gates.get(prompt);
+  expect(release, "the real host still holds A's turn").toBeDefined();
+  advance.get(prompt)!();
+  await s.page.waitForFunction(() => {
+    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+    return marks.nodes.at(-1)?.textContent?.includes("Rowing again.");
+  });
+  expect(await probe(s.page, (p) => p.streaming(p.activeSessionId()!)), "the resumed delta arrived before the terminal result").toBe(true);
+  release!();
+  gates.delete(prompt);
+  await s.page.waitForFunction(() => {
+    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+    return marks.nodes.at(-1)?.textContent?.includes("Landed: Sail past the Sirens.");
+  });
+  await until(s.page, `!p.streaming(${JSON.stringify(s.A)})`);
+  await s.page.waitForFunction(() => document.querySelector("[data-reading-column]")?.textContent?.includes("Noted: Then bind me to the mast."));
+  await settle(s.page);
+  expect(await s.page.evaluate(() => {
+    const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
+    const column = document.querySelector("[data-reading-column]")!;
+    return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
+  }), "recovered text and the terminal replay kept the original answer node").toBe(true);
+  expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
+}
+
 describe.skipIf(!executablePath)("repeated connection drops in the mounted app", () => {
   for (const cell of cells) {
     test(`${cell.name}: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing`, async () => {
@@ -440,7 +476,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           if (cycle === 1) {
             expect(base.previews[0], "the image previews from an object URL").toStartWith("blob:");
             expect(base.pills, "a real pending follow-up is guarded").toHaveLength(1);
-            expect(base.pills[0]).toContain("Then bind me to the mast");
+            expect(base.pills[0]).toContain("Then bind me to the");
             expect(base.transcriptPreviews, "a sent image body is guarded").toHaveLength(1);
             expect(base.transcriptPreviews[0]).toStartWith("blob:");
           }
@@ -471,6 +507,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         expect(net.sent.slice(sentBefore).length, "the spy saw the page's frames").toBeGreaterThan(0);
         expect(await page.evaluate(() => (window as unknown as { __events: Array<{ type: string }> }).__events.map((e) => e.type)), "nothing blurred the field").toEqual([]);
         await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
+        await finishRecoveredTurn(s, cell);
       } finally {
         await s.context.close();
       }
@@ -515,6 +552,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         expect(after.sameField && after.focused, "same field, still focused").toBe(true);
         await until(page, `p.draft().text === ${JSON.stringify(committed)}`);
         await hostUntil((d) => d.some((x) => x.sessionId === s.A && x.preview === committed));
+        await finishRecoveredTurn(s, cell);
       } finally {
         await cdp.detach().catch(() => {});
         await s.context.close();
