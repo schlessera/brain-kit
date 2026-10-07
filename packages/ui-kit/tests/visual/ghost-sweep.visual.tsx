@@ -70,6 +70,7 @@ for (const width of [200, 800]) {
     const band = t.querySelector<HTMLElement>(".bk-ghost-band")!;
     const em = parseFloat(getComputedStyle(t).fontSize);
     const masks = [...t.querySelectorAll(".bk-ghost-window")].map((w) => getComputedStyle(w).maskImage);
+    for (const mask of masks) expect(mask).toContain("96deg");
     expect(masks[0]).toContain("40%");
     expect(masks[2]).toContain("60%");
     expect(rect(band).width, "band spans the whole text block").toBeGreaterThanOrEqual(rect(t).width - .1);

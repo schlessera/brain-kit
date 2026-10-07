@@ -1287,15 +1287,15 @@
 }
 .bk-ghost-window[data-ghost-hue="amber"] {
   --ghost-copy-color: var(--bk-ghost-amber);
-  mask-image: linear-gradient(90deg, transparent 0, rgb(0 0 0 / .08) 9.23%, rgb(0 0 0 / .3) 18.46%, rgb(0 0 0 / .65) 29.23%, #000 40%, transparent 52%);
+  mask-image: linear-gradient(96deg, transparent 0, rgb(0 0 0 / .08) 9.23%, rgb(0 0 0 / .3) 18.46%, rgb(0 0 0 / .65) 29.23%, #000 40%, transparent 52%);
 }
 .bk-ghost-window[data-ghost-hue="purple"] {
   --ghost-copy-color: var(--bk-ghost-purple);
-  mask-image: linear-gradient(90deg, transparent 22%, #000 50%, transparent 78%);
+  mask-image: linear-gradient(96deg, transparent 22%, #000 50%, transparent 78%);
 }
 .bk-ghost-window[data-ghost-hue="blue"] {
   --ghost-copy-color: var(--bk-ghost-blue);
-  mask-image: linear-gradient(90deg, transparent 48%, #000 60%, rgb(0 0 0 / .65) 70.77%, rgb(0 0 0 / .3) 81.54%, rgb(0 0 0 / .08) 90.77%, transparent 100%);
+  mask-image: linear-gradient(96deg, transparent 48%, #000 60%, rgb(0 0 0 / .65) 70.77%, rgb(0 0 0 / .3) 81.54%, rgb(0 0 0 / .08) 90.77%, transparent 100%);
 }
 .bk-ghost-counter-band {
   position: absolute;
