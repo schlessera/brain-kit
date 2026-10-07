@@ -1442,10 +1442,25 @@ pre-formatted string because the blocks do no arithmetic:
 | `schedule` | `groups[]{day, meta?, items[]{time, title, detail?, tag?, tone?}}` | `ScheduleList` |
 | `quote` | `quote`, `source?`, `locator?`, `note?`, `tone?`, `icon?` | `QuoteCard` |
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
+| `files` | `items[1..20]{path (1-1024), reason? (≤240)}` | `RelatedFiles` |
 | `map` | `title?` (≤60), `places[1..30]{label (1-80), lat? (-90..90), lon? (-180..180), meta? (≤40), source? (≤80), accuracyM? (>0, ≤100000)}`; `lat` and `lon` come together or not at all (additive in 0.39.0) | `PlaceMap`, planned by `planPlaces` |
 | `link` (0.39.0) | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
 | `tracker` (0.41.0) | `events[1..20]{url (1-2048), action, qualifier? (1-60, trimmed, one line), title (1-200, trimmed, one line)}`, `action` one of `opened`, `closed`, `reopened`, `merged`, `labeled`, `commented`, `reviewed`; an event takes no other key | `TrackerPillList` |
 | `suggestions` (0.39.0) | `label?` (1-24), `items[1..2]{label (4-80, trimmed, one line), icon?}` | the app's closing row, from `SuggestionChips`' data minus `tone` |
+
+A `files` block (#1139) lists supporting local notes in payload order.
+Paths and plain-text reasons are supplied by the agent; a reason is its claim,
+and the block carries no retrieval scores or evidence that a file was read.
+The live transcript and replay draw the list with the heading `Supporting
+files`, clearing the kit's sample metadata. A permitted path opens the existing
+authenticated file viewer in the current root only when the reader activates
+that row. Absolute paths, URLs, schemes, backslashes, control characters,
+query/fragment suffixes, empty path segments and `.`/`..` segments remain
+readable without an open control. Missing files use the viewer's existing
+unavailable-file error and never redirect to an alternative destination.
+Static exports preserve every path and reason without interactive controls
+or file requests. Malformed payloads retain the readable generic tool view.
+The post-answer classifier does not infer this variant or supporting reasons.
 
 A `link` block's address passes `classifyLink` (`@schlessera/brain-ui-kit/links`)
 twice. The handler rejects the call when it refuses the address, naming the

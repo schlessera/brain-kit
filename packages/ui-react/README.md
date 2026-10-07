@@ -293,12 +293,21 @@ The chat UI's own tools render from their SDK contracts through
 `bind(contract, Component)`: `get_current_location` as a map card,
 `request_image_mask` as a receipt, and `show_block` as one of the kit's answer
 blocks (comparison table, stat tiles, trend chart, data table, bar list,
-receipt, step list, timeline, schedule, quote card, contact card, and a map
+receipt, step list, timeline, schedule, quote card, contact card, supporting
+files, and a map
 of places that fetches each frame's geometry from `/geo/coastline` and always
 lists every place). A block is
 part of the answer, so the transcript draws it inline where the model called
 it rather than inside the tool timeline; a call whose result does not parse
 stays in the timeline with the result's own words.
+
+The `files` variant lists 1–20 supporting local notes with optional plain-text
+reasons. Both backends use the same data-only contract, and replay keeps the
+list in place. RelatedFiles clears sample metadata and opens permitted paths
+through the current root's file viewer. Unsafe paths remain readable without
+controls; unavailable notes use the existing file error. PNG and PDF exports
+retain paths and reasons as static text. The classifier does not infer file
+citations or reasons.
 
 The same `BlockCard` draws the blocks a host classifies out of the model's
 markdown (`message_blocks`, rev 4): `MarkdownContent` cuts a text part at

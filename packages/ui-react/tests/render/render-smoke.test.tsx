@@ -6392,3 +6392,120 @@ describe("track share review", () => {
     } finally { h.done(); }
   });
 });
+
+import { BlockCard as SupportingFilesCard } from "../../src/components/chat/tool-cards/block-card.js";
+import { registerBuiltinRenderers as registerSupportingRenderers } from "../../src/components/chat/renderers/index.js";
+import type { Block as SupportingBlock } from "@schlessera/brain-ui-sdk/client";
+const supportingInput = { block: { kind: "files" as const, items: [
+  { path: "knowledge/scylla.md", reason: "Names the cost in men." },
+  { path: "people/circe.md", reason: "Gives the directions for the crossing." },
+] } };
+
+describe("supporting answer files", () => {
+  for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+    test(`${backend} renders the echoed nonempty supporting list through RelatedFiles`, () => {
+      const root = createBrainUiRoot({ storage: null });
+      registerSupportingRenderers(root.renderers);
+      const tool = { id: "supporting-files", name, input: supportingInput, output: JSON.stringify(supportingInput) };
+      const Output = root.renderers.resolve(tool, backend)!.Output!;
+      const view = render(<BrainUiProvider root={root}><Output tool={tool} /></BrainUiProvider>);
+      expect(supportingInput.block.items).toHaveLength(2);
+      expect([...view.container.querySelectorAll('.bk-row[role="button"]')].map(row => row.textContent)).toEqual([
+        "knowledge/scylla.mdNames the cost in men.", "people/circe.mdGives the directions for the crossing.",
+      ]);
+      expect(view.container.textContent).not.toContain("4,812");
+      root.dispose();
+    });
+  }
+  test("static supporting lists retain both complete reasons without controls or requests", () => {
+    const requested: string[] = [];
+    const root = createBrainUiRoot({ storage: null, request: async url => { requested.push(String(url)); throw new Error("unexpected request"); } });
+    const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={supportingInput.block} isStatic /></BrainUiProvider>);
+    expect(view.container.textContent).toContain("Gives the directions for the crossing.");
+    expect(view.queryAllByRole("button")).toHaveLength(0);
+    expect(requested).toEqual([]);
+    root.dispose();
+  });
+});
+
+describe("supporting file navigation and fallback", () => {
+  test("activation opens only the supplied file in its provider root; missing files keep the existing readable error", async () => {
+    const aRequests: string[] = [], bRequests: string[] = [];
+    const root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://alpha.example" }, request: async url => {
+      aRequests.push(String(url));
+      const request = new URL(String(url));
+      if (request.pathname.endsWith("/files/content") && request.searchParams.get("path") === "knowledge/scylla.md") return Response.json({ path: "knowledge/scylla.md", kind: "markdown", content: "# Scylla" });
+      return Response.json({ error: "File not found" }, { status: 404 });
+    } });
+    const other = createBrainUiRoot({ storage: null, config: { backendUrl: "https://beta.example" }, request: async url => { bRequests.push(String(url)); throw new Error("wrong root"); } });
+    const block = { kind: "files", items: [{ path: "knowledge/scylla.md" }, { path: "knowledge/missing.md" }] } as SupportingBlock;
+    try {
+      const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={block} /></BrainUiProvider>);
+      fireEvent.click(view.getByRole("button", { name: /knowledge\/scylla.md/ }));
+      await waitFor(() => expect(root.stores.file.getState().currentContent).toMatchObject({ path: "knowledge/scylla.md" }));
+      expect(root.stores.ui.getState().filePanelOpen).toBe(true);
+      expect(aRequests).toHaveLength(2);
+      expect(aRequests.every(url => new URL(url).origin === "https://alpha.example")).toBe(true);
+      fireEvent.click(view.getByRole("button", { name: /knowledge\/missing.md/ }));
+      await waitFor(() => expect(root.stores.file.getState().contentError).toBe("File not found."));
+      expect(aRequests).toHaveLength(4);
+      expect(aRequests.slice(2).every(url => new URL(url).searchParams.get("path") === "knowledge/missing.md")).toBe(true);
+      expect(bRequests).toEqual([]);
+      expect(view.container.textContent).not.toContain("0.98");
+      expect(view.container.textContent).not.toContain("the file the question was about");
+    } finally { root.dispose(); other.dispose(); }
+  });
+
+  test("unsafe supporting paths stay readable and every activation sends nothing", () => {
+    const requested: string[] = [];
+    const root = createBrainUiRoot({ storage: null, request: async url => { requested.push(String(url)); throw new Error("unexpected request"); } });
+    const paths = ["../people/circe.md", "knowledge/../people/circe.md", "https://ithaca.example/scylla", "//ithaca.example/scylla", "/people/circe.md", "C:\\scylla.md", "knowledge/scylla.md?raw=1", "knowledge/./scylla.md"];
+    try {
+      const block = { kind: "files", items: paths.map(path => ({ path, reason: "Supporting claim." })) } as SupportingBlock;
+      const view = render(<BrainUiProvider root={root}><SupportingFilesCard block={block} /></BrainUiProvider>);
+      expect(paths).toHaveLength(8);
+      expect(view.queryAllByRole("button")).toHaveLength(0);
+      for (const path of paths) fireEvent.click(view.getByText(path));
+      expect(requested).toEqual([]);
+      expect(view.container.textContent).toContain("https://ithaca.example/scylla");
+    } finally { root.dispose(); }
+  });
+
+  for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+    test(`${backend} keeps malformed supporting output readable without controls`, () => {
+      const root = createBrainUiRoot({ storage: null }); registerSupportingRenderers(root.renderers);
+      try {
+        const tool = { id: "malformed-files", name, input: {}, output: '{"block":{"kind":"files","items":"broken"}}' };
+        const Output = root.renderers.resolve(tool, backend)!.Output!;
+        const view = render(<BrainUiProvider root={root}><Output tool={tool} /></BrainUiProvider>);
+        expect(view.container.textContent).toContain('"items":"broken"');
+        expect(view.container.querySelectorAll('.bk-row[role="button"]')).toHaveLength(0);
+      } finally { root.dispose(); }
+    });
+  }
+});
+
+import { MessageBubble as SupportingMessageBubble } from "../../src/components/chat/message-bubble.js";
+for (const [backend, name] of [["pi", "show_block"], ["claude", "mcp__brain-ui__show_block"]] as const) {
+  test(`${backend} session_history replays the supporting list inline in the actual message bubble`, () => {
+    const root = createBrainUiRoot({ storage: null }); registerSupportingRenderers(root.renderers);
+    const sessionId = "supporting-replay";
+    try {
+      root.stores.chat.getState().setActiveSession(sessionId);
+      root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
+      root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{
+        role: "assistant", content: "Supporting notes for the crossing.",
+        toolCalls: [{ id: "supporting-replay-tool", name, input: supportingInput, output: JSON.stringify(supportingInput) }],
+      }] });
+      const messages = root.stores.chat.getState().buffers[sessionId]!.messages;
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.toolCalls).toHaveLength(1);
+      const noop = () => {};
+      const view = render(<BrainUiProvider root={root}><SupportingMessageBubble message={messages[0]!} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop} /></BrainUiProvider>);
+      expect(view.container.querySelectorAll('[data-block="files"]')).toHaveLength(1);
+      expect([...view.container.querySelectorAll('.bk-row[role="button"]')].map(row => row.textContent)).toEqual([
+        "knowledge/scylla.mdNames the cost in men.", "people/circe.mdGives the directions for the crossing.",
+      ]);
+    } finally { root.dispose(); }
+  });
+}
