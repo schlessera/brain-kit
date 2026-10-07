@@ -23,7 +23,7 @@ export interface MeterProps {
   /** Track height in px, 3-10. */
   height?: number;
   gradient?: boolean;
-  /** Read by the source's renderVals(), absent from its data-props. */
+  /** Label gutter width for the row variant. Stacked labels use the track width. */
   labelWidth?: number;
 }
 
@@ -53,9 +53,10 @@ export function Meter(p: MeterProps) {
     ? { display: "flex", alignItems: "center", gap: 9, width: "100%" }
     : { display: "flex", flexDirection: "column", gap: 6, width: "100%" };
   const labelStyle: CSSProperties = {
-    width: Number(p.labelWidth) || 78,
+    width: row ? Number(p.labelWidth) || 78 : "100%",
     flex: "none",
-    textAlign: "right",
+    textAlign: row ? "right" : "start",
+    ...(!row ? { overflowWrap: "anywhere" as const } : {}),
     font: `400 10px/1 ${font.mono}`,
     color: color.inkMute,
   };
