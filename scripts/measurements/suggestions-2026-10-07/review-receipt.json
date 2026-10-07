@@ -17,5 +17,6 @@
     "exact": true,
     "reason": "actual model token usage with cache TTL breakdown"
   },
-  "subscriptionOverageState": "reported inactive"
+  "subscriptionOverageState": "reported inactive",
+  "protocolClarification": "The literal reviewer text mistakenly says one run per arm. The frozen/actual suggestions protocol was six prompts x two arms x three repetitions x three instruments:108 scored turns,36 per instrument. This correction does not alter literal findings or executed inputs."
 }
