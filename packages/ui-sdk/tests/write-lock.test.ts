@@ -45,17 +45,23 @@ describe("createWriteLock", () => {
     const release = await lock.acquire();
     expect(lock.locked).toBe(true);
 
+    let finishSecond!: () => void;
+    const secondGate = new Promise<void>((resolve) => { finishSecond = resolve; });
     let secondRan = false;
-    const second = lock.withLock(() => {
+    const second = lock.withLock(async () => {
       secondRan = true;
+      await secondGate;
     });
     await tick();
     expect(secondRan).toBe(false); // blocked while held
 
     release();
     release(); // no-op
-    await second;
+    await tick();
     expect(secondRan).toBe(true);
+    expect(lock.locked).toBe(true); // the second holder survives the duplicate release
+    finishSecond();
+    await second;
     expect(lock.locked).toBe(false);
   });
 });

@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  MAX_CLIENT_FRAME_BYTES,
-  MAX_PROMPT_CHARS,
   clientMessageSchema,
   parseClientMessage,
 } from "../src/schemas";
-import { MAX_IMAGE_BYTES } from "../src/protocol";
 
 describe("clientMessageSchema", () => {
   test("accepts every legitimate frame kind", () => {
@@ -56,7 +53,7 @@ describe("clientMessageSchema", () => {
   test("rejects malformed frames", () => {
     const bad = [
       { type: "chat_message" }, // no text
-      { type: "chat_message", text: "x".repeat(MAX_PROMPT_CHARS + 1) },
+      { type: "chat_message", text: "x".repeat(200_001) },
       { type: "chat_message", text: "x", attachments: [{ data: "aGk=", mediaType: "image/svg+xml" }] },
       { type: "tool_approval" }, // no toolUseId
       { type: "session_resume" }, // no sessionId
@@ -88,7 +85,7 @@ describe("parseClientMessage", () => {
     const huge = JSON.stringify({
       type: "chat_message",
       text: "x",
-      pad: "y".repeat(MAX_CLIENT_FRAME_BYTES),
+      pad: "y".repeat(12_000_000),
     });
     const res = parseClientMessage(huge);
     expect(res.ok).toBe(false);
@@ -112,9 +109,9 @@ describe("additive-protocol + limit invariants", () => {
   });
 
   test("aggregate decoded attachment bytes are capped at the boundary", () => {
-    // 4 images just under the per-image cap decode to ~8MB > the 6MB total.
+    // 4 images just under the per-image cap decode to ~16MB > the 6MB total.
     // Length must be a multiple of 4 to be well-formed base64.
-    const raw = Math.floor((MAX_IMAGE_BYTES * 4) / 3) - 4;
+    const raw = Math.floor((4_000_000 * 4) / 3) - 4;
     const big = "A".repeat(raw - (raw % 4));
     const four = Array.from({ length: 4 }, () => ({ data: big, mediaType: "image/png" }));
     expect(
@@ -163,7 +160,7 @@ describe("additive-protocol + limit invariants", () => {
   });
 
   test("oversized binary frames are rejected on raw byte length", () => {
-    const buf = Buffer.alloc(MAX_CLIENT_FRAME_BYTES + 1, 0x20);
+    const buf = Buffer.alloc(12_000_001, 0x20);
     const res = parseClientMessage(buf);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("bytes");
@@ -174,7 +171,7 @@ describe("mask frames", () => {
   test("a mask larger than the image budget is rejected at the boundary", () => {
     // The socket cap is 12MB, but a mask is flat colour and compresses hard:
     // anything approaching the per-image ceiling is not a mask.
-    const huge = "A".repeat(Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 64);
+    const huge = "A".repeat(Math.ceil((4_000_000 * 4) / 3) + 64);
     const result = clientMessageSchema.safeParse({
       type: "mask_response",
       requestId: "r1",
