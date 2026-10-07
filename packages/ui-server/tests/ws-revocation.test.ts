@@ -723,7 +723,7 @@ describe("principal revocation boundary", () => {
     expect(prompts).toEqual(["running"]);
     // The follow-up never ran, and the slot itself is gone once the running
     // turn finished — a stronger outcome than an emptied queue.
-    expect(host.coordinator.bySession.get("session-expiry")?.queue ?? []).toEqual([]);
+    expect(host.coordinator.bySession.has("session-expiry")).toBe(false);
 
     handlers.onMessage(
       {
