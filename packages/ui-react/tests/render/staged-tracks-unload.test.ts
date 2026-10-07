@@ -1,14 +1,12 @@
 import { unregisterStagedTracksUnloadDom } from "./staged-tracks-unload-dom.js";
-import { afterAll, afterEach, expect, test } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
-import { BrainUiProvider } from "../../src/root-context.js";
+import { afterAll, expect, test } from "bun:test";
 import { createBrainUiRoot } from "../../src/root.js";
-import { trackKey, tracksFor } from "../../src/lib/draft-tracks.js";
-import { useStagedTracksUnloadGuard } from "../../src/hooks/use-staged-tracks.js";
+import { moveTracks, subscribeAllTracks, trackKey, tracksFor } from "../../src/lib/draft-tracks.js";
 
-// The leave guard for staged tracks (#1150), against happy-dom's window. Real
-// Chromium's confirmation is proved in `tests/parallel-sessions-runtime.test.ts`.
-afterEach(cleanup);
+// The leave guard for staged tracks (#1150), against happy-dom's window. It
+// belongs to the root, not to a mounted component: nothing is rendered here,
+// as when the login gate has replaced the app. Real Chromium's confirmation
+// is proved in `tests/parallel-sessions-runtime.test.ts`.
 afterAll(unregisterStagedTracksUnloadDom);
 
 /** The beforeunload listeners on the window right now. */
@@ -34,33 +32,30 @@ function leavingAsks(): boolean {
   return event.defaultPrevented;
 }
 
-function Guard() {
-  useStagedTracksUnloadGuard();
-  return null;
-}
+// Uploads never answer: a track stays staged, as it does in a composer.
+const never = () => new Promise<Response>(() => {});
 
-test("a staged track in a session not in view guards leaving until the last is removed", () => {
+test("a staged track in a session not in view guards leaving until the last is removed, with nothing mounted", () => {
   const listeners = watchListeners();
-  // Uploads never answer: the track stays staged, as it does in a composer.
-  const root = createBrainUiRoot({ storage: null, request: () => new Promise<Response>(() => {}) });
+  const root = createBrainUiRoot({ storage: null, request: never });
   try {
-    render(<BrainUiProvider root={root}><Guard /></BrainUiProvider>);
     expect(listeners.count(), "nothing staged: no handler").toBe(0);
     expect(leavingAsks()).toBe(false);
 
-    // Staged in the raft's session and in a new chat; neither is in view.
+    // Staged in the raft's session and in a new chat.
     const raft = tracksFor(root, trackKey("odysseus-raft", root.stores.drafts.getState().idFor("odysseus-raft"))).uploads;
     const fresh = tracksFor(root, trackKey(null, root.stores.drafts.getState().fresh)).uploads;
-    act(() => { raft.add([new File(["{}"], "raft-timber-run.gpx")]); });
+    expect(listeners.count(), "empty queues: no handler").toBe(0);
+    raft.add([new File(["{}"], "raft-timber-run.gpx")]);
     expect(raft.files, "the raft's track is staged").toHaveLength(1);
     expect(listeners.count(), "one handler").toBe(1);
     expect(leavingAsks(), "leaving would lose the raft's track").toBe(true);
-    act(() => { fresh.add([new File(["{}"], "pylos-harbour.gpx")]); });
+    fresh.add([new File(["{}"], "pylos-harbour.gpx")]);
     expect(listeners.count(), "still one handler").toBe(1);
 
-    act(() => raft.remove(raft.files[0]!.id));
+    raft.remove(raft.files[0]!.id);
     expect(leavingAsks(), "the new chat still holds one").toBe(true);
-    act(() => fresh.remove(fresh.files[0]!.id));
+    fresh.remove(fresh.files[0]!.id);
     expect(listeners.count(), "the last track removed: no handler").toBe(0);
     expect(leavingAsks()).toBe(false);
   } finally {
@@ -69,27 +64,35 @@ test("a staged track in a session not in view guards leaving until the last is r
   }
 });
 
-test("the guard follows a replaced root, and unmounting removes it", () => {
+test("a queue moving to its session keeps the guard; disposing the root removes it", () => {
   const listeners = watchListeners();
-  const never = () => new Promise<Response>(() => {});
-  const ithaca = createBrainUiRoot({ storage: null, request: never });
-  const pylos = createBrainUiRoot({ storage: null, request: never });
+  const root = createBrainUiRoot({ storage: null, request: never });
   try {
-    const track = tracksFor(ithaca, trackKey(null, ithaca.stores.drafts.getState().fresh)).uploads;
-    track.add([new File(["{}"], "ithaca-loop.gpx")]);
-    const view = render(<BrainUiProvider root={ithaca}><Guard /></BrainUiProvider>);
-    expect(leavingAsks(), "Ithaca holds a track").toBe(true);
-    view.rerender(<BrainUiProvider root={pylos}><Guard /></BrainUiProvider>);
-    expect(listeners.count(), "Pylos holds nothing").toBe(0);
+    const fresh = root.stores.drafts.getState().fresh;
+    tracksFor(root, trackKey(null, fresh)).uploads.add([new File(["{}"], "ithaca-loop.gpx")]);
+    moveTracks(root, trackKey(null, fresh), trackKey("odysseus-ithaca", fresh));
+    expect(leavingAsks(), "the session holds it now").toBe(true);
+    root.dispose();
+    expect(listeners.count(), "the root is gone: no handler").toBe(0);
     expect(leavingAsks()).toBe(false);
-    const other = tracksFor(pylos, trackKey(null, pylos.stores.drafts.getState().fresh)).uploads;
-    act(() => { other.add([new File(["{}"], "pylos-harbour.gpx")]); });
-    expect(leavingAsks(), "Pylos's own track is heard").toBe(true);
-    view.unmount();
-    expect(listeners.count(), "unmounted: no handler").toBe(0);
   } finally {
     listeners.restore();
-    ithaca.dispose();
-    pylos.dispose();
+  }
+});
+
+test("the guard is gone before any watcher hears the last track go", () => {
+  const listeners = watchListeners();
+  const root = createBrainUiRoot({ storage: null, request: never });
+  try {
+    const raft = tracksFor(root, trackKey("odysseus-raft", root.stores.drafts.getState().idFor("odysseus-raft"))).uploads;
+    raft.add([new File(["{}"], "raft-timber-run.gpx")]);
+    // The update takeover is such a watcher: it reloads the page at once.
+    const heard: boolean[] = [];
+    subscribeAllTracks(root, () => heard.push(leavingAsks()));
+    raft.remove(raft.files[0]!.id);
+    expect(heard, "a reload from the watcher asks nothing").toEqual([false]);
+  } finally {
+    listeners.restore();
+    root.dispose();
   }
 });

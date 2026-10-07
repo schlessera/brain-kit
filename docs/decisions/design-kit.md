@@ -5196,15 +5196,19 @@ question-answer rules are independent.
 
 > **2026-10-07 — Leaving the page with staged tracks, implemented by
 > #1150.** While any root-owned queue holds a track, in any view and any
-> upload state, `AppShell` registers a `beforeunload` handler, so a manual
-> reload, closing the tab or navigating away asks the browser's own leave
-> confirmation. The browser draws its own words; there is no custom text and
-> no in-app sheet. The handler follows `subscribeAllTracks` and is removed
-> when the last track is sent or removed. It also reads the queues as the
-> page leaves, so the update takeover's reload after the last track goes
-> never asks. Browsers may skip the prompt on a page the user never
-> interacted with; Chromium under test automation asks regardless. The hook
-> is `useStagedTracksUnloadGuard` in `hooks/use-staged-tracks.ts`.
+> upload state, the root's track registry registers a `beforeunload`
+> handler, so a manual reload, closing the tab or navigating away asks the
+> browser's own leave confirmation. The browser draws its own words; there
+> is no custom text and no in-app sheet. The handler moves with the same
+> change notice that drives `subscribeAllTracks`, is removed when the last
+> track is sent or removed (or the root is disposed), and is updated before
+> any watcher hears the change, so the update takeover's reload after the
+> last track goes never asks. It belongs to the root rather than a mounted
+> component, so it holds while the login gate replaces the app; a scripted
+> reload that would lose tracks, such as the one after signing in, asks as
+> well. Browsers may skip the prompt on a page the user never interacted
+> with; Chromium under test automation asks regardless. The guard is
+> `guardLeaving` in `lib/draft-tracks.ts`.
 
 ### 6. Host contracts the implementations add
 
