@@ -4,7 +4,7 @@ import type { SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
-import { createDraftStore, DraftError, draftPreview, hasImageSignature, PENDING_ATTACHMENT_TTL_MS } from "../src/drafts/store";
+import { createDraftStore, DraftError, draftPreview, hasImageSignature } from "../src/drafts/store";
 
 const dbs: Database[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
@@ -71,7 +71,7 @@ test("a dropped image is deleted with its revision; an unlisted upload waits an 
   const ids = () => (db.query("SELECT attachment_id AS id FROM session_draft_attachments ORDER BY created_at, attachment_id").all() as Array<{ id: string }>).map((r) => r.id).sort();
   expect(ids()).toEqual([two, pending].sort());
   expect(store.get(owner, "draft-a").attachments.map((a) => a.name)).toEqual(["two.png"]);
-  advance(PENDING_ATTACHMENT_TTL_MS + 1);
+  advance(60 * 60 * 1_000 + 1);
   store.save(owner, "draft-a", { ifMatch: 2, idempotencyKey: "s3", sessionId: null, text: "Ithaca", attachmentIds: [two] });
   expect(ids()).toEqual([two]);
 });
@@ -87,7 +87,7 @@ test("an upload receipt replays its id; a different image under the same key is 
 test("an upload retried after its bytes were swept stores them again under a usable id", () => {
   const { store, owner, advance } = setup();
   const first = store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1) });
-  advance(PENDING_ATTACHMENT_TTL_MS + 1);
+  advance(60 * 60 * 1_000 + 1);
   const retried = store.upload(owner, "draft-a", { idempotencyKey: "u1", mime: "image/png", name: null, bytes: png(1) });
   expect(retried.attachmentId).not.toBe(first.attachmentId);
   expect(store.save(owner, "draft-a", { ifMatch: 0, idempotencyKey: "s1", sessionId: null, text: "", attachmentIds: [retried.attachmentId] })).toMatchObject({ revision: 1 });

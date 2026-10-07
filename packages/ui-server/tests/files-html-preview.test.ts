@@ -63,8 +63,10 @@ describe("GET /api/files/html", () => {
     expect(response.headers.get("content-length")).toBe(String(Buffer.byteLength(PAGE)));
   });
 
-  test("the policy grants no popups, same origin, forms, downloads or top navigation", () => {
-    const sandbox = EXPECTED_CSP.split(";")[0]!.trim().split(/\s+/);
+  test("the policy grants no popups, same origin, forms, downloads or top navigation", async () => {
+    const response = await preview("voyage/beacon.html");
+    expect(response.status).toBe(200);
+    const sandbox = response.headers.get("content-security-policy")!.split(";")[0]!.trim().split(/\s+/);
     expect(sandbox).toEqual(["sandbox", "allow-scripts"]);
   });
 
