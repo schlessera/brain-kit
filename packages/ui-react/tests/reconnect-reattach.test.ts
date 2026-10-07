@@ -661,10 +661,12 @@ describe("a reconnect while the turn in view runs", () => {
   test("text the page missed and a tool it already drew are both kept", () => {
     const { root, socket } = running();
     root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    root.stores.chat.getState().appendText("s1", " Later oars.");
     const next = reconnect(root, socket);
-    next.deliver({ type: "session_history", sessionId: "s1", messages: history(`${SIRENS} Past Scylla.`) });
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(`${SIRENS} Past Scylla. Later oars.`) });
     const last = buffer(root).messages.at(-1)!;
-    expect(last.content).toBe(`${SIRENS} Past Scylla.`);
+    expect(last.parts.filter((p) => p.kind === "text").map((p) => p.text).join(""), "the drawn parts include recovered interior text exactly once").toBe(`${SIRENS} Past Scylla. Later oars.`);
+    expect(last.content).toBe(`${SIRENS} Past Scylla. Later oars.`);
     expect(last.toolCalls.map((t) => t.id)).toEqual(["wax-1"]);
     expect(last.parts.filter((p) => p.kind === "tool")).toHaveLength(1);
     expect(last.parts.filter((p) => p.kind === "tool").map((p) => last.toolCalls[p.toolIndex]?.id), "the retained part references its actual drawn card").toEqual(["wax-1"]);

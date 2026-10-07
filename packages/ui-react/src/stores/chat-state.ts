@@ -750,13 +750,9 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     return o && ((o.output !== undefined && t.output === undefined) || (t.status === "streaming" && o.status !== "streaming")) ? o : t;
   });
   let parts = [...base.parts];
-  const keptToolParts = base !== old && old.toolCalls.some((tool) => !parts.some((p) => p.kind === "tool" && base.toolCalls[p.toolIndex]?.id === tool.id));
-  if (keptToolParts) {
-    parts = appendPart(old.parts, "text", drawnText(m).slice(drawnText(old).length));
-  }
   for (const t of other.toolCalls) {
     if (toolCalls.some((b) => b.id === t.id)) continue;
-    if (!keptToolParts) {
+    {
       const sourceAt = other.parts.findIndex((p) => p.kind === "tool" && other.toolCalls[p.toolIndex]?.id === t.id);
       const following = other.parts.slice(sourceAt + 1).filter((p) => p.kind === "tool").map((p) => other.toolCalls[p.toolIndex]!.id);
       const at = parts.findIndex((p) => p.kind === "tool" && following.includes(toolCalls[p.toolIndex]!.id));
@@ -764,9 +760,6 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     }
     toolCalls.push(t);
   }
-  // Resolve retained indices only once the union includes every drawn tool.
-  if (keptToolParts) parts = parts.map((p) => p.kind === "tool"
-    ? { ...p, toolIndex: toolCalls.findIndex((t) => t.id === old.toolCalls[p.toolIndex]?.id) } : p);
   // Thinking stays between the text/tool parts that bracketed it. Host
   // aggregates add separators, so compare the drawn blocks, not that field.
   const thinkingSlots = (source: MessagePart[]) => {
