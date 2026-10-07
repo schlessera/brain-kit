@@ -19,7 +19,8 @@
       "@schlessera/brain-module-jobs",
       "@schlessera/brain-module-speaking",
       "@schlessera/brain-module-travel",
-      "@schlessera/brain-geo"
+      "@schlessera/brain-geo",
+      "@schlessera/brain-module-video"
     ]
   ],
   "linked": [],

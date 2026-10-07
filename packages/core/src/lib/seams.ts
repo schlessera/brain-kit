@@ -14,7 +14,9 @@
 export type ContentPart =
   | { kind: "text"; text: string }
   | { kind: "image"; data: Uint8Array; mimeType: string }
-  | { kind: "pdf"; data: Uint8Array };
+  | { kind: "pdf"; data: Uint8Array }
+  | ({ kind: "video"; mimeType: string; clip?: { start?: number; end?: number } } &
+      ({ uri: string } | { path: string } | { data: Uint8Array }));
 
 /**
  * Plain (non-agentic) LLM completion. Used for enrichment (chunk contexts,
@@ -24,12 +26,14 @@ export type ContentPart =
  */
 export interface CompletionProvider {
   id: string;
-  capabilities: { vision: boolean };
+  capabilities: { vision: boolean; /** Omission means unsupported. */ video?: boolean };
   complete(req: {
     system?: string;
     prompt: string;
     parts?: ContentPart[];
     maxTokens?: number;
+    /** Cancellation/deadline for this request; cleanup uses a fresh deadline. */
+    signal?: AbortSignal;
   }): Promise<string>;
 }
 

@@ -123,11 +123,13 @@ function withFallback(
 ): CompletionProvider {
   return {
     id: `${primary.id}+fallback:${fallback.id}`,
-    capabilities: { vision: primary.capabilities.vision },
+    capabilities: { vision: primary.capabilities.vision, video: primary.capabilities.video ?? false },
     async complete(req) {
       try {
         return await primary.complete(req);
-      } catch {
+      } catch (error) {
+        // Video must not silently move to another provider, nor retry after cancellation.
+        if (req.signal?.aborted || req.parts?.some((part) => part.kind === "video")) throw error;
         return await fallback.complete(req);
       }
     },

@@ -584,3 +584,13 @@ its optional contribution API and migration format are documented above.
 - [concepts.md](concepts.md) — the taxonomy model modules extend.
 - [configuration.md](configuration.md) — the `modules` config key.
 - [extending/README.md](extending/README.md) — modules vs. provider seams.
+
+### Video (`@schlessera/brain-module-video`)
+
+Opt-in `brain video watch` and `/watch` analyze a public YouTube URL or local
+video with Gemini. Configure `engine: "gemini"`, optional `model` (core's
+Gemini default) and `timeoutMs` (300000). It contributes no taxonomy or MCP
+tool. Watching sends the source and question to Google; the command discloses
+this before calling and the skill obtains agreement. See the
+[video module README](../packages/module-video/README.md) for setup, stable JSON,
+clip times, unavailable metadata and upload cleanup.

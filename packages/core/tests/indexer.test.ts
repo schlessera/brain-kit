@@ -597,7 +597,7 @@ describe("asset cache non-poisoning", () => {
           id: "fake:mixed", capabilities: { vision: true },
           async complete(req) {
             const part = req.parts![0];
-            if (part.kind === "text") throw new Error("expected binary part");
+            if (part.kind !== "image" && part.kind !== "pdf") throw new Error("expected image/PDF part");
             const key = keyOf(part.data);
             called.push(key);
             if (key === keyOf(failed)) throw new Error("fake describe failure");
@@ -628,7 +628,7 @@ describe("asset cache non-poisoning", () => {
         id: "fake:mixed", capabilities: { vision: true },
         async complete(req) {
           const part = req.parts![0];
-          if (part.kind === "text") throw new Error("expected binary part");
+          if (part.kind !== "image" && part.kind !== "pdf") throw new Error("expected image/PDF part");
           const key = keyOf(part.data);
           retried.push(key);
           return key === keyOf(absent) ? "A harbour logo." : "A voyage report.";

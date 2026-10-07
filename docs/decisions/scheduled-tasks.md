@@ -31,7 +31,7 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   Capability flags and these checks do not prove credential/configuration,
   filesystem or egress containment at the actual backend boundary.
 - The generic core runner has a different interface
-  (`AgentRunner`, `packages/core/src/lib/seams.ts:42-57`); its helper forwards
+  (`AgentRunner`, `packages/core/src/lib/seams.ts:46-61`); its helper forwards
   no autonomous authority/admission controls (`runAgent`, `packages/core/src/cli/agent.ts:39-66`).
   Existing static nightly sync is not authorization for arbitrary stored prompts.
 - The existing operational database is concrete WAL SQLite
