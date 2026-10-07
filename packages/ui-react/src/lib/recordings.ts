@@ -61,7 +61,7 @@ export interface RecordingStore {
   /** Persist editable review text before reporting it ready. */
   saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
   /** Commit the chosen draft before marking accepted and deleting audio. Idempotent on recording id. */
-  accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null): Promise<void>;
+  accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
   /** Only unassigned audio may move, and only into the account held now. */
   assign(id: string): Promise<void>;
   busy(): boolean;
@@ -83,6 +83,7 @@ export function recordingTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
+export const TRANSCRIPT_CHANGED = "Transcript changed in another tab. Review it before adding it to your draft.";
 const notEnough = "Not enough space on this device to record. Free space by transcribing or discarding recordings.";
 async function hash(blobs: Blob[]): Promise<string> {
   const bytes = await new Blob(blobs).arrayBuffer();
@@ -99,7 +100,7 @@ function contiguousChunks(all: LocalCaptureChunk[]): LocalCaptureChunk[] {
 async function recoveredIndex(index: Index, kept: LocalCaptureChunk[], total: number): Promise<Index> {
   if (index.state !== "recording" && kept.length === index.chunkCount && kept.length === total) return index;
   const end = kept.at(-1)!.endMs;
-  return { ...index, state: "interrupted", interruptedAt: end, durationMs: end, savedThroughMs: end, bytes: kept.reduce((n, c) => n + c.data.size, 0), chunkCount: kept.length, contentHash: await hash(kept.map((c) => c.data)) };
+  return { ...index, state: typeof index.transcript === "string" ? index.state === "accepted" ? "accepted" : "transcript-ready" : "interrupted", interruptedAt: end, durationMs: end, savedThroughMs: end, bytes: kept.reduce((n, c) => n + c.data.size, 0), chunkCount: kept.length, contentHash: await hash(kept.map((c) => c.data)) };
 }
 
 /** Account gating is delegated to #1014's primitive on every read and write. No age expiry or eviction. */
@@ -521,7 +522,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         changed(id);
       } finally { await release(); }
     },
-    async accept(partition, id, draftId, sessionId) {
+    async accept(partition, id, draftId, sessionId, expectedTranscript) {
       // The global recording lock serializes accept, edit, discard and other
       // tabs. A receipt committed with the draft closes the crash window
       // between that commit and accepted metadata / deletion.
@@ -531,6 +532,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         if (partition === "unassigned" || !options.root.localWork) throw new Error("Link this recording to an account before adding it to a draft");
         const row = await get(partition, id);
         if (!row) return;
+        if (expectedTranscript !== undefined && expectedTranscript !== row.transcript) throw new Error(TRANSCRIPT_CHANGED);
         if (row.state !== "accepted" && (row.state !== "transcript-ready" || !row.transcript?.trim())) throw new Error("The recording has no transcript to add");
         const revision = await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);
         // Authority may have gone during the draft commit. The audio stays
@@ -539,7 +541,12 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const { partition: _partition, ...index } = row;
         await partitions.open(partition).put(indexKey(id), { ...index, state: "accepted", acceptedDraftRev: revision });
         await deleteRecording(partition, id);
-      } finally { await release(); }
+      } finally {
+        // The draft's durable receipt can change reviewability even when
+        // accepted metadata or cleanup fails. Refresh every mounted tab.
+        changed(id);
+        await release();
+      }
     },
     async assign(id) {
       const to = heldPartition();

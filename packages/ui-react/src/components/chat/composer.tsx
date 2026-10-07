@@ -564,10 +564,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const key = root.stores.connection.getState().accountKey;
     const partition = key === null ? "unassigned" : accountPartition(key);
     const active = (await root.recordings!.list(partition)).find(row => row.state === "recording");
-    await localCapture.stop("user");
-    if (active) await root.recordings!.discard(partition, active.id);
-    setRecordingNotice("Recording discarded from this device.");
-    focusMic();
+    try {
+      await localCapture.stop("user");
+      if (active) await root.recordings!.discard(partition, active.id);
+      setRecordingNotice("Recording discarded from this device.");
+    } catch (error) {
+      setRecordingNotice("Couldn\u0027t discard this recording on this device. The recording is kept.");
+      throw error;
+    } finally { focusMic(); }
   };
 
   function handleMicTap() {

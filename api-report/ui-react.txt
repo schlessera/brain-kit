@@ -592,7 +592,7 @@ signatures (every public export and the types it is made of)
         }>;
         discard(partition: PartitionId, id: string): Promise<void>;
         saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
-        accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null): Promise<void>;
+        accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;

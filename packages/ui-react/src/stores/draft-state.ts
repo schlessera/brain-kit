@@ -473,7 +473,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
           const text = d.text === consumedText ? "" : d.text;
-          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now() });
+          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
         }
         return draftRef;
       },

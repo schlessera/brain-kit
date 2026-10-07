@@ -13,7 +13,7 @@ describe("local recording row", () => {
   test("capability absence and offline never manufacture an upload control", () => {
     for (const offline of [true, false]) {
       const html = renderToStaticMarkup(<RecordingRow time="09:12" length="2:14" durationLabel="2 minutes 14 seconds" state="saved" offline={offline} />);
-      expect(html).not.toContain("role=\"button\"");
+      expect(html, "no native or ARIA transcription control").not.toMatch(/<button\b|role="button"/);
       expect(html).toContain(offline ? "needs the host" : "Your recording is kept.");
     }
   });

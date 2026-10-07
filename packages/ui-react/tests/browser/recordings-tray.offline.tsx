@@ -435,3 +435,92 @@ test("local sheet renders the store's warning, limit and storage outcomes", asyn
   await full.end!("storage");
   await expect.poll(() => c.host.querySelector("[role=status]")?.textContent, { message: "budget outcome reports committed audio" }).toBe("Stopped: storage for recordings is full. Saved up to 0:10.");
 });
+
+
+test("auth expiry at draft commit preserves the accepted transcript through same-account recovery", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const id = c.root.stores.drafts.getState().idFor(null);
+  const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("root:ithaca/draft/"));
+  ctx.onTestFinished(() => hold.restore());
+  const accepting = c.root.recordings!.accept(row.partition, row.id, id, null).then(() => null, error => error);
+  await hold.started;
+  c.root.stores.connection.getState().setVpnStatus("unauthorized");
+  hold.release();
+  expect(await accepting, "expired auth refuses audio cleanup").toBeInstanceOf(Error); hold.restore();
+  c.root.stores.connection.getState().setVpnStatus("connected", "odysseus");
+  await c.root.localWork!.snapshotNow();
+  expect((await c.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string } | undefined)?.text, "same-account snapshot cannot erase the committed acceptance").toBe(TEXT);
+  expect(c.root.stores.drafts.getState().drafts[id]?.text, "committed transcript reaches its original live draft").toBe(TEXT);
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "accepted", transcript: TEXT });
+  await c.root.recordings!.accept(row.partition, row.id, id, null);
+  expect(c.root.stores.drafts.getState().drafts[id]?.text, "cleanup retry never appends again").toBe(TEXT);
+  expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+});
+
+
+test("partial audio loss keeps the surviving transcript editable and acceptable", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const h = c.partitions.open(row.partition);
+  const index = await h.get(`recording:index:${row.id}`) as Recording;
+  await h.put(`recording:index:${row.id}`, { ...index, chunkCount: 2, durationMs: 2000, savedThroughMs: 2000 });
+  const recovered = await c.root.recordings!.recover(row.partition);
+  expect(recovered.recordings.find(r => r.id === row.id), "partial loss preserves transcript reviewability").toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1, savedThroughMs: 1000 });
+  c.renderTray(); await expand(c);
+  expect(c.host.textContent).toContain("saved up to 0:01 — the end may be missing");
+  expect(c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")?.disabled).toBe(false);
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text).toBe(TEXT);
+});
+
+function externalStore(c: ReturnType<typeof fixture>, ctx: TestContext) {
+  const store = createRecordingStore({ root: c.root, partitions: c.partitions, heldAccountKey: () => "odysseus" });
+  ctx.onTestFinished(() => store.dispose()); return store;
+}
+
+test("external transcript edits update a clean visible review", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const other = externalStore(c, ctx);
+  c.renderTray(); await expand(c);
+  const field = c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!;
+  expect(field.value, "the visible initial review is non-empty").toBe(TEXT);
+  await other.saveTranscript(row.partition, row.id, "Penelope confirms the loom order.");
+  await expect.poll(() => field.value, { message: "external stored revision reaches the clean editor" }).toBe("Penelope confirms the loom order.");
+});
+
+test("a transcript changed in another tab during Add cannot silently replace the reviewed text", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); const other = externalStore(c, ctx);
+  c.renderTray(); await expand(c); const original = c.root.recordings!.accept;
+  vi.spyOn(c.root.recordings!, "accept").mockImplementation(async (...args) => {
+    await other.saveTranscript(row.partition, row.id, "Telemachus changed the route."); return original(...args);
+  });
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "changed revision requires another review" }).toBe("Transcript changed in another tab. Review it before adding it to your draft.");
+  expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text ?? "", "unreviewed revision is never appended").toBe("");
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", chunkCount: 1 });
+});
+
+test("a committed acceptance with failed cleanup renders a read-only review", async ctx => {
+  const c = fixture(ctx); await c.ready(); await c.seed(); c.renderTray(); await expand(c);
+  const original = IDBObjectStore.prototype.put;
+  const spy = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function(this: IDBObjectStore, value, key) { if ((value as Recording)?.state === "accepted") throw new DOMException("Full", "QuotaExceededError"); return original.call(this, value, key); });
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe(ACCEPT_FAILED);
+  await expect.poll(() => c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")?.disabled, { message: "durable acceptance makes the rendered review read-only" }).toBe(true);
+  spy.mockRestore(); await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.host.querySelector("[data-recording-row]")).toBeNull();
+});
+
+test("failed capture discard stays visible after Stop and restores mic focus", async ctx => {
+  await commands.formViewport(390, 900); await page.viewport(390, 900);
+  const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
+  const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
+  await tap(button(c.host, "Record on this device"));
+  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+  const original = IDBObjectStore.prototype.delete;
+  vi.spyOn(IDBObjectStore.prototype, "delete").mockImplementation(function(this: IDBObjectStore, key) {
+    if (Array.isArray(key) && String(key[1]).startsWith("recording:index:")) throw new DOMException("Full", "QuotaExceededError"); return original.call(this, key);
+  });
+  await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
+  await tap(button(c.host, "Discard recording"));
+  await expect.poll(() => c.root.stores.voice.getState().local).toBe("idle");
+  await expect.poll(() => [...c.host.querySelectorAll("[role=status]")].find(el => el.textContent?.includes("discard this recording"))?.textContent, { message: "discard failure survives the sheet closing" }).toBe("Couldn\u0027t discard this recording on this device. The recording is kept.");
+  await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "failed discard restores mic focus" }).toBe("Record on this device");
+  expect(await c.root.recordings!.list("account:odysseus")).toHaveLength(1);
+});

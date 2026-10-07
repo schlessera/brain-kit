@@ -83,6 +83,8 @@ unavailable. Nothing in these actions sends audio or a chat message.
 
 `RecordingsTray` and `LocalRecordingSheet` are exported for other root-scoped
 views. A ready transcript is editable and each input is committed locally.
+A clean editor follows edits from other tabs; Add refuses a stored revision
+that differs from the text the user reviewed.
 Add to draft appends after a newline and commits through the account's local
 work snapshot before marking the recording accepted or deleting its audio and
 transcript. A hash-bound acceptance receipt makes a retry safe after a failed

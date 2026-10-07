@@ -1674,6 +1674,7 @@ signatures (every public export and the types it is made of)
         length: string;
         state: RecordingRowState;
         savedThrough?: string;
+        interrupted?: boolean;
         durationLabel: string;
         offline?: boolean;
         onPlay?: () => void;

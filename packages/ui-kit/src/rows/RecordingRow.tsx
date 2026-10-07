@@ -10,6 +10,8 @@ export interface RecordingRowProps {
   state: RecordingRowState;
   /** The end of the last committed chunk, formatted as m:ss. */
   savedThrough?: string;
+  /** A recovered audio prefix may accompany a still-reviewable transcript. */
+  interrupted?: boolean;
   /** Human-readable length for accessible action names. */
   durationLabel: string;
   offline?: boolean;
@@ -29,7 +31,7 @@ export function RecordingRow(p: RecordingRowProps) {
         <span>{p.time} · {p.length}</span>
         <b style={{ color: p.state === "interrupted" || p.state === "failed" ? accent.amber.ink : color.inkMute }}>{state}</b>
       </div>
-      {p.state === "interrupted" && <p style={{ margin: "6px 0", font: `400 12px/1.5 ${font.body}`, color: color.inkMute }}>saved up to {p.savedThrough} — the end may be missing</p>}
+      {(p.state === "interrupted" || p.interrupted) && <p style={{ margin: "6px 0", font: `400 12px/1.5 ${font.body}`, color: color.inkMute }}>saved up to {p.savedThrough} — the end may be missing</p>}
       {p.children ?? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
           {p.onPlay && <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onPlay} />}

@@ -421,10 +421,15 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         };
         const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
         await flush({ id, draft, textHash });
+        // This root remains bound to the original account even while locked.
+        // Publish its committed append before snapshots can resume: an auth
+        // change must not leave a receipt whose draft an ordinary flush erases.
+        if (!disposed) {
+          const latest = stores.drafts.getState();
+          const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
+          latest.edit(target, sessionId, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
+        }
         if (held() !== account || disposed) throw new PartitionRefusedError(accountPartition(account));
-        const latest = stores.drafts.getState();
-        const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
-        latest.edit(target, sessionId, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
         return draft.edit;
       });
       chain = run.then(() => {}, () => {});

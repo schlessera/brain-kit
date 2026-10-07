@@ -142,6 +142,21 @@ function boot(host: ReturnType<typeof fakeHost>, capabilities: Record<string, bo
 }
 
 describe("saving", () => {
+  test("explicit Send releases a local transcript draft's owed host cleanup", async () => {
+    const host = fakeHost(); const { drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Penelope" });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    const text = "Ask Penelope\nInspect the fleet.";
+    drafts().edit(id, ITHACA, { text, deviceOnly: true });
+    const before = host.calls.length; await wait(800);
+    expect(host.calls.slice(before), "local transcript causes no host request").toEqual([]);
+    drafts().beginSend({ requestId: "req-local-fleet", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-local-fleet", source: "typed" } }, text);
+    drafts().accepted("req-local-fleet", ITHACA);
+    await wait(800);
+    expect(host.rows.get(id)?.deleted, "explicit Send cleans up the older saved host draft").toBe(true);
+  });
+
   test("a host without the capability is never asked, and the draft says so", async () => {
     const host = fakeHost();
     const { drafts } = boot(host, { chatRequestAck: true });

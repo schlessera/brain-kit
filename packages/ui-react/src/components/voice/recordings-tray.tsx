@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObje
 import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
-import { recordingTime, type Recording } from "../../lib/recordings.js";
+import { recordingTime, TRANSCRIPT_CHANGED, type Recording } from "../../lib/recordings.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
@@ -120,11 +120,16 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   const [busy, setBusy] = useState(false);
   const active = useRef(false);
   const chain = useRef(Promise.resolve());
-  const previousState = useRef(row.state);
+  const observedTranscript = useRef(row.transcript);
+  const dirty = useRef(false);
+  const editVersion = useRef(0);
+  const [savedVersion, setSavedVersion] = useState(0);
   useEffect(() => {
-    if (previousState.current !== row.state && (row.state === "transcript-ready" || row.state === "accepted")) setText(row.transcript ?? "");
-    previousState.current = row.state;
-  }, [row.state, row.transcript]);
+    if (row.state === "accepted" || (!dirty.current && observedTranscript.current !== row.transcript)) {
+      setText(row.transcript ?? "");
+      observedTranscript.current = row.transcript;
+    }
+  }, [row.state, row.transcript, savedVersion]);
   const mounted = useRef(true);
   const keep = useRef<HTMLDivElement>(null);
   const actions = useRef<HTMLDivElement>(null);
@@ -151,21 +156,25 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
     const draftId = root.stores.drafts.getState().idFor(chat.activeSessionId);
     const sessionId = chat.activeSessionId;
     void run(async () => {
-      try { await root.recordings!.accept(row.partition, row.id, draftId, sessionId); }
-      catch { throw new Error(ACCEPT_FAILED); }
+      try { await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text); }
+      catch (error) { throw new Error(error instanceof Error && error.message === TRANSCRIPT_CHANGED ? TRANSCRIPT_CHANGED : ACCEPT_FAILED); }
       onAccepted();
     }, true);
   };
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
-    <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} offline={offline}>
+    <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} interrupted={row.interruptedAt !== undefined} offline={offline}>
       {(row.state === "transcript-ready" || row.state === "accepted") && <>
         <label className="mt-2 block text-xs text-muted-foreground">Transcript · from {recordingClock(row)} recording
           <textarea aria-label={`Transcript of ${name}`} value={text} disabled={busy || row.state === "accepted"} className="mt-1 block min-h-24 w-full rounded-lg border border-border bg-background p-2 text-sm text-foreground" onChange={event => {
-            const value = event.target.value; setText(value);
+            const value = event.target.value; setText(value); dirty.current = true;
+            const version = ++editVersion.current;
             // Input writes serialize. Acceptance waits for the newest edit;
             // a failed edit prevents acceptance of older stored text.
             chain.current = chain.current.catch(() => {}).then(() => root.recordings!.saveTranscript(row.partition, row.id, value));
-            void chain.current.then(() => { if (mounted.current) setError(""); }, () => { if (mounted.current) setError("Couldn\u0027t save the transcript on this device. The recording is kept."); });
+            void chain.current.then(() => {
+              if (version === editVersion.current) dirty.current = false;
+              if (mounted.current) { setError(""); setSavedVersion(version); }
+            }, () => { if (mounted.current) setError("Couldn\u0027t save the transcript on this device. The recording is kept."); });
           }} />
         </label>
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
