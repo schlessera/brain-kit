@@ -37,6 +37,8 @@ export function useDictation() {
   // AbortController for the in-flight session fetch, so stop/cancel/unmount
   // can actually cancel a pending connect rather than just ignoring its result.
   const sessionAbortRef = useRef<AbortController | null>(null);
+  // This hook started the dictation the store shows and has not ended it.
+  const ownsRef = useRef(false);
   const setMode = useVoiceStore((s) => s.setMode);
   const setConnecting = useVoiceStore((s) => s.setConnecting);
   const setProviderId = useVoiceStore((s) => s.setProviderId);
@@ -47,6 +49,7 @@ export function useDictation() {
 
   const start = useCallback(async () => {
     const gen = ++startGenRef.current;
+    ownsRef.current = true;
     resetCapture();
     setProviderId(null);
     // Show the sheet immediately, but as "connecting" — the mic is still shut
@@ -113,6 +116,7 @@ export function useDictation() {
       if (startGenRef.current !== gen) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
       setError(err instanceof Error ? err.message : "Voice start failed");
+      ownsRef.current = false;
       setConnecting(false);
       setMode("idle");
     }
@@ -171,6 +175,7 @@ export function useDictation() {
         mode: "idle",
         ...(commitToReview && merged ? { reviewText: reviewText ? `${reviewText} ${merged}` : merged } : {}),
       });
+      ownsRef.current = false;
       resetCapture();
     },
     [releaseCapture, resetCapture, root]
@@ -183,7 +188,15 @@ export function useDictation() {
   useEffect(() => {
     // Tear down on unmount or root change: invalidate the in-flight start,
     // abort its fetch, and stop the client so no MediaStream survives.
-    return () => releaseCapture()?.stop();
+    // The dictation this hook started has ended, so the store says so: a
+    // live dictation holds update reloads (#1015), and one nobody can stop
+    // would hold them for good. Text already under review stays.
+    return () => {
+      releaseCapture()?.stop();
+      if (!ownsRef.current) return;
+      ownsRef.current = false;
+      root.stores.voice.setState({ mode: "idle", connecting: false, draining: false });
+    };
   }, [root, releaseCapture]);
 
   return { start, stop, cancel };

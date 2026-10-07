@@ -161,6 +161,27 @@ test("a dictation draining its transcript after Done holds the reload until it s
   expect(reloads(), "drained and idle: one reload").toBe(1);
 });
 
+for (const phase of ["connecting", "listening"] as const) test(`a dictation torn down while ${phase} stops holding the reload; review text stays`, async () => {
+  const { root, sessions } = voiceRoot();
+  const { reloads } = await mountGuard(root);
+  // The dictation is mounted apart from the guard, as a composer is.
+  const dictation = renderHook(() => useDictation(), {
+    wrapper: ({ children }: { children: ReactNode }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
+  });
+  let started!: Promise<void>;
+  act(() => { started = dictation.result.current.start(); });
+  if (phase === "listening") await act(async () => { sessions[0]!(session); await started; });
+  takeOver();
+  expect(reloads(), `no reload while busy: the dictation is ${phase}`).toBe(0);
+
+  act(() => root.stores.voice.getState().setReviewText("Earlier take"));
+  dictation.unmount();
+  expect(root.stores.voice.getState().mode, "the dictation ended with its hook").toBe("idle");
+  expect(reloads(), "review text still holds it").toBe(0);
+  act(() => root.stores.voice.getState().clearReview());
+  expect(reloads(), "nothing holds it any more: one reload").toBe(1);
+});
+
 test("Done hands the transcript to review without a moment in which nothing holds the reload", async () => {
   const { root, sessions, clients } = voiceRoot();
   emptyComposer();
