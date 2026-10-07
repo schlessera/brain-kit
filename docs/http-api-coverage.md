@@ -215,8 +215,8 @@ checks both nonempty priced and mixed-knownness fixtures
 **U — Push ownership and SDK renewal.**
 
 - `SDK push renewal reaches the mounted subscribe handler and retains principal isolation` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`SDK push renewal reaches the mounted subscribe handler and retains principal isolation`, `packages/ui-server/tests/http-principal-boundaries.test.ts:78-135`)
-- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:324-333`)
-- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:335-344`)
+- `the public key is served; the private key has no route anywhere` ([source](../packages/ui-server/tests/push.test.ts)), (`the public key is served; the private key has no route anywhere`, `packages/ui-server/tests/push.test.ts:323-332`)
+- `a malformed subscription is a 400, not a crash` ([source](../packages/ui-server/tests/push.test.ts)), (`a malformed subscription is a 400, not a crash`, `packages/ui-server/tests/push.test.ts:334-343`)
 
 **Q — Authenticated intake.**
 
@@ -273,8 +273,8 @@ checks both nonempty priced and mixed-knownness fixtures
 **L — Share-target fallback and interception.**
 
 - `share-target network fallback leaves the cross-site request body unread before authentication` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`share-target network fallback leaves the cross-site request body unread before authentication`, `packages/ui-server/tests/http-principal-boundaries.test.ts:137-147`)
-- `stashes a text share and redirects with its id` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`stashes a text share and redirects with its id`, `packages/ui-sdk/tests/share-target.test.ts:57-79`)
-- `respondWith is called synchronously with the event` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`respondWith is called synchronously with the event`, `packages/ui-sdk/tests/share-target.test.ts:372-392`)
+- `stashes a text share and redirects with its id` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`stashes a text share and redirects with its id`, `packages/ui-sdk/tests/share-target.test.ts:54-76`)
+- `respondWith is called synchronously with the event` ([source](../packages/ui-sdk/tests/share-target.test.ts)), (`respondWith is called synchronously with the event`, `packages/ui-sdk/tests/share-target.test.ts:369-389`)
 
 **E — Rendering.**
 
