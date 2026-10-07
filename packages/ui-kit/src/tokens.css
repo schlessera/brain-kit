@@ -1559,7 +1559,7 @@
  * the 18px label line keeps the label centred on it, and a reason that wraps
  * still grows the row downward (#1106, #1120). */
 @media (any-pointer: coarse) {
-  .bk-palette-row { --bk-palette-row-min: 44px; --bk-palette-row-pad: 13px; }
+  .bk-palette-row { --target-palette-row-min: 44px; --target-palette-row-pad: 13px; }
 }
 
 .bk-row:hover {

@@ -370,8 +370,8 @@ export function CommandPalette(p: CommandPaletteProps) {
                   // the only pointer route to Graph, Sync and Stats (D52 §1).
                   // The rows sit 2px apart, so the row itself has to grow: a
                   // reach past its paint would land on its neighbour.
-                  minHeight: "var(--bk-palette-row-min, 34px)",
-                  padding: "var(--bk-palette-row-pad, 8px) 12px",
+                  minHeight: "var(--target-palette-row-min, 34px)",
+                  padding: "var(--target-palette-row-pad, 8px) 12px",
                   cursor: act ? "pointer" : "default",
                   opacity: off ? 0.45 : 1,
                   background: on ? token("palette-tint-selected") : "transparent",
