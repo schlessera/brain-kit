@@ -3,7 +3,8 @@ import { describeWorkingSession } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
-import { SessionList, type SessionListProps, type WorkingRowData } from "./session-list.js";
+import { SessionList, type DraftRowData, type SessionListProps, type WorkingRowData } from "./session-list.js";
+import { boundDrafts, draftEntryWord, draftSaveView, draftTitle, unboundDrafts } from "../../lib/drafts.js";
 import { formatRelativeTime } from "./tool-views.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
@@ -51,6 +52,20 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
   const tracked = useWorkingSessions();
   const now = useNow(AGE_TICK_MS);
+  const drafts = useRootStore("drafts", (s) => s.drafts);
+  const fresh = useRootStore("drafts", (s) => s.fresh);
+  const supported = useRootStore("drafts", (s) => s.supported);
+  const limits = useRootStore("drafts", (s) => s.limits);
+
+  // Drafts (D52 §5): unbound ones are entries of their own; a session's own
+  // marks its row. Content stays in the draft store; only words come here.
+  const draftRows: DraftRowData[] = useMemo(() => unboundDrafts(drafts).map((d) => {
+    const view = draftSaveView(d, { supported, limits }, now);
+    const state = view.state === "none" ? "draft · not saved yet" : view.copy;
+    const title = draftTitle(d);
+    return { id: d.draftId, title, state, name: `Draft: ${title}, ${draftEntryWord(d, { supported, limits }, now)}. Open draft.`, current: currentSessionId === null && d.draftId === fresh };
+  }), [drafts, supported, limits, now, currentSessionId, fresh]);
+  const sessionDrafts = useMemo(() => boundDrafts(drafts), [drafts]);
 
   useEffect(() => {
     if (visible) void root.stores.sessions.getState().refresh();
@@ -73,6 +88,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
         run: state === "streaming" || state === "queued" ? state : null,
         note: queueNotes[session.id],
         ...(tracked.overflow.has(session.id) ? { unseen: true } : {}),
+        ...(sessionDrafts.has(session.id) ? { draft: draftAge(now - sessionDrafts.get(session.id)!.editedAt) } : {}),
         ...(session.handoffFrom ? { from: session.handoffFrom.title || "an earlier chat" } : {}),
         // A stored session with a settled turn can continue elsewhere.
         ...((session.numTurns ?? 0) > 0 ? { handoff: { why: handoffWhy(providers, session.backendId, connected, unavailable, backendName) } } : {}),
@@ -82,6 +98,15 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
 
   return {
     working,
+    drafts: draftRows,
+    onOpenDraft: (id) => {
+      // An empty Chat with that draft restored: nothing is sent, and no
+      // session is created.
+      root.stores.chat.getState().clearMessages();
+      root.stores.drafts.getState().openUnbound(id);
+      root.stores.ui.getState().setActiveView("chat");
+      onLeave?.();
+    },
     groups,
     loading,
     warning,
@@ -151,6 +176,16 @@ export function SessionDrawer({
       <SessionList {...props} />
     </SlidePanel>
   );
+}
+
+/** How old a session's draft is, as its row prints it: `now`, `5m`, `2h`, `3d`. */
+function draftAge(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 function groupSessionsByDate(sessions: readonly ListedSession[]): GroupedSessions[] {

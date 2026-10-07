@@ -4868,7 +4868,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:71-77`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:72-78`).
 There is no global key.
 
 ```ts
@@ -4935,7 +4935,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:226-230`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:227-231`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5127,6 +5127,57 @@ draft are authenticated data operations. None grants permission to send,
 reply or start a model turn, and none answers a question; #910's
 question-answer rules are independent.
 
+> **2026-10-06 — Implemented by #951.** The root's draft store is
+> `packages/ui-react/src/stores/draft-state.ts`, the host sync and the send
+> settlement are `lib/draft-client.ts` over `lib/draft-api.ts`, the words
+> are `lib/drafts.ts`, the line under the composer and `Compare drafts` are
+> `components/chat/draft-save-line.tsx`, and the review block is
+> `components/chat/unconfirmed-sends.tsx`. Readings of the text above:
+>
+> - *Kept on this device* means kept by this page's root, in memory. A
+>   draft survives a reload only through the host; device storage across a
+>   reload is #1014's, keyed by this store's draft identity. So a service
+>   worker update waits while any draft holds words the host has not
+>   acknowledged, or any send is unsettled.
+> - The field empties when a message is sent: the send is the snapshot, and
+>   the host keeps the revision it names until it accepts the message. The
+>   message names a revision only when the host acknowledged exactly what
+>   is sent. A refused message's text and images go back into its draft,
+>   ahead of anything typed since; Edit does the same for a held one.
+> - A `410` for a draft this page's own accepted send consumed keeps the
+>   newer content in that session, under a new id; any other `410` makes it
+>   a new unbound draft, as above. A second host draft for a session that
+>   already keeps one here is a conflict on it (`Keep other's` takes the
+>   other draft, `Keep both` makes it a Draft entry), never a switch.
+> - While a save is out for under 600ms, or a dirty draft has not been sent
+>   yet, the line prints nothing; a Draft entry then reads `not saved yet`.
+>   `too large` prints the bound the host named (`8 MB`, `64 KB`, `4
+>   images`), and `full` its count or bytes.
+> - A new conversation whose first message is still unanswered when the
+>   reader leaves it keeps its transcript aside; its `session_info` makes it
+>   that session's buffer without selecting it, and its draft that
+>   session's draft.
+> - The review block's reason reads `The connection dropped before the host
+>   confirmed it got this.`, or, for a refusal that named no request, `The
+>   host refused a message without saying which, so it may not have got
+>   this.` The envelope names only the latest request, so `Check again`
+>   finds a held send accepted only when it is that request; a different
+>   latest proves neither, and it prints `Can't check · the host's latest is
+>   another message`. Other reasons follow §6's rows; a first message has no
+>   session to read, so its reason is `no session yet`. Send again sends the same snapshot under a new request
+>   id, naming the revision only while the host still holds it.
+> - Track files are uploads staged for a message, not draft content: they
+>   stay with their session (or new chat) on this page, in the field until
+>   the host accepts the message that carries them, and are not saved to
+>   the host.
+> - A new chat's unconfirmed first message has no session to be found in,
+>   so its review block is held in the new-chat view whichever new chat is
+>   open; Send again and Edit first open that message's own new chat, as New
+>   chat does. Until it is resolved, that new chat sends nothing else, since
+>   a second first message would start a second conversation beside it.
+> - In empty Chat the pane's `New conversation` stays `aria-disabled` (§2);
+>   a nonempty new-chat draft reaches a fresh one through the palette row.
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
@@ -5249,12 +5300,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:615-623`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:619-627`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:543-550`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears

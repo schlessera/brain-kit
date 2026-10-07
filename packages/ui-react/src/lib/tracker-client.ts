@@ -26,6 +26,12 @@ export function createTrackerClient(root: BrainUiServices) {
   /** The newest send in a session that the host has neither accepted nor refused. */
   function unconfirmedRequest(state: ChatState, sessionId: string): string | null {
     if (!root.stores.connection.getState().chatRequestAck) return null;
+    // A send the host never confirmed leaves the transcript for its review
+    // block (#951, D52 §5); the draft store still holds it.
+    const held = Object.values(root.stores.drafts.getState().sends)
+      .filter((s) => s.state === "unconfirmed" && s.sessionId === sessionId)
+      .sort((a, b) => b.sentAt - a.sentAt)[0];
+    if (held) return held.requestId;
     // A follow-up sent while the session was busy waits as a local entry
     // (#1002), not in the transcript; it is the newest send when present.
     const local = root.stores.followUp.getState().local[sessionId]?.at(-1)?.requestId;

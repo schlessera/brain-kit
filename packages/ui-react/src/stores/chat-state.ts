@@ -341,6 +341,22 @@ export interface ChatState {
    * is in flight.
    */
   pendingDraftId: string | null;
+  /**
+   * New-conversation transcripts the reader left by New chat or by opening
+   * a session while their first message was still unanswered, by their
+   * `pendingDraftId` (#951, D52 §5). The matching `session_info` gives each
+   * its session without selecting it, so a late announcement can never
+   * take over the view, or a newer new-chat transcript, it no longer owns.
+   */
+  detachedDrafts: Record<string, SessionChat>;
+  /** A detached new conversation got its session: it is that session's buffer now. */
+  bindDetachedDraft: (correlationId: string, sessionId: string) => void;
+  /**
+   * Take a send's optimistic rows out of its transcript: its user message
+   * and the empty reply opened for it. The send has no proof of acceptance,
+   * and its review block (D52 §5) stands in for it.
+   */
+  withdrawSend: (key: ChatKey, requestId: string) => void;
   /** The session in view; null = the draft / new-chat view. */
   activeSessionId: string | null;
 
@@ -505,7 +521,12 @@ export interface ChatState {
   startDraftTurn: () => string;
   /** Switch the view to a session (creating an empty buffer if none), or to the draft (null). */
   setActiveSession: (sessionId: string | null) => void;
-  /** New chat: drop the draft, unbind the view, unpin the provider. */
+  /**
+   * New chat: unbind the view, unpin the provider, and give the new-chat
+   * view a fresh composer draft (D52 §5). A new conversation still waiting
+   * for its first answer is detached, not dropped; any other draft
+   * transcript is dropped.
+   */
   clearMessages: () => void;
   setRunState: (
     sessionId: string,
@@ -676,7 +697,7 @@ function evictStale(
   return next;
 }
 
-export function createChatStore(env: StoreEnvironment, provider: StoreApi<ProviderState>) {
+export function createChatStore(env: StoreEnvironment, provider: StoreApi<ProviderState>, composerDrafts?: StoreApi<{ newChat(): void }>) {
   let messageCounter = 0;
   function nextId() {
     return `msg-${++messageCounter}-${Date.now()}`;
@@ -828,6 +849,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
       buffers: {},
       draft: null,
       pendingDraftId: null,
+      detachedDrafts: {},
       // localStorage (not sessionStorage) so the active session id survives the
       // PWA process being killed on mobile — that durability is what lets a cold
       // relaunch re-request the full transcript instead of showing nothing.
@@ -1485,12 +1507,51 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
 
       clearMessages: () => {
         const state = get();
-        if (state.draft) revokeAttachmentUrls(state.draft.messages);
+        // A first message still unanswered keeps its transcript, aside: its
+        // announcement binds it there, not to whatever the view shows next.
+        const detach = state.draft && state.pendingDraftId ? state.pendingDraftId : null;
+        if (state.draft && !detach) revokeAttachmentUrls(state.draft.messages);
         persistSessionId(null);
         // Starting fresh: unpin the provider so the picker unlocks.
         provider.getState().setPinned(null);
-        set({ draft: null, activeSessionId: null });
+        composerDrafts?.getState().newChat();
+        set({
+          draft: null,
+          activeSessionId: null,
+          ...(detach ? { pendingDraftId: null, detachedDrafts: { ...state.detachedDrafts, [detach]: state.draft! } } : {}),
+        });
       },
+
+      bindDetachedDraft: (correlationId, sessionId) =>
+        set((state) => {
+          const adopted = state.detachedDrafts[correlationId];
+          if (!adopted) return state;
+          const detachedDrafts = { ...state.detachedDrafts };
+          delete detachedDrafts[correlationId];
+          const existing = state.buffers[sessionId];
+          return {
+            detachedDrafts,
+            buffers: evictStale(
+              { ...state.buffers, [sessionId]: existing ?? { ...adopted, lastTouched: Date.now() } },
+              state.activeSessionId ?? sessionId
+            ),
+          };
+        }),
+
+      withdrawSend: (key, requestId) =>
+        set((state) => {
+          const strip = (chat: SessionChat): SessionChat => {
+            const messages = chat.messages.filter((m) => !(m.requestId === requestId && (m.role === "user" || (!m.turnId && !m.content && !m.thinking && m.toolCalls.length === 0))));
+            if (messages.length === chat.messages.length) return chat;
+            return { ...chat, messages, isStreaming: chat.isStreaming && messages.some((m) => m.role === "assistant" && m.isStreaming) };
+          };
+          if (key !== null) {
+            const buffer = state.buffers[key];
+            return buffer ? { buffers: { ...state.buffers, [key]: strip(buffer) } } : state;
+          }
+          const detachedDrafts = Object.fromEntries(Object.entries(state.detachedDrafts).map(([id, chat]) => [id, strip(chat)]));
+          return { ...(state.draft ? { draft: strip(state.draft) } : {}), detachedDrafts };
+        }),
     };
   });
 

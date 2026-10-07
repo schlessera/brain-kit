@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button, Callout, Icon, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
 import type { IconName, Tone } from "@schlessera/brain-ui-kit";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 
 /**
  * The Sessions list, rendered from props (S7, the `chat` directory). It is
@@ -14,6 +15,14 @@ import type { IconName, Tone } from "@schlessera/brain-ui-kit";
  * row. A tracked session is not listed again in its date group. A done or
  * cancelled one past the pill cap is not in Working but keeps an `unseen`
  * word on its date row, so nothing disappears silently.
+ *
+ * **Drafts** follow (D52 §5, #951): every nonempty draft that has no host
+ * session yet, newest change first, each its own client identity. A row's
+ * title is the text's first line (`Draft with 2 images` without text), its
+ * trailing value `draft`, its subtitle the save state, never `saved` before
+ * the host acknowledged it. Opening one opens an empty Chat with that draft
+ * restored; nothing is sent and no session is created. An empty new chat
+ * is never listed.
  *
  * The date groups follow, unchanged: a session is the kit's card `ListRow`
  * with its title, when it was last active and what it cost, the live run
@@ -45,6 +54,20 @@ export interface SessionRowData {
   handoff?: { why?: string };
   /** A tracked session past the pill cap, not yet seen (D52 §4). */
   unseen?: boolean;
+  /** The session keeps an unsent draft, this old: `now`, `2h` (D52 §5). */
+  draft?: string;
+}
+
+/** One Drafts row: an unbound draft, already in words (D52 §5). */
+export interface DraftRowData {
+  id: string;
+  title: string;
+  /** The save state under the title: `draft · saved`, `draft · not saved yet`. */
+  state: string;
+  /** `Draft: {title}, {state}. Open draft.` */
+  name: string;
+  /** The draft the new-chat view shows now. */
+  current: boolean;
 }
 
 export interface SessionGroupData {
@@ -67,6 +90,10 @@ export interface WorkingRowData {
 export interface SessionListProps {
   /** Tracked sessions, in display order. */
   working?: WorkingRowData[];
+  /** Unbound drafts, newest change first. */
+  drafts?: DraftRowData[];
+  /** Open an unbound draft in an empty Chat. */
+  onOpenDraft?: (draftId: string) => void;
   groups: SessionGroupData[];
   loading: boolean;
   warning: string | null;
@@ -87,13 +114,16 @@ export interface SessionListProps {
 const ITEM = '[data-session-item] > [role="button"], [data-session-item] [data-session-main] > [role="button"]';
 
 export function SessionList(p: SessionListProps) {
+  // New conversation is New chat at ≥1280: a 44px reach under a coarse pointer (#951).
+  const coarse = useMediaQuery("(any-pointer: coarse)", false);
   const working = p.working ?? [];
   const tracked = new Set(working.map((w) => w.id));
   const groups = p.groups
     .map((g) => ({ ...g, sessions: g.sessions.filter((s) => !tracked.has(s.id)) }))
     .filter((g) => g.sessions.length > 0);
-  const empty = groups.length === 0 && working.length === 0;
-  const ids = [...working.map((w) => w.id), ...groups.flatMap((g) => g.sessions.map((s) => s.id))];
+  const drafts = p.drafts ?? [];
+  const empty = groups.length === 0 && working.length === 0 && drafts.length === 0;
+  const ids = [...working.map((w) => w.id), ...drafts.map((d) => d.id), ...groups.flatMap((g) => g.sessions.map((s) => s.id))];
   const [stop, setStop] = useState<string | null>(null);
   const tabStop = stop && ids.includes(stop) ? stop
     : p.currentSessionId && ids.includes(p.currentSessionId) ? p.currentSessionId
@@ -136,6 +166,9 @@ export function SessionList(p: SessionListProps) {
           size="md"
           center
           ariaDisabled={p.newWhy !== undefined}
+          // 44px under a coarse pointer, taken from the row's own padding, so
+          // the list below keeps its height.
+          {...(coarse ? { style: { minHeight: 44, marginBlock: -4 } } : {})}
           subtitle={p.newWhy}
           onClick={() => { if (p.newWhy === undefined) p.onNew(); }}
         />
@@ -190,6 +223,32 @@ export function SessionList(p: SessionListProps) {
           </section>
         )}
 
+        {drafts.length > 0 && (
+          <section aria-label="Drafts" className="flex flex-col gap-1.5" data-drafts-group="">
+            <div className="px-1 pt-2">
+              <Label text="Drafts" />
+            </div>
+            {drafts.map((d) => (
+              <div key={d.id} data-session-item="" data-draft-row="" data-session={d.id}>
+                <ListRow
+                  variant="card"
+                  icon="compose"
+                  iconTone="neutral"
+                  title={d.title}
+                  subtitle={d.state}
+                  subMono
+                  value="draft"
+                  name={d.name}
+                  selected={d.current}
+                  tabStop={d.id === tabStop}
+                  onFocus={() => setStop(d.id)}
+                  onClick={() => p.onOpenDraft?.(d.id)}
+                />
+              </div>
+            ))}
+          </section>
+        )}
+
         {p.loading && empty ? (
           <Placeholder variant="loading" lines={3} bordered={false} pad={4} />
         ) : empty ? (
@@ -204,7 +263,8 @@ export function SessionList(p: SessionListProps) {
                 const tone: Tone | undefined =
                   session.run === "streaming" ? "amber" : session.run === "queued" ? (session.note ? "red" : "amber") : undefined;
                 const subtitle = [session.from ? `from: ${session.from}` : null, session.when, session.cost].filter(Boolean).join(" · ");
-                const value = session.run === "streaming" ? "running" : session.run === "queued" ? "queued" : session.unseen ? "unseen" : undefined;
+                const value = session.run === "streaming" ? "running" : session.run === "queued" ? "queued" : session.unseen ? "unseen"
+                  : session.draft !== undefined ? `draft · ${session.draft}` : undefined;
                 return (
                   <span key={session.id} title={session.note} className="flex items-stretch gap-1" data-session-row="" data-session-item="" data-session={session.id}>
                     <span className="flex min-w-0 flex-1" data-session-main="">
@@ -214,6 +274,7 @@ export function SessionList(p: SessionListProps) {
                         iconTone={session.id === p.currentSessionId ? "teal" : "neutral"}
                         title={session.title || "Untitled"}
                         subtitle={subtitle}
+                        {...(session.draft !== undefined ? { name: `${session.title || "Untitled"}, has a draft. Open session.` } : {})}
                         value={value}
                         valueTone={tone ?? (session.unseen ? "teal" : undefined)}
                         selected={session.id === p.currentSessionId}

@@ -1868,6 +1868,37 @@ describe("useServiceWorkerUpdates", () => {
     rerender({ isBusy: false });
     expect(reloads).toBe(1);
   });
+
+  test("an unsaved draft in another session, or a held send, keeps the page from reloading", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    const root = createBrainUiRoot({ storage: null });
+    const drafts = root.stores.drafts.getState();
+    // Not on screen: the draft of a session not in view, never saved.
+    const id = drafts.idFor("odysseus-raft");
+    drafts.edit(id, "odysseus-raft", { text: "Twenty trees" });
+    let reloads = 0;
+    renderHook(() => useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ }), {
+      wrapper: ({ children }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
+    });
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "the raft's draft would be lost").toBe(0);
+    // A send held for review instead: still nothing.
+    act(() => {
+      root.stores.drafts.getState().beginSend({ requestId: "req-1", draftId: id, sessionId: "odysseus-raft", text: "Twenty trees", attachments: [], message: { type: "chat_message", text: "Twenty trees", sessionId: "odysseus-raft", requestId: "req-1", source: "typed" } }, "Twenty trees");
+      root.stores.drafts.getState().unconfirmed("disconnected");
+    });
+    expect(reloads, "the held send would be lost").toBe(0);
+    // Taken back and emptied by the reader: nothing left to lose.
+    act(() => {
+      root.stores.drafts.getState().editSend("req-1");
+      root.stores.drafts.getState().edit(id, "odysseus-raft", { text: "" });
+    });
+    expect(reloads).toBe(1);
+    root.dispose();
+  });
 });
 
 describe("MarkdownContent", () => {
@@ -5300,15 +5331,17 @@ describe("one-message composer effort", () => {
     return { root, view, sent, choose, field, type, send, done() { view.unmount(); root.dispose(); } };
   }
 
-  test("refusal keeps draft and effort; start acknowledgement consumes them and the next message omits the override", async () => {
+  test("a send empties the field into its snapshot; refusal gives draft and effort back; acknowledgement consumes them", async () => {
     const h = await mounted();
     try {
       h.choose("max"); h.type("first"); h.send();
       expect(h.sent).toHaveLength(1);
       expect(h.sent[0].thinkingLevel).toBe("max");
       expect(h.view.getByRole("button", { name: "Model — Claude · effort max for the next message" })).toBeTruthy();
-      expect(h.field().value).toBe("first");
+      // D52 §5: what was sent is a snapshot apart from the draft.
+      expect(h.field().value).toBe("");
       act(() => h.root.connection.handleServerMessage({ type: "error", code: "SESSION_LIMIT", message: "Try again", requestId: h.sent[0].requestId }));
+      // Refused, so nothing was consumed: the words come back.
       expect(h.field().value).toBe("first");
       expect(h.view.getByText("· max")).toBeTruthy();
       h.send();
@@ -5324,25 +5357,31 @@ describe("one-message composer effort", () => {
     } finally { h.done(); }
   });
 
-  test("an interrupted acknowledgement releases the wait without resending or consuming the draft effort", async () => {
+  test("an interrupted acknowledgement holds the send for review: nothing is resent until Send again, and Edit puts it back", async () => {
     const h = await mounted();
     try {
       h.choose("high"); h.type("unconfirmed"); h.send();
       act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
       expect(h.sent).toHaveLength(1);
-      expect(h.field().value).toBe("unconfirmed");
+      const held = () => Object.values(h.root.stores.drafts.getState().sends).filter((s) => s.state === "unconfirmed");
+      expect(held().map((s) => s.text)).toEqual(["unconfirmed"]);
+      expect(h.field().value).toBe("");
       expect(h.view.getByText("· high")).toBeTruthy();
-      expect(h.view.getByText("Send was not confirmed. Check the conversation before sending again.")).toBeTruthy();
       act(() => h.root.stores.connection.getState().setWsStatus("connected"));
       expect(h.sent).toHaveLength(1);
+      // Send again: the same snapshot under a new request id, effort included.
+      // (The composer's own `send` is the host here, so the frame goes through the root.)
+      const resent = held()[0]!;
+      expect(resent.message.thinkingLevel).toBe("high");
+      act(() => h.root.connection.handleServerMessage({ type: "error", code: "RATE_LIMITED", message: "Slow down" }));
+      expect(held()).toHaveLength(1);
+      act(() => h.root.stores.drafts.getState().editSend(resent.requestId));
+      expect(h.field().value).toBe("unconfirmed");
+      expect(held()).toHaveLength(0);
       h.send();
       expect(h.sent).toHaveLength(2);
       expect(h.sent[1].thinkingLevel).toBe("high");
-      act(() => h.root.connection.handleServerMessage({ type: "error", code: "RATE_LIMITED", message: "Slow down" }));
-      expect(h.field().value).toBe("unconfirmed");
-      h.send();
-      expect(h.sent).toHaveLength(3);
-      expect(h.sent[2].thinkingLevel).toBe("high");
+      expect(h.sent[1].requestId).not.toBe(h.sent[0].requestId);
     } finally { h.done(); }
   });
 
@@ -5387,6 +5426,49 @@ describe("one-message composer effort", () => {
       act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[1].requestId }));
       expect(h.field().value).toBe("");
       expect(h.view.queryByText("· max")).toBeNull();
+    } finally { h.done(); }
+  });
+
+  test("a new chat whose first message is held for review sends nothing more until it is resolved", async () => {
+    const h = await mounted();
+    try {
+      h.type("Which harbour?"); h.send();
+      act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
+      act(() => h.root.stores.connection.getState().setWsStatus("connected"));
+      h.type("And the fees"); h.send();
+      expect(h.sent, "a second first message would start a second conversation").toHaveLength(1);
+      act(() => h.root.connection.drafts.edit(h.sent[0].requestId!));
+      expect(h.field().value).toBe("Which harbour?\nAnd the fees");
+      h.send();
+      expect(h.sent).toHaveLength(2);
+    } finally { h.done(); }
+  });
+
+  test("a held send accepted after Send again consumes the effort it carried", async () => {
+    const h = await mounted();
+    try {
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      h.choose("high"); h.type("queued"); h.send();
+      act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
+      act(() => h.root.stores.connection.getState().setWsStatus("connected"));
+      expect(h.view.getByText("· high")).toBeTruthy();
+      // Send again re-keys the snapshot; the host accepts the new request.
+      act(() => { h.root.stores.drafts.getState().resend(h.sent[0].requestId!, "req-again"); });
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: "req-again" }));
+      expect(h.view.queryByText("· high")).toBeNull();
+    } finally { h.done(); }
+  });
+
+  test("an acknowledgement that empties the session's draft keeps an effort chosen meanwhile", async () => {
+    const h = await mounted();
+    try {
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      h.choose("high"); h.type("queued"); h.send();
+      h.choose("max");
+      // Nothing typed since: acceptance forgets the emptied draft, and the
+      // view's draft id changes, inside the same session (#951).
+      act(() => h.root.connection.handleServerMessage({ type: "status", status: "queued", sessionId: "effort-ui", requestId: h.sent[0].requestId }));
+      expect(h.view.getByText("· max")).toBeTruthy();
     } finally { h.done(); }
   });
 
@@ -6105,10 +6187,30 @@ describe("composer track intake", () => {
       expect(user!.files).toHaveLength(2); expect(user!.files![0]!.summary!.measurements.distance.value!).toBeGreaterThan(9900);
       h.type("Next draft"); h.pick(["Next track"]);
       await act(async () => h.ready(2, "Next track"));
-      act(() => h.root.stores.chat.getState().setChatReceipt(h.sent[0]!.requestId!, "accepted"));
+      // The host's acceptance, as the socket delivers it (#951: the draft
+      // client settles sends from frames, and the new chat becomes its session).
+      act(() => h.root.connection.handleServerMessage({ type: "session_info", sessionId: "track-ui", isNew: true, requestId: h.sent[0]!.requestId!, draftId: h.sent[0]!.draftId }));
       expect(h.field().value).toBe("Next draft");
       expect(h.view.queryByRole("button", { name: "Remove Ithaca loop" })).toBeNull();
       expect(h.view.getByRole("button", { name: "Remove Next track" })).toBeTruthy();
+    } finally { h.done(); }
+  });
+
+  test("a send held for its tracks never sends another draft opened meanwhile", async () => {
+    const h = await mountedTracks();
+    try {
+      h.type("Show this loop"); h.pick(["Ithaca loop"]); h.send();
+      expect(h.view.container.textContent).toContain("sends when 1 file finishes");
+      // Another new-chat draft opened from Sessions while the upload runs.
+      act(() => {
+        h.root.stores.drafts.getState().edit("d-letter", null, { text: "Letter to Penelope" });
+        h.root.stores.chat.getState().clearMessages();
+        h.root.stores.drafts.getState().openUnbound("d-letter");
+      });
+      expect(h.sent, "nothing was pressed for the letter").toHaveLength(0);
+      expect(h.field().value).toBe("Letter to Penelope");
+      await act(async () => h.ready(0, "Ithaca loop"));
+      expect(h.sent, "nothing was pressed for the letter, once the track is ready").toHaveLength(0);
     } finally { h.done(); }
   });
 
