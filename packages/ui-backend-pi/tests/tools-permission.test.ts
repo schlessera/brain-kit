@@ -696,6 +696,7 @@ describe("bridge-capability tool registration", () => {
         lock: toolLockFromKeyed(createKeyedLock()),
         capabilities: { location: true, activity: true, mask: true },
       });
+      expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {
         expect(TOOL_RISK[t.name]).toBeDefined();
       }
