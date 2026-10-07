@@ -476,3 +476,16 @@ test("caller-owned begin holds updates while the initial index transaction is pe
   hold.release();
   await capture.stop("interrupted");
 });
+
+test("notice dismissal cannot delete an active recording before its first chunk", async (ctx) => {
+  const c = cell(ctx);
+  const sink = c.store.sink();
+  await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
+  ctx.onTestFinished(async () => { await sink.end!("interrupted"); });
+  const row = (await c.store.list("account:odysseus"))[0]!;
+  await expect(c.store.dismissRemoved(row.partition), "dismissal must acquire the recording lock").rejects.toThrow("Recording in another Brain tab");
+  expect(await c.store.get(row.partition, row.id)).toMatchObject({ state: "recording", chunkCount: 0 });
+  await sink.chunk(chunk(0, 1000));
+  await sink.end!("user");
+  expect((await c.store.recover(row.partition)).recordings[0]).toMatchObject({ id: row.id, state: "saved", savedThroughMs: 1000 });
+});
