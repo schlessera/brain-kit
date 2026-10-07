@@ -95,6 +95,7 @@ export function ComparisonTable(p: ComparisonTableProps) {
     overflow: "hidden",
     boxSizing: "border-box",
     width: "100%",
+    overflowWrap: "anywhere",
   };
 
   return (
