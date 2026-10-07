@@ -844,3 +844,16 @@ test("both actual backend show_block tools echo nonempty supporting-file data", 
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("both actual backend show_block tools normalize nonempty graph data", async () => {
+  const root=mkdtempSync(join(tmpdir(),"graph-bridge-"));
+  const input={block:{kind:"graph" as const,nodes:[{label:"Scylla",focus:true},{label:"Circe",focus:true}],edges:[[0,1],[1,0]]}};
+  try { const adapters=makeAdapters(root); expect(input.block.nodes).toHaveLength(2);expect(input.block.edges).toHaveLength(2);
+    for(const adapter of ["claude","pi"] as const){
+      const definition=adapters[adapter].find(item=>item.name==="show_block")!;
+      const result=adapter==="claude"?await definition.handler(input,{}):await definition.execute("graph",input);
+      expect(result.isError).not.toBe(true);
+      expect(shared.parseToolPayload(shared.SHOW_BLOCK_CONTRACT,result.content[0].text)).toEqual({block:{...input.block,nodes:[{label:"Scylla",focus:true},{label:"Circe",focus:false}],edges:[[0,1]]}});
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

@@ -24,7 +24,7 @@ export function repoImageSrc(src: string, root: BrainUiRoot): string {
   return `${root.apiBase()}/files/content?path=${encodeURIComponent(rel)}&raw=1`;
 }
 /** Click target for a repo-relative file reference. Opens the file panel + viewer. */
-export function FileLink({ path, children }: { path: string; children?: React.ReactNode }) {
+export function FileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
   const openFile = useFileStore((s) => s.openFile);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
   return (
@@ -36,6 +36,7 @@ export function FileLink({ path, children }: { path: string; children?: React.Re
         void openFile(path);
       }}
       className="brain-file-link"
+      style={style}
       title={path}
     >
       {children ?? path}

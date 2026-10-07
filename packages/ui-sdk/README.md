@@ -280,3 +280,9 @@ shares a preamble; it counts as handling.
 ### Supporting files in an answer
 
 `show_block` accepts `{block:{kind:"files",items:[{path:"knowledge/scylla.md",reason:"Names the cost in men."}]}}`. The list has 1–20 entries; paths are exact brain-relative strings (1–1024 characters), and optional plain-text reasons have at most 240 characters. Reasons are the agent's claims. The tool validates and echoes data without reading a file or inventing retrieval scores; the reader can open a permitted local path in the current root.
+
+`show_block` also accepts `graph`: two to twenty labelled nodes and zero to
+forty index-pair edges. The agent supplies topology, optional brain paths,
+focus and tones; the client chooses coordinates. Self-loops and invalid
+indices are refused, duplicates are removed, and the first focus wins.
+The host echoes these claims without looking them up.

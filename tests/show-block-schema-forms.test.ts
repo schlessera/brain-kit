@@ -124,15 +124,15 @@ describe("every form accepts exactly what the shipped form accepts", () => {
 });
 
 describe("each form says what it claims to", () => {
-  test("shared: tone, valueTone and icon are defined once and referenced at all fourteen sites", async () => {
+  test("shared: tone, valueTone and icon are defined once and referenced at all sixteen sites", async () => {
     const flat = (await listedShowBlock("flat")).inputSchema as JsonObject;
     const shared = (await listedShowBlock("shared")).inputSchema as JsonObject;
     const definitions = shared.definitions as JsonObject | undefined;
     expect(Object.keys(definitions ?? {}).sort()).toEqual(["icon", "tone", "valueTone"]);
     const text = JSON.stringify(shared);
-    // Five valueTone sites, five tone sites and four icon sites.
+    // Five valueTone sites, seven tone sites and four icon sites.
     expect(count(text, '{"allOf":[{"$ref":"#/definitions/valueTone"}]}')).toBe(5);
-    expect(count(text, '{"allOf":[{"$ref":"#/definitions/tone"}]}')).toBe(5);
+    expect(count(text, '{"allOf":[{"$ref":"#/definitions/tone"}]}')).toBe(7);
     expect(count(text, '{"allOf":[{"$ref":"#/definitions/icon"}]}')).toBe(4);
     // Resolving the references gives back the schema that ships.
     expect(dereference(shared)).toEqual(flat as Json);

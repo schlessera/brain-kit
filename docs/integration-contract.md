@@ -1444,6 +1444,7 @@ pre-formatted string because the blocks do no arithmetic:
 | `contact` | `label`, `role?`, `contactKind?`, `badge?`, `tone?`, `facts?[]{k, v, tone?}`, `initials?` | `ContactCard` |
 | `files` | `items[1..20]{path (1-1024), reason? (≤240)}` | `RelatedFiles` |
 | `map` | `title?` (≤60), `places[1..30]{label (1-80), lat? (-90..90), lon? (-180..180), meta? (≤40), source? (≤80), accuracyM? (>0, ≤100000)}`; `lat` and `lon` come together or not at all (additive in 0.39.0) | `PlaceMap`, planned by `planPlaces` |
+| `graph` | `title?` (≤60), `nodes[2..20]{label (1-80), path? (≤1024), tone?, focus?}`, `edges[0..40]` index pairs `[a,b]`, `legend?[0..7]{label (1-40), tone?}`, `meta?` (≤40) | `GraphView`, deterministic client layout |
 | `link` (0.39.0) | `url` (1-2048), `title?` (1-100), `description?` (≤240) | `LinkPreviewCard` (link mode) |
 | `tracker` (0.41.0) | `events[1..20]{url (1-2048), action, qualifier? (1-60, trimmed, one line), title (1-200, trimmed, one line)}`, `action` one of `opened`, `closed`, `reopened`, `merged`, `labeled`, `commented`, `reviewed`; an event takes no other key | `TrackerPillList` |
 | `suggestions` (0.39.0) | `label?` (1-24), `items[1..2]{label (4-80, trimmed, one line), icon?}` | the app's closing row, from `SuggestionChips`' data minus `tone` |
@@ -1461,6 +1462,20 @@ unavailable-file error and never redirect to an alternative destination.
 Static exports preserve every path and reason without interactive controls
 or file requests. Malformed payloads retain the readable generic tool view.
 The post-answer classifier does not infer this variant or supporting reasons.
+
+A `graph` block (#1140) presents the agent's supplied nodes and relationships.
+The host validates and echoes; it does not query the index or verify claims.
+Edge indices must name distinct supplied nodes. Duplicate pairs, including
+reversed pairs, are dropped; the first focused node wins. Unknown fields,
+including coordinates and handlers, are discarded. Only supplied edges are
+drawn: the kit's implicit focus spokes are disabled. Pure client layout
+preserves indices and reserves room for wrapped labels. A textual node and
+edge list is the accessible equivalent. Permitted brain file paths use the
+existing file-link policy and current root's viewer; traversal and refused
+paths stay plain text. No requests run while drawing the graph. Replay uses
+the same block; static exports retain its full topology without file controls.
+Optional title, legend and metadata never inherit kit sample defaults. Graphs
+are not inferred by the answer classifier.
 
 A `link` block's address passes `classifyLink` (`@schlessera/brain-ui-kit/links`)
 twice. The handler rejects the call when it refuses the address, naming the

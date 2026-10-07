@@ -2981,6 +2981,47 @@ signatures (every public export and the types it is made of)
         }, z.core.$strip>>;
         title: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>, z.ZodObject<{
+        edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+        kind: z.ZodLiteral<"graph">;
+        legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                blue: "blue";
+                gold: "gold";
+                neutral: "neutral";
+                purple: "purple";
+                red: "red";
+                teal: "teal";
+            }>>;
+        }, z.core.$strip>>>;
+        meta: z.ZodOptional<z.ZodString>;
+        nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+            focus: z.ZodOptional<z.ZodBoolean>;
+            label: z.ZodString;
+            path: z.ZodOptional<z.ZodString>;
+            tone: z.ZodOptional<z.ZodEnum<{
+                amber: "amber";
+                blue: "blue";
+                gold: "gold";
+                neutral: "neutral";
+                purple: "purple";
+                red: "red";
+                teal: "teal";
+            }>>;
+        }, z.core.$strip>>, z.ZodTransform<{
+            focus?: boolean | undefined;
+            label: string;
+            path?: string | undefined;
+            tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+        }[], {
+            focus?: boolean | undefined;
+            label: string;
+            path?: string | undefined;
+            tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+        }[]>>;
+        title: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
         kind: z.ZodLiteral<"track">;
         source: z.ZodObject<{
             path: z.ZodString;
@@ -3475,6 +3516,47 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
             source: z.ZodObject<{
                 path: z.ZodString;
@@ -3777,6 +3859,47 @@ signatures (every public export and the types it is made of)
                 meta: z.ZodOptional<z.ZodString>;
                 source: z.ZodOptional<z.ZodString>;
             }, z.core.$strip>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
@@ -6078,6 +6201,47 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
             source: z.ZodObject<{
                 path: z.ZodString;
@@ -6380,6 +6544,47 @@ signatures (every public export and the types it is made of)
                 meta: z.ZodOptional<z.ZodString>;
                 source: z.ZodOptional<z.ZodString>;
             }, z.core.$strip>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
@@ -6690,6 +6895,47 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
             source: z.ZodObject<{
                 path: z.ZodString;
@@ -6994,6 +7240,47 @@ signatures (every public export and the types it is made of)
                 meta: z.ZodOptional<z.ZodString>;
                 source: z.ZodOptional<z.ZodString>;
             }, z.core.$strip>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
@@ -10158,6 +10445,47 @@ signatures (every public export and the types it is made of)
             }, z.core.$strip>>;
             title: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>, z.ZodObject<{
+            edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+            kind: z.ZodLiteral<"graph">;
+            legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                label: z.ZodString;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>>;
+            meta: z.ZodOptional<z.ZodString>;
+            nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                focus: z.ZodOptional<z.ZodBoolean>;
+                label: z.ZodString;
+                path: z.ZodOptional<z.ZodString>;
+                tone: z.ZodOptional<z.ZodEnum<{
+                    amber: "amber";
+                    blue: "blue";
+                    gold: "gold";
+                    neutral: "neutral";
+                    purple: "purple";
+                    red: "red";
+                    teal: "teal";
+                }>>;
+            }, z.core.$strip>>, z.ZodTransform<{
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[], {
+                focus?: boolean | undefined;
+                label: string;
+                path?: string | undefined;
+                tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+            }[]>>;
+            title: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
             kind: z.ZodLiteral<"track">;
             source: z.ZodObject<{
                 path: z.ZodString;
@@ -11261,6 +11589,47 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strip>>;
                 title: z.ZodOptional<z.ZodString>;
             }, z.core.$strip>, z.ZodObject<{
+                edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+                kind: z.ZodLiteral<"graph">;
+                legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    label: z.ZodString;
+                    tone: z.ZodOptional<z.ZodEnum<{
+                        amber: "amber";
+                        blue: "blue";
+                        gold: "gold";
+                        neutral: "neutral";
+                        purple: "purple";
+                        red: "red";
+                        teal: "teal";
+                    }>>;
+                }, z.core.$strip>>>;
+                meta: z.ZodOptional<z.ZodString>;
+                nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                    focus: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    path: z.ZodOptional<z.ZodString>;
+                    tone: z.ZodOptional<z.ZodEnum<{
+                        amber: "amber";
+                        blue: "blue";
+                        gold: "gold";
+                        neutral: "neutral";
+                        purple: "purple";
+                        red: "red";
+                        teal: "teal";
+                    }>>;
+                }, z.core.$strip>>, z.ZodTransform<{
+                    focus?: boolean | undefined;
+                    label: string;
+                    path?: string | undefined;
+                    tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                }[], {
+                    focus?: boolean | undefined;
+                    label: string;
+                    path?: string | undefined;
+                    tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                }[]>>;
+                title: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
                 kind: z.ZodLiteral<"track">;
                 source: z.ZodObject<{
                     path: z.ZodString;
@@ -11752,6 +12121,47 @@ signatures (every public export and the types it is made of)
                         meta: z.ZodOptional<z.ZodString>;
                         source: z.ZodOptional<z.ZodString>;
                     }, z.core.$strip>>;
+                    title: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+                    kind: z.ZodLiteral<"graph">;
+                    legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                        label: z.ZodString;
+                        tone: z.ZodOptional<z.ZodEnum<{
+                            amber: "amber";
+                            blue: "blue";
+                            gold: "gold";
+                            neutral: "neutral";
+                            purple: "purple";
+                            red: "red";
+                            teal: "teal";
+                        }>>;
+                    }, z.core.$strip>>>;
+                    meta: z.ZodOptional<z.ZodString>;
+                    nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                        focus: z.ZodOptional<z.ZodBoolean>;
+                        label: z.ZodString;
+                        path: z.ZodOptional<z.ZodString>;
+                        tone: z.ZodOptional<z.ZodEnum<{
+                            amber: "amber";
+                            blue: "blue";
+                            gold: "gold";
+                            neutral: "neutral";
+                            purple: "purple";
+                            red: "red";
+                            teal: "teal";
+                        }>>;
+                    }, z.core.$strip>>, z.ZodTransform<{
+                        focus?: boolean | undefined;
+                        label: string;
+                        path?: string | undefined;
+                        tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                    }[], {
+                        focus?: boolean | undefined;
+                        label: string;
+                        path?: string | undefined;
+                        tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                    }[]>>;
                     title: z.ZodOptional<z.ZodString>;
                 }, z.core.$strip>, z.ZodObject<{
                     kind: z.ZodLiteral<"track">;
@@ -12493,6 +12903,47 @@ signatures (every public export and the types it is made of)
                     meta: z.ZodOptional<z.ZodString>;
                     source: z.ZodOptional<z.ZodString>;
                 }, z.core.$strip>>;
+                title: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+                kind: z.ZodLiteral<"graph">;
+                legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    label: z.ZodString;
+                    tone: z.ZodOptional<z.ZodEnum<{
+                        amber: "amber";
+                        blue: "blue";
+                        gold: "gold";
+                        neutral: "neutral";
+                        purple: "purple";
+                        red: "red";
+                        teal: "teal";
+                    }>>;
+                }, z.core.$strip>>>;
+                meta: z.ZodOptional<z.ZodString>;
+                nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                    focus: z.ZodOptional<z.ZodBoolean>;
+                    label: z.ZodString;
+                    path: z.ZodOptional<z.ZodString>;
+                    tone: z.ZodOptional<z.ZodEnum<{
+                        amber: "amber";
+                        blue: "blue";
+                        gold: "gold";
+                        neutral: "neutral";
+                        purple: "purple";
+                        red: "red";
+                        teal: "teal";
+                    }>>;
+                }, z.core.$strip>>, z.ZodTransform<{
+                    focus?: boolean | undefined;
+                    label: string;
+                    path?: string | undefined;
+                    tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                }[], {
+                    focus?: boolean | undefined;
+                    label: string;
+                    path?: string | undefined;
+                    tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                }[]>>;
                 title: z.ZodOptional<z.ZodString>;
             }, z.core.$strip>, z.ZodObject<{
                 kind: z.ZodLiteral<"track">;
@@ -13568,6 +14019,47 @@ signatures (every public export and the types it is made of)
                         meta: z.ZodOptional<z.ZodString>;
                         source: z.ZodOptional<z.ZodString>;
                     }, z.core.$strip>>;
+                    title: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    edges: z.ZodPipe<z.ZodArray<z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>>, z.ZodTransform<[number, number][], [number, number][]>>;
+                    kind: z.ZodLiteral<"graph">;
+                    legend: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                        label: z.ZodString;
+                        tone: z.ZodOptional<z.ZodEnum<{
+                            amber: "amber";
+                            blue: "blue";
+                            gold: "gold";
+                            neutral: "neutral";
+                            purple: "purple";
+                            red: "red";
+                            teal: "teal";
+                        }>>;
+                    }, z.core.$strip>>>;
+                    meta: z.ZodOptional<z.ZodString>;
+                    nodes: z.ZodPipe<z.ZodArray<z.ZodObject<{
+                        focus: z.ZodOptional<z.ZodBoolean>;
+                        label: z.ZodString;
+                        path: z.ZodOptional<z.ZodString>;
+                        tone: z.ZodOptional<z.ZodEnum<{
+                            amber: "amber";
+                            blue: "blue";
+                            gold: "gold";
+                            neutral: "neutral";
+                            purple: "purple";
+                            red: "red";
+                            teal: "teal";
+                        }>>;
+                    }, z.core.$strip>>, z.ZodTransform<{
+                        focus?: boolean | undefined;
+                        label: string;
+                        path?: string | undefined;
+                        tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                    }[], {
+                        focus?: boolean | undefined;
+                        label: string;
+                        path?: string | undefined;
+                        tone?: "amber" | "blue" | "gold" | "neutral" | "purple" | "red" | "teal" | undefined;
+                    }[]>>;
                     title: z.ZodOptional<z.ZodString>;
                 }, z.core.$strip>, z.ZodObject<{
                     kind: z.ZodLiteral<"track">;

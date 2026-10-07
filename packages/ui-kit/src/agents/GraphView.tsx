@@ -72,6 +72,11 @@ export interface GraphViewProps {
   /** Hop count and node total, bottom right. */
   meta?: string;
   minHeight?: number;
+  /** Add the traditional focus spokes. False draws only explicit edges. */
+  connectFocus?: boolean;
+  /** Opt into wrapped labels bounded to this fraction of the graph width. */
+  nodeMaxWidth?: `${number}%`;
+
   /**
    * The floor that keeps the box from collapsing in a shrink-to-fit container.
    * See the note above — this is not a sizing preference, it is the difference
@@ -118,7 +123,7 @@ export function GraphView(p: GraphViewProps) {
   const focus = src.find((n) => n.focus) || src[0];
 
   const lines: { x1: number; y1: number; x2: number; y2: number; stroke: string }[] = [];
-  if (focus) {
+  if (focus && p.connectFocus !== false) {
     for (const n of src) {
       if (!n.focus && n !== focus) {
         lines.push({ x1: focus.x, y1: focus.y, x2: n.x, y2: n.y, stroke: color.edge });
@@ -152,7 +157,7 @@ export function GraphView(p: GraphViewProps) {
   const legend = p.legend || FALLBACK_LEGEND;
 
   return (
-    <div style={box}>
+    <div style={box} data-graph-view>
       {label ? (
         <div
           style={{
@@ -197,6 +202,7 @@ export function GraphView(p: GraphViewProps) {
         return (
           <div
             key={`${n.label}-${i}`}
+            data-graph-node={i}
             style={{
               position: "absolute",
               left: `${n.x}%`,
@@ -205,12 +211,16 @@ export function GraphView(p: GraphViewProps) {
               display: "flex",
               alignItems: "center",
               gap: 5,
-              whiteSpace: "nowrap",
+              whiteSpace: p.nodeMaxWidth ? "normal" : "nowrap",
+              maxWidth: p.nodeMaxWidth,
+              boxSizing: "border-box",
+              overflowWrap: p.nodeMaxWidth ? "anywhere" : undefined,
+
               background: n.focus ? token("graph-node-focus-tint") : color.raised,
               border: `1px solid ${n.focus ? ink : color.edge}`,
               borderRadius: 999,
               padding: n.focus ? "5px 11px" : "4px 9px",
-              font: `${n.focus ? "600 11px/1 " : "500 10px/1 "}${font.body}`,
+              font: `${n.focus ? "600 11px" : "500 10px"}/${p.nodeMaxWidth ? "1.4" : "1"} ${font.body}`,
               color: ink,
             }}
           >
@@ -218,7 +228,7 @@ export function GraphView(p: GraphViewProps) {
           </div>
         );
       })}
-      {legend.length ? (
+      {legend.length || meta ? (
         <div
           style={{
             position: "absolute",
@@ -227,6 +237,7 @@ export function GraphView(p: GraphViewProps) {
             bottom: 11,
             display: "flex",
             gap: 9,
+            flexWrap: p.nodeMaxWidth ? "wrap" : undefined,
             font: `400 9px/1 ${font.mono}`,
             color: color.inkMute,
           }}

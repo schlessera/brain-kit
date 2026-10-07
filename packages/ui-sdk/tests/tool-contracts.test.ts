@@ -185,6 +185,7 @@ describe("show_block", () => {
       "contact",
       "files",
       "map",
+      "graph",
       "track",
       "link",
       "tracker",

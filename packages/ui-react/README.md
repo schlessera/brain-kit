@@ -346,3 +346,9 @@ protocol incompatibility.
 The stats shortcuts work without a WebSocket connection when no turn is
 streaming. Local identity appears immediately; failed server requests leave
 it visible. Full revision strings wrap and can be selected for a report.
+
+Inline `graph` answer blocks use GraphView with deterministic client layout
+and only supplied edges. A complete textual node/edge list provides the
+accessible equivalent; accepted local file paths open the current root's
+viewer. Replay and static exports retain all nodes and edges, with no file
+controls in static output and no lookup needed to draw a graph.
