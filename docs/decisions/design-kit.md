@@ -5816,3 +5816,38 @@ command or copy glyph when the corresponding input/action is absent; the
 maintainer accepted these pre-1.0 breaking changes in a minor. Other hosts
 must pass `lang`, `code` or `children`, and their real `action` explicitly.
 No tool schema, protocol or permission semantics change.
+
+
+## 2026-10-07 — Recorded subagents use state rings (#1145)
+
+The approved AgentOrbit design replaces the prototype progress radius with
+three state groups: inner needs you, middle running, outer ended. A pending
+approval is evidence only when its tool span descends from that agent in the
+recorded run and belongs to its chat. Terminal outcomes win over older
+approvals; success is done, failure outcomes are failed, and denied/cancelled
+are neutral stopped. No timer, percentage or simulated completion is drawn.
+
+Activity run detail mounts the overview only for at least two recorded child
+subagents while Activity is supported and retained. Names are functional types
+(or agent when absent), and completed metadata retains outcome and an actual
+recorded duration. Pills open the existing chat subagent drill-in; the host
+selects the recorded session when present. The complete span list retains
+44px named drill-in targets, including on phones and beside the evidence rail.
+
+Below a 480px container width the host requests compact 12px marks; these
+are not controls. Labelled circles have fixed state radii and measured,
+wrapping pills capped at 160px. Capacity is bounded by circumference and
+actual rectangle collisions, including effective targets across rings. A
+last-slot +N represents overflow and scrolls/focuses the full span list.
+Very tall names that fit no slot are represented by that count rather than
+clipped. Frame height can grow to contain targets; the 340px desktop orbit
+needs 390px for three rings of 44px targets. No ring spins or transitions;
+only running/waiting dots pulse, with the existing static reduced-motion
+keyframes. The group names all three counts and creates no live region.
+
+The accepted pre-1.0 break ships in a minor: OrbitAgent requires id/state,
+AgentOrbit requires agents, progress orbit/angle are removed, RunState gains
+stopped (including AgentRunCard), and core/sample defaults are removed.
+This is an approved exception to D30 parity defaults; examples live in
+fixtures and stories. Hosts pass compact and real navigation callbacks;
+no new wire contract, telemetry or extension seam is introduced.

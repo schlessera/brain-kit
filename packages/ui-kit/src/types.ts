@@ -158,7 +158,7 @@ export type EmptyTone = "amber" | "gold" | "teal" | "purple" | "red" | "neutral"
 
 /** What a run is doing. `waiting` is YOUR turn, not the agent's — the two are
  * different colours for that reason. */
-export type RunState = "running" | "waiting" | "done" | "failed";
+export type RunState = "running" | "waiting" | "done" | "failed" | "stopped";
 
 /** A named tool inside a run's strip. `idle` has not been reached yet. */
 export type RunToolState = "done" | "active" | "failed" | "idle";

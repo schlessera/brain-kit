@@ -376,3 +376,12 @@ tail. Completed spans require a recorded end; invalid or missing timestamps
 are disclosed. A complete textual interval list preserves names and outcomes,
 and the existing expandable trace remains available. No model-authored runtime
 state or timing telemetry is introduced.
+
+
+Activity run detail uses `AgentOrbit` for two or more retained subagents.
+Recorded types, pending approvals and terminal outcomes determine its state
+rings; no progress is estimated. Phone containers draw marks and keep named
+44px drill-in controls in the full span list. Labelled pills open the existing
+subagent view over chat, selecting the recorded session when one is present;
+overflow scrolls to the complete list. Unavailable, pruned, empty and single-agent
+runs draw no overview or sample content.

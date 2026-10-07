@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
-import { TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
+import { StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
 
 import { ApiRequestError, type ActivityRunRollup } from "../../lib/api-client.js";
 import {
@@ -11,7 +11,8 @@ import {
   runEvents,
   runSpans,
 } from "../../stores/activity-store.js";
-import { useBrainApi, useRootStore } from "../../root-context.js";
+import { useBrainApi, useBrainUiRoot, useRootStore } from "../../root-context.js";
+import { RunOrbit, openRecordedAgent, useOrbitAgents } from "./run-orbit.js";
 import { cn } from "../../lib/utils.js";
 import { CopyButton } from "../chat/copy-button.js";
 import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
@@ -55,6 +56,9 @@ export function RunDetail({
   const activitySupported = useRootStore("activity", s => s.supported);
   const streamed = useActivityStore(useShallow((s) => runSpans(s, runId)));
   const events = useActivityStore(useShallow((s) => runEvents(s, runId)));
+  const uiRoot = useBrainUiRoot();
+  const agents = useOrbitAgents(streamed);
+  const list = useRef<HTMLDivElement>(null);
   const applySnapshot = useActivityStore((s) => s.applySnapshot);
   const [pruned, setPruned] = useState<object | null>(null);
   const [rollup, setRollup] = useState<ActivityRunRollup | null>(null);
@@ -97,6 +101,11 @@ export function RunDetail({
   }, [runId, applySnapshot, api]);
 
   const root = streamed.find((s) => !s.parentSpanId);
+  const hasOrbit = activitySupported && !pruned && !missing && agents.length >= 2;
+  const openAgent = (id: string) => {
+    const span = streamed.find(item => item.spanId === id);
+    if (span) openRecordedAgent(uiRoot, span, root?.sessionId);
+  };
   const title = rollup?.jobName ?? rollup?.name ?? (root ? spanToolLabel(root) : runId);
   // The root carries the run's usage for backend-recorded turns; a run whose
   // usage only exists on children (the span-sink shape) sums them instead.
@@ -209,10 +218,11 @@ export function RunDetail({
             </div>
           </div>
         )}
+        {hasOrbit && <RunOrbit agents={agents} onOpen={openAgent} onOverflow={() => { list.current?.scrollIntoView({ block: "start" }); list.current?.focus(); }}/>}
         {!pruned && !missing && activitySupported && <RunLanes spans={streamed} liveRun={Boolean(root || rollup) && outcome === null}/>}
-        <div className={cn("space-y-1", embedded && "wide:hidden")}>
+        <div ref={list} data-run-span-list="" tabIndex={hasOrbit ? -1 : undefined} aria-label={hasOrbit ? "Recorded agent spans" : undefined} className={cn("space-y-1", embedded && !hasOrbit && "wide:hidden")}>
           {streamed.map((span) => (
-            <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} />
+            <DetailSpanRow key={span.spanId} span={span} depth={depthOf(span, streamed)} agent={hasOrbit ? agents.find(agent => agent.id === span.spanId) : undefined} onOpen={openAgent} />
           ))}
         </div>
         {!pruned && !missing && streamed.length === 0 && (
@@ -289,7 +299,7 @@ function traceState(span: ActivitySpan): TraceStep["state"] {
  * affordance is the point: a cron root or a turn root used to be a dead dot
  * with a duration, which is strictly less than the trace it was summarizing.
  */
-function DetailSpanRow({ span, depth }: { span: ActivitySpan; depth: number }) {
+function DetailSpanRow({ span, depth, agent, onOpen }: { span: ActivitySpan; depth: number; agent?: import("@schlessera/brain-ui-kit").OrbitAgent; onOpen: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const usage = formatSpanUsage(span);
   // Approval wait is not execution — same boundary the subagent drill-in uses.
@@ -299,6 +309,13 @@ function DetailSpanRow({ span, depth }: { span: ActivitySpan; depth: number }) {
       : "…";
   return (
     <div style={{ paddingLeft: `${depth * 16}px` }}>
+      {agent && <button type="button" data-agent-list-row={agent.id}
+        aria-label={`Open ${agent.name} · ${agent.meta ?? agent.state}`}
+        className="bk-control flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 text-left text-xs text-foreground"
+        onClick={() => onOpen(agent.id)}>
+        <StatusDot tone={agent.state === "running" ? "amber" : agent.state === "failed" ? "red" : agent.state === "stopped" ? "neutral" : "teal"} pulse={agent.state === "running" || agent.state === "waiting"}/><span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{agent.name}<span className="block text-muted-foreground">{agent.meta ?? agent.state}</span></span>
+        <ChevronRight className="h-4 w-4 shrink-0"/>
+      </button>}
       <div
         className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
         onClick={() => setExpanded((v) => !v)}

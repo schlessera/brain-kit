@@ -86,16 +86,12 @@ export function usd(cents: number): string {
 
 /* ------------------------------------------------------------ kit shapes */
 
-/**
- * The orbit. Distance from the core is proportional to how far from done a
- * run is, and angles are placed rather than animated -- the kit's orbit does
- * not spin, so two fixtures at the same angle overlap forever.
- */
+/** The orbit groups actual state; it carries no completion percentage. */
 export const orbitAgents: OrbitAgent[] = [
-  { name: "researcher", icon: "researcher", tone: "amber", meta: "72%", state: "running", orbit: 0.28, angle: 34 },
-  { name: "note-filer", icon: "filer", tone: "teal", meta: "2 of 3", state: "waiting", orbit: 0.34, angle: 126 },
-  { name: "source-watch", icon: "watcher", tone: "red", meta: "failed", state: "failed", orbit: 0.92, angle: 214 },
-  { name: "ledger", icon: "ledger", tone: "neutral", meta: "done", state: "done", orbit: 0.12, angle: 302 },
+  { id: "agent-researcher", name: "researcher", icon: "researcher", tone: "amber", state: "running" },
+  { id: "agent-filer", name: "note-filer", icon: "filer", tone: "teal", meta: "needs approval", state: "waiting" },
+  { id: "agent-watcher", name: "source-watch", icon: "watcher", tone: "red", meta: "failed", state: "failed" },
+  { id: "agent-ledger", name: "ledger", icon: "ledger", tone: "neutral", meta: "done", state: "done" },
 ];
 
 /** The tool strip on the running run's card. */

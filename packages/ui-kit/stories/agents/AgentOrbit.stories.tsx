@@ -1,7 +1,6 @@
 import preview from "#.storybook/preview";
 import { expect } from "storybook/test";
 
-import { documentCount } from "../../fixtures/files.js";
 import { orbitAgents } from "../../fixtures/runs.js";
 import { AgentOrbit } from "../../src/agents/AgentOrbit.js";
 import { overflowing, stage } from "../_stage.js";
@@ -14,7 +13,7 @@ const meta = preview.meta({
   args: {
     agents: orbitAgents,
     coreIcon: "brain",
-    coreMeta: `${documentCount.toLocaleString("en-US")} docs`,
+    coreMeta: `${orbitAgents.length} agents`,
   },
   argTypes: {
     width: { control: { type: "range", min: 260, max: 520, step: 4 } },
@@ -22,61 +21,26 @@ const meta = preview.meta({
   },
 });
 
-/**
- * Distance from the core is how far from done a run is. The two agents nearest
- * the core are nearly finished; the one out on the third ring failed early and
- * has been sitting there since.
- */
-export const Default = meta.story({});
+/** Three state rings: needs you, running, ended. Never progress. */
+export const Default = meta.story({ args: { agents: orbitAgents } });
 
-/** Collapsed to the smallest size the design's own range allows. `rMax` follows
- * the SHORTER side, so a wide, short orbit still keeps its pills inside. */
-export const Small = Default.extend({ args: { width: 280, height: 230 } });
+/** Phone marks retain state and counts; the host list owns interaction. */
+export const Small = Default.extend({ args: { width: 280, height: 236, compact: true } });
 
 export const Large = Default.extend({ args: { width: 460, height: 380 } });
 
-/** One agent, about to land: `orbit: 0` is the core's own edge, not the core. */
-export const AboutToLand = Default.extend({
-  args: { agents: [{ name: "ledger", icon: "ledger", tone: "teal", meta: "99%", state: "running", orbit: 0, angle: 0 }] },
-});
-
-/** Nothing running. The rings and the core stay, because the corpus is still
- * there — an empty orbit is a quiet brain, not a broken screen. */
+/** A pending approval belongs to the inner needs-you ring. */
+export const NeedsApproval = Default.extend({ args: { agents: [{ id: "pending-ledger", name: "ledger", state: "waiting", meta: "needs approval" }], coreMeta: "1 agent" } });
 export const Idle = Default.extend({ args: { agents: [] } });
-
-/**
- * The placement, asserted in the browser rather than only in `bun test`.
- *
- * `tests/agentorbit-placement.test.tsx` checks the arithmetic against
- * hand-computed values through `renderToStaticMarkup`; this checks that the
- * same numbers survive a real layout — a pill is centred on its point by
- * `translate(-50%,-50%)`, so its measured centre is what the maths predicts and
- * its `left` is not.
- */
-export const PlacementIsPolar = meta.story({
-  args: { width: 340, height: 284, agents: orbitAgents },
+export const StateRings = meta.story({
+  args: { agents: orbitAgents },
   play: async ({ canvasElement }) => {
-    const stageEl = canvasElement.querySelector<HTMLElement>("div")!;
-    const box = stageEl.querySelector<HTMLElement>("div")!;
-    const origin = box.getBoundingClientRect();
-    const pills = [...box.querySelectorAll<HTMLElement>(":scope > div")].slice(4);
-    await expect(pills).toHaveLength(4);
-
-    const centre = (el: HTMLElement) => {
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2 - origin.left, y: r.top + r.height / 2 - origin.top };
-    };
-
-    // researcher: orbit 0.28, angle 34 -> (210.53, 81.91). Computed from the
-    // definitions, not read off this render.
-    const researcher = centre(pills[0]);
-    await expect(Math.abs(researcher.x - 210.53) < 1).toBe(true);
-    await expect(Math.abs(researcher.y - 81.91) < 1).toBe(true);
-
-    // source-watch: orbit 0.92, angle 214 -> (87.96, 263.64).
-    const watcher = centre(pills[2]);
-    await expect(Math.abs(watcher.x - 87.96) < 1).toBe(true);
-    await expect(Math.abs(watcher.y - 263.64) < 1).toBe(true);
+    const waiting = canvasElement.querySelector('[data-orbit-agent="agent-filer"]');
+    const running = canvasElement.querySelector('[data-orbit-agent="agent-researcher"]');
+    await expect(waiting?.getAttribute("data-orbit-ring")).toBe("0");
+    await expect(running?.getAttribute("data-orbit-ring")).toBe("1");
+    await expect(canvasElement.textContent).not.toContain("%");
+    await expect(canvasElement.querySelector('[data-orbit-legend]')?.textContent).toBe("needs you 1running 1ended 2");
   },
 });
 
@@ -86,6 +50,7 @@ export const PlacementIsPolar = meta.story({
  * ambient animation per screen is on the design's "what never changes" list.
  */
 export const OnlyTheDotsMove = meta.story({
+  args: { agents: orbitAgents },
   play: async ({ canvasElement }) => {
     const animated = [...canvasElement.querySelectorAll<HTMLElement>("*")].filter(
       (el) => getComputedStyle(el).animationName !== "none",
@@ -102,9 +67,9 @@ export const OnlyTheDotsMove = meta.story({
 /** A fixed-size stage is exactly the shape that can spill: the pills sit on
  * absolute coordinates and nothing clips them. */
 export const FitsItsBox = meta.story({
-  args: { width: 340, height: 284 },
+  args: { agents: orbitAgents, width: 340, height: 284 },
   play: async ({ canvasElement }) => {
-    const box = canvasElement.querySelector<HTMLElement>("div > div")!;
+    const box = canvasElement.querySelector<HTMLElement>("[data-orbit-frame]")!;
     await expect(overflowing(box)).toEqual([]);
   },
 });

@@ -303,3 +303,15 @@ retains native keyboard-accessible horizontal scrolling.
 ticks and legend. `HATCH_GLYPH` is exported from the package root for the
 waiting-on-you legend; use it only for a documented human-wait interval.
 Lane names and legends wrap for narrow containers.
+
+
+`AgentOrbit` groups recorded agents by state: needs you, running and ended.
+Pass `agents` with stable `id`, functional `name` and required `state`; an
+empty or missing array draws nothing. Progress `orbit` and authored `angle`
+props are removed in the approved pre-1.0 minor migration. `RunState` adds
+neutral, non-pulsing `stopped` for denied/cancelled work. Pass `coreMeta`
+explicitly. The kit measures wrapping pills, limits each ring to collision-free
+targets and represents the rest as `+N`; the host's full list remains the
+record. Pass `compact` below a 480px container width, `onOpen(id)` for labelled
+pills and `onOverflow` to reach the list. The count legend defaults on; no
+radius represents completion, and no ring moves without a real state change.
