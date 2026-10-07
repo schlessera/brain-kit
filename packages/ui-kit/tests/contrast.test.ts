@@ -254,6 +254,7 @@ describe("contrast", () => {
         if (ratio < 4.5) failures.push(`${tone}-ink over ${tint} on canvas = ${ratio}`);
       }
     }
+    expect(tints.length).toBeGreaterThan(70);
     // ...and ink-meta, the kit's meta colour, over every tint on the canvas.
     // The design quotes 5.0 there; it is the one with the least room left.
     for (const tint of tints) {

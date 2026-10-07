@@ -440,6 +440,9 @@ describe("the accuracy ring", () => {
       />,
     );
     const at = (needle: string) => mapSvg(html).indexOf(needle);
+    for (const layer of ["<line", 'fill-rule="evenodd"', "<circle", "<polyline"]) {
+      expect(at(layer), `the ${layer} layer is drawn`).toBeGreaterThan(-1);
+    }
     expect(at("<line")).toBeLessThan(at("<circle"));
     expect(at("fill-rule=\"evenodd\"")).toBeLessThan(at("<circle"));
     expect(at("<circle")).toBeLessThan(at("<polyline"));
