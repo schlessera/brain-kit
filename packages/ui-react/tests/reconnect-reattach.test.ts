@@ -475,6 +475,37 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)!.parts, "completed clipped aggregate keeps the known trailing block").toEqual(old.parts);
     expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
   });
+  for (const completed of [false, true]) test(`a ${completed ? "completed" : "live"} bounded replay fills an interior tool gap while retaining its drawn suffix`, () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    for (let i = 0; i < 150; i++) {
+      chat.startToolCall("s1", `wax-${i}`, "Bash");
+      chat.setToolResult("s1", `wax-${i}`, "The wax held. ".repeat(400), false);
+    }
+    chat.appendText("s1", " The mast held.");
+    if (completed) chat.finishAssistantMessage("s1");
+    const old = buffer(root).messages.at(-1)!;
+    const missed = { ...old.toolCalls[0]!, id: "wax-missed" };
+    const tools = [old.toolCalls[0]!, missed, ...old.toolCalls.slice(1)];
+    const parts = [{ kind: "text" as const, text: old.parts[0]!.kind === "text" ? old.parts[0]!.text : "" }, ...tools.map((_, toolIndex) => ({ kind: "tool" as const, toolIndex })), { kind: "text" as const, text: " The mast held." }];
+    const replay = shrinkForReplication({ role: "assistant", content: old.content, toolCalls: tools, parts }, HISTORY_CHUNK_BYTES);
+    expect(replay.content, "actual replication elided tools").toContain("tool calls elided]");
+    expect(replay.parts.some((p) => p.kind === "text" && p.text === " The mast held."), "actual replication omitted the drawn suffix").toBe(false);
+    expect(replay.toolCalls.some((t) => t.id === missed.id), "the newly recovered interior card is in the bounded prefix").toBe(true);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], replay] });
+    const answer = buffer(root).messages.at(-1)!;
+    expect(answer.id, "a bounded interior tool gap retains the answer identity").toBe(old.id);
+    expect(answer.parts.filter((p) => p.kind === "tool").map((p) => answer.toolCalls[p.toolIndex]!.id), "bounded recovery retains chronological cards").toEqual(tools.map((t) => t.id));
+    expect(answer.content, "bounded recovery retains the drawn text").toBe(old.content);
+    expect(buffer(root).isStreaming).toBe(!completed);
+    if (completed) return;
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
+    expect(buffer(root).messages).toHaveLength(2);
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content).toBe(old.content + " Landed.");
+  });
   test("a size-bounded tool array keeps the tool cards already drawn", () => {
     const { root, socket } = running();
     for (let i = 0; i < 150; i++) {

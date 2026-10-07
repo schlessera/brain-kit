@@ -602,6 +602,14 @@ function includesDrawnText(text: string, drawn: string): boolean {
   return at === drawn.length;
 }
 
+/** Shared tools keep their chronological IDs even when either copy missed a call. */
+function compatibleToolOrder(a: ToolCall[], b: ToolCall[]): boolean {
+  const aIds = new Set(a.map((t) => t.id)), bIds = new Set(b.map((t) => t.id));
+  const sharedA = a.filter((t) => bIds.has(t.id)), sharedB = b.filter((t) => aIds.has(t.id));
+  return sharedA.every((t, i) => t.id === sharedB[i]?.id)
+    && (sharedA.length > 0 || !a.length || !b.length);
+}
+
 /** The host's display-size bound must not shorten text the page already drew. */
 function keepUnclippedText(next: string | undefined, old: string | undefined): string | undefined {
   const elision = next?.match(/\n…\[\d+ chars elided\]$/);
@@ -645,16 +653,15 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     const old = previous.messages[i];
     if (!old || old.role !== received.role) return received;
     const toolsElided = received.content.match(/\n…\[(\d+) tool calls elided\]$/);
-    const boundedTools = toolsElided && Number(toolsElided[1]) <= old.toolCalls.length - received.toolCalls.length
-      && received.toolCalls.every((tool, k) => tool.id === old.toolCalls[k]?.id);
+    const boundedTools = toolsElided && compatibleToolOrder(received.toolCalls, old.toolCalls);
     const content = boundedTools ? received.content.slice(0, toolsElided.index) : received.content;
     const unclippedContent = keepUnclippedText(content, old.content)!;
-    const m = {
+    const m: ChatMessage = {
       ...received,
       content: unclippedContent,
       thinking: keepUnclippedText(received.thinking, old.thinking),
       parts: restoreClippedParts(received.parts.filter((part) => !boundedTools || part.kind !== "text" || part.text !== toolsElided![0]), old),
-      toolCalls: [...received.toolCalls, ...(boundedTools ? old.toolCalls.slice(received.toolCalls.length) : [])].map((tool) => ({
+      toolCalls: [...received.toolCalls, ...(boundedTools ? old.toolCalls.filter((t) => !received.toolCalls.some((n) => n.id === t.id)) : [])].map((tool) => ({
         ...tool, output: keepUnclippedText(tool.output, old.toolCalls.find((t) => t.id === tool.id)?.output),
       })),
     };
@@ -666,13 +673,11 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
       && (boundedTools || m.content.length > old.content.length || drawnText(m).length < drawnText(old).length)
       && drawnText(m).length <= drawnText(old).length
       && (!old.turnId || !m.turnId || old.turnId === m.turnId)
-      && old.toolCalls.slice(0, Math.min(old.toolCalls.length, m.toolCalls.length)).every((t, k) => t.id === m.toolCalls[k]!.id)) {
-      const parts = [...old.parts];
-      for (const [toolIndex, tool] of m.toolCalls.entries()) {
-        if (!old.toolCalls.some((t) => t.id === tool.id)) parts.push({ kind: "tool", toolIndex });
-      }
+      && compatibleToolOrder(old.toolCalls, m.toolCalls)) {
+      const retained = mergeLive(old, m);
       const suffix = m.content.slice(old.content.length);
-      m.parts = suffix ? appendPart(parts, "text", suffix) : parts;
+      m.parts = suffix ? appendPart(retained.parts, "text", suffix) : retained.parts;
+      m.toolCalls = retained.toolCalls;
     }
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
     // Claude history adds separators to its aggregate across assistant
@@ -684,19 +689,16 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     // A bound cannot disprove this drawn continuation: retain even a short
     // shared opening until the scoped status settles its turn. Tool/request
     // identities and a different proven turn still reject a replacement.
-    const boundedContinuation = clipped && opening?.kind === "text" && mine.length > 0
-      && opening.text.length > 0 && opening.text[0] === mine[0];
+    const boundedContinuation = !!boundedTools || (clipped && opening?.kind === "text" && mine.length > 0
+      && opening.text.length > 0 && opening.text[0] === mine[0]);
     const continuing = live || !!(old.turnId ?? old.streamTurnId);
     const same = mine === theirs || boundedContinuation || (continuing && (provenTurn || theirs.startsWith(mine) || mine.startsWith(theirs)
       || (mine.length > 0 && theirs.length > 0 && (includesDrawnText(theirs, mine) || includesDrawnText(mine, theirs)))));
     // Text alone does not make it the same message: a tool-only answer has
     // none, and its cards keep state. A known turn or request must agree.
     const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
-    const sharedOld = old.toolCalls.filter((t) => m.toolCalls.some((n) => n.id === t.id));
-    const sharedNext = m.toolCalls.filter((t) => old.toolCalls.some((n) => n.id === t.id));
-    const compatibleTools = sharedOld.every((t, k) => t.id === sharedNext[k]?.id)
-      && (sharedOld.length > 0 || !old.toolCalls.length || !m.toolCalls.length);
-    const sameTools = continuing ? compatibleTools || (live && provenTurn)
+    const compatibleTools = compatibleToolOrder(old.toolCalls, m.toolCalls);
+    const sameTools = continuing || boundedContinuation ? compatibleTools || (live && provenTurn)
       : old.toolCalls.length === m.toolCalls.length && old.toolCalls.slice(0, shared).every((t, k) => t.id === m.toolCalls[k]!.id);
     const knownTurn = old.turnId ?? old.streamTurnId;
     const sameTurn = !knownTurn || !m.turnId || knownTurn === m.turnId;
