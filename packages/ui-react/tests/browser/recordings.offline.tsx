@@ -489,3 +489,135 @@ test("notice dismissal cannot delete an active recording before its first chunk"
   await sink.end!("user");
   expect((await c.store.recover(row.partition)).recordings[0]).toMatchObject({ id: row.id, state: "saved", savedThroughMs: 1000 });
 });
+
+for (const boundary of ["get", "list", "recover", "playback"] as const) {
+  test(`${boundary} refuses account audio when auth clears at its final asynchronous handoff`, async (ctx) => {
+    const c = cell(ctx);
+    const row = await saved(c);
+    const nativeOpen = c.partitions.open;
+    let indexReads = 0;
+    let noticeReads = 0;
+    const open = vi.spyOn(c.partitions, "open").mockImplementation((partition) => {
+      const handle = nativeOpen(partition);
+      return {
+        ...handle,
+        async get(key) {
+          const value = await handle.get(key);
+          if (key.startsWith("recording:index:")) indexReads++;
+          if (key === "recording:removed") noticeReads++;
+          if ((boundary === "get" && indexReads === 1) || (boundary === "playback" && indexReads === 2) || (boundary === "recover" && noticeReads === 2)) c.account(null);
+          return value;
+        },
+        async list(prefix) {
+          const values = await handle.list(prefix);
+          if (boundary === "list" && prefix === "recording:index:") c.account(null);
+          return values;
+        },
+      };
+    });
+    ctx.onTestFinished(() => open.mockRestore());
+    const createUrl = vi.spyOn(URL, "createObjectURL");
+    ctx.onTestFinished(() => createUrl.mockRestore());
+    const result = boundary === "get" ? c.store.get(row.partition, row.id)
+      : boundary === "list" ? c.store.list(row.partition)
+      : boundary === "recover" ? c.store.recover(row.partition)
+      : c.store.playback(row.partition, row.id);
+    await expect(result, `${boundary} checks the principal at the store handoff`).rejects.toThrow("account the client does not hold");
+    expect(createUrl).not.toHaveBeenCalled();
+  });
+}
+
+for (const action of ["discard", "associate"] as const) {
+  test(`pending playback cannot escape ${action} at its final asynchronous handoff`, async (ctx) => {
+    const c = cell(ctx);
+    c.account(action === "associate" ? null : "odysseus");
+    const row = await saved(c, action === "associate" ? "unassigned" : "account:odysseus");
+    c.account("odysseus");
+    const nativeOpen = c.partitions.open;
+    let indexReads = 0;
+    const open = vi.spyOn(c.partitions, "open").mockImplementation((partition) => {
+      const handle = nativeOpen(partition);
+      return { ...handle, async get(key) {
+        const value = await handle.get(key);
+        if (key.startsWith("recording:index:") && ++indexReads === 2) {
+          if (action === "discard") await c.store.discard(row.partition, row.id);
+          else await c.store.assign(row.id);
+        }
+        return value;
+      } };
+    });
+    ctx.onTestFinished(() => open.mockRestore());
+    const createUrl = vi.spyOn(URL, "createObjectURL");
+    ctx.onTestFinished(() => createUrl.mockRestore());
+    await expect(c.store.playback(row.partition, row.id), `pending playback is invalidated by ${action}`).rejects.toThrow("Recording is no longer available");
+    expect(createUrl).not.toHaveBeenCalled();
+  });
+}
+
+test("recovery rechecks its account after awaiting lock release", async (ctx) => {
+  const c = cell(ctx);
+  const row = await saved(c);
+  const nativeRequest = navigator.locks.request.bind(navigator.locks);
+  let release!: () => void;
+  let returned!: () => void;
+  const completion = new Promise<void>((resolve) => { release = resolve; });
+  const nativeReturned = new Promise<void>((resolve) => { returned = resolve; });
+  const request = vi.spyOn(navigator.locks, "request").mockImplementation((async (name: string, options: LockOptions, callback: LockGrantedCallback<unknown>) => {
+    const value = await nativeRequest(name, options, callback);
+    returned();
+    await completion;
+    return value;
+  }) as LockManager["request"]);
+  c.cleanup.push(() => { release(); request.mockRestore(); });
+  const result = c.store.recover(row.partition);
+  await nativeReturned;
+  c.account(null);
+  release();
+  await expect(result, "recovery checks authority after its final await").rejects.toThrow("account the client does not hold");
+});
+
+for (const nextAccount of ["penelope", null] as const) {
+  test(`caller-owned begin retains its originating account when the budget wait changes auth to ${nextAccount ?? "unassigned"}`, async (ctx) => {
+    const c = cell(ctx);
+    const nativeSizes = c.partitions.sizes;
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const sizes = vi.spyOn(c.partitions, "sizes").mockImplementation(async (prefix) => {
+      const result = await nativeSizes(prefix);
+      entered();
+      await gate;
+      return result;
+    });
+    c.cleanup.push(() => { release(); sizes.mockRestore(); });
+    const sink = c.store.sink();
+    const begin = sink.begin!({ mimeType: "audio/webm;codecs=opus" });
+    await waiting;
+    c.account(nextAccount);
+    release();
+    await expect(begin, "begin must not rebind audio after its first await").rejects.toThrow("account the client does not hold");
+    expect(await c.partitions.sizes("recording:index:")).toEqual([]);
+  });
+}
+
+for (const phase of ["chunk-drain", "final-index"] as const) {
+  test(`auth interruption overrides saved state during a user stop's ${phase}`, async (ctx) => {
+    const c = cell(ctx);
+    const capture = await c.store.start({ timesliceMs: 250 });
+    await expect.poll(() => c.events.some((e) => e.kind === "committed")).toBe(true);
+    const hold = holdIndexedDbWrite((key) => Array.isArray(key) && String(key[1]).startsWith(phase === "chunk-drain" ? "recording:chunk:" : "recording:index:"));
+    c.cleanup.push(() => hold.restore());
+    if (phase === "chunk-drain") { await hold.started; await wait(600); }
+    const userStop = capture.stop("user");
+    if (phase === "final-index") await hold.started;
+    const authStop = c.store.stop("auth");
+    hold.restore();
+    await Promise.all([userStop, authStop]);
+    const row = (await c.store.list("account:odysseus"))[0]!;
+    expect(row.state, "auth stop keeps final state interrupted even after user stop began").toBe("interrupted");
+    expect(row.interruptedAt).toBe(row.savedThroughMs);
+    expect(c.events.at(-1)?.message).toBe(`Recording stopped. Saved up to ${Math.floor(row.savedThroughMs / 60000)}:${(Math.floor(row.savedThroughMs / 1000) % 60).toString().padStart(2, "0")}; the end may be missing.`);
+    expect(await capture.ended).toBe("user");
+  });
+}

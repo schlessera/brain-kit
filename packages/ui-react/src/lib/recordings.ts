@@ -1,6 +1,6 @@
 import type { BrainUiServices } from "../root.js";
 import { startLocalCapture, type LocalCapture, type LocalCaptureChunk, type LocalCaptureSink, type LocalCaptureStopReason, type StartLocalCaptureOptions } from "../voice/local-capture.js";
-import { accountPartition, type LocalPartitions, type PartitionId, type PartitionWrite } from "./local-partitions.js";
+import { accountPartition, PartitionRefusedError, type LocalPartitions, type PartitionId, type PartitionWrite } from "./local-partitions.js";
 import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
@@ -108,6 +108,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   let openingCapture: LocalCapture | null = null;
   let beginning: { cancelled: boolean; stop?: LocalCapture["stop"]; done: Promise<void> } | null = null;
   const urls = new Map<string, { partition: PartitionId; id: string }>();
+  const pendingPlaybacks = new Set<{ partition: PartitionId; id: string; cancelled: boolean }>();
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
   const fingerprint = (row: Index) => `${row.state}/${row.chunkCount}/${row.bytes}/${row.savedThroughMs}/${row.contentHash}`;
@@ -118,13 +119,17 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const revoke = (url: string) => { URL.revokeObjectURL(url); urls.delete(url); };
   const unwatchAccount = options.root.stores.connection.subscribe(() => {
     for (const [url, { partition }] of urls) if (partition !== "unassigned" && partition !== heldPartition()) revoke(url);
+    for (const playback of pendingPlaybacks) if (playback.partition !== "unassigned" && playback.partition !== heldPartition()) playback.cancelled = true;
     for (const key of repaired.keys()) if (!key.startsWith("unassigned/") && !key.startsWith(`${heldPartition()}/`)) repaired.delete(key);
   });
   const notify = () => { for (const fn of listeners) fn(); };
   const emit = (kind: RecordingEvent["kind"], message: string | null, savedThroughMs = 0) => {
     for (const fn of events) fn({ kind, message, savedThroughMs });
   };
-  const invalidate = (id: string) => { for (const [url, recording] of urls) if (recording.id === id) revoke(url); };
+  const invalidate = (id: string) => {
+    for (const playback of pendingPlaybacks) if (playback.id === id) playback.cancelled = true;
+    for (const [url, recording] of urls) if (recording.id === id) revoke(url);
+  };
   invalidators.add(invalidate);
   const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("brain-ui:recording-changes");
   if (channel) channel.onmessage = (event: MessageEvent<unknown>) => {
@@ -135,6 +140,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     const key = options.heldAccountKey();
     return key === null ? "unassigned" as const : accountPartition(key);
   };
+  function checkReadable(partition: PartitionId): void {
+    if (partition !== "unassigned" && partition !== heldPartition()) throw new PartitionRefusedError(partition);
+  }
   async function budget(): Promise<RecordingBudget> {
     const sizes = await partitions.sizes(CHUNKS);
     let bytes = RECORDING_MAX_BYTES - sizes.reduce((sum, row) => sum + row.bytes, 0);
@@ -164,6 +172,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     timers: ReturnType<typeof setTimeout>[];
     capture: Pick<LocalCapture, "stop"> | null;
     accepting: boolean;
+    authInterrupted: boolean;
     write: Promise<void> | null;
     failure: "budget" | "write" | null;
     ending: Promise<void> | null;
@@ -173,6 +182,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     return {
       async begin({ mimeType, stop }) {
         if (disposed || running || beginning) throw new Error("Recording is already running or the store is closed");
+        const partition = preflight?.partition ?? heldPartition();
         let completed!: () => void;
         const pending = { cancelled: false, stop, done: new Promise<void>((resolve) => { completed = resolve; }) };
         beginning = pending;
@@ -188,7 +198,6 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const free = await budget();
           checkStart();
           if (!free.canRecord) { emit("refused", notEnough); throw new Error(notEnough); }
-          const partition = preflight?.partition ?? heldPartition();
           const row: Index = { id: crypto.randomUUID(), state: "recording", mime: mimeType, durationMs: 0, bytes: 0, savedThroughMs: 0, contentHash: "", chunkCount: 0 };
           // The first durable index exists only once capture has really begun.
           const handle = partitions.open(partition);
@@ -199,7 +208,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             await handle.write([{ delete: indexKey(row.id) }]).catch(() => {});
             throw error;
           }
-          session = { row, partition, blobs: [], release, timers: [], capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, write: null, failure: null, ending: null };
+          session = { row, partition, blobs: [], release, timers: [], capture: stop ? { stop } : null, accepting: !preflight?.signal.aborted, authInterrupted: false, write: null, failure: null, ending: null };
           running = session;
           notify();
           session.timers.push(setTimeout(() => emit("warning", "1 minute left in this recording", session!.row.savedThroughMs), 540_000));
@@ -249,11 +258,25 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     };
   }
   async function finish(s: Session, reason: LocalCaptureStopReason): Promise<void> {
+    s.accepting = false;
     for (const timer of s.timers) clearTimeout(timer);
     try {
-      const interrupted = reason === "auth" || reason === "interrupted" || s.failure === "write";
-      const row: Index = { ...s.row, state: interrupted ? "interrupted" : "saved", contentHash: await hash(s.blobs), ...(interrupted ? { interruptedAt: s.row.savedThroughMs } : {}) };
-      try { await partitions.open(s.partition).put(indexKey(row.id), row); } catch {
+      const contentHash = await hash(s.blobs);
+      const interrupted = reason === "auth" || reason === "interrupted" || s.authInterrupted || s.failure === "write";
+      let row: Index = { ...s.row, state: interrupted ? "interrupted" : "saved", contentHash, ...(interrupted ? { interruptedAt: s.row.savedThroughMs } : {}) };
+      const applyAuth = () => {
+        if (s.authInterrupted && row.state !== "interrupted") row = { ...row, state: "interrupted", interruptedAt: row.savedThroughMs };
+      };
+      try {
+        await partitions.open(s.partition).put(indexKey(row.id), row);
+        if (s.authInterrupted && row.state !== "interrupted") {
+          // Auth can arrive while a user stop's final metadata is committing.
+          // The capture keeps its first stop reason; the stored outcome does not.
+          applyAuth();
+          await partitions.open(s.partition).put(indexKey(row.id), row);
+        }
+      } catch {
+        applyAuth();
         if (s.partition === "unassigned" || s.partition === heldPartition()) repaired.set(identity(s.partition, row.id), { source: fingerprint(s.row), value: row });
         // Full disk or auth already cleared: the committed index and chunks
         // survive. Recovery classifies its recording state as interrupted.
@@ -261,8 +284,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const time = recordingTime(row.savedThroughMs);
       const message = s.failure === "write" ? `Stopped: this device couldn't save more audio. Saved up to ${time}; the end may be missing.`
         : s.failure === "budget" ? `Stopped: storage for recordings is full. Saved up to ${time}.`
-        : reason === "limit" ? "Stopped at the 10-minute limit. Your recording is saved."
-        : interrupted ? `Recording stopped. Saved up to ${time}; the end may be missing.` : "Recording saved on this device.";
+        : reason === "limit" && row.state !== "interrupted" ? "Stopped at the 10-minute limit. Your recording is saved."
+        : row.state === "interrupted" ? `Recording stopped. Saved up to ${time}; the end may be missing.` : "Recording saved on this device.";
       emit("stopped", message, row.savedThroughMs);
     } finally {
       s.blobs = [];
@@ -273,6 +296,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   }
   async function get(partition: PartitionId, id: string): Promise<Recording | undefined> {
     const value = await partitions.open(partition).get(indexKey(id)) as Index | undefined;
+    checkReadable(partition);
     const shown = value ? present(partition, value) : null;
     return shown ? { ...shown, partition } : undefined;
   }
@@ -315,7 +339,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     },
     async stop(reason) {
       openingAbort?.abort();
-      if (reason === "auth") for (const [url, { partition }] of urls) if (partition !== "unassigned") revoke(url);
+      if (reason === "auth") {
+        for (const playback of pendingPlaybacks) if (playback.partition !== "unassigned") playback.cancelled = true;
+        for (const [url, { partition }] of urls) if (partition !== "unassigned") revoke(url);
+      }
       const s = running;
       if (!s) {
         const pending = beginning;
@@ -326,13 +353,18 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         } else await openingCapture?.stop(reason);
         return;
       }
-      if (reason === "auth") s.accepting = false; // queued/final chunks cannot start writes.
+      if (reason === "auth") {
+        s.authInterrupted = true;
+        s.accepting = false; // queued/final chunks cannot start writes.
+      }
       if (s.capture || openingCapture) await (s.capture ?? openingCapture)!.stop(reason);
       else { await s.write?.catch(() => {}); s.ending ??= finish(s, reason); await s.ending; }
     },
     get,
     async list(partition) {
-      return (await partitions.open(partition).list(INDEX)).flatMap((r) => {
+      const entries = await partitions.open(partition).list(INDEX);
+      checkReadable(partition);
+      return entries.flatMap((r) => {
         const shown = present(partition, r.value as Index);
         return shown ? [{ ...shown, partition }] : [];
       });
@@ -340,6 +372,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     async recover(partition) {
       // Never recover under a live recorder, including a recorder in another tab.
       const release = await acquire();
+      let result!: RecordingRecovery;
       try {
         const handle = partitions.open(partition);
         let removedCount = (await handle.get(REMOVED) as number | undefined) ?? 0;
@@ -381,8 +414,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         }
         // A failed repair must never turn auth loss into a readable result.
         await handle.get(REMOVED);
-        return { recordings: recovered, removedCount, removedMessage: removedCount ? `${removedCount} recordings were removed by the browser before they were transcribed.` : null };
+        result = { recordings: recovered, removedCount, removedMessage: removedCount ? `${removedCount} recordings were removed by the browser before they were transcribed.` : null };
       } finally { await release(); }
+      checkReadable(partition);
+      return result;
     },
     async dismissRemoved(partition) {
       const release = await acquire();
@@ -403,15 +438,22 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       } finally { await release(); }
     },
     async playback(partition, id) {
-      const row = await get(partition, id);
-      if (!row) throw new Error("Recording not found");
-      const audio = (await chunks(partition, id)).slice(0, row.chunkCount);
-      // Recheck after both asynchronous reads, before handing out a URL.
-      if (!await partitions.open(partition).get(indexKey(id))) throw new Error("Recording is no longer available");
-      if (disposed) throw new Error("Recording store is closed");
-      const url = URL.createObjectURL(new Blob(audio.map((c) => c.data), { type: row.mime }));
-      urls.set(url, { partition, id });
-      return { url, revoke: () => revoke(url) };
+      const pending = { partition, id, cancelled: false };
+      pendingPlaybacks.add(pending);
+      try {
+        const row = await get(partition, id);
+        if (!row) throw new Error("Recording not found");
+        const audio = (await chunks(partition, id)).slice(0, row.chunkCount);
+        if (!await partitions.open(partition).get(indexKey(id))) throw new Error("Recording is no longer available");
+        // The primitive's async return is itself a handoff: recheck authority
+        // synchronously here, without another await before creating the URL.
+        checkReadable(partition);
+        if (disposed) throw new Error("Recording store is closed");
+        if (pending.cancelled) throw new Error("Recording is no longer available");
+        const url = URL.createObjectURL(new Blob(audio.map((c) => c.data), { type: row.mime }));
+        urls.set(url, { partition, id });
+        return { url, revoke: () => revoke(url) };
+      } finally { pendingPlaybacks.delete(pending); }
     },
     async discard(partition, id) {
       const release = await acquire();
