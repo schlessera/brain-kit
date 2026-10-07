@@ -667,6 +667,17 @@ jobs:
         if: always()
         run: cat enforcement-probe.json 2>/dev/null || echo "The enforcement probe wrote no report."
 
+      - name: Probe native delegation, capabilities and measurement isolation
+        timeout-minutes: 5
+        run: >-
+          unshare --user --map-current-user --keep-caps --net
+          sh -c 'ip link set lo up && bun scripts/measure-claude-delegation.ts --out delegation-probe.json && bun scripts/measure-claude-capability.ts > capability-probe.json && bun run test tests/measurement-isolation.test.ts'
+      - name: Delegation and capability reports
+        if: always()
+        run: |
+          cat delegation-probe.json 2>/dev/null || echo "The delegation probe wrote no report."
+          cat capability-probe.json 2>/dev/null || echo "The capability probe wrote no report."
+
   changeset:
     # A user-visible change without a changeset publishes with no version entry
     # and no changelog line. CONTRIBUTING.md has said so since the repo opened;

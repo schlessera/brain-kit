@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:495`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:178-179`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:182-183`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -446,7 +446,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:47-53`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:204`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:208`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -937,3 +937,56 @@ hand-run probe: `packages/ui-backend-claude/tests/follow-up-delivery.test.ts`
 drives the production backend through the real CLI and asserts what the CLI
 sent the model, with a control whose CLI never receives the follow-up. A
 version bump that moves any of the behaviours above fails that test.
+
+## 2026-10-07 — Sonnet 5.5 runtime and explicit manual approvals (#1213)
+
+**Decision (maintainer, 2026-10-07).** Upgrade to SDK 0.3.292 / bundled CLI
+2.1.292 and preserve manual approvals with explicit `permissionMode: "default"`
+in the backend and the raw runtime probe. This resolves the mode choice left
+open by the [2.1.287 comparison](claude-2.1.287-compatibility.md). Enforcement,
+voice and no-grant postures still use their existing hooks and callbacks.
+
+The [official model configuration documentation](https://code.claude.com/docs/en/model-config)
+requires CLI 2.1.284 or later for Sonnet 5.5. The npm registry and loaded SDK
+manifest identify 0.3.292 and eight exact-version platform dependencies; the
+actual native init reports 2.1.292. The dependency remains a caret range,
+now `^0.3.292`, with the lockfile selecting this measured pair. No separate
+runtime download or updater is introduced. Successful earlier-pair experiments
+retain their recorded identities and evidence.
+
+The [sanitized native receipts](../../scripts/measurements/claude-runtime-2026-10-07/)
+record Linux x64, Bun 1.4.2, bogus credentials, fresh homes and config, and a
+network namespace containing only loopback. The omitted-mode candidate again
+failed the command-shape, settings-rule and rewrite callback cases: a denied
+`touch` created its marker without invoking the callback. Explicit default
+passes all twelve raw permission cases and five credential controls. The
+production probe passes fifteen arms, including three new unenforced manual
+approval controls and the original enforcement/settings/rewrite composition.
+The measured constant moves only after these actual receipts.
+
+The added production delegation probe runs an actual foreground subagent
+through the existing Agent rewrite and inherited enforcement hooks. Both
+parent and child request canonical `claude-sonnet-5-5`. The child command
+outside the enforced roster reaches the inherited ask, callback and bridge,
+and creates no marker; the allowlisted child control creates it without a
+grant. The existing native measurement-isolation test denies an outside Read
+under bypass permissions and reads the fictional fixture. CI runs these
+controls alongside the existing probes. The non-root user mapping for the
+isolation test preserves the CLI's refusal of root bypass-permission sessions.
+
+Restored mutations show the guards observe their intended boundaries: removing
+the backend's explicit mode executes the denied manual-control write with no
+callback; removing enforcement registration fails the child's inherited-ask
+assertion; removing the measurement Read denial exposes the controlled outside
+sentinel and fails its exclusion assertion. No load error counts as a receipt.
+
+The keyless capability control reports canonical Sonnet 5.5, 1,000,000 context
+tokens, 128,000 output tokens and `costBasis: "list"`, with the same canonical
+model and `provider: "firstParty"` in native model usage. Its fixed 10 input / 6
+output fixture tokens yield a native list-price estimate of $0.00008. This
+is CLI metadata against scripted loopback responses, not actual model capacity,
+account eligibility, subscription billing or a charged amount. The selected
+account is a bogus fixture API key, not a real account; absent account fields
+stay absent, and the billing receipt is explicitly unknown. Application price
+provenance remains #1206. Live model rates, classifier choices, latency and
+first-party-only behavior remain outside this keyless evidence.
