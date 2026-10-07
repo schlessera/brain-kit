@@ -123,22 +123,31 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.at(-1)!.content, "terminal bounded replay keeps the already drawn suffix").toEndWith(late + " Landed.");
     expect(buffer(root).isStreaming).toBe(false);
   });
-  test("a missed interior tool retains answer identity and chronological tool indices", () => {
+  for (const longer of [false, true]) test(`a missed interior tool retains answer identity and chronological tool indices (${longer ? "live" : "stored"} base)`, () => {
     const { root, socket } = running();
     const chat = root.stores.chat.getState();
     for (const id of ["wax-a", "wax-c"]) { chat.startToolCall("s1", id, "Bash"); chat.completeToolCall("s1", id, "Bash", { command: id }); }
+    chat.appendThinking("s1", "Hold fast.");
+    if (longer) chat.appendText("s1", " Live oars.");
     const old = buffer(root).messages.at(-1)!;
     expect(old.toolCalls.map((t) => t.id), "the drawn cards are nonempty and have the interior gap").toEqual(["wax-a", "wax-c"]);
     const tools = ["wax-a", "wax-b", "wax-c"].map((id) => ({ id, name: "Bash", input: { command: id } }));
     const next = reconnect(root, socket);
     next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
-      role: "assistant", content: SIRENS, toolCalls: tools, parts: [{ kind: "text", text: SIRENS }, ...tools.map((_, toolIndex) => ({ kind: "tool", toolIndex }))],
+      role: "assistant", content: SIRENS, thinking: "Hold fast.", toolCalls: tools, parts: [{ kind: "text", text: SIRENS }, ...tools.map((_, toolIndex) => ({ kind: "tool", toolIndex })), { kind: "thinking", text: "Hold fast." }],
     }] });
     const merged = buffer(root).messages.at(-1)!;
     expect(merged.id, "interior tool gap retains the answer identity").toBe(old.id);
     expect(merged.parts.filter((p) => p.kind === "tool").map((p) => merged.toolCalls[p.toolIndex]!.id)).toEqual(["wax-a", "wax-b", "wax-c"]);
-    expect(merged.toolCalls.map((t) => t.id)).toEqual(["wax-a", "wax-b", "wax-c"]);
+    expect(merged.toolCalls.map((t) => t.id), "flat tool order agrees with drawn chronological cards").toEqual(["wax-a", "wax-b", "wax-c"]);
+    expect(merged.parts.filter((p) => p.kind === "thinking").map((p) => p.text), "thinking is drawn once after its retained tool neighbor").toEqual(["Hold fast."]);
+    expect(merged.parts.findIndex((p) => p.kind === "thinking")).toBe(4);
+    expect(merged.thinking).toBe("Hold fast.");
     next.deliver({ type: "status", sessionId: "s1", status: "thinking" });
+    next.deliver({ type: "session_history", sessionId: "s1", messages: [history(SIRENS)[0], {
+      role: "assistant", content: SIRENS, thinking: "Hold fast.", toolCalls: tools, parts: [{ kind: "text", text: SIRENS }, ...tools.map((_, toolIndex) => ({ kind: "tool", toolIndex })), { kind: "thinking", text: "Hold fast." }],
+    }] });
+    expect(buffer(root).messages.at(-1)!.id, "a second tool-gap replay retains the drawn answer").toBe(old.id);
     next.deliver({ type: "text_delta", sessionId: "s1", text: " Landed." });
     expect(buffer(root).messages).toHaveLength(2);
   });

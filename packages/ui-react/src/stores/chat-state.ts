@@ -760,23 +760,43 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     }
     toolCalls.push(t);
   }
+  // The union's flat order must agree with its drawn chronology: the next
+  // replay compares this list too, including a tool inserted in an old gap.
+  const beforeOrder = [...toolCalls];
+  const rank = new Map(parts.filter((p) => p.kind === "tool").map((p, i) => [beforeOrder[p.toolIndex]!.id, i]));
+  toolCalls.sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  parts = parts.map((p) => p.kind === "tool" ? { ...p, toolIndex: toolCalls.findIndex((t) => t.id === beforeOrder[p.toolIndex]!.id) } : p);
   // Thinking stays between the text/tool parts that bracketed it. Host
   // aggregates add separators, so compare the drawn blocks, not that field.
-  const thinkingSlots = (source: MessagePart[]) => {
+  const body = parts.filter((p) => p.kind !== "thinking");
+  const thinkingSlots = (source: MessagePart[], sourceTools: ToolCall[], remap = false) => {
     const slots = new Map<number, Extract<MessagePart, { kind: "thinking" }>[]>();
     let at = 0;
-    for (const part of source) {
+    for (const [index, part] of source.entries()) {
       if (part.kind !== "thinking") { at++; continue; }
-      slots.set(at, [...(slots.get(at) ?? []), part]);
+      let slot = at;
+      if (remap) {
+        // A recovered tool changes numeric slots. Anchor thinking to a tool
+        // this copy actually saw, rather than duplicating it at an old index.
+        const before = source.slice(0, index).filter((p) => p.kind !== "thinking");
+        const prior = before.findLastIndex((p) => p.kind === "tool");
+        const after = source.slice(index + 1).filter((p) => p.kind !== "thinking");
+        const following = after.findIndex((p) => p.kind === "tool");
+        const anchor = prior >= 0 ? before[prior] : following >= 0 ? after[following] : undefined;
+        if (anchor?.kind === "tool") {
+          const target = body.findIndex((p) => p.kind === "tool" && toolCalls[p.toolIndex]?.id === sourceTools[anchor.toolIndex]?.id);
+          if (target >= 0) slot = prior >= 0 ? target + before.length - prior : target - following;
+        }
+      }
+      slots.set(slot, [...(slots.get(slot) ?? []), part]);
     }
     return slots;
   };
-  const slots = thinkingSlots(parts);
-  for (const [at, blocks] of thinkingSlots(other.parts)) {
+  const slots = thinkingSlots(parts, toolCalls);
+  for (const [at, blocks] of thinkingSlots(other.parts, other.toolCalls, true)) {
     const mine = slots.get(at) ?? [];
     if (blocks.reduce((n, p) => n + p.text.length, 0) > mine.reduce((n, p) => n + p.text.length, 0)) slots.set(at, blocks);
   }
-  const body = parts.filter((p) => p.kind !== "thinking");
   parts = body.flatMap((part, at) => [...(slots.get(at) ?? []), part]);
   parts.push(...(slots.get(body.length) ?? []));
   const thinking = parts.filter((p) => p.kind === "thinking").map((p) => p.text).join("") || undefined;

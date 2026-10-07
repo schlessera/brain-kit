@@ -45,6 +45,8 @@ export interface LocalFollowUp {
   files?: SharedFileMeta[];
   thinkingLevel?: ThinkingLevel;
   queuedAt: number;
+  /** The queued status accepted this request before its first queue report. */
+  accepted?: boolean;
 }
 
 /** One polite announcement for the pending group (D52 §3). */
@@ -82,6 +84,7 @@ export interface FollowUpState {
   announcement: FollowUpAnnouncement | null;
   /** Show a message this client just sent while its session was busy. */
   addLocal(sessionId: string, entry: LocalFollowUp): void;
+  markAccepted(requestId: string): void;
   /**
    * Apply a host report. Returns the follow-up that started, with what this
    * client sent for it when it was the sender, so the transcript can draw it.
@@ -152,6 +155,7 @@ export function createFollowUpStore() {
   return createStore<FollowUpState>((set, get) => {
     let seq = 0;
     let principal: string | undefined;
+    let principalSeen = false;
     let refreshing = new Set<string>();
     const announce = (sessionId: string, text: string): FollowUpAnnouncement => ({ sessionId, text, seq: ++seq });
 
@@ -183,6 +187,14 @@ export function createFollowUpStore() {
         write(sessionId, state.reported[sessionId] ?? [], local, announce(sessionId, "Follow-up queued"));
       },
 
+      markAccepted(requestId) {
+        const state = get();
+        for (const [sessionId, entries] of Object.entries(state.local)) {
+          if (!entries.some((e) => e.requestId === requestId)) continue;
+          write(sessionId, state.reported[sessionId] ?? [], entries.map((e) => e.requestId === requestId ? { ...e, accepted: true } : e));
+        }
+      },
+
       applyReport(frame) {
         const state = get();
         const sessionId = frame.sessionId;
@@ -196,7 +208,7 @@ export function createFollowUpStore() {
         const fresh = refreshing.delete(sessionId);
         const reportedBefore = new Set((state.reported[sessionId] ?? []).map((e) => e.requestId));
         const reportedNow = new Set(frame.followUps.map((e) => e.requestId));
-        const disappeared = before.filter((e) => fresh && reportedBefore.has(e.requestId) && !reportedNow.has(e.requestId) && e.requestId !== frame.started?.requestId);
+        const disappeared = before.filter((e) => fresh && (e.accepted || reportedBefore.has(e.requestId)) && !reportedNow.has(e.requestId) && e.requestId !== frame.started?.requestId);
         releasePreviews(disappeared.filter((e) => !leftIds.has(e.requestId)));
         const local = before.filter((entry) => !leftIds.has(entry.requestId) && !disappeared.includes(entry));
         const droppedIds = new Set((frame.dropped ?? []).map((entry) => entry.requestId).filter(Boolean));
@@ -261,8 +273,9 @@ export function createFollowUpStore() {
       },
 
       reconnect(supported, principalKey) {
-        if (!supported || (principal !== undefined && principalKey !== principal)) get().reset();
+        if (!supported || (principalSeen && principalKey !== principal)) get().reset();
         principal = principalKey;
+        principalSeen = true;
         refreshing = new Set(Object.keys(get().pending));
       },
 
@@ -273,7 +286,7 @@ export function createFollowUpStore() {
         const state = get();
         for (const [sessionId, entries] of Object.entries(state.local)) {
           const accepted = new Set((state.reported[sessionId] ?? []).map((entry) => entry.requestId));
-          releasePreviews(entries.filter((entry) => accepted.has(entry.requestId)));
+          releasePreviews(entries.filter((entry) => entry.accepted || accepted.has(entry.requestId)));
         }
         set({ reported: {}, local: {}, pending: {}, announcement: null });
       },

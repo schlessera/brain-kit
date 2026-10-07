@@ -352,6 +352,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+      if (msg.type === "status") root.stores.followUp.getState().markAccepted(msg.requestId);
       // Before the demux below: a new conversation's draft must already be
       // its session's when the view follows the session there.
       if (drafts.receipt(msg.requestId, "accepted", msg.sessionId)) state.clearChatReceipt(msg.requestId);

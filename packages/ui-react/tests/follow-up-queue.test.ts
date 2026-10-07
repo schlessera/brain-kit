@@ -332,3 +332,21 @@ test("a different principal or unsupported host discards the previous pending qu
   hello("penelope", false);
   expect(pending(root)).toEqual([]);
 });
+
+test("accepted follow-ups whose first report was lost settle on an empty recovery queue", () => {
+  const { root, socket } = busy();
+  const revoked: string[] = [];
+  const original = URL.revokeObjectURL;
+  URL.revokeObjectURL = (url) => { revoked.push(url); };
+  try {
+    root.stores.followUp.getState().addLocal(S, { requestId: winds.requestId, text: winds.text, source: "typed", queuedAt: 1, attachments: [{ previewUrl: "blob:ithaca/winds", mediaType: "image/png" }] });
+    socket.deliver({ type: "status", sessionId: S, status: "queued", requestId: winds.requestId });
+    expect(pending(root).map((f) => f.requestId), "a nonempty accepted local pill is guarded").toEqual([winds.requestId]);
+    expect(root.stores.followUp.getState().reported[S]).toBeUndefined();
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { followUpQueue: true } });
+    expect(pending(root)).toHaveLength(1);
+    socket.deliver({ type: "session_queue", sessionId: S, followUps: [] });
+    expect(pending(root), "an accepted but unreported follow-up is no longer pending").toEqual([]);
+    expect(revoked, "settled accepted previews are released").toEqual(["blob:ithaca/winds"]);
+  } finally { URL.revokeObjectURL = original; }
+});
