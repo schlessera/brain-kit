@@ -659,7 +659,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           attachMenuOpen={attachMenuOpen}
           attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
           tracks={tracks}
-          onRemoveTrack={id => trackUploads.remove(id)}
+          onRemoveTrack={id => {
+            trackUploads.remove(id);
+            // The last of the view's content (#1112): it is an empty chat now,
+            // out of Drafts, and the field is where the reader goes on.
+            const current = root.stores.drafts.getState().drafts[draftId];
+            if (trackUploads.files.length === 0 && !current?.text && !current?.attachments.length) focusField();
+          }}
           onRetryTrack={id => trackUploads.retry(id)}
           attachErrors={attachErrors}
           provider={

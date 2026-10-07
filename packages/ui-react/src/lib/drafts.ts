@@ -1,6 +1,7 @@
 import type { DraftAttachment } from "@schlessera/brain-ui-sdk/protocol";
 import type { PendingAttachment } from "./image-attachments.js";
 import type { ComposerDraft, DraftStoreState } from "../stores/draft-state.js";
+import type { StagedTracks } from "./draft-tracks.js";
 
 /**
  * The words and small rules of per-session drafts (D52 §5, #951): what a
@@ -31,16 +32,33 @@ export function attachmentFromDraft(a: DraftAttachment): PendingAttachment {
   };
 }
 
-/** `Draft with 2 images`, or the first line of the text. */
-export function draftTitle(d: { text: string; attachments: readonly unknown[]; conflict?: ComposerDraft["conflict"] }): string {
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** `Draft with 2 images`, `Draft with 1 track file`, or the first line of the text. */
+export function draftTitle(d: { text: string; attachments: readonly unknown[]; tracks?: number; conflict?: ComposerDraft["conflict"] }): string {
+  const tracks = d.tracks ?? 0;
   // Emptied here, with another device's version waiting: named by that version.
-  if (d.text.length === 0 && d.attachments.length === 0 && d.conflict) {
+  if (d.text.length === 0 && d.attachments.length === 0 && tracks === 0 && d.conflict) {
     return draftTitle({ text: d.conflict.other.text, attachments: d.conflict.other.attachments });
   }
   const line = d.text.split("\n").map((l) => l.trim()).find(Boolean);
   if (line) return line;
   const n = d.attachments.length;
-  return `Draft with ${n} image${n === 1 ? "" : "s"}`;
+  // Track files are named only when there are some (#1112): `Draft with 2 images, 1 track file`.
+  if (tracks === 0) return `Draft with ${count(n, "image", "images")}`;
+  const parts = [...(n > 0 ? [count(n, "image", "images")] : []), count(tracks, "track file", "track files")];
+  return `Draft with ${parts.join(", ")}`;
+}
+
+/**
+ * What a Draft entry says about its staged tracks (#1112), in this order:
+ * a failed upload, then one under way, then where they live. They are kept
+ * by this page only, so they are never called saved.
+ */
+export function trackStateWord(t: Pick<StagedTracks, "failed" | "pending">): string {
+  if (t.failed > 0) return `${count(t.failed, "track", "tracks")} failed`;
+  if (t.pending > 0) return `uploading ${count(t.pending, "track", "tracks")}`;
+  return "tracks in this tab only";
 }
 
 /** The save state D52 §5 names, in its order of precedence. */
@@ -101,6 +119,38 @@ export function unboundDrafts(drafts: Record<string, ComposerDraft>): ComposerDr
     // An emptied draft with another device's version waiting stays reachable: its Compare is still owed.
     .filter((d) => d.sessionId === null && (d.text.length > 0 || d.attachments.length > 0 || d.conflict !== null))
     .sort((a, b) => b.editedAt - a.editedAt);
+}
+
+/** One Sessions Draft entry: an unbound draft, its new chat's staged tracks, or both (#1112). */
+export interface DraftEntry {
+  /** The draft id that opens it. */
+  id: string;
+  draft: ComposerDraft | null;
+  tracks: StagedTracks | null;
+  /** Its newest change, of the draft or of the tracks. */
+  changedAt: number;
+}
+
+/**
+ * The Sessions Draft entries, newest change first: every unbound draft, and
+ * every new chat that holds only staged tracks. A new chat's tracks live
+ * under its draft's first id (`originOf`), so a rotated draft keeps them.
+ */
+export function draftEntries(drafts: Record<string, ComposerDraft>, staged: readonly StagedTracks[], originOf: (draftId: string) => string): DraftEntry[] {
+  const queues = new Map(staged.filter((t) => t.key.startsWith("draft:")).map((t) => [t.key.slice("draft:".length), t]));
+  const entries: DraftEntry[] = unboundDrafts(drafts).map((d) => {
+    const origin = originOf(d.draftId);
+    const tracks = queues.get(origin) ?? null;
+    queues.delete(origin);
+    return { id: d.draftId, draft: d, tracks, changedAt: Math.max(d.editedAt, tracks?.changedAt ?? 0) };
+  });
+  for (const [origin, tracks] of queues) {
+    // A draft of that new chat with nothing listable in it still names the id its view opens under.
+    const holder = Object.values(drafts).find((d) => originOf(d.draftId) === origin);
+    if (holder && holder.sessionId !== null) continue;
+    entries.push({ id: holder?.draftId ?? origin, draft: null, tracks, changedAt: tracks.changedAt });
+  }
+  return entries.sort((a, b) => b.changedAt - a.changedAt);
 }
 
 /** Each session's newest nonempty draft, by session id: the `draft · 2h` marking. */

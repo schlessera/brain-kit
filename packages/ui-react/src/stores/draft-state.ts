@@ -401,8 +401,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       openUnbound(draftId) {
-        if (get().drafts[draftId]?.sessionId !== null) return;
-        set({ fresh: draftId });
+        // A new chat holding only staged tracks has no stored draft (#1112):
+        // its view opens under the id its work lives under now, never a
+        // session's.
+        const { id, owner } = follow(draftId);
+        if (owner !== null || (get().drafts[id] && get().drafts[id]!.sessionId !== null)) return;
+        set({ fresh: id });
       },
 
       beginSend(input, consumedText) {

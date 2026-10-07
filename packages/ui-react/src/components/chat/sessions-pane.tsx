@@ -4,6 +4,9 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { SessionList } from "./session-list.js";
 import { useSessionListProps } from "./session-drawer.js";
 import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
+import { useStagedTracks } from "../../hooks/use-staged-tracks.js";
+import { trackKey } from "../../lib/draft-tracks.js";
+import { useChatStore } from "../../stores/chat-store.js";
 
 /**
  * Sessions at ≥1280 (D52 §1, §8): a 280px pane beside the transcript in
@@ -11,7 +14,8 @@ import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
  * date groups, and the pills above the composer are not drawn at this
  * width. `New conversation` is the pane's one primary action; there is no
  * New chat disc and no rail row. In an empty chat it is `aria-disabled`,
- * printing `already a new chat`.
+ * printing `already a new chat`. A new chat holding staged tracks is not
+ * empty (#1112): New conversation leaves it as a Draft entry.
  *
  * Sessions is not a destination of its own here: pressing it (rail, ⌘2,
  * the palette) lands in Chat, which stays the amber destination, and moves
@@ -29,6 +33,9 @@ export function SessionsPane({ empty, onResume, onOpenTracker }: {
   onOpenTracker: (sessionId: string) => void;
 }) {
   const props = useSessionListProps({ visible: true, onResume, onOpenTracker });
+  const inNewChat = useChatStore((s) => s.activeSessionId === null);
+  const freshKey = useRootStore("drafts", (s) => trackKey(null, s.originOf(s.fresh)));
+  const holdsTracks = useStagedTracks().some((t) => t.key === freshKey) && inNewChat;
   const paneRef = useRef<HTMLElement>(null);
   const request = useUIStore((s) => s.sessionsPaneFocus);
   const take = useUIStore((s) => s.takeSessionsPaneFocus);
@@ -60,7 +67,7 @@ export function SessionsPane({ empty, onResume, onOpenTracker }: {
       data-sessions-pane=""
       className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-border bg-surface"
     >
-      <SessionList {...props} newWhy={empty ? "already a new chat" : undefined} />
+      <SessionList {...props} newWhy={empty && !holdsTracks ? "already a new chat" : undefined} />
     </section>
   );
 }

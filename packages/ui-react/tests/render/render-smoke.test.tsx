@@ -9,6 +9,7 @@ import { unregisterDom } from "./dom.js";
 
 import { BrainMarkdown } from "../../src/components/chat/brain-markdown.js";
 import { MaskEditor } from "../../src/components/images/mask-editor.js";
+import { trackKey, tracksFor } from "../../src/lib/draft-tracks.js";
 import { ShareMenu } from "../../src/components/share/share-menu.js";
 import { DiscoveryStart } from "../../src/components/graph/graph-scene.js";
 import { ShareBlock } from "../../src/components/chat/share-block.js";
@@ -1897,6 +1898,31 @@ describe("useServiceWorkerUpdates", () => {
       root.stores.drafts.getState().edit(id, "odysseus-raft", { text: "" });
     });
     expect(reloads).toBe(1);
+    root.dispose();
+  });
+
+  test("a staged track in a session not in view keeps the page from reloading until it is removed; then it reloads once (#1112)", async () => {
+    const serviceWorker = new FakeServiceWorkerContainer();
+    serviceWorker.controller = {} as ServiceWorker;
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
+    // Uploads never answer: the track stays staged, as it does in a composer.
+    const root = createBrainUiRoot({ storage: null, request: () => new Promise<Response>(() => {}) });
+    // Staged in the raft's session; the new chat is what is in view.
+    const raft = tracksFor(root, trackKey("odysseus-raft", root.stores.drafts.getState().idFor("odysseus-raft"))).uploads;
+    raft.add([new File(["{}"], "raft-timber-run.gpx", { type: "application/octet-stream" })]);
+    expect(raft.files, "the track is staged").toHaveLength(1);
+    let reloads = 0;
+    renderHook(() => useServiceWorkerUpdates({ isBusy: false, hasUnsentText: () => false, reload: () => reloads++ }), {
+      wrapper: ({ children }) => <BrainUiProvider root={root}>{children}</BrainUiProvider>,
+    });
+    await act(async () => Promise.resolve());
+    act(() => { serviceWorker.worker.install(); serviceWorker.takeControl(); });
+    expect(reloads, "the raft's staged track would be lost").toBe(0);
+    act(() => raft.remove(raft.files[0]!.id));
+    expect(reloads, "the queue emptied: one reload").toBe(1);
+    act(() => raft.add([new File(["{}"], "again.gpx")]));
+    act(() => raft.remove(raft.files[0]!.id));
+    expect(reloads, "never a second").toBe(1);
     root.dispose();
   });
 });
