@@ -175,6 +175,7 @@ describe.skipIf(!chromePath)("the document shell in real Chrome", () => {
       const html = buildHtmlDocument({ content: readSkeleton(kind), contentType: kind.format });
       const pdf = await renderer.renderPdf({ html });
       const pages = pdfPages(pdf);
+      expect(pages.length, `${kind.name} produces actual pages`).toBeGreaterThan(0);
       expect(pages.length).toBe(countPdfPages(pdf));
       for (const page of pages) expect(isA4(page.box)).toBe(true);
       // A cover exactly one page tall used to risk an empty page after it.
