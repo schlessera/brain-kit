@@ -627,18 +627,20 @@ export const ListWide = meta.story({
   play: async ({ canvas, canvasElement }) => {
     await expect(overflowing(canvasElement)).toEqual([]);
     await chipsAreTargets(canvasElement);
-    // Six options beside the label: one line of chips per row.
+    // One chip line on desktop, two balanced lines in a narrow iframe.
     const six = canvas.getAllByRole("radiogroup", { name: "Ismaros" })[0]!;
+    await expect(six.querySelectorAll('[role="radio"]')).toHaveLength(6);
     const sixTops = new Set(
       [...six.querySelectorAll<HTMLElement>('[role="radio"]')].map((c) => Math.round(c.getBoundingClientRect().top))
     );
-    await expect(sixTops.size).toBe(1);
+    await expect(sixTops.size).toBe(six.closest<HTMLElement>(".bk-asklist")!.clientWidth >= 560 ? 1 : 2);
     // Eight options: one line under the label.
     const eight = canvas.getByRole("radiogroup", { name: "Palace of Alcinous" });
+    await expect(eight.querySelectorAll('[role="radio"]')).toHaveLength(8);
     const eightTops = new Set(
       [...eight.querySelectorAll<HTMLElement>('[role="radio"]')].map((c) => Math.round(c.getBoundingClientRect().top))
     );
-    await expect(eightTops.size).toBe(1);
+    await expect(eightTops.size).toBe(eight.closest<HTMLElement>(".bk-asklist")!.clientWidth >= 560 ? 1 : 2);
   },
 });
 

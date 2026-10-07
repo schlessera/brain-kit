@@ -151,11 +151,20 @@ export const TwoContinentsWide = meta.story({
   args: placeMapProps(homeAndTroy),
   parameters: wide,
   play: async ({ canvasElement }) => {
-    const [a, b] = [...canvasElement.querySelectorAll<HTMLElement>("[data-place-frame]")].map((frame) =>
-      frame.getBoundingClientRect(),
-    );
-    await expect(Math.abs(a!.top - b!.top)).toBeLessThan(1);
-    await expect(b!.left).toBeGreaterThanOrEqual(a!.right);
+    const frames = [...canvasElement.querySelectorAll<HTMLElement>("[data-place-frame]")];
+    await expect(frames).toHaveLength(2);
+    await expect(canvasElement.querySelectorAll('[role="img"]')).toHaveLength(2);
+    const row = frames[0]!.parentElement!;
+    const style = getComputedStyle(row);
+    const available = row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const [a, b] = frames.map((frame) => frame.getBoundingClientRect());
+    if (available >= 560) {
+      await expect(Math.abs(a!.top - b!.top)).toBeLessThan(1);
+      await expect(b!.left).toBeGreaterThanOrEqual(a!.right);
+    } else {
+      await expect(b!.top).toBeGreaterThanOrEqual(a!.bottom);
+      await expect(Math.abs(a!.left - b!.left)).toBeLessThan(1);
+    }
   },
 });
 

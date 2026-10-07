@@ -10,8 +10,8 @@ import { overflowing, stage, wide } from "../_stage.js";
  * rule has teeth.
  *
  * Every element inside `GraphView` is absolutely positioned, so the box has no
- * intrinsic width to offer a container that sizes itself to its content. Under
- * the preview's `layout: "centered"` the story root does exactly that, so a
+ * intrinsic width to offer a container that sizes itself to its content. The preview's
+ * former centred root did exactly that, so a
  * bare `<GraphView />` rendered a 2px vertical sliver here for a whole wave
  * while all six of these stories passed: percentages of zero are all zero, so
  * nothing overflowed, no node escaped, and the edge count was right.
@@ -23,7 +23,7 @@ import { overflowing, stage, wide } from "../_stage.js";
 function boxed(width: number | string) {
   return function render(args: GraphViewProps) {
     return (
-      <div style={{ width, boxSizing: "border-box" }}>
+      <div style={{ width, maxWidth: "100%", boxSizing: "border-box" }}>
         <GraphView {...args} />
       </div>
     );
@@ -103,18 +103,20 @@ export const FocusIsDistinct = meta.story({
  */
 export const NodesStayInside = meta.story({
   play: async ({ canvasElement }) => {
-    const box = canvasElement.querySelector<HTMLElement>("div > div")!;
-    await expect(overflowing(box)).toEqual([]);
+    const box = canvasElement.querySelector("svg")!.parentElement!;
     const bounds = box.getBoundingClientRect();
+    const stage = box.parentElement!.parentElement!;
+    await expect(bounds.width).toBeLessThanOrEqual(stage.getBoundingClientRect().width);
     const escaped: string[] = [];
     for (const label of graphNodes.map((n) => n.label)) {
       const el = [...box.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent === label);
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
+      await expect(el, `node ${label} is present`).not.toBeUndefined();
+      const r = el!.getBoundingClientRect();
       if (r.left < bounds.left - 1 || r.right > bounds.right + 1) escaped.push(`${label} is clipped horizontally`);
       if (r.top < bounds.top - 1 || r.bottom > bounds.bottom + 1) escaped.push(`${label} is clipped vertically`);
     }
     await expect(escaped).toEqual([]);
+    await expect(overflowing(box)).toEqual([]);
   },
 });
 
@@ -151,7 +153,7 @@ export const ItCannotCollapseInAShrinkToFitContainer = meta.story({
     </div>
   ),
   play: async ({ canvasElement }) => {
-    const box = canvasElement.querySelector<HTMLElement>("div > div > div")!;
+    const box = canvasElement.querySelector("svg")!.parentElement!;
     await expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(220);
 
     const xs = graphNodes.map((n) => {

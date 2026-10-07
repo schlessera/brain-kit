@@ -143,11 +143,15 @@ export const FormSwitchSetAside = meta.story({
     const parent = canvas.getByRole("radio", {
       name: "Games A contest with the crew",
     });
+    // Storybook recentres the whole card as the branch changes its height.
+    // The invariant is the options' positions within their card.
+    const card = canvasElement.querySelector<HTMLElement>(".bk-askform")!;
     const tops = [
       ...canvasElement.querySelectorAll<HTMLElement>(
         '[data-form-node="evening"] > .bk-form-options > [role]',
       ),
-    ].map((node) => node.getBoundingClientRect().top);
+    ].map((node) => node.getBoundingClientRect().top - card.getBoundingClientRect().top);
+    await expect(tops).toHaveLength(4);
     await userEvent.click(parent);
     await expect(document.activeElement).toBe(parent);
     await expect(
@@ -161,7 +165,7 @@ export const FormSwitchSetAside = meta.story({
         ...canvasElement.querySelectorAll<HTMLElement>(
           '[data-form-node="evening"] > .bk-form-options > [role]',
         ),
-      ].map((node) => node.getBoundingClientRect().top),
+      ].map((node) => node.getBoundingClientRect().top - card.getBoundingClientRect().top),
     ).toEqual(tops);
     await userEvent.tab();
     await expect(document.activeElement).toBe(

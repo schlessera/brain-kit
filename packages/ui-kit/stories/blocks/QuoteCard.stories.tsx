@@ -50,15 +50,18 @@ const longNote = "run_7f3a9c1e7f3a9c1e7f3a9c1e7f3a9c1e7f3a9c1e7f3a9c1e7f3a9c1e7f
 
 export const LongUnbrokenRunWraps = meta.story({
   args: { quote: longUrl, note: longNote },
+  // A 320px viewport leaves 288px after the preview's 16px side padding.
+  // Keep that prose measure in standalone iframes without the manager addon.
+  parameters: { stageWidth: 288 },
   globals: { viewport: { value: "mobile1", isRotated: false } },
   play: async ({ canvas, canvasElement }) => {
     await expect(longUrl.length).toBe(200);
     await expect(longNote.length).toBe(200);
     await expect(/\s/.test(longUrl + longNote)).toBe(false);
-    await expect(window.innerWidth).toBe(320);
 
     const quote = canvas.getByText(longUrl);
     const card = quote.parentElement!;
+    await expect(card.getBoundingClientRect().width).toBe(288);
     await expect(card).toBe(canvasElement.firstElementChild!.firstElementChild);
     await expect(overflowing(card)).toEqual([]);
     for (const el of [quote, canvas.getByText(longNote)]) {
