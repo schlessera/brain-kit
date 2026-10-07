@@ -24,4 +24,6 @@ test("installed routing CLI denies outside Read before execution and admits the 
     .toEqual([{ name: "Read", accepted: false }, { name: "Read", accepted: true }]);
   expect(observed.roundTrips.size).toBe(3);
   expect(observed.score({ neededToolGroups: [["Read"]], neededSkill: null }).neededToolsHit).toBe(true);
+  expect(capture.rawFrames.find(frame => frame.type === "result")?.subtype).toBe("success");
+  expect(capture.rawFrames.some(frame => frame.type === "control_response")).toBe(true);
 });

@@ -12,6 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { spawn } from "node:child_process";
 import { gatedSurfaceServer, startOverlappedTurn, type SurfaceDecision } from "./turn-surface-overlap.js";
+import { observeSurfaceProcess } from "./turn-surface-stdout";
 
 export const SURFACE_MODEL = "claude-sonnet-5-5";
 export interface CapturedRequest {
@@ -62,6 +63,8 @@ export async function captureSurface(control?: {
   guard?: (root: string) => HookCallback;
   readGuardControl?: boolean;
   corpus?: boolean;
+  testSubscriptionRefusal?: boolean;
+  testPolicyModelRefusal?: boolean;
 }) {
   const home = mkdtempSync(join(tmpdir(), "turn-surface-home-"));
   mkdirSync(join(home, ".claude"));
@@ -93,8 +96,10 @@ export async function captureSurface(control?: {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 30_000);
   let completion: string | undefined;
+  let gateRefusal: string | undefined;
   let cliVersion: string | undefined;
   const frames: SDKMessage[] = [];
+  const rawFrames: Array<Record<string, any>> = [];
   let overlapped: Awaited<ReturnType<typeof startOverlappedTurn>> | undefined;
   try {
     const sdkEntry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
@@ -113,13 +118,20 @@ export async function captureSurface(control?: {
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ENABLE_TOOL_SEARCH: "true",
         ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
         ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL,
+        ANTHROPIC_SMALL_FAST_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1",
       },
-      ...(control?.onSpawn ? { spawnClaudeCodeProcess: spawnOptions => {
-        control.onSpawn!();
-        return spawn(spawnOptions.command, spawnOptions.args, { cwd: spawnOptions.cwd,
+      ...(control ? { spawnClaudeCodeProcess: spawnOptions => {
+        control.onSpawn?.();
+        const child = spawn(spawnOptions.command, spawnOptions.args, { cwd: spawnOptions.cwd,
           env: spawnOptions.env, stdio: ["pipe", "pipe", "pipe"], signal: spawnOptions.signal });
+        return observeSurfaceProcess(child, join(home, "stdout.jsonl"), frame => rawFrames.push(frame));
       } } : {}),
     };
+    if (control?.testPolicyModelRefusal) {
+      options.env!.ANTHROPIC_API_KEY = "";
+      options.env!.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-controlled-offline-token";
+      options.settings = { apiKeyHelper: "", env: { ANTHROPIC_SMALL_FAST_MODEL: "claude-haiku-control" }, autoMemoryEnabled: false };
+    }
     if (control?.guard) options.hooks = { ...options.hooks,
       PreToolUse: [...(options.hooks?.PreToolUse ?? []), { hooks: [control.guard(fixture.root)] }],
     };
@@ -127,14 +139,22 @@ export async function captureSurface(control?: {
       overlapped = await startOverlappedTurn({ options, parkingDirectory: home, projectDirectory: fixture.root,
         prompt: String(prepared.turn.prompt), decision: control.decision,
         skillCatalogue: control.skillCatalogue,
+        subscriptionGate: control.testSubscriptionRefusal || control.testPolicyModelRefusal || false,
+        onGateRefused: reason => { gateRefusal = reason; },
         beforeClaim: decision => { if (decision.routed && decision.arm === "hard-prune") fixture.pruneSkills(decision.skills); },
       });
     }
     const stream = overlapped?.query ?? query({ prompt: prepared.turn.prompt, options });
-    for await (const message of stream as AsyncIterable<SDKMessage>) {
-      frames.push(message);
-      if (message.type === "system" && message.subtype === "init") cliVersion = message.claude_code_version;
-      if (message.type === "result") completion = message.subtype;
+    try {
+      for await (const message of stream as AsyncIterable<SDKMessage>) {
+        frames.push(message);
+        if (message.type === "system" && message.subtype === "init") cliVersion = message.claude_code_version;
+        if (message.type === "result") completion = message.subtype;
+      }
+    } catch (error) { if (!gateRefusal) throw error; }
+    if ((control?.testSubscriptionRefusal || control?.testPolicyModelRefusal) && gateRefusal) {
+      return { evidence: "offline-native-preprompt-refusal", runtime: installedRuntime(), cliVersion,
+        fixtureSkills: fixture.skills, request: {} as CapturedRequest, requests: bodies, frames, rawFrames, gateRefusal };
     }
     if (completion !== "success") throw new Error(`capture did not complete: ${completion ?? "missing result"}`);
     // Main requests include the real bridge/core tools; auxiliary requests do
@@ -143,7 +163,7 @@ export async function captureSurface(control?: {
       && JSON.stringify(body.messages).includes("Explain what a mast does."));
     if (!request) throw new Error("capture did not observe the actual bridge request");
     return { evidence: "offline-installed-cli-serialization", runtime: installedRuntime(), cliVersion,
-      fixtureSkills: fixture.skills, request, frames,
+      fixtureSkills: fixture.skills, request, frames, rawFrames,
       requests: bodies.filter(body => body.tools?.some(tool => tool.name === "Read")) };
   } finally {
     clearTimeout(timeout); overlapped?.spare.close(); server.stop(true);

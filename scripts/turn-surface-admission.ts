@@ -1,4 +1,12 @@
 /** Diagnostic admission receipts for the subscription-only research driver. */
+import { priceSonnet55Usage } from "./measure-sonnet55-cost";
+import type { TurnObservation } from "./turn-surface-observation";
+export function successfulSurfaceReceipt(raw: Parameters<typeof priceSonnet55Usage>[0] & { subtype?: string } | undefined, observation: TurnObservation) {
+  if (!raw || raw.subtype !== "success" || !observation.completed || observation.observationError || !observation.roundTrips.size) {
+    throw Error(observation.observationError ?? "missing_success_result_or_roundtrip_usage");
+  }
+  return priceSonnet55Usage(raw);
+}
 export class SurfaceAdmission {
   init: { model: string; apiKeySource: string; cliVersion: string } | null = null;
   account: { tokenSource: string; apiKeySource: string | null; apiProvider: string } | null = null;

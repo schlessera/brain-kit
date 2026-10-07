@@ -31,6 +31,10 @@ export function observeSurfaceProcess(child: ChildProcessWithoutNullStreams, raw
       catch (error) { callback(error as Error); }
     },
   });
+  // SDK parsing can end before the native child writes its final receipt.
+  // Keep the observer's tee alive until native EOF rather than destroying it
+  // when a consumer returns/throws out of its async iteration.
+  tee[Symbol.asyncIterator] = () => tee.iterator({ destroyOnReturn: false });
   child.stdout.pipe(tee);
   child.stderr.on("data", () => {});
   return { stdin: child.stdin, stdout: tee,

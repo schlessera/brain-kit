@@ -36,6 +36,7 @@ export function shortlist(answers: ClassificationAnswers, kind: Kind, catalogue:
   const available = entries(catalogue, kind);
   if (choice?.type !== "choice" || !available.some(entry => entry.name === choice.choice)
     || !probability(choice.confidence) || !choice.probabilities
+    || available.some(entry => !probability(choice.probabilities[entry.name]))
     || Object.entries(choice.probabilities).some(([name, value]) => !available.some(entry => entry.name === name) || !probability(value))) return null;
   return available.map((entry, index) => ({ entry, index, score: choice.probabilities[entry.name] ?? 0 }))
     .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 3).map(row => row.entry);

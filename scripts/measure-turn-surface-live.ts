@@ -13,11 +13,12 @@ import { gatedSurfaceServer, startOverlappedTurn, type SurfaceDecision } from ".
 import { routingMeasurementHook } from "./turn-surface-isolation";
 import { disableMeasurementMemory, type MeasurementToolAccess } from "./measurement-isolation";
 import { TurnObservation } from "./turn-surface-observation";
-import { SurfaceAdmission } from "./turn-surface-admission";
+import { SurfaceAdmission, successfulSurfaceReceipt } from "./turn-surface-admission";
 import { observeSurfaceProcess } from "./turn-surface-stdout";
 import { priceSonnet55Usage } from "./measure-sonnet55-cost";
 import liveCases from "./fixtures/turn-surface-live-cases.json";
 import { SURFACE_MODEL } from "./capture-turn-surface";
+import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 
 const JEV_INPUT_USD_PER_MILLION = 0.042; // https://docs.typesafe.ai/models, 2026-10-07.
 const MAX_JEV_ATTEMPT_USD = 64_000 * JEV_INPUT_USD_PER_MILLION / 1_000_000;
@@ -132,11 +133,15 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
         const neutralSettings = prepared.turn.options.settings;
         if (!neutralSettings || typeof neutralSettings !== "object") throw Error("Expected production subscription neutralized settings");
         const options: Options = { ...prepared.turn.options, model: SURFACE_MODEL, effort: "low", maxTurns: 14, maxBudgetUsd: 1, persistSession: false,
-          mcpServers: { brain: core, "brain-ui": bridge }, settings: { ...neutralSettings, autoMemoryEnabled: false },
+          mcpServers: { brain: core, "brain-ui": bridge }, settings: { ...neutralSettings, env: { ...CLEARED_API_CREDENTIALS,
+            ANTHROPIC_SMALL_FAST_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL,
+            ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL,
+            CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" }, autoMemoryEnabled: false },
           env: { PATH: dirname(process.execPath) + ":/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
             CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN!, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_TOOL_SEARCH: "true",
             ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
-            ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL },
+            ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL,
+            ANTHROPIC_SMALL_FAST_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1", ...CLEARED_API_CREDENTIALS },
           hooks: { ...prepared.turn.options.hooks, PreToolUse: [...(prepared.turn.options.hooks?.PreToolUse ?? []), {
             hooks: [routingMeasurementHook(fixture.root, catalogue.skills.map((skill: { name: string }) => skill.name), decision, audit)],
           }] },
@@ -153,6 +158,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
         };
         turn = await startOverlappedTurn({ options, parkingDirectory: parking, projectDirectory: fixture.root,
           prompt: task.test.prompt, decision, skillCatalogue: catalogue.skills.map((skill: { name: string }) => skill.name),
+          onGateRefused: reason => { admission.stop(reason); },
           beforeClaim: selected => { if (selected.routed && selected.arm === "hard-prune") fixture.pruneSkills(selected.skills); },
         });
         // This native control read discloses no identity into the report and
@@ -160,10 +166,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
         await turn.query.accountInfo();
         for await (const _message of turn.query as AsyncIterable<SDKMessage>) { /* raw observer owns receipts */ }
         admission.requireIdentity();
-        if (!observation.completed || observation.observationError || !observation.roundTrips.size) {
-          throw Error(observation.observationError ?? "missing_success_result_or_roundtrip_usage");
-        }
-        const price = priceSonnet55Usage(rawResult ?? {});
+        const price = successfulSurfaceReceipt(rawResult, observation);
         const route = await routing;
         const normalizedCalls = [...observation.calls.values()].map(call => ({ ...call,
           input: JSON.parse(JSON.stringify(call.input).split(fixture.root).join("<fixture>")) }));

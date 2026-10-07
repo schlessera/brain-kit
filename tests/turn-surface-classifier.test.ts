@@ -34,6 +34,7 @@ test("wide pass pins Jev, bounds state, and narrows to three unchanged descripti
   expect(chooseNarrow({ ...narrow, "fits_tool:mcp__brain__read": { type: "noul", noul: 0.59 } }, "tool", candidates)).toBeNull();
   expect(chooseNarrow({ ...narrow, "fits_tool:mcp__brain__search": { type: "noul", noul: NaN } }, "tool", candidates)).toBeNull();
   expect(shortlist({ ...wide, needs_tool: { type: "noul", noul: 0.5 } }, "tool", catalogue)).toBeNull();
+  expect(shortlist({ ...wide, tool: { type: "choice", choice: "mcp__brain__read", confidence: 0.99, probabilities: {} } }, "tool", catalogue)).toBeNull();
 });
 
 test("real Jev transport runs both passes and none-needed uses no verification request", async () => {

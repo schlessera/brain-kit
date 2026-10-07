@@ -6,6 +6,7 @@ import type { Options, Query, SpareProcess } from "@anthropic-ai/claude-agent-sd
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import type { Arm, Peer } from "./turn-surface-routing.js";
+import { protectedSurfacePrompt } from "./turn-surface-prompt-gate";
 
 export interface SurfaceDecision {
   arm: Arm;
@@ -62,6 +63,9 @@ export async function startOverlappedTurn(params: {
   decision: Promise<SurfaceDecision>;
   skillCatalogue?: readonly string[];
   beforeClaim?: (decision: SurfaceDecision) => void | Promise<void>;
+  /** Only the explicitly offline API-auth capture may set this false. */
+  subscriptionGate?: boolean;
+  onGateRefused?: (reason: string) => void;
 }): Promise<OverlappedTurn> {
   const sdkEntry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", import.meta.dir + "/../packages/ui-backend-claude/src");
   const { prewarm } = await import(sdkEntry) as typeof import("@anthropic-ai/claude-agent-sdk");
@@ -85,7 +89,12 @@ export async function startOverlappedTurn(params: {
     const decision = await params.decision;
     await params.beforeClaim?.(decision);
     spare = await warming;
-    const query = spare.claim({ prompt: params.prompt, options: {
+    let release!: (query: Query) => void;
+    const handle = new Promise<Query>(resolve => { release = resolve; });
+    const prompt = params.subscriptionGate === false ? params.prompt : protectedSurfacePrompt({
+      query: handle, prompt: params.prompt, abort: params.options.abortController!, onRefused: params.onGateRefused,
+    });
+    const query = spare.claim({ prompt, options: {
       cwd: params.projectDirectory, model: params.options.model,
       appendSystemPrompt: system.append ?? "", permissionMode: params.options.permissionMode,
       ...(decision.routed && decision.arm !== "hint" && params.skillCatalogue ? {
@@ -97,6 +106,7 @@ export async function startOverlappedTurn(params: {
         },
       } : {}),
     } });
+    release(query);
     // Avoid admitting a turn if claim was refused or its model was not applied.
     await spare.claimed;
     return { query, spare, decision };
