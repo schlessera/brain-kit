@@ -109,7 +109,7 @@ describe("additive-protocol + limit invariants", () => {
   });
 
   test("aggregate decoded attachment bytes are capped at the boundary", () => {
-    // 4 images just under the per-image cap decode to ~16MB > the 6MB total.
+    // 4 images just under the per-image cap decode to ~16MB > the 8MB total.
     // Length must be a multiple of 4 to be well-formed base64.
     const raw = Math.floor((4_000_000 * 4) / 3) - 4;
     const big = "A".repeat(raw - (raw % 4));

@@ -143,7 +143,9 @@ describe("the catalogue", () => {
     for (const options of [1, 4, 5, 254, 255, 256, 300]) {
       const [table] = detectCandidates(wideTable(options));
       expect(table?.kind).toBe("table");
-      for (const [id, question] of Object.entries(questionsFor(table!))) {
+      const questions = Object.entries(questionsFor(table!)).filter(([, question]) => question.type === "choice");
+      expect(questions.length).toBeGreaterThan(0);
+      for (const [id, question] of questions) {
         if (question.type !== "choice") continue;
         const count = Object.keys(question.criteria).length;
         if (count > 255) throw new Error(`${options}-option table: ${id} offers ${count} options`);

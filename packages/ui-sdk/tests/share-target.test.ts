@@ -4,11 +4,6 @@ import {
   pruneStoredShares,
 } from "../src/client/share-store";
 import {
-  SHARE_MAX_FILES,
-  SHARE_MAX_FILE_BYTES,
-  SHARE_MAX_TEXT_BYTES,
-} from "../src/protocol";
-import {
   handleShareTargetRequest,
   isShareTargetRequest,
 } from "../src/client/share-target-handler";
@@ -182,18 +177,18 @@ describe("handleShareTargetRequest", () => {
     const overSized = new FormData();
     overSized.append(
       "files",
-      new File([new Uint8Array(SHARE_MAX_FILE_BYTES + 1)], "big.bin", {
+      new File([new Uint8Array(25_000_001)], "big.bin", {
         type: "application/octet-stream",
       })
     );
 
     const tooMany = new FormData();
-    for (let n = 0; n <= SHARE_MAX_FILES; n += 1) {
+    for (let n = 0; n <= 10; n += 1) {
       tooMany.append("files", new File(["x"], `f${n}.txt`, { type: "text/plain" }));
     }
 
     const tooChatty = new FormData();
-    tooChatty.set("text", "x".repeat(SHARE_MAX_TEXT_BYTES + 1));
+    tooChatty.set("text", "x".repeat(200_001));
 
     for (const form of [overSized, tooMany, tooChatty]) {
       const target = redirectTarget(

@@ -798,7 +798,9 @@ describe("closeAgainstViewport", () => {
       across([15.7, OUTSIDE.south], [15.7, OUTSIDE.north]),
       across([15.7, OUTSIDE.north], [15.7, OUTSIDE.south]),
     ]) {
-      for (const ring of close(chains)) expect(signedArea(ring)).toBeGreaterThan(0);
+      const rings = close(chains);
+      expect(rings).toHaveLength(1);
+      for (const ring of rings) expect(signedArea(ring)).toBeGreaterThan(0);
     }
   });
 
