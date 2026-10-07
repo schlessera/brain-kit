@@ -364,7 +364,7 @@ describe("AskUserCard · answered, typed, dismissed — all stay in the transcri
     fireEvent.click(getByText("Beta"));
     fireEvent.click(getByText("Submit"));
     expect(submitted).toEqual([]);
-    expect(reasked).toEqual([reaskMessage(single, { [QUESTION]: "Beta" })]);
+    expect(reasked).toEqual([`Answering \u201C${QUESTION}\u201D: Beta`]);
     expect(reasked[0]).toContain(QUESTION);
     expect(reasked[0]).toContain("Beta");
     // Dismiss on a reopened card closes it again without a cancel nobody can take.
@@ -513,7 +513,7 @@ describe("AskUserCard · grouped exchange", () => {
     fireEvent.click(view.getByText("Intro"));
     fireEvent.click(view.getByText("Dawn"));
     fireEvent.click(view.getByRole("button", { name: "Submit" }));
-    expect(reasked).toEqual([reaskMessage(grouped, { [QUESTION]: "Beta", "Which sections stay?": "Intro", "When should the digest arrive?": "Dawn" })]);
+    expect(reasked).toEqual([`Answering \u201C${QUESTION}\u201D: Beta\n\nAnswering \u201CWhich sections stay?\u201D: Intro\n\nAnswering \u201CWhen should the digest arrive?\u201D: Dawn`]);
     expect(submitted).toEqual([]);
     expect(view.queryByRole("radio")).toBeNull();
     expect(view.getByText(DISMISSED_NOTE)).toBeTruthy();

@@ -5497,7 +5497,11 @@ describe("transcript turn views", () => {
 
   test("a user turn wraps its content in the bubble; a resumed one counts its images", () => {
     const view = render(<UserTurn><p>hello</p></UserTurn>);
-    expect(view.getByText("hello")).toBeTruthy();
+    const content = view.getByText("hello");
+    const bubble = content.parentElement?.parentElement;
+    expect(bubble?.style.maxWidth, "the content is inside the tucked user bubble").toBe("82%");
+    expect(bubble?.style.borderBottomRightRadius).toBe("5px");
+    expect(bubble?.parentElement?.style.alignItems, "the user bubble aligns right").toBe("flex-end");
     view.unmount();
     const count = render(<AttachmentCount count={2} />);
     expect(count.getByText("2 images")).toBeTruthy();

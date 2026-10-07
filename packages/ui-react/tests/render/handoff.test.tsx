@@ -8,7 +8,6 @@ import { act, cleanup, fireEvent, render, within } from "@testing-library/react"
 
 // `screen` binds to the document at import, before this file registers one.
 const screen = { get q() { return within(document.body); } };
-import { composeHandoffText } from "@schlessera/brain-ui-sdk/protocol";
 
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
@@ -244,7 +243,7 @@ describe("starting the new chat", () => {
     act(() => socket.deliver({ type: "session_info", sessionId: "dst", isNew: true, backendId: "pi", providerId: "codex", draftId: "h-ithaca-0001", requestId: sent[0]!.requestId }));
     const chat = root.stores.chat.getState();
     expect(chat.activeSessionId).toBe("dst");
-    expect(chat.buffers.dst!.messages[0]).toMatchObject({ role: "user", source: "handoff", content: composeHandoffText("Odysseus is sailing home.", ["plans/ithaca.md"]) });
+    expect(chat.buffers.dst!.messages[0]).toMatchObject({ role: "user", source: "handoff", content: "Odysseus is sailing home.\n\nReferences:\n- plans/ithaca.md" });
     // The source is untouched and gains a forward link.
     expect(chat.buffers.src!.messages).toHaveLength(2);
     expect(root.stores.handoff.getState().forward.src?.map((l) => l.sessionId)).toEqual(["dst"]);
@@ -343,7 +342,7 @@ describe("the destination's handoff card", () => {
     roots.push(root);
     root.stores.chat.getState().setActiveSession("dst");
     root.stores.handoff.getState().addLink("src", { sessionId: "dst", title: null }, { sessionId: "src", title: "Ithaca return", backendId: "claude" });
-    render(<BrainUiProvider root={root}><HandoffCard content={composeHandoffText("Odysseus is sailing home.", ["plans/ithaca.md"])} /></BrainUiProvider>);
+    render(<BrainUiProvider root={root}><HandoffCard content={"Odysseus is sailing home.\n\nReferences:\n- plans/ithaca.md"} /></BrainUiProvider>);
     expect(screen.q.getByRole("button", { name: "Open source chat: Ithaca return" })).toBeTruthy();
     expect(screen.q.getByText("This chat only knows what is in this card.")).toBeTruthy();
     expect(screen.q.getByRole("list", { name: "References" }).textContent).toContain("plans/ithaca.md");

@@ -1,19 +1,28 @@
 import { describe, test, expect } from "bun:test";
 
-// Mirror of resolveWikilinkTarget in brain-markdown.tsx. Extracted here to
-// avoid pulling in the React-heavy module under the bun test runtime.
-function resolveWikilinkTarget(
-  raw: string,
-  slugMap: Record<string, string>
-): string | null {
-  const hashIdx = raw.indexOf("#");
-  const noAnchor = hashIdx >= 0 ? raw.slice(0, hashIdx).trim() : raw.trim();
-  if (!noAnchor) return null;
-  if (noAnchor.includes("/")) {
-    if (noAnchor.endsWith("/")) return null;
-    return /\.[a-z0-9]{1,8}$/i.test(noAnchor) ? noAnchor : `${noAnchor}.md`;
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Window } from "happy-dom";
+import { WikiLink, renderBarePathsInText } from "../src/components/chat/brain-markdown-links.js";
+import { BrainUiProvider } from "../src/root-context.js";
+import { createBrainUiRoot } from "../src/root.js";
+
+// Observe the production resolver through the component that consumes it.
+// A copied resolver keeps passing when the app's resolver regresses.
+function resolveWikilinkTarget(raw: string, slugMap: Record<string, string>): string | null {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    root.stores.file.setState({ wikilinkMap: slugMap, wikilinkLoaded: true });
+    // Zustand SSR reads the initial snapshot; make this seeded map its snapshot.
+    root.stores.file.getInitialState = root.stores.file.getState;
+    const markup = renderToStaticMarkup(React.createElement(BrainUiProvider, { root } as Parameters<typeof BrainUiProvider>[0],
+      React.createElement(WikiLink, { target: raw })));
+    const doc = new Window().document;
+    doc.body.innerHTML = markup;
+    return doc.querySelector("a")?.getAttribute("href")?.slice("#/files/".length) ?? null;
+  } finally {
+    root.dispose();
   }
-  return slugMap[noAnchor.toLowerCase()] ?? null;
 }
 
 const MAP: Record<string, string> = {
@@ -72,20 +81,12 @@ describe("resolveWikilinkTarget", () => {
   });
 });
 
-// Mirror of WIKILINK_RE
-const WIKILINK_RE = /\[\[([^\[\]\n|]+?)(?:\|([^\[\]\n]+?))?\]\]/g;
-
+// Observe the production scanner's WikiLink elements, before resolution.
 function extractWikilinks(text: string): { target: string; label?: string }[] {
-  const out: { target: string; label?: string }[] = [];
-  WIKILINK_RE.lastIndex = 0;
-  let m;
-  while ((m = WIKILINK_RE.exec(text)) !== null) {
-    out.push({
-      target: m[1].trim(),
-      label: m[2]?.trim(),
-    });
-  }
-  return out;
+  return renderBarePathsInText(text).flatMap((node) =>
+    React.isValidElement<{ target: string; label?: string }>(node) && node.type === WikiLink
+      ? [{ target: node.props.target, label: node.props.label }]
+      : []);
 }
 
 describe("WIKILINK_RE", () => {

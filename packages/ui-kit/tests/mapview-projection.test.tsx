@@ -48,8 +48,12 @@ describe("mercY", () => {
   test("clamps at ±85°, because the projection diverges at the poles", () => {
     // tan(π/4 + φ/2) → ∞ at 90°, and a map that renders Infinity renders
     // nothing at all.
-    expect(mercY(90)).toBe(mercY(85));
-    expect(mercY(-90)).toBe(mercY(-85));
+    // ln(tan(π/4 + 85°/2)), independently evaluated. Comparing the
+    // function to itself also passes when it clamps too early (e.g. 80°).
+    expect(mercY(85)).toBeCloseTo(3.1313013315, 10);
+    expect(mercY(90)).toBeCloseTo(3.1313013315, 10);
+    expect(mercY(-85)).toBeCloseTo(-3.1313013315, 10);
+    expect(mercY(-90)).toBeCloseTo(-3.1313013315, 10);
     expect(Number.isFinite(mercY(90))).toBe(true);
   });
 

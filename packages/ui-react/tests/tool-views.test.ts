@@ -219,7 +219,13 @@ describe("safeSearchRegex", () => {
   test("unbalanced patterns fall back to literal without throwing", () => {
     for (const p of ["(", "*", "[", "a(b"]) {
       expect(() => safeSearchRegex(p)).not.toThrow();
-      expect(safeSearchRegex(p)).not.toBeNull();
+      const re = safeSearchRegex(p);
+      expect(re).not.toBeNull();
+      expect(splitMatches(`before ${p} after`, re!)).toEqual([
+        { text: "before ", match: false },
+        { text: p, match: true },
+        { text: " after", match: false },
+      ]);
     }
   });
 
