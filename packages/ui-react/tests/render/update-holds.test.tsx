@@ -182,25 +182,81 @@ for (const phase of ["connecting", "listening"] as const) test(`a dictation torn
   expect(reloads(), "nothing holds it any more: one reload").toBe(1);
 });
 
-test("Done hands the transcript to review without a moment in which nothing holds the reload", async () => {
+/** A dictation mounted apart from the guard, as a composer is. */
+function mountDictation(initial: BrainUiRoot) {
+  let current = initial;
+  const hook = renderHook(() => useDictation(), {
+    wrapper: ({ children }: { children: ReactNode }) => <BrainUiProvider root={current}>{children}</BrainUiProvider>,
+  });
+  return Object.assign(hook, { switchRoot(next: BrainUiRoot) { current = next; hook.rerender(); } });
+}
+
+for (const torn of [false, true]) test(`Done hands the transcript to review, words heard while it drains included, without a moment in which nothing holds the reload${torn ? ", even when the dictation is torn down mid-drain" : ""}`, async () => {
   const { root, sessions, clients } = voiceRoot();
   emptyComposer();
-  const { hook, reloads } = await mountGuard(root);
+  const { reloads } = await mountGuard(root);
+  const dictation = mountDictation(root);
   let started!: Promise<void>;
-  act(() => { started = hook.result.current.start(); });
+  act(() => { started = dictation.result.current.start(); });
   await act(async () => { sessions[0]!(session); await started; });
-  act(() => clients[0]!.emit({ type: "final", text: "Ask Nestor about the ships", endsTurn: false }));
+  act(() => clients[0]!.emit({ type: "final", text: "Ask Nestor", endsTurn: false }));
   takeOver();
   expect(reloads()).toBe(0);
 
   let stopped!: Promise<void>;
-  act(() => { stopped = hook.result.current.stop(); });
+  act(() => { stopped = dictation.result.current.stop(); });
+  act(() => clients[0]!.emit({ type: "final", text: "about the ships", endsTurn: false }));
+  if (torn) dictation.unmount();
+  expect(reloads(), "no reload while busy: the transcript still drains").toBe(0);
   await act(async () => { clients[0]!.drain!(); await stopped; });
-  expect(root.stores.voice.getState().reviewText, "the transcript waits for review").toBe("Ask Nestor about the ships");
+  expect(root.stores.voice.getState().reviewText, "the whole transcript waits for review").toBe("Ask Nestor about the ships");
+  expect(root.stores.voice.getState().mode).toBe("idle");
   expect(reloads(), "no reload while busy: the transcript moved from capture to review").toBe(0);
 
   act(() => root.stores.voice.getState().clearReview());
   expect(reloads(), "the review card closed: one reload").toBe(1);
+});
+
+test("tearing down one dictation hook leaves a dictation another hook started on the same root live", async () => {
+  const { root, sessions } = voiceRoot();
+  const { reloads } = await mountGuard(root);
+  const first = mountDictation(root);
+  const second = mountDictation(root);
+  let started!: Promise<void>;
+  act(() => { started = first.result.current.start(); });
+  await act(async () => { sessions[0]!(session); await started; });
+  act(() => { started = second.result.current.start(); });
+  await act(async () => { sessions[1]!(session); await started; });
+  takeOver();
+
+  first.unmount();
+  expect(root.stores.voice.getState().mode, "the second dictation is still live").toBe("dictate");
+  expect(reloads(), "no reload while busy: the second dictation is live").toBe(0);
+  await act(async () => { second.result.current.cancel(); await Promise.resolve(); });
+  expect(reloads(), "the second dictation stopped: one reload").toBe(1);
+});
+
+test("an old root's drain settling does not leave a newer root's dictation unable to end", async () => {
+  const ithaca = voiceRoot();
+  const pylos = voiceRoot();
+  const { reloads } = await mountGuard(pylos.root);
+  const dictation = mountDictation(ithaca.root);
+  let started!: Promise<void>;
+  act(() => { started = dictation.result.current.start(); });
+  await act(async () => { ithaca.sessions[0]!(session); await started; });
+  let stopped!: Promise<void>;
+  act(() => { stopped = dictation.result.current.stop(); });
+
+  dictation.switchRoot(pylos.root);
+  act(() => { started = dictation.result.current.start(); });
+  await act(async () => { pylos.sessions[0]!(session); await started; });
+  takeOver();
+  await act(async () => { ithaca.clients[0]!.drain!(); await stopped; });
+  expect(reloads(), "no reload while busy: Pylos is dictating").toBe(0);
+
+  dictation.unmount();
+  expect(pylos.root.stores.voice.getState().mode, "Pylos's dictation ended with its hook").toBe("idle");
+  expect(reloads(), "nothing holds it: one reload").toBe(1);
 });
 
 test("dictated text waiting for review holds the reload with the composer's field empty; accepting it releases one reload", async () => {

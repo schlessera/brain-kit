@@ -37,8 +37,8 @@ export function useDictation() {
   // AbortController for the in-flight session fetch, so stop/cancel/unmount
   // can actually cancel a pending connect rather than just ignoring its result.
   const sessionAbortRef = useRef<AbortController | null>(null);
-  // This hook started the dictation the store shows and has not ended it.
-  const ownsRef = useRef(false);
+  // The last capture this hook started, on the root it started it on.
+  const captureRef = useRef<Capture | null>(null);
   const setMode = useVoiceStore((s) => s.setMode);
   const setConnecting = useVoiceStore((s) => s.setConnecting);
   const setProviderId = useVoiceStore((s) => s.setProviderId);
@@ -49,7 +49,9 @@ export function useDictation() {
 
   const start = useCallback(async () => {
     const gen = ++startGenRef.current;
-    ownsRef.current = true;
+    const capture: Capture = { root: root.stores };
+    captureRef.current = capture;
+    owners.set(root.stores, capture);
     resetCapture();
     setProviderId(null);
     // Show the sheet immediately, but as "connecting" — the mic is still shut
@@ -116,7 +118,7 @@ export function useDictation() {
       if (startGenRef.current !== gen) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
       setError(err instanceof Error ? err.message : "Voice start failed");
-      ownsRef.current = false;
+      release(capture);
       setConnecting(false);
       setMode("idle");
     }
@@ -148,6 +150,10 @@ export function useDictation() {
     async (commitToReview = true) => {
       // A slow connect must not open the mic after the user asked it to stop.
       const client = releaseCapture();
+      // This stop now ends the capture, even if the hook is torn down while
+      // it drains: the transcript still reaches review before it goes idle.
+      const capture = captureRef.current?.root === root.stores ? captureRef.current : null;
+      if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
       if (client) {
@@ -175,7 +181,7 @@ export function useDictation() {
         mode: "idle",
         ...(commitToReview && merged ? { reviewText: reviewText ? `${reviewText} ${merged}` : merged } : {}),
       });
-      ownsRef.current = false;
+      if (capture) release(capture);
       resetCapture();
     },
     [releaseCapture, resetCapture, root]
@@ -193,11 +199,28 @@ export function useDictation() {
     // would hold them for good. Text already under review stays.
     return () => {
       releaseCapture()?.stop();
-      if (!ownsRef.current) return;
-      ownsRef.current = false;
+      const capture = captureRef.current;
+      if (!capture || capture.root !== root.stores || stopping.has(capture)) return;
+      if (owners.get(root.stores) !== capture) return;
+      release(capture);
       root.stores.voice.setState({ mode: "idle", connecting: false, draining: false });
     };
   }, [root, releaseCapture]);
 
   return { start, stop, cancel };
+}
+
+/**
+ * The dictation each root's voice store is showing, by the capture that
+ * started it. A hook torn down while it owns its root's dictation ends it in
+ * the store (#1015); one that a newer start, another hook, or a pending
+ * stop() has taken over leaves it alone.
+ */
+type Capture = { root: object };
+const owners = new WeakMap<object, Capture>();
+/** Captures a stop() has taken over: it ends them, not a teardown. */
+const stopping = new WeakSet<Capture>();
+
+function release(capture: Capture) {
+  if (owners.get(capture.root) === capture) owners.delete(capture.root);
 }
