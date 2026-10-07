@@ -434,6 +434,12 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await newChat(run, a.page);
         expect(await composer(a.page).inputValue(), "New chat opens empty").toBe("");
         expect(await a.page.locator("[data-composer] img").count()).toBe(0);
+        // Once the host has answered for it and the session list has been
+        // read again (its lastActiveAt is newer than the leave), A is still
+        // not done: it is running.
+        await until(a.page, `${state(A)}?.settled === true`);
+        await a.page.waitForTimeout(500);
+        await neverDone(run, a.page, [A]);
         await until(a.page, `${state(A)}?.state === "running"`);
         await trackerControl(run, a.page, A).waitFor();
 
@@ -474,7 +480,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, `p.draft().text === ${JSON.stringify(draftA)} && p.draft().images === 1`);
         expect(await composer(a.page).inputValue(), "A's words are back").toBe(draftA);
         expect(await a.page.locator("[data-composer] img").count(), "and A's image").toBe(1);
-        expect(await probe(a.page, (p) => Object.keys(p.records())), "selecting A cleared nothing").toContain(A);
+        await a.page.waitForTimeout(300);
+        expect(await probe(a.page, (p) => p.views().find((v) => v.sessionId === p.activeSessionId())?.cleared), "selecting A cleared nothing").toBe(false);
 
         // Sent while A still runs: a follow-up the host queues. Leaving A
         // through Sessions tracks its newest request, queued, over the older
@@ -608,7 +615,12 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.context.route("**/api/sessions/*/recovery", (route) => route.abort());
         await a.page.reload();
         await until(a.page, "p?.connected()");
-        await until(a.page, `p.views().length === 6 && p.views().every((v) => v.settled) && p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
+        // The host hands the questions over again, but the running session
+        // comes back only from this root's own stored set.
+        await until(a.page, "p.views().length >= 5 && p.views().every((v) => v.settled)");
+        await a.page.waitForTimeout(500);
+        expect((await states()).map((v) => v.sessionId).sort(), "the stored set brings every tracker back").toEqual([...all].sort());
+        await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
         for (const v of await states()) expect(["needs_you", "cant_check"], `unreadable, ${v.sessionId}`).toContain(v.state);
         await neverDone(run, a.page, all);
         // The reads come back: the host's own answer, restored, and a cold
@@ -640,6 +652,10 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.page.reload();
         await until(a.page, "p?.connected()");
         const left = all.filter((id) => id !== ids[approve]);
+        // The host no longer holds any of this work, so only the root's own
+        // stored set can bring these trackers back.
+        await until(a.page, "p.views().length > 0 && p.views().every((v) => v.settled)").catch(() => undefined);
+        expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
         await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
         await neverDone(run, a.page, left);
         for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
