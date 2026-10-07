@@ -10,10 +10,10 @@ import { anyStagedTracks, subscribeAllTracks } from "./draft-tracks.js";
  *
  * Registered today, per root: an unsaved or unsettled session draft (#951),
  * a staged track (#1112), a live dictation (connecting, listening or
- * draining) and nonempty voice review text. The hook adds its DOM draft
- * probe and the shell's `isBusy`. Later work registers through
- * `registerUpdateHold`: a running local recording (#1012, #1017), a
- * recording being transcribed or holding an unaccepted transcript (#1019,
+ * draining), nonempty voice review text and a recording on the device that
+ * is opening, running or handing over its final chunk (#1012). The hook adds
+ * its DOM draft probe and the shell's `isBusy`. Later work registers through
+ * `registerUpdateHold`: a recording being transcribed or holding an unaccepted transcript (#1019,
  * #1021), and an open association or sign-out dialog (#1022).
  */
 export interface UpdateHold {
@@ -92,6 +92,13 @@ export function registerBuiltInUpdateHolds(root: BrainUiServices): void {
   // the DOM probe misses it, and it is in no saved draft.
   registerUpdateHold(root, {
     busy: () => voice.getState().reviewText.trim().length > 0,
+    subscribe: (fn) => voice.subscribe(fn),
+  });
+  // A recording on the device (#1012): the microphone opening, audio being
+  // recorded, or its final chunk on its way to the sink. A reload would
+  // stop it mid-word.
+  registerUpdateHold(root, {
+    busy: () => voice.getState().local !== "idle",
     subscribe: (fn) => voice.subscribe(fn),
   });
 }
