@@ -35,6 +35,24 @@ for (const theme of ["dark", "light"]) {
             expect(point.y).toBeGreaterThan(0); expect(point.y).toBeLessThan(box.height);
           }
         }
+        if (name !== "polar") {
+          const lines = [...card!.querySelectorAll<SVGPolylineElement>("polyline")];
+          expect(lines.length).toBeGreaterThan(0);
+          const first = lines[0]!.points.getItem(0);
+          const lastLine = lines.at(-1)!;
+          const last = lastLine.points.getItem(lastLine.points.numberOfItems - 1);
+          const svg = lines[0]!.ownerSVGElement!;
+          const markers = [...card!.querySelectorAll<HTMLElement>("[data-track-marker]")];
+          expect(markers.length).toBeGreaterThan(0);
+          for (const marker of markers) {
+            const endpoint = marker.dataset.trackMarker === "end" ? last : first;
+            const point = svg.createSVGPoint(); point.x = endpoint.x; point.y = endpoint.y;
+            const expected = point.matrixTransform(svg.getScreenCTM()!);
+            const actual = marker.getBoundingClientRect();
+            expect(Math.abs(actual.left + actual.width / 2 - expected.x), "endpoint x stays on the route").toBeLessThan(0.1);
+            expect(Math.abs(actual.top + actual.height / 2 - expected.y), "endpoint y stays on the route").toBeLessThan(0.1);
+          }
+        }
         await expect(page.elementLocator(card!)).toMatchScreenshot(`track-${name}-${theme}`);
       } finally {
         document.fonts.delete(face);
