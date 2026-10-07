@@ -30,7 +30,7 @@ export interface StatTile {
 
 export interface StatTilesProps {
   tiles?: StatTile[];
-  /** Flex basis per tile. Three up at a phone width, four past ~1100px. */
+  /** Minimum tile width. At most three columns, or four past ~1100px. */
   minTile?: number;
 }
 
@@ -50,33 +50,33 @@ const TONES: Record<ValueTone, string> = {
 };
 
 /**
- * THE SOURCE'S FALLBACK, VERBATIM. Nine of wave 3's twenty components keep the
- * design's own stand-in content because it carries no brand; the other eleven
- * had to be replaced under D19 and can no longer be parity-compared on their
- * defaults. Keeping this one as the source wrote it is what lets the DC parity
- * harness compare this component with no arguments on either side.
+ * A no-props example from the Odysseus world. The example-corpus decision
+ * supersedes the old source-persona split; new presentations use this world.
  */
 const FALLBACK: StatTile[] = [
   { label: "unfiled", value: "3", icon: "filer", tone: "teal" },
-  { label: "deadlines < 14d", value: "1", icon: "deadline", tone: "gold", meta: "Lisbon deck" },
-  { label: "failed runs", value: "1", icon: "failed", tone: "red", meta: "ledger_sync" },
+  { label: "deadlines < 14d", value: "1", icon: "deadline", tone: "gold", meta: "Launch the raft" },
+  { label: "failed runs", value: "1", icon: "failed", tone: "red", meta: "wind service" },
   { label: "spend today", value: "$1.90", icon: "wallet", tone: "ink", meta: "of $5 cap" },
 ];
 
 export function StatTiles(p: StatTilesProps) {
   if (p.tiles && !Array.isArray(p.tiles)) warnOnce("StatTiles: `tiles` is not an array; no tiles will render.");
   const src = p.tiles || FALLBACK;
-  const basis = Number(p.minTile) || 120;
+  const requestedBasis = Number(p.minTile);
+  const basis = Number.isFinite(requestedBasis) && requestedBasis > 0 ? requestedBasis : 96;
 
-  const grid: CSSProperties = {
-    display: "flex",
-    flexWrap: "wrap",
+  const grid: CSSProperties & { "--bk-stattiles-min": string } = {
+    "--bk-stattiles-min": `${basis}px`,
+    display: "grid",
     gap: 9,
     boxSizing: "border-box",
     width: "100%",
+    overflowWrap: "anywhere",
   };
   const labelRow: CSSProperties = {
     display: "flex",
+    alignSelf: "stretch",
     alignItems: "center",
     gap: 6,
     font: `600 9px/1.2 ${font.mono}`,
@@ -86,52 +86,55 @@ export function StatTiles(p: StatTilesProps) {
   };
 
   return (
-    <div style={grid}>
-      {src.map((t, i) => {
-        const tone = t.tone || "ink";
-        const c = TONES[tone] || TONES.dim;
-        const cue = VALUE_CUE[tone];
-        return (
-          <div
-            key={i}
-            style={{
-              flex: `1 1 ${basis}px`,
-              minWidth: 0,
-              boxSizing: "border-box",
-              border: `1px solid ${color.line}`,
-              background: color.surface,
-              borderRadius: 14,
-              padding: "12px 13px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            <div style={labelRow}>
-              {t.icon ? <Icon icon={t.icon} size={13} color={c} /> : null}
-              {t.label}
-            </div>
+    <div style={{ width: "100%", containerType: "inline-size", containerName: "bk-stattiles" }}>
+      <div className="bk-stattiles-grid" style={grid}>
+        {src.map((t, i) => {
+          const tone = t.tone || "ink";
+          const c = TONES[tone] || TONES.dim;
+          const cue = VALUE_CUE[tone];
+          return (
             <div
-              data-tone={tone}
+              key={i}
               style={{
-                display: "flex",
-                alignItems: "center",
+                minWidth: 0,
+                boxSizing: "border-box",
+                border: `1px solid ${color.line}`,
+                background: color.surface,
+                borderRadius: 14,
+                padding: "12px 13px",
+                display: "grid",
+                gridTemplateRows: "subgrid",
+                gridRow: "span 3",
+                alignItems: "start",
                 gap: 6,
-                font: `400 24px/1 ${font.display}`,
-                color: c,
               }}
             >
-              <span style={{ minWidth: 0 }}>{t.value}</span>
-              {cue ? <Cue icon={cue} size={13} /> : null}
-            </div>
-            {t.meta ? (
-              <div style={{ font: `400 10px/1.4 ${font.mono}`, color: accent.neutral.ink }}>
-                {t.meta}
+              <div style={labelRow}>
+                {t.icon ? <Icon icon={t.icon} size={13} color={c} /> : null}
+                {t.label}
               </div>
-            ) : null}
-          </div>
-        );
-      })}
+              <div
+                data-tone={tone}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  font: `400 24px/1 ${font.display}`,
+                  color: c,
+                }}
+              >
+                <span style={{ minWidth: 0 }}>{t.value}</span>
+                {cue ? <Cue icon={cue} size={13} /> : null}
+              </div>
+              {t.meta ? (
+                <div style={{ font: `400 10px/1.4 ${font.mono}`, color: accent.neutral.ink }}>
+                  {t.meta}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
