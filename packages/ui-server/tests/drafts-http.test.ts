@@ -293,9 +293,13 @@ test("draft text and images never reach the request log", async () => {
   cleanups.push(() => t.close());
   const a = await login(t, "Odysseus phone");
   const secret = "Penelope's loom is unpicked each night";
-  await a.upload("draft-loom", "u", png(5), "image/png", "loom.png");
-  await a.put("draft-loom", 0, "s", { sessionId: null, text: secret, attachmentIds: [] });
-  await a.get("draft-loom");
+  const upload = await a.upload("draft-loom", "u", png(5), "image/png", "loom.png");
+  expect(upload.status).toBe(200);
+  const { attachmentId } = await upload.json() as { attachmentId: string };
+  expect((await a.put("draft-loom", 0, "s", { sessionId: null, text: secret, attachmentIds: [attachmentId] })).status).toBe(200);
+  const restored = await a.get("draft-loom");
+  expect(restored.status).toBe(200);
+  expect(await restored.json()).toMatchObject({ text: secret, attachments: [expect.objectContaining({ name: "loom.png" })] });
   const records = JSON.stringify(t.observability.logs.records());
   expect(records).toContain("/api/drafts/draft-loom");
   expect(records).not.toContain("Penelope");
