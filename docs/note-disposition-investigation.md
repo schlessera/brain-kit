@@ -390,7 +390,9 @@ clarification. No additional paid run is required to reach this no-go.
 
 Implementation therefore does not adopt JEV or an unattended apply path. The
 source-confirmed JSON extraction defect has its own supporting task
-[#1211](https://github.com/schlessera/brain-kit/issues/1211). Full-target generation
+[#1211](https://github.com/schlessera/brain-kit/issues/1211), and
+[#1226](https://github.com/schlessera/brain-kit/issues/1226) owns preserving pricing
+modifiers in future collector receipts. Full-target generation
 and a separately validated, explicitly authorized apply boundary remain
 concrete candidate tasks under the contract above; classifier adoption requires
 broader independently reviewed data and an ablation that isolates full-target
