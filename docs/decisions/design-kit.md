@@ -4460,9 +4460,10 @@ whose items all drop still counts as a call. Rejected calls, subagent calls,
 incomplete turns and server turns that left the corpus are excluded. The
 question-control rate and the rate over answers whose actual final text part
 ends in a question are separate: asking the model to end with a question does
-not prove that it did. Item accounting follows the client in order: duplicate,
-repeated user prompt, then generic filler, using the same case/punctuation
-folding. Drops are measured over all accepted calls' items. Only the last
+not prove that it did. Item accounting follows the client in order: empty
+normalized label, duplicate, repeated user prompt, then generic filler, using
+the same case/punctuation folding. Drops are measured over all accepted calls'
+items. Only the last
 accepted call supplies the transcript's kept-item sample; question-ending
 suppression is stated separately from item drops. A quality verdict needs a
 read of those transcripts, rather than another automated predicate.
