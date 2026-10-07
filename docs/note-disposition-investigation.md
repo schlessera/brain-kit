@@ -169,3 +169,74 @@ bounded experiment's design, not a performance prediction. D42's progressive
 enhancement and [deterministic sync](decisions/deterministic-sync.md)'s
 keep-both fallback remain binding; their measured thresholds and historical
 prices are not transferred here.
+
+## Multi-target comparison instrument
+
+The original sixteen cases above remain offline controls. The separate
+`benchmark.json` adds twenty-four authored cases, six tuning and eighteen
+held-out, with competing targets, realistic observations and recurring
+procedures. Entity and representation-template identifiers are separated across
+partitions. Complete expected files retain original source bytes and existing
+frontmatter. These author goldens require the standing opposite-family review
+before live execution; literal expected-file agreement is stricter than semantic
+equivalence and cannot replace independent review of actual output documents.
+
+`live.ts` compares the actual `processCommand --keep-note`, unique exact-body
+matching, and bounded JEV disposition/target/type judgments followed by focused
+full-document generation. The current path retains its actual retrieval snippets
+and proposal-only semantics. Experimental full-document projections preserve
+metadata without claiming a production apply engine. An uncertain classifier
+route uses the actual current command as fallback; its calls are charged too.
+A confident keep requires no generation. The approved provider-native model IDs
+are `claude-sonnet-5-5` and `jev-1.13.0`.
+
+Before dispatch, the instrument requires an issue-linked Claude-family review
+receipt matching both the fixture checksum and a protocol checksum that includes
+classifier/generation source and the actual current command. It reserves an
+upper request charge before each physical call and stops after unknown usage.
+Every provider attempt is retained, including the core JEV transport's retry.
+Claude's direct Messages API instrument uses API billing under the standing
+exception for direct instruments. These are plain completions, with the current
+command's original prompt, rather than an agent loop that would add different
+instructions. Review calls run separately on the serialized subscription and
+must also be included in the issue and combined spending receipts.
+
+Public prices were checked against TypeSafe's models page and Anthropic's pricing
+page on 2026-10-07: JEV costs $0.042 per million input tokens; Sonnet 5.5 costs
+$2 input/$10 output per million tokens, with $0.20 cache reads and $2.50/$4
+five-minute/one-hour cache writes. Recorded charges are derived from actual
+provider-reported usage at these published prices; no invoice is observed.
+Missing usage stays unknown. The instrument sets no cache-control hints and
+retains every reported cache counter; repeated requests do not imply a warm
+cache. Revalidate availability and prices when resuming the comparison.
+
+Tuning alone selects a confidence threshold with nonempty, error-free proposed
+write routes. Its physical calls are attributed once to the corresponding
+hybrid observations; their latency remains part of the task. The threshold
+receipt precedes every held-out call. Two complete repetitions of all three arms
+are required before summaries can be interpreted. Full documents, raw proposals,
+transport failures, exact outcomes, routing precision, abstention, all calls and
+cache/token charges, p50/p95, throughput, per-pass spread and state-size subgroups
+remain available for the measured decision. A small authored holdout establishes
+only the observed sample, not a production error bound. Inventions can pass the
+literal-retention guard, so independently inspect all proposed output documents
+as well as exact golden agreement before any adoption conclusion.
+
+Keyless controls run with:
+
+```sh
+bun run test tests/note-disposition-live.test.ts tests/note-disposition-eval.test.ts
+```
+
+The live entry point is deliberately excluded from ordinary tests:
+
+```sh
+BRAIN_LIVE_EVALS=840 BRAIN_EVAL_REMAINING_USD=<checked-remaining-total> \
+  bun scripts/evals/note-disposition/live.ts <fresh-output-directory> <review.json>
+```
+
+The review receipt contains `fixtureSha`, `protocolSha`, `reviewerFamily:
+"Claude"`, `approved: true`, concrete `findings`, and the published
+`issueReceiptUrl`. Recreated/changed inputs or protocol code require another
+review identity. Partial or capped output does not satisfy the complete
+comparison, and the issue remains open in that case.
