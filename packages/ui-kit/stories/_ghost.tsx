@@ -55,6 +55,7 @@ export async function playHandoff({
 }) {
   await document.fonts?.ready;
   const ready = frames(canvasElement).map((f) => f.getBoundingClientRect());
+  await expect(ready).toHaveLength(2);
   await expect(canvasElement.querySelectorAll(".bk-ghost")).toHaveLength(0);
 
   await userEvent.click(await canvas.findByRole("button", { name: "Reload" }));
@@ -64,61 +65,54 @@ export async function playHandoff({
   const ghostRects = loading.map((f) => f.getBoundingClientRect());
   const ghostAfter = afters(canvasElement);
 
-  const trace: Record<string, unknown>[] = [];
-  const started = performance.now();
-  const record = (stage: string, detail: Record<string, unknown> = {}) => trace.push({stage, ms: performance.now() - started, ...detail});
-  let last = "";
-  const snapshot = () => {
-    const state = frames(canvasElement).map(f => ({busy:f.getAttribute("aria-busy"), ghosts:f.querySelectorAll(".bk-ghost").length, out:f.querySelectorAll(".bk-ghost-out").length, incoming:f.querySelectorAll(".bk-ghost-in").length}));
-    const key = JSON.stringify(state);
-    if (key !== last) {last=key; record("dom",{state});}
+  // D53's budget starts when each frame commits its arriving layers. Locator
+  // lookup and asynchronous input orchestration are not component handoff time;
+  // polling after removal must not extend that interval either (#1179).
+  const handoffs = loading.map(frame => ({ frame, arrived: undefined as number | undefined, removed: undefined as number | undefined }));
+  const observeHandoffs = () => {
+    const now = performance.now();
+    for (const h of handoffs) {
+      if (h.arrived === undefined && !h.frame.hasAttribute("aria-busy") && h.frame.querySelector(".bk-ghost-out")) h.arrived = now;
+      if (h.arrived !== undefined && h.removed === undefined && !h.frame.querySelector(".bk-ghost, .bk-ghost-out")) h.removed = now;
+    }
   };
-  const observe = new MutationObserver(snapshot);
-  observe.observe(canvasElement,{childList:true,subtree:true,attributes:true,attributeFilter:["class","aria-busy"]});
-  const click = (e: Event) => record("click",{target:(e.target as HTMLElement).textContent});
-  const animation = (e: Event) => { const a=e as AnimationEvent; if (/ghost-(in|out)$/.test(a.animationName)) record(e.type,{name:a.animationName,elapsed:a.elapsedTime,width:(e.target as HTMLElement).closest("[data-width]")?.getAttribute("data-width")}); };
-  canvasElement.addEventListener("click",click,true);
-  canvasElement.addEventListener("animationstart",animation,true);
-  canvasElement.addEventListener("animationend",animation,true);
-  snapshot();
+  const observer = new MutationObserver(observeHandoffs);
+  observer.observe(canvasElement, {subtree: true, childList: true, attributes: true, attributeFilter: ["class", "aria-busy"]});
   try {
-  const landed = performance.now();
-  record("before-land");
-  await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
-  record("click-completed");
-  const arriving = frames(canvasElement);
-  const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
-  for (const [i, f] of arriving.entries()) {
-    await expect(f.getAttribute("aria-busy")).toBeNull();
-    // Same box loading and ready: the line count matched, and nothing moved.
-    await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
-    await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
-    await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
-  }
-  for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
+    await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
+    const arriving = frames(canvasElement);
+    const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
+    for (const [i, f] of arriving.entries()) {
+      await expect(f.getAttribute("aria-busy")).toBeNull();
+      // Same box loading and ready: the line count matched, and nothing moved.
+      await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
+    }
+    for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
 
-  record("geometry-completed");
-  // Mid-handoff, both layers are part-way: the ghost going, the text coming.
-  await new Promise((r) => setTimeout(r, 300));
-  record("midpoint");
-  const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
-  const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
-  await expect(out).toBeGreaterThan(0);
-  await expect(out).toBeLessThan(1);
-  await expect(incoming).toBeGreaterThan(0);
-  await expect(incoming).toBeLessThan(1);
+    // Mid-handoff, both layers are part-way: the ghost going, the text coming.
+    await new Promise((r) => setTimeout(r, 300));
+    const out = opacity(canvasElement.querySelector(".bk-ghost-out"));
+    const incoming = opacity(canvasElement.querySelector(".bk-ghost-in"));
+    await expect(out).toBeGreaterThan(0);
+    await expect(out).toBeLessThan(1);
+    await expect(incoming).toBeGreaterThan(0);
+    await expect(incoming).toBeLessThan(1);
 
-  await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
-    timeout: 1000,
-    interval: 20,
-  });
-  record("final-observation",{duration:performance.now()-landed});
-  await expect(performance.now() - landed).toBeLessThan(700);
+    await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
+      timeout: 1000,
+      interval: 20,
+    });
+    // Both widths must have entered and completed the real handoff. A missing
+    // observation cannot turn into a zero-duration success.
+    observeHandoffs();
+    for (const h of handoffs) {
+      await expect(h.arrived).toBeDefined();
+      await expect(h.removed).toBeDefined();
+      await expect(h.removed! - h.arrived!).toBeLessThan(700);
+    }
   } finally {
-    observe.disconnect();
-    canvasElement.removeEventListener("click",click,true);
-    canvasElement.removeEventListener("animationstart",animation,true);
-    canvasElement.removeEventListener("animationend",animation,true);
-    console.info("HANDOFF_TRACE",JSON.stringify(trace));
+    observer.disconnect();
   }
 }
