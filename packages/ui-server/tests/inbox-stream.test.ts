@@ -14,7 +14,6 @@ import { WsHost } from "../src/ws/host.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { createWsHandlers } from "../src/ws/connection.js";
 import type { WSContext } from "../src/ws/clients.js";
-import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 
 describe("durable inbox stream", () => {
@@ -162,15 +161,15 @@ describe("durable inbox stream", () => {
     expect(snapshots.slice(1).every((f) => f.append === true)).toBe(true);
     expect(new Set(snapshots.map((f) => f.cursor))).toEqual(new Set([store.snapshot().cursor]));
     expect(snapshots.flatMap((f) => f.items)).toEqual(store.snapshot().items.filter((i) => i.queue === "actions"));
-    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= MAX_WS_MESSAGE_BYTES)).toBe(true);
+    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= 512_000)).toBe(true);
     foreign.commit([{ kind: "item", item: action("later", "thread-seed", "界".repeat(1200)) }]);
     stream.pump();
     expect(deltas(s.frames).at(-1)?.change).toMatchObject({ kind: "upsert_item", item: { payload: { detail: "界".repeat(1200) } } });
   });
-  test("an oversized snapshot record is refused before any chunk and an oversized delta stops the subscription", async () => {
+  test("an oversized delta stops the subscription", async () => {
     ingest("seed");
     const item = action("oversized");
-    item.options[0].effect = { kind: "enqueue", payload: { instruction: "Archive", operation: { toolName: "archive", targetPath: "inbox/example.md", input: { data: "a".repeat(MAX_WS_MESSAGE_BYTES) } } } };
+    item.options[0].effect = { kind: "enqueue", payload: { instruction: "Archive", operation: { toolName: "archive", targetPath: "inbox/example.md", input: { data: "a".repeat(512_000) } } } };
     const s = socket();
     await s.subscribe("actions");
     expect(s.frames.filter((f) => f.type === "inbox_snapshot")).toHaveLength(1);
@@ -179,6 +178,13 @@ describe("durable inbox stream", () => {
     expect(s.frames.at(-1)).toMatchObject({ type: "error", code: "INBOX_FRAME_TOO_LARGE" });
     expect(deltas(s.frames)).toHaveLength(0);
     expect(s.closed).toEqual([1009]);
+    expect(stream.subscriptionCount()).toBe(0);
+  });
+  test("an oversized snapshot record is refused before any chunk", async () => {
+    ingest("seed");
+    const item = action("oversized");
+    item.options[0].effect = { kind: "enqueue", payload: { instruction: "Archive", operation: { toolName: "archive", targetPath: "inbox/example.md", input: { data: "a".repeat(512_000) } } } };
+    foreign.commit([{ kind: "item", item }]);
     const reconnect = socket();
     await reconnect.subscribe("actions");
     expect(reconnect.frames.filter((f) => f.type === "inbox_snapshot")).toHaveLength(0);
@@ -263,7 +269,7 @@ describe("durable inbox stream", () => {
     const snapshots = s.frames.filter((f): f is InboxSnapshot => f.type === "inbox_snapshot");
     expect(snapshots.length).toBeGreaterThan(1);
     expect(Object.assign({}, ...snapshots.map((f) => f.highWaterSeq))).toEqual(snapshot.highWaterSeq);
-    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= MAX_WS_MESSAGE_BYTES)).toBe(true);
+    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= 512_000)).toBe(true);
   });
   test("new thread names do not inherit fake high-water marks from Object.prototype", async () => {
     const s = socket(); await s.subscribe();
