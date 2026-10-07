@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
-import { ActivityPage, AppShell, BrainUiProvider, ChatPage, GraphPage, createBrainUiRoot, useUIStore } from "../../src/index.ts";
+import { ActivityPage, AppShell, BrainUiProvider, ChatPage, GraphPage, createBrainUiRoot, useServiceWorkerUpdates, useUIStore } from "../../src/index.ts";
 import { trackerViews } from "../../src/stores/tracker-state.ts";
+import { anyStagedTracks } from "../../src/lib/draft-tracks.ts";
 
 // The whole app, as a hosting shell composes it (#953): AppShell with Chat,
 // Actions and Graph, on one root with a stable storage prefix, so a reload
@@ -8,9 +9,17 @@ import { trackerViews } from "../../src/stores/tracker-state.ts";
 // screen; this probe reads state and never changes it.
 const root = createBrainUiRoot({ storagePrefix: "odysseus-parallel", config: { appName: "Odysseus’s notebook", assistantName: "Brain" } });
 
+/** `?update`: the hosting shell's service-worker hook too, against the worker the test stands in for (#1150). */
+const withUpdates = new URLSearchParams(location.search).has("update");
+
+function UpdateGuard() {
+  useServiceWorkerUpdates({ isBusy: false });
+  return null;
+}
+
 function Shell() {
   const view = useUIStore((s) => s.activeView);
-  return <AppShell>{view === "activity" ? <ActivityPage /> : view === "graph" ? <GraphPage /> : <ChatPage />}</AppShell>;
+  return <AppShell>{withUpdates && <UpdateGuard />}{view === "activity" ? <ActivityPage /> : view === "graph" ? <GraphPage /> : <ChatPage />}</AppShell>;
 }
 
 const mount = document.getElementById("app");
@@ -62,6 +71,8 @@ Object.assign(window, {
       return (buffer?.messages ?? []).map((m) => `${m.role}: ${m.content}`);
     },
     streaming: (sessionId: string) => Boolean(root.stores.chat.getState().buffers[sessionId]?.isStreaming),
+    /** Any view of this root holds a staged track. */
+    staged: () => anyStagedTracks(root),
   },
 });
 window.addEventListener("pagehide", () => root.dispose(), { once: true });

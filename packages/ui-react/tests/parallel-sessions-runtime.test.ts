@@ -34,7 +34,10 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 //   large, full) is never called saved and keeps the words; New chat opens
 //   empty with no confirmation, and leaving a streaming session aborts
 //   nothing. A new chat holding only a track the real host read stays a
-//   Draft entry through New chat, and sends nothing (#1112).
+//   Draft entry through New chat, and sends nothing (#1112). While a track
+//   is staged out of view a reload asks Chromium's leave confirmation, and
+//   once it is sent or removed neither a reload nor a waiting update asks
+//   (#1150).
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Parallel-sessions runtime proof requires real Chrome");
@@ -245,6 +248,7 @@ type Probe = {
   unbound(): string[];
   transcript(sessionId: string | null): string[];
   streaming(sessionId: string): boolean;
+  staged(): boolean;
 };
 const probe = <T,>(page: Page, fn: (p: Probe) => T) => page.evaluate(`(${fn.toString()})(window.__parallel)`) as Promise<T>;
 async function until(page: Page, predicate: string, timeout = 15_000) {
@@ -292,8 +296,33 @@ const runs: Run[] = [
 const wide = (run: Run) => (run.options.viewport?.width ?? 0) >= 1280;
 const phone = (run: Run) => (run.options.viewport?.width ?? 0) < 480;
 
+/**
+ * Runs in the page before the app (#1150): a browser with an update waiting,
+ * which `window.__worker.takeover()` installs and hands control to, and a
+ * count of the documents this tab has loaded, so a reload is observed rather
+ * than inferred.
+ */
+function waitingWorker() {
+  const loads = Number(sessionStorage.getItem("odysseus-loads") ?? 0) + 1;
+  sessionStorage.setItem("odysseus-loads", String(loads));
+  const worker = Object.assign(new EventTarget(), { state: "installing" });
+  const registration = Object.assign(new EventTarget(), { installing: worker });
+  const container = Object.assign(new EventTarget(), {
+    controller: {} as object | null,
+    register: async () => registration,
+    takeover() {
+      worker.state = "installed";
+      worker.dispatchEvent(new Event("statechange"));
+      container.controller = worker;
+      container.dispatchEvent(new Event("controllerchange"));
+    },
+  });
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: container });
+  Object.assign(window, { __worker: container, __loads: loads });
+}
+
 type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[] };
-async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device> {
+async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   // The whole app applies the root's stored theme to the document, so the
@@ -301,6 +330,7 @@ async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device>
   await context.addInitScript((theme) => {
     localStorage.setItem("odysseus-parallel:brain-theme", theme);
   }, run.theme);
+  if (opts.update) await context.addInitScript(waitingWorker);
   const page = await context.newPage();
   // A page clock the test can move forward; it runs in real time otherwise.
   if (opts.clock) await page.clock.install();
@@ -308,9 +338,11 @@ async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device>
   // Every socket the page opens, so a reconnect is observed rather than inferred.
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
-  // A native confirm, alert or prompt is recorded and refused: none may appear.
-  page.on("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
-  await page.goto(origin);
+  // A native confirm, alert or prompt is recorded and refused: none may
+  // appear. A leave confirmation is recorded by its type, and refused too:
+  // the page stays (#1150).
+  page.on("dialog", (dialog) => { dialogs.push(dialog.type() === "beforeunload" ? "beforeunload" : dialog.message()); void dialog.dismiss(); });
+  await page.goto(opts.update ? `${origin}/?update` : origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
   return { context, page, dialogs, sockets };
@@ -906,6 +938,119 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         expect(await confirmations(a.page)).toBe(0);
         expect(a.dialogs).toEqual([]);
         expect(started.length, "nothing was sent").toBe(before);
+      } finally {
+        await a.context.close();
+        await clearHostDrafts();
+      }
+    }, 120_000);
+  }
+});
+
+// Staged tracks live in this tab only (#1150): while any view holds one, a
+// manual reload asks Chromium's own leave confirmation; once the last is sent
+// or removed it does not, and a waiting update reloads once without asking.
+// Chromium draws its own words, so the test reads the dialog's type. Under
+// Playwright's control Chromium 152 asks even before any gesture; a user's
+// browser also needs one (sticky activation), which this harness cannot show,
+// so every cell presses something first, as a user would have.
+const leaveRuns: Run[] = [
+  { name: "320 phone, dark, coarse pointer, reduced motion", theme: "dark", options: { viewport: { width: 320, height: 720 }, hasTouch: true, isMobile: true, reducedMotion: "reduce" } },
+  { name: "1280 desktop, light, fine pointer", theme: "light", options: { viewport: { width: 1280, height: 800 } } },
+];
+
+describe.skipIf(!executablePath)("a staged track guards the tab it lives in", () => {
+  const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
+  const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
+  const remove = (page: Page) => page.getByRole("button", { name: `Remove ${name}`, exact: true });
+  const loads = (page: Page) => page.evaluate(() => (window as unknown as { __loads: number }).__loads);
+
+  /** A browser reload: whether Chromium asked first, and whether a new document loaded. */
+  async function reload(a: Device): Promise<{ asked: boolean; reloaded: boolean }> {
+    const before = await loads(a.page);
+    const asked = a.dialogs.length;
+    // A refused confirmation leaves the reload waiting forever: bounded.
+    const done = a.page.reload({ timeout: 4_000 }).then(() => true, () => false);
+    const prompt = a.page.waitForEvent("dialog", { timeout: 4_000 }).then(() => true, () => false);
+    // Asked: wait out the bound, so a navigation the refusal failed to stop is seen.
+    if (await Promise.race([done.then(() => false), prompt])) await done;
+    else if (await done) await until(a.page, "p?.connected()");
+    return { asked: a.dialogs.slice(asked).includes("beforeunload"), reloaded: (await loads(a.page)) === before + 1 };
+  }
+
+  /** Session A, then a staged track in A's composer, then a new chat in view. Returns A. */
+  async function stageInA(run: Run, a: Device, tag: string): Promise<string> {
+    await send(run, a.page, `Plan: Route to Pylos ${tag}`);
+    await until(a.page, "p.activeSessionId() !== null");
+    await a.page.getByText("Noted: Route to Pylos").first().waitFor();
+    const id = (await probe(a.page, (p) => p.activeSessionId()))!;
+    await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+    await remove(a.page).waitFor();
+    await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+    await newChat(run, a.page);
+    expect(await remove(a.page).count(), "A is not in view").toBe(0);
+    expect(await probe(a.page, (p) => p.staged()), "A holds the track").toBe(true);
+    return id;
+  }
+
+  /** Back in A, its last track ends: removed by its chip, or sent with a message the host accepts. */
+  async function end(run: Run, a: Device, id: string, ending: "removed" | "sent", tag: string) {
+    await openFromSessions(run, a.page, id);
+    await remove(a.page).waitFor();
+    if (ending === "removed") {
+      await press(run, remove(a.page));
+    } else {
+      const before = started.length;
+      await send(run, a.page, `Note: Which harbour on this route? ${tag}`);
+      for (let i = 0; i < 400 && started.length === before; i++) await Bun.sleep(25);
+      expect(started.at(-1)?.sessionId, "the message went to A").toBe(id);
+      expect(started.at(-1)?.prompt, "the track went with it").toStartWith(`Note: Which harbour on this route? ${tag}\n\n<brain-track-files>`);
+    }
+  }
+
+  for (const run of leaveRuns) for (const ending of ["removed", "sent"] as const) {
+    test(`${run.name}: a reload asks while A holds a staged track out of view, and not once it is ${ending}`, async () => {
+      const tag = `(${run.name}, leave, ${ending})`;
+      const a = await device(run, { update: true });
+      try {
+        // Nothing staged: nothing asked.
+        await press(run, composer(a.page));
+        expect(await reload(a), "no staged track: the reload proceeds").toEqual({ asked: false, reloaded: true });
+
+        const id = await stageInA(run, a, tag);
+        expect(await reload(a), "Chromium asks, and the refusal keeps the page").toEqual({ asked: true, reloaded: false });
+        expect(await probe(a.page, (p) => p.staged()), "A's track is still staged").toBe(true);
+
+        await end(run, a, id, ending, tag);
+        await until(a.page, "!p.staged()");
+        expect(await reload(a), `the track ${ending}: the reload proceeds without asking`).toEqual({ asked: false, reloaded: true });
+        expect(a.dialogs, "one confirmation, for the staged track").toEqual(["beforeunload"]);
+        expect(await confirmations(a.page)).toBe(0);
+      } finally {
+        await a.context.close();
+        await clearHostDrafts();
+      }
+    }, 120_000);
+
+    test(`${run.name}: a waiting update holds while A holds a staged track, then reloads once without asking when it is ${ending}`, async () => {
+      const tag = `(${run.name}, update, ${ending})`;
+      const a = await device(run, { update: true });
+      try {
+        const id = await stageInA(run, a, tag);
+        const before = await loads(a.page);
+        await a.page.evaluate(() => (window as unknown as { __worker: { takeover(): void } }).__worker.takeover());
+        await a.page.waitForTimeout(500);
+        expect(await loads(a.page), "the update waits for the staged track").toBe(before);
+
+        await end(run, a, id, ending, tag);
+        // The takeover's own reload: a script navigation, which a stale guard would ask about and stop.
+        const loaded = () => loads(a.page).then((n) => n === before + 1, () => false);
+        for (let i = 0; i < 600 && a.dialogs.length === 0 && !(await loaded()); i++) await Bun.sleep(25);
+        expect(a.dialogs, "the takeover's reload asks nothing").toEqual([]);
+        expect(await loaded(), "the update reloads once the track is gone").toBe(true);
+        await until(a.page, "p?.connected()");
+        await a.page.waitForTimeout(1_000);
+        expect(await loads(a.page), "exactly one reload").toBe(before + 1);
+        expect(a.dialogs, "nothing asked").toEqual([]);
       } finally {
         await a.context.close();
         await clearHostDrafts();

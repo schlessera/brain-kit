@@ -108,7 +108,13 @@ export const Wide = Overflow.extend({
   play: async ({ canvasElement }) => {
     const title = canvasElement.querySelector<HTMLElement>("[data-pill-title]")!;
     const value = canvasElement.querySelector<HTMLElement>("[data-pill-value]")!;
-    await expect(Math.abs(value.getBoundingClientRect().top - title.getBoundingClientRect().top)).toBeLessThan(4);
+    const half = title.closest<HTMLElement>(".bk-row-half")!;
+    if (half.getBoundingClientRect().width >= 240) {
+      await expect(Math.abs(value.getBoundingClientRect().top - title.getBoundingClientRect().top)).toBeLessThan(4);
+    } else {
+      await expect(value.getBoundingClientRect().top).toBeGreaterThanOrEqual(title.getBoundingClientRect().bottom - 0.5);
+    }
+    await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth);
   },
 });
 

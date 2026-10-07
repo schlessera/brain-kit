@@ -1,5 +1,5 @@
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 import { ModelPicker } from "../../src/chrome/ModelPicker.js";
 import { Composer } from "../../src/chrome/Composer.js";
 import { stage } from "../_stage.js";
@@ -26,7 +26,7 @@ const meta = preview.meta({
 export const Default = meta.story({
   play: async ({ canvas, userEvent, args }) => {
     const model = canvas.getByRole("radio", { name: "Claude Opus 5.5" });
-    await expect(model).toHaveFocus();
+    await waitFor(() => expect(model).toHaveFocus());
     await userEvent.tab();
     await expect(canvas.getByRole("radio", { name: "Default (medium)" })).toHaveFocus();
     await userEvent.keyboard("{ArrowDown}{ArrowDown}");
@@ -43,7 +43,7 @@ export const Pinned = meta.story({
   args: { modelLocked: true, selectedEffort: "high" },
   play: async ({ canvas, userEvent, args }) => {
     await expect(canvas.getByRole("radio", { name: "Claude Opus 5.5" })).toBeDisabled();
-    await expect(canvas.getByRole("radio", { name: "high" })).toHaveFocus();
+    await waitFor(() => expect(canvas.getByRole("radio", { name: "high" })).toHaveFocus());
     await userEvent.click(canvas.getByRole("radio", { name: "Default (medium)" }));
     await expect(args.onEffort).toHaveBeenCalledWith(null);
   },
@@ -55,7 +55,7 @@ export const PinnedWithHandoff = meta.story({
     lockedAction: { label: "Continue on another backend", detail: "starts a new linked chat", onSelect: fn() } },
   play: async ({ canvas, userEvent, args }) => {
     const action = canvas.getByRole("button", { name: /Continue on another backend/ });
-    await expect(action).toHaveFocus();
+    await waitFor(() => expect(action).toHaveFocus());
     await userEvent.click(action);
     await expect(args.lockedAction!.onSelect).toHaveBeenCalled();
   },
