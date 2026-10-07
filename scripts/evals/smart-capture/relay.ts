@@ -6,7 +6,7 @@ export interface NativeCall {
   requestSha: string; stateBytes: number; requestedModel: string; servedModel: string | null;
   status: number | null; usage: Record<string, any> | null; finished: boolean;
   outcome: string; durationMs: number; apiEquivalent: ReturnType<typeof priceSonnet55Usage> | null;
-  failure?: string;
+  failure?: string; rawUsageEvents: Array<{ type: string; usage: Record<string, unknown> }>;
 }
 export function startRelay(options: {
   oauthToken: string; fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -28,7 +28,7 @@ export function startRelay(options: {
     if (json.model !== MODEL) { stopped = true; return new Response("Unexpected model", { status: 403 }); }
     const started = performance.now();
     const call: NativeCall = { requestSha: createHash("sha256").update(body).digest("hex"), stateBytes: Buffer.byteLength(body), requestedModel: json.model,
-      servedModel: null, status: null, usage: null, finished: false, outcome: "started", durationMs: 0, apiEquivalent: null };
+      servedModel: null, status: null, usage: null, finished: false, outcome: "started", durationMs: 0, apiEquivalent: null, rawUsageEvents: [] };
     calls.push(call); options.save(calls);
     const headers = new Headers(request.headers);
     for (const field of ["host", "connection", "content-length", "transfer-encoding", "accept-encoding"]) headers.delete(field);
@@ -47,13 +47,22 @@ export function startRelay(options: {
       call.outcome = "http_error"; call.finished = true; call.durationMs = performance.now() - started;
       stopped = true; options.save(calls); return new Response(response.body, { status: response.status, headers: outgoing });
     }
-    const decoder = new TextDecoder(); let buffer = "", sawStop = false;
+    const decoder = new TextDecoder(); let buffer = "", sawStop = false, sawFinalOutput = false;
     function observe(frame: string) {
       const data = frame.split("\n").filter(line => line.startsWith("data: ")).map(line => line.slice(6)).join("\n");
       if (!data || data === "[DONE]") return;
       const event = JSON.parse(data);
+      if (["message_start", "message_delta"].includes(event.type)) {
+        const usage = event.type === "message_start" ? event.message?.usage : event.usage;
+        if (usage) call.rawUsageEvents.push({ type: event.type, usage: structuredClone(usage) });
+      }
       if (event.type === "message_start") { call.servedModel = event.message.model; call.usage = { ...event.message.usage }; }
-      if (event.type === "message_delta" && event.usage) call.usage = { ...call.usage, ...event.usage };
+      if (event.type === "message_delta" && event.usage) {
+        // SDK MessageStream overwrites cumulative counters only when non-null.
+        // Preserve raw nullable deltas separately; they do not erase known counts.
+        call.usage = { ...call.usage, ...Object.fromEntries(Object.entries(event.usage).filter(([, value]) => value != null)) };
+        sawFinalOutput = Number.isSafeInteger(event.usage.output_tokens) && event.usage.output_tokens >= 0;
+      }
       if (event.type === "message_stop") sawStop = true;
       if (event.type === "error") { call.outcome = "stream_error"; stopped = true; }
     }
@@ -72,7 +81,7 @@ export function startRelay(options: {
       flush(controller) {
         try {
           buffer += decoder.decode(); drain(); if (buffer.trim()) observe(buffer);
-          if (!sawStop || call.servedModel !== MODEL || !call.usage || call.outcome === "stream_error") throw Error("Incomplete/unexpected native message response");
+          if (!sawStop || !sawFinalOutput || call.servedModel !== MODEL || !call.usage || call.outcome === "stream_error") throw Error("Incomplete/unexpected native message response");
           call.apiEquivalent = priceSonnet55Usage({ modelUsage: { [MODEL]: {
             inputTokens: call.usage.input_tokens, outputTokens: call.usage.output_tokens,
             cacheReadInputTokens: call.usage.cache_read_input_tokens ?? 0,

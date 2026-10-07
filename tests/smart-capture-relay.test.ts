@@ -58,3 +58,28 @@ test("unexpected model, API key and wrong OAuth never reach the upstream", async
     } finally { relay.stop(); }
   }
 });
+
+
+test("nullable provider deltas preserve known counters and retain the raw null receipt", async () => {
+  const raw = sse().replace('"usage":{"output_tokens":7}', '"usage":{"output_tokens":7,"input_tokens":null,"cache_read_input_tokens":null,"cache_creation_input_tokens":null}');
+  const relay = startRelay({ oauthToken: "offline-token", save: () => {}, async fetch() { return new Response(raw, { headers: { "content-type": "text/event-stream" } }); } });
+  try {
+    const delivered = await send(relay.url).then(response => response.text()).catch(() => null);
+    expect(relay.calls[0]!.usage).toMatchObject({ input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 3, cache_creation_input_tokens: 5 });
+    expect(delivered).toBe(raw);
+    expect(relay.calls[0]!.rawUsageEvents[1]!.usage.input_tokens).toBeNull();
+    expect(relay.calls[0]!.apiEquivalent!.upperUsd).toBeCloseTo(.0001031, 8);
+    expect(relay.complete()).toBe(true);
+  } finally { relay.stop(); }
+});
+
+test("message-start zero output cannot replace a missing terminal output receipt", async () => {
+  const raw = sse().split("\r\n\r\n").filter(frame => !frame.includes('"type":"message_delta"')).join("\r\n\r\n");
+  let dispatches = 0;
+  const relay = startRelay({ oauthToken: "offline-token", save: () => {}, async fetch() { dispatches++; return new Response(dispatches === 1 ? raw : sse(), { headers: { "content-type": "text/event-stream" } }); } });
+  try {
+    await send(relay.url).then(response => response.text()).catch(() => {});
+    expect(relay.calls[0]!.outcome).toBe("missing_usage"); expect(relay.calls[0]!.apiEquivalent).toBeNull();
+    expect((await send(relay.url)).status).toBe(409); expect(dispatches).toBe(1);
+  } finally { relay.stop(); }
+});
