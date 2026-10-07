@@ -187,6 +187,12 @@ describe("release manifests", () => {
     expect(smokeTest).toContain(runLine);
   });
 
+  // Cleanup has no dependency ordering, but additions, removals and duplicate
+  // entries must not leave its explicit inventory out of sync with manifests.
+  test("scripts/clean.ts covers exactly the publishable package directories", () => {
+    expect(scriptPackageList("clean.ts").sort()).toEqual(dirs);
+  });
+
   // A new package added to packages/ but not to these hardcoded lists is
   // silently skipped: the release ships dependents that pin a version nobody
   // published, which is the 0.2.0 uninstallable-package failure in a new guise.
