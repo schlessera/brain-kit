@@ -25,9 +25,31 @@ const MAX_JEV_ATTEMPT_USD = 64_000 * JEV_INPUT_USD_PER_MILLION / 1_000_000;
 const repository = resolve(import.meta.dir, "..");
 function sha(text: string | Buffer) { return createHash("sha256").update(text).digest("hex"); }
 function validTokens(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0; }
+export interface OfflineSurfaceControl {
+  nativeBaseUrl: string;
+  jevEndpoint: string;
+  caseIds: string[];
+  repetitions: number;
+}
+function loopbackOnly(value: string) {
+  const url = new URL(value);
+  if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+    || url.username || url.password || !url.port) throw Error("Offline controls require explicit loopback endpoints");
+  return value;
+}
 
-export async function measureLiveSurface(params: { manifestPath: string; reviewPath: string; cataloguePath: string; outPath: string }) {
-  if (process.env.BRAIN_LIVE_EVAL !== "587" || !process.env.CLAUDE_CODE_OAUTH_TOKEN
+export async function measureLiveSurface(params: { manifestPath: string; reviewPath: string; cataloguePath: string; outPath: string;
+  /** Explicit keyless integration controls; absent from the live CLI entrypoint. */
+  offline?: OfflineSurfaceControl }) {
+  const offline = params.offline;
+  if (offline) {
+    if (process.env.BRAIN_LIVE_EVAL !== "587_OFFLINE" || process.env.CLAUDE_CODE_OAUTH_TOKEN
+      || process.env.ANTHROPIC_API_KEY || process.env.TYPESAFE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN
+      || process.env.ANTHROPIC_CUSTOM_HEADERS) throw Error("Offline controls forbid real/ambient credentials");
+    loopbackOnly(offline.nativeBaseUrl); loopbackOnly(offline.jevEndpoint);
+    if (!Number.isSafeInteger(offline.repetitions) || offline.repetitions < 1 || offline.repetitions > 3
+      || !offline.caseIds.length || offline.caseIds.some(id => !liveCases.cases.some(test => test.id === id))) throw Error("Invalid offline matrix");
+  } else if (process.env.BRAIN_LIVE_EVAL !== "587" || !process.env.CLAUDE_CODE_OAUTH_TOKEN
     || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_CUSTOM_HEADERS) {
     throw Error("Require reviewed #587 protocol and subscription-only inference environment");
   }
@@ -38,6 +60,9 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
   if (sha(readFileSync(params.cataloguePath)) !== manifest.catalogueSha) throw Error("Frozen native catalogue drift");
   const catalogue = JSON.parse(readFileSync(params.cataloguePath, "utf8"));
   const review = JSON.parse(readFileSync(params.reviewPath, "utf8"));
+  if (offline ? review.evidence !== "offline-scripted-semantic-gate" : review.evidence === "offline-scripted-semantic-gate") {
+    throw Error("Scripted review receipts belong only to explicit offline controls");
+  }
   if (review.inputSha !== manifest.reviewInputSha || review.result?.subtype !== "success"
     || review.init?.model !== SURFACE_MODEL || !/^\W*APPROVED\b/.test(review.result?.result ?? "")) throw Error("Bound successful semantic review required");
   if (review.init.apiKeySource !== "none" || review.account?.tokenSource !== "CLAUDE_CODE_OAUTH_TOKEN"
@@ -60,9 +85,11 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
   const indexReceipt = JSON.parse(indexOutput);
   if (indexReceipt.total !== 25 || indexReceipt.chunks !== 25 || indexReceipt.embeddings !== 0) throw Error("Unexpected fixture indexing receipt");
   const rows: unknown[] = [];
+  const nativeProcessReceipts: Array<{cell:number;exitCode:number|null;signal:string|null}>=[];
   const jevReceipts: Array<Record<string, any>> = [];
   let stopped: string | null = null, activeDeadline = new AbortController(), jevPublishedCharge = 0;
-  const jev = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY ?? null, fetch: async (url, init) => {
+  const jev = createJevClient({ apiKey: offline ? "controlled-offline-jev" : process.env.TYPESAFE_API_KEY ?? null,
+    ...(offline ? { endpoint: offline.jevEndpoint } : {}), fetch: async (url, init) => {
     // The documented 64k request ceiling bounds one attempt; allow one retry
     // in each of the two passes. API-equivalent Claude cost is not this cap.
     if (jevPublishedCharge + MAX_JEV_ATTEMPT_USD > 15) throw Error("Actual billed reservation exhausted");
@@ -85,15 +112,16 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
     jevReceipts.push(receipt);
     return response;
   } });
-  const save = () => writeFileSync(params.outPath, JSON.stringify({ evidence: "live-subscription-routing-comparison", model: SURFACE_MODEL,
-    runtime, manifest, indexReceipt, rows, jevReceipts, jevPublishedChargeUsd: jevPublishedCharge,
-    jevChargeBasis: "Observed direct-API input usage at official published rate; not a final account statement",
-    reviewApiEquivalent: reviewPrice, actualBilledReservationUsd: 15, actualSubscriptionBillingUsd: null,
+  const save = () => writeFileSync(params.outPath, JSON.stringify({ evidence: offline ? "offline-scripted-full-collector-control" : "live-subscription-routing-comparison", model: SURFACE_MODEL,
+    runtime, manifest, indexReceipt, rows, nativeProcessReceipts, jevReceipts, jevPublishedChargeUsd: jevPublishedCharge,
+    jevChargeBasis: offline ? "Scripted offline counters; no provider billing" : "Observed direct-API input usage at official published rate; not a final account statement",
+    reviewApiEquivalent: reviewPrice, actualBilledReservationUsd: 15, actualSubscriptionBillingUsd: offline ? 0 : null,
     stopped, privateRawReceiptsRetained: true }, null, 2) + "\n");
   const tasks: Array<{ arm: Arm; rep: number; test: typeof liveCases.cases[number] }> = [];
   // Interleave arms per prompt and rotate across repetitions. A fixed project
   // path/prompt prefix is retained; cache outcomes are observed, not assumed.
-  for (let rep = 1; rep <= 3; rep++) for (const [caseIndex, test] of liveCases.cases.entries()) {
+  const selectedCases = offline ? liveCases.cases.filter(test => offline.caseIds.includes(test.id)) : liveCases.cases;
+  for (let rep = 1; rep <= (offline?.repetitions ?? 3); rep++) for (const [caseIndex, test] of selectedCases.entries()) {
     const offset = (rep - 1 + caseIndex) % ARMS.length;
     for (const arm of [...ARMS.slice(offset), ...ARMS.slice(0, offset)]) tasks.push({ arm, rep, test });
   }
@@ -137,7 +165,9 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
             ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL,
             CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" }, autoMemoryEnabled: false },
           env: { PATH: dirname(process.execPath) + ":/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
-            CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN!, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_TOOL_SEARCH: "true",
+            CLAUDE_CODE_OAUTH_TOKEN: offline ? "sk-ant-oat01-controlled-offline-token" : process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+            ...(offline ? { ANTHROPIC_BASE_URL: offline.nativeBaseUrl } : {}),
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_TOOL_SEARCH: "true",
             ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
             ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL,
             ANTHROPIC_SMALL_FAST_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1", ...CLEARED_API_CREDENTIALS },
@@ -148,7 +178,9 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
             if (spec.env.ANTHROPIC_API_KEY || spec.env.ANTHROPIC_AUTH_TOKEN || spec.env.ANTHROPIC_CUSTOM_HEADERS) throw Error("Unexpected inference billing credential");
             spawnedMs = performance.now() - started;
             child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, signal: spec.signal, stdio: ["pipe", "pipe", "pipe"] });
-            childExited = new Promise(resolve => { child!.once("exit", () => resolve()); });
+            childExited = new Promise(resolve => { child!.once("exit", (exitCode,signal) => {
+              nativeProcessReceipts.push({cell:index+1,exitCode,signal});resolve();
+            }); });
             return observeSurfaceProcess(child, join(privateRoot, `${index}.jsonl`), frame => {
               admission.observe(frame); if (frame.type === "result") rawResult = frame;
               observation.observe(frame);

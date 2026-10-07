@@ -37,16 +37,30 @@ export function createFixture(control?: { corpus?: boolean }) {
   const discover = () => discoverSkills({ root, modules: [] }, { coreSkillsDir: join(root, "no-core-skills") });
   const discovered = discover();
   if (discovered.warnings.length || discovered.skills.length !== cases.skills.length) throw new Error("fixture skill discovery failed");
-  claudeEmitter.emit(discovered.skills, root);
+  const emitSkills = () => {
+    const skills = discover().skills;
+    const emitted = join(root, ".claude/skills");
+    // Only this owned corpus fixture gets physical copies. The production
+    // emitter deliberately preserves real directories, so rebuild the owned
+    // output on every layout transition to remove rejected copies too.
+    if (control?.corpus) rmSync(emitted, { recursive: true, force: true });
+    claudeEmitter.emit(skills, root);
+    if (control?.corpus) for (const skill of skills) {
+      const target = join(emitted, skill.name);
+      rmSync(target);
+      cpSync(skill.dir, target, { recursive: true });
+    }
+  };
+  emitSkills();
   return {
     root, skills: discovered.skills.map(({ name, description }) => ({ name, description })) satisfies SkillEntry[],
-    restoreSkills() { restoreSkills(); claudeEmitter.emit(discover().skills, root); },
+    restoreSkills() { restoreSkills(); emitSkills(); },
     skillFiles: () => Object.fromEntries(readdirSync(join(root, ".claude/skills")).sort().map(name => [name, readFileSync(join(root, ".claude/skills", name, "SKILL.md"), "utf8")])),
     pruneSkills(names: readonly string[]) {
       // Sources and emitted entries are removed only in this disposable root.
       // Rejected skills cannot be manually read from their former source.
       for (const skill of discovered.skills) if (!names.includes(skill.name)) rmSync(skill.dir, { recursive: true });
-      claudeEmitter.emit(discover().skills, root);
+      emitSkills();
     },
     close: () => rmSync(root, { recursive: true, force: true }),
   };
