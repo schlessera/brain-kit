@@ -338,14 +338,18 @@ signatures (every public export and the types it is made of)
   ActionKind (packages/ui-kit/src/types.ts)
     export type ActionKind = "approval" | "choose" | "dead-letter" | "quarantined" | "unverified" | "fyi" | "suggestion";
   AgentOrbit (packages/ui-kit/src/agents/AgentOrbit.tsx)
-    export function AgentOrbit(p: AgentOrbitProps): import("react").JSX.Element;
+    export function AgentOrbit(p: AgentOrbitProps): import("react").JSX.Element | null;
   AgentOrbitProps (packages/ui-kit/src/agents/AgentOrbit.tsx)
     export interface AgentOrbitProps {
-        agents?: OrbitAgent[];
+        agents: OrbitAgent[];
         coreIcon?: IconName;
         coreMeta?: string;
         width?: number;
         height?: number;
+        compact?: boolean;
+        onOpen?: (id: string) => void;
+        onOverflow?: () => void;
+        legend?: boolean;
     }
   AgentRunCard (packages/ui-kit/src/agents/AgentRunCard.tsx)
     export function AgentRunCard(p: AgentRunCardProps): import("react").JSX.Element;
@@ -1448,13 +1452,13 @@ signatures (every public export and the types it is made of)
     }
   OrbitAgent (packages/ui-kit/src/agents/AgentOrbit.tsx)
     export interface OrbitAgent {
+        id: string;
         name: string;
+        state: RunState;
+        ring?: 0 | 1 | 2;
+        meta?: string;
         icon?: IconName;
         tone?: Tone;
-        meta?: string;
-        state?: RunState;
-        orbit?: number;
-        angle?: number;
     }
   PaletteGroup (packages/ui-kit/src/desktop/CommandPalette.tsx)
     export interface PaletteGroup {
@@ -1675,7 +1679,7 @@ signatures (every public export and the types it is made of)
         items?: RelatedFileItem[];
     }
   RunState (packages/ui-kit/src/types.ts)
-    export type RunState = "running" | "waiting" | "done" | "failed";
+    export type RunState = "running" | "waiting" | "done" | "failed" | "stopped";
   RunToolState (packages/ui-kit/src/types.ts)
     export type RunToolState = "done" | "active" | "failed" | "idle";
   ScaleList (packages/ui-kit/src/decisions/AskUserListCard.tsx)

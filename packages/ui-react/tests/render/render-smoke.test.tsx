@@ -6771,3 +6771,75 @@ for(const variant of ['empty','pruned','unsupported'] as const)test(`run lanes s
     expect(view.container.querySelector('[data-kit-lane-chart]')).toBeNull();expect(view.container.textContent).not.toContain('waiting on you');
   }finally{root.dispose();}
 });
+
+import { parallelSpans as realParallelSpans } from "../orbit-fixtures.js";
+for (const backend of ["claude", "pi"] as const) {
+  test(`${backend} actual run detail mounts truthful subagent orbit and the existing drill-in`, async () => {
+    const spans = realParallelSpans();
+    const root = createBrainUiRoot({ storage: null, request: async () => Response.json({ runId: "crossing-run", detailPruned: false, spans, events: [], highWaterSeq: 0 }) });
+    try {
+      root.stores.activity.setState({ supported: true });
+      root.stores.chat.getState().setActiveSession("crossing-chat");
+      root.stores.chat.getState().startAssistantMessage("crossing-chat");
+      root.stores.chat.getState().requestToolApproval("crossing-chat", "approval-write", "Write", { file_path: "voyage/crossing.md" });
+      root.stores.chat.setState({ backendIds: { "crossing-chat": backend } });
+      expect(root.stores.chat.getState().buffers["crossing-chat"]!.messages.at(-1)!.toolCalls[0]!.status).toBe("pending_approval");
+      root.stores.chat.getState().setActiveSession("other-chat");
+      const view = render(<BrainUiProvider root={root}><RunDetail runId="crossing-run" onBack={() => {}} /></BrainUiProvider>);
+      await waitFor(() => expect(root.stores.activity.getState().spanRun["watch"]).toBe("crossing-run"));
+      expect(spans.filter(s => s.kind === "subagent")).toHaveLength(6);
+      expect(view.container.querySelectorAll('[data-kit-agent-orbit]')).toHaveLength(1);
+      expect(view.getByRole("group", { name: "Agents: 1 needs you, 2 running, 3 ended" })).toBeTruthy();
+      const cancelled = view.container.querySelector('[data-orbit-agent="watch"]')!;
+      expect(cancelled.getAttribute("data-orbit-state")).toBe("stopped");
+      expect(cancelled.getAttribute("data-orbit-ring")).toBe("2");
+      fireEvent.click(view.getByRole("button", { name: "Open researcher · needs approval" }));
+      expect(root.stores.ui.getState().activeView).toBe("chat");
+      expect(root.stores.chat.getState().activeSessionId).toBe("crossing-chat");
+      expect(root.stores.ui.getState().subagentStack).toEqual(["research"]);
+    } finally { root.dispose(); }
+  });
+}
+
+import { orbitAgent as mapRecordedOrbitAgent } from "../../src/components/activity/run-orbit.js";
+test("all terminal outcomes keep their meaning and beat an older pending approval", () => {
+  const span = realParallelSpans().find(s => s.spanId === "research")!;
+  expect(span.subagent?.type).toBe("researcher");
+  for (const [outcome,state] of [["success","done"],["error","failed"],["timeout","failed"],["interrupted","failed"],["denied","stopped"],["cancelled","stopped"]] as const) {
+    const actual = mapRecordedOrbitAgent({...span,outcome,endedAt:span.startedAt+8000},true);
+    expect(actual.state).toBe(state);expect(actual.meta).toBe(`${outcome} · 8.0s`);
+  }
+  const unknown = mapRecordedOrbitAgent({...span,subagent:undefined},false);
+  expect(unknown.name).toBe("agent");expect(unknown.meta).toBeUndefined();
+});
+for (const variant of ["unsupported","pruned","single","empty"] as const) {
+  test(`run orbit is absent for ${variant} data, including cached spans`, async () => {
+    const full = realParallelSpans();
+    const spans = variant === "single" ? full.filter(s=>s.spanId==="root"||s.spanId==="coast") : variant === "empty" ? [] : full;
+    const root = createBrainUiRoot({storage:null,request:async()=>Response.json({runId:"crossing-run",detailPruned:variant==="pruned",spans,events:[],highWaterSeq:0})});
+    root.stores.activity.setState({supported:variant!=="unsupported"});
+    root.stores.activity.getState().applySnapshot({type:"activity_snapshot",view:"run",runId:"crossing-run",spans,events:[],highWaterSeq:{"crossing-run":0}});
+    try {
+      const view=render(<BrainUiProvider root={root}><RunDetail runId="crossing-run" onBack={()=>{}}/></BrainUiProvider>);
+      if(variant==="pruned")await waitFor(()=>expect(view.container.textContent).toContain("Trace pruned"));
+      expect(view.container.querySelectorAll('[data-kit-agent-orbit]')).toHaveLength(0);
+      expect(view.container.textContent).not.toContain("4,812");
+    }finally{root.dispose();}
+  });
+}
+test("live approval and terminal frames update the same orbit without an announcement region", async () => {
+  const spans=realParallelSpans();const root=createBrainUiRoot({storage:null,request:async()=>Response.json({runId:"crossing-run",detailPruned:false,spans,events:[],highWaterSeq:0})});
+  root.stores.activity.setState({supported:true});root.stores.chat.getState().setActiveSession("crossing-chat");root.stores.chat.getState().startAssistantMessage("crossing-chat");
+  try {
+    const view=render(<BrainUiProvider root={root}><RunDetail runId="crossing-run" onBack={()=>{}}/></BrainUiProvider>);
+    await waitFor(()=>expect(view.container.querySelector('[data-kit-agent-orbit]')).toBeTruthy());
+    const orbit=view.container.querySelector('[data-kit-agent-orbit]')!;
+    expect(orbit.getAttribute('aria-label')).toBe("Agents: 0 needs you, 3 running, 3 ended");
+    act(()=>root.stores.chat.getState().requestToolApproval("crossing-chat","approval-write","Write",{file_path:"voyage/crossing.md"}));
+    expect(orbit.getAttribute('aria-label')).toBe("Agents: 1 needs you, 2 running, 3 ended");
+    act(()=>root.connection.handleServerMessage({type:"activity_delta",runId:"crossing-run",seq:1,span:{...spans.find(s=>s.spanId==="research")!,outcome:"denied"}}));
+    expect(orbit.getAttribute('aria-label')).toBe("Agents: 0 needs you, 2 running, 4 ended");
+    expect(orbit.querySelector('[data-orbit-agent="research"]')?.getAttribute('data-orbit-state')).toBe("stopped");
+    expect(orbit.querySelectorAll('[aria-live],[role="status"]')).toHaveLength(0);
+  }finally{root.dispose();}
+});

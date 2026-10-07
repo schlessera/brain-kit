@@ -45,6 +45,7 @@ const STATES: Record<RunState, { dot: Tone; pulse: boolean; meter: Tone }> = {
   waiting: { dot: "teal", pulse: true, meter: "teal" },
   done: { dot: "teal", pulse: false, meter: "teal" },
   failed: { dot: "red", pulse: false, meter: "red" },
+  stopped: { dot: "neutral", pulse: false, meter: "neutral" },
 };
 
 /** The tool strip's own table. `idle` is the neutral accent — a tool not
