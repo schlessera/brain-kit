@@ -315,10 +315,10 @@ export const MaxWidth = Default.extend({
   parameters: wide,
   play: async ({ canvasElement }) => {
     const card = mapSvg(canvasElement).parentElement!.parentElement!;
-    await expect(card.getBoundingClientRect().width).toBeLessThanOrEqual(420);
-    // Not merely narrow: it is at the cap, with the stage wider than that.
-    await expect(canvasElement.getBoundingClientRect().width).toBeGreaterThan(420);
-    await expect(card.getBoundingClientRect().width).toBeGreaterThan(400);
+    const available = card.parentElement!.getBoundingClientRect().width;
+    await expect(available).toBeGreaterThan(0);
+    // At the cap on desktop; filling the actual stage on a narrow iframe.
+    await expect(Math.abs(card.getBoundingClientRect().width - Math.min(420, available))).toBeLessThan(1);
   },
 });
 

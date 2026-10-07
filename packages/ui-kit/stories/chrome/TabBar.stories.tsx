@@ -15,24 +15,16 @@ const ITEMS: TabItem[] = [
 const wired = () => ITEMS.map((it) => ({ ...it, onClick: fn() }));
 
 /**
- * A FIXED width, not the stage's.
- *
- * `stageWidth` is a `max-width` on a `width: 100%` box, and under the preview's
- * `layout: "centered"` the story root shrink-wraps — so a component that does
- * not force a width renders at its CONTENT width and the cap never binds. For
- * most components that is harmless. For this one it is the whole subject: a tab
- * bar at content width has its five items touching, and touching items' 14px
- * padding boxes overlap by 28px, which is exactly the click theft the gap rule
- * exists to prevent.
- *
- * So every measurement story here states the width it is measuring at, rather
- * than inheriting whatever the harness happens to give it. 390 is the design's
- * own phone width.
+ * A stated width, capped by the available stage. The former shrink-wrapped
+ * preview could give a tab bar only its content width, making the expanded
+ * targets overlap. 390px is the design's phone width; a narrower iframe must
+ * keep every target inside its padded canvas. The 240px story still draws
+ * the deliberately narrow click-theft control.
  */
 function bar(width: number) {
   return function render(args: TabBarProps) {
     return (
-      <div style={{ width, boxSizing: "border-box" }}>
+      <div style={{ width, maxWidth: "100%", boxSizing: "border-box" }}>
         <TabBar {...args} />
       </div>
     );

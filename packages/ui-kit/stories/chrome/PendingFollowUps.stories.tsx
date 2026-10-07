@@ -152,6 +152,6 @@ export const None = meta.story({
   args: { followUps: [], announcement: "Follow-up sent to the agent", announcementKey: 1 },
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelector<HTMLElement>("[data-composer-row]")!.getBoundingClientRect().height).toBe(0);
-    await expect(document.querySelector("[data-pending-live]")).toHaveTextContent("Follow-up sent to the agent");
+    await waitFor(() => expect(document.querySelector("[data-pending-live]")).toHaveTextContent("Follow-up sent to the agent"));
   },
 });

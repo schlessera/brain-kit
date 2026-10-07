@@ -110,10 +110,10 @@ export const NarrowHash = meta.story({
   parameters: { stageWidth: 288 },
   globals: { viewport: { value: "mobile1", isRotated: false } },
   play: async ({ canvas, canvasElement }) => {
-    await expect(window.innerWidth).toBe(320);
     await expect(sha256.length).toBe(64);
 
     const card = canvasElement.firstElementChild!.firstElementChild as HTMLElement;
+    await expect(card.getBoundingClientRect().width).toBe(288);
     await expect(overflowing(card)).toEqual([]);
 
     for (const { k, v } of narrowRows) {
@@ -190,9 +190,14 @@ export const LongKeysNarrowColumn = LongKeys.extend({ args: { keyWidth: 40 } });
 export const LongKeysPhone = LongKeys.extend({
   parameters: { stageWidth: 288 },
   globals: { viewport: { value: "mobile1", isRotated: false } },
-  play: async ({ canvasElement }) => {
-    await expect(window.innerWidth).toBe(320);
+  play: async ({ canvas, canvasElement }) => {
+    const card = canvasElement.firstElementChild!.firstElementChild as HTMLElement;
+    await expect(card.getBoundingClientRect().width).toBe(288);
     await expectKeysClear(canvasElement);
+    await expect(sha256.length).toBe(64);
+    const hash = canvas.getByText(sha256, { exact: false });
+    await expect(hash.scrollWidth).toBeLessThanOrEqual(hash.clientWidth + 1);
+    await expect(hash.getBoundingClientRect().height).toBeGreaterThan(parseFloat(getComputedStyle(hash).lineHeight));
     const doc = document.documentElement;
     await expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth);
   },

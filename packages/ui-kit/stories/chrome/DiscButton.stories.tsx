@@ -196,6 +196,9 @@ export const Desktop = meta.story({
   ),
   play: async ({ canvas, canvasElement }) => {
     const button = canvas.getByRole("button", { name: "New chat" });
+    // This deliberately 900px desktop fixture can extend past a phone iframe.
+    // Hit testing needs the native viewport to contain the measured control.
+    button.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
     await assertTarget(button);
     const column = canvasElement.querySelector("[data-column]")!;
     await expect(rect(column).width).toBe(720);
