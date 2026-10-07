@@ -278,7 +278,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       // Holding another key while A's work is in this page's stores: the page starts again.
       const navigated = page.waitForEvent("framenavigated", { timeout: 10_000 });
       await page.evaluate(() => (window as unknown as { __local: { holdKey(key: string): void } }).__local.holdKey("telemachus-key-0001"));
-      await navigated;
+      expect(await navigated.then(() => true, () => false), "the page reloads").toBe(true);
       await ready(page);
       expect(await fixture(page, (f) => f.accountKey()), "the host's key again, after the reload").toBe(keyA);
 
@@ -422,7 +422,8 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       });
       const failure = "Couldn't save your draft on this device.";
       await field(page).fill("Scylla on one side, Charybdis on the other");
-      await page.getByText(failure).waitFor({ timeout: 10_000 });
+      const said = await page.getByText(failure).waitFor({ timeout: 10_000 }).then(() => true, () => false);
+      expect(said, "the failure copy in the hint").toBe(true);
       expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
       expect(await fixture(page, (f) => f.snapshotNow())).toEqual({ ok: false, error: "QuotaExceededError" });
       expect(await line.textContent(), "no claim that it is kept").toBe("draft · this host doesn't keep drafts");

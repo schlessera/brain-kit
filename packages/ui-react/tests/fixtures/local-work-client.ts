@@ -54,19 +54,25 @@ Object.assign(window, {
     list: (accountKey: string) => outcome(root.partitions!.open(`account:${accountKey}`).list("")),
     write: (accountKey: string, key: string) => outcome(root.partitions!.open(`account:${accountKey}`).put(key, { v: 1, text: "Polyphemus' cave" })),
     sizes: () => root.partitions!.sizes(),
-    /** The first message in view and its top's distance from the transcript's top, as a snapshot reads it. */
+    /**
+     * The first message in view and its top's distance from the transcript's
+     * top, measured on the transcript's own rows (each message is one row of
+     * the reading column), not on anything the code under test adds.
+     */
     firstVisible: () => {
-      const el = document.querySelector<HTMLElement>("[data-transcript-anchor]")?.closest<HTMLElement>(".overflow-y-auto");
-      if (!el) return null;
+      const column = document.querySelector<HTMLElement>("[data-reading-column]");
+      const el = column?.closest<HTMLElement>(".overflow-y-auto");
+      if (!column || !el) return null;
       const top = el.getBoundingClientRect().top;
-      for (const node of el.querySelectorAll<HTMLElement>("[data-transcript-anchor]")) {
+      const rows = [...column.children].filter((n): n is HTMLElement => n instanceof HTMLElement && n.classList.contains("py-4"));
+      for (const [i, node] of rows.entries()) {
         const box = node.getBoundingClientRect();
-        if (box.bottom > top) return { anchor: node.dataset.transcriptAnchor!, offset: box.top - top, scrollTop: el.scrollTop };
+        if (box.bottom > top) return { anchor: String(i), offset: box.top - top, scrollTop: el.scrollTop };
       }
       return null;
     },
     scrollTo: (top: number) => {
-      const el = document.querySelector<HTMLElement>("[data-transcript-anchor]")?.closest<HTMLElement>(".overflow-y-auto");
+      const el = document.querySelector<HTMLElement>("[data-reading-column]")?.closest<HTMLElement>(".overflow-y-auto");
       if (el) { el.scrollTop = top; el.dispatchEvent(new Event("scroll")); }
     },
   },
