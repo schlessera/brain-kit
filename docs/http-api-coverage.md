@@ -109,9 +109,9 @@ row's real mounting check. They do not establish mounting by themselves.
 **A — Password access and revocation.**
 
 - `real app password login issues a usable owner cookie and logout revokes it` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`real app password login issues a usable owner cookie and logout revokes it`, `packages/ui-server/tests/http-principal-boundaries.test.ts:55-76`)
-- `wrong password is rejected` ([source](../packages/ui-server/tests/auth.test.ts)), (`wrong password is rejected`, `packages/ui-server/tests/auth.test.ts:188-196`)
-- `login is rate limited per client IP` ([source](../packages/ui-server/tests/auth.test.ts)), (`login is rate limited per client IP`, `packages/ui-server/tests/auth.test.ts:320-333`)
-- `the live-principal cap returns 503 without creating a session` ([source](../packages/ui-server/tests/auth.test.ts)), (`the live-principal cap returns 503 without creating a session`, `packages/ui-server/tests/auth.test.ts:300-318`)
+- `wrong password is rejected` ([source](../packages/ui-server/tests/auth.test.ts)), (`wrong password is rejected`, `packages/ui-server/tests/auth.test.ts:183-191`)
+- `login is rate limited per client IP` ([source](../packages/ui-server/tests/auth.test.ts)), (`login is rate limited per client IP`, `packages/ui-server/tests/auth.test.ts:315-327`)
+- `the live-principal cap returns 503 without creating a session` ([source](../packages/ui-server/tests/auth.test.ts)), (`the live-principal cap returns 503 without creating a session`, `packages/ui-server/tests/auth.test.ts:295-313`)
 
 **P — Passkey ceremonies and metadata.**
 
