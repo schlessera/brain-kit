@@ -176,6 +176,48 @@ describe("a reconnect while the turn in view runs", () => {
     expect(buffer(root).messages.map((m) => [m.content, m.turnId ?? null]).slice(-2)).toEqual([["Bound.", null], ["Row on.", "turn-2"]]);
   });
 
+  test("a second drop before any new text still knows the answer's turn", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing.");
+    const first = reconnect(root, socket);
+    first.deliver({ type: "session_history", sessionId: "s1", messages: [...history(SIRENS), { role: "assistant", content: "Rowing.", toolCalls: [] }] });
+    first.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-1" });
+    const second = reconnect(root, first);
+    second.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS) });
+    second.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    second.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "New turn." });
+    expect(buffer(root).messages.map((m) => m.content).slice(-2)).toEqual(["Rowing.", "New turn."]);
+  });
+
+  test("an answer that started while the history was read is not the reattached one", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    root.stores.chat.getState().startAssistantMessage("s1", "turn-1");
+    root.stores.chat.getState().appendText("s1", "Rowing.");
+    const next = reconnect(root, socket);
+    // Before the resume's answer: turn-1 ends and turn-2's answer opens.
+    next.deliver({ type: "result", sessionId: "s1", outcome: "success", durationMs: 0, numTurns: 1, isError: false });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: "Bound." });
+    const opened = buffer(root).messages.at(-1)!.id;
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-2" });
+    expect(buffer(root).isStreaming, "turn-2's own answer runs on").toBe(true);
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-2", text: " Fast." });
+    expect(buffer(root).messages.at(-1)).toMatchObject({ id: opened, content: "Bound. Fast." });
+  });
+
+  test("text the page missed and a tool it already drew are both kept", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().startToolCall("s1", "wax-1", "Bash");
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(`${SIRENS} Past Scylla.`) });
+    const last = buffer(root).messages.at(-1)!;
+    expect(last.content).toBe(`${SIRENS} Past Scylla.`);
+    expect(last.toolCalls.map((t) => t.id)).toEqual(["wax-1"]);
+    expect(last.parts.filter((p) => p.kind === "tool")).toHaveLength(1);
+  });
+
   test("a replay in chunks that splits just before the answer draws it once", () => {
     const { root, socket } = running();
     const next = reconnect(root, socket);

@@ -427,7 +427,8 @@ export function createWebSocketClient(root: BrainUiServices) {
         // answer is finished, and the new turn's text starts its own.
         const live = state.buffers[frameSessionId]?.messages.at(-1);
         const turnId = (msg as { turnId?: string }).turnId;
-        if (msg.status !== "idle" && msg.status !== "cancelled" && turnId && live?.isStreaming && reattachTurnId && reattachTurnId !== turnId) {
+        if (msg.status !== "idle" && msg.status !== "cancelled" && turnId && live?.isStreaming
+          && live.id === reattachMessageId && reattachTurnId && reattachTurnId !== turnId) {
           state.finishAssistantMessage(frameSessionId);
         }
       }
@@ -638,7 +639,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   let coldResumedSessionId: string | null = null;
   /** The running session in view that a reconnect reattached, until the host answers for it. */
   let reattachSessionId: string | null = null;
-  /** The turn the reattached answer belonged to when the connection went, if the page knew it. */
+  /** The reattached answer, and the turn it belonged to when the connection went, if the page knew it. */
+  let reattachMessageId: string | undefined;
   let reattachTurnId: string | undefined;
 
   function markHistoryReplaced(key: ChatKey): void {
@@ -702,7 +704,9 @@ export function createWebSocketClient(root: BrainUiServices) {
           // history that keeps the messages already drawn (#1013). The
           // resync flag stays: the turn's end replays the finished answer.
           reattachSessionId = chat.activeSessionId;
-          reattachTurnId = active.messages.at(-1)?.turnId;
+          const live = active.messages.at(-1);
+          reattachMessageId = live?.id;
+          reattachTurnId = live?.turnId ?? live?.streamTurnId;
           wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
         }
       }

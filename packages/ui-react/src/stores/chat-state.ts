@@ -63,6 +63,12 @@ export interface ChatMessage {
   /** The host-minted turn that produced this assistant message, when known. */
   turnId?: string;
   /**
+   * @internal The turn a live answer's frames named, kept when a replay
+   * strips `turnId` to what history proves (#1013). Correlation only:
+   * never evidence that the turn was seen.
+   */
+  streamTurnId?: string;
+  /**
    * A turn shell (#964, D52 §4): drawn to hold a restored approval whose
    * replay ended on the user's message. It has no text of its own, and its
    * header time is the host's `startedAt` for its turn, never the client
@@ -602,14 +608,7 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
     if (!same || !sameTools || !sameTurn) return m;
     if (live && i === tail) {
       streaming = true;
-      // The page may already hold more of the answer than the host has
-      // stored: what it holds stays.
-      const ahead = old.content.length > m.content.length || old.toolCalls.length > m.toolCalls.length
-        || (old.thinking ?? "").length > (m.thinking ?? "").length || old.parts.length > m.parts.length;
-      // Its turn is the history's alone, as for any replayed message: only a
-      // host-proven turn may let the reader's view clear a tracker (D52 §4).
-      if (ahead) return { ...old, turnId: m.turnId };
-      return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };
+      return mergeLive(old, m);
     }
     return { ...m, id: old.id, timestamp: old.timestamp };
   });
@@ -619,9 +618,40 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
   const live = previous.messages.at(-1);
   if (previous.isStreaming && live?.role === "assistant" && live.isStreaming
     && next.length === previous.messages.length - 1 && messages.every((m, i) => m.id === previous.messages[i]!.id)) {
-    return { messages: [...messages, { ...live, turnId: undefined }], isStreaming: true };
+    return { messages: [...messages, { ...live, turnId: undefined, streamTurnId: live.turnId ?? live.streamTurnId }], isStreaming: true };
   }
   return { messages, isStreaming: streaming };
+}
+
+/**
+ * The live answer, from the page's copy and the host's: each may hold
+ * progress the other lacks (text the page missed while away, a tool or
+ * thinking that arrived while the history was read). The longer text is
+ * the base; the other's tools join it, and its outputs fill the base's.
+ * The turn is the history's alone: only a host-proven turn may let the
+ * reader's view clear a tracker (D52 §4). The frames' turn stays for
+ * correlation.
+ */
+function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
+  const base = old.content.length > m.content.length ? old : m;
+  const other = base === old ? m : old;
+  const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));
+  const toolCalls = base.toolCalls.map((t) => {
+    const o = theirs.get(t.id);
+    return o && o.output !== undefined && t.output === undefined ? { ...t, output: o.output, isError: o.isError } : t;
+  });
+  const parts = [...base.parts];
+  for (const t of other.toolCalls) {
+    if (toolCalls.some((b) => b.id === t.id)) continue;
+    parts.push({ kind: "tool", toolIndex: toolCalls.length });
+    toolCalls.push(t);
+  }
+  const thinking = (old.thinking ?? "").length > (m.thinking ?? "").length ? old.thinking : m.thinking;
+  return {
+    ...base, toolCalls, parts, thinking,
+    id: old.id, timestamp: old.timestamp, isStreaming: true,
+    turnId: m.turnId, streamTurnId: old.turnId ?? old.streamTurnId,
+  };
 }
 
 function emptyChat(): SessionChat {
