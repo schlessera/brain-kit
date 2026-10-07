@@ -13,7 +13,6 @@ import {
   DISMISSED_NOTE,
   TYPED_META,
   answeredMeta,
-  quoted,
   recordedAnswers,
 } from "../../src/components/chat/ask-user-card.js";
 import { reaskMessage, takeComposerTextAsAnswer } from "../../src/components/chat/ask-user-typed.js";
@@ -305,7 +304,7 @@ describe("AskUserCard · answered, typed, dismissed — all stay in the transcri
         onCancel={() => {}}
       />
     );
-    expect(getByText(quoted("merge both drafts"))).toBeTruthy();
+    expect(getByText("\u201Cmerge both drafts\u201D")).toBeTruthy();
     expect(getByText(TYPED_META)).toBeTruthy();
     expect(getByText("Answered in the composer")).toBeTruthy();
     expect(queryByText("Alpha")).toBeNull();
@@ -465,7 +464,7 @@ describe("AskUserCard · grouped exchange", () => {
     expect(view.getAllByText("Answered · 3 questions")).toHaveLength(1);
     expect(view.container.querySelectorAll("[data-group-record-row]")).toHaveLength(3);
     expect(view.getByText("Intro · Notes")).toBeTruthy();
-    expect(view.getByText(quoted("after landfall"))).toBeTruthy();
+    expect(view.getByText("\u201Cafter landfall\u201D")).toBeTruthy();
     expect(view.getAllByText("you answered")).toHaveLength(1);
     expect(view.queryByRole("radio")).toBeNull();
     view.rerender(<AskUserCard requestId="group" questions={grouped} cancelled onSubmit={() => {}} onCancel={() => {}} onReask={() => {}} />);

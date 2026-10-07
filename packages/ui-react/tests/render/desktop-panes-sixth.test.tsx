@@ -215,7 +215,7 @@ describe("Actions dismissal (sixth pass §4)", () => {
     expect(useActivityStore.getState().inbox).toEqual([]);
     expect(page.queryByText("Dismissed")).toBeNull();
     expect(page.queryByText("2 items")).toBeNull();
-    expect(empty).toBeTruthy();
+    expect(document.activeElement).toBe(empty);
     page.unmount();
   });
 });

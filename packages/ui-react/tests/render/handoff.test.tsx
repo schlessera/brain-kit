@@ -302,6 +302,9 @@ describe("review findings: the run's lifetime and the snapshot's freshness", () 
     const { root, socket } = setup();
     open(root);
     await flush();
+    expect(socket.frames().filter((f) => f.type === "handoff_prepare")).toEqual([
+      { type: "handoff_prepare", handoffId: "h-ithaca-0001-p1", sourceSessionId: "src", turns: 1 },
+    ]);
     act(() => { root.stores.chat.getState().setRunState("other", "streaming"); root.stores.chat.getState().setRunState("other", "idle"); });
     await flush();
     expect(socket.frames().filter((f) => f.type === "handoff_prepare_cancel")).toEqual([]);
