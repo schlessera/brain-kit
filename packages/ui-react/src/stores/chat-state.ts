@@ -728,8 +728,9 @@ function keepDrawnMessages(next: ChatMessage[], previous: Pick<SessionChat, "mes
 /**
  * The live answer, from the page's copy and the host's: each may hold
  * progress the other lacks (text the page missed while away, a tool or
- * thinking that arrived while the history was read). The longer text is
- * the base; the other's tools join it, and its outputs fill the base's.
+ * thinking that arrived while the history was read). A lagging copy cannot
+ * erase text already drawn, even if it is longer; the other's tools join
+ * the retained copy, and its outputs fill that copy's.
  * The turn is the history's alone: only a host-proven turn may let the
  * reader's view clear a tracker (D52 §4). The frames' turn stays for
  * correlation.
@@ -738,7 +739,7 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
   const thinkingSize = (message: ChatMessage) => message.parts.reduce((n, p) => n + (p.kind === "thinking" ? p.text.length : 0), 0);
   const moreThinking = thinkingSize(m) > thinkingSize(old);
   const unresolvedClip = m.parts.some((p) => p.kind === "text" && /\n…\[\d+ chars elided\]$/.test(p.text));
-  const base = unresolvedClip || drawnText(old).length > drawnText(m).length
+  const base = unresolvedClip || !includesDrawnText(drawnText(m), drawnText(old))
     || (drawnText(old).length === drawnText(m).length && !moreThinking && m.toolCalls.length <= old.toolCalls.length) ? old : m;
   const other = base === old ? m : old;
   const theirs = new Map(other.toolCalls.map((t) => [t.id, t]));

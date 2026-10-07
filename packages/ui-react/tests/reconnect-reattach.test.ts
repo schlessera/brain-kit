@@ -70,6 +70,25 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  test("longer but lagging history cannot erase newer drawn text", () => {
+    const { root, socket } = running();
+    const chat = root.stores.chat.getState();
+    chat.stampTurn("s1", "turn-1");
+    chat.appendText("s1", " Rope held.");
+    const old = buffer(root).messages.at(-1)!;
+    const missed = "Wax for the crew. ".repeat(200);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS + missed).map((m) => ({ ...m, turnId: "turn-1" })) });
+    expect(buffer(root).messages.at(-1)!.content, "a longer snapshot cannot discard newer drawn text").toBe(old.content);
+    next.deliver({ type: "status", sessionId: "s1", status: "thinking", turnId: "turn-1" });
+    next.deliver({ type: "text_delta", sessionId: "s1", turnId: "turn-1", text: " Landed." });
+    expect(buffer(root).messages.at(-1)!.content).toBe(old.content + " Landed.");
+    // Once storage catches up, its complete copy fills the missed gap.
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history(SIRENS + missed + " Rope held. Landed.").map((m) => ({ ...m, turnId: "turn-1" })) });
+    expect(buffer(root).messages.at(-1)!.id).toBe(old.id);
+    expect(buffer(root).messages.at(-1)!.content).toBe(SIRENS + missed + " Rope held. Landed.");
+  });
+
   for (const proven of [false, true]) test(`complementary tools retain the answer across another replay (${proven ? "proven" : "legacy"})`, () => {
     const { root, socket } = running();
     const chat = root.stores.chat.getState();
