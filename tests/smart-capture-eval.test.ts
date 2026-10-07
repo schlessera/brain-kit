@@ -46,7 +46,7 @@ for (const f of fixtures) test(`real hybrid control preserves full capture and p
 test("complete expected append bytes are independent of the planner and writer", async () => {
   const f = find("t-exact"), p = await prepare(f);
   try {
-    const expected = "---\ntype: project\ntitle: Raft departure\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [\"raft\", \"departure\"]\nstatus: active\n---\n\nCalypso has supplied timber and a sail. Odysseus checks the lashings before leaving Ogygia.\n\n## 2026-07-12 Update\n\nRaft departure\n\nOdysseus checked the mast support.\n";
+    const expected = "---\ntype: project\ntitle: Raft departure\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [\"raft\", \"departure\"]\nstatus: active\n---\n\nCalypso's tools and sailcloth are needed. Odysseus checks the planned lashings before leaving Ogygia.\n\n## 2026-07-12 Update\n\nRaft departure\n\nOdysseus checked the mast support.\n";
     await capture(f, p.root, deterministic(f, p.root));
     expect(readFileSync(join(p.root, "projects/active/raft.md"), "utf8")).toBe(expected);
   } finally { p.close(); }
@@ -55,7 +55,7 @@ test("a provider's content-losing complete target cannot touch the disk", async 
   const f = find("t-exact"), p = await prepare(f);
   try {
     const plan = deterministic(f, p.root);
-    plan.proposedRaw = plan.proposedRaw!.replace("Calypso has supplied timber and a sail. Odysseus checks the lashings before leaving Ogygia.\n\n", "");
+    plan.proposedRaw = plan.proposedRaw!.replace("Calypso's tools and sailcloth are needed. Odysseus checks the planned lashings before leaving Ogygia.\n\n", "");
     await capture(f, p.root, plan);
     expect(readFileSync(join(p.root, "projects/active/raft.md"), "utf8")).toBe(f.files["projects/active/raft.md"]!);
     expect(retained(p.root, f.content)).toBe(true);
@@ -181,4 +181,25 @@ test("held-out answers cannot calibrate; absent or unsafe semantic judgments can
     if (wrong.answers!.type!.type === "choice") wrong.answers!.type!.choice = "study";
     expect(chooseThreshold([{ fixture: f, plan: t => hybrid(f, p.root, wrong, t) }])).toBeNull();
   } finally { p.close(); }
+});
+
+
+test("actual rewrite files retain paraphrased facts without accepting a changed jar count", async () => {
+  const f = find("h-rewrite");
+  for (const [body, expected] of [
+    ["Penelope counted three sealed jars. Keep the cracked jar separately.", true],
+    ["She counted 3 sealed jars. Set the cracked jar aside.", true],
+    ["Penelope counted four sealed jars. Keep the cracked jar separate.", false],
+    ["Penelope counted three jars. Keep the cracked jar separate.", false],
+  ] as const) {
+    const p = await prepare(f);
+    try {
+      await capture(f, p.root, deterministic(f, p.root));
+      writeFileSync(join(p.root, "notes/rewrite-draft.md"), `---\ntype: note\ntitle: Jar inventory\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: []\n---\n\n${body}\n`);
+      const result = observe(f, p.root);
+      expect(result.generatedFactsKept).toBe(expected);
+      expect(result.captureRetained).toBe(true);
+      expect(Object.keys(result.files)).toHaveLength(2);
+    } finally { p.close(); }
+  }
 });

@@ -23,14 +23,14 @@ export function observe(f: Fixture, root: string, plan?: Plan) {
   const parsed = capture ? parseFrontmatter(capture.raw) : null;
   const actualTags = parsed && Array.isArray(parsed.data.tags) ? parsed.data.tags.map(String) : [];
   const truePositiveTags = actualTags.filter(tag => f.expected.tags.includes(tag)).length;
-  const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && !parseFrontmatter(d.raw).content.includes(f.content.trim())).map(d => parseFrontmatter(d.raw).content);
-  const generatedFactsKept = f.generation ? draftBodies.some(body => /\bPenelope\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\b(?:separate|apart)\b|\baway from\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
+  const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && !parseFrontmatter(d.raw).content.includes(f.content.trim())).map(d => `${String(parseFrontmatter(d.raw).data.title ?? "")}\n${parseFrontmatter(d.raw).content}`);
+  const generatedFactsKept = f.generation ? draftBodies.some(body => /\b(?:Penelope|she)\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\b(?:separat\w*|apart|aside|distinct)\b|\baway from\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
   return {
     actualType: capture?.type ?? null, expectedType: f.expected.type,
     correctType: capture?.type === f.expected.type, captureRetained: captured.length > 0,
     originalsRetained, metadataRetained, contentLoss: !captured.length || !originalsRetained || !metadataRetained, unintendedCreates,
     changedExisting, appendTarget, correctAppendTarget: appendTarget === f.expected.appendTarget,
-    wrongTargetAppend, reviewTarget: plan?.reviewTarget ?? null,
+    wrongTargetAppend, expectedReviewTarget: f.expected.reviewTarget, reviewTarget: plan?.reviewTarget ?? null,
     correctReviewTarget: (plan?.reviewTarget ?? null) === f.expected.reviewTarget,
     actualTags, truePositiveTags, predictedTags: actualTags.length, expectedTags: f.expected.tags.length,
     tagPrecision: actualTags.length ? truePositiveTags / actualTags.length : null,
@@ -71,7 +71,7 @@ export function summarize(rows: any[]) {
       appendPrecision: group.some(r => r.appendTarget) ? group.filter(r => r.appendTarget && r.correctAppendTarget).length / group.filter(r => r.appendTarget).length : null,
       reviewTargetPrecision: group.some(r => r.reviewTarget) ? group.filter(r => r.reviewTarget && r.correctReviewTarget).length / group.filter(r => r.reviewTarget).length : null,
       requestedGeneration: group.filter(r => r.generationRequested).length, generatedFactsKept: group.filter(r => r.generatedFactsKept === true).length,
-      abstentions: group.filter(r => r.abstained).length, tagPrecision: tags.predicted ? tags.correct / tags.predicted : null,
+      abstentions: group.filter(r => r.abstained).length, abstentionMetrics: { expectedNotes: group.filter(r => r.expectedType === "note").length, safeExpectedNoteAbstentions: group.filter(r => r.expectedType === "note" && r.abstained).length, nonNoteAbstentions: group.filter(r => r.expectedType !== "note" && r.abstained).length }, reviewTargetRecall: group.some(r => r.expectedReviewTarget) ? group.filter(r => r.expectedReviewTarget && r.correctReviewTarget).length / group.filter(r => r.expectedReviewTarget).length : null, tagPrecision: tags.predicted ? tags.correct / tags.predicted : null,
       tagRecall: tags.expected ? tags.correct / tags.expected : null, classificationEligibleTagMetrics: { observations: eligible.length, ...eligibleTags, precision: eligibleTags.predicted ? eligibleTags.correct / eligibleTags.predicted : null, recall: eligibleTags.expected ? eligibleTags.correct / eligibleTags.expected : null }, inventedTags: group.flatMap(r => r.inventedTags).length,
       calls: calls.length, callsWithUnknownUsage: calls.filter(c => c.inputTokens == null || c.outputTokens == null).length,
       inputTokens: calls.every(c => c.inputTokens != null) ? calls.reduce((s, c) => s + c.inputTokens, 0) : null,

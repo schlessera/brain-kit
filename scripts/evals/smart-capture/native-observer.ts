@@ -57,7 +57,7 @@ async function main() {
     }
     if (event.type === "system" && event.subtype === "init") {
       receipt.init = event;
-      if (event.model !== MODEL || event.apiKeySource !== "none") throw Error("Actual native model/auth mismatch");
+      if (event.model !== MODEL || event.apiKeySource !== "none" || event.claude_code_version !== "2.1.283") throw Error("Actual native model/auth mismatch");
     }
     if (event.type === "rate_limit_event") {
       receipt.rates.push(event);

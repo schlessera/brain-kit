@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents/claude-binary";
+const nativeBinary = bundledClaudeBinary();
+const runtimeIdentity = { bunVersion: Bun.version, nativeCliVersion: "2.1.283", nativeBinarySha: nativeBinary ? createHash("sha256").update(readFileSync(nativeBinary)).digest("hex") : null };
 export const protocol = {
+  runtimeIdentity,
+  pricing: { jev: { inputUsdPerMillion: .042, outputUsdPerMillion: 0, source: "https://docs.typesafe.ai/models", verifiedDate: "2026-10-07" }, sonnet: { source: "https://platform.claude.com/docs/en/models/sonnet-5-5/overview", includedSubscriptionApiEquivalentIsDiagnostic: true } },
   models: { current: "claude-sonnet-5-5", classifier: "jev-1.13.0" },
   arms: ["current", "deterministic", "hybrid"], repetitions: 3,
   state: "Fresh disposable fixture brain/home/config per physical current or generation invocation; no automatic memory; index rebuilt; same original files and actual shipped /add skill; raw usage and cache state retained. Cold native startup is included in current end-to-end latency.",
@@ -15,9 +20,12 @@ export const protocol = {
   accounting: "$15 issue/$150 aggregate actual additional billed caps per ruling 6038531493. Included subscription turns' independently priced API equivalents are diagnostic. Missing native result/usage, unexpected served model, auth mismatch or reported/unobserved overage state stops. Every physical Jev HTTP attempt/retry charged from raw usage; missing charge receipt stops, never invented zero. Counter/native setup is not model quality.",
   headline: "Held-out rows only; tuning is a safety screen. No production adoption or config seam is implemented by this spike, including a favorable observed sample.",
 };
-const sourcePaths = ["pipeline.ts", "metrics.ts", "brain-fixture.ts", "native-observer.ts", "tool-hook.py", "protocol.ts", "relay.ts", "live.ts", "launch.py",
-  "../../../packages/core/src/cli/commands/add.ts", "../../../packages/core/src/lib/ingestion.ts", "../../../packages/core/src/providers/agents/cli-runners.ts",
-  "../../../packages/core/src/providers/agents/claude-subscription.ts", "../../../packages/core/skills/add/SKILL.md", "../../measure-sonnet55-cost.ts"];
+const sourceRoot = new URL("../../../", import.meta.url).pathname;
+const sourcePaths = [...new Set([
+  ...new Bun.Glob("packages/core/src/**/*.ts").scanSync({ cwd: sourceRoot }),
+  ...new Bun.Glob("scripts/evals/smart-capture/*").scanSync({ cwd: sourceRoot }),
+  "package.json", "bun.lock", "scripts/captures/clock.ts", "packages/core/skills/add/SKILL.md", "scripts/measure-sonnet55-cost.ts",
+])].sort().map(path => `../../../${path}`);
 export const fixtureSha = createHash("sha256").update(readFileSync(new URL("fixtures.json", import.meta.url))).digest("hex");
 export const protocolSha = createHash("sha256").update(JSON.stringify(protocol)).digest("hex");
 export const sourceHashes = Object.fromEntries(sourcePaths.map(path => [path, createHash("sha256").update(readFileSync(new URL(path, import.meta.url))).digest("hex")]));
