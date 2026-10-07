@@ -484,3 +484,20 @@ test("another dictation ending on its own neither releases the reload nor commit
   act(() => voice(root).clearReview());
   expect(reloads(), "one reload").toBe(1);
 });
+
+
+test("auth expiry cancels the client whose Done is still draining and holds update reload",async()=>{
+ const root=voiceRoot(deepgram); const {dictation,reloads}=await mount(root);
+ root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+ let ended=0;
+ replaceGlobal(navigator,"mediaDevices",{getUserMedia:async()=>({getTracks:()=>[{stop(){ended++;}}]})});
+ await listen(root,dictation); act(()=>deepgram.hear("Ask Nestor",true));
+ let done!:Promise<void>; act(()=>{done=dictation.result.current.stop();});
+ expect(voice(root).draining,"Done is draining").toBe(true); takeOver();
+ await act(async()=>{await root.authLock.expire(); root.authLock.dropContext();});
+ expect(ended,"auth closes the draining capture before lock").toBeGreaterThan(0);
+ expect(socket().readyState,"speech socket closed").toBe(3);
+ expect(voice(root).reviewText).toBe(""); expect(reloads(),"auth lock holds reload").toBe(0);
+ await act(async()=>{socket().onmessage?.({data:JSON.stringify({type:"Metadata"})}); await done;});
+ expect(voice(root).reviewText,"late drain cannot repopulate review").toBe("");
+});

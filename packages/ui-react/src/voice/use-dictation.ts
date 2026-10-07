@@ -163,14 +163,14 @@ export function useDictation() {
       // ended has handed its words over, and draining it again would let a
       // late event commit them twice.
       const owned = captureRef.current?.root === root.stores ? captureRef.current : null;
-      const capture = owned && owners.get(owned.root) === owned ? owned : null;
+      const capture = owned && (owners.get(owned.root) === owned || stopping.has(owned)) ? owned : null;
       // A second Done while the first still drains: the first hands
       // everything to review, this one has nothing to add.
       // A Cancel then discards what that drain was handing over.
       const ownDrain = Boolean(capture && stopping.has(capture));
       if (commitToReview && ownDrain) return;
       // A slow connect must not open the mic after the user asked it to stop.
-      const client = releaseCapture();
+      const client = releaseCapture() ?? (!commitToReview ? capture?.client : null);
       if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
@@ -193,6 +193,8 @@ export function useDictation() {
 
       // What was heard joins the review text in the update that ends the
       // drain, so nothing sees the drain over and the words not yet in review.
+      // Auth cancellation may have invalidated a Done still awaiting drain.
+      if (commitToReview && capture && !stopping.has(capture)) return;
       const handled = endDictation(root.stores.voice, commitToReview, drained || ownDrain ? { draining: false } : {});
       if (capture) {
         release(capture);

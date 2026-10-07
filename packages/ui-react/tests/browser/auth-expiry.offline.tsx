@@ -1,16 +1,7 @@
 /// <reference types="@vitest/browser-playwright" />
-/**
- * A dictation the speech provider ends on its own (#1189), in real Chromium.
- *
- * The real ChatPage dictates through the shipped clients. For Deepgram:
- * Chromium's fake microphone, the real recorder, and #1016's fault network
- * standing in for both the host and the speech socket, which the test closes
- * the ways a provider and a network do. For Web Speech: a scripted recognizer
- * in place of the browser's, which would need Google's servers. Either way
- * the words heard must be on the review card once the dictation sheet is
- * gone, not lost with it.
- *
- * Every test owns its root, mount and network, removed when it ends.
+/** Real microphone/recorder with #1016's offline host and speech faults.
+ * Host auth expiry cancels streaming and local capture; transport loss alone
+ * leaves local capture and protected views live. Each cell owns its root.
  */
 import { afterAll, afterEach, beforeAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, userEvent } from "vitest/browser";
@@ -134,4 +125,24 @@ test("transport drop keeps local capture and protected views mounted; auth expir
  await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
  expect(mic.streams.flatMap((stream)=>stream.getTracks()).every((t)=>t.readyState==="ended"),"auth stops every local track").toBe(true);
  expect(s.host.querySelector("textarea[data-composer]"),"auth removes protected views").toBeNull();
+});
+
+
+test("auth expiry interrupts a Done already draining and closes its real microphone immediately",{timeout:20_000},async(ctx)=>{
+ const mic=watchMicrophone(); ctx.onTestFinished(()=>mic.restore());
+ const s=await mount(ctx,"deepgram"); await settle(); await startDictating(s);
+ await expect.poll(()=>s.net.frames.filter(f=>f.url.startsWith(SPEECH)&&f.data instanceof Blob).length).toBeGreaterThan(0);
+ s.net.socket(SPEECH)!.deliver({type:"Results",is_final:true,speech_final:false,channel:{alternatives:[{transcript:"Ask Nestor about the ships"}]}});
+ await expect.poll(()=>s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships");
+ const done=s.host.querySelector<HTMLElement>('[aria-label="Done"]') ?? [...s.host.querySelectorAll<HTMLElement>('button,[role="button"]')].find(el=>el.textContent?.trim()==="Done");
+ expect(done,"dictation has Done").toBeDefined(); await userEvent.click(done!);
+ await expect.poll(()=>s.ui.stores.voice.getState().draining,{message:"Done is awaiting provider tail"}).toBe(true);
+ expect(mic.streams.length).toBeGreaterThan(0);
+ s.net.expireAuth(); await expect.poll(()=>s.ui.authLock.state.getState().phase).toBe("locked");
+ expect(mic.streams.flatMap(stream=>stream.getTracks()).every(t=>t.readyState==="ended"),"auth closes the draining microphone before lock").toBe(true);
+ expect(s.ui.stores.voice.getState().draining).toBe(false);
+ expect(s.ui.stores.voice.getState().reviewText,"cancelled drain never reaches review").toBe("");
+ s.net.socket(SPEECH)?.deliver({type:"Metadata"});
+ await new Promise(yes=>setTimeout(yes,100));
+ expect(s.ui.stores.voice.getState().reviewText,"late drain completion cannot repopulate locked review").toBe("");
 });

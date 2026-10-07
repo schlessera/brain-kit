@@ -1,4 +1,5 @@
 import { watchMicrophone } from "../browser/offline/fake-microphone.ts";
+import { trackKey, tracksFor } from "../../src/lib/draft-tracks.ts";
 import { updateHeld } from "../../src/lib/update-holds.ts";
 import { createElement, useEffect } from "react";
 import { useRootStore } from "../../src/root-context.tsx";
@@ -33,7 +34,16 @@ Object.assign(window, {
     held:()=>updateHeld(root),
     recording:()=>root.recordings!.list(root.stores.connection.getState().accountKey ? `account:${root.stores.connection.getState().accountKey}` : "unassigned"),
     ended:()=>microphone.streams.flatMap((s)=>s.getTracks().map((t)=>t.readyState === "ended")),
-    tracks:()=>[],
+    tracks:()=>{
+      const drafts=root.stores.drafts.getState(); const session=root.stores.chat.getState().activeSessionId;
+      return tracksFor(root,trackKey(session,drafts.originOf(drafts.idFor(session)))).uploads.files.filter(f=>f.state === "ready").map(f=>f.meta);
+    },
+    savedThrough:()=>root.authLock.state.getState().savedThroughMs,
+    chunkEnds:async()=>{
+      const key=root.stores.connection.getState().accountKey!;
+      const rows=await root.partitions!.open(`account:${key}`).list("recording:chunk:");
+      return rows.map(r=>(r.value as {endMs:number}).endMs);
+    },
     readAudio:(key:string,id:string)=>outcome(root.recordings!.playback(`account:${key}`,id)),
     connected: () => root.stores.connection.getState().wsStatus === "connected",
     accountKey: () => root.stores.connection.getState().accountKey,

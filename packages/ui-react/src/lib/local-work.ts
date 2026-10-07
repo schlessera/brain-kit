@@ -201,6 +201,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let chain: Promise<void> = Promise.resolve();
   let disposed = false;
   let locked = false;
+  let generation = 0;
 
   const held = () => stores.connection.getState().accountKey;
   let switching = false;
@@ -280,9 +281,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   }
 
   async function bind(key: string, warm = false): Promise<boolean> {
+    const binding = generation;
     const handle = partitions.open(accountPartition(key));
     const records = await handle.list(`${scope}/`);
-    if (disposed || held() !== key) return false;
+    if (disposed || held() !== key || binding !== generation) return false;
     const kept: LocalDraft[] = [];
     let ctx: WorkContext | null = null;
     for (const { key: k, value } of records) {
@@ -300,7 +302,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (ctx.sessionId === activeSession) {
         // A new chat's own draft goes back into the new-chat view.
         // Not over a new chat the reader has already started typing in.
-        if (ctx.sessionId === null && drafts.drafts[ctx.draftId] && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
+        if (ctx.sessionId === null && (drafts.drafts[ctx.draftId] || (warm && ctx.tracks.length)) && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
         const draftId = stores.drafts.getState().idFor(activeSession);
         // The selection is the kept draft's: a draft this page holds instead keeps its own.
         const same = stores.drafts.getState().resolveId(ctx.draftId) === draftId;
@@ -380,6 +382,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     changed,
     restoring: () => restoreDone,
     lock() {
+      generation++;
       locked = true;
       if (timer !== null) { clearTimeout(timer); timer = null; }
       bound = null; partition = null; written.clear(); writtenContext = "";
@@ -391,7 +394,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (!key || disposed) return false;
       try {
         const restored = await bind(key, true);
-        locked = false;
+        if (restored) { locked = false; changed(); }
         return restored;
       } catch { return false; }
     },

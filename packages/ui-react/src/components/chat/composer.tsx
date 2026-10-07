@@ -332,7 +332,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
+    const authEpoch = root.authLock.epoch();
     const results = await Promise.all(list.map((f) => fileToAttachment(f)));
+    if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
+      for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
+      return;
+    }
     const fresh: PendingAttachment[] = [];
     const errors: string[] = [...trackErrors];
     results.forEach((r, i) => {

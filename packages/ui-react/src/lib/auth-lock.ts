@@ -9,6 +9,7 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
   const stops = new Set<() => Promise<unknown>>();
   let lockedKey: string | null = null;
   let transition: Promise<void> | null = null;
+  let restoring: Promise<boolean> | null = null;
   let snapshot = false;
   let disposed = false;
   let dropped = false;
@@ -17,12 +18,42 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
   const unwatch = root.recordings?.onEvent((event) => {
     if (state.getState().phase === "saving" && event.kind === "stopped") state.setState({ savedThroughMs: event.savedThroughMs });
   });
+  function dropContext() {
+    if (disposed || dropped || state.getState().phase !== "locked") return;
+    dropped = true;
+    lifecycle.drop();
+    root.localWork?.lock();
+    root.stores.connection.getState().setVpnStatus("unauthorized");
+    root.stores.drafts.getState().release();
+    disposeTracks(root);
+    root.stores.file.getState().reset();
+    root.stores.graph.getState().reset();
+    root.stores.graph.clearSceneCache();
+    root.stores.activity.getState().setSupported(false);
+    root.stores.activity.getState().clear();
+    root.stores.inbox.getState().clear();
+    // Keep the store objects/hooks, drop their account payloads. Methods stay
+    // the same; reads started under the old epoch are refused by root.request.
+    for (const [name, store] of Object.entries(root.stores)) {
+      if (name === "connection") continue;
+      (store as StoreApi<unknown>).setState(store.getInitialState(), true);
+    }
+  }
   return {
     state,
     epoch: () => epoch,
     registerStop(stop: () => Promise<unknown>) { stops.add(stop); return () => { stops.delete(stop); }; },
     expire(reason = "") {
       if (/revok|signed out|invalidated/i.test(reason)) state.setState({ revoked: true });
+      if (!disposed && state.getState().phase === "restoring") {
+        // The gate is still neutral. Invalidate the pending read before its
+        // completion can remount anything or install connection managers.
+        epoch++;
+        state.setState({ phase: "locked" });
+        dropped = false;
+        dropContext();
+        return Promise.resolve();
+      }
       if (transition || disposed || state.getState().phase !== "active") return transition ?? Promise.resolve();
       const connection = root.stores.connection.getState();
       // A cold unauthenticated visit has no protected work to lock.
@@ -42,37 +73,25 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
       return transition;
     },
     /** Called in the gate's layout effect, after React removed the protected DOM. */
-    dropContext() {
-      if (disposed || dropped || state.getState().phase !== "locked") return;
-      dropped = true;
-      lifecycle.drop();
-      root.localWork?.lock();
-      root.stores.connection.getState().setVpnStatus("unauthorized");
-      root.stores.drafts.getState().release();
-      disposeTracks(root);
-      root.stores.file.getState().reset();
-      root.stores.graph.getState().reset();
-      root.stores.graph.clearSceneCache();
-      root.stores.activity.getState().setSupported(false);
-      // Keep the store objects/hooks, drop their account payloads. Methods stay
-      // the same; reads started under the old epoch are refused by root.request.
-      for (const [name, store] of Object.entries(root.stores)) {
-        if (name === "connection") continue;
-        (store as StoreApi<unknown>).setState(store.getInitialState(), true);
-      }
-    },
+    dropContext,
     /** Only the explicit successful sign-in path may unlock a warm page. */
-    async signedIn(key: string | null): Promise<boolean> {
-      await transition;
-      if (disposed || !dropped || !key || key !== lockedKey || !snapshot) return false;
-      state.setState({ phase: "restoring" });
-      root.stores.connection.getState().setVpnStatus("connected", key);
-      const restored = await root.localWork!.resume();
-      if (restored) lifecycle.restore();
-      if (disposed || !restored) return false;
-      transition = null; dropped = false; lockedKey = null; snapshot = false;
-      state.setState({ phase: "active", revoked: false });
-      return true;
+    signedIn(key: string | null): Promise<boolean> {
+      if (!key || key !== lockedKey) return Promise.resolve(false);
+      if (restoring) return restoring;
+      restoring = (async () => {
+        await transition;
+        if (disposed || !dropped || !snapshot) return false;
+        const generation = ++epoch;
+        state.setState({ phase: "restoring" });
+        root.stores.connection.getState().setVpnStatus("connected", key);
+        const restored = await root.localWork!.resume();
+        if (disposed || !restored || generation !== epoch || state.getState().phase !== "restoring") return false;
+        lifecycle.restore();
+        transition = null; dropped = false; lockedKey = null; snapshot = false;
+        state.setState({ phase: "active", revoked: false });
+        return true;
+      })().finally(() => { restoring = null; });
+      return restoring;
     },
     dispose() { disposed = true; epoch++; stops.clear(); unwatch?.(); releaseHold(); },
   };

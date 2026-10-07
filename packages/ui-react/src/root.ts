@@ -108,13 +108,13 @@ export function createRoot(
   const transport = options.request ?? ((url: string, init?: RequestInit) => fetch(url, init));
   let authLock: ReturnType<typeof createAuthLock> | undefined;
   const request = async (url: string, init?: RequestInit): Promise<Response> => {
-    const authRoute = /\/api\/auth\/(?:login|methods|passkey\/login-(?:options|verify))$/.test(new URL(url, typeof location === "undefined" ? "http://localhost" : location.href).pathname);
+    const authRoute = /\/api\/auth\/(?:login|methods|passkey\/login-(?:options|verify))$/.test(new URL(url, "http://localhost").pathname);
     const epoch = authLock?.epoch();
     const phase = authLock?.state.getState().phase;
     if (!authRoute && phase && phase !== "active" && phase !== "restoring" && !url.includes("/api/vpn-check")) throw new DOMException("Sign in again", "AbortError");
     const response = await transport(url, init);
+    if (!authRoute && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
     if (!authRoute && response.status === 401) await authLock?.expire();
-    else if (!authRoute && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
     // A body can still be decoding when auth is lost. Refuse that old
     // account payload before an async store callback can publish it.
     const responseEpoch = authLock?.epoch();
@@ -130,7 +130,27 @@ export function createRoot(
     } });
   };
   const apiBase = () => apiBaseFor(config);
-  const api = options.api ?? createBrainApi(apiBase, request);
+  // Injected clients (including the legacy default application API) have
+  // their own transports. Apply the same lifetime guard at their boundary.
+  const api = options.api ? new Proxy(options.api, { get(target, property) {
+    const value = Reflect.get(target, property);
+    if (typeof value !== "function") return value;
+    return async (...args: unknown[]) => {
+      const auth = ["login", "authMethods", "passkeyLoginOptions", "passkeyLoginVerify"].includes(String(property));
+      const epoch = authLock?.epoch();
+      const phase = authLock?.state.getState().phase;
+      if (!auth && phase && phase !== "active" && phase !== "restoring") throw new DOMException("Sign in again", "AbortError");
+      try {
+        const result = await value.apply(target, args);
+        if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+        return result;
+      } catch (error) {
+        if (!auth && epoch !== authLock?.epoch()) throw new DOMException("Account context changed", "AbortError");
+        if (!auth && error instanceof Error && error.name === "ApiRequestError" && "status" in error && error.status === 401) await authLock?.expire();
+        throw error;
+      }
+    };
+  } }) : createBrainApi(apiBase, request);
   const prefix = options.storagePrefix ?? `brain-ui:${crypto.randomUUID()}`;
   const stores = createBrainStores({
     api, apiBase, request,

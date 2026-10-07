@@ -11,14 +11,11 @@ import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { generateWav, AUDIO_FIXTURES } from "./browser/offline/audio-fixtures.ts";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 
-// The work context kept on this device (#1014), end to end: the real app in
-// password mode, the public ConnectionGate and ChatPage, real Chrome and its
-// real IndexedDB. The partition key comes from the host's probe; the draft,
-// its selection and focus, an image, the voice review text and the place in
-// the transcript survive a reload; nothing of one account's partition can be
-// read, written or shown without holding its key; a snapshot resolves only
-// once its transaction has committed; and a write the browser refuses is
-// said, never shown as kept. Keyless: the backend is scripted.
+// Warm auth expiry (#1018): real password routes, WebSocket revocation,
+// Chromium microphone and IndexedDB. A held transaction proves that capture
+// ends before the snapshot commits and protected DOM unmounts only afterward.
+// Explicit same-account sign-in restores context without navigation; another
+// host account restores nothing. Every browser cell owns its host and origin.
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
 if (!executablePath && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Local work runtime proof requires real Chrome");
@@ -128,6 +125,7 @@ beforeAll(async () => {
     await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
   await writeFile(resolve(scratch, "shroud.png"), SHROUD);
+  await writeFile(resolve(scratch, "ithaca.gpx"), '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Approaching Ithaca</name><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>');
   await writeFile(resolve(scratch, "microphone.wav"), generateWav(AUDIO_FIXTURES.note10s));
   passwordHash = await Bun.password.hash(PASSWORD);
   host = await startHost("ithaca.db");
@@ -144,7 +142,9 @@ type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string 
 type Fixture = {
   phase(): string;
   recording(): Promise<Array<{id:string; state:string; savedThroughMs:number; chunkCount:number}>>;
-  tracks(): string[];
+  tracks(): unknown[];
+  savedThrough(): number | null;
+  chunkEnds(): Promise<number[]>;
   ended(): boolean[];
   readAudio(key:string, id:string): Promise<Outcome>;
   held(): boolean;
@@ -178,7 +178,7 @@ async function until(page: Page, predicate: string, timeout = 15_000) {
     }
     await page.waitForTimeout(25);
   }
-  throw new Error(`Auth fixture did not settle: ${predicate}`);
+  throw new Error(`Auth fixture did not settle: ${predicate}; UI: ${(await page.locator("body").textContent())?.slice(-1000)}`);
 }
 
 /** Signs in from the page itself, so the browser keeps the cookie as it would after the login form. */
@@ -258,6 +258,9 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
   }
 let cell = 0;
 async function boot(page: Page) {
+  // The container has no external network; localhost is reachable. Explicit
+  // browser emulation makes its online hint agree with that real host path.
+  await page.addInitScript(() => Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true }));
   await stopHost(host); host = await startHost(`ithaca-cell-${++cell}.db`);
   await signIn(page); await page.goto(origin);
   await until(page, "f.connected() && f.accountKey() !== null");
@@ -291,13 +294,16 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       await field(page).fill(DRAFT);
       await page.locator('input[type="file"][accept="image/*"][multiple]').setInputFiles(resolve(scratch!, "shroud.png"));
       await until(page, "f.images().length === 1");
+      await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!, "ithaca.gpx"));
+      await until(page, "f.tracks().length === 1");
       await page.getByRole("button", {name:"Start local recording", exact:true}).click();
       await until(page, "f.recording().then(r => r[0]?.chunkCount > 0)");
       await field(page).focus();
       await field(page).evaluate((el:HTMLTextAreaElement) => el.setSelectionRange(12,26));
       await committed(page);
-      const before = {images:await fixture(page,(f)=>f.images()), place:(await fixture(page,(f)=>f.firstVisible()))!};
+      const before = {tracks:await fixture(page,(f)=>f.tracks()), images:await fixture(page,(f)=>f.images()), place:(await fixture(page,(f)=>f.firstVisible()))!};
       expect(before.images.length).toBe(1);
+      expect(before.tracks.length, "uploaded track reference is nonempty").toBe(1);
       expect(Number(before.place.anchor)).toBeGreaterThan(0);
       const protectedHtml = await page.evaluate(() => document.documentElement.outerHTML);
       for (const text of ["Winds of Aeolus", "winds were loosed", "shroud.png"]) expect(protectedHtml, `fixture ${text} is present before expiry`).toContain(text);
@@ -322,6 +328,11 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       const html=await page.evaluate(()=>document.documentElement.outerHTML);
       for(const text of [DRAFT,"Winds of Aeolus","winds were loosed","shroud.png"]) expect(html,`protected ${text} absent from entire document`).not.toContain(text);
       expect(await fixture(page,(f)=>f.text()),"draft payload dropped in memory").toBe("");
+      expect(await fixture(page,(f)=>f.held()),"auth holds update reload after all payloads and other holds cleared").toBe(true);
+      const savedThrough = await fixture(page,(f)=>f.savedThrough());
+      expect(savedThrough, "stopped recording has a committed boundary").toBeGreaterThan(0);
+      const seconds=Math.floor(savedThrough! / 1000);
+      await page.getByText(`Recording stopped. Saved up to ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}.`,{exact:true}).waitFor();
       expect(await page.evaluate((key)=>(window as unknown as {__local:Fixture}).__local.list(key), key)).toEqual({ok:false,error:"PartitionRefusedError"});
       let navigations=0; const count=()=>navigations++; page.on("framenavigated",count);
       await page.waitForTimeout(400); // login entrance settled
@@ -331,6 +342,7 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       expect(navigations,"same-account sign-in has no navigation").toBe(0);
       expect(await field(page).inputValue(),"draft restored").toBe(DRAFT);
       expect(await fixture(page,(f)=>f.images()),"attachments restored").toEqual(before.images);
+      expect(await fixture(page,(f)=>f.tracks()),"uploaded track references restored").toEqual(before.tracks);
       expect(await field(page).evaluate((el:HTMLTextAreaElement)=>[el.selectionStart,el.selectionEnd]),"selection restored").toEqual([14,28]);
       expect(await field(page).evaluate((el)=>document.activeElement===el),"focus restored").toBe(true);
       const after=(await fixture(page,(f)=>f.firstVisible()))!;
@@ -338,7 +350,17 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
       expect(Math.abs(after.offset-before.place.offset),"scroll offset within 1px").toBeLessThanOrEqual(1);
       const rows=await fixture(page,(f)=>f.recording());
       expect(rows).toHaveLength(1); expect(rows[0]!.state,"auth outcome interrupted").toBe("interrupted");
-      expect(rows[0]!.savedThroughMs).toBeGreaterThan(0);
+      expect(rows[0]!.savedThroughMs, "restored recording keeps stopped boundary").toBe(savedThrough!);
+      const ends=await fixture(page,(f)=>f.chunkEnds());
+      expect(ends.length, "recording has durable chunks").toBeGreaterThan(0);
+      expect(Math.max(...ends), "boundary equals last committed chunk end").toBe(savedThrough!);
+      if (kind === "1008") {
+        await field(page).fill("Telemachus asks Nestor about the fleet");
+        await expire(page, "1008"); await until(page, "f.phase() === 'locked' && f.accountKey() === null");
+        await page.waitForTimeout(400); await loginForm(page); await ready(page);
+        expect(await field(page).inputValue(), "a second warm restore uses fresh managers").toBe("Telemachus asks Nestor about the fleet");
+        expect(navigations, "repeated same-account restore never navigates").toBe(0);
+      }
       page.off("framenavigated",count);
     } finally { await context.close(); }
   },120_000);
@@ -354,7 +376,8 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    await page.waitForFunction(()=>(window as unknown as {__hold:{puts:number}}).__hold.puts>0);
    expect(await field(page).count(),"still mounted before abort").toBe(1);
    await page.evaluate(()=>(window as unknown as {__hold:{finish():void}}).__hold.finish());
-   await page.getByText("Your draft couldn't be saved on this device.",{exact:true}).waitFor();
+   await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   expect(await page.getByText("Your draft couldn't be saved on this device.",{exact:true}).count(),"failed snapshot is reported on neutral reauth screen").toBe(1);
    expect(await field(page).count()).toBe(0);
    expect(await page.getByText("This device was signed out",{exact:true}).count()).toBe(1);
   } finally { await context.close(); }
@@ -383,5 +406,50 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    expect(await page.evaluate(([key,id])=>(window as unknown as {__local:Fixture}).__local.readAudio(key!,id!), [key,rows[0]!.id]),"prior audio cannot play").toEqual({ok:false,error:"PartitionRefusedError"});
    expect(await page.evaluate(()=>document.documentElement.outerHTML)).not.toContain(DRAFT);
   } finally { await stopHost(host); host=await startHost("ithaca.db"); await context.close(); }
+ },120_000);
+});
+
+
+describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>{
+ test("an image decode finishing after lock cannot recreate account drafts",async()=>{
+  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+  try {
+   await boot(page); await field(page).fill(DRAFT); await committed(page);
+   await page.evaluate(()=>{
+    const original=window.createImageBitmap; let release!:()=>void;
+    const gate=new Promise<void>(yes=>release=yes);
+    Object.assign(window,{__decode:{started:0,done:0,release}});
+    const deferredBitmap=async(...args:Parameters<typeof createImageBitmap>)=>{
+     (window as any).__decode.started++; const bitmap=await original(...args); await gate;
+     (window as any).__decode.done++; return bitmap;
+    };
+    window.createImageBitmap=deferredBitmap as typeof createImageBitmap;
+   });
+   await page.locator('input[type="file"][accept="image/*"][multiple]').setInputFiles(resolve(scratch!,"shroud.png"));
+   await page.waitForFunction(()=>(window as any).__decode.started===1);
+   await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   await page.evaluate(()=>(window as any).__decode.release());
+   await page.waitForFunction(()=>(window as any).__decode.done===1); await page.waitForTimeout(300);
+   expect(await fixture(page,f=>f.images()),"late image decode cannot repopulate locked drafts").toEqual([]);
+   expect(await fixture(page,f=>f.text())).toBe("");
+   await page.waitForTimeout(400); await loginForm(page); await ready(page);
+   expect(await field(page).inputValue(),"saved text survives the delayed image callback").toBe(DRAFT);
+   expect(await fixture(page,f=>f.images())).toEqual([]);
+  } finally {await context.close();}
+ },120_000);
+ test("track-only New chat restores the same unbound composer identity",async()=>{
+  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+  try {
+   await boot(page); await page.getByRole("button",{name:"New chat",exact:true}).click();
+   await until(page,"f.activeSessionId() === null");
+   await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx"));
+   await until(page,"f.tracks().length === 1"); const refs=await fixture(page,f=>f.tracks());
+   expect(await field(page).inputValue()).toBe(""); await committed(page);
+   await expire(page,"1008"); await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   await page.waitForTimeout(400); await loginForm(page); await until(page,"f.phase() === 'active' && f.connected()");
+   expect(await fixture(page,f=>f.activeSessionId()),"New chat stays unbound").toBeNull();
+   expect(await fixture(page,f=>f.tracks()),"track-only unbound draft restored").toEqual(refs);
+   expect(await page.getByText("ithaca.gpx",{exact:true}).count(),"restored track chip visible").toBe(1);
+  } finally {await context.close();}
  },120_000);
 });
