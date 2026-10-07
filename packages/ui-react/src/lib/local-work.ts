@@ -221,6 +221,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
    */
   let written = new Map<string, ComposerDraft | null>();
   let committed = new Map<string, string>();
+  // A valid session draft skipped during restore is still durable user work.
+  // This root must not treat an unadopted conflict as a deliberate deletion.
+  const retained = new Map<string, string>();
   let writtenContext = "";
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pendingSince = 0;
@@ -285,6 +288,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       nextCommitted.set(d.draftId, serialized);
       if (committed.get(d.draftId) !== serialized) changes.push({ put: draftKey(d.draftId), value });
     }
+    for (const [id, serialized] of retained) if (!next.has(id)) {
+      next.set(id, null);
+      nextCommitted.set(id, serialized);
+    }
     for (const id of written.keys()) if (!next.has(id)) changes.push({ delete: draftKey(id) });
     const ctx = context();
     const text = JSON.stringify(ctx);
@@ -300,6 +307,26 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (JSON.stringify(await partition.get(key)) !== committed.get(id)) {
         throw new Error("The draft changed in another tab. Reload before saving this local work.");
       }
+    }
+    // Independently minted ids can still address the same session. Refuse
+    // a second owner before any receipt/audio cleanup can commit. A rotation
+    // may replace its old id only when this write deliberately removes it.
+    const removals = new Set(changes.flatMap(c => "delete" in c ? [c.delete] : []));
+    const owners = new Map<string, string>();
+    const stored = await partition.list(`${scope}/draft/`);
+    for (const change of changes) {
+      if (!("put" in change) || !change.put.startsWith(`${scope}/draft/`)) continue;
+      const value = change.value as StoredDraft;
+      if (value.sessionId === null) continue;
+      const claimed = owners.get(value.sessionId);
+      const collision = stored.some(row => {
+        const other = parseDraft(row.value);
+        return other?.sessionId === value.sessionId && other.draftId !== value.draftId && !removals.has(row.key);
+      });
+      if ((claimed !== undefined && claimed !== value.draftId) || collision) {
+        throw new Error("The draft changed in another tab. Reload before saving this local work.");
+      }
+      owners.set(value.sessionId, value.draftId);
     }
     try {
       await partition.write(changes);
@@ -352,12 +379,15 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     stores.drafts.getState().restoreLocal(kept);
     if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
     const drafts = stores.drafts.getState();
-    // These are in storage now. The next write puts back each one this page
-    // holds and deletes the rest, which a newer draft here replaced.
+    // Track each stored baseline. A draft this root adopts may be replaced
+    // or removed; a valid conflicting session draft remains untouched.
     for (const { key: k, value } of records) if (k.startsWith(`${scope}/draft/`)) {
       const id = k.slice(`${scope}/draft/`.length);
       written.set(id, null);
       committed.set(id, JSON.stringify(value));
+      const saved = parseDraft(value);
+      if (saved && saved.sessionId !== null && !drafts.drafts[id] &&
+        (saved.text.length > 0 || saved.attachments.length > 0)) retained.set(id, JSON.stringify(value));
     }
     if (ctx) {
       const activeSession = stores.chat.getState().activeSessionId;
@@ -451,17 +481,20 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (held() !== account) throw new PartitionRefusedError(accountPartition(account));
         if (receipt) {
           if (receipt.textHash !== textHash) throw new Error("This recording was already added with a different transcript");
+          // A previous attempt may have committed before its target rotated.
+          // Finish the published target snapshot before allowing cleanup.
+          await flush();
           return receipt.revision;
         }
         const state = stores.drafts.getState();
-        const target = state.resolveId(draftId);
+        const { draftId: target, sessionId: owner } = state.resolveTarget(draftId, sessionId);
         const current = state.drafts[target];
         const before = current?.text ?? "";
         // Prepare the append in the same snapshot path as ordinary drafts.
         // Publish it to the live composer only after commit: failed writes
         // leave no pending insertion for another root or edit to replay.
         const base: ComposerDraft = current ?? {
-          draftId: target, sessionId, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+          draftId: target, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
           uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
         };
         const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
@@ -472,10 +505,22 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (!disposed) {
           const latest = stores.drafts.getState();
           const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
-          latest.edit(target, sessionId, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
+          latest.edit(target, owner, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
+        }
+        let keptDraft = draft;
+        while (!disposed) {
+          const latest = stores.drafts.getState();
+          const resolved = latest.resolveTarget(target, owner);
+          if (resolved.draftId === keptDraft.draftId && resolved.sessionId === keptDraft.sessionId) break;
+          const redirected = latest.drafts[resolved.draftId];
+          if (!redirected) throw new Error("The draft changed before its accepted transcript was saved");
+          // A Send acknowledgement can retire the identity during the first
+          // commit. Its successor must be durable before audio is removed.
+          await flush({ id, draft: redirected, textHash });
+          keptDraft = redirected;
         }
         if (held() !== account || disposed) throw new PartitionRefusedError(accountPartition(account));
-        return draft.edit;
+        return keptDraft.edit;
       });
       chain = run.then(() => {}, () => {});
       return run;

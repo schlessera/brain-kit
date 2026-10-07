@@ -648,3 +648,81 @@ test("automatic capture termination leaves composer editing focus alone", async 
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeNull(); await wait(100);
   expect(document.activeElement, "automatic stop does not steal editing focus").toBe(field);
 });
+
+for (const operation of ["accept", "snapshot"] as const) {
+  test(`fresh same-scope tabs cannot ${operation} a different draft identity into an occupied session`, async ctx => {
+    const a = fixture(ctx); await a.ready();
+    const b = fixture(ctx); await b.ready(); b.root.recordings!.dispose(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
+    b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+    b.root.recordings = createRecordingStore({ root: b.root, partitions: a.partitions, heldAccountKey: () => b.root.stores.connection.getState().accountKey });
+    await b.root.localWork.restoring();
+    const aId = a.root.stores.drafts.getState().idFor("ithaca"), bId = b.root.stores.drafts.getState().idFor("ithaca");
+    expect(aId, "tabs independently mint their empty session identity").not.toBe(bId);
+    const first = await a.seed(), second = await b.seed("transcript-ready", "Telemachus confirms the route.");
+    await a.root.recordings!.accept(first.partition, first.id, aId, "ithaca");
+    let attempt: Promise<unknown>;
+    if (operation === "accept") attempt = b.root.recordings!.accept(second.partition, second.id, bId, "ithaca");
+    else { b.root.stores.drafts.getState().edit(bId, "ithaca", { text: "The other tab's plan." }); attempt = b.root.localWork.snapshotNow(); }
+    const outcome = await attempt.then(() => null, error => error);
+    expect(outcome, "a different draft identity cannot replace an accepted session transcript").toBeInstanceOf(Error);
+    const c = fixture(ctx); await c.ready(); c.root.localWork!.dispose(); c.root.partitions = a.partitions;
+    c.root.localWork = createLocalWork({ stores: c.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+    await c.root.localWork.restoring(); await c.root.localWork.snapshotNow();
+    expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor("ithaca")]?.text, "reload retains the accepted transcript after its audio was deleted").toBe(TEXT);
+    expect(await b.root.recordings!.get(second.partition, second.id)).toMatchObject({ transcript: "Telemachus confirms the route.", chunkCount: 1 });
+  });
+}
+
+test("restoration never deletes a valid conflicting session draft it did not adopt", async ctx => {
+  const a = fixture(ctx); await a.ready(); const row = await a.seed();
+  const id = a.root.stores.drafts.getState().idFor("ithaca"); await a.root.recordings!.accept(row.partition, row.id, id, "ithaca");
+  const h = a.partitions.open(row.partition); const saved = await h.get(`root:ithaca/draft/${id}`) as Record<string, unknown>;
+  await h.put("root:ithaca/draft/legacy-route", { ...saved, draftId: "legacy-route", text: "Telemachus confirms the route." });
+  const b = fixture(ctx); await b.ready(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
+  b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
+  await b.root.localWork.restoring(); await b.root.localWork.snapshotNow();
+  expect((await h.list("root:ithaca/draft/")).map(r => (r.value as { text: string }).text).sort(), "restore preserves both independently committed session texts").toEqual([TEXT, "Telemachus confirms the route."].sort());
+});
+
+test("delayed Add follows a New chat draft's acknowledged session ownership durably", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed();
+  const drafts = c.root.stores.drafts.getState(), id = drafts.idFor(null);
+  drafts.edit(id, null, { text: "Inspect the harbour." }); await c.root.localWork!.snapshotNow();
+  c.renderTray(); await expand(c);
+  const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:")); ctx.onTestFinished(() => hold.restore());
+  await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea:not([data-composer])")!, "Penelope confirms the fleet."); await hold.started;
+  await tap(button(c.host, "Add transcript"));
+  c.root.stores.drafts.getState().beginSend({ requestId: "harbour-first", draftId: id, sessionId: null, text: "Inspect the harbour.", attachments: [], message: { type: "chat_message", text: "Inspect the harbour.", source: "typed" } }, "Inspect the harbour.");
+  c.root.stores.drafts.getState().accepted("harbour-first", "ithaca");
+  expect(c.root.stores.drafts.getState().drafts[id], "acknowledgement retires the emptied original identity").toBeUndefined();
+  const target = c.root.stores.drafts.getState().resolveId(id); expect(target).not.toBe(id);
+  hold.release(); await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+  expect(await c.partitions.open(row.partition).get(`root:ithaca/draft/${target}`), "acceptance commits the resolved draft with its acknowledged session").toMatchObject({ sessionId: "ithaca", text: "Penelope confirms the fleet." });
+  expect(c.root.stores.drafts.getState().drafts[target]?.sessionId).toBe("ithaca");
+});
+
+for (const failRedirect of [false, true]) {
+  test(`session ownership changing inside the draft commit is durable before cleanup${failRedirect ? " after a retry" : ""}`, async ctx => {
+    const c = fixture(ctx); await c.ready(); const row = await c.seed();
+    const id = c.root.stores.drafts.getState().idFor(null);
+    c.root.stores.drafts.getState().edit(id, null, { text: "Inspect the harbour." }); await c.root.localWork!.snapshotNow();
+    c.renderTray(); await expand(c);
+    const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("root:ithaca/draft/")); ctx.onTestFinished(() => hold.restore());
+    await tap(button(c.host, "Add transcript")); await hold.started;
+    // Isolate acceptance/retry from the ordinary debounced snapshot.
+    const schedule = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: TimerHandler, ms?: number, ...args: unknown[]) => schedule(fn, ms === 250 ? 60000 : ms, ...args)) as typeof setTimeout);
+    c.root.stores.drafts.getState().beginSend({ requestId: "harbour-first", draftId: id, sessionId: null, text: "Inspect the harbour.", attachments: [], message: { type: "chat_message", text: "Inspect the harbour.", source: "typed" } }, "Inspect the harbour.");
+    c.root.stores.drafts.getState().accepted("harbour-first", "ithaca");
+    const target = c.root.stores.drafts.getState().resolveId(id); expect(target).not.toBe(id);
+    const fault = failRedirect ? failIndexedDbWrites({ afterBytes: 0 }) : null; ctx.onTestFinished(() => fault?.restore());
+    hold.release();
+    if (fault) {
+      await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe(ACCEPT_FAILED);
+      expect(await c.root.recordings!.get(row.partition, row.id), "failed redirected commit keeps audio").toMatchObject({ chunkCount: 1 });
+      fault.restore(); await tap(button(c.host, "Add transcript"));
+    }
+    await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+    expect(await c.partitions.open(row.partition).get(`root:ithaca/draft/${target}`), "ownership changed during commit is saved before deleting audio").toMatchObject({ sessionId: "ithaca", text: TEXT });
+  });
+}

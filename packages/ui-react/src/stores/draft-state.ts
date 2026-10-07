@@ -140,6 +140,8 @@ export interface DraftStoreState {
    * work to that session's draft.
    */
   resolveId(draftId: string): string;
+  /** Resolve a late write's identity and session together, including retired drafts. */
+  resolveTarget(draftId: string, sessionId: string | null): { draftId: string; sessionId: string | null };
   /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
   originOf(draftId: string): string;
   /** The root is going: previews no transcript message owns are released. */
@@ -278,6 +280,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       return { id, owner: null };
     }
     const resolve = (draftId: string): string => follow(draftId).id;
+    const resolveTarget = (requested: string, requestedSession: string | null) => {
+      const { id, owner } = follow(requested);
+      const current = get().drafts[id];
+      return { draftId: id, sessionId: current ? current.sessionId : owner ?? requestedSession };
+    };
 
     function held(draftId: string, sends = get().sends): boolean {
       return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
@@ -393,6 +400,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       resolveId: resolve,
+      resolveTarget,
       originOf: (draftId) => origins.get(draftId) ?? draftId,
 
       release() {
@@ -404,8 +412,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
       edit(requested, requestedSession, patch) {
         // Late work for a rotated draft, or one forgotten as its session accepted it.
-        const { id: draftId, owner } = follow(requested);
-        const sessionId = get().drafts[draftId]?.sessionId ?? owner ?? requestedSession;
+        const { draftId, sessionId } = resolveTarget(requested, requestedSession);
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
