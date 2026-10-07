@@ -38,10 +38,21 @@ export const States = meta.story({
   render: (args) => (
     <>
       {queueItems.map((item) => (
-        <QueueItemRow {...args} key={item.subject + item.state} {...item} />
+        <QueueItemRow {...args} link={undefined} key={item.subject + item.state} {...item} />
       ))}
     </>
   ),
+  play: async ({ canvas, canvasElement }) => {
+    const rows = Array.from(canvasElement.querySelectorAll<HTMLElement>('[role="button"]'));
+    await expect(rows).toHaveLength(queueItems.length);
+    for (const [index, item] of queueItems.entries()) {
+      await expect(rows[index]).toHaveTextContent(item.subject);
+      await expect(rows[index]).toHaveTextContent(item.state);
+      if (item.link) await expect(rows[index]).toHaveTextContent(item.link);
+      else await expect(rows[index]).not.toHaveTextContent("waiting on your approval");
+    }
+    await expect(await canvas.findAllByText("waiting on your approval")).toHaveLength(1);
+  },
 });
 
 /** `claimed` is the one state that breathes: an agent is holding a lease. */
