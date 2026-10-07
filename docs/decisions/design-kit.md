@@ -5728,7 +5728,9 @@ extend 8px above and below the frame and never repeat. The track and band
 translate forward, their layout copies counter-translate, all over 2.6s with
 `ease-in-out`. The sum keeps glyphs stationary while the band's left edge moves
 from `−m − band` to `block + m`. A stationary frame clips the moving layers
-8px outside the owning frame, preserving blur bleed without horizontal scroll.
+at the owning frame’s inline edges, with 8px of vertical blur bleed. Its layout
+box never extends sideways, so even a frame at the viewport edge adds no
+horizontal scroll width. Slot blur remains unclipped within that frame.
 The cycle boundary is colour-free; timing is
 tested against this V5 path, not V1's separate per-line paths.
 

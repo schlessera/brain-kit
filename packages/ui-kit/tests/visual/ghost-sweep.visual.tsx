@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { FileRow } from "../../src/rows/FileRow.js";
 import { GhostBand } from "../../src/internal/GhostBand.js";
 import { GhostText } from "../../src/internal/GhostText.js";
 import { commands } from "vitest/browser";
@@ -261,5 +262,21 @@ test("SVG resources stay only in the original frame", async () => {
     expect(host.querySelector("svg image")!.getAttribute("href")).toContain("data:image");
     expect(host.querySelectorAll(".bk-ghost-copy-glyph")).toHaveLength(3);
     expect(host.querySelectorAll(".bk-ghost-copy style, .bk-ghost-copy script, .bk-ghost-copy image")).toHaveLength(0);
+  } finally { flushSync(() => root.unmount()); host.remove(); }
+});
+
+test("a loading frame at the viewport edge adds no document scroll width", async () => {
+  await run(stories.ShortLine);
+  const host = document.createElement("div");
+  host.style.cssText = "position:absolute;right:0;top:100px;width:200px";
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(createElement(FileRow, { view: "loading", kind: "file", label: "omens.md" })));
+    expect(host.querySelectorAll(".bk-ghost-track")).toHaveLength(1);
+    for (const ms of [0, 650, 1300, 1950]) {
+      freeze(ms);
+      expect(document.documentElement.scrollWidth, `document width at ${ms}ms`).toBeLessThanOrEqual(document.documentElement.clientWidth);
+    }
   } finally { flushSync(() => root.unmount()); host.remove(); }
 });

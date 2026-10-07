@@ -1254,7 +1254,7 @@
 }
 .bk-ghost-viewport {
   position: absolute;
-  inset: -8px;
+  inset: -8px 0;
   overflow: clip;
   pointer-events: none;
 }
@@ -1262,8 +1262,8 @@
   position: absolute;
   top: 8px;
   bottom: 8px;
-  left: calc(8px - 0.6em);
-  width: calc(100% - 16px + 1.2em);
+  left: -0.6em;
+  width: calc(100% + 1.2em);
   font-size: 12px;
   container-type: inline-size;
   pointer-events: none;
