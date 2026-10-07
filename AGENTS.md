@@ -186,7 +186,7 @@ on, links to or describes them.
 
 A green test is evidence only if it could have been red. Each of these shapes
 shipped with a green suite. The numbers are the PRs that found them, except
-#192, which is an issue:
+#192 and #974, which are issues:
 
 - **An assertion that is not about the behaviour.** The test for whether pi
   tools load eagerly asserted that `Object.keys(tool)` does *not* contain
