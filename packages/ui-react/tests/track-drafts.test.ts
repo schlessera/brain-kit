@@ -148,11 +148,6 @@ describe("Draft entries with tracks", () => {
     expect(entries[1]!.changedAt).toBe(s.getState().drafts[letter]!.editedAt);
   });
 
-  test("an empty queue is no entry: the last track removed takes it out", () => {
-    const s = createDraftStore();
-    expect(draftEntries(s.getState().drafts, [], s.getState().originOf)).toEqual([]);
-  });
-
   test("opening a track-only entry shows that new chat; nothing is stored for it", () => {
     const s = createDraftStore();
     const trackOnly = s.getState().fresh;

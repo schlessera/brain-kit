@@ -2229,6 +2229,43 @@ describe("SessionDrawer recovery", () => {
     expect(view.getByText("Saved conversation")).toBeTruthy();
     expect(view.getByRole("status").textContent).toContain("Could not refresh sessions");
   });
+
+  test("staged tracks join a new chat's Draft entry or are one, failed before uploading before this tab (#1112)", async () => {
+    const uploads: Array<(response: Response) => void> = [];
+    const root = createBrainUiRoot({ storage: null, request: async (url) => {
+      if (url.endsWith("/track-upload")) return new Promise<Response>((resolve) => uploads.push(resolve));
+      return Response.json({ sessions: [] });
+    } });
+    const gpx = (name: string) => new File(["{}"], name, { type: "application/octet-stream" });
+    const drafts = root.stores.drafts.getState();
+    // A mixed draft: words, one track the host refused, one still uploading.
+    const routes = drafts.fresh;
+    drafts.edit(routes, null, { text: "Compare day 3 and day 4 routes" });
+    tracksFor(root, trackKey(null, routes)).uploads.add([gpx("day-3.gpx"), gpx("day-4.gpx")]);
+    // Later, a new chat holding only a track, still uploading: listed first.
+    await Bun.sleep(5);
+    drafts.newChat();
+    const pylos = root.stores.drafts.getState().fresh;
+    tracksFor(root, trackKey(null, pylos)).uploads.add([gpx("pylos.gpx")]);
+    const view = render(<BrainUiProvider root={root}><SessionDrawer open onClose={() => {}} onResume={() => {}} /></BrainUiProvider>);
+    try {
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const rows = () => [...view.baseElement.querySelectorAll<HTMLElement>("[data-draft-row] [role=\"button\"]")].map((el) => el.getAttribute("aria-label"));
+      expect(rows()).toEqual([
+        "Draft: Draft with 1 track file, uploading 1 track. Open draft.",
+        "Draft: Compare day 3 and day 4 routes, not saved yet, uploading 2 tracks. Open draft.",
+      ]);
+      await act(async () => { uploads[0]!(Response.json({ error: "unsupported_track" }, { status: 422 })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const row = (title: string) => rows().find((name) => name?.startsWith(`Draft: ${title},`));
+      expect(rows()[0], "the newest change first").toMatch(/^Draft: Compare/);
+      expect(row("Compare day 3 and day 4 routes"), "a failed upload wins").toBe("Draft: Compare day 3 and day 4 routes, not saved yet, 1 track failed. Open draft.");
+      expect(view.baseElement.textContent).toContain("draft · not saved yet · 1 track failed");
+      await act(async () => { uploads[2]!(Response.json({ files: [trackView().file] })); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(row("Draft with 1 track file"), "ready: where it lives").toBe("Draft: Draft with 1 track file, tracks in this tab only. Open draft.");
+      expect(view.baseElement.textContent).toContain("draft · tracks in this tab only");
+      expect(view.baseElement.textContent).not.toMatch(/track[^·]*saved|saved[^·]*track/);
+    } finally { view.unmount(); root.dispose(); }
+  });
 });
 
 

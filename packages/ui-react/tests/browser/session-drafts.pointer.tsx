@@ -591,7 +591,8 @@ for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of TH
 
     // New conversation in Sessions: the drawer's, or the pane's, which a staged track makes available.
     await openSessions(s, mode);
-    const start = await must(s, "New conversation");
+    // Found by its word whatever it prints under it, so the disabled state is what is judged.
+    const start = await must(s, /^New conversation/);
     expect(start.closest('[aria-disabled="true"]'), "a staged track is not an empty chat").toBeNull();
     await press(s, start, mode);
     await expect.poll(() => removeTrack(), { message: "the new chat opens without the track" }).toBeNull();
