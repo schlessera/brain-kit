@@ -233,6 +233,64 @@ test("a quota failure after a byte threshold fails every later write", async (ct
   expect(quota.bytesWritten).toBeGreaterThan(0);
 });
 
+/** A raw database with one `notes` store keyed by `id`, removed when the test ends. */
+async function notesDb(ctx: TestContext): Promise<IDBDatabase> {
+  const name = `odysseus-notes-${crypto.randomUUID()}`;
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("notes", { keyPath: "id" });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  ctx.onTestFinished(() => { db.close(); void indexedDB.deleteDatabase(name); });
+  return db;
+}
+/** One readwrite transaction; resolves with how it ended. */
+function transact(db: IDBDatabase, op: (store: IDBObjectStore) => void): Promise<string> {
+  return new Promise((resolve) => {
+    const tx = db.transaction("notes", "readwrite");
+    tx.oncomplete = () => resolve("complete");
+    tx.onabort = () => resolve(`abort:${tx.error?.name}`);
+    op(tx.objectStore("notes"));
+  });
+}
+const notes = (db: IDBDatabase) =>
+  new Promise<string[]>((resolve) => {
+    const req = db.transaction("notes").objectStore("notes").getAllKeys();
+    req.onsuccess = () => resolve((req.result as string[]).sort());
+  });
+
+test("a quota failure lets a transaction queue all its writes, then aborts it whole", async (ctx) => {
+  const db = await notesDb(ctx);
+  const quota = failIndexedDbWrites({ next: true });
+  ctx.onTestFinished(() => quota.restore());
+  const thrown: string[] = [];
+
+  const ended = await transact(db, (store) => {
+    for (const id of ["chunk-1", "chunk-2", "index"]) {
+      try { store.put({ id }); } catch (error) { thrown.push((error as DOMException).name); }
+    }
+  });
+  expect(ended).toBe("abort:QuotaExceededError");
+  expect(thrown, "a real full disk refuses at commit, not at the second put").toEqual([]);
+  expect(await notes(db)).toEqual([]);
+});
+
+test("a write that never commits gives its bytes back to the threshold", async (ctx) => {
+  const db = await notesDb(ctx);
+  // About 214 estimated bytes each: two fit under 500, three do not.
+  const note = (id: string) => ({ id, text: "x".repeat(100) });
+  const quota = failIndexedDbWrites({ afterBytes: 500 });
+  ctx.onTestFinished(() => quota.restore());
+
+  expect(await transact(db, (s) => s.add(note("a")))).toBe("complete");
+  // A duplicate key: the transaction aborts and stores nothing.
+  expect(await transact(db, (s) => s.add(note("a")))).toBe("abort:ConstraintError");
+  expect(await transact(db, (s) => s.add(note("b")))).toBe("complete");
+  expect(await notes(db)).toEqual(["a", "b"]);
+  expect(quota.failures).toBe(0);
+});
+
 const scene = new URL("./offline/scenes/answer-store.scene.ts", import.meta.url);
 
 test("a reload relaunches the page after its unload handlers ran, and committed storage survives", { timeout: 30_000 }, async (ctx) => {

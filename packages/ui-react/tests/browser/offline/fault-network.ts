@@ -10,7 +10,7 @@
  *   on its own schedule, exactly as after a real outage.
  * - `expireAuth()`: the probe and every request answer 401, open sockets close
  *   with 1008 (the host's expiry and revocation close:
- *   `SESSION_EXPIRED_CLOSE_CODE`, `packages/ui-server/src/ws/host.ts:38`;
+ *   `SESSION_EXPIRED_CLOSE_CODE`, `packages/ui-server/src/ws/host.ts:45`;
  *   `SESSION_REVOKED_CLOSE_CODE`, `packages/ui-server/src/middleware/auth.ts:66`),
  *   and new sockets fail their handshake, as an upgrade without a session does.
  *

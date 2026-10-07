@@ -74,13 +74,19 @@ export const offlineScene: BrowserCommand<[SceneOp], unknown> = async (ctx, requ
       `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="scene"></div><script type="module" src="${encodeURI(request.module)}"></script></body></html>`,
     );
     const context = await browser.newContext({ reducedMotion: "reduce" });
-    await context.route(`${origin}${path}`, (route) => route.fulfill({ contentType: "text/html", body: html }));
-    const s = { context, url: `${origin}${path}` } as Scene;
-    await attach(s, await context.newPage());
-    scenes.set(id, s);
-    await s.page.goto(s.url);
-    await registered(s.page);
-    return id;
+    try {
+      await context.route(`${origin}${path}`, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      const s = { context, url: `${origin}${path}` } as Scene;
+      await attach(s, await context.newPage());
+      await s.page.goto(s.url);
+      await registered(s.page);
+      scenes.set(id, s);
+      return id;
+    } catch (error) {
+      // The caller gets no handle to close, so a failed launch closes itself.
+      await context.close().catch(() => {});
+      throw error;
+    }
   }
   const s = scene(request.id);
   switch (request.op) {
