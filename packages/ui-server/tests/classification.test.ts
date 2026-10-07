@@ -16,7 +16,6 @@ import { CONFIDENCE, questionsFor } from "../../ui-sdk/src/classification/catalo
 import { planClassification } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
 import {
-  CONFIDENCE_RETENTION_MS,
   JEV_ENDPOINT,
   JEV_TIMEOUT_MS,
   TurnTextCollector,
@@ -236,16 +235,29 @@ describe("the breaker", () => {
     expect(client.breaker().retryAt).toBe(clock.t + 30_000);
   });
 
-  test("timeouts, rate limits and bad responses count; a missing key does not", async () => {
-    const clock = { t: 0 };
-    const rateLimited = createJevClient({ apiKey: "k", now: () => clock.t, fetch: async () => jsonResponse({}, 429) });
-    for (let i = 0; i < 3; i++) expect((await rateLimited.classify(req)).outcome).toBe("rate_limited");
-    expect(rateLimited.breaker().open).toBe(true);
+  for (const outcome of ["timeout", "rate_limited", "bad_response"] as const) {
+    test(`three ${outcome} results open the breaker`, async () => {
+      const client = createJevClient({
+        apiKey: "k", now: () => 0, timeoutMs: 40,
+        fetch: (_url, init) => {
+          if (outcome === "rate_limited") return Promise.resolve(jsonResponse({}, 429));
+          if (outcome === "bad_response") return Promise.resolve(new Response("not JSON"));
+          return new Promise<Response>((_resolve, reject) => {
+            init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+          });
+        },
+      });
+      for (let i = 0; i < 3; i++) expect((await client.classify(req)).outcome).toBe(outcome);
+      expect(client.breaker()).toEqual({ open: true, consecutiveFailures: 3, retryAt: 30_000 });
+    });
+  }
 
-    const noKey = createJevClient({ apiKey: null, now: () => clock.t, fetch: async () => jsonResponse({}) });
+  test("a missing key does not count toward opening the breaker", async () => {
+    const noKey = createJevClient({ apiKey: null, now: () => 0, fetch: async () => jsonResponse({}) });
     for (let i = 0; i < 5; i++) await noKey.classify(req);
     expect(noKey.breaker().open).toBe(false);
   });
+
 });
 
 describe("the text collector mirrors the client's parts", () => {
@@ -671,7 +683,7 @@ describe("the confidence record", () => {
       outcome: "swapped" as const,
     };
     const now = Date.now();
-    recordQuestionConfidence(db, "s-old", [observation], now - CONFIDENCE_RETENTION_MS - 1);
+    recordQuestionConfidence(db, "s-old", [observation], now - 30 * 24 * 60 * 60 * 1000 - 1);
     recordQuestionConfidence(db, "s-recent", [observation], now - 1000);
     expect(rows()).toHaveLength(2);
     // The next write prunes what has aged out.
