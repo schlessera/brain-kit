@@ -291,7 +291,7 @@ const runs: Run[] = [
 const wide = (run: Run) => (run.options.viewport?.width ?? 0) >= 1280;
 const phone = (run: Run) => (run.options.viewport?.width ?? 0) < 480;
 
-type Device = { context: BrowserContext; page: Page; dialogs: string[] };
+type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[] };
 async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -304,12 +304,15 @@ async function device(run: Run, opts: { clock?: boolean } = {}): Promise<Device>
   // A page clock the test can move forward; it runs in real time otherwise.
   if (opts.clock) await page.clock.install();
   const dialogs: string[] = [];
+  // Every socket the page opens, so a reconnect is observed rather than inferred.
+  const sockets: string[] = [];
+  page.on("websocket", (ws) => sockets.push(ws.url()));
   // A native confirm, alert or prompt is recorded and refused: none may appear.
   page.on("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
   await page.goto(origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
-  return { context, page, dialogs };
+  return { context, page, dialogs, sockets };
 }
 
 /** A real tap under a coarse pointer, a real click otherwise; Playwright waits until the control is at rest (#992). */
@@ -607,8 +610,12 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         }
 
         // A dropped connection: the same six, still unfinished.
+        const opened = a.sockets.length;
         await dropConnections();
-        await until(a.page, "!p.connected()", 10_000).catch(() => undefined);
+        // The page notices and opens a new socket to the host.
+        const end = Date.now() + 30_000;
+        while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
+        expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
         await until(a.page, "p.connected()", 30_000);
         await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
         for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
