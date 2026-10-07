@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import { createConnectionStore } from "../src/stores/connection-state.js";
 import { useConnectionStore } from "../src/stores/connection-store";
 
 beforeEach(() => {
@@ -13,11 +14,15 @@ beforeEach(() => {
 
 describe("connection store", () => {
   test("initial state", () => {
-    const state = useConnectionStore.getState();
+    const state = createConnectionStore().getState();
     expect(state.wsStatus).toBe("disconnected");
     expect(state.vpnStatus).toBe("checking");
     expect(state.handshakeFailures).toBe(0);
     expect(state.lastCloseCode).toBeNull();
+    expect(state.socketOpens).toBe(0);
+    expect(state.lastError).toBeNull();
+    expect(state.chatRequestAck).toBe(false);
+    expect(state.followUpQueue).toBe(false);
   });
 
   test("setWsStatus updates WebSocket status", () => {
