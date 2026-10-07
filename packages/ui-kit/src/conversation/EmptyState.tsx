@@ -24,7 +24,7 @@ export interface EmptyStateProps {
   variant?: EmptyVariant;
   title?: string;
   body?: string;
-  /** The quiet mono line under the body — evidence that the emptiness is real. */
+  /** Quiet evidence below the body. Only caught_up has an example default. */
   meta?: string;
   primaryLabel?: string;
   primaryIcon?: IconName;
@@ -76,12 +76,13 @@ const MEDALLION_BORDERS: Record<EmptyTone, string> = {
   neutral: token("medallion-border-neutral"),
 };
 
-const VARIANTS: Record<EmptyVariant, { icon: IconName; tone: EmptyTone; title: string; body: string }> = {
+const VARIANTS: Record<EmptyVariant, { icon: IconName; tone: EmptyTone; title: string; body: string; meta?: string }> = {
   caught_up: {
     icon: "resolved",
     tone: "teal",
     title: "Nothing is waiting on you",
     body: "Everything that came in overnight has been filed or answered. Brain keeps working and will escalate here if it gets stuck.",
+    meta: "last escalation 4m ago · 41 resolved this week",
   },
   "no-results": {
     icon: "search",
@@ -119,6 +120,7 @@ export function EmptyState(p: EmptyStateProps) {
   const v = VARIANTS[p.variant || "caught_up"] || VARIANTS.caught_up;
   const tone = p.tone || v.tone;
   const ink = INKS[tone] || INKS.neutral;
+  const meta = p.meta ?? v.meta;
 
   const box: CSSProperties = {
     display: "flex",
@@ -171,11 +173,11 @@ export function EmptyState(p: EmptyStateProps) {
       >
         {p.body ?? v.body}
       </div>
-      {(p.meta ?? "last escalation 4m ago · 41 resolved this week") ? (
+      {meta ? (
         <div
           style={{ marginTop: 10, font: `500 10px/1.4 ${font.mono}`, color: accent.neutral.ink }}
         >
-          {p.meta ?? "last escalation 4m ago · 41 resolved this week"}
+          {meta}
         </div>
       ) : null}
       {p.primaryLabel ? (
