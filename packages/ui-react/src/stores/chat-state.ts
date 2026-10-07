@@ -585,7 +585,13 @@ function keepDrawnMessages(next: ChatMessage[], previous: SessionChat): Pick<Ses
     if (!old || old.role !== m.role) return m;
     const live = previous.isStreaming && old.isStreaming === true && m.role === "assistant";
     const same = old.content === m.content || (live && (m.content.startsWith(old.content) || old.content.startsWith(m.content)));
-    if (!same) return m;
+    // Text alone does not make it the same message: a tool-only answer has
+    // none, and its cards keep state. A known turn or request must agree.
+    const shared = Math.min(old.toolCalls.length, m.toolCalls.length);
+    const sameTools = old.toolCalls.slice(0, shared).every((t, k) => t.id === m.toolCalls[k]!.id)
+      && (live || old.toolCalls.length === m.toolCalls.length);
+    const sameTurn = !old.turnId || !m.turnId || old.turnId === m.turnId;
+    if (!same || !sameTools || !sameTurn) return m;
     if (live && i === lastAssistant) {
       streaming = true;
       return { ...m, id: old.id, timestamp: old.timestamp, isStreaming: true };

@@ -55,8 +55,12 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
     update(track.id, { state: "uploading", error: undefined, unanswered: undefined });
     const form = new FormData();
     form.append("files", track.file, track.file.name);
+    // Whether the host answered at all: only a request that never got an
+    // answer is the network's failure; anything after it is the host's.
+    let answered = false;
     try {
       const response = await request(`${apiBase}/track-upload`, { method: "POST", body: form, signal: controller.signal });
+      answered = true;
       if (controller.signal.aborted || !files.some(file => file.id === track.id)) return;
       update(track.id, { state: "parsing" });
       const body = await response.json() as { files?: unknown[]; error?: string; message?: string };
@@ -72,7 +76,7 @@ export function createTrackUploads(request: BrainUiRoot["request"], apiBase: str
       if (!parsed.success || !parsed.data.detected || !parsed.data.summary) throw new Error("invalid_track_response");
       update(track.id, { state: "ready", meta: parsed.data });
     } catch {
-      if (!controller.signal.aborted) update(track.id, { state: "failed", error: "Upload failed: the host didn't answer. Retry when connected.", unanswered: true });
+      if (!controller.signal.aborted) update(track.id, { state: "failed", error: "Upload failed: the host didn't answer. Retry when connected.", unanswered: !answered || undefined });
     } finally {
       running.delete(track.id);
       pump();

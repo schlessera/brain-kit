@@ -127,6 +127,26 @@ describe("a history replay of a transcript already drawn", () => {
     expect(buffer(root).isStreaming).toBe(false);
   });
 
+  test("a tool-only answer replaced by another request's is a different message, though neither has text", () => {
+    const { root } = running();
+    const chat = root.stores.chat.getState();
+    chat.finishAssistantMessage("s1");
+    const ask = (id: string) => ({ id, name: "mcp__brain-ui__ask_user_rank", input: { prompt: "Order raft supplies", items: [{ id: "rope", label: "Rope" }] } });
+    const replay = (id: string, turnId: string) => root.connection.handleServerMessage({ type: "session_history", sessionId: "s1", messages: [
+      { role: "user", content: "Hold: Sail past the Sirens", toolCalls: [] },
+      { role: "assistant", content: "", toolCalls: [ask(id)], parts: [{ kind: "tool", toolIndex: 0 }], turnId } as never,
+    ] });
+    replay("rank-1", "turn-1");
+    const first = buffer(root).messages[1]!.id;
+    replay("rank-1", "turn-1");
+    expect(buffer(root).messages[1]!.id, "the same request is the same message").toBe(first);
+    replay("rank-2", "turn-1");
+    expect(buffer(root).messages[1]!.id, "another request is another message").not.toBe(first);
+    const second = buffer(root).messages[1]!.id;
+    replay("rank-2", "turn-2");
+    expect(buffer(root).messages[1]!.id, "another turn is another message").not.toBe(second);
+  });
+
   test("a replay of a session that was not streaming does not start one", () => {
     const { root } = running();
     root.stores.chat.getState().finishAssistantMessage("s1");

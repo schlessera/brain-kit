@@ -66,6 +66,20 @@ test("an upload that fails in transit just before the connection goes waits and 
   } finally { queue.dispose(); }
 });
 
+test("an answer the page cannot read is still the host's answer: a drop does not resend it (#1013)", async () => {
+  let count = 0;
+  const queue = createTrackUploads(async () => { count++; return new Response("Payload Too Large", { status: 413 }); }, "/api", () => {});
+  try {
+    queue.add([original()]);
+    await settle(() => queue.files[0]?.state === "failed");
+    queue.setOnline(false);
+    queue.setOnline(true);
+    await Bun.sleep(2);
+    expect(queue.files[0]!.state).toBe("failed");
+    expect(count).toBe(1);
+  } finally { queue.dispose(); }
+});
+
 test("two concurrent uploads respect mixed-message count, byte and parser limits before upload", async () => {
   expect(TRACK_MAX_BYTES).toBe(MAX_ROUTE_BYTES);
   let count = 0; const held = deferred<Response>();
