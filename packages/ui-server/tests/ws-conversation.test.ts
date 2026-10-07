@@ -13,7 +13,6 @@ import { createUiDb } from "../src/db/client";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
 import { WsHost } from "../src/ws/host";
-import { MAX_CONVERSATION_RECEIPTS } from "../src/ws/conversation";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
@@ -451,20 +450,20 @@ describe("every exit settles, and nothing outgrows its bound", () => {
     const s = setup({ holdReturns: true });
     const client = await s.connect();
     const conversation = await client.open();
-    for (let i = 0; i < MAX_CONVERSATION_RECEIPTS; i++) {
+    for (let i = 0; i < 64; i++) {
       await client.speak(conversation, `u${i}`, `Count jar ${i}`);
       client.commit(conversation, `u${i}`, `r${i}`, `Count jar ${i}`);
       await until(() => s.turns.length === i + 1);
       s.turns[i]!.answer(`Jar ${i} is full.`);
       await until(() => client.last(`r${i}`).state === "completed");
     }
-    expect(conversation.session.returned).toHaveLength(MAX_CONVERSATION_RECEIPTS);
+    expect(conversation.session.returned).toHaveLength(64);
     await client.speak(conversation, "u-over", "Count one more");
     client.commit(conversation, "u-over", "r-over", "Count one more");
     await until(() => client.receipts("r-over").length > 0);
     expect(client.last("r-over")).toMatchObject({ state: "refused", delivery: "discarded" });
     await settle();
-    expect(s.turns).toHaveLength(MAX_CONVERSATION_RECEIPTS);
+    expect(s.turns).toHaveLength(64);
   }, 20_000);
 });
 
@@ -487,20 +486,24 @@ describe("second review pass: identity, resync and retry", () => {
     const s = setup();
     const client = await s.connect();
     const conversation = await client.open();
-    for (let i = 0; i <= MAX_CONVERSATION_RECEIPTS; i++) {
+    for (let i = 0; i <= 64; i++) {
       await client.speak(conversation, `u${i}`, `Count jar ${i}`);
       client.commit(conversation, `u${i}`, `r${i}`, `Count jar ${i}`);
       await until(() => s.turns.length === i + 1);
       s.turns[i]!.answer(`Jar ${i} is full.`);
       await until(() => client.last(`r${i}`).delivery === "returned");
     }
-    await client.speak(conversation, "u-again", "Count jar 0");
+    const resumed = await client.open({ conversationId: conversation.id });
+    expect(client.sinceOpened("conversation_work").map((receipt) => receipt.requestId)).toEqual(
+      Array.from({ length: 64 }, (_, index) => `r${index + 1}`)
+    );
+    await client.speak(resumed, "u-again", "Count jar 0");
     const before = client.receipts("r0").length;
-    client.commit(conversation, "u-again", "r0", "Count jar 0");
+    client.commit(resumed, "u-again", "r0", "Count jar 0");
     await until(() => client.receipts("r0").length > before);
     expect(client.last("r0")).toMatchObject({ state: "refused", reason: "That request id was already used in this conversation." });
     await settle();
-    expect(s.turns).toHaveLength(MAX_CONVERSATION_RECEIPTS + 1);
+    expect(s.turns).toHaveLength(64 + 1);
   }, 20_000);
 
   test("every retained receipt is resent whole, one frame each, at the largest recognized size", async () => {
@@ -512,7 +515,7 @@ describe("second review pass: identity, resync and retry", () => {
     const long = "ἀ".repeat(1_900);
     for (let i = 0; i < 12; i++) {
       await client.speak(first, `u${i}`, long);
-      client.commit(first, `u${i}`, `r${i}`, "ἀ".repeat(CONVERSATION_LIMITS.maxCommitChars));
+      client.commit(first, `u${i}`, `r${i}`, "ἀ".repeat(8_000));
       await until(() => s.turns.length === i + 1);
       s.turns[i]!.answer("ok");
       await until(() => client.last(`r${i}`).delivery === "returned");
@@ -522,8 +525,14 @@ describe("second review pass: identity, resync and retry", () => {
     expect(resent).toHaveLength(12);
     for (const receipt of resent) {
       expect(receipt.recognized).toBe(long);
-      expect(receipt.submitted.length).toBe(CONVERSATION_LIMITS.maxCommitChars);
+      expect(receipt.submitted).toBe("ἀ".repeat(8_000));
     }
+    const resumed = { id: first.id, epoch: 2, session: s.live.sessions.at(-1)! };
+    await client.speak(resumed, "u-over", "One more character");
+    client.commit(resumed, "u-over", "r-over", "ἀ".repeat(8_001));
+    await settle();
+    expect(client.frames("error").at(-1)?.code).toBe("PARSE_ERROR");
+    expect(s.turns).toHaveLength(12);
   }, 20_000);
 
   test("recognized text beyond the per-utterance bound closes the epoch instead of being clipped", async () => {
@@ -640,11 +649,29 @@ describe("third review pass: failure, metering and teardown", () => {
 });
 
 describe("fourth review pass: identities outlive retention", () => {
+  test("sixteen uncommitted utterances fit; a seventeenth closes capture", async () => {
+    const s = setup();
+    const client = await s.connect();
+    const conversation = await client.open();
+    for (let index = 0; index < 16; index++) {
+      await client.speak(conversation, `u${index}`, `Count fold ${index}`);
+    }
+    expect(conversation.session.audio).toHaveLength(16);
+    expect(client.frames("conversation_closed")).toEqual([]);
+    client.send({ type: "conversation_audio", conversationId: conversation.id, epoch: 1,
+      utteranceId: "u-over", sequence: 16, rate: 16_000, pcm: SILENCE });
+    await settle();
+    expect(client.frames("conversation_closed")).toEqual([
+      expect.objectContaining({ reason: "backpressure" }),
+    ]);
+    expect(conversation.session.audio).toHaveLength(16);
+  });
+
   test("an evicted committed utterance cannot come back as new input and run again", async () => {
     const s = setup();
     const client = await s.connect();
     const conversation = await client.open();
-    for (let i = 0; i <= CONVERSATION_LIMITS.maxUtterances; i++) {
+    for (let i = 0; i <= 16; i++) {
       await client.speak(conversation, `u${i}`, `Count the goats in fold ${i}`);
       client.commit(conversation, `u${i}`, `r${i}`, `Count the goats in fold ${i}`);
       await until(() => s.turns.length === i + 1);
@@ -652,10 +679,10 @@ describe("fourth review pass: identities outlive retention", () => {
       await until(() => client.last(`r${i}`).state === "completed");
     }
     // u0's fragments were evicted to make room; its identity was not.
-    client.send({ type: "conversation_audio", conversationId: conversation.id, epoch: 1, utteranceId: "u0", sequence: CONVERSATION_LIMITS.maxUtterances + 1, rate: 16_000, pcm: SILENCE });
+    client.send({ type: "conversation_audio", conversationId: conversation.id, epoch: 1, utteranceId: "u0", sequence: 16 + 1, rate: 16_000, pcm: SILENCE });
     await settle();
     expect(client.frames("conversation_closed")[0]).toMatchObject({ reason: "correlation" });
-    expect(s.turns).toHaveLength(CONVERSATION_LIMITS.maxUtterances + 1);
+    expect(s.turns).toHaveLength(16 + 1);
   }, 20_000);
 
   test("a native request naming an utterance whose result already went out receives that result with its handle", async () => {
