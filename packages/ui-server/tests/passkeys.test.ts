@@ -20,7 +20,7 @@ import {
   type RecordingObservability,
 } from "../src/observability/index";
 import { ClientSet } from "../src/ws/clients";
-import { createPrincipal, MAX_LIVE_PRINCIPALS } from "../src/db/principals";
+import { createPrincipal } from "../src/db/principals";
 
 const PASSWORD = "correct horse battery staple";
 let HASH = "";
@@ -515,7 +515,7 @@ describe("login-verify", () => {
   test("the live-principal cap returns 503 after valid passkey verification", async () => {
     const app = fullApp({ verifyAuthenticationResponse: verifiedAuth() });
     seedCredential();
-    for (let index = 0; index < MAX_LIVE_PRINCIPALS; index++) {
+    for (let index = 0; index < 100; index++) {
       createPrincipal(getDb(), {
         authMethod: "password",
         label: `Existing device ${index}`,
@@ -533,7 +533,7 @@ describe("login-verify", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(getDb().query("SELECT COUNT(*) AS count FROM principals").get()).toEqual({
-      count: MAX_LIVE_PRINCIPALS,
+      count: 100,
     });
   });
 
