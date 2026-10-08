@@ -13,7 +13,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     "packages/core/src/cli/commands/import.ts", "packages/core/src/lib/frontmatter-edit.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/indexer/caches.ts",
     "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts", "packages/core/src/lib/jev.ts",
     "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts", "packages/core/src/providers/agents/claude-binary.ts",
-    "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
+    "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "packages/ui-kit/fixtures/README.md", "scripts/measure-sonnet55-cost.ts",
     ...readdirSync(join(root, "scripts/evals/import-enrichment")).sort().map(name => `scripts/evals/import-enrichment/${name}`),
     ...readdirSync(join(root, "tests")).filter(n => n.startsWith("import-enrichment") && n.endsWith(".test.ts")).sort().map(n => `tests/${n}`)];
   const direct = allDirect.filter(path => !path.startsWith("packages/core/src/"));

@@ -22,6 +22,12 @@ for (const mode of ["combined", "classification", "hybrid"] as const) test.each(
     assertEffects(before, observe(env.root), env.settings, result.written);
     for (const request of env.requests.filter(r => r.kind !== "summary")) {
       const input = request.input as any; expect(input.untrusted_note.length).toBeGreaterThan(200); expect(input.typeDefinitions).toEqual(env.settings.typeDefinitions); expect(input.tagDefinitions).toEqual(definitions.tags);
+      if (c.id === "held-escort") {
+        expect(input.untrusted_note).toContain("Recovered complete archival letter, written before the Thrinacia loss.");
+        expect(input.untrusted_note).toContain("not a delivery on 2026-07-12");
+        expect(input.untrusted_note).not.toContain("this morning");
+        expect(readFileSync(join(env.root, env.path), "utf8")).toContain("date is unknown");
+      }
       expect(JSON.stringify(input)).not.toContain(c.id); expect(JSON.stringify(input)).not.toContain('"split"');
     }
     const after = observe(env.root), calls = env.requests.length, repeat = await execute(env);
