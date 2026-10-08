@@ -8,6 +8,7 @@ import type { Browser } from "playwright";
 import { awaitFonts, capturePage, inspectPng, visibleText } from "./browser.ts";
 import type { Catalogue, Viewport } from "./catalogue.ts";
 import { sha256,variantFile } from "./provenance.ts";
+import { refreshRuntimeLinkPaint } from "./runtime-paint.ts";
 
 type Harness = Catalogue["harness_requirements"][number];
 
@@ -40,6 +41,7 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
         await page.evaluate((theme)=>{document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle("dark",theme==="dark");},theme);
         const fonts=await awaitFonts(page,catalogue);
         const save = async (name:string,required:string[],fullPage=false) => {
+          await refreshRuntimeLinkPaint(page);
           const clip = await page.evaluate((full)=>({ x:0,y:0,width:innerWidth,height:full?Math.max(document.documentElement.scrollHeight,innerHeight):innerHeight }),fullPage);
           const missing = await visibleText(page,"body",required,clip,true);
           if(missing.length)throw new Error(`Runtime text is missing or clipped: ${missing.join(", ")}`);

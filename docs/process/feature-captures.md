@@ -37,6 +37,14 @@ bun run captures --id approval-roundtrip --theme light --viewport 600x1000
 bun run capture:verify
 ```
 
+Runtime screenshots first materialize and rebuild file-link fragments, restoring
+their final styles and rejecting changed content or geometry before the existing
+visibility and three-identical-frame checks. This editorial preparation handles
+the controlled [native paint-history difference](../decisions/approval-capture-raster.md).
+`capture:verify` additionally compares actual approval effects, history and exact
+PNGs across both controlled paint histories; its `paint-history/` artifacts retain
+the native measurements and original screenshots.
+
 `--out` selects a dedicated empty or previously managed output directory.
 `--font-cache` selects the same prepared cache for preparation, generation and
 verification. A theme override changes the filename; a viewport override adds
