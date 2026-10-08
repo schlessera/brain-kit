@@ -564,7 +564,8 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
     await tap(button(c.host, "Record on this device"));
     await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
-    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0).toBeGreaterThanOrEqual(1000);
+    // The real MediaRecorder emits one-second chunks; allow dispatch and the native commit beyond that interval.
+    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0, { timeout: 5000, message: "a real audio chunk commits before the automatic-stop race" }).toBeGreaterThanOrEqual(1000);
     const row = (await c.root.recordings!.list("account:odysseus"))[0]!;
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
