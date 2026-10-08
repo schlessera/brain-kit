@@ -335,7 +335,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   function acceptedTracks(send: DraftSend, sessionId: string | undefined) {
     if (send.tracks) removeTracks(root, send.tracks.key, send.tracks.ids);
     if (send.sessionId === null && sessionId) {
-      const origin = drafts.getState().originOf(send.draftId);
+      const origin = drafts.getState().originOf(drafts.getState().sendDraftId(send.requestId) ?? send.draftId);
       moveTracks(root, trackKey(null, origin), trackKey(sessionId, origin));
     }
   }
@@ -378,7 +378,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   // Changes to a draft's content schedule its save.
   const unsubscribeDrafts = drafts.subscribe((state, prev) => {
     for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
-      for (const source of Object.keys(prev.drafts)) if (state.resolveId(source) === id) {
+      for (const source of Object.keys(prev.drafts)) if (state.resolveId(source) === id || (source === d.deviceConflict.otherId && state.drafts[source] !== prev.drafts[source])) {
         deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
         bumpHost(source);
       }

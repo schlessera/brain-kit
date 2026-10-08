@@ -197,6 +197,8 @@ export interface LocalWorkOptions {
    * not go on under the second. Reloads by default.
    */
   onAccountSwitch?: () => void;
+  /** @internal Resume the conversation selected by a cold tab's own context. */
+  onSessionRestore?: (sessionId: string) => void;
 }
 
 const memoryWriteLocks = new Map<string, Promise<void>>();
@@ -492,8 +494,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     if (!ctx) ctx = parseContext(records.find(r => r.key === sharedContextKey)?.value);
     // Shared navigation is only a fallback. A cold tab resumes its own
     // committed view unless the reader already navigated or started typing.
+    let restoredSession = false;
     if (ctx && (warm || (ownContext && stores.chat.getState().activeSessionId === initialSession &&
-      !Object.values(stores.drafts.getState().drafts).some(hasContent)))) stores.chat.getState().setActiveSession(ctx.sessionId);
+      !Object.values(stores.drafts.getState().drafts).some(hasContent)))) {
+      restoredSession = !warm && ctx.sessionId !== initialSession;
+      stores.chat.getState().setActiveSession(ctx.sessionId);
+    }
     stores.drafts.getState().restoreLocal(kept);
     if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
     const drafts = stores.drafts.getState();
@@ -543,6 +549,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     partition = handle;
     bound = key;
+    if (restoredSession && ctx?.sessionId !== null && ctx?.sessionId !== undefined) options.onSessionRestore?.(ctx.sessionId);
     // Anything that changed while the restore was out is written now.
     changed();
     return ctx !== null;

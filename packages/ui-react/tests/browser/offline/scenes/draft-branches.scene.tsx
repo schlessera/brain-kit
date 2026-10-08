@@ -3,6 +3,7 @@ import { BrainUiProvider } from "../../../../src/root-context.js";
 import { ChatPage } from "../../../../src/components/chat/chat-page.js";
 import { createBrainUiRoot } from "../../../../src/root.js";
 import { createLocalWork } from "../../../../src/lib/local-work.js";
+import { tracksFor, trackKey } from "../../../../src/lib/draft-tracks.js";
 import { createLocalPartitions } from "../../../../src/lib/local-partitions.js";
 import { defineScene } from "../define-scene.ts";
 import { installFaultNetwork } from "../fault-network.ts";
@@ -121,6 +122,9 @@ async function settled() {
   }
   throw new Error("entrances did not settle");
 }
+let imageHeld = false;
+let releaseImage = () => {};
+let imageDone = false;
 let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
@@ -155,6 +159,70 @@ defineScene({
     await wait(0);
     field().focus();
     field().setSelectionRange(3, 9);
+  },
+  async startDelayedImage() {
+    imageHeld = false;
+    imageDone = false;
+    const native = window.createImageBitmap.bind(window);
+    const gate = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+    window.createImageBitmap = (async (
+      ...args: Parameters<typeof createImageBitmap>
+    ) => {
+      window.createImageBitmap = native;
+      const bitmap = await (native as Function)(...args);
+      imageHeld = true;
+      await gate;
+      return bitmap;
+    }) as typeof createImageBitmap;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 64;
+    canvas.getContext("2d")!.fillRect(0, 0, 64, 64);
+    const blob = await new Promise<Blob>((resolve) =>
+      canvas.toBlob((b) => resolve(b!), "image/png")
+    );
+    const files = new DataTransfer();
+    files.items.add(new File([blob], "sail.png", { type: "image/png" }));
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"][accept="image/*"][multiple]'
+    )!;
+    input.files = files.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  },
+  imageHeld: () => imageHeld,
+  releaseImage() {
+    releaseImage();
+    imageDone = true;
+  },
+  imageDone: () => imageDone,
+  stageTrack() {
+    const s = root.stores.drafts.getState();
+    const queue = tracksFor(
+      root,
+      trackKey(
+        root.stores.chat.getState().activeSessionId,
+        s.originOf(draft()!.draftId)
+      )
+    ).uploads;
+    queue.setOnline(false);
+    return queue.add([
+      new File(
+        [
+          '<gpx version="1.1"><trk><trkseg><trkpt lat="38" lon="20"/></trkseg></trk></gpx>',
+        ],
+        "ithaca.gpx",
+        { type: "application/gpx+xml" }
+      ),
+    ]);
+  },
+  tracks(id: string) {
+    const s = root.stores.drafts.getState();
+    const d = s.drafts[id]!;
+    return tracksFor(
+      root,
+      trackKey(d.sessionId, s.originOf(id))
+    ).uploads.files.map((t) => t.file.name);
   },
   async save() {
     try {
@@ -347,6 +415,21 @@ defineScene({
     localStorage.setItem("odysseus-branch-navigation", JSON.stringify(session));
     root.stores.chat.getState().setActiveSession(session);
     await wait(0);
+  },
+  ackOriginal() {
+    const s = root.stores.drafts.getState();
+    const id = draft()!.deviceConflict!.otherId;
+    s.saved(
+      id,
+      {
+        revision: 1,
+        edit: s.drafts[id]!.edit,
+        sessionId: "ithaca",
+        attachmentIds: [],
+        updatedAt: 3,
+      },
+      new Map()
+    );
   },
   removeOriginal(kind: string) {
     const id = draft()!.draftId;

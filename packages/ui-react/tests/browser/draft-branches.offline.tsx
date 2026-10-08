@@ -688,3 +688,69 @@ for (const kind of ["removed", "gone"])
       session: "ithaca",
     });
   }, 60000);
+
+test("review: a hidden retained original's host acknowledgement cannot move the active branch", async (ctx) => {
+  const { a, b, original } = await divergent(ctx);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await a.call("edit", "Penelope revises the loom order.");
+  await a.call("save");
+  await b.call("ackOriginal");
+  await b.call("save");
+  expect(
+    await view(b),
+    "a hidden original's divergence keeps the selected branch identity and text"
+  ).toMatchObject({ id: branch, text: INCOMING, session: "ithaca" });
+  const kept = await rows(b);
+  expect(kept.find((r) => r.value.draftId === original)?.value.text).toBe(
+    "Penelope revises the loom order."
+  );
+  expect(kept.filter((r) => r.value.text === INCOMING)).toHaveLength(1);
+  expect(
+    kept.filter((r) => r.value.text === ORIGINAL),
+    "the hidden incoming version is preserved separately"
+  ).toHaveLength(1);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect(await view(b)).toMatchObject({ id: branch, text: INCOMING });
+}, 60000);
+
+test("review: a decoding image follows its branch even after opening the original", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  const incomingImages = (await view(b)).images;
+  await b.call("startDelayedImage");
+  await expect.poll(() => b.call("imageHeld")).toBe(true);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openOther");
+  await b.call("releaseImage");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await b.call("save");
+  const kept = await rows(b);
+  expect(
+    kept.find((r) => r.value.draftId === branch)?.value.attachments.length,
+    "the image decoded for the stale writer lands in its retained branch"
+  ).toBe(incomingImages.length + 1);
+  expect(
+    kept.find((r) => r.value.draftId === original)?.value.attachments.length
+  ).toBe(1);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  await b.call("openDraft", branch);
+  expect((await view(b)).images).toHaveLength(incomingImages.length + 1);
+}, 60000);
+
+test("review: the incoming unbound branch exclusively owns its staged track queue", async (ctx) => {
+  const { b } = await newChatDivergence(ctx);
+  const original = (await view(b)).id;
+  expect(await b.call("stageTrack")).toEqual([]);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  expect(await b.call("tracks", branch)).toEqual(["ithaca.gpx"]);
+  await b.call("openOther");
+  expect(
+    await b.call("tracks", original),
+    "opening the committed original cannot expose the stale writer's staged track"
+  ).toEqual([]);
+  expect(await b.call("tracks", branch)).toEqual(["ithaca.gpx"]);
+}, 60000);

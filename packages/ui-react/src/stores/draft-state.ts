@@ -507,17 +507,26 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const state = get();
         // Take the live content, including edits made while the transaction
         // was open. Immutable sends keep their original ids and snapshots.
-        const liveId = follow(sourceId).id;
+        const followed = follow(sourceId).id;
+        // The retained original may itself change while this tab continues
+        // another branch. Its direct content is a separate incoming version.
+        const liveId = state.drafts[sourceId] ? sourceId : followed;
         const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
         const viewSession = live.sessionId ?? sessionId;
+        const viewed = viewSession !== null && (state.idFor(viewSession) === liveId || (followed === liveId && !hasContent(state.drafts[state.idFor(viewSession)])));
         const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession } };
         // Navigation redirects can be removed when the reader opens the
         // original. Pending sends keep a separate editable-target binding.
         for (const send of Object.values(state.sends)) if (sendTarget(send) === liveId) sendTargets.set(send.requestId, branchId);
-        deviceRedirects.set(sourceId, branchId);
-        if (liveId !== sourceId) deviceRedirects.set(liveId, branchId);
+        if (followed === liveId) {
+          deviceRedirects.set(sourceId, branchId);
+          if (liveId !== sourceId) deviceRedirects.set(liveId, branchId);
+        }
         origins.set(branchId, origins.get(sourceId) ?? sourceId);
-        if (viewSession !== null) deviceViews.set(viewSession, branchId);
+        // An unbound incoming view keeps its staged queue. The restored
+        // original has no files staged in this tab and owns a separate queue.
+        if (other?.sessionId === null) origins.set(other.draftId, mintDraftId());
+        if (viewSession !== null && viewed) deviceViews.set(viewSession, branchId);
         set(s => {
           const drafts = { ...s.drafts, [branchId]: branch };
           delete drafts[sourceId];

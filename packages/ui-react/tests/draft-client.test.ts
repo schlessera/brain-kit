@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
+import { tracksFor, trackKey, stagedTrackViews } from "../src/lib/draft-tracks.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // The draft client (#951, D52 §5) against a small in-memory host that keeps
@@ -559,6 +560,22 @@ describe("sends", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toBe("Ask Aeolus for the west wind");
     expect(sent[0].requestId).not.toBe("req-1");
+  });
+
+  test("acceptance moves the retained new-chat branch's later staged tracks to its own conversation", () => {
+    const { ui, socket, drafts } = boot(fakeHost(), { chatRequestAck: true });
+    const id = drafts().fresh;
+    drafts().edit(id, null, { text: "Ask about the harbour." });
+    drafts().beginSend({ requestId: "req-tracks", draftId: id, sessionId: null, text: "Ask about the harbour.", attachments: [],
+      message: { type: "chat_message", requestId: "req-tracks", text: "Ask about the harbour." } }, "Ask about the harbour.");
+    drafts().edit(id, null, { text: "Also compare the route." });
+    const queue = tracksFor(ui, trackKey(null, drafts().originOf(id))).uploads;
+    queue.setOnline(false);
+    expect(queue.add([new File(['{"type":"LineString","coordinates":[[20.71,38.31],[20.72,38.31]]}'], "ithaca.gpx", { type: "application/octet-stream" })])).toEqual([]);
+    drafts().keepDeviceBranch(id, "odysseus-branch", { draftId: id, sessionId: null, text: "Penelope keeps the original.", attachments: [], editedAt: 1, host: null }, null);
+    socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-tracks" });
+    expect(stagedTrackViews(ui), "acceptance moves the branch's nonempty staged queue using the send's editable target").toMatchObject([{ key: `session:${ITHACA}`, count: 1 }]);
+    expect(tracksFor(ui, trackKey(null, drafts().originOf(id))).uploads.files).toHaveLength(0);
   });
 
   test("a first message answered after New chat becomes its own session without taking the view", async () => {
