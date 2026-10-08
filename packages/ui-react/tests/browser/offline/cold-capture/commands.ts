@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue" | "request-full"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue" | "request-full" | "discard-failure"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -237,6 +237,23 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     assert.equal(await page.getByRole("button", { name: "Stop and save", exact: true }).evaluate(el => el === document.activeElement), true, "starting capture transfers focus to Stop and save");
     await accessible(page);
     await page.waitForTimeout(1300);
+    if (cell.scenario === "discard-failure") {
+      await action(page, "failDiscard");
+      await page.getByRole("button", { name: "Discard", exact: true }).click();
+      await page.getByRole("button", { name: "Discard recording", exact: true }).click();
+      await page.getByText("Couldn't discard this recording on this device. The recording is kept.", { exact: true }).waitFor();
+      assert.equal(await action(page, "phase"), "idle", "failed discard leaves the recorder stopped");
+      assert.equal(await page.locator("[data-local-recording-sheet]").count(), 0, "the failed-delete notice survives the closed recording sheet");
+      const kept = await action<Array<{ bytes: number; state: string }>>(page, "inventory");
+      assert.equal(kept.length, 1, "failed live discard retains the recording");
+      assert(kept[0]!.bytes > 0 && kept[0]!.state === "saved", "the retained recording has committed audio");
+      await action(page, "restoreDiscard");
+      await page.getByRole("button", { name: /^Discard recording/ }).click();
+      await page.getByRole("button", { name: /^Delete recording/ }).click();
+      await page.getByRole("button", { name: /^Play recording/ }).waitFor({ state: "detached" });
+      assert.equal((await action<unknown[]>(page, "inventory")).length, 0, "retained audio can be discarded on retry");
+      return "failed live discard remains visible and retryable passed";
+    }
     if (cell.scenario === "dispose") {
       assert.equal(await action(page, "microphoneLive"), true, "the disposal test has a live real microphone to observe");
       await action(page, "dispose");

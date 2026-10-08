@@ -78,11 +78,16 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
   }, [phase]);
   const stop = async () => { await capture.stop(); focusRecord(); };
   const discard = async () => {
-    const active = capture.recording();
-    await stop();
-    if (!active) throw new Error("The recording identity is unavailable");
-    await store.discard("unassigned", active.id);
-    setNotice("Recording discarded from this device.");
+    try {
+      const active = capture.recording();
+      await stop();
+      if (!active) throw new Error("The recording identity is unavailable");
+      await store.discard("unassigned", active.id);
+      setNotice("Recording discarded from this device.");
+    } catch (error) {
+      setNotice("Couldn't discard this recording on this device. The recording is kept.");
+      throw error;
+    }
   };
   const leave = async () => {
     if (!ready || leaving) return;

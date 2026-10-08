@@ -24,6 +24,7 @@ if (localStorage.getItem("odysseus-request-quota")) {
     return request;
   };
 }
+const nativeDelete = IDBObjectStore.prototype.delete;
 let initialWaiting = false;
 let initialWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
 let recoveryWaiting = false;
@@ -80,6 +81,13 @@ defineScene({
       { put: "recording:chunk:ithaca-secret:00000000", value: { index: 0, startMs: 0, endMs: 10_000, data: wav } },
     ]);
   },
+  failDiscard() {
+    IDBObjectStore.prototype.delete = function(key: IDBValidKey | IDBKeyRange) {
+      if (Array.isArray(key) && String(key[1]).startsWith("recording:")) throw new DOMException("Odysseus deletion fault", "UnknownError");
+      return nativeDelete.call(this, key);
+    };
+  },
+  restoreDiscard() { IDBObjectStore.prototype.delete = nativeDelete; },
   holdInitialWrite() {
     initialWrite = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
     void initialWrite.started.then(() => { initialWaiting = true; });
