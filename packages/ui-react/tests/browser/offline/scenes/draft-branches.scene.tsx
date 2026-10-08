@@ -16,6 +16,7 @@ import appCss from "../../../../dist/styles.css?raw";
 
 // Each openScene owns its origin/context; sibling pages share only its actual
 // account/root IndexedDB. No host draft API or provider is available.
+const previewFetch = window.fetch.bind(window);
 const net = installFaultNetwork({
   routes: (url) =>
     url.pathname.endsWith("/sessions")
@@ -155,6 +156,43 @@ let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 defineScene({
+  orderDrafts(first: string, second: string) {
+    const s = root.stores.drafts.getState();
+    const rest = { ...s.drafts };
+    delete rest[first];
+    delete rest[second];
+    root.stores.drafts.setState({
+      drafts: {
+        [first]: s.drafts[first]!,
+        [second]: s.drafts[second]!,
+        ...rest,
+      },
+    });
+  },
+  async previews() {
+    const usable = async (url: string) => {
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        const response = await previewFetch(url);
+        return response.ok && (await response.blob()).size > 0;
+      } catch {
+        return false;
+      }
+    };
+    return {
+      snapshot: await Promise.all(
+        (
+          root.stores.drafts.getState().sends["odysseus-send"]?.attachments ??
+          []
+        ).map((a) => usable(a.previewUrl))
+      ),
+      editable: await Promise.all(
+        (draft()?.attachments ?? []).map((a) => usable(a.previewUrl))
+      ),
+    };
+  },
   pauseSnapshot() {
     pauseSnapshot = true;
     snapshotWaiting = false;

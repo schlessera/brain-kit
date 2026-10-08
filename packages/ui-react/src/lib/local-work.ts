@@ -460,31 +460,37 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     versions = nextVersions;
     // Association changes use the live draft, so typing during commit is
     // still visible. Their next snapshot updates the same retained branch.
-    for (const fork of forks) {
-      const state = stores.drafts.getState();
-      const otherId = fork.other?.draftId;
-      const current = otherId ? state.drafts[otherId] : undefined;
-      const saved = fork.kept.find(d => d.draftId === otherId);
-      const preserveOther = !!(current && saved && otherId !== fork.source && otherId !== state.resolveId(fork.source) && current !== drafts[otherId!] && !sameContent(storeDraft(current), saved));
-      if (preserveOther && !writtenHere.has(otherId!)) {
-        // Learning another record exists is not adoption of its new revision.
-        // This tab's intervening edit must still conflict with a foreign write;
-        // an actual write by this transaction supplies its own valid baseline.
-        const old = previousCommitted.get(otherId!);
-        if (old === undefined) committed.delete(otherId!); else committed.set(otherId!, old);
-        const version = previousVersions.get(otherId!);
-        if (version === undefined) versions.delete(otherId!); else versions.set(otherId!, version);
+    const state = stores.drafts.getState();
+    const pendingSources = new Set(forks.flatMap(f => [f.source, state.resolveId(f.source)]));
+    const kept = new Map(forks.flatMap(f => f.kept.map(d => [d.draftId, d] as const)));
+    const protectedOwners = new Set(pendingSources);
+    for (const [id, saved] of kept) {
+      const current = state.drafts[id];
+      const editedDuringCommit = current && current !== drafts[id] && !sameContent(storeDraft(current), saved);
+      if (!editedDuringCommit || pendingSources.has(id)) continue;
+      protectedOwners.add(id);
+      if (!writtenHere.has(id)) {
+        // Learning a foreign revision is not adoption. Keep the expectation
+        // this edit began with until its own divergent version is committed.
+        const old = previousCommitted.get(id);
+        if (old === undefined) committed.delete(id); else committed.set(id, old);
+        const version = previousVersions.get(id);
+        if (version === undefined) versions.delete(id); else versions.set(id, version);
       }
-      state.keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId, preserveOther);
     }
-    // Restore additional committed owners without overwriting visible work.
-    // A conflicting/retired record that cannot enter this tab's store stays
-    // protected until the reader explicitly adopts it with openDeviceVersion.
-    for (const fork of forks) for (const saved of fork.kept) {
+    // Protect every pending source before applying any fork. Another fork's
+    // notice must not restore over content that a later fork still needs.
+    for (const fork of forks) stores.drafts.getState().keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId, protectedOwners.has(fork.other?.draftId ?? ""));
+    for (const [id, saved] of kept) {
       const d = parseDraft(saved);
-      if (!d) continue;
-      stores.drafts.getState().restoreLocal([d]);
-      if (!stores.drafts.getState().drafts[d.draftId] && (d.text.length || d.attachments.length || d.host)) retained.set(d.draftId, committed.get(d.draftId)!);
+      if (!d || (!d.text && !d.attachments.length && !(d.host && !d.host.clean) && !d.deviceConflict)) continue;
+      // A moved source now has its own branch. Its original and every clean
+      // additional owner can adopt the native record without changing views.
+      if (pendingSources.has(id) || !protectedOwners.has(id)) {
+        const current = stores.drafts.getState().drafts[id];
+        if (!current || JSON.stringify(storeDraft(current)) !== serializedDraft(saved)) stores.drafts.getState().adoptDeviceRecord(d);
+      }
+      if (!stores.drafts.getState().drafts[id]) retained.set(id, committed.get(id)!);
     }
     writtenContext = forks.length ? "" : text;
     status.setState({ failed: false, pending: timer !== null });

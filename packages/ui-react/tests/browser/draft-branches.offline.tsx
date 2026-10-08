@@ -313,6 +313,10 @@ for (const outcome of ["accept", "refuse"])
       immutable.snapshotImages.length,
       "the input immutable snapshot has nonempty images"
     ).toBeGreaterThan(0);
+    expect(
+      (await b.call<{ snapshot: boolean[] }>("previews")).snapshot,
+      "the input immutable preview is usable before settlement"
+    ).toEqual([true]);
     await b.call("save");
     const branch = (await view(b)).id;
     await b.call("settleSend", outcome);
@@ -338,7 +342,22 @@ for (const outcome of ["accept", "refuse"])
       settlement.snapshotImages.map((a) => a.data),
       "settlement keeps the immutable send's exact input image bytes"
     ).toEqual(images.map((a) => a.data));
+    expect(
+      settlement.snapshotImages,
+      "settlement preserves the immutable image bytes and preview URLs"
+    ).toEqual(immutable.snapshotImages);
+    const decoded = await b.call<{ snapshot: boolean[]; editable: boolean[] }>(
+      "previews"
+    );
+    expect(
+      decoded.snapshot,
+      "the immutable send preview still decodes and can be read after settlement"
+    ).toEqual([true]);
     if (outcome === "refuse") {
+      expect(
+        decoded.editable,
+        "the independent refusal preview still decodes and can be read"
+      ).toEqual([true]);
       expect(settlement.editableImages.map((a) => a.data)).toEqual(
         settlement.snapshotImages.map((a) => a.data)
       );
@@ -1071,4 +1090,93 @@ for (const mode of ["owned", "foreign", "clean"] as const)
     await b.call("ready", 320, "dark");
     expect((await view(b)).id).toBe(active);
     expect((await view(b)).text).toBe(mode === "clean" ? INCOMING : late);
+  }, 60000);
+
+for (const mode of ["rebound", "empty"] as const)
+  test(`review: all native conflict owners preserve their own inputs (${mode})`, async (ctx) => {
+    const a = await openScene(
+      new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+    );
+    ctx.onTestFinished(() => a.close());
+    await a.call("ready", 320, "dark");
+    await a.call("navigate", null);
+    await a.call("edit", "Odysseus shares the voyage plan.");
+    await a.call("save");
+    const u = (await view(a)).id;
+    await a.call("navigate", "ithaca");
+    await a.call("edit", ORIGINAL, true);
+    await a.call("save");
+    const d = (await view(a)).id;
+    const b = await a.sibling();
+    ctx.onTestFinished(() => b.close());
+    await b.call("ready", 320, "dark");
+    await b.call("pauseSnapshot");
+    await b.call("openDraft", u);
+    await b.call("send", true);
+    await b.call("edit", INCOMING, true);
+    const uImages = (await view(b)).images;
+    const dIncoming = "Penelope writes the incoming second chart.";
+    let dImages: Row["value"]["attachments"] = [];
+    if (mode === "empty") {
+      await b.call("navigate", "ithaca");
+      await b.call("edit", dIncoming, true, d);
+      dImages = (await view(b)).images;
+    }
+    await b.call("acceptIn", "ithaca");
+    await b.call("orderDrafts", u, d);
+    await b.call("startSave");
+    await expect.poll(() => b.call("snapshotWaiting")).toBe(true);
+    const uForeign = "Odysseus keeps the rebound voyage log.";
+    if (mode === "rebound") {
+      await a.call("openDraft", u);
+      await a.call("send", true);
+      await a.call("edit", uForeign, true);
+      await a.call("acceptIn", "pylos");
+    } else await a.call("edit", "", false, u);
+    await a.call("save");
+    const dForeign = "Telemachus keeps the committed third chart.";
+    await a.call("navigate", "ithaca");
+    await a.call("edit", dForeign, true, d);
+    const foreignImages = (await view(a)).images;
+    await a.call("save");
+    await b.call("releaseSnapshot");
+    await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+    await b.call("save");
+    let kept = await rows(b);
+    expect(
+      kept.find((r) => r.value.draftId === d)?.value,
+      "an additional owner keeps foreign committed text and image bytes after follow-up snapshots"
+    ).toMatchObject({
+      text: dForeign,
+      sessionId: "ithaca",
+      attachments: foreignImages,
+    });
+    expect(
+      kept.find((r) => r.value.draftId !== u && r.value.text === INCOMING)
+        ?.value
+    ).toMatchObject({ sessionId: null, attachments: uImages });
+    if (mode === "empty")
+      expect(
+        kept.find((r) => r.value.draftId !== d && r.value.text === dIncoming)
+          ?.value,
+        "a later native fork keeps its captured incoming text and images"
+      ).toMatchObject({ sessionId: null, attachments: dImages });
+    else
+      expect(kept.find((r) => r.value.draftId === u)?.value).toMatchObject({
+        text: uForeign,
+        sessionId: "pylos",
+      });
+    const expected = mode === "empty" ? dIncoming : INCOMING;
+    expect((await view(b)).text).toBe(expected);
+    const branch = (await view(b)).id;
+    const count = kept.length;
+    await b.call("edit", `${expected} Bring the oars.`);
+    await b.call("save");
+    kept = await rows(b);
+    expect(kept).toHaveLength(count);
+    expect(kept.find((r) => r.value.draftId === d)?.value.text).toBe(dForeign);
+    await b.reload();
+    await b.call("ready", 320, "dark");
+    expect((await view(b)).id).toBe(branch);
+    expect((await view(b)).text).toBe(`${expected} Bring the oars.`);
   }, 60000);

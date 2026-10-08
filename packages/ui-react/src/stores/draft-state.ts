@@ -56,6 +56,8 @@ export interface ComposerDraft {
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
+  /** @internal A committed device adoption fences older host operations. */
+  deviceEpoch?: number;
   /** @internal A device-local keep-both branch; its other version stays reachable. */
   deviceConflict?: { otherId: string; sessionId: string | null };
   /** Bumped by every change to the content. */
@@ -190,6 +192,8 @@ export interface DraftStoreState {
 
   /** @internal Retarget this tab after a committed device-local fork. */
   keepDeviceBranch(sourceId: string, branchId: string, other: LocalDraft | null, sessionId: string | null, preserveOther?: boolean): void;
+  /** @internal Adopt a committed owner without changing this tab's selected view. */
+  adoptDeviceRecord(kept: LocalDraft): void;
   /** @internal Restore this tab's association without binding the branch to a session. */
   showDeviceBranch(sessionId: string, draftId: string): void;
   /** @internal Explicitly open the other retained version. */
@@ -530,7 +534,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         origins.set(branchId, origins.get(sourceId) ?? sourceId);
         // An unbound incoming view keeps its staged queue. The restored
         // original has no files staged in this tab and owns a separate queue.
-        if (other?.sessionId === null) origins.set(other.draftId, mintDraftId());
+        if (other?.sessionId === null && (!preserveOther || other.draftId === sourceId || other.draftId === liveId)) origins.set(other.draftId, mintDraftId());
         if (viewSession !== null && viewed) deviceViews.set(viewSession, branchId);
         set(s => {
           const drafts = { ...s.drafts, [branchId]: branch };
@@ -545,6 +549,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
         });
+      },
+      adoptDeviceRecord(kept) {
+        const current = get().drafts[kept.draftId];
+        if (current) release(current.attachments, []);
+        const edit = 1;
+        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
+          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
+        set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
       },
       showDeviceBranch(sessionId, draftId) {
         if (get().drafts[draftId]?.sessionId !== null) return;
