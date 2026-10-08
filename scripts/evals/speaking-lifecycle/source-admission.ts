@@ -1,6 +1,6 @@
 /** Private extraction/confirmation controls. These do not establish classifier quality. */
 import { createHash } from "node:crypto";
-import type { JevChoiceAnswer, JevRequest } from "../../../packages/core/src/lib/jev";
+import type { JevAnswers, JevRequest } from "../../../packages/core/src/lib/jev";
 import { day, type Decision } from "./prototype";
 
 export const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -37,7 +37,7 @@ export function sourcedFields(source: string): Pick<Decision, "date" | "confirma
   return fields as Pick<Decision, "date" | "confirmation" | "slides" | "conditions">;
 }
 
-export function proposal(source: string, candidates: Candidate[], answers: Record<string, JevChoiceAnswer> | null, floor: number | null): Decision | null {
+export function proposal(source: string, candidates: Candidate[], answers: JevAnswers | null, floor: number | null): Decision | null {
   if (floor === null || !Number.isFinite(floor) || floor < 0 || floor > 1 || !answers) return null;
   const selected: Record<string, string> = {};
   for (const key of ["conference", "submission", "outcome"]) {

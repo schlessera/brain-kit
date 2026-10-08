@@ -246,3 +246,104 @@ runner's omitted permission mode selects native auto: #1275 records why complete
 auxiliary-call accounting is required before admitting that baseline. No manual
 mode is substituted. The approved models and actual-charge caps remain recorded
 on #846/#838; a quota hold does not remove review or accounting prerequisites.
+
+
+## Complete task and native preparation
+
+The sixteen task brains are now concretely materialized at 3, 32 and 128
+complete candidate documents. Added candidates are unchanged neutral submissions
+in the existing secondary assembly. Historical acceptance/backup records form
+the same task-before state in every arm; replaying those setup decisions is
+excluded from task work. The older sequence regressions remain unchanged.
+Candidate/context token capacity and retrieval throughput are still unmeasured.
+
+Task facts are independent of candidate parsing. Hermes's mixed-date source
+supports acceptance; its unrelated return date supplies no submission deadline.
+The bounded hybrid parser safely abstains, which is fallback and coverage loss.
+The current skill may record that acceptance using its existing summary, tables
+and timelines. A private generated region or frontmatter field is not required
+for semantic success. All author-provisional facts still require complementary
+review, including their fixture-world assumptions and shared representation.
+
+The new collector has no live entry. It executes complete real setup/index,
+owner-confirmed code and the actual core Jev client with injected responses.
+It retains whole failed/partial after trees, literal physical attempts, unknown
+usage and invoices. A missing native/physical result stops admission; a model
+proposal refusal is separately counted as abstention. Immediate archived closure
+replay safely refuses without writing, rather than producing a second closure.
+Offline elapsed times include setup and controls and are not model performance.
+
+The isolated native controls run the actual core subscription CLI route on
+SDK 0.3.293 / CLI 2.1.293. No permission mode is substituted: initialization
+reports auto. Actual skill/submission reads and forbidden writes exercise its
+real tool execution. A full 32-candidate native collector control preserves
+all files and reconciles every terminal physical token counter with final
+canonical Sonnet 5.5 model usage. Raw stdin/stdout/stderr, exact request/response
+bytes, errors, nullable cache/usage, EOF, consumer cancellation and group drain
+are preserved. Refused local HTTP attempts are retained separately from
+forwarded calls. Known price subtotals do not turn missing usage or invoices
+into zero. Frame/assistant/prompt/tool and physical first-byte observations use
+real monotonic clocks.
+
+An actual Bash control reproduces [#1275](https://github.com/schlessera/brain-kit/issues/1275):
+the native auto classifier attempts a local Sonnet 5 request despite Sonnet 5.5
+aliases. The relay refuses it before forwarding; the command remains denied
+and the whole fixture unchanged. This is an offline negative control, with
+no real provider request or classifier usage/billing claim. Direct shipped
+`brain config check`, `read` and three archive commands separately preserve
+source bytes and archive semantics; they do not establish a successful native
+agent baseline. Live current-agent scoring remains refused until the actual
+auxiliary route, model, usage and permission policy are verified.
+
+Only the brain CLI child uses the July 12 fixture clock. Native authentication,
+provider clocks, lifecycle deadlines, performance and physical file mtimes
+remain real. No writer timestamp is normalized. These outcome controls do not
+use wall-clock file age as repair-quality credit.
+
+Current semantic grading requires an independently supplied annotation bound to
+the complete source, task facts, rubric and before/after trees. Each field needs
+content citations. Missing annotations produce null quality; matching a model's
+own output never supplies approval. Existing ownership metadata, abstracts,
+talks, unrelated documents and full binary/member/mode/mtime effects remain an
+independent veto. Whole-file archive scope and production transaction/locking
+limits still apply. The synthetic annotation controls prove binding and veto
+mechanics, not annotator correctness or authorship.
+
+The source freeze binds all seventeen workspace source/manifests, complete
+installed JavaScript dependencies and link/mode metadata, outside-hardlink
+refusal, owned scripts/tests and exact Bun/SDK/native bytes. General OS libraries
+and the kernel remain outside this byte closure. Complete case/source review
+packets partition without truncation; their byte ceiling is an operational
+bound, not a claimed model context limit. Actual no-tools review admission
+reparses collected raw prompt/auth/model/usage/text/EOF/runtime artifacts. An
+actual scripted APPROVED receipt remains ineligible even if metadata flags say
+otherwise. This is not an invoice or cryptographic artifact-owner attestation.
+
+Nine additional restored mutations fail at the intended runtime assertions:
+full-tree prewrite veto (protocol complete becomes true after a changed binary),
+outer unknown-use stop (one injected dispatch becomes twenty-four), refused
+request capture (one literal attempt becomes zero), streaming UTF-8 (π becomes
+replacement characters), final unterminated result (result text disappears),
+owned forced termination (actual drained becomes false), terminal physical/native
+usage reconciliation (inflated final output no longer throws), added owner
+metadata (unauthorized ownership no longer vetoes), and actual scripted review
+admission (the native control throws because its fake APPROVED was admitted).
+These are additional to the earlier independent deterministic-effect controls.
+
+There is still no complementary semantic approval, actual classifier comparison,
+calibrated floor, measured quality/latency/savings or adoption result. The global
+Claude hold and fresh root accounting/window admission remain required, together
+with resolution of #1275 for current-agent scoring. Original empirical criteria
+remain open.
+
+
+The fresh model-visible corpus uses neutral secondary/distractor identities and
+source titles. Case/split labels remain solely private scorer/review metadata.
+An actual materialization/request failing-first found those labels in emitted
+files; all 48 complete disk states and prospective Jev requests now exclude them.
+The newly authored sources use the established cast. Delivery is explicitly
+remote and does not relocate Odysseus from Ogygia. Shared world vocabulary is
+still a generalization limit, and the original regressions are unchanged.
+The fixture CLI read policy checks contained operands and rejects root/output
+configuration overrides; an actual native denied outside-sentinel control
+proves that boundary while preserving auto policy.
