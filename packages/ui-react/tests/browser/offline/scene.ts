@@ -29,6 +29,7 @@ export interface SceneHandle {
   /** Another tab sharing this scene's origin and browser storage. */
   sibling(): Promise<SceneHandle>;
   /** A user's reload. Resolves once the reloaded scene has registered again. */
+  viewport(width: number, height: number): Promise<void>;
   reload(): Promise<void>;
   /** Kill the renderer with no unload handler running, then launch the scene again. */
   terminate(): Promise<void>;
@@ -46,6 +47,7 @@ function sceneHandle(id: string): SceneHandle {
     async call<T>(action: string, ...args: unknown[]) {
       return (await commands.offlineScene({ op: "call", id, action, args })) as T;
     },
+    async viewport(width, height) { await commands.offlineScene({ op: "viewport", id, width, height }); },
     async reload() {
       await commands.offlineScene({ op: "reload", id });
     },

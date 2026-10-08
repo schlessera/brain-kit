@@ -56,6 +56,8 @@ export interface ComposerDraft {
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
+  /** @internal A device-local keep-both branch; its other version stays reachable. */
+  deviceConflict?: { otherId: string; sessionId: string | null };
   /** Bumped by every change to the content. */
   edit: number;
   host: DraftHostCopy | null;
@@ -120,6 +122,8 @@ export interface LocalDraft {
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
+  /** @internal A device-local keep-both branch; its other version stays reachable. */
+  deviceConflict?: { otherId: string; sessionId: string | null };
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
 }
 
@@ -181,6 +185,13 @@ export interface DraftStoreState {
   /** Send again under a new request id; returns the message to send, or null. */
   resend(requestId: string, nextRequestId: string): DraftSend | null;
   setChecked(requestId: string, checked: DraftSend["checked"], reason?: string): void;
+
+  /** @internal Retarget this tab after a committed device-local fork. */
+  keepDeviceBranch(sourceId: string, branchId: string, other: LocalDraft | null, sessionId: string | null): void;
+  /** @internal Restore this tab's association without binding the branch to a session. */
+  showDeviceBranch(sessionId: string, draftId: string): void;
+  /** @internal Explicitly open the other retained version. */
+  openDeviceVersion(draftId: string, kept?: LocalDraft): void;
 
   // The draft client's reports.
   setSupport(supported: boolean, limits?: SessionDraftLimits): void;
@@ -270,11 +281,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   /** The session a forgotten draft belonged to: late work on its id goes to that session's draft. */
   const retired = new Map<string, string>();
   const origins = new Map<string, string>();
+  const deviceViews = new Map<string, string>();
+  const deviceRedirects = new Map<string, string>();
 
   return createStore<DraftStoreState>((set, get) => {
     function follow(draftId: string): { id: string; owner: string | null } {
       let id = draftId;
-      for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
+      for (let i = 0; i < 32 && (successors.has(id) || deviceRedirects.has(id)); i++) id = deviceRedirects.get(id) ?? successors.get(id)!;
       const owner = retired.get(id) ?? null;
       if (owner !== null && !get().drafts[id]) return { id: get().idFor(owner), owner };
       return { id, owner: null };
@@ -389,6 +402,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       idFor(sessionId) {
         const state = get();
         if (sessionId === null) return state.fresh;
+        const branch = deviceViews.get(sessionId);
+        if (branch) return resolve(branch);
         let best: ComposerDraft | undefined;
         for (const d of Object.values(state.drafts)) {
           if (d.sessionId === sessionId && (!best || d.editedAt > best.editedAt)) best = d;
@@ -407,7 +422,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
         // A held send's rows left the transcript: its snapshot alone owns its previews.
         for (const s of Object.values(get().sends)) if (s.state === "unconfirmed") for (const a of s.attachments) revoke(a.previewUrl);
-        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear();
+        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear(); deviceViews.clear(); deviceRedirects.clear();
       },
 
       edit(requested, requestedSession, patch) {
@@ -446,7 +461,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           const state = get();
           if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
           // An emptied draft comes back only while its deletion is owed to the host.
-          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean)) continue;
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean) && !k.deviceConflict) continue;
           // A session whose draft this page already holds keeps that one.
           if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
           // An id handed to the session before this arrived goes to it, as in
@@ -457,7 +472,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           const edit = 1;
           put({
-            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true,
+            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true, deviceConflict: k.deviceConflict,
             text: k.text,
             attachments: k.attachments,
             edit,
@@ -465,6 +480,44 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
           });
         }
+      },
+
+      keepDeviceBranch(sourceId, branchId, other, sessionId) {
+        const state = get();
+        // Take the live content, including edits made while the transaction
+        // was open. Immutable sends keep their original ids and snapshots.
+        const live = state.drafts[sourceId] ?? blank(sourceId, sessionId, now());
+        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId } };
+        deviceRedirects.set(sourceId, branchId);
+        origins.set(branchId, origins.get(sourceId) ?? sourceId);
+        if (sessionId !== null) deviceViews.set(sessionId, branchId);
+        set(s => {
+          const drafts = { ...s.drafts, [branchId]: branch };
+          delete drafts[sourceId];
+          if (other) {
+            const edit = 1;
+            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
+              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
+          }
+          return { drafts, fresh: s.fresh === sourceId ? branchId : s.fresh };
+        });
+      },
+      showDeviceBranch(sessionId, draftId) {
+        if (get().drafts[draftId]?.sessionId !== null) return;
+        deviceViews.set(sessionId, draftId);
+        set(s => ({ drafts: { ...s.drafts } }));
+      },
+      openDeviceVersion(draftId, kept) {
+        if (kept) {
+          const current = get().drafts[draftId];
+          if (current) release(current.attachments, []);
+          put({ ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit: 1,
+            host: kept.host ? { ...kept.host, edit: kept.host.clean ? 1 : -1, attachmentIds: [] } : null });
+        }
+        for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
+        for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[branch]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
+        const d = get().drafts[draftId];
+        set(s => ({ drafts: { ...s.drafts }, ...(d?.sessionId === null ? { fresh: draftId } : {}) }));
       },
 
       beginSend(input, consumedText) {
@@ -500,7 +553,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         // An unbound draft's first message named a session: the draft is
         // that session's now, whatever view the reader has moved on to.
-        const session = d.sessionId ?? acceptedSessionId ?? null;
+        const session = d.deviceConflict && send.sessionId !== null ? d.sessionId : d.sessionId ?? acceptedSessionId ?? null;
         const wasConsumed = send.draftRef !== null && send.draftRef.draftId === d.draftId && d.host?.revision === send.draftRef.revision;
         if (wasConsumed && d.savingSince !== null) {
           // A save is out: the host may have stored a newer revision before

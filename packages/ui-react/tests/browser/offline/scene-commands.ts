@@ -29,6 +29,7 @@ export type SceneOp =
   | { op: "open"; module: string }
   | { op: "sibling"; id: string }
   | { op: "call"; id: string; action: string; args: unknown[] }
+  | { op: "viewport"; id: string; width: number; height: number }
   | { op: "reload"; id: string }
   | { op: "terminate"; id: string }
   | { op: "close"; id: string };
@@ -109,6 +110,9 @@ export const offlineScene: BrowserCommand<[SceneOp], unknown> = async (ctx, requ
         },
         [request.action, request.args] as const,
       );
+    case "viewport":
+      await s.page.setViewportSize({ width: request.width, height: request.height });
+      return null;
     case "reload":
       await s.page.reload();
       await registered(s.page);

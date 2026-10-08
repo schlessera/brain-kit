@@ -5471,6 +5471,34 @@ question-answer rules are independent.
 > primitive) and `lib/local-work.ts` (the snapshot, and `snapshotNow`, which
 > resolves only once its transaction has committed).
 
+**Device-local conflicts — maintainer ruling, 2026-10-07 (#1208).**
+Two tabs of the same account/root share device storage. Their expected
+per-record revision is checked inside the native IndexedDB write transaction.
+A divergent stale write keeps the already-committed draft under its original
+draft/session identity and atomically stores the incoming text and image bytes
+as a new unbound Draft entry. The stale writer keeps its visible text,
+selection and navigation, and subsequent edits follow its branch. A local
+view association can show that branch while the original session remains
+selected; it never binds the branch to that session. Each tab keeps its own
+reload context, while draft records remain shared and account-partitioned.
+
+Only after transaction commit does the stale writer show
+`Another tab changed this draft · Both versions kept`, with `Open other version`.
+Both versions remain reachable through the draft/session surfaces after a
+reload, including a fresh third tab. A failed write leaves editable content
+in memory and uses the existing storage-failure copy; it makes no retention
+claim. Stale emptying, deletion and send consumption cannot erase another
+tab's committed version. Empty revision tombstones fence stale resurrection;
+immutable send snapshots remain separate from editable draft identities.
+Recording acceptance commits its retained branch and receipt before deleting
+its audio. Host conflicts still use the explicit Compare policy above.
+
+Rejected: last writer wins loses committed work; refusing the stale write
+alone leaves its incoming version undurable; keeping the incoming version
+under the original identity silently changes the original session's owner;
+automatic/model merging is unauthorized. Repeated branches for one divergence
+are avoided by retargeting the stale writer after the first committed fork.
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.

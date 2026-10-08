@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainStores } from "../stores/create-stores.js";
 import { hasContent, type ComposerDraft, type LocalDraft } from "../stores/draft-state.js";
+import { mintDraftId } from "./drafts.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { PartitionRefusedError, accountPartition, type LocalPartitions, type PartitionHandle, type PartitionWrite } from "./local-partitions.js";
 
@@ -63,6 +64,8 @@ export interface LocalWork {
   restore: StoreApi<WorkRestore>;
   /** Write everything now. Resolves after the transaction commits; rejects when it could not. */
   snapshotNow(): Promise<void>;
+  /** @internal Explicitly open the latest retained other version after keeping current edits. */
+  openDeviceVersion(draftId: string): Promise<void>;
   /** A view's report of where the reader is; returns its removal. */
   register(probe: WorkProbe): () => void;
   /** @internal Append once, committing the draft and recording receipt together. Never sends. */
@@ -114,7 +117,14 @@ export function findByFocusId(id: string): HTMLElement | null {
 }
 
 type StoredAttachment = { data: string; mediaType: string; bytes: number; name: string };
-type StoredDraft = Omit<LocalDraft, "attachments"> & { v: 1; attachments: StoredAttachment[] };
+type StoredDraft = Omit<LocalDraft, "attachments"> & { v: 1; deviceRevision?: number; attachments: StoredAttachment[] };
+const draftVersion = (value: unknown): number => (value as StoredDraft | undefined)?.deviceRevision ?? 0;
+function serializedDraft(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const { deviceRevision: _revision, ...content } = value as StoredDraft;
+  return JSON.stringify(content);
+}
+const sameContent = (a: StoredDraft, b: StoredDraft): boolean => a.sessionId === b.sessionId && a.text === b.text && JSON.stringify(a.attachments) === JSON.stringify(b.attachments);
 type StoredContext = WorkContext & { v: 1 };
 
 const isStr = (v: unknown): v is string => typeof v === "string";
@@ -133,7 +143,7 @@ function parseDraft(raw: unknown): LocalDraft | null {
   const h = r.host;
   const host = h && isNum(h.revision) && isStrOrNull(h.sessionId ?? null) && isNum(h.updatedAt) && typeof h.clean === "boolean"
     ? { revision: h.revision, sessionId: h.sessionId ?? null, updatedAt: h.updatedAt, clean: h.clean } : null;
-  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true };
+  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}) };
 }
 
 function parseContext(raw: unknown): WorkContext | null {
@@ -164,6 +174,7 @@ function storeDraft(d: ComposerDraft): StoredDraft {
     attachments: d.attachments.map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, bytes: a.bytes, name: a.name })),
     editedAt: d.editedAt,
     deviceOnly: d.deviceOnly === true,
+    ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
     host: d.host ? { revision: d.host.revision, sessionId: d.host.sessionId, updatedAt: d.host.updatedAt, clean: d.host.edit === d.edit } : null,
   };
 }
@@ -208,7 +219,11 @@ async function lockWork(name: string, work: () => Promise<void>): Promise<void> 
 export function createLocalWork(options: LocalWorkOptions): LocalWork {
   const { stores, partitions, scope } = options;
   const draftKey = (id: string) => `${scope}/draft/${id}`;
-  const contextKey = `${scope}/context`;
+  const sharedContextKey = `${scope}/context`;
+  // The drafts are shared; a tab's selection/branch belongs to that tab.
+  let tab: string = crypto.randomUUID();
+  try { const key = `brain-ui:work-tab:${scope}`; tab = sessionStorage.getItem(key) ?? tab; sessionStorage.setItem(key, tab); } catch { /* no tab recovery when session storage is unavailable */ }
+  const contextKey = `${scope}/context/${tab}`;
   const status = createStore<LocalWorkStatus>(() => ({ failed: false, pending: false }));
   const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null }));
   const probes = new Set<WorkProbe>();
@@ -223,6 +238,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
    */
   let written = new Map<string, ComposerDraft | null>();
   let committed = new Map<string, string>();
+  let versions = new Map<string, number>();
   // A valid session draft skipped during restore is still durable user work.
   // This root must not treat an unadopted conflict as a deliberate deletion.
   const retained = new Map<string, string>();
@@ -302,7 +318,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const nextCommitted = new Map<string, string>();
     for (const d of Object.values(drafts)) {
       // An emptied draft the host still holds is kept too: its deletion is still owed.
-      if (!hasContent(d) && d.host === null) continue;
+      if (!hasContent(d) && d.host === null && !d.deviceConflict) continue;
       next.set(d.draftId, d);
       const value = storeDraft(d);
       const serialized = JSON.stringify(value);
@@ -313,49 +329,75 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       next.set(id, null);
       nextCommitted.set(id, serialized);
     }
-    for (const id of written.keys()) if (!next.has(id)) changes.push({ delete: draftKey(id) });
+    for (const id of written.keys()) if (!next.has(id)) {
+      const baseline = committed.get(id);
+      const saved = baseline ? parseDraft(JSON.parse(baseline)) : null;
+      if (saved && !saved.text && !saved.attachments.length && !saved.host) { next.set(id, null); nextCommitted.set(id, baseline!); }
+      else changes.push({ delete: draftKey(id) });
+    }
     const ctx = context();
     const text = JSON.stringify(ctx);
-    if (text !== writtenContext) changes.push({ put: contextKey, value: { v: 1, ...ctx } satisfies StoredContext });
+    if (text !== writtenContext) {
+      const value = { v: 1, ...ctx } satisfies StoredContext;
+      changes.push({ put: contextKey, value }, { put: sharedContextKey, value });
+    }
     if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
-    // A tab may hold an older draft from this same storage prefix. Compare
-    // under the shared lock before putting or deleting any changed draft;
-    // stale snapshots cannot erase text whose recording was already deleted.
-    for (const change of changes) {
-      const key = "put" in change ? change.put : change.delete;
-      if (!key.startsWith(`${scope}/draft/`)) continue;
-      const id = key.slice(`${scope}/draft/`.length);
-      const actual = await writingPartition.get(key);
-      checkGeneration();
-      if (JSON.stringify(actual) !== committed.get(id)) {
-        throw new Error("The draft changed in another tab. Reload before saving this local work.");
-      }
-    }
-    // Independently minted ids can still address the same session. Refuse
-    // a second owner before any receipt/audio cleanup can commit. A rotation
-    // may replace its old id only when this write deliberately removes it.
-    const removals = new Set(changes.flatMap(c => "delete" in c ? [c.delete] : []));
-    const owners = new Map<string, string>();
-    const stored = await writingPartition.list(`${scope}/draft/`);
-    checkGeneration();
-    for (const change of changes) {
-      if (!("put" in change) || !change.put.startsWith(`${scope}/draft/`)) continue;
-      const value = change.value as StoredDraft;
-      if (value.sessionId === null) continue;
-      const claimed = owners.get(value.sessionId);
-      const collision = stored.some(row => {
-        const other = parseDraft(row.value);
-        return other?.sessionId === value.sessionId && other.draftId !== value.draftId && !removals.has(row.key);
-      });
-      if ((claimed !== undefined && claimed !== value.draftId) || collision) {
-        throw new Error("The draft changed in another tab. Reload before saving this local work.");
-      }
-      owners.set(value.sessionId, value.draftId);
-    }
+    type Fork = { source: string; branch: string; sessionId: string | null; other: LocalDraft | null };
+    let forks: Fork[] = [];
+    const nextVersions = new Map(versions);
     try {
-      await writingPartition.write(changes, acceptance?.signal);
+      forks = await writingPartition.mutate(`${scope}/draft/`, stored => {
+        checkGeneration();
+        const actual = new Map(stored.map(r => [r.key, r.value as StoredDraft]));
+        const planned: PartitionWrite[] = [];
+        const result: Fork[] = [];
+        const removals = new Set(changes.flatMap(c => "delete" in c ? [c.delete] : []));
+        for (const change of changes) {
+          const key = "put" in change ? change.put : change.delete;
+          if (!key.startsWith(`${scope}/draft/`)) { planned.push(change); continue; }
+          const id = key.slice(`${scope}/draft/`.length);
+          const saved = actual.get(key);
+          const incoming = "put" in change ? change.value as StoredDraft : null;
+          const stale = draftVersion(saved) !== (versions.get(id) ?? 0) || serializedDraft(saved) !== committed.get(id);
+          const collision = (!saved || saved.sessionId !== incoming?.sessionId) && incoming?.sessionId !== null && incoming?.sessionId !== undefined
+            ? [...actual].find(([k,v]) => v.sessionId === incoming.sessionId && k !== key && !removals.has(k)) : undefined;
+          if ((stale && (!incoming || !saved || !sameContent(incoming, saved))) || collision) {
+            // A divergent write never replaces the already-committed owner.
+            // Branch content, context and any acceptance receipt co-commit.
+            const other = collision?.[1] ?? saved;
+            const branch = mintDraftId();
+            const source = incoming ?? { v: 1 as const, draftId: id, sessionId: drafts[id]?.sessionId ?? parseDraft(saved)?.sessionId ?? null, text: "", attachments: [], editedAt: Date.now(), host: null };
+            const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: source.sessionId } };
+            planned.push({ put: draftKey(branch), value });
+            result.push({ source: id, branch, sessionId: source.sessionId, other: other ? parseDraft(other) : null });
+            next.delete(id); nextCommitted.delete(id); nextVersions.delete(id);
+            if (saved) { next.set(id, null); nextCommitted.set(id, serializedDraft(saved)!); nextVersions.set(id, draftVersion(saved)); }
+            if (other) { next.set(other.draftId, null); nextCommitted.set(other.draftId, serializedDraft(other)!); nextVersions.set(other.draftId, draftVersion(other)); }
+            next.set(branch, null); nextCommitted.set(branch, serializedDraft(value)!); nextVersions.set(branch, 1);
+            // Update the planned context and receipt without changing navigation.
+            for (const c of changes) if ("put" in c) {
+              if ((c.put === contextKey || c.put === sharedContextKey) && (c.value as StoredContext).draftId === id) c.value = { ...c.value as StoredContext, draftId: branch };
+              if (c.put === (acceptance ? receiptKey(acceptance.id) : "") && (c.value as {draftId:string}).draftId === id) c.value = { ...c.value as object, draftId: branch };
+            }
+            continue;
+          }
+          if (incoming) {
+            const value = { ...incoming, deviceRevision: draftVersion(saved) + 1 };
+            planned.push({ put: key, value }); actual.set(key, value); nextVersions.set(id, value.deviceRevision);
+          } else {
+            // Keep an empty revision tombstone. A stale write after deletion
+            // must branch rather than reuse the deleted identity's revision.
+            if (saved) {
+              const value: StoredDraft = { ...saved, text: "", attachments: [], host: null, deviceRevision: draftVersion(saved) + 1 };
+              planned.push({ put: key, value }); actual.set(key, value);
+              next.set(id, null); nextCommitted.set(id, serializedDraft(value)!); nextVersions.set(id, value.deviceRevision!);
+            }
+          }
+        }
+        return { changes: planned, result };
+      }, acceptance?.signal);
     } catch (error) {
-      // Nothing is reported as kept; editing goes on in memory, and the next change tries again.
+      // No branch association or kept notice can precede native commit.
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
       throw error;
     }
@@ -363,7 +405,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     committedRevision = writingRevision;
     written = next;
     committed = nextCommitted;
-    writtenContext = text;
+    versions = nextVersions;
+    // Association changes use the live draft, so typing during commit is
+    // still visible. Their next snapshot updates the same retained branch.
+    for (const fork of forks) stores.drafts.getState().keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId);
+    writtenContext = forks.length ? "" : text;
     status.setState({ failed: false, pending: timer !== null });
   }
 
@@ -400,6 +446,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (k === contextKey) ctx = parseContext(value);
       else if (k.startsWith(`${scope}/draft/`)) { const d = parseDraft(value); if (d) kept.push(d); }
     }
+    if (!ctx) ctx = parseContext(records.find(r => r.key === sharedContextKey)?.value);
     if (warm && ctx) stores.chat.getState().setActiveSession(ctx.sessionId);
     stores.drafts.getState().restoreLocal(kept);
     if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
@@ -409,10 +456,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     for (const { key: k, value } of records) if (k.startsWith(`${scope}/draft/`)) {
       const id = k.slice(`${scope}/draft/`.length);
       written.set(id, null);
-      committed.set(id, JSON.stringify(value));
+      committed.set(id, serializedDraft(value)!);
+      versions.set(id, draftVersion(value));
       const saved = parseDraft(value);
       if (saved && saved.sessionId !== null && !drafts.drafts[id] &&
-        (saved.text.length > 0 || saved.attachments.length > 0)) retained.set(id, JSON.stringify(value));
+        (saved.text.length > 0 || saved.attachments.length > 0)) retained.set(id, serializedDraft(value)!);
     }
     if (ctx) {
       const activeSession = stores.chat.getState().activeSessionId;
@@ -420,6 +468,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         // A new chat's own draft goes back into the new-chat view.
         // Not over a new chat the reader has already started typing in.
         if (ctx.sessionId === null && (drafts.drafts[ctx.draftId] || (warm && ctx.tracks.length)) && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
+        if (activeSession !== null && drafts.drafts[ctx.draftId]?.sessionId === null && drafts.drafts[ctx.draftId]?.deviceConflict) drafts.showDeviceBranch(activeSession, ctx.draftId);
         const draftId = stores.drafts.getState().idFor(activeSession);
         // The selection is the kept draft's: a draft this page holds instead keeps its own.
         const same = stores.drafts.getState().resolveId(ctx.draftId) === draftId;
@@ -497,6 +546,21 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (locked || bound === null) throw new PartitionRefusedError("account:");
       } while (committedRevision !== revision);
     },
+    async openDeviceVersion(draftId) {
+      await this.snapshotNow();
+      const readingGeneration = generation;
+      const handle = partition;
+      if (!handle) throw new PartitionRefusedError("account:");
+      const raw = await handle.get(draftKey(draftId));
+      if (locked || disposed || readingGeneration !== generation) throw new PartitionRefusedError(handle.id);
+      const saved = parseDraft(raw);
+      if (saved) {
+        written.set(draftId, null);
+        committed.set(draftId, serializedDraft(raw)!);
+        versions.set(draftId, draftVersion(raw));
+      }
+      stores.drafts.getState().openDeviceVersion(draftId, saved ?? undefined);
+    },
     addTranscript(id, text, draftId, sessionId) {
       const account = held();
       const acceptanceGeneration = generation;
@@ -573,7 +637,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       pendingAcceptances.clear();
       locked = true;
       if (timer !== null) { clearTimeout(timer); timer = null; }
-      bound = null; partition = null; written.clear(); committed.clear(); retained.clear(); writtenContext = "";
+      bound = null; partition = null; written.clear(); committed.clear(); versions.clear(); retained.clear(); writtenContext = "";
       restore.setState({ selection: null, focusId: null, scroll: null });
       status.setState({ pending: false });
     },

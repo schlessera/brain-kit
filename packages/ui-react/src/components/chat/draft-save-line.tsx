@@ -15,6 +15,7 @@ import type { DraftConflictChoice } from "../../stores/draft-state.js";
  * Content is kept here in every state.
  */
 export function DraftSaveLine({ draftId }: { draftId: string }) {
+  const root = useBrainUiRoot();
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
@@ -36,6 +37,22 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
+  if (draft?.deviceConflict && !localFailed) return (
+    <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
+      <span role="status">Another tab changed this draft · Both versions kept</span>
+      <button type="button" className="min-h-11 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => {
+        const otherId = draft.deviceConflict!.otherId;
+        const open = async () => {
+          if (root.localWork) await root.localWork.openDeviceVersion(otherId);
+          else root.stores.drafts.getState().openDeviceVersion(otherId);
+          const other = root.stores.drafts.getState().drafts[otherId];
+          root.stores.chat.getState().setActiveSession(other?.sessionId ?? null);
+          root.stores.ui.getState().setActiveView("chat");
+        };
+        void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ });
+      }}>Open other version</button>
+    </div>
+  );
   if (view.state === "none") {
     // Absent, with no spacer, while there is no draft. A draft whose save is
     // still on its way prints nothing too, but keeps the line's place, so a
