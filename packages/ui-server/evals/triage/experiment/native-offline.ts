@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readlinkSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { NativeEvidence } from "./native-evidence";
-import { ownedClosure } from "./closure";
+import { ownedClosure, closureDigest } from "./closure";
 import { CORPUS } from "./corpus";
 import { parseRows } from "../score";
 const MODEL="claude-sonnet-5-5";
@@ -49,7 +49,7 @@ export async function offlineNative() {
  }catch(error){failure=String(error);}finally{clearTimeout(timeout);try{q?.close();}catch(error){failure ??= String(error);}}
  const drained=await evidence.drain();server.stop(true);
  const parsed=parseRows(result?.result ?? ""),accounting=evidence.accounting();
- const observed={mode:"scripted offline SDK fixture, not current donor/core performance",sourceEntries:Object.keys(closure).length,
+ const observed={mode:"scripted offline SDK fixture, not current donor/core performance",sourceEntries:Object.keys(closure).length,ownedClosureSha:closureDigest(closure),
   sdk:JSON.parse(readFileSync(join(sdkEntry,"../package.json"),"utf8")).version,result,failure,drained,physical,
   rawStdoutBase64:evidence.rawBytes().toString("base64"),rawStderrBase64:evidence.rawStderr().toString("base64"),frames:evidence.frames,
   processes:evidence.native.processes,accounting,parsedRows:parsed};
