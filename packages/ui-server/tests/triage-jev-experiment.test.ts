@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CORPUS, NEW_ITEMS } from "../evals/triage/experiment/corpus";
-import { classify, decisionFrom, requestFor, type Shape } from "../evals/triage/experiment/adapter";
+import { classify, decisionFrom, requestFor, sha, type Shape } from "../evals/triage/experiment/adapter";
 import { configurationVerdict, evaluateRepetition } from "../evals/triage/experiment/evaluate";
 import { workflowAccounting, latencySummary, type GenerationCall } from "../evals/triage/experiment/accounting";
 import { priceSonnet55Usage } from "../../../scripts/measure-sonnet55-cost";
@@ -123,12 +123,25 @@ describe("fresh triage Jev actual shipped transport",()=>{
  });
 });
 const raw={type:"result",is_error:true,modelUsage:{"claude-sonnet-5-5":{inputTokens:100,outputTokens:20,cacheReadInputTokens:30,cacheCreationInputTokens:40}}};
-const call:GenerationCall={phase:"fallback",model:"claude-sonnet-5-5",physicalRequests:1,terminal:true,failed:true,usageBasis:"native-final-all-model",tokens:{input:100,output:20,cacheRead:30,cacheWrite:40},priceEstimate:priceSonnet55Usage(raw),rawRequest:"original request",rawResponseBase64:Buffer.from(JSON.stringify(raw)).toString("base64"),failure:"known failed turn",durationMs:10};
+const request=JSON.stringify({model:"claude-sonnet-5-5",messages:[{role:"user",content:"original request"}]});
+const response=[{type:"message_start",message:{model:"claude-sonnet-5-5",usage:{input_tokens:100,output_tokens:1,cache_read_input_tokens:30,cache_creation_input_tokens:40}}},
+ {type:"message_delta",usage:{output_tokens:20,cache_read_input_tokens:null}}, {type:"message_stop"}].map(e=>`data: ${JSON.stringify(e)}\n\n`).join("");
+const physical={requestBody:request,requestSha:sha(request),responseBase64:Buffer.from(response).toString("base64"),responseSha:sha(response),responseComplete:true,status:200,
+ headers:{},failure:null,durationMs:10,model:"claude-sonnet-5-5",usage:null};
+const call:GenerationCall={phase:"fallback",model:"claude-sonnet-5-5",physicalRequests:1,terminal:true,failed:true,usageBasis:"native-final-all-model",tokens:{input:100,output:20,cacheRead:30,cacheWrite:40},priceEstimate:priceSonnet55Usage(raw),physicalCalls:[physical],rawRequest:"original request",rawResponseBase64:Buffer.from(JSON.stringify(raw)).toString("base64"),failure:"known failed turn",durationMs:10};
 describe("complete terminal workflow accounting",()=>{
  test("failed terminal cost remains retained, no invoice or absent summary demand invented",()=>{
   const a=workflowAccounting([], [call],false);expect(a.receiptComplete).toBe(true);expect(a.knownListEstimateUpperUsd).toBe(call.priceEstimate!.upperUsd);expect(a.failedGenerationCalls).toHaveLength(1);expect(a.actualAdditionalInvoiceUsd).toBeNull();expect(workflowAccounting([], [call],null).receiptComplete).toBe(false);expect(workflowAccounting([], [call],true).receiptComplete).toBe(false);
  });
- for(const patch of [{tokens:null},{tokens:{}},{tokens:{input:1,output:1,cacheRead:1}},{physicalRequests:0},{usageBasis:"invented"},{tokens:{input:100,output:1,cacheRead:30,cacheWrite:40}},{rawResponseBase64:"garbled"},{priceEstimate:{lowerUsd:NaN,upperUsd:1,unknownCacheTokens:0}}])test(`incomplete raw receipt rejected: ${JSON.stringify(patch)}`,()=>{
+ test("zero claimed requests cannot complete workflow but known terminal diagnostic cost is retained",()=>{
+  const a=workflowAccounting([], [{...call,physicalRequests:0}],false);expect(a.receiptComplete).toBe(false);expect(a.unknown).toEqual(["generation:0"]);expect(a.knownListEstimateUpperUsd).toBe(call.priceEstimate!.upperUsd);expect(a.failedGenerationCalls).toHaveLength(1);
+ });
+ test("positive claimed counts cannot replace reconciled raw physical request coverage",()=>{
+  for(const change of [{physicalCalls:null},{physicalRequests:2},{physicalCalls:[{...physical,responseComplete:false}]},{physicalCalls:[{...physical,requestSha:"changed"}]}]) {
+   const a=workflowAccounting([], [{...call,...change}],false);expect(a.receiptComplete).toBe(false);expect(a.unknown).toEqual(["physical-generation:0"]);expect(a.knownListEstimateUpperUsd).toBe(call.priceEstimate!.upperUsd);expect(a.failedGenerationCalls).toHaveLength(1);
+  }
+ });
+ for(const patch of [{tokens:null},{tokens:{}},{tokens:{input:1,output:1,cacheRead:1}},{usageBasis:"invented"},{tokens:{input:100,output:1,cacheRead:30,cacheWrite:40}},{rawResponseBase64:"garbled"},{priceEstimate:{lowerUsd:NaN,upperUsd:1,unknownCacheTokens:0}}])test(`incomplete raw receipt rejected: ${JSON.stringify(patch)}`,()=>{
   const a=workflowAccounting([], [{...call,...patch} as GenerationCall],false);expect(a.receiptComplete).toBe(false);expect(a.unknown).toEqual(["generation:0"]);expect(a.knownListEstimateUpperUsd).toBe(0);
  });
  test("latency uses complete finite observations, unknown is null",()=>{expect(latencySummary([10,20,30,40,50])).toEqual({observations:5,p50Ms:30,p95Ms:50,totalMs:150,throughputPerSecond:1000/30});expect(latencySummary([])).toBeNull();expect(latencySummary([NaN])).toBeNull();});

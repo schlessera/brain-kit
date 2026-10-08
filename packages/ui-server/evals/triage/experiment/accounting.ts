@@ -6,7 +6,7 @@ import type { PhysicalCall } from "./adapter";
 const counter=(value:unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 export interface GenerationCall { phase:"baseline"|"fallback"|"summary"; model:string; physicalRequests:number; terminal:boolean; failed:boolean;
   usageBasis:"provider-terminal"|"native-final-all-model"; tokens:{input:number;output:number;cacheRead:number;cacheWrite:number}|null;
-  priceEstimate:{lowerUsd:number;upperUsd:number;unknownCacheTokens:number}|null; rawRequest:string;rawResponseBase64:string;failure:string|null;durationMs:number|null }
+  priceEstimate:{lowerUsd:number;upperUsd:number;unknownCacheTokens:number}|null;physicalCalls:PhysicalCall[]|null; rawRequest:string;rawResponseBase64:string;failure:string|null;durationMs:number|null }
 function terminalEvidence(call:GenerationCall) {
  try {
   const decoded=new TextDecoder("utf-8",{fatal:true}).decode(Buffer.from(call.rawResponseBase64,"base64"));
@@ -27,6 +27,24 @@ function terminalEvidence(call:GenerationCall) {
   const price=priceSonnet55Usage(result);
   return Object.keys(tokens).every(k=>tokens[k as keyof typeof tokens] === call.tokens?.[k as keyof typeof tokens]) && JSON.stringify(price)===JSON.stringify(call.priceEstimate)?{tokens,price}:null;
  }catch{return null;}
+}
+function physicalGenerationComplete(call:GenerationCall) {
+ try {
+  if(!Array.isArray(call.physicalCalls)||call.physicalCalls.length!==call.physicalRequests||!call.physicalCalls.length)return false;
+  const total={input:0,output:0,cacheRead:0,cacheWrite:0};
+  for(const physical of call.physicalCalls) {
+   const request=JSON.parse(physical.requestBody),bytes=Buffer.from(physical.responseBase64 ?? "","base64");
+   if(sha(physical.requestBody)!==physical.requestSha || sha(bytes)!==physical.responseSha || !physical.responseComplete || physical.status!==200 || request.model!==protocol.models.generation)return false;
+   const frames=new TextDecoder("utf-8",{fatal:true}).decode(bytes).replaceAll("\r\n","\n").split("\n\n").flatMap(f=>f.split("\n").filter(s=>s.startsWith("data: ")).map(s=>JSON.parse(s.slice(6))));
+   const starts=frames.filter(e=>e.type==="message_start"),ends=frames.filter(e=>e.type==="message_stop"),deltas=frames.filter(e=>e.type==="message_delta" && counter(e.usage?.output_tokens));
+   if(starts.length!==1 || ends.length!==1 || !deltas.length || starts[0].message?.model!==protocol.models.generation || physical.model!==protocol.models.generation)return false;
+   const u={...starts[0].message.usage,...Object.assign({},...deltas.map(e=>Object.fromEntries(Object.entries(e.usage).filter(([,v])=>v!=null))))};
+   for(const [raw,key] of [["input_tokens","input"],["output_tokens","output"],["cache_read_input_tokens","cacheRead"],["cache_creation_input_tokens","cacheWrite"]] as const) {
+    if(!counter(u[raw]))return false;total[key]+=u[raw];
+   }
+  }
+  return Object.entries(total).every(([key,n])=>call.tokens?.[key as keyof typeof total]===n);
+ }catch{return false;}
 }
 export function workflowAccounting(classification:PhysicalCall[], generations:GenerationCall[], summaryDemand:boolean|null) {
  const costs:number[]=[], unknown:string[]=[];
@@ -49,7 +67,8 @@ export function workflowAccounting(classification:PhysicalCall[], generations:Ge
   const priced=price !== null && [price.lowerUsd,price.upperUsd].every(n=>typeof n === "number" && Number.isFinite(n) && n >= 0) && price.upperUsd >= price.lowerUsd;
   const evidence=terminalEvidence(call);
   if(!known || !priced || !evidence) unknown.push(`generation:${index}`);
-  if(known && priced && evidence)costs.push(price!.upperUsd); // Retain known terminal failed-call spend, independent of accepted outcome.
+  else if(!physicalGenerationComplete(call))unknown.push(`physical-generation:${index}`);
+  if(priced && evidence)costs.push(price!.upperUsd); // Retain known terminal failed-call spend, independent of accepted outcome.
  }
  if(summaryDemand === null || (summaryDemand && !generations.some(g=>g.phase === "summary")))unknown.push("summary-demand");
  if(!classification.length && !generations.length)unknown.push("no-physical-receipts");
