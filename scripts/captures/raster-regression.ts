@@ -13,9 +13,14 @@ const root = "/repo", output = "/captures", cache = "/fonts";
 const catalogue = await readCatalogue(root);
 const recipe = catalogue.harness_requirements.find((entry) => entry.id === "approval-roundtrip")!;
 const observations: unknown[] = [];
-for (const history of ["first", "second"] as const) {
+const comparisons: Awaited<ReturnType<typeof compareCaptures>>[] = [];
+for (let index=0; index<20; index++) {
+  const history = index % 2 ? "second" : "first";
+  const pair = Math.floor(index / 2);
+  const pairOutput = resolve(output, `pair-${pair}`);
+  await mkdir(pairOutput, { recursive: true });
   const browser = await launchCaptureBrowser();
-  await writeFile(resolve(output, `browser-${history}.json`), JSON.stringify({ version: browser.version(),
+  await writeFile(resolve(pairOutput, `browser-${history}.json`), JSON.stringify({ version: browser.version(),
     executable_sha256: sha256(await readFile(chromium.executablePath())), arguments: CAPTURE_BROWSER_ARGUMENTS,
     node: process.version, platform: process.platform, architecture: process.arch }, null, 2) + "\n");
   const newContext = browser.newContext.bind(browser);
@@ -58,7 +63,7 @@ for (const history of ["first", "second"] as const) {
           if (!link) return null;
           const rect = link.getBoundingClientRect(), style = getComputedStyle(link);
           return { text: link.textContent, rect: [rect.x, rect.y, rect.width, rect.height],
-            style: link.getAttribute("style"), font: style.font, color: style.color,
+            ancestors: [...(function*(){let e:Element|null=link;while(e){yield e;e=e.parentElement;}})()].map(e=>{const s=getComputedStyle(e);return {tag:e.tagName,classes:e.className,opacity:s.opacity,transform:s.transform,decoration:s.textDecoration};}), animations:document.getAnimations().map(a=>({state:a.playState,current:a.currentTime,timing:a.effect?.getComputedTiming()})), style: link.getAttribute("style"), font: style.font, color: style.color,
             decoration: style.textDecoration, display: style.display };
         });
         if (state) {
@@ -71,7 +76,7 @@ for (const history of ["first", "second"] as const) {
             if (!state.text || !fonts.some((font) => font.isCustomFont && font.familyName === "JetBrains Mono" && font.glyphCount > 0)) {
               throw new Error("Paint-history control lacks nonempty actual design-font glyphs");
             }
-            observations.push({ history, sha256: inspectPng(bytes).sha256, state, fonts });
+            observations.push({ index, history, sha256: inspectPng(bytes).sha256, state, fonts });
             await writeFile(resolve(output, "paint-observations.json"), JSON.stringify(observations, null, 2) + "\n");
           } finally { await session.detach(); }
         }
@@ -82,11 +87,16 @@ for (const history of ["first", "second"] as const) {
     return context;
   };
   try {
-    const directory = resolve(output, history); await mkdir(directory, { recursive: true });
+    const directory = resolve(pairOutput, history); await mkdir(directory, { recursive: true });
     const result = await captureRuntime(browser, root, cache, catalogue, recipe, directory);
     await writeFile(resolve(directory, "manifest.json"), JSON.stringify({ artifacts: [{ id: recipe.id, files: result.files, readiness: result.evidence }] }) + "\n");
   } finally { await browser.close(); }
+  if (index % 2) {
+    const comparison = await compareCaptures(resolve(pairOutput, "first"), resolve(pairOutput, "second"));
+    comparisons.push(comparison);
+    console.log(`Native paint-history pair ${pair + 1}/10 agrees`, comparison);
+  }
 }
-const result = await compareCaptures(resolve(output, "first"), resolve(output, "second"));
+const result = { pairs: comparisons.length, exact_files: comparisons.reduce((total, result) => total + result.exact_files, 0), comparisons };
 await writeFile(resolve(output, "paint-reproducibility.json"), JSON.stringify(result, null, 2) + "\n");
 console.log("Runtime captures agree across controlled native fragment paint histories", result);
