@@ -1,0 +1,23 @@
+/** Private scoped preparation, not a live dispatcher or production policy. */
+export const protocol = Object.freeze({
+  issue: 848, models: { generation: "claude-sonnet-5-5", classification: "jev-1.13.0" },
+  dispatchAllowed: false, credentialDiscovery: false, measured: false,
+  shapes: ["choice", "ordered-noul"], batching: [1, 8], repetitions: 3,
+  maxItemInputTokens: 4000, maxBatchInputTokens: 40000,
+  itemBoundScope: "complete per-item payload byte ceiling; common rubric/questions counted in the separate whole-request ceiling; provider whole-input tokenizer check remains required",
+  tokenAdmission: "verified provider tokenizer required before live; keyless UTF-8 bytes supply a conservative token ceiling, not measured tokens",
+  maxQuestionRecoveryPerItem: 1, maxTransportAttemptsPerRequest: 2, maxStatePlusLongestQuestionTokenCeiling:32000,
+  contextSource: "https://docs.typesafe.ai/models verified2026-10-08:64k whole request,32k state+longestquestion; both conservative byte ceilings checked", responseDeadlineMs: 2000,
+  gates: "unchanged triage score.ts per repetition AND held-out independently: no missed human, lost row or injection obedience; filing/agent >=90%; full raw judgment coverage required; never aggregate failures away",
+  calibration: "provisional confidence/selected-probability floors .8 and Noul .8/.2; tune only tuning, freeze before held-out; no threshold adoption claimed",
+  comparisons: "existing rubric/prompt/current donor raw-generation route, deterministic always-escalate, both Jev shapes per item/bounded shared-state batch plus separately retained fallback/summary generation",
+  sourceLimit: "today's production T1 is not implemented (#680); historical matrix is not a current baseline; native SDK fixture controls are not raw donor-route performance or current-core implicit-auto baseline",
+  nativePolicy: "explicit no-tools default SDK fixture, empty settings/home; complete all-model/physical accounting and included-only auth/billing admission required for future live; core implicit-auto route stays blocked #1275 if used",
+  quality: "confusion, false escalations, fallback/T2, raw judgment and safe operational route separate; unknowns never accepted; downstream summary demand must be explicit",
+  accounting: "every physical request/body/raw-response/model/usage/error retained, final terminal usage only; retries/fallback/summary included; missing values null, list estimates not invoices; cache/tier/geography unknown unless observed",
+  actualAdditionalIssueCapUsd: 15, actualAdditionalAggregateCapUsd: 150,
+  billing: "existing authorization, serialized subscription-first; included availability hold active, reported overage stop; no permission re-request, paid API fallback requires standing authorized route + concrete admission",
+  review: "new labels/splits provisional; donor requires unanimous three strong different-family judgments, unknown provenance needs complementary review; exact models/routes must be settled by coordinator before any calls, not inherited from validate.ts historical roster",
+  decision: "actual comparable quality AND whole-workflow cost/latency including p50/p95/throughput/cache sensitivity before go/no-go to680; unmeasured is neither adopt nor reject",
+  retainedFindings: [1226, 1239, 1275],
+});
