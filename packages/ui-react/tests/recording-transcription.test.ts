@@ -13,13 +13,15 @@ function fixture() {
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { async request(name: string, _opts: unknown, callback: (lock: unknown) => Promise<unknown>) { if (locks.has(name)) return callback(null); locks.add(name); try { return await callback({ name }); } finally { locks.delete(name); } } } } });
   const data = new Map<string, unknown>();
   let inventoryGate: Promise<void> | undefined;
-  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
+  let staleInventoryGate: Promise<void> | undefined;
+  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && staleInventoryGate) { const rows = [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); const gate = staleInventoryGate; staleInventoryGate = undefined; await gate; return rows; } if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
   const connection = createStore(() => ({ accountKey: "odysseus", wsStatus: "connected" }));
   const root = { apiBase: () => "/api", stores: { connection }, authLock: { epoch: () => 0, state: createStore(() => ({ phase: "active" })) }, request: async () => new Response("{}", { status: 404 }) } as unknown as BrainUiServices;
-  const partitions = { open: () => handle, writerGeneration: () => "initial", subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
+  const empty = { async get() { return undefined; }, async list() { return []; } };
+  const partitions = { open: (partition: string) => partition === "unassigned" ? empty : handle, writerGeneration: () => "initial", subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
   const make = () => { const s = createRecordingStore({ root, partitions, heldAccountKey: () => connection.getState().accountKey }); stores.push(s); return s; };
   const id = crypto.randomUUID(), blob = new Blob([new Uint8Array([1, 2, 3])]);
-  return { data, connection, root, make, id, blob, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
+  return { data, connection, root, make, id, blob, holdOldInventory() { let release!: () => void; staleInventoryGate = new Promise<void>(r => { release = r; }); return release; }, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
 }
 test("delayed status recovery cannot overwrite another tab's durable edit", async () => {
   const f = fixture(), done = await f.seed(); let release!: () => void, queries = 0;
@@ -101,4 +103,28 @@ test("the update hold is active before upload even while inventory reads are del
   const s = f.make(); await Bun.sleep(5); const release = f.blockInventory();
   try { await s.transcribe("account:odysseus", f.id, () => {}); expect(heldAtDispatch, "update hold precedes the first HTTP upload byte").toBe(true); }
   finally { release(); }
+});
+
+
+test("a stale inventory read cannot release the update hold during provider work", async () => {
+  const f = fixture(), done = await f.seed("saved"); let started = false, finish!: () => void;
+  const provider = new Promise<void>(r => { finish = r; });
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { started = true; await provider; return Response.json(done); } return new Response("{}", { status: 404 }); };
+  const s = f.make(); await Bun.sleep(5); const release = f.holdOldInventory(); const old = s.list("account:odysseus");
+  const pending = s.transcribe("account:odysseus", f.id, () => {});
+  while (!started) await Bun.sleep(1); await Bun.sleep(10);
+  try { expect(updateHeld(f.root)).toBe(true); release(); await old; expect(updateHeld(f.root), "stale inventory cannot release an in-flight update hold").toBe(true); }
+  finally { release(); finish(); await pending; }
+});
+
+test("status recovery during a partial upload cannot claim a subsequently processed request was not sent", async () => {
+  const f = fixture(), done = await f.seed("saved"); let started = false, finish!: () => void, receipt: unknown = null;
+  const provider = new Promise<void>(r => { finish = r; });
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { started = true; init.onUploadProgress?.(40); await provider; init.onUploadProgress?.(100); receipt = done; throw new TypeError("Lost processed reply"); } return receipt ? Response.json(receipt) : new Response("{}", { status: 404 }); };
+  const s = f.make(); await Bun.sleep(5); const pending = s.transcribe("account:odysseus", f.id, () => {}).catch(() => {});
+  while (!started) await Bun.sleep(1);
+  try { await s.syncTranscriptions(); } finally { finish(); }
+  await pending;
+  expect((await s.get("account:odysseus", f.id))!.state, "active upload cannot be marked not sent by an early 404").toBe("transcribing");
+  await s.syncTranscriptions(); expect((await s.get("account:odysseus", f.id))!.transcript).toBe(done.text);
 });

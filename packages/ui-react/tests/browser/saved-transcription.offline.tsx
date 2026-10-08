@@ -121,7 +121,7 @@ test("provider failure retains audio, retry asks consent and exhausted retries s
     await confirm(c, true); expect(c.uploads).toHaveLength(n);
     await tap(button(c.host, "Upload and transcribe")); await expect.poll(async () => (await c.root.recordings!.get(row.partition, row.id))!.transcription!.retryCount).toBe(n);
   }
-  expect(c.host.textContent).toContain("All three retries have been used"); expect(button(c.host, "Retry transcription")).toBeUndefined();
+  await expect.poll(() => c.host.textContent).toContain("All three retries have been used"); expect(button(c.host, "Retry transcription")).toBeUndefined();
   expect((await c.root.recordings!.get(row.partition, row.id))!.bytes).toBe(bytes.length);
 });
 
