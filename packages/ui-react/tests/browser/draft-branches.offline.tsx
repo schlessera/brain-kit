@@ -300,7 +300,7 @@ async function divergent(ctx: { onTestFinished(fn: () => unknown): void }) {
 }
 for (const outcome of ["accept", "refuse"])
   test(`review: pending send ${outcome} settles on the branch`, async (ctx) => {
-    const { a, b, original } = await divergent(ctx);
+    const { b, original } = await divergent(ctx);
     const images = (await view(b)).images;
     await b.call("send", true);
     await b.call("save");
@@ -327,7 +327,7 @@ for (const outcome of ["accept", "refuse"])
   }, 60000);
 
 test("review: a rotation during fork commit retains the live successor and its images", async (ctx) => {
-  const { a, b, original } = await divergent(ctx);
+  const { b, original } = await divergent(ctx);
   const images = (await view(b)).images;
   await b.call("hold");
   await b.call("startSave");

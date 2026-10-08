@@ -403,7 +403,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect((await snap(b)).result).toEqual({ ok: true, value: undefined });
       const after = await fixture(b, (f) => f.list(f.accountKey()!));
       if (!after.ok) throw new Error(after.error);
-      expect((after.value.find(r => r.key === original.key)?.value as { text: string }).text,
+      expect((after.value.find(r => r.key === original.key)!.value as { text: string }).text,
         "the authenticated original survives the atomic stale write").toBe("Penelope keeps the committed weave");
       const branch = after.value.find(r => (r.value as { text?: string }).text === "Telemachus keeps his own voyage");
       expect(branch, "the authenticated incoming branch is durable").toBeDefined();
