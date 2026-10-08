@@ -37,12 +37,15 @@ bun run captures --id approval-roundtrip --theme light --viewport 600x1000
 bun run capture:verify
 ```
 
-Runtime screenshots first materialize and rebuild file-link fragments, restoring
+Runtime screenshots materialize both the initial and temporary file-link fragment
+surfaces before restoring
 their final styles and rejecting changed content or geometry before the existing
 visibility and three-identical-frame checks. This editorial preparation handles
 the controlled [native paint-history difference](../decisions/approval-capture-raster.md).
 `capture:verify` additionally compares actual approval effects, history and exact
-PNGs across both controlled paint histories; its `paint-history/` artifacts retain
+PNGs across ten fresh-browser pairs of both controlled paint histories; each
+`paint-history/pair-N/` directory retains its manifests and original PNGs, and
+the surrounding `paint-history/` artifacts retain
 the native measurements and original screenshots.
 
 `--out` selects a dedicated empty or previously managed output directory.

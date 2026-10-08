@@ -135,7 +135,7 @@ materialize an initial surface screenshot, rebuild the link's inline fragment
 through the same display cycle, and restore the original style attribute before
 checking visibility or accepting screenshots. The helper rejects changed final
 text, geometry, font, colour, decoration, display, transform or opacity
-(`refreshRuntimeLinkPaint`, `scripts/captures/runtime-paint.ts:4-38`). An initial
+(`refreshRuntimeLinkPaint`, `scripts/captures/runtime-paint.ts:4-44`). An initial
 headless rAF alone does not reliably materialize the first surface, so the
 unaccepted priming screenshot is necessary. No final CSS, browser flag, product
 behaviour, tolerance, pixel baseline or comparison assertion changes. This is
@@ -160,3 +160,43 @@ alongside the original two-run artifacts, including on failure. Current-head
 and exact-squash main CI are recorded on #1284 and its PR, rather than as a
 mutable verification status here. The prior #1263 non-reproduction report and
 all original failed attempts remain historical evidence.
+
+
+## 2026-10-09 — Exact-main recurrence and temporary surface paint
+
+PR #1300's fully passing combined PR tree merged as `eb41d022`, with the same
+verified parent/tree. Its first automatic main capture attempt `fsx3r1zccs`
+(run `ps_gdm7zzrqqd`) nevertheless fails the original full-order comparator.
+The retained artifact `01a11d89-aedc-7efb-984c-35079a070d0d` contains the exact
+historical `f2022c98` / `2e348d62` pair, independently decoded again to 144 RGB
+differences on rows 251 and 253. The additional native regression was not
+reached. The previous section's passing controlled pair does not establish
+that the first preparation handles this natural recurrence.
+
+A bounded repeated actual-runtime diagnostic also diverges with that merged
+preparation enabled. Post-image target geometry, native font, ancestor opacity
+and transforms agree; the surviving animation is the separate infinite pulse.
+The previous display cycle awaited headless animation frames but never captured
+the temporary fragment state. Those frames supply no receipt of that state's
+actual raster. The correction materializes the temporary surface as well as
+the initial surface, then restores exact original style attributes in a finally
+block, checks final state and disposes the retained element handles. Both
+preparation images are unaccepted; the original visibility, three-identical-frame
+and byte/checksum comparisons still decide the final captures.
+
+With this preparation, ten fresh-browser ordinary/primed-history pairs pass all
+six original approval PNG comparisons and unchanged execution/history evidence.
+Removing only the temporary screenshot from the loaded helper fails the sixth
+pair's original `approval-deny-before-dark.png differs between unchanged runs`
+assertion. Restoration passes ten pairs again after the original full capture
+sequence. This is native behavioral evidence for the preparation boundary, not
+a predicate test or module-load failure. It establishes no Chromium engine
+cause or universal diagnosis of the historical natural trigger.
+
+The additional regression now retains ten separate paired directories under
+`paint-history/`, with each manifest, original PNG, target/ancestor style, native
+font observation and comparison receipt. Sixty exact-file comparisons preserve
+the original comparator and correlated principal nonce rule. The full gate still
+compares its original thirteen files first. No tolerance, baseline, browser flag,
+product CSS, finite-animation deadline or approval assertion changes. Failed
+main evidence remains preserved even when a later candidate passes.
