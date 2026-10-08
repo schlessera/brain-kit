@@ -5,7 +5,7 @@ import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents
 import { hash, protocol, protocolSha } from "./protocol";
 export const source = realpathSync(new URL("../../../", import.meta.url).pathname);
 /** Whole owned dependency/workspace identity; no symlink escapes or local paths. */
-export function closureTree(root:string){
+export function closureTree(root:string,independent=false){
   const entries:Record<string,unknown>={};
   function visit(path:string,relativePath:string){
     const stat=lstatSync(path),mode=stat.mode&0o7777;
@@ -22,7 +22,10 @@ export function closureTree(root:string){
     if(stat.isDirectory()){
       entries[relativePath]={kind:"directory",mode};
       for(const name of readdirSync(path).sort())visit(join(path,name),relativePath?`${relativePath}/${name}`:name);
-    }else if(stat.isFile())entries[relativePath]={kind:"file",mode,bytes:stat.size,sha:hash(readFileSync(path))};
+    }else if(stat.isFile()){
+      if(independent&&stat.nlink!==1)throw Error("Installed dependency shares a mutable regular inode; copy independent bytes before freezing");
+      entries[relativePath]={kind:"file",mode,bytes:stat.size,sha:hash(readFileSync(path))};
+    }
     else throw Error("Unsupported installed dependency/source member");
   }
   visit(root,"");return entries;
@@ -41,7 +44,7 @@ export function sourceFreeze() {
   const packageRaw=readFileSync(join(dirname(sdk),"package.json"));const version=JSON.parse(packageRaw.toString()).version;
   const native=bundledClaudeBinary();if(!native)throw Error("Installed native runtime absent");
   if(version!==protocol.nativeRuntime.sdk||Bun.version!==protocol.nativeRuntime.bun)throw Error("Installed runtime differs from exact research protocol");
-  const dependencies=closureTree(join(source,"node_modules"));
+  const dependencies=closureTree(join(source,"node_modules"),true);
   const workspaceTrees=Object.fromEntries(readdirSync(join(source,"packages")).sort().map(name=>{
     const entries=closureTree(join(source,"packages",name,"src"));
     const manifest=join(source,"packages",name,"package.json");
