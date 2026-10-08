@@ -651,12 +651,13 @@ jobs:
         timeout-minutes: 5
         run: >-
           unshare --user --map-current-user --keep-caps --net
-          sh -c 'ip link set lo up && bun scripts/measure-claude-delegation.ts --out delegation-probe.json && bun scripts/measure-claude-capability.ts > capability-probe.json && bun run test tests/measurement-isolation.test.ts'
+          sh -c 'ip link set lo up && bun scripts/measure-claude-delegation.ts --out delegation-probe.json && bun scripts/measure-claude-capability.ts > capability-probe.json && bun scripts/measure-claude-haiku.ts > haiku-probe.json && bun run test tests/measurement-isolation.test.ts'
       - name: Delegation and capability reports
         if: always()
         run: |
           cat delegation-probe.json 2>/dev/null || echo "The delegation probe wrote no report."
           cat capability-probe.json 2>/dev/null || echo "The capability probe wrote no report."
+          cat haiku-probe.json 2>/dev/null || echo "The Haiku probe wrote no report."
 
   changeset:
     # A user-visible change without a changeset publishes with no version entry

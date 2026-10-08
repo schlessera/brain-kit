@@ -5448,6 +5448,31 @@ describe("chat views", () => {
   });
 });
 
+test("the composer picker displays Haiku 5.5 and sends its canonical selection", async () => {
+  const providers = [
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
+  ];
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers }) });
+  await root.stores.provider.getState().loadProviders();
+  root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
+  const sent: Array<import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage> = [];
+  const view = render(<BrainUiProvider root={root}><Composer send={msg => { if (msg.type === "chat_message") sent.push(msg); return true; }} /></BrainUiProvider>);
+  try {
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(view.getByRole("button", { name: /^Model —/ }));
+    expect(view.getAllByRole("radio").length).toBeGreaterThan(0);
+    fireEvent.click(view.getByRole("radio", { name: "Claude Haiku 5.5" }));
+    expect(root.stores.provider.getState().selectedId).toBe("claude-haiku-5-5");
+    expect(view.getByRole("button", { name: /Model — Claude Haiku 5.5/ })).toBeTruthy();
+    const field = view.getByRole("textbox") as HTMLTextAreaElement;
+    field.focus(); changeControlledInput(field, "Tell Odysseus about Ithaca.");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(sent).toHaveLength(1); expect(sent[0]!.providerId).toBe("claude-haiku-5-5");
+    expect(sent[0]!.text).toBe("Tell Odysseus about Ithaca.");
+  } finally { view.unmount(); root.dispose(); }
+});
+
 describe("one-message composer effort", () => {
   async function mounted(ack = true) {
     const providers = [
