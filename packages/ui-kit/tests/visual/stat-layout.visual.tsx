@@ -2,7 +2,7 @@
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
-import { commands, page } from "vitest/browser";
+import { page } from "vitest/browser";
 
 import "../../src/styles.css";
 import { StatTiles, type StatTile } from "../../src/blocks/StatTiles.js";
@@ -10,15 +10,11 @@ import { digestStats } from "../../fixtures/events.js";
 
 let host: HTMLDivElement | undefined;
 let renderer: Root | undefined;
-let fonts: HTMLStyleElement;
 let viewport: { width: number; height: number };
 
 beforeAll(async () => {
   viewport = { width: innerWidth, height: innerHeight };
   await page.viewport(1440, 1800);
-  fonts = document.createElement("style");
-  fonts.textContent = await commands.rankFooterFonts();
-  document.head.append(fonts);
   const faces = ['600 9px "JetBrains Mono"', '400 10px "JetBrains Mono"', '400 24px "DM Serif Text"'];
   await Promise.all(faces.map(face => document.fonts.load(face)));
   await document.fonts.ready;
@@ -32,7 +28,6 @@ afterEach(() => {
   host = undefined;
 });
 afterAll(async () => {
-  fonts?.remove();
   await page.viewport(viewport.width, viewport.height);
 });
 
