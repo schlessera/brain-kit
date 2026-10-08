@@ -209,3 +209,16 @@ test("optional capability declarations must match the method and Web Speech refu
     expect((await webspeech.fetch(path(randomUUID()), put())).status).toBe(501);
   } finally { await webspeech.close(); }
 });
+
+for (const reason of ["outcome_unknown", "authentication", "media", "parameters", "validation"] as const) test(`explicit terminal ${reason} cannot gain a retry from a conflicting transient status`, async () => {
+  let calls = 0;
+  const t = await httpContractApp({ env: { VOICE_PROVIDER: "fixture-speech" }, speechProvider: fake(async () => { calls++; throw new SpeechTranscriptionError(reason, 503); }) });
+  try {
+    const id = randomUUID(), receipt = await (await t.fetch(path(id), put())).json();
+    expect(receipt.failure.retryable, "terminal classification cannot be upgraded by HTTP evidence").toBe(false);
+    expect(receipt.failure.reason).toBe(reason);
+    expect(receipt.status).toBe(reason === "outcome_unknown" ? "outcome_unknown" : "failed");
+    expect((await t.fetch(`${path(id)}?retry=${receipt.attemptId}`, put())).status).toBe(409);
+    expect(calls).toBe(1);
+  } finally { await t.close(); }
+});

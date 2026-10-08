@@ -3523,7 +3523,10 @@ gives 409 `recording_hash_mismatch`. A failed plain replay gives 409
 new attempt only for a retryable failure: provider 5xx, 429/rate limit or a
 definitive provider timeout including Deepgram 504. Each retry is explicitly
 user initiated. Media, parameter, validation and authentication failures are
-never retried; they give 409 `transcription_not_retryable`. A stale token gives
+never retried; they give 409 `transcription_not_retryable`. Explicit terminal
+classifications remain terminal even if an adapter attaches a conflicting
+transient HTTP status; transient classifications cannot override definitive
+authentication or validation HTTP evidence. A stale token gives
 409 `transcription_retry_stale`; once three retries are used, a current token
 gives 409 `transcription_retry_limit`. Simultaneous retries can claim only
 one attempt. `outcome_unknown` gives terminal 409

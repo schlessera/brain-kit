@@ -21,7 +21,9 @@ export function transcriptionFailure(error: unknown): TranscriptionFailure {
   const status = error.providerStatus;
   const reasons = ["provider_error", "rate_limit", "provider_timeout", "media", "parameters", "validation", "authentication", "outcome_unknown"];
   if (!reasons.includes(error.reason) || status !== undefined && (!Number.isInteger(status) || status < 400 || status > 599)) return { reason: "outcome_unknown", retryable: false };
-  // A status that contradicts a provider-supplied reason cannot grant a retry.
+  // Explicit terminal evidence wins even if an adapter also supplies a
+  // contradictory transient status. HTTP rejections can only constrain retries.
+  if (["outcome_unknown", "authentication", "media", "parameters", "validation"].includes(error.reason)) return { reason: error.reason, retryable: false, ...(status !== undefined ? { providerStatus: status } : {}) };
   const reason = status === 401 || status === 403 ? "authentication"
     : status === 429 ? "rate_limit" : status === 408 || status === 504 ? "provider_timeout"
     : status !== undefined && status >= 500 && status <= 599 ? "provider_error"
