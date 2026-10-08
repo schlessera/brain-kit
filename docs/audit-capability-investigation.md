@@ -279,3 +279,45 @@ physical receipt. Invalid model proposals and fallback work remain quality
 observations with their full cost, rather than collector success claims or
 unaccounted attempts. These diagnostics do not validate or repair the shipped
 suggestion parser.
+
+
+The eight-packet review collector binds literal native stdin, stdout and stderr
+and each physical request/SSE/error response in a protected hash manifest.
+Admission independently reparses prompt, initialization, account and effective
+settings, model, terminal counters, cache/rate events, natural EOF and actual
+child/relay close. Metadata-only approvals and scripted offline responses cannot
+approve inputs. This artifact binding is not cryptographic attestation against
+a dishonest artifact owner or an invoice. SDK 0.3.283 / CLI 2.1.283 remain the
+experimental runtime; their Sonnet 5.5 fallback price/context metadata is retained
+and independent token-derived prices stay separate.
+
+The native connectivity HEAD is answered only at the exact local `/api/hello`
+route, retained separately and never forwarded or counted as inference. Actual
+auxiliary Messages requests remain subject to complete accounting. Paid extra
+usage requires the coordinator's explicit policy bound to the literal packet,
+source/input/protocol/runtime and verification proof. Every physical dispatch
+reserves conservative input/output charges first; failed or unknown usage keeps
+the reservation and refuses further dispatch. The native included-limit status may stay `rejected` while its paid overage
+status is `allowed`; that exact active case requires the root policy. A genuine
+paid rejection, HTTP/native error or unknown usage remains a veto. Missing invoices remain null. The diagnostic SDK dollar cutoff is an
+operational limit and does not establish the maintainer's actual charge cap.
+Real detection-day checks apply before dispatch and after drain; the fictional
+writer date and existing benchmark semantics remain unchanged.
+
+Offline byte-format and native transport controls also exercise the explicitly
+recognized SDK/native 293 pair when present in CI. Their receipts identify the
+actual pair and cannot approve the preserved 283 live instrument. Unknown pairs
+are refused rather than skipped or accepted as future-compatible.
+
+The coordinator mints a single-use paid grant for each exact packet from its
+shared remaining balance, including earlier native and Jev activity. The
+collector atomically creates a protected nonce marker before prompt release or
+physical forwarding. Failure leaves that grant consumed; replay compares the
+literal marker, copied bytes, hashes and captured dispatch time. Conservative
+input/output rates cover known Standard tier (including `auto`) and absent,
+global or US-only geography. Unknown modifiers and missing receipts retain
+the reservation and refuse the next request. The observed native response
+`inference_geo: not_available` remains unavailable geography; the same upper
+bound covers documented global/US pricing without claiming global execution.
+No observed usage debit is an
+invoice, and no packet carries an independent $15 allowance.

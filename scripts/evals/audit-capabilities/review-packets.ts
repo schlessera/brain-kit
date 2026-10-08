@@ -1,16 +1,18 @@
 /** Lossless byte-bounded packets; native context fit must still be observed. */
 import { isDeepStrictEqual } from "node:util";
-import { priceReview, overageState } from "../note-disposition/review";
+import { priceReview } from "../note-disposition/review";
 import { subscriptionVerdict } from "../../../packages/ui-backend-claude/src/subscription";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cases } from "./benchmark";
 import { runtimeFreeze, repo, sha } from "./freeze";
 import { MODEL } from "./protocol";
+import { validateReviewEvidence } from "./review-evidence";
+import type { RootPaidPolicy } from "./review-policy";
 export const REVIEW_FILES = [
   "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md",
   "scripts/evals/audit-capabilities/benchmark.ts", "scripts/evals/audit-capabilities/prototype.ts", "scripts/evals/audit-capabilities/protocol.ts", "scripts/evals/audit-capabilities/live.ts", "scripts/evals/audit-capabilities/freeze.ts", "scripts/evals/audit-capabilities/review.ts", "scripts/evals/audit-capabilities/review-packets.ts", "scripts/evals/audit-capabilities/analyze.ts",
-  "scripts/evals/audit-capabilities/effects.ts", "scripts/evals/audit-capabilities/review-drain.ts", "scripts/evals/audit-capabilities/parser-diagnostics.ts",
+  "scripts/evals/audit-capabilities/effects.ts", "scripts/evals/audit-capabilities/review-drain.ts", "scripts/evals/audit-capabilities/review-native.ts", "scripts/evals/audit-capabilities/review-evidence.ts", "scripts/evals/audit-capabilities/review-relay.ts", "scripts/evals/audit-capabilities/review-policy.ts", "scripts/evals/audit-capabilities/review-offline.ts", "scripts/evals/audit-capabilities/review-offline-launch.py", "scripts/evals/audit-capabilities/parser-diagnostics.ts",
   "scripts/evals/note-disposition/review.ts", "scripts/evals/note-disposition/live.ts", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts",
   "packages/ui-backend-claude/src/subscription.ts", "packages/core/src/cli/commands/audit.ts", "packages/core/src/providers/completions/anthropic.ts", "packages/core/src/lib/llm-util.ts", "packages/core/src/lib/auditor.ts", "packages/core/src/lib/index-registry.ts", "packages/core/src/lib/validate.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/seams.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/generated-regions.ts", "packages/core/src/lib/frontmatter-parse.ts",
 ] as const;
@@ -61,7 +63,7 @@ export function buildReviewPacket(frozen: ReturnType<typeof runtimeFreeze>, dete
 }
 
 /** Every packet and the shared protocol must be approved on one exact freeze. */
-export function combinedReview(receipts: any[], frozen: ReturnType<typeof runtimeFreeze>, detectedRaw: string, proofRaw: string) {
+export function combinedReview(receipts: any[], frozen: ReturnType<typeof runtimeFreeze>, detectedRaw: string, proofRaw: string, policies: Record<string,RootPaidPolicy> = {}) {
   const detectedSha = sha(detectedRaw), verificationSha = sha(proofRaw);
   if (receipts.length !== reviewPlan.length) throw Error("All eight source/case reviews are required");
   const expected = new Set(reviewPlan.map(p => p.key));
@@ -69,7 +71,8 @@ export function combinedReview(receipts: any[], frozen: ReturnType<typeof runtim
   for (const r of receipts) {
     const plan = reviewPlan.find(p => p.key === r.packet?.key);
     const built = plan ? buildReviewPacket(frozen, detectedRaw, proofRaw, plan.key) : null;
-    if (!plan || seen.has(plan.key) || r.approval !== "APPROVED" || r.model !== MODEL || r.freezeSha !== frozen.freezeSha || r.detectedSha !== detectedSha || r.reviewPlanSha !== reviewPlanSha || JSON.stringify(r.packet) !== JSON.stringify(plan) || r.promptSha !== built?.promptSha || r.verificationSha !== verificationSha || r.failure || r.cleanupFailure || r.childClosed?.code !== 0 || r.childClosed?.signal !== null || !priceReview(r.result) || !isDeepStrictEqual(priceReview(r.result), r.apiEquivalent) || !subscriptionVerdict(r.credentials).ok || !r.promptReleased || overageState(r.rateLimits ?? []) !== "reported inactive" || r.result?.subtype !== "success" || r.result?.is_error || !/^APPROVED\b/.test(r.result?.result ?? "") || r.init?.model !== MODEL || r.init?.apiKeySource !== "none" || r.init?.cli !== frozen.binaries.claude.cliVersion || r.reviewDriverSha !== frozen.sources["scripts/evals/audit-capabilities/review.ts"] || r.subscriptionOverageState !== "reported inactive") throw Error("Source/case review absent, failed, duplicated, or not exact prompt/proof-frozen");
+    const runtime={sdk:frozen.binaries.claude.sdkVersion,nativeSha:frozen.binaries.claude.sha256,nativeMode:frozen.binaries.claude.mode,bunSha:frozen.binaries.bun.sha256,bunVersion:frozen.binaries.bun.version,bunMode:frozen.binaries.bun.mode};
+    if (!plan || !built || !validateReviewEvidence({freezeSha:frozen.freezeSha,promptSha:built.promptSha,runtime,proofSha:verificationSha,detectedSha,protocolSha:sha(JSON.stringify(frozen.protocol)),paidPolicy:policies[plan.key]},r.evidence) || seen.has(plan.key) || r.approval !== "APPROVED" || r.model !== MODEL || r.freezeSha !== frozen.freezeSha || r.detectedSha !== detectedSha || r.reviewPlanSha !== reviewPlanSha || JSON.stringify(r.packet) !== JSON.stringify(plan) || r.promptSha !== built?.promptSha || r.verificationSha !== verificationSha || r.failure || r.cleanupFailure || r.childClosed?.code !== 0 || r.childClosed?.signal !== null || !priceReview(r.result) || !isDeepStrictEqual(priceReview(r.result), r.apiEquivalent) || !subscriptionVerdict(r.credentials).ok || !r.promptReleased || r.result?.subtype !== "success" || r.result?.is_error || !/^APPROVED\b/.test(r.result?.result ?? "") || r.init?.model !== MODEL || r.init?.apiKeySource !== "none" || r.init?.cli !== frozen.binaries.claude.cliVersion || r.reviewDriverSha !== frozen.sources["scripts/evals/audit-capabilities/review.ts"]) throw Error("Source/case review absent, failed, duplicated, or not exact prompt/proof-frozen");
     seen.add(plan.key);
   }
   if ([...expected].some(key => !seen.has(key))) throw Error("A complete case packet is missing");
@@ -77,8 +80,8 @@ export function combinedReview(receipts: any[], frozen: ReturnType<typeof runtim
 }
 
 if (import.meta.main) {
-  const [detectedPath, proofPath, ...receiptPaths] = process.argv.slice(2);
-  if (!detectedPath || !proofPath || receiptPaths.length !== reviewPlan.length) throw Error("Require exact detected inputs, verification and all eight native receipts");
-  const approved = combinedReview(receiptPaths.map(path => JSON.parse(readFileSync(path, "utf8"))), runtimeFreeze(), readFileSync(detectedPath, "utf8"), readFileSync(proofPath, "utf8"));
+  const [detectedPath, proofPath, policiesPath, ...receiptPaths] = process.argv.slice(2);
+  if (!detectedPath || !proofPath || !policiesPath || receiptPaths.length !== reviewPlan.length) throw Error("Require exact detected inputs, verification, external root policy map and all eight native receipts");
+  const approved = combinedReview(receiptPaths.map(path => JSON.parse(readFileSync(path, "utf8"))), runtimeFreeze(), readFileSync(detectedPath, "utf8"), readFileSync(proofPath, "utf8"), JSON.parse(readFileSync(policiesPath, "utf8")));
   console.log(JSON.stringify(approved, null, 2));
 }
