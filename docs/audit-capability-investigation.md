@@ -266,3 +266,15 @@ independent standard-price diagnostic, never a subscription invoice. Actual
 additional billed charges and shared reservations remain in the coordinator's
 protected ledger. Fresh complementary semantic approval and the full comparison
 are still required before a measured recommendation.
+
+
+The resumed real-command parser controls also preserve an important distinction:
+`[null]` throws inside the shipped suggestion-normalization catch and triggers
+whole-batch manual fallback; string/number array entries become empty normalized
+objects. Neither makes the shipped command crash. The task-local instrument
+retains the unchanged returned completion text and records a source-backed parser
+diagnostic, including fallback reason and non-object raw entries, beside its
+physical receipt. Invalid model proposals and fallback work remain quality
+observations with their full cost, rather than collector success claims or
+unaccounted attempts. These diagnostics do not validate or repair the shipped
+suggestion parser.

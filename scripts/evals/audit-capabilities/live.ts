@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { cases, commandOutput, detect, capabilityArm, prepareBenchmark, DETECTION_DAY } from "./benchmark";
 import { MODEL, protocol } from "./protocol";
 import { runtimeFreeze, sha } from "./freeze";
+import { parserDiagnostic } from "./parser-diagnostics";
 import { combinedReview } from "./review-packets";
 import { assertSourceEffect, sourceSnapshot } from "./effects";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
@@ -12,6 +13,7 @@ import { anthropicCompletions } from "../../../packages/core/src/providers/compl
 export type Http = (url: string, init: RequestInit) => Promise<Response>;
 export interface PhysicalCall {
   fixture: string; repetition: number; request: unknown; response: unknown;
+  completionText?: string; parserDiagnostic?: ReturnType<typeof parserDiagnostic>; providerCompletionFailure?: string;
   status: number | null; outcome: string; elapsedMs: number;
   cost: { lowerUsd: number; upperUsd: number } | null;
   requestedTier: "standard_only"; requestedGeo: "global"; servedModel: string | null;
@@ -50,6 +52,7 @@ export function completion(spend: Spend, fixture: string, repetition: number, ke
   // A task-local env alias supplies the explicitly declared instrument credential.
   const provider = anthropicCompletions({ model: MODEL, apiKeyEnv: "BRAIN_841_INSTRUMENT_KEY" });
   return { ...provider, async complete(input) {
+    const invocationStart = spend.calls.length;
     const verifyStart = performance.now();
     try { verifyFreeze(); } catch (error) { spend.stopped = true; throw error; }
     const freezeCheckMs = performance.now() - verifyStart;
@@ -90,7 +93,17 @@ export function completion(spend: Spend, fixture: string, repetition: number, ke
       } finally { call.elapsedMs = performance.now() - started; spend.settle(call); }
     };
     globalThis.fetch = observed as typeof fetch;
-    try { return await provider.complete(input); }
+    try {
+      const text = await provider.complete(input);
+      const last = spend.calls.at(-1);
+      if (spend.calls.length > invocationStart && last?.fixture === fixture && last.repetition === repetition) { last.completionText = text; last.parserDiagnostic = parserDiagnostic(text); spend.save(); }
+      return text;
+    } catch (error) {
+      spend.stopped = true;
+      const last = spend.calls.at(-1);
+      if (spend.calls.length > invocationStart && last?.fixture === fixture && last.repetition === repetition) { last.providerCompletionFailure = String(error); spend.save(); }
+      throw error;
+    }
     finally {
       globalThis.fetch = previousFetch;
       if (previousKey === undefined) delete process.env.BRAIN_841_INSTRUMENT_KEY; else process.env.BRAIN_841_INSTRUMENT_KEY = previousKey;

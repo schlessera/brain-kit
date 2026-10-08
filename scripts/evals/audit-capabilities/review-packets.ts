@@ -10,7 +10,7 @@ import { MODEL } from "./protocol";
 export const REVIEW_FILES = [
   "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md",
   "scripts/evals/audit-capabilities/benchmark.ts", "scripts/evals/audit-capabilities/prototype.ts", "scripts/evals/audit-capabilities/protocol.ts", "scripts/evals/audit-capabilities/live.ts", "scripts/evals/audit-capabilities/freeze.ts", "scripts/evals/audit-capabilities/review.ts", "scripts/evals/audit-capabilities/review-packets.ts", "scripts/evals/audit-capabilities/analyze.ts",
-  "scripts/evals/audit-capabilities/effects.ts", "scripts/evals/audit-capabilities/review-drain.ts",
+  "scripts/evals/audit-capabilities/effects.ts", "scripts/evals/audit-capabilities/review-drain.ts", "scripts/evals/audit-capabilities/parser-diagnostics.ts",
   "scripts/evals/note-disposition/review.ts", "scripts/evals/note-disposition/live.ts", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts",
   "packages/ui-backend-claude/src/subscription.ts", "packages/core/src/cli/commands/audit.ts", "packages/core/src/providers/completions/anthropic.ts", "packages/core/src/lib/llm-util.ts", "packages/core/src/lib/auditor.ts", "packages/core/src/lib/index-registry.ts", "packages/core/src/lib/validate.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/seams.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/generated-regions.ts", "packages/core/src/lib/frontmatter-parse.ts",
 ] as const;

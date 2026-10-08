@@ -73,3 +73,25 @@ test("known subtotal stays separate from unknown aggregate after a lost physical
   expect(tokenTotal(calls, "input_tokens")).toBeNull(); expect(tokenTotal([calls[0]!], "input_tokens")).toBe(100);
   await expect(provider.complete({ prompt: "Third finding", maxTokens: 2000 })).rejects.toThrow("before physical dispatch"); expect(physical).toBe(2);
 });
+
+test("real command null-entry fallback and primitive normalization retain the physical completion receipt", async () => {
+  const { cases, commandOutput, detect, prepareBenchmark } = await import("../scripts/evals/audit-capabilities/benchmark");
+  const f = cases.find(f => f.id === "menelaus-quoted-order")!;
+  for (const text of ["[null]", '["Odysseus",13]']) {
+    const p = await prepareBenchmark(f); const calls: PhysicalCall[] = [], spend = new Spend(1, calls, () => {});
+    try {
+      const detected = await detect(p); expect(detected.report.issues.length).toBeGreaterThan(0);
+      const provider = completion(spend, f.id, 0, "offline-credential", async () => Response.json({ model: MODEL, content: [{ type: "text", text }], usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }));
+      const output = await commandOutput(p, true, provider) as any[];
+      expect(calls).toHaveLength(1); expect(calls[0]!.completionText).toBe(text); expect(calls[0]!.cost!.upperUsd).toBeGreaterThan(0);
+      expect(spend.stopped).toBe(false);
+      if (text === "[null]") {
+        expect(calls[0]!.parserDiagnostic).toEqual({ kind: "manual-fallback", reason: "entry-normalization-error", rawEntries: 1 });
+        expect(output.length).toBe(detected.report.issues.length); expect(output.every(row => row.canAutoFix === false)).toBe(true);
+      } else {
+        expect(calls[0]!.parserDiagnostic).toEqual({ kind: "parsed-array", reason: null, rawEntries: 2, nonObjectEntries: 2 });
+        expect(output).toEqual([{ path: "", issue: "", suggestion: "", canAutoFix: false }, { path: "", issue: "", suggestion: "", canAutoFix: false }]);
+      }
+    } finally { p.close(); }
+  }
+});

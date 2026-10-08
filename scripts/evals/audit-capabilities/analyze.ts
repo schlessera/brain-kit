@@ -74,6 +74,9 @@ export function analyze(observationsRaw: string, calls: PhysicalCall[], review: 
       authorizationViolation: candidate && !f.authorization && row.output.effects.some((e: any) => e.written.length > 0),
       sourceUnchanged: row.sourceFilesUnchanged, totalsUnchanged: row.ordinaryTotalsUnchanged,
       physicalCalls: physical.length,
+      parserFallbackCompletions: physical.filter((c: PhysicalCall) => c.parserDiagnostic?.kind === "manual-fallback").length,
+      providerCompletionFailures: physical.filter((c: PhysicalCall) => c.providerCompletionFailure !== undefined).length,
+      normalizedNonObjectEntries: physical.reduce((sum: number, c: PhysicalCall) => sum + (c.parserDiagnostic?.kind === "parsed-array" ? c.parserDiagnostic.nonObjectEntries ?? 0 : 0), 0),
       inputTokens: tokenTotal(physical, "input_tokens"),
       outputTokens: tokenTotal(physical, "output_tokens"),
       cacheReadTokens: tokenTotal(physical, "cache_read_input_tokens"),
@@ -89,7 +92,7 @@ export function analyze(observationsRaw: string, calls: PhysicalCall[], review: 
     const sum = (key: keyof typeof group[number]) => group.reduce((s, r) => s + Number(r[key] ?? 0), 0);
     const nullMetrics = group.some(r => r.costUpperUsd === null);
     summaries.push({ split, arm, observations: group.length,
-      ...Object.fromEntries(["findings", "suggestions", "qualityCorrect", "correctFindings", "covered", "duplicateCoverage", "autoClaims", "falseAutoFix", "availableMissed", "expectedAvailable", "actualWrites", "physicalCalls", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "invalidProposalShape", "unsafeProjectedClaim", "noOpProjectedClaim", "nonGoldenProjectedClaim"].map(k => [k, group.some(r => r[k as keyof typeof group[number]] === null) ? null : sum(k as keyof typeof group[number])])),
+      ...Object.fromEntries(["findings", "suggestions", "qualityCorrect", "correctFindings", "covered", "duplicateCoverage", "autoClaims", "falseAutoFix", "availableMissed", "expectedAvailable", "actualWrites", "physicalCalls", "parserFallbackCompletions", "providerCompletionFailures", "normalizedNonObjectEntries", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "invalidProposalShape", "unsafeProjectedClaim", "noOpProjectedClaim", "nonGoldenProjectedClaim"].map(k => [k, group.some(r => r[k as keyof typeof group[number]] === null) ? null : sum(k as keyof typeof group[number])])),
       perFindingCorrectRate: sum("findings") ? sum("correctFindings") / sum("findings") : null,
       semanticCorrectRate: sum("suggestions") ? sum("qualityCorrect") / sum("suggestions") : null,
       coverageRate: sum("findings") ? sum("covered") / sum("findings") : null,
