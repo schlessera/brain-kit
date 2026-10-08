@@ -644,3 +644,30 @@ test("sending a retained Draft as a new conversation releases its old session vi
   expect(state().drafts[original]!.text).toBe("Penelope edits the loom order");
   expect(state().drafts["voyage-branch"]!.sessionId).toBe(RAFT);
 });
+
+
+test("opening an original unbound Draft entry bypasses its continuation alias", () => {
+  const { state } = store();
+  const original = state().fresh;
+  state().edit(original, null, { text: "Telemachus checks the harbour" });
+  state().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: null, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, null);
+  state().openUnbound(original);
+  expect(state().fresh, "the chosen Draft entry opens its own retained identity").toBe(original);
+  state().edit(state().fresh, null, { text: "Penelope adds a loom order" });
+  expect(state().drafts[original]!.text).toBe("Penelope adds a loom order");
+  expect(state().drafts["voyage-branch"]!.text).toBe("Telemachus checks the harbour");
+});
+
+test("Edit of an unconfirmed session send returns to its branch after opening the original", () => {
+  const { state } = store();
+  const original = state().idFor(ITHACA);
+  state().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
+  state().beginSend({ requestId: "voyage", draftId: original, sessionId: ITHACA, text: "Telemachus checks the harbour", attachments: [], message: message("Telemachus checks the harbour") }, "Telemachus checks the harbour");
+  state().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the loom", attachments: [], editedAt: 1, host: null }, ITHACA);
+  state().unconfirmed("disconnected");
+  state().openDeviceVersion(original);
+  state().editSend("voyage");
+  expect(state().idFor(ITHACA), "Edit exposes the returned snapshot in its retained branch").toBe("voyage-branch");
+  expect(state().drafts[state().idFor(ITHACA)]!.text).toBe("Telemachus checks the harbour");
+  expect(state().drafts[original]!.text).toBe("Penelope keeps the loom");
+});

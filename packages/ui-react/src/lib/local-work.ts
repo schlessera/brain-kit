@@ -355,7 +355,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     const ctx = context();
     const text = JSON.stringify(ctx);
-    if (text !== writtenContext) {
+    // Draft mutations may need to retarget an otherwise unchanged context
+    // inside this native transaction, before any later snapshot can run.
+    if (text !== writtenContext || changes.length > 0) {
       const value = { v: 1, ...ctx } satisfies StoredContext;
       changes.push({ put: contextKey, value }, { put: sharedContextKey, value });
     }

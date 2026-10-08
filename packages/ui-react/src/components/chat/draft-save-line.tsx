@@ -46,7 +46,10 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
           if (root.localWork) await root.localWork.openDeviceVersion(otherId);
           else root.stores.drafts.getState().openDeviceVersion(otherId);
           const other = root.stores.drafts.getState().drafts[otherId];
-          root.stores.chat.getState().setActiveSession(other?.sessionId ?? null);
+          const sessionId = other?.sessionId ?? null;
+          const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
+          root.stores.chat.getState().setActiveSession(sessionId);
+          if (sessionId !== null && changedSession) root.connection.send({ type: "session_resume", sessionId });
           root.stores.ui.getState().setActiveView("chat");
         };
         void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ });

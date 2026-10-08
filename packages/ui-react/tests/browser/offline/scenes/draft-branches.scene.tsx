@@ -34,8 +34,13 @@ const net = installFaultNetwork({
 });
 const root = createBrainUiRoot({ storage: null, request: net.request });
 let ordinarySends = 0;
+const resumes: string[] = [];
 const nativeSend = root.connection.send.bind(root.connection);
 root.connection.send = (message) => {
+  if (message.type === "session_resume") {
+    resumes.push(message.sessionId);
+    return true;
+  }
   if (message.type === "chat_message") {
     ordinarySends++;
     return true;
@@ -159,6 +164,30 @@ defineScene({
       return (e as Error).name;
     }
   },
+  resumes() {
+    return resumes;
+  },
+  review(text: string) {
+    root.stores.voice.setState({ reviewText: text });
+  },
+  loss() {
+    return root.localWorkFlow.loss();
+  },
+  stopAfterFork() {
+    const off = root.stores.drafts.subscribe((s) => {
+      if (Object.values(s.drafts).some((d) => d.deviceConflict)) {
+        off();
+        root.localWork!.dispose();
+      }
+    });
+  },
+  async contexts() {
+    return partitions.openAccount().list("root:ithaca/context");
+  },
+  editUnconfirmed() {
+    root.stores.drafts.getState().unconfirmed("disconnected");
+    root.connection.drafts.edit("odysseus-send");
+  },
   async rows() {
     return partitions.openAccount().list("root:ithaca/draft/");
   },
@@ -262,7 +291,11 @@ defineScene({
   },
   openInMemory(id: string) {
     root.stores.drafts.getState().openDeviceVersion(id);
-    root.stores.chat.getState().setActiveSession(root.stores.drafts.getState().drafts[id]?.sessionId ?? null);
+    root.stores.chat
+      .getState()
+      .setActiveSession(
+        root.stores.drafts.getState().drafts[id]?.sessionId ?? null
+      );
   },
   delayedOpen() {
     const id = draft()!.deviceConflict!.otherId;

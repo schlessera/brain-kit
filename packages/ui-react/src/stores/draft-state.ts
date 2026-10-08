@@ -463,6 +463,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       openUnbound(draftId) {
+        // An explicit Draft choice names an existing retained version, not
+        // the continuation alias used by late work from its old composer.
+        if (get().drafts[draftId]?.sessionId === null) {
+          get().openDeviceVersion(draftId);
+          return;
+        }
         // A new chat holding only staged tracks has no stored draft (#1112):
         // its view opens under the id its work lives under now, never a
         // session's.
@@ -628,7 +634,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const send = get().sends[requestId];
         if (!send || send.state !== "unconfirmed") return;
         // A new chat's first message goes back to its own draft, which the new-chat view then shows.
-        if (send.sessionId === null) set({ fresh: sendTarget(send) });
+        const target = sendTarget(send);
+        if (send.sessionId === null) set({ fresh: target });
+        else if (get().drafts[target]?.deviceConflict && get().drafts[target]?.sessionId === null) deviceViews.set(send.sessionId, target);
         giveBack(send, true, without(requestId));
       },
 

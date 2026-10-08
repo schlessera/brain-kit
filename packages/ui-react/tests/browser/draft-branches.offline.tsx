@@ -555,3 +555,108 @@ test("review: a single delayed other-version read preserves newly edited target 
     (await rows(b)).find((r) => r.value.draftId === original)?.value.text
   ).toBe("Penelope adds another loom order.");
 }, 60000);
+
+test("review: both unbound Draft entries open and edit their selected version", async (ctx) => {
+  const { b } = await newChatDivergence(ctx);
+  await b.call("save");
+  const original = (await rows(b)).find((r) => r.value.text === ORIGINAL)!.value
+    .draftId;
+  await b.call("openDraft", original);
+  expect(
+    (await view(b)).text,
+    "the original Draft entry opens the committed original"
+  ).toBe(ORIGINAL);
+  await b.call("edit", "Penelope adds a loom order.");
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe("Penelope adds a loom order.");
+}, 60000);
+
+test("review: unconfirmed session Edit exposes its branch after opening the original", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("send", true);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openOther");
+  await b.call("editUnconfirmed");
+  expect(
+    await view(b),
+    "Edit displays the returned snapshot in its retained session branch"
+  ).toMatchObject({ id: branch, text: INCOMING, session: "ithaca" });
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe(ORIGINAL);
+}, 60000);
+
+test("review: branch continuation context co-commits when navigation was unchanged", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", "Odysseus surveys the fleet.");
+  await a.call("save");
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await b.call("edit", "Odysseus surveys the fleet.");
+  await b.call("save");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("edit", INCOMING);
+  await b.call("stopAfterFork");
+  await b.call("save");
+  const branch = (await rows(b)).find((r) => r.value.text === INCOMING)!.value
+    .draftId;
+  const contexts = await b.call<Array<{ value: { draftId: string } }>>(
+    "contexts"
+  );
+  expect(
+    contexts.filter((r) => r.value.draftId === branch).length,
+    "the native fork also commits its tab continuation before a follow-up snapshot"
+  ).toBe(2);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect(await view(b)).toMatchObject({
+    id: branch,
+    text: INCOMING,
+    session: "ithaca",
+  });
+}, 60000);
+
+test("review: opening a bound other version resumes its conversation", async (ctx) => {
+  const { b } = await divergent(ctx);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openDraft", branch);
+  await b.call("openOther");
+  expect(
+    await b.call("resumes"),
+    "opening a bound version requests its conversation history"
+  ).toEqual(["ithaca"]);
+  expect((await view(b)).text).toBe(ORIGINAL);
+}, 60000);
+
+test("review: sign-out inventory includes dictation retained in a closed tab context", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  let closed = false;
+  ctx.onTestFinished(() => (closed ? undefined : a.close()));
+  await a.call("ready", 320, "dark");
+  await a.call("review", "Odysseus reviews the fleet order.");
+  await a.call("save");
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.close();
+  closed = true;
+  await b.call("review", "");
+  await b.call("save");
+  expect(
+    (await b.call<{ review: boolean }>("loss")).review,
+    "sign-out warns about dictation retained by a closed tab"
+  ).toBe(true);
+}, 60000);
