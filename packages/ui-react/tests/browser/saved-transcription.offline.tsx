@@ -58,6 +58,15 @@ function fixture(ctx: TestContext, backendUrl?: string) {
   root.partitions = partitions;
   root.localWork = createLocalWork({ stores: root.stores, partitions, scope: "root:ithaca", onAccountSwitch() {}, tracks: () => [], watchTracks: () => () => {} });
   root.recordings = createRecordingStore({ root, partitions, heldAccountKey: () => root.stores.connection.getState().accountKey });
+  const recoveries: Promise<unknown>[] = [];
+  const recover = root.recordings.recover.bind(root.recordings);
+  root.recordings.recover = (...args) => {
+    const pending = recover(...args); recoveries.push(pending); return pending;
+  };
+  const settleRecovery = async () => {
+    // refresh(true) also starts the unassigned recovery after the account one.
+    while (recoveries.length) await Promise.allSettled(recoveries.splice(0));
+  };
   const host = document.createElement("div"); host.style.cssText = "background:var(--bk-color-canvas);color:var(--bk-color-ink);height:800px"; document.body.append(host);
   const react = createRoot(host);
   const mount = () => flushSync(() => react.render(<BrainUiProvider root={root}><RecordingsTray /></BrainUiProvider>));
@@ -69,8 +78,16 @@ function fixture(ctx: TestContext, backendUrl?: string) {
     if (unassigned) root.stores.connection.getState().setVpnStatus("connected", "odysseus");
     return (await root.recordings!.list(unassigned ? "unassigned" : "account:odysseus"))[0]!;
   };
-  ctx.onTestFinished(async () => { release?.(); flushSync(() => react.unmount()); host.remove(); root.dispose(); net.restore(); vi.restoreAllMocks(); });
-  return { root, host, net, uploads, seed, mount, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, reject: () => { reject = true; }, release: () => release?.() };
+  let closing: Promise<void> | undefined;
+  const cleanup = () => closing ??= (async () => {
+    release?.(); flushSync(() => react.unmount()); host.remove();
+    try {
+      await settleRecovery();
+      await root.recordings!.stop("interrupted");
+    } finally { root.dispose(); net.restore(); vi.restoreAllMocks(); }
+  })();
+  ctx.onTestFinished(cleanup);
+  return { root, host, net, uploads, seed, mount, cleanup, settleRecovery, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, reject: () => { reject = true; }, release: () => release?.() };
 }
 async function expand(c: ReturnType<typeof fixture>) { await expect.poll(() => c.host.querySelector("[data-recordings-tray] button")).toBeTruthy(); await tap(c.host.querySelector("[data-recordings-tray] button")!); }
 async function confirm(c: ReturnType<typeof fixture>, retry = false) {
@@ -214,4 +231,60 @@ for (const stage of ["prepared", "dispatch"] as const) test(`authentication loss
   await expect.poll(async () => (await c.root.recordings!.get(row.partition, row.id))!.state, { timeout: 5000, message: "native committed cancellation recovers after reauthentication" }).toBe("failed");
   const after = (await c.root.recordings!.get(row.partition, row.id))!;
   expect(after.bytes).toBe(row.bytes); expect(after.contentHash).toBe(row.contentHash); expect(c.uploads).toHaveLength(0);
+});
+
+test("fixture cleanup drains account-switch recovery before the next real seed", async ctx => {
+  const c = fixture(ctx); await c.seed(); c.mount(); await expand(c); await c.settleRecovery();
+  const partitions = c.root.partitions!;
+  const realOpen = partitions.open.bind(partitions);
+  let reached!: () => void, release!: () => void;
+  const ready = new Promise<void>(resolve => { reached = resolve; });
+  const heldRead = new Promise<void>(resolve => { release = resolve; });
+  let paused = false;
+  vi.spyOn(partitions, "open").mockImplementation(partition => {
+    const handle = realOpen(partition);
+    return { ...handle, async get(key) {
+      const value = await handle.get(key);
+      if (!paused && partition === "account:telemachus" && key === "recording:removed") {
+        paused = true; reached(); await heldRead;
+      }
+      return value;
+    } };
+  });
+  // The actual account-switch tray recovery owns the native lock while its
+  // real IndexedDB result is held, just as at the end of the preceding case.
+  flushSync(() => c.root.stores.connection.getState().setVpnStatus("connected", "telemachus"));
+  let cleanup: Promise<void> | undefined;
+  try {
+    await ready;
+    expect((await navigator.locks.query()).held?.filter(lock => lock.name === "brain-ui:recording")).toHaveLength(1);
+    await expect(c.root.recordings!.sink().begin!({ mimeType: "audio/webm;codecs=opus" })).rejects.toThrow("Recording in another Brain tab");
+    let completed = false;
+    cleanup = c.cleanup().then(() => { completed = true; });
+    await navigator.locks.query(); // A native round trip, while the known owner remains held.
+    expect(completed, "cleanup must await its own mounted recovery before another fixture seeds").toBe(false);
+  } finally { release(); await cleanup; }
+  expect((await navigator.locks.query()).held?.filter(lock => lock.name === "brain-ui:recording")).toHaveLength(0);
+  const next = fixture(ctx), row = await next.seed();
+  expect(row.bytes).toBe(bytes.length); expect(row.contentHash).toMatch(/^[a-f0-9]{64}$/);
+  const audio = await next.root.recordings!.playback(row.partition, row.id);
+  try { expect(new Uint8Array(await (await fetch(audio.url)).arrayBuffer())).toEqual(bytes); } finally { audio.revoke(); }
+});
+
+
+test("a real other tab keeps recording exclusion through fixture cleanup", async ctx => {
+  const first = await openScene(new URL("./offline/scenes/recording-lock.scene.ts", import.meta.url)); ctx.onTestFinished(() => first.close());
+  const second = await first.sibling(); ctx.onTestFinished(() => second.close());
+  const owner = await first.call<{ ok: boolean; owner: string }>("begin");
+  expect(owner.ok).toBe(true); expect(owner.owner).toBeTruthy();
+  expect(await second.call("holder")).toBe(owner.owner);
+  await expect(second.call("begin")).resolves.toEqual({ ok: false, message: "Recording in another Brain tab" });
+  const c = fixture(ctx); await c.seed(); await c.cleanup();
+  expect(await second.call("holder"), "cleanup drains only its own root, preserving the other context's recording").toBe(owner.owner);
+  await expect(second.call("begin")).resolves.toEqual({ ok: false, message: "Recording in another Brain tab" });
+  expect(await first.call("end")).toMatchObject([{ bytes: 5, hash: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+  expect(await second.call("holder")).toBeNull();
+  const successor = await second.call<{ ok: boolean; owner: string }>("begin");
+  expect(successor.ok).toBe(true); expect(successor.owner).not.toBe(owner.owner);
+  expect(await second.call("end")).toHaveLength(2);
 });
