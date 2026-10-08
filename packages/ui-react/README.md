@@ -355,6 +355,10 @@ in their own buffers while another session is in view. `activeChat(state)`
 selects the buffer in view; `anyStreaming(state)` is the "something is
 running" signal (used e.g. to defer service-worker update reloads).
 
+Pending tool approvals open at their full detail height so the controls stay
+still during a touch. Ordinary tool details retain their expansion animation;
+reduced-motion preferences make those transitions immediate.
+
 ## Store hooks
 
 The exported store hooks are what a shell reads and calls, typed against a

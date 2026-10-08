@@ -321,6 +321,7 @@ function waitingWorker() {
   Object.assign(window, { __worker: container, __loads: loads });
 }
 
+type ApprovalInput = { type: string; target: string | null; at: number; node: number | null; connected: boolean; y: number | null };
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
 type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
 async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
@@ -343,7 +344,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
     const socket = sockets.push(ws.url()) - 1;
     const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
       const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
-      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_result", "result", "error"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
     };
     ws.on("framesent", ({ payload }) => record("framesent", payload));
     ws.on("framereceived", ({ payload }) => record("framereceived", payload));
@@ -351,11 +352,18 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   // A tap may return without a click. Capture its input events before page
   // load, without adding a synchronization point before the action (#1217).
   await page.addInitScript(() => {
-    const events: Array<{ type: string; target: string | null; at: number }> = [];
+    const events: ApprovalInput[] = [];
+    const nodes = new WeakMap<Element, number>();
+    let sequence = 0;
     Object.assign(window, { __approvalTouches: events });
     for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"]) document.addEventListener(type, (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-approval-card]")) events.push({ type, target: target.textContent, at: Date.now() });
+      if (target?.closest("[data-approval-card]")) {
+        const control = target.closest("button") ?? target;
+        if (!nodes.has(control)) nodes.set(control, ++sequence);
+        events.push({ type, target: control.textContent, at: Date.now(), node: nodes.get(control)!,
+          connected: control.isConnected, y: control.getBoundingClientRect().y });
+      }
     }, true);
   });
   // A native confirm, alert or prompt is recorded and refused: none may
@@ -615,168 +623,203 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       }
     }, 180_000);
 
-    test(`${run.name}: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done`, async () => {
-      const tag = `(${run.name})`;
-      const a = await device(run);
-      const approve = `Approve: Seal the crew's ears ${tag}`;
-      const asks = (Object.keys(ASKS) as AskKind[]).map((kind) => `${kind}: Plan the raft, ${kind.toLowerCase()} ${tag}`);
-      const hold = `Hold: Keep watch on the cliffs ${tag}`;
-      const ids: Record<string, string> = {};
-      try {
-        // Six sessions, each left by New chat while it waits on the reader
-        // or still runs.
-        for (const prompt of [approve, ...asks, hold]) {
-          await send(run, a.page, prompt);
-          await until(a.page, `p.activeSessionId() !== null && !${JSON.stringify(Object.values(ids))}.includes(p.activeSessionId())`);
-          ids[prompt] = (await probe(a.page, (p) => p.activeSessionId()))!;
-          if (prompt === approve) await a.page.locator("[data-approval-card]").waitFor();
-          else if (prompt !== hold) await a.page.locator("[data-ask-waiting]").first().waitFor();
-          else await a.page.getByText("Setting out: Keep watch on the cliffs").first().waitFor();
-          await newChat(run, a.page);
-        }
-        const all = Object.values(ids);
-        const expected = (v: View) => v.sessionId === ids[approve] ? v.state === "needs_you" && v.pendingKind === "approval"
-          : v.sessionId === ids[hold] ? v.state === "running"
-          : v.state === "needs_you" && v.pendingKind === "question";
-        const states = async () => probe(a.page, (p) => p.views());
-        await until(a.page, `p.views().length === 6 && p.views().every((v) => v.state === "needs_you" || v.state === "running")`);
-        for (const v of await states()) expect(expected(v), `${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        // Needs you sorts first; running last.
-        expect((await states()).at(-1)!.sessionId, "running sorts after needs you").toBe(ids[hold]);
-        await neverDone(run, a.page, all);
-
-        // Overflow: below 1280 the most urgent pill and a summary of the rest,
-        // whose sheet lists all six; from 1280 the pane's Working lists all six.
-        if (wide(run)) {
-          await until(a.page, `document.querySelectorAll("section[data-sessions-pane] [data-working-row]").length === 6`);
-          expect((await drawn(run, a.page)).sort()).toEqual([...all].sort());
-        } else {
-          const summary = a.page.locator('[data-row-half="left"] [data-strip-summary="overflow"]');
-          await summary.waitFor();
-          expect(await drawn(run, a.page), "one pill beside the summary").toHaveLength(1);
-          expect(await summary.getAttribute("aria-label")).toMatch(/^5 more working sessions: .*\. Open list\.$/);
-          const box = (await summary.boundingBox())!;
-          expect(box.height, "the summary is a 44px target").toBeGreaterThanOrEqual(43.5);
-          await press(run, summary);
-          const sheet = a.page.locator("[data-working-sheet]");
-          await sheet.waitFor();
-          expect((await sheet.locator("[data-session]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.session!))).sort(), "the sheet lists all six").toEqual([...all].sort());
-          await a.page.keyboard.press("Escape");
-          await sheet.waitFor({ state: "detached" });
-        }
-
-        // A dropped connection: the same six, still unfinished.
-        const opened = a.sockets.length;
-        await dropConnections();
-        // The page notices and opens a new socket to the host.
-        const end = Date.now() + 30_000;
-        while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
-        expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
-        await until(a.page, "p.connected()", 30_000);
-        await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
-        for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        await neverDone(run, a.page, all);
-
-        // A reload whose recovery reads fail: the running session can't be
-        // checked, a question the host hands over again still needs you, and
-        // none reads done.
-        await a.context.route("**/api/sessions/*/recovery", (route) => route.abort());
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        // The host hands the questions over again, but the running session
-        // comes back only from this root's own stored set.
-        await until(a.page, "p.views().length >= 5 && p.views().every((v) => v.settled)");
-        await a.page.waitForTimeout(500);
-        expect((await states()).map((v) => v.sessionId).sort(), "the stored set brings every tracker back").toEqual([...all].sort());
-        await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
-        for (const v of await states()) expect(["needs_you", "cant_check"], `unreadable, ${v.sessionId}`).toContain(v.state);
-        await neverDone(run, a.page, all);
-        // The reads come back: the host's own answer, restored, and a cold
-        // load announces nothing.
-        await a.context.unroute("**/api/sessions/*/recovery");
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled && v.state !== 'cant_check')");
-        for (const v of await states()) expect(expected(v), `after reload, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        await a.page.waitForTimeout(500);
-        expect(await probe(a.page, (p) => p.spoken()), "a reload announces nothing").toEqual([]);
-
-        // The approval, opened from its tracker after the reload: its card is
-        // restored, answering it finishes the turn, and seeing that clears it.
-        await openTracker(run, a.page, ids[approve]!);
-        await until(a.page, `p.activeSessionId() === ${JSON.stringify(ids[approve])}`);
-        const card = a.page.locator("[data-approval-card]");
-        await card.waitFor();
-        expect(answers.has(approve), "nothing answered by opening").toBe(false);
-        const original = a.approvals.map((entry) => entry.frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === ids[approve]);
-        expect(original?.type, "the original approval request was observed").toBe("tool_approval_request");
-        if (original?.type !== "tool_approval_request") throw new Error("Missing original approval request");
-        expect(original.turnId, "the host bound the approval to a turn").toBeTruthy();
-        const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && frame.type === "tool_approval" && frame.toolUseId === original.toolUseId);
-        expect(replies(), "opening and restoring never sends an approval").toHaveLength(0);
+    for (const touch of run.options.hasTouch
+      ? [undefined, { holdMs: 0, motion: "reduce" as const }, { holdMs: 150, motion: "reduce" as const }, { holdMs: 0, motion: "no-preference" as const }]
+      : [undefined]) {
+      const approvalRun: Run = touch ? { ...run, options: { ...run.options, reducedMotion: touch.motion } } : run;
+      const activation = touch ? ` [native touch, ${touch.holdMs}ms, motion=${touch.motion}]` : "";
+      test(`${run.name}${activation}: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done`, async () => {
+        const tag = `(${run.name}${activation})`;
+        const a = await device(approvalRun);
+        const approve = `Approve: Seal the crew's ears ${tag}`;
+        const asks = (Object.keys(ASKS) as AskKind[]).map((kind) => `${kind}: Plan the raft, ${kind.toLowerCase()} ${tag}`);
+        const hold = `Hold: Keep watch on the cliffs ${tag}`;
+        const ids: Record<string, string> = {};
         try {
-          await press(run, card.getByRole("button", { name: "Allow", exact: true }));
-          // `cleared` means seen (D52 §4), and may already be true while the
-          // card still waits. It cannot prove delivery or completion (#1217).
-          const replyDeadline = Date.now() + 5_000;
-          while (replies().length === 0 && Date.now() < replyDeadline) await Bun.sleep(10);
-          expect(replies(), "Allow emits exactly one reply for the original approval").toHaveLength(1);
-          expect(replies()[0]!.frame).toMatchObject({ type: "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card" });
-          const decisionDeadline = Date.now() + 5_000;
-          while (!answers.has(approve) && Date.now() < decisionDeadline) await Bun.sleep(10);
-          expect(answers.get(approve), "the backend settled the original approval").toBe("allow");
-          await a.page.getByText("Sealed: Seal the crew's ears.", { exact: true }).first().waitFor({ state: "attached" });
-          await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(ids[approve])} && v.turnId === ${JSON.stringify(original.turnId)} && v.state === "done" && v.cleared)`);
-          expect(a.approvals.filter(({ event, frame }) => event === "framereceived" && frame.type === "tool_result" && frame.toolUseId === original.toolUseId).map(({ frame }) => frame)).toEqual([
-            expect.objectContaining({ type: "tool_result", sessionId: ids[approve], turnId: original.turnId, isError: false, output: "Ears sealed." }),
-          ]);
-          const response = await fetch(`${origin}/api/sessions/${ids[approve]}/recovery`);
-          expect(response.status, "the host supplied completion evidence").toBe(200);
-          const recovery = await response.json() as SessionRecovery;
-          expect(recovery).toMatchObject({ sessionId: ids[approve], latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
-          expect(replies(), "completion introduced no duplicate decision").toHaveLength(1);
-          for (const v of (await states()).filter((v) => v.sessionId !== ids[approve])) {
-            expect(expected(v), `approval completion does not settle ${v.sessionId}`).toBe(true);
-            expect(v.cleared, `approval completion does not clear ${v.sessionId}`).toBe(false);
+          // Six sessions, each left by New chat while it waits on the reader
+          // or still runs.
+          for (const prompt of [approve, ...asks, hold]) {
+            await send(run, a.page, prompt);
+            await until(a.page, `p.activeSessionId() !== null && !${JSON.stringify(Object.values(ids))}.includes(p.activeSessionId())`);
+            ids[prompt] = (await probe(a.page, (p) => p.activeSessionId()))!;
+            if (prompt === approve) await a.page.locator("[data-approval-card]").waitFor();
+            else if (prompt !== hold) await a.page.locator("[data-ask-waiting]").first().waitFor();
+            else await a.page.getByText("Setting out: Keep watch on the cliffs").first().waitFor();
+            await newChat(run, a.page);
           }
-        } catch (error) {
-          // Keep the failed assertion, plus evidence separating a missed
-          // gesture, a missing/wrong reply and a host that did not settle.
-          const [touches, views, records, recovery] = await Promise.allSettled([
-            a.page.evaluate(() => (window as unknown as { __approvalTouches: unknown[] }).__approvalTouches),
-            states(), probe(a.page, (p) => p.records()),
-            fetch(`${origin}/api/sessions/${ids[approve]}/recovery`).then((response) => response.json()),
-          ]);
-          console.error("Restored approval diagnostic", JSON.stringify({
-            run: run.name, original, frames: a.approvals, answer: answers.get(approve) ?? null,
-            touches, views, records, recovery,
-          }));
-          throw error;
-        }
+          const all = Object.values(ids);
+          const expected = (v: View) => v.sessionId === ids[approve] ? v.state === "needs_you" && v.pendingKind === "approval"
+            : v.sessionId === ids[hold] ? v.state === "running"
+            : v.state === "needs_you" && v.pendingKind === "question";
+          const states = async () => probe(a.page, (p) => p.views());
+          await until(a.page, `p.views().length === 6 && p.views().every((v) => v.state === "needs_you" || v.state === "running")`);
+          for (const v of await states()) expect(expected(v), `${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          // Needs you sorts first; running last.
+          expect((await states()).at(-1)!.sessionId, "running sorts after needs you").toBe(ids[hold]);
+          await neverDone(run, a.page, all);
 
-        // A normal host restart ends the running turn and the waiting
-        // questions with the process. The trackers stay, and none reads done.
-        await restartHost();
-        await until(a.page, "p.connected()", 30_000);
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        const left = all.filter((id) => id !== ids[approve]);
-        // The host no longer holds any of this work, so only the root's own
-        // stored set can bring these trackers back.
-        await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
-        expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
-        await neverDone(run, a.page, left);
-        for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
-          expect(["failed", "cancelled", "unknown"], `after a restart, ${v.sessionId} is ${v.state}`).toContain(v.state);
+          // Overflow: below 1280 the most urgent pill and a summary of the rest,
+          // whose sheet lists all six; from 1280 the pane's Working lists all six.
+          if (wide(run)) {
+            await until(a.page, `document.querySelectorAll("section[data-sessions-pane] [data-working-row]").length === 6`);
+            expect((await drawn(run, a.page)).sort()).toEqual([...all].sort());
+          } else {
+            const summary = a.page.locator('[data-row-half="left"] [data-strip-summary="overflow"]');
+            await summary.waitFor();
+            expect(await drawn(run, a.page), "one pill beside the summary").toHaveLength(1);
+            expect(await summary.getAttribute("aria-label")).toMatch(/^5 more working sessions: .*\. Open list\.$/);
+            const box = (await summary.boundingBox())!;
+            expect(box.height, "the summary is a 44px target").toBeGreaterThanOrEqual(43.5);
+            await press(run, summary);
+            const sheet = a.page.locator("[data-working-sheet]");
+            await sheet.waitFor();
+            expect((await sheet.locator("[data-session]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.session!))).sort(), "the sheet lists all six").toEqual([...all].sort());
+            await a.page.keyboard.press("Escape");
+            await sheet.waitFor({ state: "detached" });
+          }
+
+          // A dropped connection: the same six, still unfinished.
+          const opened = a.sockets.length;
+          await dropConnections();
+          // The page notices and opens a new socket to the host.
+          const end = Date.now() + 30_000;
+          while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
+          expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
+          await until(a.page, "p.connected()", 30_000);
+          await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
+          for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          await neverDone(run, a.page, all);
+
+          // A reload whose recovery reads fail: the running session can't be
+          // checked, a question the host hands over again still needs you, and
+          // none reads done.
+          await a.context.route("**/api/sessions/*/recovery", (route) => route.abort());
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          // The host hands the questions over again, but the running session
+          // comes back only from this root's own stored set.
+          await until(a.page, "p.views().length >= 5 && p.views().every((v) => v.settled)");
+          await a.page.waitForTimeout(500);
+          expect((await states()).map((v) => v.sessionId).sort(), "the stored set brings every tracker back").toEqual([...all].sort());
+          await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
+          for (const v of await states()) expect(["needs_you", "cant_check"], `unreadable, ${v.sessionId}`).toContain(v.state);
+          await neverDone(run, a.page, all);
+          // The reads come back: the host's own answer, restored, and a cold
+          // load announces nothing.
+          await a.context.unroute("**/api/sessions/*/recovery");
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled && v.state !== 'cant_check')");
+          for (const v of await states()) expect(expected(v), `after reload, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          await a.page.waitForTimeout(500);
+          expect(await probe(a.page, (p) => p.spoken()), "a reload announces nothing").toEqual([]);
+
+          // The approval, opened from its tracker after the reload: its card is
+          // restored, answering it finishes the turn, and seeing that clears it.
+          await openTracker(run, a.page, ids[approve]!);
+          await until(a.page, `p.activeSessionId() === ${JSON.stringify(ids[approve])}`);
+          const card = a.page.locator("[data-approval-card]");
+          await card.waitFor();
+          expect(answers.has(approve), "nothing answered by opening").toBe(false);
+          const original = a.approvals.map((entry) => entry.frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === ids[approve]);
+          expect(original?.type, "the original approval request was observed").toBe("tool_approval_request");
+          if (original?.type !== "tool_approval_request") throw new Error("Missing original approval request");
+          expect(original.turnId, "the host bound the approval to a turn").toBeTruthy();
+          const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && frame.type === "tool_approval" && frame.toolUseId === original.toolUseId);
+          expect(replies(), "opening and restoring never sends an approval").toHaveLength(0);
+          try {
+            const allow = card.getByRole("button", { name: "Allow", exact: true });
+            if (touch) {
+              // A reader can touch a visible card before its entrance settles.
+              // No stable-element wait, second tap or synthetic DOM click (#1217).
+              await allow.scrollIntoViewIfNeeded();
+              const box = (await allow.boundingBox())!;
+              const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent, point),
+                "the native gesture targets the visible Allow control").toContain("Allow");
+              const cdp = await a.context.newCDPSession(a.page);
+              try {
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+                if (touch.holdMs) await Bun.sleep(touch.holdMs);
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+              } finally {
+                await cdp.detach();
+              }
+            } else await press(run, allow);
+            // `cleared` means seen (D52 §4), and may already be true while the
+            // card still waits. It cannot prove delivery or completion (#1217).
+            const replyDeadline = Date.now() + 5_000;
+            while (replies().length === 0 && Date.now() < replyDeadline) await Bun.sleep(10);
+            expect(replies(), "Allow emits exactly one reply for the original approval").toHaveLength(1);
+            if (touch) {
+              const inputs = await a.page.evaluate(() => (window as unknown as { __approvalTouches: ApprovalInput[] }).__approvalTouches);
+              const down = inputs.find((event) => event.type === "pointerdown" && event.target?.trim() === "Allow");
+              const up = inputs.find((event) => event.type === "pointerup" && event.target?.trim() === "Allow");
+              expect(down, "the native touch reached Allow").toBeDefined();
+              expect(up, "the native touch ended on Allow").toBeDefined();
+              expect(up!.node, "the same control survives the gesture").toBe(down!.node);
+              expect(up!.connected, "the control stays mounted until the gesture ends").toBe(true);
+              expect(Math.abs(up!.y! - down!.y!), "the approval target stays still through the gesture").toBeLessThan(0.5);
+              expect(inputs.filter((event) => event.type === "click" && event.target?.trim() === "Allow"),
+                "the gesture generated exactly one click").toHaveLength(1);
+            }
+            expect(replies()[0]!.frame).toMatchObject({ type: "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card" });
+            const decisionDeadline = Date.now() + 5_000;
+            while (!answers.has(approve) && Date.now() < decisionDeadline) await Bun.sleep(10);
+            expect(answers.get(approve), "the backend settled the original approval").toBe("allow");
+            await a.page.getByText("Sealed: Seal the crew's ears.", { exact: true }).first().waitFor({ state: "attached" });
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(ids[approve])} && v.turnId === ${JSON.stringify(original.turnId)} && v.state === "done" && v.cleared)`);
+            expect(a.approvals.filter(({ event, frame }) => event === "framereceived" && frame.type === "tool_result" && frame.toolUseId === original.toolUseId).map(({ frame }) => frame)).toEqual([
+              expect.objectContaining({ type: "tool_result", sessionId: ids[approve], turnId: original.turnId, isError: false, output: "Ears sealed." }),
+            ]);
+            const response = await fetch(`${origin}/api/sessions/${ids[approve]}/recovery`);
+            expect(response.status, "the host supplied completion evidence").toBe(200);
+            const recovery = await response.json() as SessionRecovery;
+            expect(recovery).toMatchObject({ sessionId: ids[approve], latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+            expect(replies(), "completion introduced no duplicate decision").toHaveLength(1);
+            for (const v of (await states()).filter((v) => v.sessionId !== ids[approve])) {
+              expect(expected(v), `approval completion does not settle ${v.sessionId}`).toBe(true);
+              expect(v.cleared, `approval completion does not clear ${v.sessionId}`).toBe(false);
+            }
+          } catch (error) {
+            // Keep the failed assertion, plus evidence separating a missed
+            // gesture, a missing/wrong reply and a host that did not settle.
+            const [touches, views, records, recovery] = await Promise.allSettled([
+              a.page.evaluate(() => (window as unknown as { __approvalTouches: unknown[] }).__approvalTouches),
+              states(), probe(a.page, (p) => p.records()),
+              fetch(`${origin}/api/sessions/${ids[approve]}/recovery`).then((response) => response.json()),
+            ]);
+            console.error("Restored approval diagnostic", JSON.stringify({
+              run: `${run.name}${activation}`, runtime: Bun.version, browser: browser!.version(), original, frames: a.approvals, answer: answers.get(approve) ?? null,
+              touches, views, records, recovery,
+            }));
+            throw error;
+          }
+
+          // A normal host restart ends the running turn and the waiting
+          // questions with the process. The trackers stay, and none reads done.
+          await restartHost();
+          await until(a.page, "p.connected()", 30_000);
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          const left = all.filter((id) => id !== ids[approve]);
+          // The host no longer holds any of this work, so only the root's own
+          // stored set can bring these trackers back.
+          await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
+          expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
+          await neverDone(run, a.page, left);
+          for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
+            expect(["failed", "cancelled", "unknown"], `after a restart, ${v.sessionId} is ${v.state}`).toContain(v.state);
+          }
+          expect(a.dialogs).toEqual([]);
+        } finally {
+          await a.context.close();
+          // Questions still waiting would reach the next test's page.
+          await restartHost();
+          await clearHostDrafts();
         }
-        expect(a.dialogs).toEqual([]);
-      } finally {
-        await a.context.close();
-        // Questions still waiting would reach the next test's page.
-        await restartHost();
-        await clearHostDrafts();
-      }
-    }, 240_000);
+      }, 240_000);
+    }
 
     test(`${run.name}: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words`, async () => {
       const tag = `(${run.name})`;
