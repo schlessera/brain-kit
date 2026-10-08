@@ -176,3 +176,73 @@ as proof. Retrospectives, takeaways, resubmission discussion and publishing advi
 remain skill judgments. Live access/provider/account/model, independent golden
 review and an explicit total spend ceiling must be recorded on #846 before any
 paid comparison, as required by [#838](https://github.com/schlessera/brain-kit/issues/838).
+
+## Fresh source-grounded preparation (2026-10-08)
+
+The later scoped harness uses Bun 1.4.2, SDK 0.3.293 and native CLI 2.1.293.
+These are a fresh instrument; the earlier SDK 283 freeze and absent uncommitted
+correction files do not verify these bytes. The original 21 workflows and ten
+draft emails remain unchanged regression controls.
+
+The new author-provisional corpus has sixteen complete fictional brains, three
+tuning and thirteen held out. Assembly, submission, talk and message identities
+are disjoint. Expected states are authored separately from the planner and
+materialized through the historical fixture-side literal table compositor.
+Shared projection grammar, recurring world vocabulary and sparse tuning remain
+limits; identity separation alone does not establish independent semantic
+coverage. The cases include separate mixed decisions, backup-to-acceptance,
+literal conditions and deadlines, revision pending decision, unknown/ambiguous
+targets, quoted injection, withdrawal, delivery, explicit closure and replay.
+Every source brain retains the full message, unrelated submissions, original
+abstracts, talk notes, travel record, persisted config and binary sentinel.
+
+Real `initContext` loads the persisted fixture config and the actual speaking
+module declaration through a contained fixture wrapper referencing the frozen
+runtime. Its custom tablet type and speaking exclusion contribution are checked.
+No captured in-memory taxonomy substitutes for that config. Each structured
+operation performs a real plan/write/dry-run/replay, compared against complete
+expected file bytes. Closure replay refuses already archived inputs without
+writing; it is not a successful new closure transition.
+
+The bounded prospective classifier request receives complete candidate source
+documents and the untrusted message, without split or expected labels. Both
+selected-choice probability and confidence must clear a tuning-only floor;
+an uncalibrated floor stays null. Only literal labelled decision dates,
+confirmation/slides deadlines and conditions have extraction authority. An
+additional unparsed prose/ISO date or condition causes abstention even alongside
+supported fields. This deliberately trades coverage for an auditable boundary;
+it is not a general natural-language extraction solution. Explicit
+accepted-with-condition and requested revision before a future decision remain
+distinct experimental cases, not a new production policy.
+
+Every classifier proposal is unconfirmed. A separate owner's confirmation must
+bind the entire exact payload hash before the real writer can run. A confident
+wrong target can still be proposed by an inaccurate classifier; the comparison's
+independent source-supported target grade and destructive-error veto must detect
+that. Confirmation is counted as human work, not supplied by a model answer.
+
+A full descendant observer records regular binary bytes, membership, modes,
+contained symlink targets and nanosecond modification times before applying the
+existing experimental writer. Changed evidence/config/new files and even a
+same-byte one-nanosecond touch veto a nonempty batch. This is a preflight control,
+not an atomic transaction or protection against a concurrent edit after the
+snapshot. Root-directory metadata is outside this observer. Production locking,
+complete conference archive manifests, durable history and crash recovery remain
+the earlier design limits.
+
+Injected offline transport controls execute the actual core Jev client and
+retain literal physical request/response bytes before decoding, including binary
+HTTP errors and malformed answers. Nonzero output usage is retained even though
+the pinned documented input-only price makes output free. Cache usage and actual
+invoice charges remain null when not reported. Unknown physical usage/model
+stops subsequent dispatch. These controls have no live entry point and supply no
+Jev quality or billing result.
+
+The prospective comparison uses the current installed outcome/aftermath skills,
+explicit owner inputs and Jev proposals plus exact confirmation/code. Current
+skill output is graded semantically across affected layers; its layout must not
+be forced into the candidate's private field/region representation. The core
+runner's omitted permission mode selects native auto: #1275 records why complete
+auxiliary-call accounting is required before admitting that baseline. No manual
+mode is substituted. The approved models and actual-charge caps remain recorded
+on #846/#838; a quota hold does not remove review or accounting prerequisites.
