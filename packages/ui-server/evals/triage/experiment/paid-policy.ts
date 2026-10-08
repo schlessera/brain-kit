@@ -53,6 +53,15 @@ export function rejectResponseModifiers(usage: any) {
     (usage.inference_geo != null && !["global", "us", "not_available"].includes(usage.inference_geo)) || usage.speed != null || usage.fast_mode != null)
     throw Error("Unsupported observed pricing modifier");
 }
+/** Native SYSTEM context is separate; the approved USER payload is one sole text. */
+export function exactUserPrompt(request:any,promptSha:string){
+  if(!Array.isArray(request?.messages))return false;
+  const users=request.messages.filter((m:any)=>m?.role==="user");if(users.length!==1)return false;
+  const content=users[0].content;
+  if(typeof content==="string")return sha(content)===promptSha;
+  return Array.isArray(content)&&content.length===1&&content[0]?.type==="text"&&typeof content[0].text==="string"&&
+    Object.keys(content[0]).every(key=>["type","text","cache_control"].includes(key))&&sha(content[0].text)===promptSha;
+}
 export function usageUpper(tokens: RawTokens, maxInput: number, maxOutput: number, inputRate = 8, outputRate = 20) {
   if (!tokens || [tokens.input_tokens, tokens.output_tokens, tokens.cache_read_input_tokens, tokens.cache_creation_input_tokens].some(n => !count(n)))
     throw Error("Missing or invalid final raw usage");
@@ -83,9 +92,7 @@ export class ReviewBudget {
     if (request.model !== MODEL || !count(request.max_tokens) || request.max_tokens === 0 || request.max_tokens > this.policy.maxOutputTokens ||
       request.tools?.length || request.output_config?.effort !== "low") throw Error("Wrong model/output/tools/effort before physical dispatch");
     rejectPriceModifiers(request, headers);
-    const texts = (request.messages ?? []).filter((m: any) => m.role === "user").flatMap((m: any) => typeof m.content === "string" ? [m.content] :
-      Array.isArray(m.content) ? m.content.filter((b: any) => b.type === "text").map((b: any) => b.text) : []);
-    if (!texts.some((s: any) => typeof s === "string" && sha(s) === this.binding.promptSha)) throw Error("Exact frozen prompt absent before dispatch");
+    if (!exactUserPrompt(request,this.binding.promptSha)) throw Error("Exact sole frozen USER prompt absent before dispatch");
     const inputBound = Math.min(bytes.byteLength, this.policy.contextWindowTokens), outputBound = request.max_tokens;
     const reservedUpperUsd = (inputBound * this.policy.inputUsdPerMillionUpper + outputBound * this.policy.outputUsdPerMillionUpper) / 1e6;
     if (!finite(reservedUpperUsd) || this.usedUpper() + reservedUpperUsd > this.policy.remainingUpperUsd) throw Error("Next physical reservation exceeds remaining allocation");
