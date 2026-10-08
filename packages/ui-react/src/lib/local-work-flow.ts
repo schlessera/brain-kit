@@ -129,8 +129,8 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
     async loss(): Promise<SignOutLoss> {
       const account = root.stores.connection.getState().accountKey;
       const epoch = root.authLock.epoch();
-      const result: SignOutLoss = { account, epoch, recordings: 0, bytes: 0, transcripts: 0, accepted: 0, drafts: 0, tracks: stagedTrackViews(root).reduce((n, v) => n + v.count, 0), review: [root.stores.voice.getState().reviewText, root.stores.voice.getState().finalText, root.stores.voice.getState().partial].some(text => !!text.trim()), unassigned: 0, unknown: false, otherTabs: false, otherUnknown: false };
-      const ids = new Set(Object.values(root.stores.drafts.getState().drafts).filter(hasContent).map(d => d.draftId));
+      const result: SignOutLoss = { account, epoch, recordings: 0, bytes: 0, transcripts: 0, accepted: 0, drafts: 0, tracks: 0, review: false, unassigned: 0, unknown: false, otherTabs: false, otherUnknown: false };
+      const ids = new Set<string>();
       if (root.partitions) {
         try { result.unassigned = (await root.partitions.open("unassigned").list("recording:index:")).length; }
         catch { result.unknown = true; }
@@ -167,6 +167,12 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
         } catch { result.otherTabs = true; result.otherUnknown = true; }
       }
       if (root.stores.connection.getState().accountKey !== account || root.authLock.epoch() !== epoch) throw new Error("Sign-in changed. Sign in again before signing out.");
+      // Inventory reads and peer replies yield. Count live work at the final
+      // synchronous boundary, including ASR partials that are never persisted.
+      for (const draft of Object.values(root.stores.drafts.getState().drafts).filter(hasContent)) ids.add(draft.draftId);
+      result.tracks += stagedTrackViews(root).reduce((n, v) => n + v.count, 0);
+      const voice = root.stores.voice.getState();
+      result.review ||= [voice.reviewText, voice.finalText, voice.partial].some(text => !!text.trim());
       result.drafts = ids.size;
       return result;
     },

@@ -63,7 +63,9 @@ export interface LocalPartitions {
   /** @internal Other roots stop capture and omit auth-expiry snapshots on intentional sign-out. */
   subscribeSignOut(fn: (id: PartitionId) => void): () => void;
   /** @internal An explicit capture or recovery action admits a fresh unassigned writer. */
-  allowUnassignedAction(): Promise<void>;
+  allowUnassignedAction(): Promise<string>;
+  /** @internal Bind an asynchronous operation to its original writer generation. */
+  writerGeneration(id: PartitionId): string;
   /** Each partition's aggregate size: no keys and no content. */
   sizes(prefix?: string): Promise<PartitionSize[]>;
   /** Atomically move named records; both partitions must be accessible. */
@@ -243,8 +245,10 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   }
 
   function handle(id: PartitionId): PartitionHandle {
+    const generation = fence(id).token;
     async function write(changes: readonly PartitionWrite[], signal?: AbortSignal): Promise<void> {
       check(id);
+      if (fence(id).token !== generation) throw new PartitionRefusedError(id);
       if (!persistAsked) { persistAsked = true; options.persist?.(); }
       await transact(id, [RECORDS, SIZES], "readwrite", (tx) => {
         const records = tx.objectStore(RECORDS);
@@ -299,6 +303,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     await transact(id, [RECORDS], "readwrite", tx => tx.objectStore(RECORDS).put(current, storedFenceKey(id)), undefined, { fence: current, check() {
       if (!allowed(id) || fence(id).token !== current.token) throw new PartitionRefusedError(id);
     } });
+    return current.token;
   }
   return {
     prepareSignOut(id) {
@@ -330,6 +335,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       await admitWriter(id);
     },
     allowUnassignedAction: () => admitWriter("unassigned"),
+    writerGeneration(id) { if (!allowed(id)) throw new PartitionRefusedError(id); return fence(id).token; },
     subscribeSignOut(fn) {
       const watch = (name: string, id: PartitionId) => {
         if (name === options.name && (id === "unassigned" || id === `account:${options.heldAccountKey()}`)) fn(id);
@@ -338,7 +344,10 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       const storage = (event: StorageEvent) => {
         const key = options.heldAccountKey();
         for (const id of ["unassigned", ...(key ? [accountPartition(key)] : [])] as PartitionId[]) {
-          if (event.key === fenceKey(id) && fence(id).closed) watch(options.name, id);
+          if (event.key !== fenceKey(id)) continue;
+          // A queued close event still owns its close generation even when
+          // another tab has already reopened the current marker.
+          try { if (event.newValue && (JSON.parse(event.newValue) as WriterFence).closed) watch(options.name, id); } catch { /* malformed marker is not an authorization */ }
         }
       };
       if (typeof window !== "undefined") window.addEventListener("storage", storage);
@@ -354,6 +363,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     async move(from, to, keys) {
       if (from !== "unassigned" || to === "unassigned") throw new PartitionRefusedError(from);
       check(from); check(to);
+      const sourceToken = adopted.get(from);
       const destinationToken = adopted.get(to);
       await transact(from, [RECORDS, SIZES], "readwrite", (tx) => {
         check(to);
@@ -369,6 +379,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
               const req = records.get([from, key]);
               req.onsuccess = () => {
                 try { check(from); check(to); } catch { tx.abort(); return; }
+                if (fence(from).token !== sourceToken || fence(to).token !== destinationToken) { tx.abort(); return; }
                 if (req.result === undefined) return;
                 records.put(req.result, [to, key]);
                 sizes.put(measure(req.result), [to, key]);

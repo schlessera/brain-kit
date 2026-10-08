@@ -120,7 +120,7 @@ type Work = {
   authorize():Promise<void>; tryStale():boolean; authExpire():Promise<void>;
   compose():void; background():{settingsClosed:number;dictationCancelled:number;finalText:string;partial:string};
   live(kind:"final"|"partial"|"draining"):void;
-  pendingTranscript():Promise<void>; release():void; pendingDone():Promise<unknown>;
+  pendingTranscript():Promise<void>; pendingInventory():Promise<void>; release():void; pendingDone():Promise<unknown>;
   dirty():void; snapshot():Promise<string>; holdWriter():Promise<void>; snapshots():number; staleWrite():Promise<string>; staleNative():Promise<string>; staleNativeMove():Promise<string>;
   vpn():string; probe():void; draftTexts():string[]; pending():boolean;
   prepareUnassignedClear():void; staleUnassignedClear():Promise<string>; clearUnassigned():Promise<void>; unassignedClosed():Promise<boolean>;
@@ -129,10 +129,11 @@ type Work = {
   captureUnassigned():Promise<void>; captureActive():{id:string;partition:string}|null; stopCapture():Promise<void>;
   failUnassignedClear():void; holdUnassignedWriter():Promise<void>; staleUnassignedWrite():Promise<string>;
   recoveryAction(action:"associate"|"discard"|"transcript",id:string):Promise<string>;
-  mountColdReader():Promise<void>; coldKey():string|null; coldPlayback():Promise<void>; coldPlayable():Promise<boolean>;
+  mountColdReader(delayStorage?:boolean):Promise<void>; coldKey():string|null; coldPlayback():Promise<void>; coldPlayable():Promise<boolean>;
   stageColdPlayback():Promise<void>; releaseColdPlayback():Promise<string>;
   stageColdTranscript():Promise<void>; coldRecovery():Promise<string>; releaseColdTranscript():Promise<string>;
   stageUnassignedClear():void; clearWaiting():boolean; releaseUnassignedClear():void; coldRefreshes():number;
+  flushColdStorage():void;
 };
 declare global { interface Window { __work: Work } }
 async function work<T>(page: Page, fn: (w: Work) => T): Promise<Awaited<T>> { return await page.evaluate(fn, await page.evaluateHandle(() => window.__work)) as Awaited<T>; }
@@ -541,10 +542,10 @@ for (const action of ["associate", "discard", "transcript"] as const) runtimeTes
   }finally{await context.close();}
 },30_000);
 
-runtimeTest("recovering unassigned survivors never readmits an earlier transcript request in the same store",async()=>{
+for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned survivors never readmits an earlier transcript request in the same store (${delayStorage ? "delayed" : "ordinary"} storage events)`,async()=>{
   const {page,context}=await boot();
   try {await signIn(page);await work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");});
-    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await work(other,w=>w.mountColdReader());await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();await work(other,w=>w.stageColdTranscript());
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await other.evaluate(delay=>window.__work.mountColdReader(delay),delayStorage);await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();await work(other,w=>w.stageColdTranscript());
     await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();await work(page,w=>w.failUnassignedClear());
     const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await page.locator('input[type=password]').waitFor();
     // Admission happens before lock acquisition: this explicit recovery opens
@@ -554,6 +555,18 @@ runtimeTest("recovering unassigned survivors never readmits an earlier transcrip
     const row=(await work(page,w=>w.read("unassigned"))).find(r=>r.key==="recording:index:sirens")!;
     expect(row,"the failed clear left a real survivor to protect").toBeDefined();
     expect((row.value as {transcript?:string}).transcript,"an earlier transcript request never writes after renewed admission").not.toBe("This old transcript must never commit.");
+  }finally{await context.close();}
+},30_000);
+
+runtimeTest("a queued unassigned close invalidates old playback even after recovery reopens its writer",async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");});
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await work(other,w=>w.mountColdReader(true));await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();await work(other,w=>w.coldPlayback());
+    await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();await work(page,w=>w.failUnassignedClear());const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await page.locator('input[type=password]').waitFor();
+    expect(await work(other,w=>w.coldRecovery()),"the surviving peer opens a real new writer generation").toBe("ok");
+    expect(await work(other,w=>w.coldPlayable()),"the frozen peer still holds an older real blob before receiving its queued event").toBe(true);
+    await work(other,w=>w.flushColdStorage());
+    expect(await work(other,w=>w.coldPlayable()),"the queued close invalidates older playback even after reopening").toBe(false);
   }finally{await context.close();}
 },30_000);
 
@@ -575,6 +588,21 @@ runtimeTest("unassigned clearing revokes idle peer playback, cancels its pending
     await cold.getByText(/^On this device ·/).waitFor({state:"detached",timeout:1500}).catch(()=>{});
     expect(await cold.getByText(/^On this device ·/).count(),"committed unassigned clearing refreshes the mounted idle peer tray").toBe(0);
     expect(await work(page,w=>w.read("unassigned"))).toEqual([]);
+  }finally{await context.close();}
+},30_000);
+
+for (const phase of ["initial", "refreshed"] as const) for (const kind of ["dictation", "draft", "track"] as const) runtimeTest(`${phase} loss inventory includes late ${kind} work before destructive consent`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);
+    if(phase==="refreshed") {await work(page,w=>w.seed(`account:${w.key()!}`,"sirens"));await click(page,"Sign out everywhere");await signout(page).waitFor();}
+    await work(page,w=>w.pendingInventory());await click(page,phase==="initial"?"Sign out everywhere":"Sign out and delete");
+    if(kind==="dictation") await work(page,w=>w.live("partial"));else if(kind==="draft") await work(page,w=>w.dirty());else await work(page,w=>w.stage());
+    await work(page,w=>w.release());await work(page,w=>w.pendingDone());await page.waitForTimeout(500);
+    expect(await signout(page).count(),`${phase} inventory warns about late ${kind} before deletion or logout`).toBe(1);
+    const shown=await signout(page).innerText();expect(shown).toContain(kind==="dictation"?"Unaccepted dictation text":kind==="draft"?"1 unsent drafts":"1 staged track references");
+    if(phase==="refreshed") expect(shown).toContain("Local work changed.");
+    expect(await page.evaluate(async()=>(await fetch("/api/vpn-check")).status),"late local work requires a new confirmation before logout").toBe(200);
+    await click(page,"Keep working");
   }finally{await context.close();}
 },30_000);
 

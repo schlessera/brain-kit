@@ -65,6 +65,8 @@ let releaseMutation = () => {};
 let clearWaiting = false;
 let releaseUnassignedClear = () => {};
 let coldRefreshes = 0;
+const delayedStorageEvents: StorageEvent[] = [];
+const deferStorage = (event: StorageEvent) => { if (event.key === unassignedFenceKey) { event.stopImmediatePropagation(); delayedStorageEvents.push(event); } };
 async function staleAdministrative(operation: () => Promise<string>) {
   const get = Storage.prototype.getItem;
   Storage.prototype.getItem = function(key) { return key === unassignedFenceKey ? pausedMarker : get.call(this, key); };
@@ -81,7 +83,10 @@ Object.assign(window, { __work: {
   holdUnassignedWriter: async () => { staleUnassigned = createLocalPartitions({ name: "brain-ui-local", heldAccountKey: () => null }).open("unassigned"); await staleUnassigned.write([]); },
   staleUnassignedWrite: () => outcome(staleUnassigned!.put("old-writer:aeolus", "An old writer must remain refused.")),
   recoveryAction: (action: "associate" | "discard" | "transcript", id: string) => outcome(action === "associate" ? root.recordings!.assign(id) : action === "discard" ? root.recordings!.discard("unassigned", id) : root.recordings!.saveTranscript("unassigned", id, "Aeolus keeps the bag sealed.")),
-  mountColdReader: async () => {
+  mountColdReader: async (delayStorage = false) => {
+    // Model a frozen peer whose native reads resume before queued storage
+    // events. Other roots keep their real listeners and the DB stays native.
+    if (delayStorage) window.addEventListener("storage", deferStorage, true);
     coldReader = createBrainUiRoot({ storagePrefix: "odysseus-cold-reader", localCapture: true });
     const list = coldReader.recordings!.list;
     coldReader.recordings!.list = async partition => { const rows = await list(partition); if (partition === "unassigned") coldRefreshes++; return rows; };
@@ -128,6 +133,10 @@ Object.assign(window, { __work: {
   clearWaiting: () => clearWaiting,
   releaseUnassignedClear: () => releaseUnassignedClear(),
   coldRefreshes: () => coldRefreshes,
+  flushColdStorage: () => {
+    window.removeEventListener("storage", deferStorage, true);
+    for (const event of delayedStorageEvents.splice(0)) window.dispatchEvent(new StorageEvent("storage", { key: event.key, oldValue: event.oldValue, newValue: event.newValue, storageArea: event.storageArea, url: event.url }));
+  },
   prepareUnassignedClear: () => { pausedClear = createLocalPartitions({ name: "brain-ui-local", heldAccountKey: () => null }).prepareSignOut("unassigned"); pausedMarker = localStorage.getItem(unassignedFenceKey); },
   staleUnassignedClear: () => staleAdministrative(() => outcome(pausedClear!())),
   clearUnassigned: () => createLocalPartitions({ name: "brain-ui-local", heldAccountKey: () => null }).prepareSignOut("unassigned")(),
@@ -194,6 +203,12 @@ Object.assign(window, { __work: {
     const partition = `account:${root.stores.connection.getState().accountKey}` as PartitionId;
     hold = holdIndexedDbWrite(key => Array.isArray(key) && key[1] === "recording:index:sirens");
     pendingWrite = outcome(root.recordings!.saveTranscript(partition, "sirens", "Tie Odysseus to the mast."));
+    await hold.started;
+  },
+  pendingInventory: async () => {
+    const partition = `account:${root.stores.connection.getState().accountKey}` as PartitionId;
+    hold = holdIndexedDbWrite(key => Array.isArray(key) && key[1] === "inventory:block");
+    pendingWrite = outcome(root.partitions!.open(partition).put("inventory:block", "A native write delays the loss inventory."));
     await hold.started;
   },
   pendingDone: () => pendingWrite,

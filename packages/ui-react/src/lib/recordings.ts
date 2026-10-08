@@ -125,8 +125,11 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const urls = new Map<string, { partition: PartitionId; id: string }>();
   const pendingPlaybacks = new Set<{ partition: PartitionId; id: string; cancelled: boolean }>();
   const mutationEpochs = new Map<PartitionId, number>();
-  const mutationEpoch = (partition: PartitionId) => mutationEpochs.get(partition) ?? 0;
-  const checkMutation = (partition: PartitionId, epoch: number) => { checkReadable(partition); if (mutationEpoch(partition) !== epoch) throw new PartitionRefusedError(partition); };
+  const mutationEpoch = (partition: PartitionId) => ({ notification: mutationEpochs.get(partition) ?? 0, generation: partitions.writerGeneration(partition) });
+  const checkMutation = (partition: PartitionId, epoch: ReturnType<typeof mutationEpoch>) => {
+    checkReadable(partition);
+    if ((mutationEpochs.get(partition) ?? 0) !== epoch.notification || partitions.writerGeneration(partition) !== epoch.generation) throw new PartitionRefusedError(partition);
+  };
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
   const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev]);
@@ -544,7 +547,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     async discard(partition, id) {
       const epoch = mutationEpoch(partition);
       checkReadable(partition);
-      if (partition === "unassigned") await partitions.allowUnassignedAction();
+      if (partition === "unassigned") epoch.generation = await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
         checkMutation(partition, epoch);
@@ -554,7 +557,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     async saveTranscript(partition, id, text) {
       const epoch = mutationEpoch(partition);
       checkReadable(partition);
-      if (partition === "unassigned") await partitions.allowUnassignedAction();
+      if (partition === "unassigned") epoch.generation = await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
         const row = await get(partition, id);
@@ -601,7 +604,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const authorized = () => { checkMutation("unassigned", unassignedEpoch); if (authEpoch !== options.root.authLock.epoch() || options.root.authLock.state.getState().phase !== "active" || heldPartition() !== to || signingOut) throw new PartitionRefusedError(to); };
       if (to === "unassigned") throw new Error("Sign in before associating a recording");
       authorized();
-      await partitions.allowUnassignedAction();
+      unassignedEpoch.generation = await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
         authorized();
@@ -648,7 +651,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
   }
   const unwatchSignOut = partitions.subscribeSignOut(id => {
-    mutationEpochs.set(id, mutationEpoch(id) + 1);
+    mutationEpochs.set(id, (mutationEpochs.get(id) ?? 0) + 1);
     invalidate({ partition: id });
     if (running?.partition === id || beginning?.partition === id || (opening && heldPartition() === id)) void store.stop("auth");
   });
