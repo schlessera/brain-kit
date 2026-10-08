@@ -13,7 +13,7 @@ import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
 import { awaitsDecision, offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
@@ -229,6 +229,10 @@ function ToolCallEntry({
       ? renderer.label(toolCall)
       : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = awaitsDecision(toolCall);
+  const reducedMotion = useReducedMotion();
+  // A visible permission control must stay put during a native touch (#1217).
+  // Height animation moves its target even when React keeps the same node.
+  const animateDetails = !isPending && !reducedMotion;
   // A restored card the host no longer lists as pending (#1072, D52 §4 R3):
   // read-only, with the host fact that closed it. Nothing on it can reply.
   const closed = toolCall.restored ? toolCall.readOnly : undefined;
@@ -363,10 +367,10 @@ function ToolCallEntry({
       <AnimatePresence>
         {expanded && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
+            initial={animateDetails ? { height: 0, opacity: 0 } : false}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            transition={{ duration: animateDetails ? 0.2 : 0, ease: "easeOut" }}
             className="overflow-hidden"
           >
             <div
