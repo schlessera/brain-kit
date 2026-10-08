@@ -753,7 +753,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             checkMutation(partition, epoch);
             const result = await statusOf(row.id); checkMutation(partition, epoch);
             if (result) await applyReceipt(partition, row.id, result, row);
-            else if (row.state === "transcribing") await updateTranscription(partition, row.id, { state: "failed", transcriptionMessage: "Not sent — tap Transcribe again" }, current => receiptSnapshot(current) === receiptSnapshot(row));
+            // A lost PUT may still be reading on the host before its claim.
+            // Missing status cannot prove it was not sent; keep polling.
           });
         }
       } finally {

@@ -143,3 +143,16 @@ test("a deletion queued during status recovery is drained without another connec
   expect(methods, "queued deletion drains after the active recovery completes").toContain("DELETE");
   expect(f.data.has(`recording:tombstone:${other}`)).toBe(false);
 });
+
+
+test("an ambiguous upload stays recoverable while the host has not claimed its body yet", async () => {
+  const f = fixture(), done = await f.seed("saved"); let receipt: unknown = null, uploads = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; init.onUploadProgress?.(0); throw new TypeError("Lost reply while host still reads body"); } return receipt ? Response.json(receipt) : new Response("{}", { status: 404 }); };
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow();
+  expect((await s.get("account:odysseus", f.id))!.state).toBe("transcribing");
+  await s.syncTranscriptions();
+  expect((await s.get("account:odysseus", f.id))!.state, "early missing claim preserves an unconfirmed upload for polling").toBe("transcribing");
+  receipt = done; await s.syncTranscriptions();
+  expect((await s.get("account:odysseus", f.id))!.transcript, "later provider receipt is recovered without another upload").toBe(done.text);
+  expect(uploads).toBe(1);
+});
