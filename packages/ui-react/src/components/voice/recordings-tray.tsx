@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObje
 import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
-import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type Recording } from "../../lib/recordings.js";
+import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type RecordingStore, type Recording } from "../../lib/recordings.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
@@ -113,8 +113,9 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   </>;
 }
 
-export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly = false }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void; localOnly?: boolean }) {
+export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly = false, store }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void; localOnly?: boolean; store?: RecordingStore }) {
   const root = useBrainUiRoot();
+  const recordings = store ?? root.recordings!;
   const [confirm, setConfirm] = useState(false);
   const [text, setText] = useState(row.transcript ?? "");
   const [error, setError] = useState("");
@@ -149,7 +150,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly =
   };
   const play = () => void run(async () => {
     playback.current?.revoke();
-    const audio = await root.recordings!.playback(row.partition, row.id);
+    const audio = await recordings.playback(row.partition, row.id);
     if (!mounted.current) { audio.revoke(); return; }
     playback.current = audio; setUrl(audio.url);
   });
@@ -167,12 +168,12 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly =
           if (!dirty.current) throw error;
           // Retry the displayed correction after a failed input transaction.
           // Never swallow that failure and accept the older stored text.
-          chain.current = root.recordings!.saveTranscript(row.partition, row.id, text);
+          chain.current = recordings.saveTranscript(row.partition, row.id, text);
           await chain.current;
           if (editVersion.current === version) { dirty.current = false; if (mounted.current) setSaveError(""); }
           if (mounted.current) setSavedVersion(version);
         }
-        await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text);
+        await recordings.accept(row.partition, row.id, draftId, sessionId, text);
       }
       catch (error) { throw new Error(error instanceof Error && (error.message === TRANSCRIPT_CHANGED || error.message === RECORDING_UNAVAILABLE) ? error.message : ACCEPT_FAILED); }
       onAccepted();
@@ -187,7 +188,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly =
             const version = ++editVersion.current;
             // Input writes serialize. Acceptance waits for the newest edit;
             // a failed edit prevents acceptance of older stored text.
-            chain.current = chain.current.catch(() => {}).then(() => root.recordings!.saveTranscript(row.partition, row.id, value));
+            chain.current = chain.current.catch(() => {}).then(() => recordings.saveTranscript(row.partition, row.id, value));
             void chain.current.then(() => {
               if (version === editVersion.current) { dirty.current = false; if (mounted.current) setSaveError(""); }
               if (mounted.current) setSavedVersion(version);

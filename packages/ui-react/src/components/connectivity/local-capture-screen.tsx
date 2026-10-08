@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
-import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
-import { createRecordingStore, type RecordingStore, type Recording } from "../../lib/recordings.js";
+import type { RecordingStore, Recording } from "../../lib/recordings.js";
 import { useLocalCapture } from "../../voice/use-local-capture.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { RecordingItem } from "../voice/recordings-tray.js";
@@ -16,14 +15,8 @@ export function LocalCaptureScreen({ reachable, onContinue }: {
   onContinue: () => void;
 }) {
   const root = useBrainUiRoot();
-  const [scope, setScope] = useState<{ root: BrainUiRoot; store: RecordingStore } | null>(null);
-  useEffect(() => {
-    // No account authority, regardless of a cookie or another tab signing in.
-    const store = createRecordingStore({ partitions: root.partitions!, root, heldAccountKey: () => null });
-    setScope({ root, store });
-    return () => store.dispose();
-  }, [root]);
-  return scope?.root === root ? <LocalCaptureArea store={scope.store} reachable={reachable} onContinue={onContinue} /> : null;
+  // The root owns this account-free store, including microphone disposal.
+  return root.unassignedRecordings ? <LocalCaptureArea store={root.unassignedRecordings} reachable={reachable} onContinue={onContinue} /> : null;
 }
 
 function LocalCaptureArea({ store, reachable, onContinue }: {
@@ -103,7 +96,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       <section aria-label="Drafts on this device" className="space-y-3">
         <h2 className="text-sm font-mono">Drafts on this device · {rows.length} · {size(rows.reduce((n, row) => n + row.bytes, 0))}</h2>
         {removed && <p className="text-sm">{removed}</p>}
-        {rows.map(row => <RecordingItem key={row.id} row={row} offline localOnly onAccepted={() => {}} onDiscard={async () => { await store.discard("unassigned", row.id); focusRecord(); }} />)}
+        {rows.map(row => <RecordingItem store={store} key={row.id} row={row} offline localOnly onAccepted={() => {}} onDiscard={async () => { await store.discard("unassigned", row.id); focusRecord(); }} />)}
       </section>
       {lockedBytes !== null && lockedBytes > 0 && <p data-locked-recordings="" className="text-sm text-muted-foreground">Locked recordings · {size(lockedBytes)}<br />Sign in to open them.</p>}
       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">

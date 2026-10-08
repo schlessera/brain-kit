@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -49,6 +49,7 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     const path = new URL(req.url!, "http://localhost").pathname;
     if (!online && path === "/api/vpn-check") { res.destroy(); return; }
     if (path === "/api/vpn-check") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ accountKey: "odysseus-ithaca" })); return; }
+    if (path === "/api/files/content") { res.setHeader("Content-Type", "image/png"); res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64")); return; }
     if (path.startsWith("/api")) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(path.endsWith("/methods") ? { password: true, passkey: false } : { sessions: [] })); return; }
     const file = files.get(path === "/" ? "/index.html" : path);
     res.statusCode = file ? 200 : 404;
@@ -65,7 +66,12 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     // Every worker request is observed as well; no external URL is in either bundle.
     const egress: string[] = [];
-    context.on("request", req => { if (new URL(req.url()).origin !== origin) egress.push(req.url()); });
+    const apiRequests: string[] = [];
+    context.on("request", req => {
+      const url = new URL(req.url());
+      if (url.origin !== origin) egress.push(req.url());
+      if (url.pathname.startsWith("/api")) apiRequests.push(url.pathname);
+    });
     await context.grantPermissions(["microphone"], { origin });
     await context.addInitScript(theme => document.addEventListener("DOMContentLoaded", () => {
       document.documentElement.setAttribute("data-theme", theme);
@@ -94,11 +100,16 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     await page.locator("[data-protected]").waitFor();
     await action(page, "seed");
+    const image = await action<{ complete: boolean; width: number }>(page, "image");
+    assert(image.complete && image.width === 1, "a real authenticated API image decoded through the controlled worker");
     await noApiCaches(page);
+    assert(apiRequests.includes("/api/sessions") && apiRequests.includes("/api/files/content"), "the real network spy observed nonempty authenticated requests");
+    apiRequests.length = 0;
     if (cell.scenario === "reauth") {
       await action(page, "expire");
       await page.getByRole("heading", { name: "Your sign-in has expired" }).waitFor();
       await page.waitForTimeout(350);
+      apiRequests.length = 0;
       await page.getByRole("button", { name: "Record without signing in" }).click();
     } else {
       await page.close();
@@ -135,11 +146,32 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await mkdir(resolve("../../tmp/cold-capture"), { recursive: true });
       await page.screenshot({ path: resolve(`../../tmp/cold-capture/${cell.theme}.png`), fullPage: true });
     }
+    if (cell.scenario === "gap") {
+      const repaired = await action<{ bytes: number; failures: number; row: { chunkCount: number; savedThroughMs: number } }>(page, "gap");
+      assert(repaired.failures > 0 && repaired.row.chunkCount === 1 && repaired.row.savedThroughMs === 1000, "recovery excluded a post-gap chunk and could not persist its repair");
+      await page.getByRole("button", { name: /^Play recording/ }).click();
+      const playedBytes = await page.locator("audio").evaluate(async el => (await (await fetch((el as HTMLAudioElement).src)).blob()).size);
+      assert.equal(playedBytes, repaired.bytes, "local playback uses the recovering store's contiguous-prefix repair");
+      await action(page, "restoreQuota");
+      return "full-origin recovered playback passed";
+    }
+    if (cell.scenario !== "reauth") assert.equal(await action(page, "offlineImage"), false, "the authenticated image is unavailable offline despite the warm visit");
+    // The negative image-cache probe belongs to the harness, outside the local
+    // screen's request window. All subsequent /api traffic must be probe-only.
+    apiRequests.length = 0;
     await page.waitForTimeout(350);
     await page.getByRole("button", { name: "Record on this device", exact: true }).click();
     await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { phase(): string } }).__offlineScene.phase() === "recording");
     await accessible(page);
     await page.waitForTimeout(1300);
+    if (cell.scenario === "dispose") {
+      assert.equal(await action(page, "microphoneLive"), true, "the disposal test has a live real microphone to observe");
+      await action(page, "dispose");
+      await page.waitForTimeout(200);
+      assert.equal(await action(page, "microphoneLive"), false, "root disposal stops the local screen's microphone while it remains mounted");
+      assert.equal(await page.locator("[data-local-capture-screen]").count(), 1);
+      return "root-owned recorder disposal passed";
+    }
     await context.setOffline(false);
     await page.getByRole("button", { name: "Try now", exact: true }).click();
     await page.getByText("Your server is back.", { exact: true }).waitFor();
@@ -168,6 +200,7 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     await accessible(page);
     assert.equal(await page.locator("audio").evaluate(el => (el as HTMLAudioElement).error), null, "unassigned audio plays in Chromium");
     const calls = await action<string[]>(page, "requests");
+    if (cell.scenario === "cold" || cell.scenario === "reauth") assert.deepEqual([...new Set(apiRequests)], ["/api/vpn-check"], "the browser network spy sees only the connectivity probe during cold capture and recovery");
     if (cell.scenario === "cold") assert.deepEqual([...new Set(calls)], ["/api/vpn-check"], "the local screen makes only the connectivity probe, including after recovery");
     await noApiCaches(page);
     assert.equal(await page.locator("main").evaluate(el => el.scrollWidth <= window.innerWidth), true, "local screen fits the viewport");
