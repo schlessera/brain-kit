@@ -60,6 +60,9 @@ const partitions = createLocalPartitions({
   name: "odysseus-branches",
   heldAccountKey: () => root.stores.connection.getState().accountKey,
 });
+const holdRestoring = sessionStorage.getItem("odysseus-hold-restore") === "1";
+sessionStorage.removeItem("odysseus-hold-restore");
+let readPrefix = "root:ithaca/draft/";
 let readCount = 0;
 let readDelayAt = 0;
 let releaseRead = () => {};
@@ -69,9 +72,20 @@ partitions.open = (id) => {
   const handle = nativeOpen(id);
   return {
     ...handle,
+    async list(prefix) {
+      const rows = await handle.list(prefix);
+      if (holdRestoring && prefix === "root:ithaca/") {
+        readGate = new Promise<void>((resolve) => {
+          releaseRead = resolve;
+        });
+        readCount++;
+        await readGate;
+      }
+      return rows;
+    },
     async get(key) {
       const value = await handle.get(key);
-      if (readDelayAt && key.startsWith("root:ithaca/draft/")) {
+      if (readDelayAt && key.startsWith(readPrefix)) {
         readCount++;
         if (readCount === readDelayAt) await readGate;
       }
@@ -88,7 +102,7 @@ root.localWork = createLocalWork({
   watchTracks: () => () => {},
   onAccountSwitch: () => {},
 });
-await root.localWork.restoring();
+if (!holdRestoring) await root.localWork.restoring();
 const style = document.createElement("style");
 style.textContent = `${kitCss}\n${appCss}\nhtml,body,#scene{height:100%;margin:0}#scene{display:flex;flex-direction:column}`;
 document.head.append(style);
@@ -129,6 +143,45 @@ let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 defineScene({
+  holdRestore() {
+    sessionStorage.setItem("odysseus-hold-restore", "1");
+  },
+  async coldReady() {
+    await settled();
+  },
+  async restored() {
+    await root.localWork!.restoring();
+    await wait(0);
+  },
+  startAdd(source: string) {
+    readPrefix = "recording:accepted:odysseus-recording";
+    readCount = 0;
+    readDelayAt = 1;
+    readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    snapshot = { done: false };
+    void root
+      .localWork!.addTranscript(
+        "odysseus-recording",
+        "Bring the oars.",
+        source,
+        null
+      )
+      .then(
+        () => {
+          snapshot = { done: true };
+        },
+        (e) => {
+          snapshot = { done: true, error: e.message };
+        }
+      );
+  },
+  receipt() {
+    return partitions
+      .openAccount()
+      .get("recording:accepted:odysseus-recording");
+  },
   async ready(width: number, theme: string) {
     document.documentElement.dataset.theme = theme;
     document.body.style.width = `${width}px`;

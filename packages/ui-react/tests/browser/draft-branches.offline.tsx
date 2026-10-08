@@ -755,3 +755,64 @@ test("review: the incoming unbound branch exclusively owns its staged track queu
   ).toEqual([]);
   expect(await b.call("tracks", branch)).toEqual(["ithaca.gpx"]);
 }, 60000);
+
+test("review: a queued transcript Add stays with its retained branch after opening the original", async (ctx) => {
+  const { b } = await newChatDivergence(ctx);
+  const original = (await view(b)).id;
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("edit", INCOMING);
+  await b.call("save");
+  await b.call("startAdd", original);
+  await expect.poll(() => b.call("reads")).toBe(1);
+  await b.call("openDraft", original);
+  await b.call("releaseRead");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  await b.call("save");
+  const kept = await rows(b);
+  expect(
+    kept.find((r) => r.value.draftId === original)?.value.text,
+    "a queued Add cannot append to the other committed version"
+  ).toBe(ORIGINAL);
+  expect(kept.find((r) => r.value.draftId === branch)?.value.text).toBe(
+    `${INCOMING}\nBring the oars.`
+  );
+  expect(
+    await b.call("receipt"),
+    "cleanup is authorized only for the branch holding the accepted transcript"
+  ).toMatchObject({ draftId: branch, finalized: true });
+}, 60000);
+
+test("review: typing during cold restore stays visible instead of selecting the saved branch", async (ctx) => {
+  const { b } = await divergent(ctx);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("holdRestore");
+  await b.reload();
+  await b.call("coldReady");
+  await expect.poll(() => b.call("reads")).toBe(1);
+  const typed = "Odysseus adds a fresh fleet order.";
+  await b.call("edit", typed, true);
+  const images = (await view(b)).images;
+  await b.call("releaseRead");
+  await b.call("restored");
+  expect(
+    await view(b),
+    "late restore cannot hide the reader's newly typed text and images"
+  ).toMatchObject({
+    text: typed,
+    images,
+    selection: [3, 9],
+    session: "ithaca",
+  });
+  expect((await view(b)).id).not.toBe(branch);
+  await b.call("save");
+  expect(
+    (await rows(b)).some(
+      (r) => r.value.draftId === branch && r.value.text === INCOMING
+    )
+  ).toBe(true);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe(typed);
+}, 60000);

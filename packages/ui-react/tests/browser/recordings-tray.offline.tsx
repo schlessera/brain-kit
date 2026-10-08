@@ -932,3 +932,61 @@ test("auth expiry cancels an Add activation queued behind transcript input", asy
   await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "auth expiry invalidates the queued Add activation" }).toBe(ACCEPT_FAILED);
   expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", transcript: "Penelope confirms the fleet.", chunkCount: 1 });
 });
+
+
+for (const phase of ["transcript input", "recording read"])
+  test(`pending ${phase} keeps Add on its incoming branch across navigation`, async ctx => {
+    const a = fixture(ctx); await a.ready();
+    const id = a.root.stores.drafts.getState().idFor(null);
+    a.root.stores.drafts.getState().edit(id, null, { text: "Inspect the fleet." });
+    await a.root.localWork!.snapshotNow();
+    const row = await a.seed();
+    const b = fixture(ctx); await b.ready();
+    b.root.recordings!.dispose(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
+    b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", tracks: () => [], watchTracks: () => () => {} });
+    b.root.recordings = createRecordingStore({ root: b.root, partitions: a.partitions, heldAccountKey: () => "odysseus" });
+    await b.root.localWork.restoring();
+    await b.root.localWork.snapshotNow();
+    a.root.stores.drafts.getState().edit(id, null, { text: "Penelope keeps the loom order." });
+    await a.root.localWork!.snapshotNow();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    ctx.onTestFinished(() => release());
+    let accepting: Promise<unknown> | undefined;
+    const added = phase === "transcript input" ? "Bring the oars." : TEXT;
+    if (phase === "transcript input") {
+      b.renderTray(); await expand(b);
+      const save = b.root.recordings.saveTranscript;
+      vi.spyOn(b.root.recordings, "saveTranscript").mockImplementation(async (...args) => { await save(...args); entered(); await gate; });
+      await userEvent.fill(b.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!, added);
+      await started;
+      await tap(button(b.host, "Add transcript"));
+    } else {
+      const open = a.partitions.open.bind(a.partitions);
+      let armed = true;
+      vi.spyOn(a.partitions, "open").mockImplementation(partition => {
+        const handle = open(partition);
+        return { ...handle, async get(key) {
+          const value = await handle.get(key);
+          if (armed && key === `recording:index:${row.id}`) { armed = false; entered(); await gate; }
+          return value;
+        } };
+      });
+      accepting = b.root.recordings.accept(row.partition, row.id, id, null);
+      await started;
+    }
+    expect(b.root.stores.drafts.getState().resolveId(id), "Add starts before the native fork").toBe(id);
+    b.root.stores.drafts.getState().edit(id, null, { text: "Telemachus checks the route." });
+    await b.root.localWork.snapshotNow();
+    const branch = b.root.stores.drafts.getState().resolveId(id);
+    expect(branch).not.toBe(id);
+    b.root.stores.drafts.getState().openUnbound(id);
+    release();
+    if (accepting) await accepting;
+    await expect.poll(async () => (await b.root.recordings!.get(row.partition, row.id)) === undefined).toBe(true);
+    await b.root.localWork.snapshotNow();
+    expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${id}`),
+      "pending Add leaves the committed original's text intact").toMatchObject({ text: "Penelope keeps the loom order." });
+    expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({ text: `Telemachus checks the route.\n${added}` });
+  });

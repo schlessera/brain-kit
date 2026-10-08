@@ -1,3 +1,4 @@
+import { followDraftTarget } from "./draft-target.js";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainStores } from "../stores/create-stores.js";
@@ -492,11 +493,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     const ownContext = ctx !== null;
     if (!ctx) ctx = parseContext(records.find(r => r.key === sharedContextKey)?.value);
+    const canRestoreView = warm || !Object.values(stores.drafts.getState().drafts).some(hasContent);
     // Shared navigation is only a fallback. A cold tab resumes its own
     // committed view unless the reader already navigated or started typing.
     let restoredSession = false;
     if (ctx && (warm || (ownContext && stores.chat.getState().activeSessionId === initialSession &&
-      !Object.values(stores.drafts.getState().drafts).some(hasContent)))) {
+      canRestoreView))) {
       restoredSession = !warm && ctx.sessionId !== initialSession;
       stores.chat.getState().setActiveSession(ctx.sessionId);
     }
@@ -516,7 +518,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     if (ctx) {
       const activeSession = stores.chat.getState().activeSessionId;
-      if (ctx.sessionId === activeSession) {
+      if (ctx.sessionId === activeSession && canRestoreView) {
         // A new chat's own draft goes back into the new-chat view.
         // Not over a new chat the reader has already started typing in.
         if (ctx.sessionId === null && (drafts.drafts[ctx.draftId] || (warm && ctx.tracks.length)) && !hasContent(drafts.drafts[drafts.fresh])) drafts.openUnbound(ctx.draftId);
@@ -628,6 +630,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     addTranscript(id, text, draftId, sessionId) {
       const account = held();
       const acceptanceGeneration = generation;
+      const pending = pendingAcceptances.get(id);
+      const target = followDraftTarget(stores.drafts, pending?.draftId ?? draftId, pending ? pending.sessionId : sessionId);
       const run = chain.then(async () => {
         if (account === null || account !== bound || held() !== account || !partition || disposed || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account ?? ""));
         const textHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), b => b.toString(16).padStart(2, "0")).join("");
@@ -640,35 +644,37 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (receipt && !activation) throw new Error("The accepted draft's owner could not be recovered. The recording is kept.");
         if (!receipt) {
           const state = stores.drafts.getState();
-          const { draftId: target, sessionId: owner } = state.resolveTarget(draftId, sessionId);
-          const current = state.drafts[target];
+          const { draftId: targetId, sessionId: owner } = target.current();
+          const current = state.drafts[targetId];
           const before = current?.text ?? "";
           const base: ComposerDraft = current ?? {
-            draftId: target, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+            draftId: targetId, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
             uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
           };
           const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
           await flush({ id, draft, textHash });
           if (locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
-          activation = { draftId: target, sessionId: owner };
+          activation = { ...target.current() };
           pendingAcceptances.set(id, activation);
           if (!disposed) {
             const latest = stores.drafts.getState();
-            const liveText = latest.drafts[latest.resolveId(target)]?.text ?? "";
-            latest.edit(target, owner, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
+            const liveText = latest.drafts[activation.draftId]?.text ?? "";
+            latest.edit(activation.draftId, activation.sessionId, { text: liveText ? `${liveText}\n${text}` : text, deviceOnly: true });
           }
         }
         let keptDraft: ComposerDraft;
         for (;;) {
           if (held() !== account || disposed || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
           const latest = stores.drafts.getState();
-          const resolved = latest.resolveTarget(activation!.draftId, activation!.sessionId);
+          const resolved = target.current();
+          activation = { ...resolved };
+          pendingAcceptances.set(id, activation);
           const candidate = latest.drafts[resolved.draftId];
           if (!candidate || !candidate.text.includes(text)) throw new Error("The draft changed before its accepted transcript was saved");
           const controller = new AbortController();
           finalizing.add(controller);
           const guard = () => {
-            const now = stores.drafts.getState().resolveTarget(activation!.draftId, activation!.sessionId);
+            const now = target.current();
             if (now.draftId !== resolved.draftId || now.sessionId !== resolved.sessionId) controller.abort();
           };
           const unwatch = stores.drafts.subscribe(guard);
@@ -686,8 +692,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (held() !== account || disposed || locked || acceptanceGeneration !== generation) throw new PartitionRefusedError(accountPartition(account));
         return keptDraft.edit;
       });
-      chain = run.then(() => {}, () => {});
-      return run;
+      const operation = run.finally(target.dispose);
+      chain = operation.then(() => {}, () => {});
+      return operation;
     },
     register(probe) {
       probes.add(probe);
