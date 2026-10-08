@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { sha } from "./adapter";
 import { settingsRefusal, subscriptionRefusal, CLEARED_API_CREDENTIALS } from "../../../../core/src/providers/agents/claude-subscription";
 import { priceSonnet55Usage } from "../../../../../scripts/measure-sonnet55-cost";
+import { acceptedRate, reparseBudget, type RootPaidPolicy, type ReviewBinding, type Reservation } from "./paid-policy";
+import { validGrantEvidence } from "./grant";
 
 const MODEL = "claude-sonnet-5-5";
 export interface RuntimeIdentity { sdk: string; nativeSha: string; nativeMode: number; bunSha: string; bunVersion: string; bunMode: number }
@@ -12,9 +14,12 @@ export interface ExecutionEvidence {
   transport: "injected-offline-fetch" | "global-fetch"; upstream: string;
   freezeSha: string | null; promptSha: string; readOnlyReview: boolean; runtime: RuntimeIdentity;
   relayClosed: boolean; runnerFailure: string | null; additionalBilledUsd: null;
+  paidAdmission?: { policy: RootPaidPolicy; entries: Reservation[] };
+  startedAtUtc?: string; grantClaimSha?: string;
 }
+export interface ExpectedReview { freezeSha: string; promptSha: string; runtime: RuntimeIdentity; binding?: ReviewBinding; paidPolicySha?: string }
 export interface EvidenceReference { directory: string; manifestSha: string }
-const members = ["execution.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json"] as const;
+const members = ["execution.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json", "grant.json"] as const;
 export function saveEvidenceBundle(directory: string): EvidenceReference {
   const hashes = Object.fromEntries(members.map(name => [name, sha(readFileSync(join(directory, name)))]));
   const bytes = JSON.stringify({ version: 1, hashes }, null, 2);
@@ -33,7 +38,7 @@ function sse(bytes: Buffer): any[] {
   });
 }
 /** This checks collected artifacts, not an invoice or cryptographic proof against a dishonest artifact owner. */
-export function validateReviewEvidence(expected: { freezeSha: string; promptSha: string; runtime: RuntimeIdentity }, ref: EvidenceReference | undefined): boolean {
+export function validateReviewEvidence(expected: ExpectedReview, ref: EvidenceReference | undefined): boolean {
   try {
     if (!ref || !lstatSync(ref.directory).isDirectory() || lstatSync(ref.directory).isSymbolicLink()) return false;
     const bytes = readFileSync(join(ref.directory, "review-evidence.json"));
@@ -52,7 +57,15 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
       execution.upstream !== "https://api.anthropic.com/v1/messages" || !execution.readOnlyReview || !execution.relayClosed ||
       execution.runnerFailure !== null || execution.additionalBilledUsd !== null || execution.freezeSha !== expected.freezeSha ||
       execution.promptSha !== expected.promptSha || !equal(execution.runtime, expected.runtime) || expected.runtime.sdk !== "0.3.293" || expected.runtime.bunVersion !== "1.4.2") return false;
+    const paid = execution.paidAdmission;
+    if (paid && (!expected.binding || !expected.paidPolicySha || sha(JSON.stringify(paid.policy)) !== expected.paidPolicySha ||
+      expected.binding.freezeSha !== expected.freezeSha || expected.binding.promptSha !== expected.promptSha ||
+      expected.binding.runtimeSha !== sha(JSON.stringify(expected.runtime)))) return false;
+    if (!paid && expected.paidPolicySha) return false;
     const native = JSON.parse(raw["native.json"]!.toString("utf8"));
+    if (paid && (!execution.grantClaimSha || !execution.startedAtUtc || native.grantClaimSha !== execution.grantClaimSha || native.paidPolicySha !== expected.paidPolicySha ||
+      !validGrantEvidence(paid.policy, expected.binding!, raw["grant.json"]!, execution.grantClaimSha, execution.startedAtUtc, paid.entries[0]?.at ?? NaN))) return false;
+    if (!paid && raw["grant.json"]!.toString("utf8") !== "null") return false;
     if (native.failure || native.inputFailure || native.stderrFailure || native.termination || native.exitCode !== 0 || native.signalCode !== null ||
       !native.finished || !native.drained || !native.stdoutComplete || !native.stderrDrained || !native.promptReleased || native.additionalBilledUsd !== null) return false;
     const input = jsonLines(raw["native.json.stdin.jsonl"]!);
@@ -72,10 +85,9 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
     if (!equal(native.init, init[0]) || !equal(native.account, account[0].response.response.account) || !equal(native.settings, settings[0].response.response) ||
       init[0].model !== MODEL || init[0].apiKeySource !== "none" || init[0].claude_code_version !== "2.1.293" || !equal(init[0].tools, [])) return false;
     const rates = output.filter(e => e.type === "rate_limit_event");
-    if (!rates.length || !equal(native.rates, rates) || native.overage !== "inactive observed" || rates.some(r => {
-      const info = r.rate_limit_info; return !info || info.status !== "allowed" || info.isUsingOverage === true || info.overageInUse === true ||
-        !(info.isUsingOverage === false || info.overageInUse === false);
-    })) return false;
+    const active = rates.some(r => r.rate_limit_info?.isUsingOverage === true || r.rate_limit_info?.overageInUse === true);
+    if (!rates.length || !equal(native.rates, rates) || native.overage !== (active ? "active" : "inactive observed") ||
+      rates.some(r => !acceptedRate(r.rate_limit_info, !!paid))) return false;
     const result = results[0];
     if (!equal(native.result, result) || result.is_error !== false || result.subtype !== "success" || result.num_turns !== 1 ||
       typeof result.result !== "string" || !/^APPROVED(?:\s|$)/.test(result.result.trim()) ||
@@ -90,6 +102,12 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
     for (const call of calls) {
       if (call.authRoute !== "subscription-oauth-no-api-key" || call.upstream !== "https://api.anthropic.com/v1/messages" || call.requestMethod !== "POST" || call.requestPath !== "/v1/messages" || call.status !== 200 || call.requestedModel !== MODEL || call.servedModel !== MODEL || call.outcome !== "completed" || call.failure ||
         !call.finished || !call.responseClosed || !call.responseEof || call.responseCancelled || call.actualInvoiceUsd !== null) return false;
+      if(paid){
+        const h=call.rateHeaders;
+        if(!h || !rates.some(r=>r.rate_limit_info.status===h["anthropic-ratelimit-unified-status"] &&
+          (r.rate_limit_info.overageStatus??null)===(h["anthropic-ratelimit-unified-overage-status"]??null) &&
+          r.rate_limit_info.isUsingOverage===(h["anthropic-ratelimit-unified-status"]==="rejected"&&["allowed","allowed_warning"].includes(h["anthropic-ratelimit-unified-overage-status"]))))return false;
+      }
       const requestBytes = Buffer.from(call.rawRequestBase64, "base64"), responseBytes = Buffer.from(call.rawResponseBase64, "base64");
       if (sha(requestBytes) !== call.requestSha || requestBytes.length !== call.stateBytes || sha(responseBytes) !== call.rawResponseSha || responseBytes.length !== call.responseBytes) return false;
       const request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(requestBytes));
@@ -117,6 +135,7 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
         cacheReadInputTokens: counters.cache_read_input_tokens, cacheCreationInputTokens: counters.cache_creation_input_tokens } }, usage: { cache_creation: counters.cache_creation } });
       if (!equal(priced, call.apiEquivalent)) return false;
     }
-    return physicalText.trim() === result.result.trim() && Object.entries(totals).every(([key, n]) => usage[key] === n);
+    return (!paid || reparseBudget(paid.policy, expected.binding!, paid.entries, calls)) && physicalText.trim() === result.result.trim() &&
+      Object.entries(totals).every(([key, n]) => usage[key] === n);
   } catch { return false; }
 }

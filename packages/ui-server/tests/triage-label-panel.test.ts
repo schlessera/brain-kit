@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CORPUS } from "../evals/triage/experiment/corpus";
 import { collectLabelPanel, labelRequests, type PanelPhysical } from "../evals/triage/experiment/label-panel";
+import { sha } from "../evals/triage/experiment/adapter";
+import { PanelBudget, PANEL_BOUNDS, RAW_AUTHORIZATION, validatePanelPolicy, reparsePanelBudget, type RootPanelPolicy } from "../evals/triage/experiment/panel-budget";
+import { LABEL_PANEL } from "../evals/triage/experiment/label-panel";
+import { requireReviewedSource } from "../evals/triage/experiment/panel-run";
 const ANTHROPIC_KEY="offline-Synthetic-Anthropic-KEY";
 const rubric = readFileSync(resolve(import.meta.dir, "../evals/triage/prompt.txt"), "utf8");
 const fixtures = new Map(CORPUS.map(i => [i.id, i]));
@@ -200,4 +204,37 @@ if(process.env.BRAIN_TRIAGE_PANEL_SYNTHETIC !== "1") {
   const first=collectLabelPanel(CORPUS,rubric,(async(url:any,init:any)=>{entered();await gate;return fake(url,init);}) as typeof fetch);
   await ready;await expect(collectLabelPanel(CORPUS,rubric,transport())).rejects.toThrow("already owned");release();await first;
  });
+ const panelBinding={freezeSha:sha("freeze"),inputSha:sha("input"),protocolSha:sha("protocol"),runtimeSha:sha("runtime"),proofSha:sha("proof"),promptSha:sha("prompt")};
+ const panelPolicy=():RootPanelPolicy=>({...panelBinding,grantNonce:sha("synthetic-panel-grant"),consumedMarkerPath:`/tmp/owned-fixture-grants/${sha("synthetic-panel-grant")}.json`,version:1,issue:848,authorizationUrl:RAW_AUTHORIZATION,selectionUrl:LABEL_PANEL.selection,basis:"actual additional billed charges",perIssueCapUsd:15,aggregateCapUsd:150,remainingUpperUsd:15,issuedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),maxPhysicalRequests:180,boundsSha:sha(JSON.stringify(PANEL_BOUNDS)),invoiceUsd:null});
+ async function budgetHooks(p:RootPanelPolicy,onPhysical?:(r:PanelPhysical)=>void){
+  const reference=await collectLabelPanel(CORPUS,rubric,transport());
+  const hashes=new Set(reference.physical.map(r=>r.requestSha!)),states:any[]=[];
+  const budget=new PanelBudget(p,panelBinding,hashes,e=>states.push(e));let active:number|null=null;
+  return{budget,states,hooks:{beforePhysical:(r:PanelPhysical)=>{active=budget.reserve(r);},onPhysical,
+   afterPhysical:(r:PanelPhysical)=>{if(active!==null){const id=active;active=null;if(r.transportDispatched)budget.settle(id,r);else budget.unknown(id);}}}};
+ }
+ test("actual donor lowest fetch refuses exhausted panel allocation before any upstream dispatch",async()=>{
+  let forwarded=0;const p={...panelPolicy(),remainingUpperUsd:.01},b=await budgetHooks(p),retained:PanelPhysical[]=[];
+  const result=await collectLabelPanel(CORPUS,rubric,(async()=>{forwarded++;throw Error("must never forward");}) as unknown as typeof fetch,{...b.hooks,onPhysical:r=>retained.push(r)});
+  expect(forwarded).toBe(0);expect(retained).toHaveLength(1);expect(retained[0]!.transportDispatched).toBe(false);expect(result.coverageComplete).toBe(false);expect(b.budget.entries).toEqual([]);
+ });
+ test("actual raw90calls reserve before dispatch, settle literal native usage and reparse each complete entry",async()=>{
+  const p=panelPolicy(),b=await budgetHooks(p);const upstream=transport();let dispatched=0;
+  const result=await collectLabelPanel(CORPUS,rubric,(async(...args:any[])=>{expect(b.budget.entries.at(-1)!.status).toBe("reserved");dispatched++;return upstream(args[0],args[1]);}) as typeof fetch,b.hooks);
+  expect(dispatched).toBe(90);expect(result.itemJudgments).toBe(360);expect(result.coverageComplete).toBe(true);expect(b.budget.entries).toHaveLength(90);
+  expect(b.budget.entries.every(r=>r.status==="complete"&&r.invoiceUsd===null)).toBe(true);expect(reparsePanelBudget(p,panelBinding,new Set(result.physical.map(r=>r.requestSha!)),b.budget.entries,result.physical)).toBe(true);
+  expect(reparsePanelBudget(p,panelBinding,new Set(result.physical.map(r=>r.requestSha!)),[{...b.budget.entries[0]!,pricedUpperUsd:0},...b.budget.entries.slice(1)],result.physical)).toBe(false);
+ });
+ test("actual unknown usage/partial EOF panel physical retains its reservation and prevents future forwarding",async()=>{
+  const b=await budgetHooks(panelPolicy()),saved:PanelPhysical[]=[];let forwarded=0;
+  const upstream=transport(j=>{delete j.usage.cache_read_input_tokens;});
+  await expect(collectLabelPanel(CORPUS,rubric,(async(...args:any[])=>{forwarded++;return upstream(args[0],args[1]);}) as typeof fetch,{...b.hooks,onPhysical:r=>saved.push(r)})).rejects.toThrow("cache usage");
+  expect(forwarded).toBe(1);expect(saved).toHaveLength(1);expect(b.budget.entries[0]!.status).toBe("unknown");expect(b.budget.entries[0]!.pricedUpperUsd).toBeNull();expect(b.budget.usedUpper()).toBeGreaterThan(8);expect(()=>b.budget.reserve(saved[0]!)).toThrow("unknown");
+ });
+ test("panel policy finite binding, prior review spend and raw approval vetoes remain independent",()=>{
+  for(const change of [{remainingUpperUsd:NaN},{remainingUpperUsd:Infinity},{remainingUpperUsd:16},{maxPhysicalRequests:181},{boundsSha:sha("changed")},{expiresAt:new Date(0).toISOString()},{inputSha:sha("changed")}])expect(()=>validatePanelPolicy({...panelPolicy(),...change} as RootPanelPolicy,panelBinding)).toThrow();
+  const b=new PanelBudget(panelPolicy(),panelBinding,new Set(),()=>{});expect(b.priorFits(0)).toBe(true);expect(b.priorFits(.01)).toBe(false);
+  expect(()=>requireReviewedSource([],[],panelBinding.freezeSha)).toThrow("approval required");
+ });
+
 }

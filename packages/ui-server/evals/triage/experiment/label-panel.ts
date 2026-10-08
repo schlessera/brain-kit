@@ -88,7 +88,7 @@ export function admittedRows(text: string, items: HardItem[]): Row[] | null {
 let observerOwned = false;
 /** Serialized lowest-fetch wrapper, restored on all paths. Caller supplies an admitted transport; no executable live entry exists. */
 export async function collectLabelPanel(items: HardItem[], rubric: string, transport: typeof fetch,
-  options: { onPhysical?: (receipt: PanelPhysical) => void; retryDelay?: () => Promise<void> } = {}) {
+  options: { onPhysical?: (receipt: PanelPhysical) => void; retryDelay?: () => Promise<void>; beforePhysical?: (receipt: PanelPhysical, headers: Headers) => Promise<void> | void; afterPhysical?: (receipt: PanelPhysical) => void } = {}) {
   const requests = labelRequests(items);
   if (!rubric.trim()) throw Error("Require populated unchanged rubric");
   if (observerOwned) throw Error("Label observer already owned; parallel global-fetch use forbidden");
@@ -120,6 +120,7 @@ export async function collectLabelPanel(items: HardItem[], rubric: string, trans
     const start = performance.now(), controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LABEL_PANEL.responseDeadlineMs), chunks: Buffer[] = [];
     try {
+      await options.beforePhysical?.(structuredClone(r), headers);
       r.transportDispatched=true;
       const response = await transport(url, { ...init, headers, signal: controller.signal });
       r.status = response.status;
@@ -161,7 +162,7 @@ export async function collectLabelPanel(items: HardItem[], rubric: string, trans
           const spec: ModelSpec = { ...judge, inPerMTok: Number.NaN, outPerMTok: Number.NaN, efforts: ["high"] };
           text = (await callModel(spec, "high", rubric, requests[batch]!)).text;
         } catch { r.error ??= "donor call rejected"; }
-        finally { active = null; options.onPhysical?.(structuredClone(r)); }
+        finally { active = null; options.onPhysical?.(structuredClone(r)); options.afterPhysical?.(structuredClone(r)); }
         if (!r.responseComplete || !r.usageComplete || r.servedModel !== judge.id || r.error === "inconsistent native token total") {
           stopReason = "unknown or mismatched required physical receipt"; break outer;
         }
