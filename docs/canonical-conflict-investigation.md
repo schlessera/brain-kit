@@ -157,7 +157,61 @@ disposition. Relevant evidence changes may invalidate a disposition while keepin
 the same stable finding. This experiment implements no dismissal, snooze,
 Actions UI or repair authorization.
 
+The private collector retains each literal physical request and response byte
+sequence before decoding, including HTTP failures and malformed payloads. It
+records complete EOF separately from partial cancellation, response failure and
+owned shutdown. Missing aggregate cache counters prevent a known-price claim;
+missing cache TTL detail yields a price interval rather than invented hits.
+An inactive reported overage flag remains route evidence only: invoice amounts
+stay unknown. Core auto-mode policy and auxiliary accounting are tracked in
+[#1275](https://github.com/schlessera/brain-kit/issues/1275); that follow-up does
+not complete this investigation's whole-task accounting criterion.
+
 ## Required comparison and decision
+
+The current private arithmetic control additionally requires explicit source
+lines naming `Subject`, `Attribute`, `Observation date`, `Event scope` and
+`Cardinality: single-valued` in both documents. Duplicate, missing, historical,
+different-event or multiple-valued premises abstain. The date cannot be beyond
+the reference day. This is a narrow experimental grammar, not a proposed
+frontmatter or taxonomy schema: matching a person does not prove two counts or
+dates describe the same fact. Role-positive source claims explicitly constrain
+one exclusive duty; compatible and underspecified roles remain separate cases.
+
+Twenty-three scripted mechanical controls are separate from twenty-four
+author-provisional semantic cases. Eight Odysseus tuning cases and sixteen
+Calypso/Penelope/Telemachus/Nestor held-out cases separate entity, document and
+grammar-family identifiers. They retain uncertain scope, rejected quotations,
+negation, instruction-only text and an ordinary prose retrieval miss. Their
+shared world and repeated task patterns still limit generalization. Provider
+requests contain complete source documents and exact spans, never case labels,
+expected effects or scripted answers. The tuning screen requires a correctly
+admitted positive and no unsupported positive emission; null is the outcome
+when no threshold qualifies. This small screen is not a population safety rate.
+
+The private collector observes every regular/binary file, member kind, symlink
+target, permission mode and non-directory modification time. Inspection changes
+no brain file. Existing reconciliation alone may write its six established
+Markdown destinations; incomplete extraction always retains previous findings.
+The current comparison uses the actual core runner and unchanged skill's
+report-only Phase 2, separately recording raw model candidates and source/code
+admission. It excludes the other skill phases and content replacement, so it is
+not a measurement of the complete production hygiene sweep. A no-candidate
+answer does not expose the current agent's abstention decision; that rate remains
+unknown rather than being inferred from an empty array.
+
+Fresh native 2.1.293 initialization with the core runner's omitted permission
+mode selects `auto` in the clean offline control. This is an observed fixture
+result, not a claim about every account. The installed SDK declares that omission
+inherits settings or native defaults. Read, rejected-Write and report-to-log
+controls run through the actual native transport, but a Bash config-check
+control reaches an unavailable auto safety classifier. Complete auxiliary
+transport/accounting has not been established. The private live scoring path
+therefore refuses admission until that evidence exists; no explicit manual
+mode or Bash grant is substituted to make the baseline pass. No-tools semantic
+review is a distinct scoped task. Neither the repair of observer failure
+closure nor a successful Read establishes successful CLI execution or a
+completed measured comparison.
 
 Before any live request, record authorized providers/accounts/exact models,
 credential availability and total spend ceiling on #843. Independently review
