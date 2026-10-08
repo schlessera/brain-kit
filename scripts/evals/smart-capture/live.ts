@@ -32,7 +32,7 @@ export async function classify(f: Fixture, root: string, spend: Spend, fetch: Fe
     spend.reserve((bytes + 2048) * 0.042 / 1_000_000);
     const started = performance.now();
     const call: Call = { provider: "typesafe", purpose: "classification", requestedModel: "jev-1.13.0", servedModel: null,
-      inputTokens: null, outputTokens: null, cacheReadTokens: 0, cacheWriteTokens: 0,
+      inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null,
       apiEquivalentLowerUsd: null, apiEquivalentUpperUsd: null, observedAdditionalBilledUsd: null,
       requestSha: (await import("./pipeline")).hash(body), stateBytes: bytes, status: null, outcome: "network_error", durationMs: 0, rawUsage: null };
     try {

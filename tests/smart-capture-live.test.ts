@@ -20,6 +20,7 @@ test("actual core Jev transport keeps physical usage, output count and complete 
     }, "offline-key", () => saves++);
     expect(result.result.outcome).toBe("answered"); expect(dispatches).toBe(1); expect(saves).toBe(1);
     expect(result.calls[0]!.inputTokens).toBe(300); expect(result.calls[0]!.outputTokens).toBe(24);
+    expect(result.calls[0]!.cacheReadTokens).toBeNull(); expect(result.calls[0]!.cacheWriteTokens).toBeNull();
     expect(result.calls[0]!.observedAdditionalBilledUsd).toBeCloseTo(0.0000126, 10);
     expect(spend.usd).toBeCloseTo(0.0000126, 10);
   } finally { p.close(); }
