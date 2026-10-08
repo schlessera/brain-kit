@@ -282,7 +282,7 @@ for (const failure of ["fetch", "mic"] as const) {
       if (failure === "mic") throw new DOMException("https://speech.invalid/?token=odysseus-untrusted", "NotAllowedError");
       return original(constraints);
     });
-    ctx.onTestFinished(() => vi.restoreAllMocks());
+    ctx.onTestFinished(() => { vi.restoreAllMocks(); });
     await userEvent.click(dictate(s)!);
     const expected = failure === "fetch" ? "Dictation couldn't start: a connection problem occurred. Nothing was captured."
       : "Dictation couldn't start: the microphone isn't available. Nothing was captured.";
