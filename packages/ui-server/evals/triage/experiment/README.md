@@ -54,7 +54,11 @@ Whole-workflow accounting requires every supplied generation/fallback/summary
 physical receipt, exact terminal raw usage, meaningful request counts and explicit
 summary demand. Missing summary demand is unknown, not zero. Known failed
 terminal calls retain their cost. Native all-model totals are independent of
-provisional assistant frames. Provider SSE needs terminal output and natural
+provisional assistant frames. Whole-workflow completeness also requires literal
+per-physical request/response bytes, natural response completion and reconciled
+terminal usage sums; a positive claimed request count cannot replace that proof.
+Known terminal diagnostic estimates remain retained when physical coverage is
+unknown, including failed calls. Provider SSE needs terminal output and natural
 message completion. Latency helpers retain complete observations for p50/p95 and
 throughput; these helpers provide no live efficiency result. A protected future
 collector/dispatcher still needs actual auth/billing/cap/process admission and
