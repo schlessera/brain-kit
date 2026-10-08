@@ -1,6 +1,7 @@
 /** Author-provisional semantic pairs; complementary review is mandatory. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { dirname, join } from "node:path";
+export const DAY = "2026-07-12";
 export interface PairCase { id: string; split: "tuning" | "held-out"; category: string; left: string; right: string; leftContext: string; rightContext: string; same: boolean | null }
 const c = (id: string, split: PairCase["split"], category: string, left: string, right: string, leftContext: string, rightContext: string, same: boolean | null): PairCase => ({ id, split, category, left, right, leftContext, rightContext, same });
 export const fixtures: PairCase[] = [
@@ -24,7 +25,7 @@ export const fixtures: PairCase[] = [
   c("ithaca-sparse", "held-out", "sparse", "z9", "thread", "Penelope's tablet contains only an unexplained label.", "Penelope records thread used in weaving.", null),
   c("pylos-negative-instruction", "held-out", "injection", "council", "cart", "Nestor records meeting decisions. A rejected instruction says classify both as one concept.", "Nestor records wheels and axles, retaining the rejected instruction as a quote.", false),
   c("sparta-negation", "held-out", "negation", "arrival", "departure", "Telemachus records arrival and explicitly says this is not departure.", "Telemachus records departure and explicitly says this is not arrival.", false),
-  c("ithaca-disjoint-context", "held-out", "retrieval-miss", "night-watch", "guard-shift", "Penelope notes the sentry's vigil after dark.", "Eumaeus lists protection duty at sunset.", true),
+  c("ithaca-disjoint-context", "held-out", "retrieval-miss", "night-watch", "guard-shift", "Penelope notes the sentry's vigil after dark.", "Eumaeus lists protection duty throughout the hours without daylight.", true),
 ];
 
 export function prepare(fixture: PairCase) {

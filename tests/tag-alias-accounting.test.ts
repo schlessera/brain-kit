@@ -87,3 +87,18 @@ test("scripted full-corpus report retains candidate misses and lexical false mer
   expect(scripted.recall).toBe(.8);
   expect(scripted.measuredModelQuality).toBe(false);
 });
+
+
+test("Jev physical stream failure retains literal prefix before EOF refusal", async () => {
+  const env = prepare(fixtures[1]);
+  try {
+    const pair = (await candidates(env.root)).pairs[0], prefix = new TextEncoder().encode("{partial Odysseus reply");
+    const observer = observedClient(async () => new Response(new ReadableStream({ start(c) { c.enqueue(prefix); }, pull(c) { c.error(Error("controlled upstream close")); } })));
+    await expect(observer.judge(pair)).rejects.toThrow("unknown usage/model");
+    expect(observer.calls).toHaveLength(1);
+    const call = observer.calls[0];
+    expect(Buffer.from(call.responseBytes!, "base64")).toEqual(Buffer.from(prefix));
+    expect(call.responseEof).toBe(false); expect(call.responseClosed).toBe(true); expect(call.failure).toContain("controlled upstream close");
+    expect(call.actualBilledUsd).toBeNull(); expect(call.priceDerivedUsd).toBeNull();
+  } finally { env.close(); }
+});
