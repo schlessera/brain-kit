@@ -286,8 +286,18 @@ the successful scripted SDK control cannot be renamed current-core performance.
 reset repetitions, counterbalanced arms, per-checkpoint destructive/ownership
 vetoes, unknown-fact clarification and full native/effects/accounting gates.
 `prepare.ts` exports every new input, full proposed reference document, current
-skill prompt, schema, protocol and complete source/installed-runtime hashes to a
+skill prompt, schema, protocol and complete source/installed-runtime closure to a
 fresh owned artifact directory. Complementary exact-hash review remains required
 before admission when the hold lifts. No optional natural-language mapping,
 current-agent comparison, savings, production adoption or durable restart/race
 safety is claimed. Signed preparation alone does not close #845.
+
+The first new byte-only freeze is retained as superseded after independent audit:
+it omitted executable/directory modes and resolved link identity. Its replacement
+binds all physical files and directories, modes, device/inode identities, mtimes,
+sizes and content, plus literal links constrained to the owned tree, their resolved
+identities and target subtree bytes. All seventeen workspace roots/manifests and
+owned installed dependencies participate; only root Git administration is excluded.
+Real chmod and same-byte link retargeting change the digest, and omitting mode or
+resolved-path binding fails the intended assertions. Copies need their own literal
+identity freeze; a matching filename or literal symlink text is insufficient.

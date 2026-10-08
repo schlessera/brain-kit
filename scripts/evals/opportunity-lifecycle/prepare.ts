@@ -1,10 +1,11 @@
 /** Export complete new review inputs. Writes only an explicitly fresh output directory; no provider call. */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, lstatSync, readlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { freshCases, referenceFiles } from "./fresh-corpus";
 import { eventSchema } from "./prototype";
 import { currentPrompt, protocol } from "./protocol";
+import { ownedClosure } from "./closure";
 
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 export function prepare(destination: string) {
@@ -19,22 +20,21 @@ export function prepare(destination: string) {
     "schema.json": JSON.stringify(eventSchema.toJSONSchema(), null, 2) + "\n", "protocol.json": JSON.stringify(protocol, null, 2) + "\n" };
   const inputs: Record<string, string> = {};
   for (const [name,text] of Object.entries(documents)) { writeFileSync(join(output, name), text); inputs[name] = sha(text); }
-  const sources: Record<string, string> = {}, runtime: Record<string, string> = {};
-  // Bind every actual repository/runtime byte that could affect CLI/module/native execution.
-  function walk(path: string, result: Record<string, string>, runtimeTree: boolean) {
-    for (const name of readdirSync(join(root,path)).sort()) {
-      if (name === ".git" || name === "dist" && !runtimeTree || name === "node_modules" && !runtimeTree) continue;
-      const relative = path ? `${path}/${name}` : name, full = join(root, relative), stat = lstatSync(full);
-      if (stat.isSymbolicLink()) result[relative] = "symlink:" + readlinkSync(full);
-      else if (stat.isDirectory()) walk(relative,result,runtimeTree);
-      else if (stat.isFile()) result[relative] = sha(readFileSync(full));
-    }
-  }
-  walk("",sources,false); walk("node_modules",runtime,true);
+  const closure = ownedClosure(root);
+  const sources = Object.fromEntries(Object.entries(closure).filter(([path]) => path !== "node_modules" && !path.startsWith("node_modules/")));
+  const runtime = Object.fromEntries(Object.entries(closure).filter(([path]) => path === "node_modules" || path.startsWith("node_modules/")));
+  const workspaces = readdirSync(join(root,"packages")).sort().filter(name => statSync(join(root,"packages",name)).isDirectory()).map(name => {
+    const path = `packages/${name}`;
+    if (!closure[`${path}/package.json`]) throw new Error(`workspace manifest absent: ${name}`);
+    return { root: path, rootIdentity: closure[path], manifest: closure[`${path}/package.json`] };
+  });
+  if (workspaces.length !== 17) throw new Error("workspace inventory changed; re-audit complete scope");
   const sdk = JSON.parse(readFileSync(join(root,"node_modules/@anthropic-ai/claude-agent-sdk/package.json"),"utf8"));
   const payload = { mode: "new author-provisional review freeze; no historical freeze identity", dispatchAllowed: false,
     runtime: { bun: Bun.version, bunBinarySHA256: sha(readFileSync(process.execPath)), sdk: sdk.version,
-      nativeCLI: "2.1.293 observed in isolated native fixture control; not a live result" }, inputs, sources,
+      bunBinaryMode: statSync(process.execPath).mode,
+      nativeCLI: "2.1.293 observed in isolated native fixture control; not a live result" }, inputs, sources, workspaces,
+    closureSemantics: "literal modes/device/inode/mtime/size/content plus owned resolved links and target subtree bytes; copies require new identity freeze; root Git administration excluded",
     installedRuntimeFiles: runtime, sourceCount: Object.keys(sources).length, runtimeCount: Object.keys(runtime).length };
   const digest = sha(JSON.stringify(payload));
   writeFileSync(join(output,"manifest.json"),JSON.stringify({ ...payload,digest },null,2)+"\n");

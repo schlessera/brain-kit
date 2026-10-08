@@ -1664,11 +1664,25 @@
       "sourceSHA256": "5dfc603016053f38111a3df89ec2e6ae3b3c57f19e45e4bd8e2992345059bb5b",
       "behavioralFailure": "parsed frame label expected intact Ithaca \u2014 \u03a9; raw bytes still exact",
       "logSHA256": "41e073cfa7a1a707b76bb3b14cffb1f11d85a5539e0bc1adda1db6489112dded"
+    },
+    {
+      "mutation": "closure-mode",
+      "exit": 1,
+      "sourceSHA256": "9ea47d2a5785aa45ac5a1bc49a58ab2a73b9b13d6a752db522261d2128b8b4e1",
+      "behavioralFailure": "not.toBe",
+      "logSHA256": "932f57433771d5872fc2f734dd9133d3cfe5bf09308537538ed84e152ccce98f"
+    },
+    {
+      "mutation": "closure-resolved-link",
+      "exit": 1,
+      "sourceSHA256": "9ea47d2a5785aa45ac5a1bc49a58ab2a73b9b13d6a752db522261d2128b8b4e1",
+      "behavioralFailure": "toBe(\"b.txt\")",
+      "logSHA256": "f3f2bcb711ca246fdf445f663d18b420d95ef339e84f93b0c7c5bb8e94cdfab4"
     }
   ],
   "restoredValidation": {
-    "targetedTests": 43,
-    "assertions": 380,
+    "targetedTests": 46,
+    "assertions": 392,
     "fail": 0,
     "fullSuite": "not rerun for private harness; exact-head CI remains required"
   },
@@ -1685,6 +1699,14 @@
     "scripts/evals/opportunity-lifecycle/native-evidence.ts": "5dfc603016053f38111a3df89ec2e6ae3b3c57f19e45e4bd8e2992345059bb5b",
     "scripts/evals/opportunity-lifecycle/native-offline.ts": "36e1743de0cf86c66ec9731c1a105d0c26f817a48af3db5b29e278cf83d90f75",
     "scripts/evals/opportunity-lifecycle/offline-launch.py": "caf698f3240c6fe59b1eeea71c337f5dd195ec0c930a33930b1a9286edcb9586",
-    "scripts/evals/opportunity-lifecycle/protocol.ts": "faf513f4e1feace843276071d44f9c4ec428122e00cf5f63381c276f7738876b"
+    "scripts/evals/opportunity-lifecycle/protocol.ts": "faf513f4e1feace843276071d44f9c4ec428122e00cf5f63381c276f7738876b",
+    "scripts/evals/opportunity-lifecycle/closure.ts": "9ea47d2a5785aa45ac5a1bc49a58ab2a73b9b13d6a752db522261d2128b8b4e1",
+    "scripts/evals/opportunity-lifecycle/prepare.ts": "1a418e71503b700d2434d3426f5633625af8283847ef578b174a8c64eb1f3580"
+  },
+  "freezeCorrection": {
+    "supersededByteOnlyDigest": "36b9983d02f16e7ebaa978d9c3ed45f3a72a61b25ebd9ebbcdd6b6aba53b362a",
+    "scope": "new complete owned-tree closure: all modes, device/inode/mtime/size/content, constrained resolved links/target bytes,17whole workspace roots/manifests and installed dependencies",
+    "semanticInputsChanged": false,
+    "newLiveAdmission": false
   }
 }
