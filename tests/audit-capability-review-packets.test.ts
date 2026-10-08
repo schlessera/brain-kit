@@ -27,7 +27,7 @@ test("eight lossless bounded packets cover every authored case and whole behavio
   }
 });
 test("combined gate rebuilds prompt bytes and binds exact verification before approval", () => {
-  const valid = receipts(); expect(combinedReview(valid, frozen, detectedRaw, proofRaw).packetCaseIds).toHaveLength(26);
+  const valid = receipts(); expect(()=>combinedReview(valid,frozen,detectedRaw,proofRaw)).toThrow("not exact prompt/proof-frozen");
   const stalePrompt = receipts(); stalePrompt[0]!.promptSha = sha("a different complete prompt");
   expect(() => combinedReview(stalePrompt, frozen, detectedRaw, proofRaw)).toThrow("not exact prompt/proof-frozen");
   const staleProofReceipt = receipts(); staleProofReceipt[0]!.verificationSha = sha("a different verification receipt");
@@ -50,3 +50,5 @@ test("combined gate derives usage and overage from retained native fields rather
   const wrongModel = receipts(); wrongModel[0]!.init.model = "claude-sonnet-5";
   expect(() => combinedReview(wrongModel, frozen, detectedRaw, proofRaw)).toThrow("not exact prompt/proof-frozen");
 });
+
+ test("metadata-only APPROVED cannot supply semantic review",()=>{expect(()=>combinedReview(receipts(),frozen,detectedRaw,proofRaw)).toThrow("not exact prompt/proof-frozen");});

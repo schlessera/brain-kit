@@ -28,7 +28,7 @@ export function runtimeFreeze() {
   const sources: Record<string, string> = {};
   for (const dir of ["packages/core/src", "packages/core/skills", "packages/ui-backend-claude/src", "scripts/evals/audit-capabilities", "scripts/evals/note-disposition"])
     for (const path of files(join(repo, dir))) sources[relative(repo, path)] = sha(readFileSync(path));
-  for (const path of ["package.json", "bun.lock", "bunfig.toml", "packages/core/package.json", "packages/ui-backend-claude/package.json", "scripts/measure-sonnet55-cost.ts", "tests/audit-capability-eval.test.ts", "tests/audit-capability-benchmark.test.ts", "tests/audit-capability-live.test.ts", "tests/audit-capability-controls.test.ts", "tests/audit-capability-review-packets.test.ts", "scripts/test.ts", "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md"]) sources[path] = sha(readFileSync(join(repo, path)));
+  for (const path of ["package.json", "bun.lock", "bunfig.toml", "packages/core/package.json", "packages/ui-backend-claude/package.json", "scripts/measure-sonnet55-cost.ts", "tests/audit-capability-eval.test.ts", "tests/audit-capability-benchmark.test.ts", "tests/audit-capability-live.test.ts", "tests/audit-capability-controls.test.ts", "tests/audit-capability-review-packets.test.ts", "tests/audit-review-artifacts.test.ts", "scripts/test.ts", "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md"]) sources[path] = sha(readFileSync(join(repo, path)));
   const packages: Record<string, { name: string; version: string; filesSha: string; files: number }> = {};
   const seen = new Set<string>();
   function visit(root: string) {
@@ -51,14 +51,14 @@ export function runtimeFreeze() {
   visit(packageRoot("@anthropic-ai/claude-agent-sdk", repo));
   const platform = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
   const nativePath = join(packageRoot(platform, repo), "claude");
-  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size };
+  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size, mode: statSync(nativePath).mode };
   const sdkRoot = packageRoot("@anthropic-ai/claude-agent-sdk", repo);
   const manifest = JSON.parse(readFileSync(join(sdkRoot, "manifest.json"), "utf8"));
   // Native bytes are checked against both freeze and installed vendor manifest before spawn.
   const entry = manifest.platforms?.[`${process.platform}-${process.arch}`];
   if (entry?.checksum !== native.sha256 || entry?.binary !== native.file || entry?.size !== native.bytes) throw Error("Installed native binary does not match exact platform SDK manifest");
   if (!readFileSync(join(sdkRoot, "sdk.mjs"), "utf8").includes("getSettings")) throw Error("Installed SDK lacks required settings handshake");
-  const binaries = { bun: { version: Bun.version, sha256: sha(readFileSync(process.execPath)), bytes: statSync(process.execPath).size }, claude: { ...native, cliVersion: manifest.version, sdkVersion: JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")).version } };
+  const binaries = { bun: { version: Bun.version, sha256: sha(readFileSync(process.execPath)), bytes: statSync(process.execPath).size, mode: statSync(process.execPath).mode }, claude: { ...native, cliVersion: manifest.version, sdkVersion: JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")).version } };
   const freeze = { protocol, rubric, sources: Object.fromEntries(Object.entries(sources).sort()), packages: Object.fromEntries(Object.entries(packages).sort()), binaries, benchmarkSha: sha(readFileSync(join(import.meta.dir, "benchmark.json"))) };
   return { ...freeze, freezeSha: sha(JSON.stringify(freeze)) };
 }
