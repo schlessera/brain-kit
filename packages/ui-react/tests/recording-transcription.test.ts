@@ -244,7 +244,7 @@ for (const field of ["transcription", "transcribeRequestId", "transcriptionMessa
   const index = { ...f.data.get(key) as object, chunkCount: 2, transcriptionMessage: "Old notice", transcription: { ...done, status: "failed", text: undefined, failure: { reason: "rate_limit", retryable: true } } };
   f.data.set(key, index); f.refuseRepairWrites(); const s = f.make(); await s.recover("account:odysseus");
   expect((await s.get("account:odysseus", f.id))!.chunkCount, "quota failure retained a real recovery projection").toBe(1);
-  const value = field === "transcription" ? { ...done, status: "outcome_unknown", text: undefined, failure: { reason: "outcome_unknown", retryable: false } } : field === "transcribeRequestId" ? "newer-dispatch" : "Result unconfirmed";
+  const value = field === "transcription" ? { ...done, status: "outcome_unknown" as const, text: undefined, failure: { reason: "outcome_unknown" as const, retryable: false } } : field === "transcribeRequestId" ? "newer-dispatch" : "Result unconfirmed";
   f.data.set(key, { ...index, [field]: value });
   expect((await s.get("account:odysseus", f.id))![field], "new metadata invalidates the stale recovery projection").toEqual(value);
 });
