@@ -25,6 +25,8 @@ if (localStorage.getItem("odysseus-request-quota")) {
   };
 }
 const nativeDelete = IDBObjectStore.prototype.delete;
+let finalWaiting = false;
+let finalWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
 let initialWaiting = false;
 let initialWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
 let recoveryWaiting = false;
@@ -81,6 +83,12 @@ defineScene({
       { put: "recording:chunk:ithaca-secret:00000000", value: { index: 0, startMs: 0, endMs: 10_000, data: wav } },
     ]);
   },
+  holdFinalWrite() {
+    finalWrite = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]).startsWith("recording:index:") && (value as { state?: string }).state === "saved");
+    void finalWrite.started.then(() => { finalWaiting = true; });
+  },
+  finalWaiting() { return finalWaiting; },
+  releaseFinalWrite() { finalWrite?.release(); finalWrite?.restore(); },
   failDiscard() {
     IDBObjectStore.prototype.delete = function(key: IDBValidKey | IDBKeyRange) {
       if (Array.isArray(key) && String(key[1]).startsWith("recording:")) throw new DOMException("Odysseus deletion fault", "UnknownError");
@@ -102,6 +110,19 @@ defineScene({
   async startupGap() { const bytes = await seedGap(); localStorage.setItem("odysseus-startup-gap", "1"); return bytes; },
   recoveryWaiting() { return recoveryWaiting; },
   releaseRecovery() { localStorage.removeItem("odysseus-startup-gap"); releaseRecovery(); },
+  beginRestoreWithLocalClick() {
+    const button = [...document.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent === "Record without signing in")!;
+    return new Promise(resolve => {
+      const unwatch = ui.authLock.state.subscribe(state => {
+        if (state.phase !== "restoring") return;
+        unwatch();
+        const enabled = button.getAttribute("aria-disabled") !== "true";
+        button.click();
+        resolve({ enabled, phase: state.phase });
+      });
+      (globalThis as unknown as { __offlineScene: { beginRestore(): void } }).__offlineScene.beginRestore();
+    });
+  },
   beginRestore() {
     const resume = ui.localWork!.resume.bind(ui.localWork);
     const barrier = new Promise<void>(resolve => { releaseRestore = resolve; });

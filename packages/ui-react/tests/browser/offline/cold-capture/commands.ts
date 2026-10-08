@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue" | "request-full" | "discard-failure"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue" | "request-full" | "discard-failure" | "restore-race"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -108,10 +108,18 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     assert.equal(await action(page, "offlineImage"), false, "the authenticated image is unavailable offline despite the warm visit");
     await context.setOffline(false);
     apiRequests.length = 0;
-    if (cell.scenario === "reauth" || cell.scenario === "restore") {
+    if (cell.scenario === "reauth" || cell.scenario === "restore" || cell.scenario === "restore-race") {
       await action(page, "expire");
       await page.getByRole("heading", { name: "Your sign-in has expired" }).waitFor();
       await page.waitForTimeout(350);
+      if (cell.scenario === "restore-race") {
+        assert.deepEqual(await action(page, "beginRestoreWithLocalClick"), { enabled: true, phase: "restoring" }, "the local action is clicked before React disables its stale rendered button");
+        await page.waitForTimeout(150);
+        assert.equal(await page.locator("[data-local-capture-screen]").count(), 0, "the current auth phase guard rejects a click before the restoring render");
+        assert.equal(await action(page, "finishRestore"), true);
+        await page.locator("[data-protected]").waitFor();
+        return "restoration callback race guard passed";
+      }
       if (cell.scenario === "restore") {
         await action(page, "beginRestore");
         await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { restoreWaiting(): boolean } }).__offlineScene.restoreWaiting());
@@ -268,7 +276,12 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     assert.equal(await action(page, "phase"), "recording", "probe recovery keeps the microphone running");
     assert.equal(await page.locator("[data-protected]").count(), 0, "recovery waits for explicit Continue");
     if (cell.scenario === "continue-recording") {
+      await action(page, "holdFinalWrite");
       await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { finalWaiting(): boolean } }).__offlineScene.finalWaiting());
+      assert.equal(await page.locator("[data-protected]").count(), 0, "Continue waits for the final saved-index commit before mounting protected content");
+      assert.equal(await action(page, "microphoneLive"), false, "Continue stops the microphone while the final index drains");
+      await action(page, "releaseFinalWrite");
       await page.locator("[data-protected]").waitFor();
       const kept = await action<Array<{ state: string; partition: string; bytes: number }>>(page, "inventory");
       assert.equal(kept.length, 1, "Continue retains the live capture");
