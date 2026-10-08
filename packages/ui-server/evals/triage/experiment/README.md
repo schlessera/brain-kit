@@ -56,10 +56,12 @@ usage are complete. Each attempt is retained separately before tallying. Unknown
 usage/model/EOF, auth failure, malformed labels or nonterminal success stops
 future batches rather than retrying quality or substituting models/effort.
 Panel raw usage remains separate from scored baseline/fallback/summary
-accounting. Panel list prices and invoice totals are unavailable (null), not
-zero. No successful request, price, availability, effort-probe result or semantic
-approval is claimed by these offline controls. There is no live panel entry;
-future auth/billing/cap admission and the Claude availability hold still apply.
+accounting. The donor collector keeps its historical price/invoice fields null. The separate
+paid controller retains conservative reservation and known-usage upper fields;
+they are neither list estimates nor invoices. No successful request, price, availability, effort-probe result or semantic
+approval is claimed by these offline controls. The private `panel-run.ts` entry requires a source-bound root allocation and
+complete independently reparsed semantic-review artifacts before any request.
+Having an entry is not a live access or measurement result.
 
 Selected API/method sources, verified2026-10-08:
 https://developers.openai.com/api/docs/models/gpt-6.1-sol,
@@ -88,9 +90,11 @@ experiment exposes that limitation instead of claiming production isolation.
 
 UTF-8 byte ceilings conservatively bound individual item payloads (4000), the
 complete request (40000), and state plus its longest question (32000). The common
-rubric is counted in request/state bounds. These are not measured token counts
-or a provider-tokenizer admission proof. Exact tokenization and supported budgets
-remain necessary for a live comparison. Oversized input stays unjudged and sends
+rubric is counted in request/state bounds. These are not measured token counts. Native review and the raw panel reserve
+against verified canonical model context maxima and literal output ceilings;
+actual usage must fit those bounds. No extra tokenizer API is required for this
+finite conservative price reservation. The scored Jev comparison retains its
+whole-request/state engineering limits. Oversized input stays unjudged and sends
 no request. Full output/state is never silently truncated. Served-model mismatch
 stops further acceptance and preserves all physical receipts.
 
@@ -151,8 +155,87 @@ That complementary receipt does not replace the three-family label panel.
 
 No live comparison, calibration, label approval or adoption decision exists in
 these controls. Standing Sonnet5.5/Jev1.13.0 and actual additional-charge caps
-remain granted. The coordinator holds Claude requests pending verified included
-availability. Selected panel models/routes are settled; actual admission and
-complete semantic/label review are pending. A measured decision still needs the authorized matched current
+remain granted. Enabled native paid extra usage is explicitly authorized by #838
+comment6065882737. Actual dispatch remains root-controlled and source-bound;
+selected panel models/routes are settled and complete semantic/label review
+remains pending. A measured decision still needs the authorized matched current
 baseline, deterministic baseline and hybrid arms; all retries/fallback/summary
 costs; latency/throughput/cache sensitivity; and an explicit go/no-go to #680.
+
+
+The #1296 paid correction adds direct-native `review-run.ts` with an actual
+loopback observer/relay. The root policy binds exact freeze, input, protocol,
+runtime, local proof and literal prompt hashes, canonical Sonnet5.5, issued-at/expiry and
+remaining allocation. Its USD8/M aggregate input/cache and USD20/M output rates
+are conservative planning bounds, not list prices. Each physical request reserves
+`min(body bytes,1M verified context)` plus its positive literal output ceiling
+(max128000) before forwarding. Completed final named input/output/cache usage
+settles only a known conservative upper; errors or missing usage retain their
+reservation and stop future requests. Source/runtime closure is independently
+checked at both exported entry and actual relay before every physical request.
+No tool, high-effort, altered prompt or model substitution passes. Known Standard
+absent/global/us geography is covered by8/20; omitted geography remains unknown,
+not a measured global route. Observed native `not_available` stays unavailable
+measurement; it is not converted to global. Unknown modifiers and observed Priority/fast refuse. The observer disables memory, isolates home/config, checks real account
+and settings before releasing the prompt, and retains stdin/stdout/stderr plus
+owned child termination/drain evidence.
+
+Pinned native293 `NEe` reports `status:rejected,overageStatus:allowed,
+isUsingOverage:true` when the included limit is rejected but paid overage is
+permitted. With explicit valid root policy, full HTTP200 canonical usage and
+natural EOF/drain, that literal state is accepted unchanged. Actual HTTP402/429,
+paid overage rejection/disabled, unknown rates, model/auth failure and incomplete
+streams remain failures. Benign inactive `allowed_warning` stays visible.
+Account-wide extra-usage meter/FX observations are separate from request usage;
+missing invoices remain null. Historic frozen helper diagnostics under #1239 are
+not rewritten as current list invoices.
+
+The raw panel uses unchanged donor JSON/effort/output/batching and actual
+`callModel`; a new serialized pre-fetch reservation and post-receipt settlement
+wrap that call. Canonical context maxima are1M Sonnet,1,050,000 GPT and1,048,576
+Gemini; output remains8000. Raw-panel planning rates are deliberately upper
+bounds: Sonnet8/20, GPT11/33 (covering long-context cache writes, Fast and regional
+premiums; Responses-only Ultrafast is outside this literal Chat Completions
+route), Gemini1.35/6.75 (current priority upper through2026-12-31). Known unsupported
+tier/geography/fast changes stop; missing optional cache counts are not called
+zero. Anthropic requires both aggregate cache counters; OpenAI total prompt and
+completion already include cached/reasoning tokens; Gemini output sums explicit
+candidate and thought counters. The controller independently reparses literal
+response bytes and binds30 unique donor batch bodies. Each allowed429/503 retry
+has its own reservation/receipt; unknown usage prevents retries. Prior review
+spending and the root remaining issue/aggregate allocation constrain every next
+call; no up-front assumption that all180 attempts will occur or fit is made.
+
+Primary bounds/pricing sources verified2026-10-08:
+https://platform.claude.com/docs/en/models/sonnet-5-5/overview,
+https://platform.claude.com/docs/en/build-with-claude/prompt-caching,
+https://developers.openai.com/api/docs/models/gpt-6.1-sol,
+https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash,
+https://ai.google.dev/gemini-api/docs/pricing.
+
+Root-only entries take frozen sidecars and private literal policy SHA references:
+
+```sh
+bun packages/ui-server/evals/triage/experiment/review-run.ts \
+  /frozen/sidecar /protected/root-review-policy.json POLICY_SHA /fresh/review-output
+bun packages/ui-server/evals/triage/experiment/panel-run.ts \
+  /frozen/sidecar /protected/root-panel-policy.json POLICY_SHA /protected/reviews.json /fresh/panel-output
+```
+
+Each root policy also supplies a64-hex one-use grant nonce and absolute private
+consumed-marker path. Complete binding checks precede atomic0600 O_EXCL claim;
+failed attempts retain the marker and a new output directory cannot reuse it.
+Completed receipts reparse the original/copied marker and policy validity as of
+claim/physical dispatch, so later expiry alone does not invalidate evidence.
+Root alone mints grants against the shared native/API/Jev remaining allocation.
+
+The native entry additionally requires the explicit root dispatch marker and a
+supplied existing OAuth environment route; the raw panel requires its separate
+root marker and existing API routes. Neither discovers credentials, refreshes a
+login, provides a fallback model or declares its own allocation. `verification.json`
+is the literal local-proof member included by preparation. All raw approvals,
+budget timestamps, request/response hashes and terminal usage are reparsed; a
+claimed flag or rewritten artifact hash cannot replace them. Source/runtime
+changes, expired policy or missing required proof stops before forwarding.
+The networkless `review-offline.ts` controls deliberately remain ineligible even
+when the actual native text says APPROVED and paid transport succeeds.

@@ -806,7 +806,7 @@ installations.
 - **Observed from the session that ran.** The core Claude runner reads the
   Claude Code session's `system`/`init` event and passes `claude_code_version`
   to the runner's `onRuntime` callback the moment it arrives
-  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:188-195`).
+  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:190-197`).
   A run that fails after `init` has already reported it. A refused run never
   reaches `init` and reports nothing. The other built-in runners do not
   report, and neither does anything else: no boot probe, no lockfile, no
