@@ -15,14 +15,15 @@ function fixture() {
   let inventoryGate: Promise<void> | undefined;
   let staleInventoryGate: Promise<void> | undefined;
   let beforeTranscribingPut: (() => void) | undefined;
+  let generation = "initial";
   const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); if (k.startsWith("recording:index:") && (v as { state?: string }).state === "transcribing") beforeTranscribingPut?.(); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && staleInventoryGate) { const rows = [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); const gate = staleInventoryGate; staleInventoryGate = undefined; await gate; return rows; } if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
-  const connection = createStore(() => ({ accountKey: "odysseus", wsStatus: "connected" }));
+  const connection = createStore<{ accountKey: string | null; wsStatus: string }>(() => ({ accountKey: "odysseus", wsStatus: "connected" }));
   const root = { apiBase: () => "/api", stores: { connection }, authLock: { epoch: () => 0, state: createStore(() => ({ phase: "active" })) }, request: async () => new Response("{}", { status: 404 }) } as unknown as BrainUiServices;
   const empty = { async get() { return undefined; }, async list() { return []; } };
-  const partitions = { open: (partition: string) => partition === "unassigned" ? empty : handle, writerGeneration: () => "initial", subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
+  const partitions = { open: (partition: string) => partition === "unassigned" ? empty : handle, writerGeneration: () => generation, subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
   const make = () => { const s = createRecordingStore({ root, partitions, heldAccountKey: () => connection.getState().accountKey }); stores.push(s); return s; };
   const id = crypto.randomUUID(), blob = new Blob([new Uint8Array([1, 2, 3])]);
-  return { data, connection, root, make, id, blob, beforeTranscribingPut(fn: () => void) { beforeTranscribingPut = fn; }, holdOldInventory() { let release!: () => void; staleInventoryGate = new Promise<void>(r => { release = r; }); return release; }, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
+  return { data, connection, root, make, id, blob, beforeTranscribingPut(fn: () => void) { beforeTranscribingPut = fn; }, advanceGeneration() { generation = "next"; }, holdOldInventory() { let release!: () => void; staleInventoryGate = new Promise<void>(r => { release = r; }); return release; }, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
 }
 test("delayed status recovery cannot overwrite another tab's durable edit", async () => {
   const f = fixture(), done = await f.seed(); let release!: () => void, queries = 0;
@@ -185,4 +186,53 @@ for (const [status, error] of [[401, "authentication_required"], [500, "transcri
   f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") return Response.json({ error, message: "Reply without a known pre-claim refusal." }, { status }); return new Response("{}", { status: 404 }); };
   const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); await s.syncTranscriptions();
   expect((await s.get("account:odysseus", f.id))!.state, "HTTP status alone cannot prove the provider was never called").toBe("transcribing");
+});
+
+
+test("auth loss during the pending-marker commit recovers a known never-dispatched recording after sign-in", async () => {
+  const f = fixture(); await f.seed("saved"); let uploads = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({}); } return new Response("{}", { status: 404 }); };
+  f.beforeTranscribingPut(() => f.connection.setState({ accountKey: null }));
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); expect(uploads).toBe(0);
+  f.connection.setState({ accountKey: "odysseus" }); await s.syncTranscriptions(); await Bun.sleep(20);
+  const row = (await s.get("account:odysseus", f.id))!;
+  expect(row.state, "known zero-dispatch cancellation is recovered only after account access returns").toBe("failed");
+  expect(row.transcriptionMessage).toContain("Not sent"); expect(row.bytes).toBe(3); expect(uploads).toBe(0);
+});
+
+
+for (const change of ["intent", "generation", "edit"] as const) test(`known cancellation recovery preserves a newer ${change}`, async () => {
+  const f = fixture(); await f.seed("saved");
+  f.root.request = async (url) => url.endsWith("capabilities") ? Response.json({ capabilities: { savedAudio: true } }) : new Response("{}", { status: 404 });
+  f.beforeTranscribingPut(() => f.connection.setState({ accountKey: null }));
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow();
+  const key = `recording:index:${f.id}`, row = f.data.get(key) as Record<string, unknown>;
+  if (change === "intent") f.data.set(key, { ...row, transcribeRequestId: "newer-intent" });
+  if (change === "generation") f.advanceGeneration();
+  if (change === "edit") f.data.set(key, { ...row, state: "transcript-ready", transcript: "Penelope edited" });
+  f.connection.setState({ accountKey: "odysseus" }); await s.syncTranscriptions(); await Bun.sleep(20);
+  const after = (await s.get("account:odysseus", f.id))!;
+  expect(after.state, "old zero-dispatch proof must not regress newer work").toBe(change === "edit" ? "transcript-ready" : "transcribing");
+  if (change === "intent") expect(after.transcribeRequestId).toBe("newer-intent");
+  if (change === "edit") expect(after.transcript).toBe("Penelope edited");
+});
+
+
+test("prepared cancellation survives recreating the store after authentication returns", async () => {
+  const f = fixture(); await f.seed("saved"); let uploads = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({}); } return new Response("{}", { status: 404 }); };
+  f.beforeTranscribingPut(() => f.connection.setState({ accountKey: null }));
+  const first = f.make(); await expect(first.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); first.dispose();
+  f.connection.setState({ accountKey: "odysseus" }); const restored = f.make(); await restored.syncTranscriptions(); await Bun.sleep(20);
+  expect((await restored.get("account:odysseus", f.id))!.state, "durable preparation proves no upload was invoked before store recreation").toBe("failed");
+  expect(uploads).toBe(0);
+});
+
+test("auth loss after clearing the prepared marker retains zero-dispatch proof for the live store", async () => {
+  const f = fixture(); await f.seed("saved"); let uploads = 0, writes = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({}); } return new Response("{}", { status: 404 }); };
+  f.beforeTranscribingPut(() => { if (++writes === 2) f.connection.setState({ accountKey: null }); });
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); expect(writes).toBe(2);
+  f.connection.setState({ accountKey: "odysseus" }); await s.syncTranscriptions(); await Bun.sleep(20);
+  expect((await s.get("account:odysseus", f.id))!.state, "known cancellation after the final marker is recovered without uploading").toBe("failed"); expect(uploads).toBe(0);
 });

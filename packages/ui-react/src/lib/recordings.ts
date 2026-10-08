@@ -434,6 +434,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   }
   let syncing = false;
   let syncPending = false;
+  // Process-local proof: these intents never invoked the request transport.
+  const cancelledUploads = new Map<string, { partition: PartitionId; id: string; requestId: string; hash: string; generation: string }>();
+  const preparedPrefix = (generation: string) => `pending:${encodeURIComponent(generation)}:`;
   const store: RecordingStore = {
     budget,
     sink: () => deferred(),
@@ -698,7 +701,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         check();
         const uploadRow = await get(partition, id); check();
         if (!uploadRow || uploadRow.state === "transcript-ready" || uploadRow.state === "accepted" || uploadRow.contentHash !== row.contentHash) return;
-        if (!await updateTranscription(partition, id, { state: "transcribing", transcribeRequestId: id, transcriptionMessage: undefined }, current => receiptSnapshot(current) === receiptSnapshot(uploadRow))) return;
+        const requestId = crypto.randomUUID();
+        const preparedId = `${preparedPrefix(epoch.generation)}${requestId}`;
         let uploaded = false;
         let dispatched = false;
         let definitiveRejection: string | undefined;
@@ -708,6 +712,11 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const unwatch = options.root.stores.connection.subscribe(() => { if (options.heldAccountKey() === null || heldPartition() !== partition) controller.abort(); });
         const unlock = options.root.authLock.state.subscribe(() => { if (options.root.authLock.epoch() !== authEpoch) controller.abort(); });
         try {
+          if (!await updateTranscription(partition, id, { state: "transcribing", transcribeRequestId: preparedId, transcriptionMessage: undefined }, current => receiptSnapshot(current) === receiptSnapshot(uploadRow))) return;
+          check();
+          // Clearing the durable prepared marker precedes transport invocation.
+          // A prepared marker with a free id lock proves no upload was invoked.
+          if (!await updateTranscription(partition, id, { transcribeRequestId: requestId }, current => current.state === "transcribing" && current.transcribeRequestId === preparedId && current.contentHash === row.contentHash)) return;
           check();
           dispatched = true;
           const response = await options.root.request(`${transcriptionPath(id)}${retry ? `?retry=${encodeURIComponent(retry)}` : ""}`, {
@@ -727,14 +736,19 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
           }
         } catch (error) {
-          checkMutation(partition, epoch);
-          uploaded ||= dispatched && (lastProgress === undefined || lastProgress <= 0); // Initialization is not evidence of a partial transfer.
-          await updateTranscription(partition, id, { state: uploaded && !definitiveRejection ? "transcribing" : "failed", transcriptionMessage: definitiveRejection ?? (uploaded
-            ? received ? "Couldn\u0027t save the transcript on this device. The recording is kept." : "Could not confirm the result. Check transcription status after reconnecting. The recording is kept."
-            : "Not sent — tap Transcribe again") }, current => current.state === "transcribing" && current.contentHash === row.contentHash);
+          const key = identity(partition, id);
+          if (!dispatched) cancelledUploads.set(key, { partition, id, requestId, hash: row.contentHash, generation: epoch.generation });
+          try {
+            checkMutation(partition, epoch);
+            uploaded ||= dispatched && (lastProgress === undefined || lastProgress <= 0); // Initialization is not evidence of a partial transfer.
+            await updateTranscription(partition, id, { state: uploaded && !definitiveRejection ? "transcribing" : "failed", transcriptionMessage: definitiveRejection ?? (uploaded
+              ? received ? "Couldn\u0027t save the transcript on this device. The recording is kept." : "Could not confirm the result. Check transcription status after reconnecting. The recording is kept."
+              : "Not sent — tap Transcribe again") }, current => current.state === "transcribing" && [requestId, preparedId].includes(current.transcribeRequestId ?? "") && current.contentHash === row.contentHash);
+            cancelledUploads.delete(key);
+          } catch { /* Locked account or refused storage: retain zero-dispatch proof until recovery. */ }
           throw error;
         } finally { unwatch(); unlock(); }
-      });
+      }).finally(() => { if (cancelledUploads.has(identity(partition, id))) void store.syncTranscriptions().catch(() => {}); });
     },
     async syncTranscriptions() {
       if (syncing) { syncPending = true; return; }
@@ -743,6 +757,17 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const partition = heldPartition();
       const epoch = mutationEpoch(partition);
       try {
+        for (const [key, cancelled] of cancelledUploads) {
+          if (cancelled.partition !== partition || !navigator.locks) continue;
+          await navigator.locks.request(`brain-ui:transcription:${cancelled.id}`, { ifAvailable: true }, async lock => {
+            if (!lock) return;
+            checkMutation(partition, epoch);
+            if (cancelled.generation === epoch.generation && await get(partition, cancelled.id)) {
+              await updateTranscription(partition, cancelled.id, { state: "failed", transcriptionMessage: "Not sent — tap Transcribe again" }, current => current.state === "transcribing" && [cancelled.requestId, `${preparedPrefix(cancelled.generation)}${cancelled.requestId}`].includes(current.transcribeRequestId ?? "") && current.contentHash === cancelled.hash);
+            }
+            cancelledUploads.delete(key);
+          });
+        }
         for (const entry of await partitions.open(partition).list("recording:tombstone:")) {
           checkMutation(partition, epoch);
           const value = entry.value as { id: string; disposition: string };
@@ -758,8 +783,15 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           await navigator.locks.request(`brain-ui:transcription:${row.id}`, { ifAvailable: true }, async lock => {
             if (!lock) return;
             checkMutation(partition, epoch);
+            let observed = row;
+            if (row.state === "transcribing" && row.transcribeRequestId?.startsWith(preparedPrefix(epoch.generation))) {
+              await updateTranscription(partition, row.id, { state: "failed", transcriptionMessage: "Not sent — tap Transcribe again" }, current => receiptSnapshot(current) === receiptSnapshot(row));
+              const current = await get(partition, row.id);
+              if (!current) return;
+              observed = current;
+            }
             const result = await statusOf(row.id); checkMutation(partition, epoch);
-            if (result) await applyReceipt(partition, row.id, result, row);
+            if (result) await applyReceipt(partition, row.id, result, observed);
             // A lost PUT may still be reading on the host before its claim.
             // Missing status cannot prove it was not sent; keep polling.
           });
@@ -818,7 +850,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     busy: () => opening || beginning !== null || running !== null || transcripts.size > 0,
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     onEvent(fn) { events.add(fn); return () => { events.delete(fn); }; },
-    dispose() { disposed = true; unwatchSignOut(); unwatchAccount(); unwatchInventory(); unwatchAuth(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
+    dispose() { disposed = true; cancelledUploads.clear(); unwatchSignOut(); unwatchAccount(); unwatchInventory(); unwatchAuth(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
   };
   function scan() {
     for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
