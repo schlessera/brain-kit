@@ -3486,6 +3486,7 @@ describe("authentication and passkey root ownership", () => {
       fireEvent.click(view.getByRole("button", { name: "Sign in" }));
       expect(b.matching("/auth/login", "POST")[0].url).toBe("https://beta.example/api/auth/login");
       await reply(b.matching("/auth/login", "POST")[0], { ok: true });
+      await reply(b.matching("/vpn-check")[0], { accountKey: "beta-account" });
       expect(reload).toHaveBeenCalledTimes(1);
     } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
@@ -3561,8 +3562,26 @@ describe("authentication and passkey root ownership", () => {
       const verify = b.matching("/auth/passkey/login-verify", "POST")[0];
       expect(verify.url).toBe("https://beta.example/api/auth/passkey/login-verify");
       await reply(verify, { ok: true });
+      await reply(b.matching("/vpn-check")[0], { accountKey: "beta-account" });
       expect(reload).toHaveBeenCalledTimes(1);
     } finally { view.unmount(); reload.mockRestore(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a late sign-out inventory cannot authorize logout from a replacement root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const summary = await a.root.localWorkFlow.loss();
+    const inventory = deferred<typeof summary>();
+    const loss = spyOn(a.root.localWorkFlow, "loss").mockReturnValue(inventory.promise);
+    const view = render(security(a.root));
+    try {
+      await reply(a.requests[0], keys("Alpha key"));
+      fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
+      view.rerender(security(b.root));
+      await reply(b.requests[0], keys("Beta key"));
+      await act(async () => { inventory.resolve(summary); await flushPromises(); });
+      expect(a.matching("/auth/logout", "POST"), "a replaced inventory owner never dispatches logout").toHaveLength(0);
+      expect(view.getByText("Beta key")).toBeTruthy();
+    } finally { view.unmount(); loss.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
 
   test("late passkey mutations and sign-out cannot change or reload a replacement root", async () => {
@@ -3577,6 +3596,8 @@ describe("authentication and passkey root ownership", () => {
       fireEvent.click(view.getByTitle("Save"));
       fireEvent.click(view.getByTitle("Remove"));
       fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
+      await act(async () => { await flushPromises(); });
+      expect(a.matching("/auth/logout", "POST")).toHaveLength(1);
       view.rerender(security(b.root));
       await reply(b.requests[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/same", "PUT")[0], { ok: true });

@@ -73,6 +73,8 @@ export interface LocalWork {
   restoring(): Promise<void>;
   /** Pause writes and drop the in-memory account payload after the gate unmounts. */
   lock(): void;
+  /** @internal Stop scheduling writes and wait for every started write before sign-out clearing. */
+  quiesce(): Promise<void>;
   /** Read the saved context only after explicit same-account authentication. */
   resume(): Promise<boolean>;
   dispose(): void;
@@ -574,6 +576,11 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       bound = null; partition = null; written.clear(); committed.clear(); retained.clear(); writtenContext = "";
       restore.setState({ selection: null, focusId: null, scroll: null });
       status.setState({ pending: false });
+    },
+    async quiesce() {
+      this.lock();
+      await chain;
+      await restoreDone;
     },
     async resume() {
       const key = held();

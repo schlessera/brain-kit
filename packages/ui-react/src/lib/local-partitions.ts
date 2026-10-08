@@ -54,12 +54,27 @@ export interface LocalPartitions {
   open(id: PartitionId): PartitionHandle;
   /** Remove everything one partition holds. */
   clear(id: PartitionId): Promise<void>;
+  /** @internal Fence old writers across tabs and return a fixed, authorized clear. */
+  prepareSignOut(id: PartitionId): () => Promise<void>;
+  /** @internal The native closed fence is an atomic receipt for whole-partition clearing. */
+  isSignOutCleared(id: PartitionId): Promise<boolean>;
+  /** @internal Called only after explicit sign-in verified the held account. */
+  allowWritesAfterSignIn(key: string): Promise<void>;
+  /** @internal Other roots stop capture and omit auth-expiry snapshots on intentional sign-out. */
+  subscribeSignOut(fn: (id: PartitionId) => void): () => void;
+  /** @internal An explicit capture or recovery action admits a fresh unassigned writer. */
+  allowUnassignedAction(): Promise<void>;
   /** Each partition's aggregate size: no keys and no content. */
   sizes(prefix?: string): Promise<PartitionSize[]>;
   /** Atomically move named records; both partitions must be accessible. */
   move(from: PartitionId, to: PartitionId, keys: readonly string[]): Promise<void>;
 }
 
+const SIGNOUT_PREFIX = "brain-ui:account-write-fence:";
+const signOutWatchers = new Set<(name: string, id: PartitionId) => void>();
+type WriterFence = { token: string; closed: boolean; predecessors?: string[] };
+type FenceAuthority = { check(): void; fence: WriterFence };
+const memoryFences = new Map<string, WriterFence>();
 const RECORDS = "records";
 const SIZES = "sizes";
 
@@ -112,6 +127,36 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   const factory = options.factory ?? (typeof indexedDB === "undefined" ? null : indexedDB);
   let opened: Promise<IDBDatabase> | null = null;
   let persistAsked = false;
+  const adopted = new Map<string, string>();
+  const fenceKey = (key: PartitionId) => `${SIGNOUT_PREFIX}${encodeURIComponent(options.name)}:${encodeURIComponent(key)}`;
+  function fence(key: PartitionId): WriterFence {
+    const storageKey = fenceKey(key);
+    try {
+      const text = localStorage.getItem(storageKey);
+      if (text) return JSON.parse(text) as WriterFence;
+      return { token: "initial", closed: false };
+    } catch { return memoryFences.get(storageKey) ?? { token: "initial", closed: false }; }
+  }
+  function setFence(key: PartitionId, closed: boolean) {
+    const previous = fence(key);
+    // Pending transitions may supersede a marker before its native write.
+    // Only that marker's ancestors may be replaced; a later native generation
+    // is never authorized by an older, paused administrative operation.
+    const value = { token: crypto.randomUUID(), closed, predecessors: [...new Set([previous.token, ...(previous.predecessors ?? [])])] };
+    // Sign-out must report an unavailable cross-tab fence instead of claiming
+    // complete deletion while another page may still snapshot old work.
+    localStorage.setItem(fenceKey(key), JSON.stringify(value));
+    memoryFences.set(fenceKey(key), value);
+    return value;
+  }
+  const storedFenceKey = (id: PartitionId) => ["sign-out-fences", id];
+  function checkFence(id: PartitionId) {
+    const key = id;
+    const current = fence(key);
+    const token = adopted.get(key) ?? current.token;
+    adopted.set(key, token);
+    if (current.closed || current.token !== token) throw new PartitionRefusedError(id);
+  }
 
   function db(): Promise<IDBDatabase> {
     opened ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -143,19 +188,23 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     const held = options.heldAccountKey();
     return held !== null && id === accountPartition(held);
   }
-  function check(id: PartitionId): void {
+  function check(id: PartitionId, reading = false): void {
     if (!allowed(id)) throw new PartitionRefusedError(id);
+    if (!(reading && id === "unassigned")) checkFence(id);
   }
 
   /** Records are keyed `[partition, key]`, so a partition is one key range. */
   const range = (id: PartitionId, prefix = "") => IDBKeyRange.bound([id, prefix], [id, `${prefix}￿`]);
 
-  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void, signal?: AbortSignal): Promise<void> {
+  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void, signal?: AbortSignal, authority?: FenceAuthority): Promise<void> {
+    if (authority) authority.check(); else check(id);
+    const writerToken = adopted.get(id);
     const d = await db();
     // The key may have gone while the database was opening: checked again before anything is written.
-    check(id);
+    if (authority) authority.check(); else check(id);
     await new Promise<void>((resolve, reject) => {
       const tx = d.transaction(stores, mode);
+      let operationError: unknown = null;
       // `complete`, not a request's success: only then has it committed.
       const cleanup = () => signal?.removeEventListener("abort", abort);
       const abort = () => { try { tx.abort(); } catch { /* already committed */ } };
@@ -163,10 +212,29 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       tx.oncomplete = () => { cleanup(); resolve(); };
       // A request's error bubbles here first; an abort names itself on the request.
       tx.onerror = (event) => { cleanup(); reject(tx.error ?? (event.target as IDBRequest | null)?.error ?? new Error("IndexedDB write failed")); };
-      tx.onabort = () => { cleanup(); reject(tx.error ?? new DOMException("IndexedDB write aborted", "AbortError")); };
+      tx.onabort = () => { cleanup(); reject(operationError ?? tx.error ?? new DOMException("IndexedDB write aborted", "AbortError")); };
       try {
         if (signal?.aborted) { abort(); return; }
-        op(tx);
+        {
+          // Native transactions serialize this check with the clear's fence.
+          // A writer checked before another process closed the localStorage
+          // marker can still enqueue later; it must not resurrect cleared work.
+          const fenceRequest = tx.objectStore(RECORDS).get(storedFenceKey(id));
+          fenceRequest.onsuccess = () => {
+            try {
+              const stored = fenceRequest.result as { token: string; closed: boolean } | undefined;
+              if (authority) {
+                authority.check();
+                const token = stored?.token ?? "initial";
+                if (token !== authority.fence.token && !authority.fence.predecessors?.includes(token)) throw new PartitionRefusedError(id);
+              } else {
+                check(id);
+                if (stored?.closed || (stored?.token ?? "initial") !== writerToken || fence(id).token !== writerToken) throw new PartitionRefusedError(id);
+              }
+              op(tx);
+            } catch (error) { operationError = error; abort(); }
+          };
+        }
       } catch (error) {
         try { tx.abort(); } catch { /* already finished */ }
         cleanup(); reject(error);
@@ -197,56 +265,119 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       put: (key, value) => write([{ put: key, value }]),
       write,
       async get(key) {
-        check(id);
+        check(id, true);
         const d = await db();
         const value = await request(d.transaction(RECORDS, "readonly").objectStore(RECORDS).get([id, key]));
         // Signed out, or another account, while the read was out: nothing comes back.
-        check(id);
+        check(id, true);
         return value;
       },
       async list(prefix) {
-        check(id);
+        check(id, true);
         const d = await db();
         const tx = d.transaction(RECORDS, "readonly");
         const store = tx.objectStore(RECORDS);
         const [keys, values] = await Promise.all([request(store.getAllKeys(range(id, prefix))), request(store.getAll(range(id, prefix)))]);
-        check(id);
+        check(id, true);
         return keys.map((k, i) => ({ key: (k as [string, string])[1], value: values[i] }));
       },
     };
   }
 
+  async function clear(id: PartitionId) {
+    check(id);
+    await transact(id, [RECORDS, SIZES], "readwrite", tx => {
+      tx.objectStore(RECORDS).delete(range(id));
+      tx.objectStore(SIZES).delete(range(id));
+    });
+  }
+  async function admitWriter(id: PartitionId) {
+    if (!allowed(id)) throw new PartitionRefusedError(id);
+    const previous = fence(id);
+    const current = previous.closed ? setFence(id, false) : previous;
+    adopted.set(id, current.token);
+    await transact(id, [RECORDS], "readwrite", tx => tx.objectStore(RECORDS).put(current, storedFenceKey(id)), undefined, { fence: current, check() {
+      if (!allowed(id) || fence(id).token !== current.token) throw new PartitionRefusedError(id);
+    } });
+  }
   return {
+    prepareSignOut(id) {
+      if (!allowed(id)) throw new PartitionRefusedError(id);
+      const key = id;
+      const previous = fence(key);
+      // A failed logout can reload with the cookie still held and this
+      // account already fenced. Repeating its authorized clear is idempotent.
+      if (!previous.closed) checkFence(id);
+      const current = previous.closed ? previous : setFence(key, true);
+      for (const fn of [...signOutWatchers]) fn(options.name, id);
+      const authority = { fence: current, check() { if (fence(key).token !== current.token) throw new PartitionRefusedError(id); } };
+      return () => transact(id, [RECORDS, SIZES], "readwrite", tx => {
+        tx.objectStore(RECORDS).put(current, storedFenceKey(id));
+        tx.objectStore(RECORDS).delete(range(id));
+        tx.objectStore(SIZES).delete(range(id));
+      }, undefined, authority);
+    },
+    async isSignOutCleared(id) {
+      if (!allowed(id)) throw new PartitionRefusedError(id);
+      const d = await db();
+      const value = await request(d.transaction(RECORDS, "readonly").objectStore(RECORDS).get(storedFenceKey(id))) as { closed?: boolean } | undefined;
+      if (!allowed(id)) throw new PartitionRefusedError(id);
+      return value?.closed === true;
+    },
+    async allowWritesAfterSignIn(key) {
+      const id = accountPartition(key);
+      if (options.heldAccountKey() !== key) throw new PartitionRefusedError(id);
+      await admitWriter(id);
+    },
+    allowUnassignedAction: () => admitWriter("unassigned"),
+    subscribeSignOut(fn) {
+      const watch = (name: string, id: PartitionId) => {
+        if (name === options.name && (id === "unassigned" || id === `account:${options.heldAccountKey()}`)) fn(id);
+      };
+      signOutWatchers.add(watch);
+      const storage = (event: StorageEvent) => {
+        const key = options.heldAccountKey();
+        for (const id of ["unassigned", ...(key ? [accountPartition(key)] : [])] as PartitionId[]) {
+          if (event.key === fenceKey(id) && fence(id).closed) watch(options.name, id);
+        }
+      };
+      if (typeof window !== "undefined") window.addEventListener("storage", storage);
+      return () => { signOutWatchers.delete(watch); if (typeof window !== "undefined") window.removeEventListener("storage", storage); };
+    },
     openAccount() {
       const held = options.heldAccountKey();
       if (held === null) throw new PartitionRefusedError("account:");
       return handle(accountPartition(held));
     },
     open: handle,
-    async clear(id) {
-      check(id);
-      await transact(id, [RECORDS, SIZES], "readwrite", (tx) => {
-        tx.objectStore(RECORDS).delete(range(id));
-        tx.objectStore(SIZES).delete(range(id));
-      });
-    },
+    clear,
     async move(from, to, keys) {
+      if (from !== "unassigned" || to === "unassigned") throw new PartitionRefusedError(from);
       check(from); check(to);
+      const destinationToken = adopted.get(to);
       await transact(from, [RECORDS, SIZES], "readwrite", (tx) => {
         check(to);
         const records = tx.objectStore(RECORDS);
         const sizes = tx.objectStore(SIZES);
-        for (const key of keys) {
-          const req = records.get([from, key]);
-          req.onsuccess = () => {
-            try { check(from); check(to); } catch { tx.abort(); return; }
-            if (req.result === undefined) return;
-            records.put(req.result, [to, key]);
-            sizes.put(measure(req.result), [to, key]);
-            records.delete([from, key]);
-            sizes.delete([from, key]);
-          };
-        }
+        const destinationFence = records.get(storedFenceKey(to));
+        destinationFence.onsuccess = () => {
+          try {
+            check(to);
+            const stored = destinationFence.result as { token: string; closed: boolean } | undefined;
+            if (stored?.closed || (stored?.token ?? "initial") !== destinationToken || fence(to).token !== destinationToken) { tx.abort(); return; }
+            for (const key of keys) {
+              const req = records.get([from, key]);
+              req.onsuccess = () => {
+                try { check(from); check(to); } catch { tx.abort(); return; }
+                if (req.result === undefined) return;
+                records.put(req.result, [to, key]);
+                sizes.put(measure(req.result), [to, key]);
+                records.delete([from, key]);
+                sizes.delete([from, key]);
+              };
+            }
+          } catch { tx.abort(); }
+        };
       });
     },
     async sizes(prefix = "") {

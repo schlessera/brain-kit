@@ -88,6 +88,26 @@ The account key is retained only through the ordered stop and snapshot, then
 cleared after unmount. Transport loss keeps the views and capture running.
 Service-worker takeover stays held through this auth transition.
 
+After an explicit successful sign-in, unassigned recordings are offered once
+in “Drafts recorded before you signed in”. Nothing is selected initially.
+“Not now” keeps every recording; the tray’s “Add to my account…” reopens the
+choice. Each selected recording moves independently into the current account,
+without upload. Account recordings cannot move to another partition.
+
+Sign-out warns about the account’s retained recordings, unaccepted transcripts,
+unsent drafts and other local review work. “Keep working” has initial focus.
+The warning includes unsaved work in other account tabs. If the displayed loss
+expands before confirmation, it refreshes and asks for renewed consent; a larger
+unassigned inventory returns its separate deletion option to unticked.
+It clears the signed-in account’s whole device partition before logout;
+other accounts remain locked and untouched. Unassigned recordings are kept
+unless “Also delete” is checked. The next screen reports the retained count
+and any clearing or logout failure, including a boot whose server session remains active.
+Storage failure never prevents attempting sign-out. Confirmed sign-out fences old
+account writers across tabs; those tabs stop capture and do not save a new
+auth-expiry snapshot. The fence and deletion share an IndexedDB transaction.
+Only an explicit successful sign-in admits a new writer generation.
+
 Call `recover(partition)` on a readable partition after launch. If capacity
 prevents a repair write, the store still returns and plays the committed
 prefix, and retries the durable classification on later recovery. It never opens

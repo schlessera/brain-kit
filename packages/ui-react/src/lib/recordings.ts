@@ -13,7 +13,8 @@ const CHUNKS = "recording:chunk:";
 const REMOVED = "recording:removed";
 const LOCK = "brain-ui:recording";
 // Same-page roots invalidate synchronously; other tabs receive the same identity.
-const invalidators = new Set<(id: string) => void>();
+type RecordingChange = string | { partition: PartitionId };
+const invalidators = new Set<(change: RecordingChange) => void>();
 
 export type RecordingState = "recording" | "saved" | "interrupted" | "transcribing" | "transcript-ready" | "failed" | "accepted";
 export interface Recording {
@@ -66,6 +67,8 @@ export interface RecordingStore {
   accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
   /** Only unassigned audio may move, and only into the account held now. */
   assign(id: string): Promise<void>;
+  /** @internal Stop this root and clear only the authorized sign-out partitions. */
+  clearForSignOut(partition: PartitionId, alsoUnassigned: boolean, clearAccount?: () => Promise<void>): Promise<void>;
   busy(): boolean;
   subscribe(listener: () => void): () => void;
   onEvent(listener: (event: RecordingEvent) => void): () => void;
@@ -115,11 +118,15 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   let running: Session | null = null;
   let opening = false;
   let disposed = false;
+  let signingOut = false;
   let openingAbort: AbortController | null = null;
   let openingCapture: LocalCapture | null = null;
-  let beginning: { cancelled: boolean; stop?: LocalCapture["stop"]; done: Promise<void> } | null = null;
+  let beginning: { partition: PartitionId; cancelled: boolean; stop?: LocalCapture["stop"]; done: Promise<void> } | null = null;
   const urls = new Map<string, { partition: PartitionId; id: string }>();
   const pendingPlaybacks = new Set<{ partition: PartitionId; id: string; cancelled: boolean }>();
+  const mutationEpochs = new Map<PartitionId, number>();
+  const mutationEpoch = (partition: PartitionId) => mutationEpochs.get(partition) ?? 0;
+  const checkMutation = (partition: PartitionId, epoch: number) => { checkReadable(partition); if (mutationEpoch(partition) !== epoch) throw new PartitionRefusedError(partition); };
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
   const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev]);
@@ -138,23 +145,30 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const emit = (kind: RecordingEvent["kind"], message: string | null, savedThroughMs = 0) => {
     for (const fn of events) fn({ kind, message, savedThroughMs });
   };
-  const invalidate = (id: string) => {
+  const invalidate = (change: RecordingChange) => {
+    const affected = (recording: { partition: PartitionId; id: string }) => typeof change === "string" ? recording.id === change : recording.partition === change.partition;
+    if (typeof change !== "string") {
+      for (const key of repaired.keys()) if (key.startsWith(`${change.partition}/`)) repaired.delete(key);
+      for (const key of transcripts) if (key.startsWith(`${change.partition}/`)) transcripts.delete(key);
+    }
     scan();
     notify();
-    for (const playback of pendingPlaybacks) if (playback.id === id) playback.cancelled = true;
-    for (const [url, recording] of urls) if (recording.id === id) revoke(url);
+    for (const playback of pendingPlaybacks) if (affected(playback)) playback.cancelled = true;
+    for (const [url, recording] of urls) if (affected(recording)) revoke(url);
   };
   invalidators.add(invalidate);
   const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("brain-ui:recording-changes");
   if (channel) channel.onmessage = (event: MessageEvent<unknown>) => {
     if (typeof event.data === "string") invalidate(event.data);
+    else if (event.data && typeof event.data === "object" && "partition" in event.data && typeof event.data.partition === "string" && (event.data.partition === "unassigned" || event.data.partition.startsWith("account:"))) invalidate(event.data as { partition: PartitionId });
   };
-  const changed = (id: string) => { for (const fn of invalidators) fn(id); if (!disposed) channel?.postMessage(id); };
+  const changed = (change: RecordingChange) => { for (const fn of invalidators) fn(change); if (!disposed) channel?.postMessage(change); };
   const heldPartition = () => {
     const key = options.heldAccountKey();
     return key === null ? "unassigned" as const : accountPartition(key);
   };
   function checkReadable(partition: PartitionId): void {
+    if (signingOut) throw new Error("Signing out");
     if (partition !== "unassigned" && partition !== heldPartition()) throw new PartitionRefusedError(partition);
   }
   async function budget(): Promise<RecordingBudget> {
@@ -195,10 +209,11 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     let session: Session | null = null;
     return {
       async begin({ mimeType, stop }) {
+        if (signingOut) throw new Error("Signing out");
         if (disposed || running || beginning) throw new Error("Recording is already running or the store is closed");
         const partition = preflight?.partition ?? heldPartition();
         let completed!: () => void;
-        const pending = { cancelled: false, stop, done: new Promise<void>((resolve) => { completed = resolve; }) };
+        const pending = { partition, cancelled: false, stop, done: new Promise<void>((resolve) => { completed = resolve; }) };
         beginning = pending;
         notify();
         // Capture is already live. Storage initialization must not delay the
@@ -220,6 +235,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           if (!free.canRecord) { emit("refused", notEnough); throw new Error(notEnough); }
           const row: Index = { id: crypto.randomUUID(), state: "recording", createdAt: Date.now(), mime: mimeType, durationMs: 0, bytes: 0, savedThroughMs: 0, contentHash: "", chunkCount: 0 };
           // The first durable index exists only once capture has really begun.
+          if (partition === "unassigned") await partitions.allowUnassignedAction();
+          checkStart();
           const handle = partitions.open(partition);
           await handle.put(indexKey(row.id), row);
           try { checkStart(); } catch (error) {
@@ -339,8 +356,11 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     if (before !== transcripts.size) notify();
   }
   async function deleteRecording(partition: PartitionId, id: string) {
+    const epoch = mutationEpoch(partition);
     const audio = await chunks(partition, id);
+    checkMutation(partition, epoch);
     await partitions.open(partition).write([{ delete: indexKey(id) }, { delete: `recording:accepted:${id}` }, ...audio.map((c) => ({ delete: chunkKey(id, c.index) }))]);
+    checkMutation(partition, epoch);
     repaired.delete(identity(partition, id));
     transcripts.delete(identity(partition, id));
     changed(id);
@@ -349,7 +369,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     budget,
     sink: () => deferred(),
     async start(env = {}) {
-      if (disposed || opening || running) throw new Error("Recording is already running or the store is closed");
+      if (disposed || signingOut || opening || running) throw new Error("Recording is already running or the store is closed");
       opening = true; notify();
       const controller = new AbortController();
       openingAbort = controller;
@@ -418,10 +438,12 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       return rows;
     },
     async recover(partition) {
+      const epoch = mutationEpoch(partition);
       // Never recover under a live recorder, including a recorder in another tab.
       const release = await acquire();
       let result!: RecordingRecovery;
       try {
+        checkMutation(partition, epoch);
         const handle = partitions.open(partition);
         let removedCount = (await handle.get(REMOVED) as number | undefined) ?? 0;
         const recovered: Recording[] = [];
@@ -431,6 +453,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         for (const entry of await handle.list(INDEX)) {
           const index = entry.value as Index;
           const all = await chunks(partition, index.id);
+          checkMutation(partition, epoch);
           const kept = contiguousChunks(all);
           if (!kept.length && typeof index.transcript === "string") {
             // Browser audio loss cannot erase independently surviving review
@@ -445,6 +468,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             repaired.set(identity(partition, index.id), { source: fingerprint(index), value: null });
           } else {
             const shown = await recoveredIndex(present(partition, index) ?? index, kept, all.length);
+            checkMutation(partition, epoch);
             if (shown !== index) {
               try {
                 await handle.write([{ put: indexKey(index.id), value: shown }, ...all.slice(kept.length).map((c) => ({ delete: chunkKey(index.id, c.index) }))]);
@@ -457,6 +481,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           }
         }
         if (removed.length) {
+          checkMutation(partition, epoch);
           // Count and delete all loss witnesses in one transaction. A failed
           // repair leaves all of them to retry, without persisting a count that
           // already includes a witness still present on the next launch.
@@ -472,13 +497,15 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         await handle.get(REMOVED);
         result = { recordings: recovered, removedCount, removedMessage: removedCount ? `${removedCount} recordings were removed by the browser before they were transcribed.` : null };
       } finally { await release(); }
-      checkReadable(partition);
+      checkMutation(partition, epoch);
       trackTranscripts(partition, result.recordings);
       return result;
     },
     async dismissRemoved(partition) {
+      const epoch = mutationEpoch(partition);
       const release = await acquire();
       try {
+        checkMutation(partition, epoch);
         const handle = partitions.open(partition);
         const changes: PartitionWrite[] = [{ delete: REMOVED }];
         const removed: string[] = [];
@@ -490,7 +517,9 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             removed.push(row.id);
           }
         }
+        checkMutation(partition, epoch);
         await handle.write(changes);
+        checkMutation(partition, epoch);
         for (const id of removed) repaired.delete(identity(partition, id));
       } finally { await release(); }
     },
@@ -513,18 +542,27 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       } finally { pendingPlaybacks.delete(pending); }
     },
     async discard(partition, id) {
+      const epoch = mutationEpoch(partition);
+      checkReadable(partition);
+      if (partition === "unassigned") await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
+        checkMutation(partition, epoch);
         await deleteRecording(partition, id);
       } finally { await release(); }
     },
     async saveTranscript(partition, id, text) {
+      const epoch = mutationEpoch(partition);
+      checkReadable(partition);
+      if (partition === "unassigned") await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
         const row = await get(partition, id);
+        checkMutation(partition, epoch);
         if (!row || row.state === "accepted" || row.state === "recording") throw new Error("Recording is not available for review");
         const { partition: _partition, ...index } = row;
         await partitions.open(partition).put(indexKey(id), { ...index, transcript: text, state: "transcript-ready" });
+        checkMutation(partition, epoch);
         transcripts.add(identity(partition, id));
         changed(id);
       } finally { await release(); }
@@ -556,10 +594,17 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       }
     },
     async assign(id) {
+      if (signingOut) throw new Error("Signing out");
       const to = heldPartition();
+      const authEpoch = options.root.authLock.epoch();
+      const unassignedEpoch = mutationEpoch("unassigned");
+      const authorized = () => { checkMutation("unassigned", unassignedEpoch); if (authEpoch !== options.root.authLock.epoch() || options.root.authLock.state.getState().phase !== "active" || heldPartition() !== to || signingOut) throw new PartitionRefusedError(to); };
       if (to === "unassigned") throw new Error("Sign in before associating a recording");
+      authorized();
+      await partitions.allowUnassignedAction();
       const release = await acquire();
       try {
+        authorized();
         const row = await get("unassigned", id);
         if (!row) throw new Error("Unassigned recording not found");
         const audio = await chunks("unassigned", id);
@@ -569,20 +614,44 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const shown = await recoveredIndex(index, kept, audio.length);
         // Commit the recovered view before moving its durable records. When
         // storage is still full, association fails and leaves the source kept.
+        authorized();
         await partitions.open("unassigned").write([{ put: indexKey(id), value: shown }, ...audio.slice(kept.length).map((c) => ({ delete: chunkKey(id, c.index) }))]);
+        authorized();
         await partitions.move("unassigned", to, [indexKey(id), ...kept.map((c) => chunkKey(id, c.index))]);
+        authorized();
         repaired.delete(identity("unassigned", id));
         changed(id);
       } finally { await release(); }
     },
+    async clearForSignOut(partition, alsoUnassigned, clearAccount) {
+      if (partition === "unassigned" || (!clearAccount && partition !== heldPartition())) throw new PartitionRefusedError(partition);
+      signingOut = true;
+      await store.stop("auth");
+      // Native partition fences serialize deletion with earlier writes and
+      // refuse later writes. A different account's live capture owns the
+      // global microphone lock, but must not delay this account's sign-out.
+      const results = await Promise.allSettled([
+        clearAccount ? clearAccount() : partitions.clear(partition),
+        ...(alsoUnassigned ? [Promise.resolve().then(() => partitions.prepareSignOut("unassigned")())] : []),
+      ]);
+      if (results[0]?.status === "fulfilled") changed({ partition });
+      if (alsoUnassigned && results[1]?.status === "fulfilled") changed({ partition: "unassigned" });
+      if (results.some(r => r.status === "rejected")) throw new Error("Local work could not be completely deleted.");
+      repaired.clear(); transcripts.clear(); notify();
+    },
     busy: () => opening || beginning !== null || running !== null || transcripts.size > 0,
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     onEvent(fn) { events.add(fn); return () => { events.delete(fn); }; },
-    dispose() { disposed = true; unwatchAccount(); unwatchInventory(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
+    dispose() { disposed = true; unwatchSignOut(); unwatchAccount(); unwatchInventory(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
   };
   function scan() {
     for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
   }
+  const unwatchSignOut = partitions.subscribeSignOut(id => {
+    mutationEpochs.set(id, mutationEpoch(id) + 1);
+    invalidate({ partition: id });
+    if (running?.partition === id || beginning?.partition === id || (opening && heldPartition() === id)) void store.stop("auth");
+  });
   const unwatchInventory = options.root.stores.connection.subscribe(scan);
   scan();
   const releaseHold = registerUpdateHold(options.root, store);
