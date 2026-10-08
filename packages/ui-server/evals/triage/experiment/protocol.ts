@@ -17,7 +17,7 @@ export const protocol = Object.freeze({
   accounting: "every physical request/body/raw-response/model/usage/error retained, final terminal usage only; retries/fallback/summary included; missing values null, list estimates not invoices; cache/tier/geography unknown unless observed",
   actualAdditionalIssueCapUsd: 15, actualAdditionalAggregateCapUsd: 150,
   billing: "existing authorization, serialized subscription-first; included availability hold active, reported overage stop; no permission re-request, paid API fallback requires standing authorized route + concrete admission",
-  review: "new labels/splits provisional; donor requires unanimous three strong different-family judgments, unknown provenance needs complementary review; exact models/routes must be settled by coordinator before any calls, not inherited from validate.ts historical roster",
+  review: "new labels/splits provisional; three-family panel selected by848comment6064579891: raw API Sonnet5.5, gpt-6.1-sol, gemini-3.8-flash, high effort, donor batch4 x3 repetitions; complete360 item judgments/90 logical batches before unanimous donor-modal endorsement; complementary semantic review remains separate; no historical roster inheritance or live admission",
   decision: "actual comparable quality AND whole-workflow cost/latency including p50/p95/throughput/cache sensitivity before go/no-go to680; unmeasured is neither adopt nor reject",
   retainedFindings: [1226, 1239, 1275],
 });
