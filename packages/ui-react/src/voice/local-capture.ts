@@ -230,8 +230,9 @@ export interface LocalCaptureSupport {
 
 /**
  * Whether this page can record on the device: MediaRecorder records one of
- * the two containers, IndexedDB accepts a Blob in a probe write (a private
- * mode that blocks storage fails here), and the page is a secure context.
+ * the two containers, IndexedDB supports Blob storage, and the page is secure.
+ * Quota exhaustion is capacity, not missing platform support: the recording
+ * store enforces that budget while retained audio remains readable/discardable.
  * Never touches the microphone.
  */
 export async function detectLocalCaptureSupport(env: LocalCaptureEnvironment & {
@@ -265,9 +266,10 @@ async function probeBlobWrite(idb: IDBFactory): Promise<boolean> {
     try {
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("probe", "readwrite");
-        tx.objectStore("probe").put(new Blob([new Uint8Array([0])], { type: "application/octet-stream" }), "blob");
+        const write = tx.objectStore("probe").put(new Blob([new Uint8Array([0])], { type: "application/octet-stream" }), "blob");
         tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        // A request error bubbles before abort populates transaction.error.
+        tx.onerror = () => reject(tx.error ?? write.error);
         tx.onabort = () => reject(tx.error);
       });
       return true;
@@ -278,7 +280,8 @@ async function probeBlobWrite(idb: IDBFactory): Promise<boolean> {
         removal.onsuccess = removal.onerror = removal.onblocked = () => resolve();
       });
     }
-  } catch {
-    return false;
+  } catch (error) {
+    // A full origin still supports local storage; do not hide retained audio.
+    return error instanceof DOMException && error.name === "QuotaExceededError";
   }
 }

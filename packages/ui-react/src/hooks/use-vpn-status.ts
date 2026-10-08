@@ -1,7 +1,7 @@
 import { defaultRoot } from "../default-root.js";
 import { useBrainUiRoot } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type VpnStatus,
 } from "../stores/connection-store.js";
@@ -51,8 +51,11 @@ export function recheckVpnStatus(): void {
   defaultRoot.recheckVpn?.();
 }
 
-export function useVpnStatus() {
+export function useVpnStatus(localOnly = false) {
   const root = useBrainUiRoot();
+  const local = useRef(localOnly);
+  local.current = localOnly;
+  const [localStatus, setLocalStatus] = useState<VpnStatus>("unreachable");
   const [successfulProbe, setSuccessfulProbe] = useState({ root, count: 0 });
 
   useEffect(() => {
@@ -79,6 +82,11 @@ export function useVpnStatus() {
         // read "connected".
         const socketOpenedDuringCheck =
           root.stores.connection.getState().socketOpens !== opensAtStart;
+        if (!disposed && local.current) {
+          // Reachability only: a local screen never acquires account authority.
+          setLocalStatus(status);
+          return;
+        }
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
           // A locked page is unlocked only by the explicit sign-in completion,
           // never by a background poll (including another tab signing in).
@@ -133,5 +141,5 @@ export function useVpnStatus() {
     };
   }, [root]);
 
-  return successfulProbe.root === root ? successfulProbe.count : 0;
+  return { successfulProbeCount: successfulProbe.root === root ? successfulProbe.count : 0, localStatus };
 }

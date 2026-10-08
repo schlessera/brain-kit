@@ -28,6 +28,7 @@ export "." (./src/index.ts)
   type LocalCaptureEnvironment
   type LocalCaptureMimeType
   type LocalCaptureOptions
+  LocalCaptureScreen
   type LocalCaptureSink
   type LocalCaptureStopReason
   type LocalCaptureSupport
@@ -434,6 +435,11 @@ signatures (every public export and the types it is made of)
         sink: () => LocalCaptureSink;
         timesliceMs?: number;
     }
+  LocalCaptureScreen (packages/ui-react/src/components/connectivity/local-capture-screen.tsx)
+    export function LocalCaptureScreen({ reachable, onContinue }: {
+        reachable: boolean;
+        onContinue: () => void;
+    }): import("react").JSX.Element | null;
   LocalCaptureSink (packages/ui-react/src/voice/local-capture.ts)
     export interface LocalCaptureSink {
         begin?(info: {
@@ -462,8 +468,10 @@ signatures (every public export and the types it is made of)
         reason?: string;
     }
   LocalRecordingSheet (packages/ui-react/src/components/voice/local-recording-sheet.tsx)
-    export function LocalRecordingSheet({ open, onStop, onDiscard }: {
+    export function LocalRecordingSheet({ open, onStop, onDiscard, store, inline = false }: {
         open: boolean;
+        store?: RecordingStore;
+        inline?: boolean;
         onStop: () => Promise<void>;
         onDiscard: () => Promise<void>;
     }): import("react").JSX.Element | null;

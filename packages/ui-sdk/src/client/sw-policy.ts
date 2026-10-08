@@ -276,7 +276,7 @@ export function registerDefaultRoutes<
           const cached = await cache.match("/offline.html");
           return (
             cached ||
-            new Response("Offline - Connect to VPN", {
+            new Response("Brain needs to load once while online before it can work offline on this device.", {
               status: 503,
               headers: { "Content-Type": "text/html" },
             })

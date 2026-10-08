@@ -14,6 +14,32 @@ probe and live WebSocket facts. After three consecutive handshakes fail before
 opening, it distinguishes a refused live connection from an unreachable
 server; close code 4008 is shown specifically as the server connection limit.
 
+## Cold offline capture
+
+With `storagePrefix` and `localCapture: true`, `ConnectionGate` offers a
+minimal local screen on an unreachable cold launch controlled by an installed
+service worker. The host must precache the eager app shell and all capture
+assets, as described in the SDK README. A first-ever uncached offline visit
+cannot boot the app. Unsupported browsers keep the connection gate and its
+local-capture limitation sentence.
+
+This screen lists only unassigned recordings, with Play and Discard. Account
+recordings remain locked and contribute only an aggregate size line. Newly
+captured audio always goes to `unassigned`, even if connectivity returns or
+another tab signs in. Nothing uploads, transcribes, assigns an account or opens
+protected content automatically. The recovered-server banner waits for
+Continue; Continue finishes any running capture before leaving. The re-auth
+screen's Record without signing in action opens the same surface. Returning
+from it still requires same-account reauthentication to restore protected work.
+
+`LocalCaptureScreen` is also exported for shells composing their own gate. It
+requires a provider root with durable local capture and partitions enabled;
+its `reachable` prop controls the recovery banner and `onContinue` handles
+explicit departure. It performs local storage/capture operations only; the
+gate owns the connectivity probe. Recordings in this browser are not encrypted
+against device access. Browser eviction, unavailable storage and cleared site
+data can prevent recovery; durable-storage requests are never guarantees.
+
 ## Dictation
 
 At widths of 900px and above, dictation opens a panel immediately above the

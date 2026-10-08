@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObje
 import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
-import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type Recording } from "../../lib/recordings.js";
+import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type RecordingStore, type Recording } from "../../lib/recordings.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
@@ -113,8 +113,9 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   </>;
 }
 
-function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void }) {
+export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly = false, store }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void; localOnly?: boolean; store?: RecordingStore }) {
   const root = useBrainUiRoot();
+  const recordings = store ?? root.recordings!;
   const [confirm, setConfirm] = useState(false);
   const [text, setText] = useState(row.transcript ?? "");
   const [error, setError] = useState("");
@@ -149,7 +150,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   };
   const play = () => void run(async () => {
     playback.current?.revoke();
-    const audio = await root.recordings!.playback(row.partition, row.id);
+    const audio = await recordings.playback(row.partition, row.id);
     if (!mounted.current) { audio.revoke(); return; }
     playback.current = audio; setUrl(audio.url);
   });
@@ -167,12 +168,12 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
           if (!dirty.current) throw error;
           // Retry the displayed correction after a failed input transaction.
           // Never swallow that failure and accept the older stored text.
-          chain.current = root.recordings!.saveTranscript(row.partition, row.id, text);
+          chain.current = recordings.saveTranscript(row.partition, row.id, text);
           await chain.current;
           if (editVersion.current === version) { dirty.current = false; if (mounted.current) setSaveError(""); }
           if (mounted.current) setSavedVersion(version);
         }
-        await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text);
+        await recordings.accept(row.partition, row.id, draftId, sessionId, text);
       }
       catch (error) { throw new Error(error instanceof Error && (error.message === TRANSCRIPT_CHANGED || error.message === RECORDING_UNAVAILABLE) ? error.message : ACCEPT_FAILED); }
       onAccepted();
@@ -180,14 +181,14 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   };
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
     <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} interrupted={row.interruptedAt !== undefined} offline={offline}>
-      {(row.state === "transcript-ready" || row.state === "accepted") && <>
+      {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && <>
         <label className="mt-2 block text-xs text-muted-foreground">Transcript · from {recordingClock(row)} recording
           <textarea aria-label={`Transcript of ${name}`} value={text} disabled={busy || row.state === "accepted"} className="mt-1 block min-h-24 w-full rounded-lg border border-border bg-background p-2 text-sm text-foreground" onChange={event => {
             const value = event.target.value; setText(value); dirty.current = true;
             const version = ++editVersion.current;
             // Input writes serialize. Acceptance waits for the newest edit;
             // a failed edit prevents acceptance of older stored text.
-            chain.current = chain.current.catch(() => {}).then(() => root.recordings!.saveTranscript(row.partition, row.id, value));
+            chain.current = chain.current.catch(() => {}).then(() => recordings.saveTranscript(row.partition, row.id, value));
             void chain.current.then(() => {
               if (version === editVersion.current) { dirty.current = false; if (mounted.current) setSaveError(""); }
               if (mounted.current) setSavedVersion(version);
@@ -197,7 +198,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
       <div ref={actions} className="mt-2 flex flex-wrap gap-2">
-        {(row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
+        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
         <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={busy || row.chunkCount === 0} onClick={play} />
         <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={busy} onClick={() => setConfirm(true)} />
       </div>
@@ -210,7 +211,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
           <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
-      <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>
+      {!localOnly && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}
       {saveError && <p role="alert" className="mt-2 text-xs text-destructive">{saveError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </RecordingRow>

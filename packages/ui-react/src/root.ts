@@ -80,6 +80,8 @@ export interface BrainUiServices {
   partitions: LocalPartitions | null;
   /** Device-local audio on this root; null when persistence is disabled. */
   recordings: RecordingStore | null;
+  /** @internal Concrete unassigned capture store, owned and disposed by this root. */
+  unassignedRecordings: RecordingStore | null;
   /** @internal The work context kept in the signed-in account's partition (#1014). */
   localWork: LocalWork | null;
   /** @internal Ordered stop, snapshot, lock and same-account restore. */
@@ -205,7 +207,7 @@ export function createRoot(
     })
     : null;
   const services: BrainUiServices = {
-    answerStorage, answerTabs, partitions, recordings: null, localWork: null,
+    answerStorage, answerTabs, partitions, recordings: null, unassignedRecordings: null, localWork: null,
     authLock: undefined as unknown as ReturnType<typeof createAuthLock>,
     localCapture: options.localCapture === true ? null : options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
@@ -222,6 +224,7 @@ export function createRoot(
   if (partitions) {
     services.recordings = createRecordingStore({ partitions, root: services, heldAccountKey: () => stores.connection.getState().accountKey });
     if (options.localCapture === true) services.localCapture = { sink: () => services.recordings!.sink(), durable: true };
+    if (services.localCapture?.durable) services.unassignedRecordings = createRecordingStore({ partitions, root: services, heldAccountKey: () => null });
     services.localWork = createLocalWork({
       stores, partitions,
       scope: `root:${prefix}`,
@@ -255,6 +258,7 @@ export function createRoot(
       connection.dispose();
       services.localWork?.dispose();
       services.recordings?.dispose();
+      services.unassignedRecordings?.dispose();
       // Previews of images still in a draft or a held send: nothing else will release them.
       stores.drafts.getState().release();
       disposeTracks(services);
