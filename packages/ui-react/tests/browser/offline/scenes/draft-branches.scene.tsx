@@ -161,7 +161,12 @@ defineScene({
     return d
       ? {
           text: d.text,
-          attachments: d.attachments.map((a) => ({ data: a.attachment.data })),
+          attachments: d.attachments.map((a) => ({
+            data: a.attachment.data,
+            mediaType: a.attachment.mediaType,
+            name: a.name,
+            bytes: a.bytes,
+          })),
         }
       : null;
   },
