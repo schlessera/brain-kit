@@ -186,3 +186,30 @@ test("a definitive upload rejection restores playback and discard with unchanged
   await tap(discard); await expect.poll(() => button(c.host, "Delete recording")).toBeTruthy();
   const after = await c.root.recordings!.get(row.partition, row.id); expect(after!.bytes).toBe(row.bytes); expect(after!.contentHash).toBe(row.contentHash); expect(c.uploads).toHaveLength(1);
 });
+
+
+for (const stage of ["prepared", "dispatch"] as const) test(`authentication loss after native IndexedDB ${stage} commit recovers without upload`, async ctx => {
+  const c = fixture(ctx), row = await c.seed(); const partitions = c.root.partitions!;
+  const realOpen = partitions.open.bind(partitions); let interrupted = false;
+  vi.spyOn(partitions, "open").mockImplementation(partition => {
+    const handle = realOpen(partition);
+    return { ...handle, async put(key, value) {
+      await handle.put(key, value);
+      const index = value as { state?: string; transcribeRequestId?: string };
+      if (!interrupted && key === `recording:index:${row.id}` && index.state === "transcribing" && index.transcribeRequestId?.startsWith("pending:") === (stage === "prepared")) {
+        interrupted = true; c.root.stores.connection.getState().setVpnStatus("unauthorized");
+      }
+    } };
+  });
+  c.mount(); await expand(c); await confirm(c); await tap(button(c.host, "Upload and transcribe"));
+  await expect.poll(() => interrupted).toBe(true); expect(c.uploads).toHaveLength(0);
+  if (stage === "prepared") {
+    c.root.recordings!.dispose();
+    c.root.recordings = createRecordingStore({ root: c.root, partitions, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
+  }
+  c.root.stores.connection.getState().setVpnStatus("connected", "odysseus");
+  await c.root.recordings!.syncTranscriptions();
+  await expect.poll(async () => (await c.root.recordings!.get(row.partition, row.id))!.state, { message: "native committed cancellation recovers after reauthentication" }).toBe("failed");
+  const after = (await c.root.recordings!.get(row.partition, row.id))!;
+  expect(after.bytes).toBe(row.bytes); expect(after.contentHash).toBe(row.contentHash); expect(c.uploads).toHaveLength(0);
+});
