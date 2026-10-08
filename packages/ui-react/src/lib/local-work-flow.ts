@@ -99,8 +99,8 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
   }
   const releaseHold = registerUpdateHold(root, { busy: () => state.getState().signingOut || state.getState().signingIn, subscribe: fn => state.subscribe(fn) });
   let signingOut: Promise<void> | null = null;
-  const unwatchSignOut = root.partitions?.subscribeSignOut(id => {
-    if (id === "unassigned") return;
+  const unwatchSignOut = root.partitions?.subscribeSignOut((id, _closed, affectsWriter) => {
+    if (id === "unassigned" || !affectsWriter) return;
     if (state.getState().signingOut) return;
     state.setState({ notice: "This account is being signed out in another tab. Check that tab for the deletion result." });
     void root.authLock.expire("signed out", true);

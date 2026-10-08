@@ -96,6 +96,13 @@ Object.assign(window, { __work: {
   },
   coldKey: () => coldReader!.stores.connection.getState().accountKey,
   coldPlayback: async () => { coldUrl = (await coldReader!.recordings!.playback("unassigned", "sirens")).url; },
+  coldStart: async () => { await coldReader!.recordings!.start({ timesliceMs: 60_000 }); },
+  coldActive: () => coldReader!.recordings!.active(),
+  coldStop: () => coldReader!.recordings!.stop("user"),
+  cacheShell: async () => {
+    await navigator.serviceWorker.register("/signout-worker.js");await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) await new Promise<void>(resolve => { navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true }); });
+  },
   coldPlayable: async () => { try { return (await fetch(coldUrl)).ok; } catch { return false; } },
   stageColdPlayback: async () => {
     let started!: () => void; const ready = new Promise<void>(resolve => { started = resolve; });

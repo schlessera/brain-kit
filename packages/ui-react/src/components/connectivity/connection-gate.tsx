@@ -231,6 +231,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           {vpnStatus === "checking" && (
             <p className="text-sm text-muted-foreground">Connecting...</p>
           )}
+          {workFlow.notice && <p role="status" className="max-w-xs text-sm text-foreground">{workFlow.notice}</p>}
 
           {vpnStatus === "forbidden" && (
             <>

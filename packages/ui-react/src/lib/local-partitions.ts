@@ -61,7 +61,7 @@ export interface LocalPartitions {
   /** @internal Called only after explicit sign-in verified the held account. */
   allowWritesAfterSignIn(key: string): Promise<void>;
   /** @internal Other roots stop capture and omit auth-expiry snapshots on intentional sign-out. */
-  subscribeSignOut(fn: (id: PartitionId) => void): () => void;
+  subscribeSignOut(fn: (id: PartitionId, closed: WriterFence, affectsWriter: boolean) => void): () => void;
   /** @internal An explicit capture or recovery action admits a fresh unassigned writer. */
   allowUnassignedAction(): Promise<string>;
   /** @internal Bind an asynchronous operation to its original writer generation. */
@@ -73,8 +73,8 @@ export interface LocalPartitions {
 }
 
 const SIGNOUT_PREFIX = "brain-ui:account-write-fence:";
-const signOutWatchers = new Set<(name: string, id: PartitionId) => void>();
-type WriterFence = { token: string; closed: boolean; predecessors?: string[] };
+const signOutWatchers = new Set<(name: string, id: PartitionId, closed: WriterFence) => void>();
+export type WriterFence = { token: string; closed: boolean; predecessors?: string[] };
 type FenceAuthority = { check(): void; fence: WriterFence };
 const memoryFences = new Map<string, WriterFence>();
 const RECORDS = "records";
@@ -314,7 +314,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       // account already fenced. Repeating its authorized clear is idempotent.
       if (!previous.closed) checkFence(id);
       const current = previous.closed ? previous : setFence(key, true);
-      for (const fn of [...signOutWatchers]) fn(options.name, id);
+      for (const fn of [...signOutWatchers]) fn(options.name, id, current);
       const authority = { fence: current, check() { if (fence(key).token !== current.token) throw new PartitionRefusedError(id); } };
       return () => transact(id, [RECORDS, SIZES], "readwrite", tx => {
         tx.objectStore(RECORDS).put(current, storedFenceKey(id));
@@ -337,8 +337,9 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     allowUnassignedAction: () => admitWriter("unassigned"),
     writerGeneration(id) { if (!allowed(id)) throw new PartitionRefusedError(id); return fence(id).token; },
     subscribeSignOut(fn) {
-      const watch = (name: string, id: PartitionId) => {
-        if (name === options.name && (id === "unassigned" || id === `account:${options.heldAccountKey()}`)) fn(id);
+      const watch = (name: string, id: PartitionId, closed: WriterFence) => {
+        const writer = adopted.get(id) ?? fence(id).token;
+        if (name === options.name && (id === "unassigned" || id === `account:${options.heldAccountKey()}`)) fn(id, closed, writer === closed.token || !!closed.predecessors?.includes(writer));
       };
       signOutWatchers.add(watch);
       const storage = (event: StorageEvent) => {
@@ -347,7 +348,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
           if (event.key !== fenceKey(id)) continue;
           // A queued close event still owns its close generation even when
           // another tab has already reopened the current marker.
-          try { if (event.newValue && (JSON.parse(event.newValue) as WriterFence).closed) watch(options.name, id); } catch { /* malformed marker is not an authorization */ }
+          try { const closed = event.newValue ? JSON.parse(event.newValue) as WriterFence : null; if (closed?.closed) watch(options.name, id, closed); } catch { /* malformed marker is not an authorization */ }
         }
       };
       if (typeof window !== "undefined") window.addEventListener("storage", storage);

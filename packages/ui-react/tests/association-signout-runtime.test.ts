@@ -90,6 +90,7 @@ beforeAll(async () => {
   const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
   if (bundleCode !== 0) throw new Error(`Local work client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
+  await writeFile(resolve(assets, "signout-worker.js"), 'self.addEventListener("install",event=>event.waitUntil(caches.open("odysseus-signout-shell").then(cache=>cache.addAll(["/","/client.js","/kit.css","/app.css"]))));self.addEventListener("activate",event=>event.waitUntil(self.clients.claim()));self.addEventListener("fetch",event=>{if(new URL(event.request.url).pathname.startsWith("/api/"))return;event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));});');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
     await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
@@ -134,6 +135,7 @@ type Work = {
   stageColdTranscript():Promise<void>; coldRecovery():Promise<string>; releaseColdTranscript():Promise<string>;
   stageUnassignedClear():void; clearWaiting():boolean; releaseUnassignedClear():void; coldRefreshes():number;
   flushColdStorage():void;
+  coldStart():Promise<void>; coldActive():{id:string;partition:string}|null; coldStop():Promise<void>; cacheShell():Promise<void>;
 };
 declare global { interface Window { __work: Work } }
 async function work<T>(page: Page, fn: (w: Work) => T): Promise<Awaited<T>> { return await page.evaluate(fn, await page.evaluateHandle(() => window.__work)) as Awaited<T>; }
@@ -567,6 +569,37 @@ runtimeTest("a queued unassigned close invalidates old playback even after recov
     expect(await work(other,w=>w.coldPlayable()),"the frozen peer still holds an older real blob before receiving its queued event").toBe(true);
     await work(other,w=>w.flushColdStorage());
     expect(await work(other,w=>w.coldPlayable()),"the queued close invalidates older playback even after reopening").toBe(false);
+  }finally{await context.close();}
+},30_000);
+
+for (const action of ["capture","transcript","playback"] as const) runtimeTest(`a queued older close preserves a newly admitted ${action}`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");});
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await work(other,w=>w.mountColdReader(true));await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();
+    await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();await work(page,w=>w.failUnassignedClear());const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await page.locator('input[type=password]').waitFor();
+    expect(await work(other,w=>w.coldRecovery()),"an explicit survivor recovery really admits the new generation").toBe("ok");
+    if(action==="capture") await work(other,w=>w.coldStart());else if(action==="transcript") await work(other,w=>w.stageColdTranscript());else { await work(other,w=>w.coldPlayback());expect(await work(other,w=>w.coldPlayable()),"fresh playback really owns a playable blob before the queued close").toBe(true); }
+    await work(other,w=>w.flushColdStorage());await other.waitForTimeout(300);
+    if(action==="capture") {
+      expect(await work(other,w=>w.coldActive()),"an older queued close never stops a newly admitted capture").not.toBeNull();await work(other,w=>w.coldStop());
+    }else if(action==="transcript") expect(await work(other,w=>w.releaseColdTranscript()),"an older queued close never refuses a newly admitted transcript").toBe("ok");
+    else expect(await work(other,w=>w.coldPlayable()),"an older queued close never revokes newly admitted playback").toBe(true);
+  }finally{await context.close();}
+},30_000);
+
+for (const surface of ["cached-offline","forbidden"] as const) for (const failedClear of [false,true]) runtimeTest(`sign-out ${failedClear?"failure":"retention"} notice survives a ${surface} boot`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,w=>w.seed("unassigned","sirens"));
+    if(surface==="cached-offline") await work(page,w=>w.cacheShell());
+    await page.route("**/api/auth/logout",async route=>{
+      const response=await route.fetch();
+      if(surface==="cached-offline") await context.setOffline(true);else await page.route("**/api/vpn-check",r=>r.fulfill({status:403,contentType:"application/json",body:'{"error":"VPN required"}'}));
+      await route.fulfill({response});
+    });
+    await click(page,"Sign out everywhere");await signout(page).waitFor();if(failedClear) await work(page,w=>w.clearFailure());const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;
+    if(surface==="cached-offline") await page.locator("[data-local-capture-screen]").waitFor();else await page.getByRole("heading",{name:"VPN Required"}).waitFor();
+    if(failedClear) expect(await page.locator("body").innerText(),`${surface} boot reports the failed sign-out attempt`).toContain("could not be completely cleared");
+    expect(await page.locator("body").innerText(),`${surface} boot shows the retained unassigned recording count`).toContain("1 recordings not linked to any account are still on this device.");
   }finally{await context.close();}
 },30_000);
 
