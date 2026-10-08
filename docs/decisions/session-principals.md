@@ -339,7 +339,8 @@ only aggregate locked audio size; these are application access rules, not
 cryptographic isolation. Unassigned recordings are device-local and playable
 by anyone using the same browser profile. The actual partition read checks
 recheck access after asynchronous database operations
-(`function allowed`, `packages/ui-react/src/lib/local-partitions.ts:190-200`).
+(`async get(key)`, `packages/ui-react/src/lib/local-partitions.ts:273-280`;
+`async list(prefix)`, `packages/ui-react/src/lib/local-partitions.ts:281-289`).
 
 Transport failure leaves the mounted app and local account context intact;
 auth expiry/revocation follows a different sequence. Capture stops immediately,

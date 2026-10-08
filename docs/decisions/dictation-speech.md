@@ -108,7 +108,8 @@ permission and send no chat message.
 
 Local capture opens the microphone only on an explicit start and sends encoded
 chunks to the durable sink without a network call
-(`startLocalCapture`, `packages/ui-react/src/voice/local-capture.ts:93-115`).
+(`startLocalCapture`, `packages/ui-react/src/voice/local-capture.ts:93-115`;
+`const deliver`, `packages/ui-react/src/voice/local-capture.ts:146-158`).
 Online streaming dictation remains its separate path; a connection transition
 never converts a running take between the two. Provider-ended streaming words
 reach review exactly once through the existing dictation ending path, as

@@ -222,9 +222,12 @@ establish this boundary.
 
 Browser storage can be unavailable, evicted, private-profile-limited or cleared
 by the user. These risks have no measured per-browser loss distribution in V1.
-If an index survives but chunks disappear, recovery can report the removed audio
-or recover an interrupted playable prefix. A surviving transcript can still be
-reviewed. **If both the recording index and its chunks disappear, with no other
+If an index and some chunks survive, recovery can keep an interrupted playable
+prefix. If all chunks are gone but an unaccepted transcript survives in the
+index, review remains available with an audio-unavailable explanation, without
+adding to the removed-recording count. An index with neither audio nor a
+transcript instead produces the removed-recording notice. **If both the
+recording index and its chunks disappear, with no other
 surviving evidence, there is nothing the UI can show or report.** Retention
 policy does not protect against loss of the browser's underlying storage.
 

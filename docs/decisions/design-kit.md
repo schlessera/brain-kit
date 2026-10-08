@@ -6336,7 +6336,8 @@ can do with surviving data; they do not measure when a real browser evicts it:
 | --- | --- |
 | Index + all chunks | Saved audio; an unfinished capture is marked interrupted |
 | Index + some chunks | Interrupted contiguous playable prefix; saved boundary is adjusted |
-| Index but no audio chunks | Persistent removed-recording notice; independently surviving transcript can still be reviewed |
+| Index but no audio chunks or transcript | Persistent removed-recording notice |
+| Index and unaccepted transcript, but no audio chunks | Transcript-ready review with an audio-unavailable explanation; transcript is kept, with no added removed-recording count |
 | Neither index nor chunks (and no other surviving record) | Nothing can be listed or reported; no loss notice can be promised |
 
 Recovery uses the surviving index and ordered chunks
