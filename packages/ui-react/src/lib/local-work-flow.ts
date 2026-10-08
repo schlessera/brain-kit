@@ -61,7 +61,9 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
   const unwatchPresence = [root.stores.connection.subscribe(syncPresence), root.authLock.state.subscribe(syncPresence)];
   syncPresence();
   type PeerWork = { drafts: string[]; tracks: number; review: boolean };
-  const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("brain-ui:local-work-inventory");
+  // Server imports also construct the compatibility root. Bun has a native
+  // BroadcastChannel, but no browser tabs; opening it would hold that process.
+  const channel = typeof window === "undefined" || typeof window.BroadcastChannel === "undefined" ? null : new window.BroadcastChannel("brain-ui:local-work-inventory");
   const inquiries = new Map<string, { account: string; peers: Set<string>; values: Map<string, PeerWork>; finish(): void }>();
   if (channel) channel.onmessage = (event: MessageEvent<unknown>) => {
     const message = event.data as { kind?: string; request?: string; account?: string; peers?: string[]; owner?: string; work?: PeerWork } | null;
