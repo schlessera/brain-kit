@@ -73,7 +73,7 @@ async function tap(el: Element) {
     await commands.rankTap({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   } else await userEvent.click(el);
 }
-function button(host: HTMLElement, name: string) { return [...host.querySelectorAll<HTMLElement>("button,[role=button]")].find(el => (el.getAttribute("aria-label") ?? el.textContent ?? "").includes(name))!; }
+function button(host: HTMLElement, name: string) { return [...host.querySelectorAll<HTMLElement>("button,[role=button]")].find(el => el.getClientRects().length > 0 && (el.getAttribute("aria-label") ?? el.textContent ?? "").includes(name))!; }
 async function expand(c: ReturnType<typeof fixture>) { await expect.poll(() => c.host.querySelector("[data-recordings-tray] button")).toBeTruthy(); await settled(); if (c.host.querySelector("[data-recordings-tray] button")!.getAttribute("aria-expanded") !== "true") await tap(c.host.querySelector("[data-recordings-tray] button")!); await settled(); }
 
 for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]) {
