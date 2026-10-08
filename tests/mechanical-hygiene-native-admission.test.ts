@@ -13,9 +13,9 @@ test("actual native entry refuses the root quota hold before setup or any creden
     // This is deliberately a scoped admission control. It never releases a
     // prompt or creates a provider-capable subprocess, even under mutation.
     writeFileSync(intent,JSON.stringify({issue:842,purpose:"complementary-review",subscriptionWindowOwner:842,quotaRecovered:true,extraUsageDisabled:true,sourceAuditApproved:true,expiresAt:new Date(Date.now()+60000).toISOString(),freezeSha:"stale",proofSha:"proof",planSha:"plan"}),{mode:0o600});
-    expect(()=>assertReviewAdmission("stale","proof","plan")).toThrow("quota-hold prerequisite");
+    expect(()=>assertReviewAdmission("stale","proof","plan",new Date().toISOString().slice(0,10))).toThrow("quota-hold prerequisite");
     let physical=0;
-    await expect(runNativePhase({root:"/missing-setup-must-not-run",source:"/missing-source-must-not-run",destination:join(root,"must-not-exist"),phase:"dry-run",token:"controlled-not-a-credential",offline:false,purpose:"complementary-review",reviewBinding:{freezeSha:"stale",proofSha:"proof",planSha:"plan"},physicalFetch:async()=>{physical++;throw Error("Unexpected physical call");}})).rejects.toThrow("quota-hold prerequisite");
+    await expect(runNativePhase({root:"/missing-setup-must-not-run",source:"/missing-source-must-not-run",destination:join(root,"must-not-exist"),phase:"dry-run",token:"controlled-not-a-credential",offline:false,purpose:"complementary-review",reviewBinding:{writeDayUTC:new Date().toISOString().slice(0,10),freezeSha:"stale",proofSha:"proof",planSha:"plan"},physicalFetch:async()=>{physical++;throw Error("Unexpected physical call");}})).rejects.toThrow("quota-hold prerequisite");
     expect(physical).toBe(0);
   }finally{for(const key of keys)if(old[key]===undefined)delete process.env[key];else process.env[key]=old[key];rmSync(root,{recursive:true,force:true});}
 });

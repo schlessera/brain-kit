@@ -63,3 +63,10 @@ test("actual native deadline aborts an active SDK query and closes its incomplet
   try{const text=await probe("scripts/evals/mechanical-hygiene/offline-deadline.ts",[parent],6000);expect(text).toContain('"unknownCostsPreserved":true');expect(text).toContain('"physical":1');}
   finally{rmSync(parent,{recursive:true,force:true});}
 },10000);
+
+
+test("actual native vetoes the fixture Write after an actual UTC write-day mismatch and drains",async()=>{
+  const parent=mkdtempSync("/tmp/hygiene-native-write-day-");
+  try {const text=await probe("scripts/evals/mechanical-hygiene/offline-write-day.ts",[join(parent,"proof")]);expect(text).toContain('"writeDayRefused":true');expect(text).toContain('"ownedChildDrained":true');}
+  finally {rmSync(parent,{recursive:true,force:true});}
+},30000);

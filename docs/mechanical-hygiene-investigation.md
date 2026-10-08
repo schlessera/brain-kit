@@ -265,3 +265,8 @@ actual-charge allocation and serialized-window intent. The preparation and matri
 scripts do not change production behavior. The full fresh live comparison and
 independent actual-description annotation remain necessary to assess model work
 and end-to-end savings; the keyless controls supply neither result.
+
+
+The CLI reference clock does not change physical filesystem mtimes. Both fixture arms keep real write dates. Each preparation and all packet approvals bind the actual UTC write day; stale dates and midnight rollover stop write admissions and exclude partial completion. A fresh day requires fresh candidate effects, proof and full complementary reviews. Native work is refused near UTC midnight for its full deadline plus owned-drain margin; admission hooks cannot atomically interrupt an internal write already in progress. Every surviving partial effect and its process drain remains evidence.
+
+Consequently a July document repaired on the actual later write day can produce a new `silent-edit` finding. That literal finding and every full log byte remain in the effects and review inputs as a harness consequence. They are excluded from substantive repair-quality improvement. No timestamp normalization or production writer policy is introduced.

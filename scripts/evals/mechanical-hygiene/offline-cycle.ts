@@ -5,6 +5,7 @@ import { workload } from "./workload";
 import { effectCandidates } from "./effect-candidates";
 import { collectActualCycle } from "./native-cycle";
 import { response } from "./offline-native";
+import { actualWriteDayUTC } from "./write-day";
 async function main(){
   if(process.env.BRAIN_HYGIENE_OFFLINE!=="1")throw Error("Explicit offline namespace required");
   const [out,id,sizeRaw]=process.argv.slice(2),size=Number(sizeRaw),fixture=workload.find(f=>f.id===id);
@@ -33,6 +34,13 @@ async function main(){
       if(!row.receipt?.tools.length||!row.receipt.tools.every(tool=>tool.allowed))throw Error("Actual collector did not exercise its contained native tool path");
       if(!JSON.stringify(tools[row.phase]).includes("detected"))throw Error("Actual clock-controlled CLI detection result absent");
     }
+    const changed=Object.keys(fixture.expected).filter(path=>fixture.expected[path]!==fixture.files[path]);
+    const dateEvidence=changed.map(path=>({path,prototypeMtimeUTC:new Date(candidate.after[path].mtimeMs).toISOString().slice(0,10),nativeMtimeUTC:new Date(result.rows[1].after![path].mtimeMs!).toISOString().slice(0,10)}));
+    if(candidate.writeDayUTC!==actualWriteDayUTC()||!dateEvidence.every(row=>row.prototypeMtimeUTC===candidate.writeDayUTC&&row.nativeMtimeUTC===candidate.writeDayUTC))throw Error("Actual prototype/native physical file-write dates differ from their bound preparation");
+    const afterMessages=candidate.actualAfterDetection.candidates.filter((finding:any)=>finding.category==="silent-edit"&&changed.includes(finding.path)).map((finding:any)=>finding.message);
+    if(changed.length&&!afterMessages.length)throw Error("Actual post-write silent-edit harness consequence is missing");
+    if(!afterMessages.every((message:string)=>JSON.stringify(tools.apply).includes(message)))throw Error("Actual native CLI did not retain the same physical-mtime harness consequence");
+    writeFileSync(join(out,"clock-comparison.json"),JSON.stringify({writeDayUTC:candidate.writeDayUTC,referenceInstant:"2026-07-12T12:00:00Z",dateEvidence,prototypeActualAfterMessages:afterMessages,nativeToolResults:tools.apply,wallMtimeFindingsAreHarnessEffects:true,excludedFromRepairQualityGains:true}),{mode:0o600});
     complete=true;console.log(JSON.stringify({passed:true,actualNative:true,semanticApproval:false,cli:result.rows[0].receipt!.runtimePair.cli,sdk:result.rows[0].receipt!.runtimePair.sdk,documents:size,case:id,workerTimezone:fixture.timezone,phases:result.rows.length,physical:result.rows.reduce((sum,row)=>sum+row.receipt!.native.calls.length,0),externalRequests:0}));
   }finally{
     mkdirSync(out,{recursive:true,mode:0o700});writeFileSync(join(out,"control-summary.json"),JSON.stringify({complete,semanticApproval:false,documents:size,case:id,workerTimezone:fixture.timezone}),{mode:0o600});

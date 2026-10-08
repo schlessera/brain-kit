@@ -52,3 +52,21 @@ test("review chunking is lossless over Unicode CRLF and every indexed part",()=>
   expect(parts.every((part,index)=>part.part===index+1&&part.parts===parts.length&&part.sha===parts[0].sha)).toBe(true);
   expect(verifiedPairs).toEqual({"0.3.292":"2.1.292","0.3.293":"2.1.293"});
 });
+
+
+test("actual prototype collector retains the changed full tree when apply effects fail",async()=>utc(async()=>{
+  const {effectCandidates}=await import("../scripts/evals/mechanical-hygiene/effect-candidates");
+  const {collectPrototypeCycle}=await import("../scripts/evals/mechanical-hygiene/native-cycle");
+  const {mkdtempSync,rmSync,readFileSync}=await import("node:fs");
+  const destination=mkdtempSync("/tmp/hygiene-prototype-partial-");
+  try {
+    const candidate=(await effectCandidates("ogygia-mtime-day",20)).rows[0];
+    const fixture=workload.find(f=>f.id==="ogygia-mtime-day")!,path=Object.keys(fixture.files)[0];
+    candidate.expectedFiles[path].bytesBase64=Buffer.from(fixture.files[path]).toString("base64");
+    await expect(collectPrototypeCycle(fixture.id,20,candidate,destination)).rejects.toThrow("Matched prototype phase effects rejected");
+    const partial=JSON.parse(readFileSync(join(destination,"phases.json"),"utf8"));
+    expect(partial.complete).toBe(false);expect(String(partial.failure)).toContain("phase effects rejected");
+    expect(partial.rows).toHaveLength(2);expect(partial.rows[1].after[path].bytesBase64).toBe(Buffer.from(fixture.expected[path]).toString("base64"));
+    expect(partial.rows[1].effects.accepted).toBe(false);
+  } finally {rmSync(destination,{recursive:true,force:true});}
+}));

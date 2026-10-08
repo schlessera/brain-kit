@@ -2,11 +2,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { workload } from "./workload";
+import { actualWriteDayUTC, assertWriteDayUTC } from "./write-day";
 import { sourceFreeze, source } from "./freeze";
 import { buildReviewPackets } from "./review-packets";
 async function main(){
   const [destination,proofPath]=process.argv.slice(2);
   if(!destination||existsSync(destination)||!proofPath)throw Error("Require fresh protected destination and exact stable keyless proof");
+  const writeDayUTC=actualWriteDayUTC();
   const freeze=sourceFreeze(),proofRaw=readFileSync(proofPath,"utf8");
   if(JSON.parse(proofRaw).freezeSha!==freeze.freezeSha)throw Error("Proof belongs to different source");
   mkdirSync(destination,{mode:0o700});mkdirSync(join(destination,"home"),{mode:0o700});
@@ -24,6 +26,8 @@ async function main(){
   }
   const settled=await Promise.allSettled([worker(),worker(),worker()]);
   if(settled.some(result=>result.status==="rejected"))throw Error("Full effect workers failed; inspect preserved private receipts");
+  assertWriteDayUTC(writeDayUTC);
+  if(rows.some(row=>row.writeDayUTC!==writeDayUTC))throw Error("Preparation workers crossed the actual UTC write date");
   if(sourceFreeze().freezeSha!==freeze.freezeSha)throw Error("Source changed while preparing complete inputs");
   writeFileSync(join(destination,"effects.json"),JSON.stringify(rows),{mode:0o600});
   const built=buildReviewPackets(rows,proofRaw);mkdirSync(join(destination,"packets"),{mode:0o700});

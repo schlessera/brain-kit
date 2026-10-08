@@ -6,16 +6,18 @@ import { observeTree } from "./observer";
 import { assessEffects, unchangedApproval, type EffectApproval } from "./effects";
 import { workload } from "./workload";
 import { hash, protocolSha } from "./protocol";
+import { actualWriteDayUTC, assertWriteDayUTC } from "./write-day";
 
 export async function effectCandidates(caseId?: string, initialDocuments = 20) {
   if (![20,1000].includes(initialDocuments)) throw Error("Require the actual frozen20/1000 document size");
+  const writeDayUTC = actualWriteDayUTC();
   const rows = [];
   const selected = caseId ? workload.filter(f => f.id === caseId) : workload;
   if (!selected.length) throw Error("Unknown authored workload case");
   const workerTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (caseId && selected[0].timezone !== workerTimezone) throw Error("Worker timezone differs from the authored case");
   for (const fixture of selected) {
-    const env = prepare(fixture, initialDocuments - Object.keys(fixture.files).length);
+    const env = prepare(fixture, initialDocuments - Object.keys(fixture.files).length, writeDayUTC);
     try {
       const before = observeTree(env.root);
       await cycle(env, true);
@@ -44,7 +46,8 @@ export async function effectCandidates(caseId?: string, initialDocuments = 20) {
       const repeat = observeTree(env.root);
       const repeatAssessment = assessEffects(after, repeat, unchangedApproval(after));
       if (!repeatAssessment.accepted) throw Error(`Repeat changed ${fixture.id}`);
-      rows.push({ fixture: fixture.id, split: fixture.split, initialDocuments,
+      assertWriteDayUTC(writeDayUTC);
+      rows.push({ writeDayUTC, physicalWriteDayUTC: actualWriteDayUTC(), wallMtimeFindingsAreHarnessEffects: true, fixture: fixture.id, split: fixture.split, initialDocuments,
         workerTimezone, expectedWorkerTimezone: fixture.timezone,
         timezoneRuntimeVerified: workerTimezone === fixture.timezone,
         authoredDocuments: fixture.files, expectedDocuments: fixture.expected,
@@ -53,7 +56,8 @@ export async function effectCandidates(caseId?: string, initialDocuments = 20) {
         before, dry, after, repeat, independentApproval: false });
     } finally { env.close(); }
   }
-  return { protocolSha, workloadSha: hash(JSON.stringify(workload)),
+  assertWriteDayUTC(writeDayUTC);
+  return { writeDayUTC, protocolSha, workloadSha: hash(JSON.stringify(workload)),
     status: "author-provisional complete effects; complementary review required", rows };
 }
 

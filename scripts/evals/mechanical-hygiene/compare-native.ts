@@ -30,7 +30,7 @@ async function main(){
     const candidate=effects.find((row:any)=>row.fixture===caseId&&row.initialDocuments===size);
     if(!candidate)throw Error("Missing complete matched effects");
     if(arm==="mechanical-prototype"){
-      mkdirSync(destination,{mode:0o700});const result=await collectPrototypeCycle(caseId,size,candidate);
+      mkdirSync(destination,{mode:0o700});const result=await collectPrototypeCycle(caseId,size,candidate,destination);
       writeFileSync(join(destination,"phases.json"),JSON.stringify({...item,...result,protocolSha,scheduleSha,admission,executionKind:"keyless-mechanical-prototype",semanticApproval:false},null,2),{mode:0o600});
     }else{
       // Source/semantic/root-budget gates pass before reading existing login.
