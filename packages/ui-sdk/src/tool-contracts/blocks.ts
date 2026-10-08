@@ -86,11 +86,11 @@ const iconDoc =
 /**
  * Two ways to write the same accepted input in fewer characters, D47's two
  * reductions. Neither changes what a variant accepts: an id is metadata, not
- * a check, and a description is never one. What they change is what the
- * model reads on every turn, so neither ships until #336's A/B says the API
- * and the model accept it. Until then `SHOW_BLOCK_INPUT_SCHEMA` is the
- * shipped form, and the other forms exist so that the A/B measures exactly
- * what would ship.
+ * a check, and a description is never one. #336 measured the Claude forms;
+ * #563 verified the shared forms through Pi's openai-codex provider. The
+ * shared and trimmed form now ships as `SHOW_BLOCK_INPUT_SCHEMA`. Historical
+ * measurement arms retain explicit options so a changed default cannot
+ * relabel their original flat baseline.
  */
 export interface ShowBlockSchemaForm {
   /**
@@ -108,8 +108,8 @@ export interface ShowBlockSchemaForm {
 
 /** The form that ships. */
 export const SHIPPED_SHOW_BLOCK_SCHEMA_FORM: ShowBlockSchemaForm = {
-  sharedDefinitions: false,
-  restatedProse: true,
+  sharedDefinitions: true,
+  restatedProse: false,
 };
 
 /** What varies between forms; everything else is the same code in all of them. */

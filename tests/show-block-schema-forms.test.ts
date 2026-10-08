@@ -5,8 +5,8 @@
  * measures exactly what would ship. That is only worth something if three
  * things hold, and each is asserted here rather than argued:
  *
- * - **What ships has not moved.** The shipped form lists with no
- *   `definitions`, and the `flat` arm lists what the production factory lists.
+ * - **What ships matches the measured choice.** The shipped form lists shared
+ *   definitions, and the trimmed arm lists what the production factory lists.
  * - **Every form accepts exactly what the shipped form accepts.** The kit's
  *   own fixtures, one per kind, and a set of payloads each form must refuse,
  *   parse identically through all of them: the same verdict, the same output,
@@ -32,6 +32,7 @@ import { dereference, descriptions, type Json, type JsonObject } from "../script
 import {
   liveCredential,
   listedShowBlock,
+  listedTool,
   OAUTH_BETA,
   SCHEMA_ARM_NAMES,
   SCHEMA_ARMS,
@@ -73,16 +74,17 @@ const count = (text: string, needle: string) => text.split(needle).length - 1;
 describe("the shipped form", () => {
   test("is SHOW_BLOCK_INPUT_SCHEMA itself, not a rebuilt copy", () => {
     expect(showBlockInputSchema(SHIPPED_SHOW_BLOCK_SCHEMA_FORM)).toBe(SHOW_BLOCK_INPUT_SCHEMA);
-    expect(SCHEMA_ARMS.flat).toBe(SHIPPED_SHOW_BLOCK_SCHEMA_FORM);
+    expect(SHIPPED_SHOW_BLOCK_SCHEMA_FORM).toEqual(SCHEMA_ARMS["shared-trimmed"]);
+    expect(SCHEMA_ARMS.flat).toEqual({sharedDefinitions:false,restatedProse:true});
   });
 
-  test("lists with no definitions, and the flat arm lists what production lists", async () => {
-    // `listedShowBlock("flat")` throws if the arm differs from the production
+  test("lists shared definitions, and the trimmed arm lists what production lists", async () => {
+    // The selected shipped arm throws if it differs from the production
     // factory's listing, so resolving is the second half of this test.
-    const flat = JSON.stringify((await listedShowBlock("flat")).inputSchema);
-    expect(flat).toContain('"oneOf"');
-    expect(flat).not.toContain("definitions");
-    expect(flat).not.toContain("$ref");
+    const shipped = JSON.stringify((await listedShowBlock("shared-trimmed")).inputSchema);
+    expect(shipped).toContain('"oneOf"');
+    expect(shipped).toContain("definitions");
+    expect(shipped).toContain("$ref");
   });
 });
 
@@ -107,10 +109,10 @@ describe("every form accepts exactly what the shipped form accepts", () => {
     }
   });
 
-  for (const arm of SCHEMA_ARM_NAMES.filter((name) => name !== "flat")) {
+  for (const arm of SCHEMA_ARM_NAMES) {
     test(`${arm} parses every fixture and every refused payload as the shipped form does`, () => {
       const form = showBlockInputSchema(SCHEMA_ARMS[arm]);
-      expect(form).not.toBe(SHOW_BLOCK_INPUT_SCHEMA);
+      expect(form === SHOW_BLOCK_INPUT_SCHEMA).toBe(arm === "shared-trimmed");
       for (const block of FIXTURES) {
         const result = verdict(form, block);
         expect(result.ok).toBe(true);
@@ -188,5 +190,24 @@ describe("the live credential", () => {
 
   test("with neither, there is no live run", () => {
     expect(liveCredential({})).toBeNull();
+  });
+});
+
+
+describe("shipped schema reference representation",()=>{
+  test("actual Claude factory MCP listing defines icon, tone and valueTone once",async()=>{
+    const {createShowBlockTool}=await import("../packages/ui-backend-claude/src/show-block-tool.ts");
+    const schema=(await listedTool(createShowBlockTool())).inputSchema as JsonObject;
+    expect((schema.properties as JsonObject).block).toBeDefined();
+    expect(Object.keys((schema.definitions??{}) as JsonObject).sort(),"production Claude definitions must include all three registry ids").toEqual(["icon","tone","valueTone"]);
+    expect(count(JSON.stringify(schema),'"$ref":"#/definitions/')).toBe(16);
+  });
+  test("actual Pi bridge factory parameters define icon, tone and valueTone once",async()=>{
+    const {createPiBridgeTools}=await import("../packages/ui-backend-pi/src/bridge-tools.ts");
+    const tool=createPiBridgeTools({brainPath:"/tmp/odysseus-fixture",turn:{bridge:{}} as never}).find(tool=>tool.name==="show_block")!;
+    expect(tool).toBeDefined();const schema=tool.parameters as unknown as JsonObject;
+    expect((schema.properties as JsonObject).block).toBeDefined();
+    expect(Object.keys((schema.$defs??{}) as JsonObject).sort(),"production Pi definitions must include all three registry ids").toEqual(["icon","tone","valueTone"]);
+    expect(count(JSON.stringify(schema),'"$ref":"#/$defs/')).toBe(16);
   });
 });

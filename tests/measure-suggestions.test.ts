@@ -5,6 +5,7 @@ import { keptSuggestions, endsWithQuestion } from "../packages/ui-react/src/lib/
 import type { ChatMessage } from "../packages/ui-react/src/stores/chat-state.ts";
 import { SUGGESTION_PROMPTS, observeSuggestions, suggestionDescription, suggestionReport, suggestionSummary, suggestionSchemaCost, answerEndsInQuestion, type SuggestionTurn } from "../scripts/measure-suggestions.ts";
 import type { JsonObject } from "../scripts/attribute-show-block-schema.ts";
+import { listedShowBlock } from "../scripts/show-block-schema-forms.ts";
 
 const input = (...labels: string[]) => ({ block: { kind: "suggestions", items: labels.map((label) => ({ label })) } });
 
@@ -137,6 +138,12 @@ describe("the arms that the two backends actually load", () => {
     expect(rule.piResult.details.block.kind).toBe("suggestions");
     const cost = suggestionSchemaCost(rule.claude.inputSchema as JsonObject);
     expect(cost.descriptionChars).toBe(336);
+    expect(cost.flatChars).toBe(648);
+    expect(cost.sharedChars).toBe(648);
+  });
+  test("retains the explicit historical flat schema's suggestions cost", async () => {
+    const { inputSchema } = await listedShowBlock("flat");
+    const cost = suggestionSchemaCost(inputSchema as JsonObject);
     expect(cost.flatChars).toBe(866);
     expect(cost.sharedChars).toBe(709);
   });
