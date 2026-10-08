@@ -4,7 +4,7 @@ import { lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from
 import { join, relative, resolve, sep } from "node:path";
 
 type Physical = { kind: "file" | "directory" | "symlink"; mode: number; device: string; inode: string;
-  mtimeNs: string; size: string; sha256?: string; literalTarget?: string };
+  mtimeNs: string; size: string; links: string; sha256?: string; literalTarget?: string };
 export type ClosureEntry = Physical & { resolvedPath?: string; resolvedIdentity?: Physical; targetClosureSHA256?: string };
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 
@@ -18,7 +18,7 @@ export function ownedClosure(directory: string): Record<string, ClosureEntry> {
     const kind = stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory" : stat.isFile() ? "file" : null;
     if (!kind) throw new Error(`unsupported owned-tree entry: ${path}`);
     const item: Physical = { kind, mode: Number(stat.mode), device: stat.dev.toString(), inode: stat.ino.toString(),
-      mtimeNs: stat.mtimeNs.toString(), size: stat.size.toString() };
+      mtimeNs: stat.mtimeNs.toString(), size: stat.size.toString(), links: stat.nlink.toString() };
     physical[path] = item;
     if (kind === "file") item.sha256 = sha(readFileSync(full));
     if (kind === "symlink") {
@@ -32,6 +32,14 @@ export function ownedClosure(directory: string): Record<string, ClosureEntry> {
     if (kind === "directory") for (const name of readdirSync(full).sort()) walk(path === "." ? name : `${path}/${name}`);
   }
   walk(".");
+  const ownedInodes = new Map<string,number>();
+  for (const entry of Object.values(physical).filter(entry => entry.kind === "file")) {
+    const key = `${entry.device}:${entry.inode}`; ownedInodes.set(key,(ownedInodes.get(key) ?? 0) + 1);
+  }
+  for (const [path,entry] of Object.entries(physical).filter(([,entry]) => entry.kind === "file")) {
+    if (BigInt(entry.links) !== BigInt(ownedInodes.get(`${entry.device}:${entry.inode}`)!))
+      throw new Error(`regular file shares inode outside owned tree: ${path}`);
+  }
   const result: Record<string, ClosureEntry> = Object.fromEntries(Object.entries(physical).map(([path,entry]) => [path,{ ...entry }]));
   for (const [path,target] of resolvedLinks) {
     const identity = physical[target];

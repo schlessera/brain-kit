@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ownedClosure, closureDigest } from "../scripts/evals/opportunity-lifecycle/closure";
@@ -46,5 +46,18 @@ test("closure rejects an actual link outside owned roots before reading external
     const outside = join(root,"../outside.txt"); writeFileSync(outside,"external sentinel");
     try { expect(() => ownedClosure(root)).toThrow("link leaves owned tree"); }
     finally { rmSync(outside); }
+  } finally { rmSync(parent,{ recursive: true, force: true }); }
+});
+
+test("closure refuses an actual shared outside inode and admits links wholly inside owned tree", () => {
+  const parent = mkdtempSync(join(tmpdir(),"lifecycle-hardlink-")), root = join(parent,"brain"); mkdirSync(root);
+  try {
+    writeFileSync(join(root,"owned.txt"),"public fixture bytes");
+    linkSync(join(root,"owned.txt"),join(parent,"outside.txt"));
+    expect(() => ownedClosure(root)).toThrow("regular file shares inode outside owned tree");
+    unlinkSync(join(parent,"outside.txt")); linkSync(join(root,"owned.txt"),join(root,"alias.txt"));
+    const admitted = ownedClosure(root);
+    expect(admitted["owned.txt"]!.links).toBe("2");
+    expect(admitted["owned.txt"]!.inode).toBe(admitted["alias.txt"]!.inode);
   } finally { rmSync(parent,{ recursive: true, force: true }); }
 });

@@ -19,6 +19,13 @@ test("fresh authored reference files are complete inputs and distinct semantic t
     expect(files["notes/unrelated.md"]).toBe(fixture.files["notes/unrelated.md"]);
     expect(files["notes/quoted.md"]).toBe(fixture.files["notes/quoted.md"]);
     expect(files["attachments/manifest.txt"]).toBe(fixture.files["attachments/manifest.txt"]);
+    if (!checkpoint.clarify) for (const [path,raw] of Object.entries(fixture.files).filter(([path]) => path.endsWith(".md"))) {
+      expect(files[path]!.match(/^title: (.+)$/m)?.[1]).toBe(raw.match(/^title: (.+)$/m)?.[1]);
+      if ((checkpoint.stage === "closed" || checkpoint.stage === "offer") && path.startsWith(`${fixture.directory}/${fixture.target}/`)) {
+        const previous = raw.match(/^deadline: (.+)$/m)?.[1];
+        if (previous) expect(files[path]).toContain(previous);
+      }
+    }
   }
 });
 

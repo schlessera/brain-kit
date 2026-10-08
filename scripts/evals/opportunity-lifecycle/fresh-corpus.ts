@@ -102,27 +102,39 @@ for (const [id, changes, clarify] of negativeSpecs) {
 }
 
 /** Complete independent reference-document map for reviewers; format is illustrative, not forced on current skill. */
+function referenceEdit(original: string, updates: Record<string,string | null>, addition = "") {
+  const end = original.indexOf("\n---\n");
+  if (end < 0) throw new Error("complete reference frontmatter required");
+  let header = original.slice(0,end + 1);
+  for (const [name,value] of Object.entries(updates)) {
+    const field = new RegExp(`^${name}:.*\\n`,"m"), replacement = value === null ? "" : `${name}: ${value}\n`;
+    header = field.test(header) ? header.replace(field,replacement) : header + replacement;
+  }
+  return header + "---\n" + original.slice(end + 5) + addition;
+}
+
 export function referenceFiles(fixture: FreshCase, checkpoint: Checkpoint): Record<string, string> {
   if (checkpoint.clarify) return { ...fixture.files };
   const files = { ...fixture.files }, prefix = `${fixture.directory}/${fixture.target}`;
   const originalStatus = fixture.files[`${prefix}/status.md`]!;
-  const originalBody = originalStatus.slice(originalStatus.indexOf("\n---\n") + 5);
   const confirmed = fixture.checkpoints.filter(row => checkpoint.history.includes(String(row.input.id))).map(row => row.input);
   const nextStep = checkpoint.calls[0] ?? (checkpoint.stage === "offer" ? checkpoint.input.nextStep : null);
-  files[`${prefix}/status.md`] = doc("opportunity", `${fixture.target} stewardship`, `stage: ${checkpoint.stage}\n${nextStep ? `next_step: ${JSON.stringify(nextStep)}\n` : ""}${checkpoint.deadline ? `deadline: ${checkpoint.deadline}\n` : ""}${checkpoint.stage === "closed" ? `closed_reason: ${JSON.stringify(checkpoint.input.reason)}\n` : ""}`, originalBody +
+  const oldDeadline = originalStatus.match(/^deadline: (.+)$/m)?.[1], oldStep = originalStatus.match(/^next_step: (.+)$/m)?.[1];
+  const retired = oldDeadline && (checkpoint.stage === "offer" || checkpoint.stage === "closed") ? `\nPrevious next step: ${oldStep ?? "unknown"}; deadline ${oldDeadline} retired as history.\n` : "";
+  files[`${prefix}/status.md`] = referenceEdit(originalStatus,{ stage: checkpoint.stage, next_step: nextStep ? JSON.stringify(nextStep) : null,
+    deadline: checkpoint.deadline, ...(checkpoint.stage === "closed" ? { relevance: "historical", closed_reason: JSON.stringify(checkpoint.input.reason) } : {}) }, retired +
     `\n## Confirmed lifecycle\n\n${confirmed.map(event => `- Confirmed fact: ${JSON.stringify(event)}`).join("\n")}\n\n## Confirmed contacts\n\n${checkpoint.contacts.map(name => `- ${name}; contact details unknown, ask before outreach.`).join("\n")}\n`);
-  if (checkpoint.stage === "closed") files[`${prefix}/status.md`] = files[`${prefix}/status.md`]!.replace("relevance: primary\n", "relevance: historical\n");
   if (checkpoint.calls.length || files[`${prefix}/interview-prep.md`]) {
     const oldPrep = fixture.files[`${prefix}/interview-prep.md`];
-    const kept = oldPrep ? oldPrep.slice(oldPrep.indexOf("\n---\n") + 5) : "";
-    files[`${prefix}/interview-prep.md`] = doc("opportunity", "Interview preparation", checkpoint.calls.length && checkpoint.deadline ? `deadline: ${checkpoint.deadline}\n` : "", kept +
+    files[`${prefix}/interview-prep.md`] = referenceEdit(oldPrep ?? doc("opportunity", "Interview preparation"),{ deadline: checkpoint.calls.length ? checkpoint.deadline : null },
       `\n## Upcoming calls\n\n${checkpoint.calls.length ? checkpoint.calls.map(call => `- ${call}`).join("\n") : "No scheduled calls."}\n\n## Related\n\n[[${prefix}/status]]\n[[${prefix}/research]]\n`);
   }
-  files[fixture.focusPath] = doc("context", "Current focus", "", `## Priorities\n\n${checkpoint.focus ? `- [[${prefix}/status]] — ${checkpoint.calls[0] ?? checkpoint.focus}\n` : ""}- Preserve the unrelated weaving priority.\n`);
+  files[fixture.focusPath] = fixture.files[fixture.focusPath]!.replace(`- [[${prefix}/status]] — Waiting to hear back.`,
+    checkpoint.focus ? `- [[${prefix}/status]] — ${checkpoint.calls[0] ?? checkpoint.focus}` : "");
   if (checkpoint.stage === "closed" || checkpoint.stage === "offer") {
     for (const path of Object.keys(files).filter(path => path.startsWith(prefix + "/") && path !== `${prefix}/status.md`)) {
       const raw = files[path]!;
-      const prior = raw.match(/^deadline: (.+)$/m)?.[1];
+      const prior = fixture.files[path]?.match(/^deadline: (.+)$/m)?.[1] ?? raw.match(/^deadline: (.+)$/m)?.[1];
       files[path] = raw.replace(/^deadline: (.+)\n/m, "") + (prior ? `\nPrevious deadline ${prior} retained as history; no outstanding call.\n` : "");
     }
   }

@@ -7,6 +7,7 @@ import { createConfiguredLab } from "./prototype";
 import { doc } from "./fixtures";
 import { NativeEvidence } from "./native-evidence";
 import { observe } from "./observation";
+import { ownedClosure } from "./closure";
 
 const MODEL = "claude-sonnet-5-5";
 const sdkEntry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../../packages/ui-backend-claude/src"));
@@ -49,6 +50,8 @@ export async function offlineNative() {
       readlinkSync("/proc/self/ns/net") === process.env.BRAIN_LIFECYCLE_PARENT_NET) {
     throw new Error("offline native control requires the owned launcher and a distinct network namespace");
   }
+  // Admission precedes fixture/model dispatch; a readonly mount alone does not break outside hardlinks.
+  ownedClosure(join(import.meta.dir,"../../.."));
   const lab = await createConfiguredLab({ "brain.config.json": config,
     "career/opportunities/ithaca/status.md": original,
     "career/opportunities/ithaca/research.md": doc("opportunity", "Research", "", "Odysseus retains his research.\n"),

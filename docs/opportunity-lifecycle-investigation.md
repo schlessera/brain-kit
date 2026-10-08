@@ -301,3 +301,21 @@ owned installed dependencies participate; only root Git administration is exclud
 Real chmod and same-byte link retargeting change the digest, and omitting mode or
 resolved-path binding fails the intended assertions. Copies need their own literal
 identity freeze; a matching filename or literal symlink text is insufficient.
+
+A later inode audit found installed dependency files still shared with external
+package caches. Only this worktree's physical dependency entries were replaced
+with independent byte copies, preserving modes and relative symlinks. All 59,489
+regular dependency file hashes match the earlier runtime snapshot. The closure
+now compares kernel link counts with every owned device/inode occurrence and
+refuses files shared outside the tree before native fixture dispatch; links
+entirely inside the owned tree are permitted. A real outside-hardlink fixture
+and restored guard-removal mutation exercise this admission boundary.
+
+The full reference renderer was also corrected to preserve legacy status and
+existing preparation titles/frontmatter and retired header dates as history.
+These proposed reference bytes changed, and receive a new semantic input hash;
+they are not a transport-only amendment. Actual candidate controls now compare
+complete unowned frontmatter and check retired original dates in source history.
+Mutating an actual title write or dropping prior-step history fails those
+specific assertions. Complementary review remains pending for the corrected
+full-file expectations.

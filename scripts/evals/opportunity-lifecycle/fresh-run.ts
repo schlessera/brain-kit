@@ -63,10 +63,19 @@ export function assertCandidate(lab: Lab, fixture: FreshCase, expected: Checkpoi
   check(!expected.calls.length || targetRows[0]?.includes(expected.calls[0]!), "current-focus concrete date/time/zone missing");
   for (const [path, original] of Object.entries(fixture.files)) {
     if (!permitted.has(path)) { check(after[path]?.sha256 === hash(original), `unowned complete file changed: ${path}`); continue; }
+    const ownedFields = path === statusPath ? ["updated","stage","next_step","deadline","closed_reason","relevance"] : path === fixture.focusPath ? ["updated"] : ["updated","deadline"];
+    const unowned = (raw: string) => ownedFields.reduce((header,field) => header.replace(new RegExp(`^${field}:.*\\r?\\n`,"gm"),""),splitFrontmatterBlock(raw).frontmatter);
+    check(unowned(text(lab,path)) === unowned(original), `unowned complete frontmatter changed: ${path}`);
     if (path === fixture.focusPath) continue;
     check(body(text(lab, path)).includes(body(original)), `original complete prose changed: ${path}`);
     if ((expected.stage === "offer" || expected.stage === "closed") && path.startsWith(prefix + "/") && path !== statusPath)
       check(parseFrontmatter(text(lab, path)).data.deadline === undefined, "stale sibling deadline remains after offer/closure");
+  }
+  if (expected.stage === "closed" || expected.stage === "offer") {
+    for (const [path,original] of Object.entries(fixture.files).filter(([path]) => path.startsWith(prefix + "/"))) {
+      const previousDate = original.match(/^deadline: (.+)$/m)?.[1];
+      if (previousDate) check(body(text(lab,path)).includes(previousDate), `retired original deadline history missing: ${path}`);
+    }
   }
 }
 
