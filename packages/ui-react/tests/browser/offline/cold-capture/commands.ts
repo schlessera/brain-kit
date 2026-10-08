@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -157,9 +157,18 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await page.waitForTimeout(150);
       assert.equal(await page.getByRole("button", { name: /^Play recording/ }).count(), 0, "startup recovery exposes no unrepaired playback controls");
       assert.equal(await page.getByRole("button", { name: "Record on this device", exact: true }).getAttribute("aria-disabled"), "true", "capture waits for startup recovery");
+      await context.setOffline(false);
+      await page.getByRole("button", { name: "Try now", exact: true }).click();
+      await page.getByText("Your server is back.", { exact: true }).waitFor();
+      const proceed = page.getByRole("button", { name: "Continue", exact: true });
+      assert.equal(await proceed.getAttribute("aria-disabled"), "true", "Continue waits for successful startup recovery");
+      await proceed.evaluate(el => (el as HTMLElement).click());
+      assert.equal(await page.locator("[data-protected]").count(), 0, "Continue cannot abandon pending recovery");
       await action(page, "releaseRecovery");
       await page.getByRole("button", { name: /^Play recording/ }).waitFor();
-      return "startup recovery gates playback passed";
+      await proceed.click();
+      await page.locator("[data-protected]").waitFor();
+      return "startup recovery gates playback and departure passed";
     }
     if (cell.scenario === "read-retry") {
       await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { inventoryFailed(): boolean } }).__offlineScene.inventoryFailed());
@@ -197,6 +206,23 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       assert.equal(playedBytes, repaired.bytes, "local playback uses the recovering store's contiguous-prefix repair");
       await action(page, "restoreQuota");
       return "full-origin recovered playback passed";
+    }
+    if (cell.scenario === "initial-continue") {
+      await action(page, "holdInitialWrite");
+      await page.getByRole("button", { name: "Record on this device", exact: true }).click();
+      await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { initialWaiting(): boolean } }).__offlineScene.initialWaiting());
+      assert.equal(await action(page, "phase"), "opening", "the initial index write is held before capture becomes ready");
+      assert.equal(await action(page, "microphoneLive"), true, "the initializing recording has a live real microphone");
+      await context.setOffline(false);
+      await page.getByRole("button", { name: "Try now", exact: true }).click();
+      await page.getByText("Your server is back.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.waitForTimeout(150);
+      assert.equal(await page.locator("[data-protected]").count(), 0, "Continue waits for the initializing recording store to drain");
+      await action(page, "releaseInitialWrite");
+      await page.locator("[data-protected]").waitFor();
+      assert.equal(await action(page, "microphoneLive"), false, "Continue ends the initializing microphone before protected content mounts");
+      return "Continue waits for initializing capture passed";
     }
     await page.waitForTimeout(350);
     const start = page.getByRole("button", { name: "Record on this device", exact: true });

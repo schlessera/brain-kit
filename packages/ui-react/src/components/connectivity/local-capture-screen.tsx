@@ -85,9 +85,9 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
     setNotice("Recording discarded from this device.");
   };
   const leave = async () => {
-    if (leaving) return;
+    if (!ready || leaving) return;
     setLeaving(true);
-    try { await capture.stop(); onContinue(); }
+    try { await capture.stop(); await store.stop("user"); onContinue(); }
     catch { setNotice("Couldn't finish saving the recording. Stay here and try again."); setLeaving(false); }
   };
   return <main data-local-capture-screen="" className="min-h-[100dvh] bg-background px-4 py-8 text-foreground">
@@ -97,7 +97,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       <p className="rounded-xl border border-border bg-surface p-3 text-sm">Recordings made here aren't linked to your account yet. Anyone using this browser can play them. After you sign in you'll choose whether to add them to your account.</p>
       {reachable && <div role="status" className="rounded-xl border border-border bg-surface p-3">
         <p className="mb-2 text-sm">Your server is back.</p>
-        <Button label="Continue" block={false} style={{ minHeight: 44 }} disabled={leaving} onClick={() => void leave()} />
+        <Button label="Continue" block={false} style={{ minHeight: 44 }} disabled={!ready || leaving} onClick={() => void leave()} />
       </div>}
       <div ref={area}>
         <LocalRecordingSheet inline store={store} open={phase === "recording" || phase === "stopping"} onStop={stop} onDiscard={discard} />

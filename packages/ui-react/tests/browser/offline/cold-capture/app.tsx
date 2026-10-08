@@ -5,9 +5,11 @@ import { createBrainUiRoot } from "../../../../src/root.js";
 import { ConnectionGate } from "../../../../src/components/connectivity/connection-gate.js";
 import { AUDIO_FIXTURES, generateWav } from "../audio-fixtures.js";
 import { watchMicrophone } from "../fake-microphone.js";
-import { failIndexedDbWrites, type QuotaFaultHandle } from "../indexeddb-faults.js";
+import { failIndexedDbWrites, holdIndexedDbWrite, type QuotaFaultHandle } from "../indexeddb-faults.js";
 import { defineScene } from "../define-scene.js";
 
+let initialWaiting = false;
+let initialWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
 let recoveryWaiting = false;
 let releaseRecovery!: () => void;
 const recoveryBarrier = new Promise<void>(resolve => { releaseRecovery = resolve; });
@@ -62,6 +64,12 @@ defineScene({
       { put: "recording:chunk:ithaca-secret:00000000", value: { index: 0, startMs: 0, endMs: 10_000, data: wav } },
     ]);
   },
+  holdInitialWrite() {
+    initialWrite = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
+    void initialWrite.started.then(() => { initialWaiting = true; });
+  },
+  initialWaiting() { return initialWaiting; },
+  releaseInitialWrite() { initialWrite?.release(); initialWrite?.restore(); },
   async fullStartup() { const bytes = await seedGap(); localStorage.setItem("odysseus-full-origin", "1"); return bytes; },
   async transientStartup() { await seedGap(); localStorage.setItem("odysseus-transient-read", "1"); },
   inventoryFailed() { return inventoryFailed; },
