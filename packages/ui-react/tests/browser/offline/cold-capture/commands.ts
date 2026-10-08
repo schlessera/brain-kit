@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry" | "initial-continue" | "request-full"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -127,6 +127,7 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await page.getByRole("button", { name: "Record without signing in" }).click();
     } else {
       if (cell.scenario === "startup") await action(page, "startupGap");
+      if (cell.scenario === "request-full") await action(page, "requestQuotaStartup");
       if (cell.scenario === "full") await action(page, "fullStartup");
       if (cell.scenario === "read-retry") await action(page, "transientStartup");
       await page.close();
@@ -148,6 +149,10 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       assert.equal(await page.locator("[data-local-capture-screen]").count(), 0, "unsupported or uncontrolled launch retains the gate");
       if (cell.scenario === "unsupported") assert((await page.textContent("body"))?.includes("This browser can't save recordings on the device."), "unsupported browser gets T1's sentence");
       return "unsupported/uncontrolled boundary passed";
+    }
+    if (cell.scenario === "request-full") {
+      await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { probeRequestFailure(): { failed: boolean } } }).__offlineScene.probeRequestFailure().failed);
+      assert.deepEqual(await action(page, "probeRequestFailure"), { failed: true, transactionErrorWasNull: true }, "the native request error bubbled before transaction.error was populated");
     }
     await page.getByRole("heading", { name: "Can't reach your server" }).waitFor();
     assert.equal(await page.locator("[data-protected]").count(), 0, "cold capture never mounts protected content");
@@ -176,7 +181,7 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       assert.equal(await page.getByRole("button", { name: /^Play recording/ }).count(), 1, "retained recordings return after a transient inventory read without a store event");
       return "inventory read retry passed";
     }
-    if (cell.scenario === "full") {
+    if (cell.scenario === "full" || cell.scenario === "request-full") {
       await page.getByRole("button", { name: /^Play recording/ }).click();
       const bytes = await page.locator("audio").evaluate(async el => (await (await fetch((el as HTMLAudioElement).src)).blob()).size);
       assert.equal(bytes, 320044, "a full origin cold launch preserves playback of the committed prefix");

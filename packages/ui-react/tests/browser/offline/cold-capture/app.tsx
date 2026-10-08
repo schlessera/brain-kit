@@ -8,6 +8,22 @@ import { watchMicrophone } from "../fake-microphone.js";
 import { failIndexedDbWrites, holdIndexedDbWrite, type QuotaFaultHandle } from "../indexeddb-faults.js";
 import { defineScene } from "../define-scene.js";
 
+let probeRequestFailed = false;
+let probeTransactionErrorWasNull = false;
+if (localStorage.getItem("odysseus-request-quota")) {
+  const put = IDBObjectStore.prototype.put;
+  const add = IDBObjectStore.prototype.add;
+  IDBObjectStore.prototype.put = function(value: unknown, key?: IDBValidKey) {
+    if (this.name !== "probe") return put.call(this, value, key);
+    // Duplicate adds produce a native request error and normal bubbling/abort.
+    // Substitute only the request error's name, never transaction.error.
+    add.call(this, value, key);
+    const request = add.call(this, value, key);
+    Object.defineProperty(request, "error", { get: () => new DOMException("Odysseus full origin", "QuotaExceededError") });
+    request.addEventListener("error", () => { probeRequestFailed = true; probeTransactionErrorWasNull = this.transaction.error === null; });
+    return request;
+  };
+}
 let initialWaiting = false;
 let initialWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
 let recoveryWaiting = false;
@@ -70,6 +86,8 @@ defineScene({
   },
   initialWaiting() { return initialWaiting; },
   releaseInitialWrite() { initialWrite?.release(); initialWrite?.restore(); },
+  async requestQuotaStartup() { await seedGap(); localStorage.setItem("odysseus-request-quota", "1"); },
+  probeRequestFailure() { return { failed: probeRequestFailed, transactionErrorWasNull: probeTransactionErrorWasNull }; },
   async fullStartup() { const bytes = await seedGap(); localStorage.setItem("odysseus-full-origin", "1"); return bytes; },
   async transientStartup() { await seedGap(); localStorage.setItem("odysseus-transient-read", "1"); },
   inventoryFailed() { return inventoryFailed; },

@@ -266,9 +266,10 @@ async function probeBlobWrite(idb: IDBFactory): Promise<boolean> {
     try {
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("probe", "readwrite");
-        tx.objectStore("probe").put(new Blob([new Uint8Array([0])], { type: "application/octet-stream" }), "blob");
+        const write = tx.objectStore("probe").put(new Blob([new Uint8Array([0])], { type: "application/octet-stream" }), "blob");
         tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        // A request error bubbles before abort populates transaction.error.
+        tx.onerror = () => reject(tx.error ?? write.error);
         tx.onabort = () => reject(tx.error);
       });
       return true;
