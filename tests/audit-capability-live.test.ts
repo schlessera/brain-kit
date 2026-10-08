@@ -5,7 +5,7 @@ import { MODEL } from "../scripts/evals/audit-capabilities/protocol";
 
 test("physical baseline attempt persists before HTTP, retains selectors/raw TTL usage, and uses independent official arithmetic", async () => {
   const calls: PhysicalCall[] = []; let saves = 0; let body: any;
-  const spend = new Spend(1, calls, () => { saves++; });
+  const spend = new Spend(15, calls, () => { saves++; });
   const provider = completion(spend, "raft-board", 0, "offline-credential", async (_url, init) => {
     expect(calls).toHaveLength(1); expect(calls[0]!.outcome).toBe("pending"); expect(saves).toBe(1);
     body = JSON.parse(String(init.body));
@@ -20,7 +20,7 @@ test("physical baseline attempt persists before HTTP, retains selectors/raw TTL 
 
 test("lost raw usage stops every later admission and preserves the attempted response", async () => {
   const calls: PhysicalCall[] = []; let physical = 0;
-  const spend = new Spend(1, calls, () => {});
+  const spend = new Spend(15, calls, () => {});
   const provider = completion(spend, "raft-board", 0, "offline-credential", async () => {
     physical++; return Response.json({ model: MODEL, stop_reason: "end_turn", content: [{ type: "text", text: "[]" }] });
   });
@@ -38,7 +38,7 @@ test("budget reservation and full runtime mismatch refuse before any physical re
   try { await completion(low, "raft-board", 0, "offline-credential", http).complete({ prompt: "real finding", maxTokens: 2000 }); } catch (error) { budgetError = String(error); }
   expect(physical).toBe(0);
   expect(budgetError).toContain("before physical dispatch");
-  const changed = new Spend(1, [], () => {});
+  const changed = new Spend(15, [], () => {});
   await expect(completion(changed, "raft-board", 0, "offline-credential", http, () => { throw Error("Runtime changed"); }).complete({ prompt: "real finding", maxTokens: 2000 })).rejects.toThrow("Runtime changed");
   expect(physical).toBe(0); expect(changed.stopped).toBe(true);
 });
@@ -49,7 +49,7 @@ test("missing cache TTL remains a nonzero interval rather than an invented exact
 });
 
 test("shipped Anthropic text-block request and newline parsing retain max-token answer behavior", async () => {
-  const calls: PhysicalCall[] = []; const spend = new Spend(1, calls, () => {});
+  const calls: PhysicalCall[] = []; const spend = new Spend(15, calls, () => {});
   const provider = completion(spend, "watch-with-todo", 0, "offline-credential", async (_url, init) => {
     const request = JSON.parse(String(init.body));
     expect(request.messages).toEqual([{ role: "user", content: [{ type: "text", text: "Two findings" }] }]);
@@ -61,7 +61,7 @@ test("shipped Anthropic text-block request and newline parsing retain max-token 
 });
 
 test("known subtotal stays separate from unknown aggregate after a lost physical receipt", async () => {
-  const calls: PhysicalCall[] = []; const spend = new Spend(1, calls, () => {}); let physical = 0;
+  const calls: PhysicalCall[] = []; const spend = new Spend(15, calls, () => {}); let physical = 0;
   const provider = completion(spend, "raft-board", 0, "offline-credential", async () => {
     physical++;
     return Response.json({ model: MODEL, content: [{ type: "text", text: "[]" }], ...(physical === 1 ? { usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } : {}) });
@@ -78,7 +78,7 @@ test("real command null-entry fallback and primitive normalization retain the ph
   const { cases, commandOutput, detect, prepareBenchmark } = await import("../scripts/evals/audit-capabilities/benchmark");
   const f = cases.find(f => f.id === "menelaus-quoted-order")!;
   for (const text of ["[null]", '["Odysseus",13]']) {
-    const p = await prepareBenchmark(f); const calls: PhysicalCall[] = [], spend = new Spend(1, calls, () => {});
+    const p = await prepareBenchmark(f); const calls: PhysicalCall[] = [], spend = new Spend(15, calls, () => {});
     try {
       const detected = await detect(p); expect(detected.report.issues.length).toBeGreaterThan(0);
       const provider = completion(spend, f.id, 0, "offline-credential", async () => Response.json({ model: MODEL, content: [{ type: "text", text }], usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }));
