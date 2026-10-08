@@ -115,6 +115,18 @@ root.localWork = createLocalWork({
   watchTracks: () => () => {},
   onAccountSwitch: () => {},
 });
+let versionDone = true;
+const nativeOpenVersion = root.localWork.openDeviceVersion.bind(root.localWork);
+root.localWork.openDeviceVersion = async (
+  ...args: Parameters<typeof nativeOpenVersion>
+) => {
+  versionDone = false;
+  try {
+    await nativeOpenVersion(...args);
+  } finally {
+    versionDone = true;
+  }
+};
 if (!holdRestoring) await root.localWork.restoring();
 const style = document.createElement("style");
 style.textContent = `${kitCss}\n${appCss}\nhtml,body,#scene{height:100%;margin:0}#scene{display:flex;flex-direction:column}`;
@@ -156,6 +168,25 @@ let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 defineScene({
+  savingTarget(id: string) {
+    root.stores.drafts.getState().saving(id, Date.now());
+  },
+  versionDone: () => versionDone,
+  delayVersionRead() {
+    readCount = 0;
+    readDelayAt = 1;
+    readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+  },
+  async newConversation() {
+    root.stores.drafts.getState().newChat();
+    root.stores.chat.getState().setActiveSession(null);
+    await wait(0);
+  },
+  actionsView() {
+    root.stores.ui.getState().setActiveView("activity");
+  },
   draftContent(id: string) {
     const d = root.stores.drafts.getState().drafts[id];
     return d
@@ -430,6 +461,7 @@ defineScene({
   },
   view() {
     return {
+      activeView: root.stores.ui.getState().activeView,
       width: innerWidth,
       overflow: document.documentElement.scrollWidth > innerWidth,
       sendDisabled:

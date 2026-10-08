@@ -66,7 +66,7 @@ export interface LocalWork {
   /** Write everything now. Resolves after the transaction commits; rejects when it could not. */
   snapshotNow(): Promise<void>;
   /** @internal Explicitly open the latest retained other version after keeping current edits. */
-  openDeviceVersion(draftId: string): Promise<void>;
+  openDeviceVersion(draftId: string, signal?: AbortSignal): Promise<void>;
   /** A view's report of where the reader is; returns its removal. */
   register(probe: WorkProbe): () => void;
   /** @internal Append once, committing the draft and recording receipt together. Never sends. */
@@ -178,6 +178,11 @@ function storeDraft(d: ComposerDraft): StoredDraft {
     ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
     host: d.host ? { revision: d.host.revision, sessionId: d.host.sessionId, updatedAt: d.host.updatedAt, clean: d.host.edit === d.edit } : null,
   };
+}
+
+/** Background host status is not an edit or an intervening adoption. */
+function sameEditableSnapshot(a: ComposerDraft | undefined, b: ComposerDraft | undefined): boolean {
+  return a === b || !!a && !!b && a.edit === b.edit && a.deviceEpoch === b.deviceEpoch && sameContent(storeDraft(a), storeDraft(b));
 }
 
 export interface LocalWorkOptions {
@@ -472,7 +477,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     const protectedOwners = new Set(pendingSources);
     for (const [id, saved] of kept) {
       const current = state.drafts[id];
-      const editedDuringCommit = current && current !== drafts[id] && !sameContent(storeDraft(current), saved);
+      const editedDuringCommit = current && !sameEditableSnapshot(current, drafts[id]) && !sameContent(storeDraft(current), saved);
       if (!editedDuringCommit || pendingSources.has(id)) continue;
       protectedOwners.add(id);
       if (!writtenHere.has(id)) {
@@ -649,11 +654,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (locked || bound === null) throw new PartitionRefusedError("account:");
       } while (committedRevision !== revision);
     },
-    openDeviceVersion(draftId) {
+    openDeviceVersion(draftId, signal) {
+      if (signal?.aborted) return Promise.resolve();
       const pending = openingVersions.get(draftId);
       if (pending) return pending;
       const open = async () => {
         await this.snapshotNow();
+        if (signal?.aborted) return;
         const readingGeneration = generation;
         const handle = partition;
         if (!handle) throw new PartitionRefusedError("account:");
@@ -662,7 +669,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (locked || disposed || readingGeneration !== generation) throw new PartitionRefusedError(handle.id);
         // A late read cannot replace text/images edited while it was out,
         // nor advance that writer's expected baseline past unseen changes.
-        const unchanged = stores.drafts.getState().drafts[draftId] === before;
+        if (signal?.aborted) return;
+        const unchanged = sameEditableSnapshot(stores.drafts.getState().drafts[draftId], before);
         const saved = unchanged ? parseDraft(raw) : null;
         if (saved) {
           written.set(draftId, null);
@@ -674,8 +682,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         retained.delete(draftId);
         stores.drafts.getState().openDeviceVersion(draftId, saved ?? undefined);
       };
-      const operation = open().finally(() => { openingVersions.delete(draftId); });
+      const cancelled = () => { if (openingVersions.get(draftId) === operation) openingVersions.delete(draftId); };
+      const operation = open().finally(() => {
+        cancelled();
+        signal?.removeEventListener("abort", cancelled);
+      });
       openingVersions.set(draftId, operation);
+      signal?.addEventListener("abort", cancelled, { once: true });
       return operation;
     },
     addTranscript(id, text, draftId, sessionId) {

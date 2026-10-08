@@ -1004,7 +1004,7 @@ test("review: a stale source and a colliding session owner both survive continue
   expect((await view(b)).text).toBe("Athena keeps the third tab's chart.");
 }, 60000);
 
-for (const mode of ["owned", "foreign", "clean"] as const)
+for (const mode of ["owned", "foreign", "clean", "metadata"] as const)
   test(`review: collision restoration preserves late edits and honest baselines (${mode})`, async (ctx) => {
     const a = await openScene(
       new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
@@ -1040,15 +1040,17 @@ for (const mode of ["owned", "foreign", "clean"] as const)
     await b.call("releaseSnapshot");
     await b.call("waitHeld");
     const late = "Telemachus corrects Penelope's chart during commit.";
-    if (mode !== "clean") await b.call("edit", late, true, original);
+    const clean = mode === "clean" || mode === "metadata";
+    if (mode === "metadata") await b.call("savingTarget", original);
+    else if (!clean) await b.call("edit", late, true, original);
     const lateImages = (await view(b)).images;
     await b.call("release");
     await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
     expect(
       (await view(b)).text,
       "collision restoration preserves a late edit or refreshes the clean other version"
-    ).toBe(mode === "clean" ? INCOMING : late);
-    if (mode === "clean") {
+    ).toBe(clean ? INCOMING : late);
+    if (clean) {
       const memory = await b.call<{
         drafts: Array<{ id: string; text: string }>;
       }>("view");
@@ -1076,9 +1078,9 @@ for (const mode of ["owned", "foreign", "clean"] as const)
       expect(
         kept.find((r) => r.value.draftId === original)?.value
       ).toMatchObject({
-        text: mode === "clean" ? foreign : late,
+        text: clean ? foreign : late,
         sessionId: "pylos",
-        attachments: mode === "clean" ? committedImages : lateImages,
+        attachments: clean ? committedImages : lateImages,
       });
     expect(kept.find((r) => r.value.text === INCOMING)?.value).toMatchObject({
       sessionId: null,
@@ -1089,7 +1091,7 @@ for (const mode of ["owned", "foreign", "clean"] as const)
     await b.reload();
     await b.call("ready", 320, "dark");
     expect((await view(b)).id).toBe(active);
-    expect((await view(b)).text).toBe(mode === "clean" ? INCOMING : late);
+    expect((await view(b)).text).toBe(clean ? INCOMING : late);
   }, 60000);
 
 for (const mode of ["rebound", "empty"] as const)
@@ -1269,3 +1271,82 @@ test("review: an automatically adopted cold-restore original can be cleared thro
   expect((await view(b)).text).toBe(incoming);
   expect((await view(b)).images.length).toBeGreaterThan(0);
 }, 60000);
+
+test("review: host save metadata during a native read does not cancel other-version adoption", async (ctx) => {
+  const { a, b, original } = await divergent(ctx);
+  await b.call("save");
+  const latest = "Telemachus keeps the latest device chart.";
+  await a.call("edit", latest, true);
+  await a.call("save");
+  const images = (await view(a)).images;
+  await b.call("delayedOpen");
+  await expect.poll(() => b.call("reads")).toBe(1);
+  await b.call("savingTarget", original);
+  await b.call("releaseRead");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(
+    (await view(b)).text,
+    "background save metadata cannot block opening the actual stored version"
+  ).toBe(latest);
+  expect((await view(b)).images).toEqual(images);
+  await b.call("save");
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe(latest);
+}, 60000);
+
+for (const destination of ["bound", "unbound"] as const)
+  for (const phase of ["read", "snapshot"] as const)
+    for (const navigation of ["session", "new-chat", "actions"] as const)
+      test(`review: pending other-version ${phase} respects later ${navigation} navigation (${destination})`, async (ctx) => {
+        const { b } =
+          destination === "bound"
+            ? await divergent(ctx)
+            : await newChatDivergence(ctx);
+        await b.call("save");
+        if (phase === "read") await b.call("delayVersionRead");
+        else await b.call("pauseSnapshot");
+        await b.call("openOther");
+        if (phase === "read") await expect.poll(() => b.call("reads")).toBe(1);
+        else await expect.poll(() => b.call("snapshotWaiting")).toBe(true);
+        if (navigation === "session") {
+          await b.call("navigate", "pylos");
+          await b.call(
+            "edit",
+            "Odysseus keeps the newly selected Pylos chart.",
+            true
+          );
+        } else if (navigation === "new-chat") {
+          await b.call("newConversation");
+          await b.call(
+            "edit",
+            "Penelope starts a separate new conversation.",
+            true
+          );
+        } else await b.call("actionsView");
+        const selected = await view(b);
+        if (phase === "read") await b.call("releaseRead");
+        else await b.call("releaseSnapshot");
+        await expect.poll(() => b.call("versionDone")).toBe(true);
+        const after = await view(b);
+        expect(
+          {
+            id: after.id,
+            session: after.session,
+            text: after.text,
+            images: after.images,
+            activeView: (after as View & { activeView: string }).activeView,
+          },
+          "an older version open cannot override newer explicit navigation or hide its dirty composer"
+        ).toEqual({
+          id: selected.id,
+          session: selected.session,
+          text: selected.text,
+          images: selected.images,
+          activeView: (selected as View & { activeView: string }).activeView,
+        });
+        expect(
+          await b.call("resumes"),
+          "a cancelled open does not resume its old conversation"
+        ).toEqual([]);
+      }, 60000);
