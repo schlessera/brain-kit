@@ -222,3 +222,28 @@ for (const reason of ["outcome_unknown", "authentication", "media", "parameters"
     expect(calls).toBe(1);
   } finally { await t.close(); }
 });
+
+test("UUID case aliases share one receipt, account boundary and permanent tombstone", async () => {
+  let calls = 0;
+  const t = await httpContractApp({ env: { AUTH_MODE: "proxy", TRUST_PROXY: "1", PROXY_AUTH_HEADER: "x-forwarded-user", VOICE_PROVIDER: "fixture-speech" }, speechProvider: fake(async () => { calls++; return { text: "Penelope's loom order." }; }) });
+  try {
+    const id = `aaaaaaaa-${randomUUID().slice(9)}`, alias = id.toUpperCase();
+    const owner = { "x-forwarded-user": "penelope" }, other = { "x-forwarded-user": "telemachus" };
+    const done = await (await t.fetch(path(id), put(audio, owner))).json();
+    const replay = await t.fetch(path(alias), put(audio, owner));
+    expect(calls, "UUID spelling cannot cause a second provider dispatch").toBe(1);
+    expect(await replay.json()).toEqual(done);
+    expect(await (await t.fetch(path(alias), { headers: owner })).json()).toEqual(done);
+    expect((await t.fetch(path(alias), put(new Uint8Array([4, 5]), owner))).status).toBe(409);
+    for (const method of ["GET", "PUT", "DELETE"]) {
+      const response = await t.fetch(`${path(alias)}?disposition=discarded`, method === "PUT" ? put(audio, other) : { method, headers: other });
+      expect(response.status, `UUID alias cannot bypass cross-account ${method}`).toBe(404);
+    }
+    await t.fetch(`${path(alias)}?disposition=discarded`, { method: "DELETE", headers: owner });
+    expect((await t.fetch(path(id), put(audio, owner))).status).toBe(410);
+    const fresh = `aaaaaaaa-${randomUUID().slice(9)}`;
+    await t.fetch(`${path(fresh.toUpperCase())}?disposition=discarded`, { method: "DELETE", headers: owner });
+    expect((await t.fetch(path(fresh), put(audio, owner))).status).toBe(410);
+    expect(calls).toBe(1);
+  } finally { await t.close(); }
+});

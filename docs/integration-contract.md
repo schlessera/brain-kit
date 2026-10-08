@@ -3513,7 +3513,9 @@ media | parameters | validation | authentication | outcome_unknown`.
 `retryCount` counts explicit retries (0 initially, maximum 3); it and the
 failure history survive consumption. Disposition is `accepted | discarded`.
 Only `done` carries transcript text. Hash/provider can be null on a tombstone
-that precedes the first upload. `GET` returns the receipt or 404.
+that precedes the first upload. Recording UUIDs are canonicalized to lowercase
+for every route and receipt, so alternate case spellings share idempotency,
+account ownership and tombstones. `GET` returns the receipt or 404.
 
 Only an immediate transaction inserting a claim may dispatch the provider.
 A repeated same-hash `done` upload returns the same receipt and text. An

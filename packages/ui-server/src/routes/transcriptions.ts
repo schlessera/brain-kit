@@ -61,7 +61,7 @@ export function createTranscriptionRoutes(deps: {
       const principal = c.get("principal");
       if (!principal) return refuse(401, "authentication_required", "Sign in again.");
       deps.store.authorize(principal.id);
-      const id = c.req.param("recordingId") ?? "";
+      const id = (c.req.param("recordingId") ?? "").toLowerCase();
       if (!ID.test(id)) return refuse(400, "recording_id_invalid", "Use a recording UUID.");
       return await handler(c, principal.id, id);
     } catch (error) {
