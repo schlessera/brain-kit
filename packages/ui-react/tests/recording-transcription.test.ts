@@ -47,9 +47,9 @@ test("transcribing receipt holds service worker update reloads", async () => {
   const f = fixture(), done = await f.seed(); f.root.request = async () => Response.json({ ...done, status: "transcribing", text: undefined }); f.make(); await Bun.sleep(10);
   expect(updateHeld(f.root), "a saved upload in progress holds update reload").toBe(true);
 });
-test("a request transport without progress cannot claim lost audio was not sent", async () => {
+for (const initialProgress of [undefined, 0]) test(`a request transport without transfer progress cannot claim lost audio was not sent (${initialProgress ?? "missing"})`, async () => {
   const f = fixture(); await f.seed("saved"); let calls = 0;
-  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { calls++; throw new TypeError("Lost reply after processing"); } return new Response("{}", { status: 404 }); };
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { calls++; if (initialProgress !== undefined) init.onUploadProgress?.(initialProgress); throw new TypeError("Lost reply after processing"); } return new Response("{}", { status: 404 }); };
   const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow();
   expect(calls).toBe(1);
   const row = (await s.get("account:odysseus", f.id))!;

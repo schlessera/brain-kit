@@ -11,6 +11,7 @@ export function browserRequest(url: string, init?: ProgressRequestInit): Promise
     xhr.withCredentials = init.credentials === "include";
     new Headers(init.headers).forEach((value, name) => xhr.setRequestHeader(name, value));
     xhr.upload.onprogress = event => { if (event.lengthComputable) init.onUploadProgress!(Math.round(event.loaded / event.total * 100)); };
+    xhr.upload.onload = () => init.onUploadProgress!(100);
     xhr.onload = () => {
       cleanup();
       const headers = new Headers();

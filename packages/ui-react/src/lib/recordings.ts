@@ -720,7 +720,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           else throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
         } catch (error) {
           checkMutation(partition, epoch);
-          uploaded ||= lastProgress === undefined; // A transport with no progress cannot prove a partial upload.
+          uploaded ||= lastProgress === undefined || lastProgress <= 0; // Initialization is not evidence of a partial transfer.
           await updateTranscription(partition, id, { state: uploaded ? "transcribing" : "failed", transcriptionMessage: uploaded
             ? received ? "Couldn\u0027t save the transcript on this device. The recording is kept." : "Could not confirm the result. Check transcription status after reconnecting. The recording is kept."
             : "Not sent — tap Transcribe again" }, current => current.state === "transcribing" && current.contentHash === row.contentHash);
