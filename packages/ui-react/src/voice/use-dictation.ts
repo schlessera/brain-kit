@@ -4,6 +4,7 @@ import { useVoiceStore } from "./voice-store.js";
 import { type AsrClient } from "@schlessera/brain-ui-sdk/client";
 import { speechUiHints } from "@schlessera/brain-ui-sdk/internal/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
+import { dictationFailure, dictationExplanation, speechError } from "./dictation-failure.js";
 import { registerAsrClients } from "./asr-clients.js";
 import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
 
@@ -70,7 +71,10 @@ export function useDictation() {
       // start() opens the mic and buffers audio until its stream is ready, so
       // words spoken during connect are not lost.
       const [session, ov] = await Promise.all([
-        api.voiceSession(abort.signal),
+        api.voiceSession(abort.signal).catch((error: unknown) => {
+          // Fetch transport failures have no provider code. Do not inspect their text.
+          throw error instanceof TypeError ? speechError("Session transport failed", "network") : error;
+        }),
         api
           .voiceOverrides(abort.signal)
           .catch(() => ({ overrides: [] as PronunciationOverride[] })),
@@ -104,7 +108,11 @@ export function useDictation() {
             appendFinal(applyOverrides(evt.text, overridesRef.current));
           }
         },
-        onError: (err) => { if (live(capture)) setError(err.message); },
+        onError: (err) => {
+          if (!live(capture)) return;
+          capture.failure = dictationFailure(err);
+          setError(dictationExplanation(capture.failure, "open"));
+        },
       });
       // Publish the client before awaiting start() so a concurrent stop() can
       // grab and close it (releasing its MediaStream) while the mic is opening.
@@ -113,7 +121,7 @@ export function useDictation() {
       await client.start();
       // Stopped while the mic was opening? Close the client we just started —
       // its start() honors the closed flag and releases the stream.
-      if (startGenRef.current !== gen) {
+      if (startGenRef.current !== gen || !live(capture)) {
         client.stop();
         if (clientRef.current === client) clientRef.current = null;
         return;
@@ -124,9 +132,13 @@ export function useDictation() {
     } catch (err) {
       // A superseded start failing (e.g. the aborted session fetch) is
       // expected — swallow it so it doesn't surface a spurious error.
-      if (startGenRef.current !== gen) return;
+      if (startGenRef.current !== gen || !live(capture)) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
-      setError(err instanceof Error ? err.message : "Voice start failed");
+      const reason = dictationFailure(err);
+      clientRef.current?.stop();
+      clientRef.current = null;
+      setError(dictationExplanation(reason, "startup"));
+      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false } });
       release(capture);
       setConnecting(false);
       setMode("idle");
@@ -167,6 +179,10 @@ export function useDictation() {
       // A second Done while the first still drains: the first hands
       // everything to review, this one has nothing to add.
       // A Cancel then discards what that drain was handing over.
+      if (owned && !capture) {
+        releaseCapture()?.stop();
+        return;
+      }
       const ownDrain = Boolean(capture && stopping.has(capture));
       if (commitToReview && ownDrain) return;
       // A slow connect must not open the mic after the user asked it to stop.

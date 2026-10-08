@@ -519,3 +519,81 @@ test("a probe decoding across lock and restore cannot clear the newly confirmed 
  expect(root.stores.connection.getState().accountKey,"old probe cannot clear newly confirmed key").toBe("odysseus-key");
  probe.unmount();
 });
+
+// #1222: terminal explanations are capture-scoped, with fixed safe copy.
+for (const provider of [deepgram, webspeech]) for (const words of [false, true]) {
+  test(`${provider.id}: failure notice explains the ended capture (${words ? "words retained" : "empty"}) exactly once`, async () => {
+    const root = voiceRoot(provider);
+    const { dictation } = await mount(root);
+    root.stores.voice.getState().setReviewText("Ask Penelope about the loom");
+    await listen(root, dictation);
+    if (words) act(() => { provider.hear("Ask Nestor", true); provider.hear("about the ships", false); });
+    act(() => provider.endings.find(e => e.name === (provider.id === "deepgram" ? "the socket drops" : "the recognizer fails"))!.end());
+    expect(voice(root).dictationNotice, "capture-specific terminal explanation").toEqual({ reason: "network", phase: "ended", retained: words });
+    expect(voice(root).reviewText).toBe("Ask Penelope about the loom" + (words ? " Ask Nestor about the ships" : ""));
+    const notice = voice(root).dictationNotice;
+    act(() => { if (provider.id === "deepgram") socket().onerror?.(); else recognition().onerror?.({ error: "audio-capture" }); });
+    await act(async () => { await dictation.result.current.stop(); });
+    expect(voice(root).dictationNotice, "late errors and Done do not replace the ended explanation").toBe(notice);
+    act(() => voice(root).dismissDictationNotice());
+    expect(voice(root).reviewText).toContain("Ask Penelope");
+    expect(voice(root).dictationNotice).toBeNull();
+  });
+}
+
+test("a non-ending malformed message has safe continuing copy and Done creates no terminal notice", async () => {
+  const root = voiceRoot(deepgram);
+  const { dictation } = await mount(root);
+  await listen(root, dictation);
+  act(() => { deepgram.hear("Ask Nestor", true); socket().onmessage?.({ data: "https://speech.invalid/?token=odysseus-untrusted" }); });
+  expect(voice(root).error, "fixed continuing explanation").toBe("A dictation problem occurred.");
+  expect(voice(root).mode).toBe("dictate");
+  expect(voice(root).dictationNotice).toBeNull();
+  // Closed socket makes the real client's graceful stop settle immediately.
+  socket().readyState = 3;
+  await act(async () => { await dictation.result.current.stop(); });
+  expect(voice(root).dictationNotice, "Done is not provider failure").toBeNull();
+  expect(voice(root).reviewText).toBe("Ask Nestor");
+});
+
+for (const code of ["network", "audio-capture", "not-allowed", "service-not-allowed", "no-speech", "https://speech.invalid/?token=odysseus-untrusted"]) {
+  test(`Web Speech maps ${code} without rendering the code or raw message`, async () => {
+    const root = voiceRoot(webspeech);
+    const { dictation } = await mount(root);
+    await listen(root, dictation);
+    act(() => recognition().onerror?.({ error: code }));
+    const reason = code === "network" ? "network" : code === "no-speech" ? "no-speech" : code.includes("invalid") ? "unknown" : "mic";
+    const copy = reason === "network" ? "A connection problem occurred." : reason === "mic" ? "The microphone isn't available." : reason === "no-speech" ? "No speech heard." : "A dictation problem occurred.";
+    expect(voice(root).error, "safe continuing explanation").toBe(copy);
+    act(() => recognition().onend?.());
+    expect(voice(root).dictationNotice).toEqual({ reason, phase: "ended", retained: false });
+  });
+}
+
+for (const failure of ["fetch", "mic"] as const) {
+  test(`failed ${failure} startup preserves earlier review and has its own explanation`, async () => {
+    const root = voiceRoot(deepgram);
+    if (failure === "fetch") root.api.voiceSession = async () => { throw new TypeError("https://speech.invalid/?token=odysseus-untrusted"); };
+    else replaceGlobal(navigator, "mediaDevices", { getUserMedia: async () => { throw new DOMException("odysseus-untrusted", "NotAllowedError"); } });
+    const { dictation } = await mount(root);
+    root.stores.voice.getState().setReviewText("Ask Penelope about the loom");
+    await act(async () => { await dictation.result.current.start(); });
+    expect(voice(root).mode).toBe("idle");
+    expect(voice(root).reviewText).toBe("Ask Penelope about the loom");
+    expect(voice(root).dictationNotice, "startup never claims earlier review was captured").toEqual({ reason: failure === "fetch" ? "network" : "mic", phase: "startup", retained: false });
+    expect(FakeSocket.all.length).toBe(0);
+  });
+}
+
+test("cancelled and superseded session fetches never create startup notices", async () => {
+  const root = voiceRoot(webspeech);
+  let fail!: (e: unknown) => void;
+  root.api.voiceSession = () => new Promise((_, reject) => { fail = reject; });
+  const { dictation } = await mount(root);
+  let pending!: Promise<void>;
+  act(() => { pending = dictation.result.current.start(); });
+  act(() => dictation.result.current.cancel());
+  await act(async () => { fail(new TypeError("aborted")); await pending; });
+  expect(voice(root).dictationNotice, "cancelled start is quiet").toBeNull();
+  expect(FakeRecognition.all.length).toBe(0);
+});

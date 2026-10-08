@@ -54,6 +54,13 @@ both stylesheet entry points. Both forms keep the provider disclosure,
 transcript scrolling and review flow. The composer preserves its draft and
 prevents typing or sending while capture or its final drain is active.
 
+When a provider ends dictation with an error, or dictation cannot start, a
+persistent amber notice explains the failure below review. Its safe copy refers
+only to words from that capture. Dismiss keeps the review words; a new capture
+or review Send/Edit/Discard clears the notice. Typing and session changes keep
+it. It is announced once politely, appears without moving focus, and offers no
+automatic restart. Distinct local microphone notices remain visible afterward.
+
 ### Recording on the device
 
 Set `localCapture: true` and a stable `storagePrefix` on a persistent root to
