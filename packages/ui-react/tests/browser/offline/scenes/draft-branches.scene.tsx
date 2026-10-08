@@ -67,6 +67,18 @@ let readCount = 0;
 let readDelayAt = 0;
 let releaseRead = () => {};
 let readGate = Promise.resolve();
+let pauseSnapshot = false;
+let snapshotWaiting = false;
+let releaseSnapshot = () => {};
+let snapshotGate = Promise.resolve();
+const nativeLockRequest = navigator.locks.request.bind(navigator.locks);
+navigator.locks.request = (async (...args: unknown[]) => {
+  if (pauseSnapshot && String(args[0]).startsWith("brain-ui:work:")) {
+    snapshotWaiting = true;
+    await snapshotGate;
+  }
+  return (nativeLockRequest as Function)(...args);
+}) as typeof navigator.locks.request;
 const nativeOpen = partitions.open.bind(partitions);
 partitions.open = (id) => {
   const handle = nativeOpen(id);
@@ -143,6 +155,44 @@ let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 defineScene({
+  pauseSnapshot() {
+    pauseSnapshot = true;
+    snapshotWaiting = false;
+    snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+  },
+  snapshotWaiting: () => snapshotWaiting,
+  releaseSnapshot() {
+    pauseSnapshot = false;
+    releaseSnapshot();
+  },
+  sendState() {
+    const s = root.stores.drafts.getState();
+    const send = s.sends["odysseus-send"];
+    return {
+      state: send?.state ?? null,
+      waiting: Object.values(s.sends)
+        .filter(
+          (x) =>
+            s.sendDraftId(x.requestId) === draft()!.draftId &&
+            (x.state === "pending" || x.state === "unconfirmed")
+        )
+        .map((x) => x.state),
+      snapshotImages: send?.attachments.map((a) => ({
+        data: a.attachment.data,
+        preview: a.previewUrl,
+      })),
+      editableImages: draft()!.attachments.map((a) => ({
+        data: a.attachment.data,
+        preview: a.previewUrl,
+      })),
+    };
+  },
+  acceptIn(session: string) {
+    root.stores.drafts.getState().accepted("odysseus-send", session);
+    root.stores.chat.getState().setActiveSession(session);
+  },
   holdRestore() {
     sessionStorage.setItem("odysseus-hold-restore", "1");
   },
@@ -212,6 +262,20 @@ defineScene({
     await wait(0);
     field().focus();
     field().setSelectionRange(3, 9);
+  },
+  blobPreviews() {
+    const d = draft()!;
+    root.stores.drafts.getState().edit(d.draftId, d.sessionId, {
+      attachments: d.attachments.map((a) => ({
+        ...a,
+        previewUrl: URL.createObjectURL(
+          new Blob(
+            [Uint8Array.from(atob(a.attachment.data), (c) => c.charCodeAt(0))],
+            { type: a.attachment.mediaType }
+          )
+        ),
+      })),
+    });
   },
   async startDelayedImage() {
     imageHeld = false;
@@ -532,7 +596,7 @@ defineScene({
   settleSend(outcome: string) {
     if (outcome === "accept")
       root.stores.drafts.getState().accepted("odysseus-send", "ithaca");
-    else root.stores.drafts.getState().sendFailed("odysseus-send");
+    else root.stores.drafts.getState().refused("odysseus-send");
   },
   async send(pending = false) {
     const s = root.stores.drafts.getState();

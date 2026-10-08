@@ -304,10 +304,38 @@ for (const outcome of ["accept", "refuse"])
   test(`review: pending send ${outcome} settles on the branch`, async (ctx) => {
     const { b, original } = await divergent(ctx);
     const images = (await view(b)).images;
+    await b.call("blobPreviews");
     await b.call("send", true);
     await b.call("save");
     const branch = (await view(b)).id;
     await b.call("settleSend", outcome);
+    const settlement = await b.call<{
+      state: string;
+      waiting: string[];
+      snapshotImages: Array<{ data: string; preview: string }>;
+      editableImages: Array<{ data: string; preview: string }>;
+    }>("sendState");
+    expect(
+      settlement.state,
+      "settlement records the actual accepted or refused send"
+    ).toBe(outcome === "accept" ? "accepted" : "refused");
+    expect(
+      settlement.waiting,
+      "settlement releases the branch waiting state"
+    ).toEqual([]);
+    if (outcome === "refuse") {
+      expect(
+        settlement.snapshotImages.length,
+        "the refused immutable send retains nonempty images"
+      ).toBeGreaterThan(0);
+      expect(settlement.editableImages.map((a) => a.data)).toEqual(
+        settlement.snapshotImages.map((a) => a.data)
+      );
+      expect(
+        settlement.editableImages.map((a) => a.preview),
+        "refusal gives the editable branch independent image previews"
+      ).not.toEqual(settlement.snapshotImages.map((a) => a.preview));
+    }
     await b.call("save");
     expect(
       (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
@@ -874,4 +902,74 @@ test("review: explicitly adopting a skipped cold-restore original lets it be cle
   expect((await view(b)).text).toBe("");
   await b.call("openDraft", branch);
   expect((await view(b)).text).toBe(incoming);
+}, 60000);
+
+test("review: a stale source and a colliding session owner both survive continued native saves", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("navigate", null);
+  await a.call("edit", "Odysseus shares the harbour plan.");
+  await a.call("save");
+  const original = (await view(a)).id;
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).id).toBe(original);
+  await a.call("send", true);
+  await a.call("edit", ORIGINAL, true);
+  const originalImages = (await view(a)).images;
+  await a.call("acceptIn", "pylos");
+  await a.call("save");
+  await b.call("pauseSnapshot");
+  await b.call("send", true);
+  await b.call("edit", INCOMING, true);
+  const incomingImages = (await view(b)).images;
+  await b.call("acceptIn", "ithaca");
+  await b.call("startSave");
+  await expect.poll(() => b.call("snapshotWaiting")).toBe(true);
+  const c = await a.sibling();
+  ctx.onTestFinished(() => c.close());
+  await c.call("ready", 320, "dark");
+  await c.call("navigate", "ithaca");
+  await c.call("edit", "Athena keeps the third tab's chart.", true);
+  await c.call("save");
+  const third = (await view(c)).id;
+  const thirdImages = (await view(c)).images;
+  expect(third).not.toBe(original);
+  await b.call("releaseSnapshot");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  const branch = (await view(b)).id;
+  expect(branch).not.toBe(original);
+  await b.call("edit", `${INCOMING} Bring the oars.`);
+  await b.call("save");
+  const kept = await rows(b);
+  expect(
+    kept.find((r) => r.value.draftId === original)?.value.text,
+    "the omitted committed source survives the follow-up native snapshot"
+  ).toBe(ORIGINAL);
+  expect(kept.find((r) => r.value.draftId === original)?.value).toMatchObject({
+    sessionId: "pylos",
+    attachments: originalImages,
+  });
+  expect(kept.find((r) => r.value.draftId === third)?.value).toMatchObject({
+    sessionId: "ithaca",
+    text: "Athena keeps the third tab's chart.",
+    attachments: thirdImages,
+  });
+  expect(kept.find((r) => r.value.draftId === branch)?.value).toMatchObject({
+    sessionId: null,
+    text: `${INCOMING} Bring the oars.`,
+    attachments: incomingImages,
+  });
+  expect(kept).toHaveLength(3);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe(`${INCOMING} Bring the oars.`);
+  await b.call("openStored", original);
+  expect((await view(b)).text).toBe(ORIGINAL);
+  await b.call("openStored", third);
+  expect((await view(b)).text).toBe("Athena keeps the third tab's chart.");
 }, 60000);

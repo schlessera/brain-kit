@@ -365,7 +365,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       changes.push({ put: contextKey, value }, { put: sharedContextKey, value });
     }
     if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
-    type Fork = { source: string; branch: string; sessionId: string | null; other: LocalDraft | null };
+    type Fork = { source: string; branch: string; sessionId: string | null; other: LocalDraft | null; kept: StoredDraft[] };
     let forks: Fork[] = [];
     const nextVersions = new Map(versions);
     try {
@@ -405,16 +405,21 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           if ((stale && (!incoming || !saved || !sameContent(incoming, saved))) || collision || predecessor) {
             // A divergent write never replaces the already-committed owner.
             // Branch content, context and any acceptance receipt co-commit.
-            const other = predecessor?.saved ?? collision?.[1] ?? saved;
+            // A collision can coexist with a stale source or predecessor.
+            // Every committed record remains owned, even when only one is
+            // named by the notice. Omitting one from memory is not deletion.
+            const kept = [...new Map([saved, predecessor?.saved, collision?.[1]]
+              .filter((d): d is StoredDraft => d !== undefined)
+              .map(d => [d.draftId, d])).values()];
+            const other = predecessor?.saved ?? (saved && (saved.text.length || saved.attachments.length || saved.host) ? saved : collision?.[1] ?? saved);
             const branch = mintDraftId();
             const source = incoming ?? { v: 1 as const, draftId: id, sessionId: drafts[id]?.sessionId ?? parseDraft(saved)?.sessionId ?? null, text: "", attachments: [], editedAt: Date.now(), host: null };
             const viewSession = source.sessionId ?? predecessor?.saved.sessionId ?? null;
             const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: viewSession } };
             planned.push({ put: draftKey(branch), value });
-            result.push({ source: id, branch, sessionId: viewSession, other: other ? parseDraft(other) : null });
+            result.push({ source: id, branch, sessionId: viewSession, other: other ? parseDraft(other) : null, kept });
             next.delete(id); nextCommitted.delete(id); nextVersions.delete(id);
-            if (saved) { next.set(id, null); nextCommitted.set(id, serializedDraft(saved)!); nextVersions.set(id, draftVersion(saved)); }
-            if (other) { next.set(other.draftId, null); nextCommitted.set(other.draftId, serializedDraft(other)!); nextVersions.set(other.draftId, draftVersion(other)); }
+            for (const d of kept) { next.set(d.draftId, null); nextCommitted.set(d.draftId, serializedDraft(d)!); nextVersions.set(d.draftId, draftVersion(d)); }
             next.set(branch, null); nextCommitted.set(branch, serializedDraft(value)!); nextVersions.set(branch, 1);
             // Update the planned context and receipt without changing navigation.
             for (const c of changes) if ("put" in c) {
@@ -451,6 +456,15 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     // Association changes use the live draft, so typing during commit is
     // still visible. Their next snapshot updates the same retained branch.
     for (const fork of forks) stores.drafts.getState().keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId);
+    // Restore additional committed owners without overwriting visible work.
+    // A conflicting/retired record that cannot enter this tab's store stays
+    // protected until the reader explicitly adopts it with openDeviceVersion.
+    for (const fork of forks) for (const saved of fork.kept) {
+      const d = parseDraft(saved);
+      if (!d) continue;
+      stores.drafts.getState().restoreLocal([d]);
+      if (!stores.drafts.getState().drafts[d.draftId] && (d.text.length || d.attachments.length || d.host)) retained.set(d.draftId, committed.get(d.draftId)!);
+    }
     writtenContext = forks.length ? "" : text;
     status.setState({ failed: false, pending: timer !== null });
   }
