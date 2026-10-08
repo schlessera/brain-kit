@@ -81,6 +81,15 @@ test("paid reservation precedes forwarding, debits complete physical usage and u
  expect(b.snapshot().reservedUpperUsd).toBeGreaterThan(0);expect(()=>b.beforeForward(request,10)).toThrow("previous receipt");
  for(const modified of [{speed:"fast"},{service_tier:"priority"},{inference_geo:"unknown"},{inference_geo:"not_available"}])expect(()=>paidReservation(p).beforeForward({...request,...modified},100)).toThrow("modifier");
 });
+test("short wire cannot bypass full-context paid reservation before forwarding",()=>{
+ const p=policy(),request={model:"claude-sonnet-5-5",max_tokens:128000,messages:[{role:"user",content:"Review Odysseus's fictional raft note."}]},bytes=Buffer.byteLength(JSON.stringify(request));
+ expect(bytes).toBeLessThan(1000);expect(request.messages[0]!.content.length).toBeGreaterThan(0);
+ const small=paidReservation({...p,remainingUpperUsd:3});let forwarded=0;
+ expect(()=>{small.beforeForward(request,bytes);forwarded++;}).toThrow("reservation exhausted");expect(forwarded).toBe(0);
+ const admitted=paidReservation(p);admitted.beforeForward(request,bytes);expect(admitted.snapshot().reservedUpperUsd).toBe(10.56);
+ admitted.afterPhysical({outcome:"completed",usage:{input_tokens:2000,output_tokens:1,cache_read_input_tokens:3000,cache_creation_input_tokens:4000}});
+ expect(admitted.snapshot().unknown).toBe(false);expect(admitted.snapshot().reservedUpperUsd).toBe(0);expect(admitted.snapshot().knownUsageDebitUpperUsd).toBe(.07202);expect(admitted.snapshot().invoiceUsd).toBeNull();
+});
 
 test("literal stderr mutation fails the bound member hash without changing any semantic fields",()=>{const ref=formatControl();const p=join(ref.directory,"native.json.stderr.bin");writeFileSync(p,Buffer.concat([readFileSync(p),Buffer.from("literal byte tampering")]));expect(validateFormatControl(expected,ref)).toBe(false);});
 
@@ -90,7 +99,7 @@ test("expired policy replay checks recorded admission timestamp and every exact 
  for(const field of ["proofSha","detectedSha","protocolSha"] as const)expect(validPaidPolicy(p,{...expected,[field]:sha("mismatch")})).toBe(false);
 });
 test("over-bound physical counters retain paid reservation and stop further forwarding",()=>{
- for(const usage of [{input_tokens:101,output_tokens:1,cache_read_input_tokens:0,cache_creation_input_tokens:0},{input_tokens:1,output_tokens:11,cache_read_input_tokens:0,cache_creation_input_tokens:0}]){
+ for(const usage of [{input_tokens:1_000_001,output_tokens:1,cache_read_input_tokens:0,cache_creation_input_tokens:0},{input_tokens:1,output_tokens:11,cache_read_input_tokens:0,cache_creation_input_tokens:0}]){
   const b=paidReservation(policy());b.beforeForward({model:"claude-sonnet-5-5",max_tokens:10},100);const before=b.snapshot().reservedUpperUsd;
   b.afterPhysical({outcome:"completed",usage});expect(b.snapshot().reservedUpperUsd).toBe(before);expect(b.snapshot().unknown).toBe(true);expect(()=>b.beforeForward({model:"claude-sonnet-5-5",max_tokens:10},100)).toThrow("previous receipt");
  }

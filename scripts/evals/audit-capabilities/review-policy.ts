@@ -30,8 +30,10 @@ export function paidReservation(policy:RootPaidPolicy|undefined){let held=0,debi
  if(!validPaidPolicy(policy,undefined,dispatchedAt)||active||failed)throw Error("Fresh root paid policy/single inflight/previous receipt required");
  if(!Number.isSafeInteger(request.max_tokens)||request.max_tokens<1||request.max_tokens>policy.maxOutputTokens||bytes>policy.maxInputBytes)throw Error("Unknown/excess input/output bound");
  if(request.model!==policy.canonicalModel || request.speed || ![undefined,"auto","standard_only"].includes(request.service_tier) || ![undefined,"global","us"].includes(request.inference_geo))throw Error("Uncovered model/cost modifier");
- const bound=(Math.min(bytes,policy.maxInputTokens)*8+request.max_tokens*20)/1e6;
- if(++requests>policy.maxPhysicalRequests||debit+bound>policy.remainingUpperUsd)throw Error("Root paid reservation exhausted");held=bound;active=true;inputBound=Math.min(bytes,policy.maxInputTokens);outputBound=request.max_tokens;
+ // Serialized bytes enforce only the wire-size guard, not a tokenizer ceiling.
+ // Reserve the entire validated native context before each physical request.
+ const bound=(policy.maxInputTokens*8+request.max_tokens*20)/1e6;
+ if(++requests>policy.maxPhysicalRequests||debit+bound>policy.remainingUpperUsd)throw Error("Root paid reservation exhausted");held=bound;active=true;inputBound=policy.maxInputTokens;outputBound=request.max_tokens;
  },afterPhysical(call:any){if(!active)return;const u=call.usage;
  const fields=[u?.input_tokens,u?.output_tokens,u?.cache_read_input_tokens,u?.cache_creation_input_tokens];
  if((u?.speed && u.speed!=="standard") || (u?.service_tier && u.service_tier!=="standard") || (u?.inference_geo && !["global","us","not_available"].includes(u.inference_geo))){failed=true;return;}
