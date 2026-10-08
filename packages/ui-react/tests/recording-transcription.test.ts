@@ -12,13 +12,14 @@ function fixture() {
   const locks = new Set<string>();
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { async request(name: string, _opts: unknown, callback: (lock: unknown) => Promise<unknown>) { if (locks.has(name)) return callback(null); locks.add(name); try { return await callback({ name }); } finally { locks.delete(name); } } } } });
   const data = new Map<string, unknown>();
-  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
+  let inventoryGate: Promise<void> | undefined;
+  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
   const connection = createStore(() => ({ accountKey: "odysseus", wsStatus: "connected" }));
   const root = { apiBase: () => "/api", stores: { connection }, authLock: { epoch: () => 0, state: createStore(() => ({ phase: "active" })) }, request: async () => new Response("{}", { status: 404 }) } as unknown as BrainUiServices;
   const partitions = { open: () => handle, writerGeneration: () => "initial", subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
   const make = () => { const s = createRecordingStore({ root, partitions, heldAccountKey: () => connection.getState().accountKey }); stores.push(s); return s; };
   const id = crypto.randomUUID(), blob = new Blob([new Uint8Array([1, 2, 3])]);
-  return { data, connection, root, make, id, blob, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
+  return { data, connection, root, make, id, blob, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
 }
 test("delayed status recovery cannot overwrite another tab's durable edit", async () => {
   const f = fixture(), done = await f.seed(); let release!: () => void, queries = 0;
@@ -91,4 +92,13 @@ test("a transcript edited during upload preflight cannot be replaced by provider
   await pending;
   expect(calls, "new local review stops the stale upload preflight").toBe(0);
   expect((await a.get("account:odysseus", f.id))!.state).toBe("transcript-ready");
+});
+
+
+test("the update hold is active before upload even while inventory reads are delayed", async () => {
+  const f = fixture(), done = await f.seed("saved"); let heldAtDispatch = false;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { heldAtDispatch = updateHeld(f.root); return Response.json(done); } return new Response("{}", { status: 404 }); };
+  const s = f.make(); await Bun.sleep(5); const release = f.blockInventory();
+  try { await s.transcribe("account:odysseus", f.id, () => {}); expect(heldAtDispatch, "update hold precedes the first HTTP upload byte").toBe(true); }
+  finally { release(); }
 });

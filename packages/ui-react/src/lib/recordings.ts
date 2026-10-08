@@ -398,7 +398,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       const { partition: _, ...index } = row;
       await partitions.open(partition).put(indexKey(id), { ...index, ...update });
       checkMutation(partition, epoch);
-      if (update.state === "transcript-ready") transcripts.add(identity(partition, id));
+      if (update.state === "transcript-ready" || update.state === "transcribing") transcripts.add(identity(partition, id));
       changed(id);
       return true;
     } finally { await release(); }
