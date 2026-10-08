@@ -8,10 +8,10 @@ monitoring.
 ## Required local evidence
 
 Before PR creation/readiness, execute `bun run check:pr --base origin/main`
-against the current fetched base and record its required commands and results.
+against the relevant base and record its required commands and results.
 Use `--plan` only to inspect selection. Complete runtime/browser/visual/endurance
 proof remains local; automatic CI covers affected fast guarantees. Confirm local
-proof matches the inspected head/base and rerun affected categories after changes.
+proof matches the inspected head/base and rerun affected categories after relevant changes.
 The planner's intentional skips are valid; a missing runtime, unavailable required
 tool or failed local check is not. Do not turn a green fast run into a claim that
 excluded suites ran. Batch intermediate pushes and keep incomplete work in draft.
@@ -108,11 +108,13 @@ verified_tree=$(rtk proxy git rev-parse "$ci_checkout^{tree}")
 
 The local object must agree with the immutable API receipt. Reconcile all
 required jobs' checkouts with this proof; investigate different trees rather
-than applying one job's receipt to the others. If main advanced or the head
-changed, the earlier combined-tree equivalence no longer holds. Refresh the
-PR against live main and obtain/revalidate the required combined-state checks
-under existing branch rules before merging. Do not merely rerun the old
-checkout or overwrite the recorded base to make a comparison pass. Missing
+than applying one job's receipt to the others. A changed head requires fresh
+inspection. If main advanced, inspect the missing commits before refreshing:
+only commits relevant to this work or its checks require a rebase and affected
+revalidation. Record unrelated advancement without rebasing or restarting suites.
+The earlier run still describes its recorded tree, not the newer combined tree;
+retain its actual head/base, the relevance assessment and existing branch rules.
+Do not overwrite the recorded base to make a comparison pass. Missing
 objects/logs leave verification unfinished.
 
 Observed example: [PR #868's CI](https://github.com/schlessera/brain-kit/actions/runs/36944640962)
@@ -202,11 +204,13 @@ current_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
 rtk proxy git fetch origin main
 rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$current_base"
 rtk proxy test "$current_head" = "$verified_head"
-rtk proxy test "$current_base" = "$verified_base"
+rtk proxy git diff --name-only "$verified_base" "$current_base"
 ```
 
-A mismatch requires refresh/revalidation of the new combined state and a new
-inspection, not a head-only merge or a weaker check. Merge only the inspected,
+A head mismatch requires new inspection. A base mismatch requires assessment of
+the missing commits: refresh/revalidate only if they affect this work or its
+checks. Record unrelated advancement and retain the original tested base/tree;
+never report the earlier run as testing a different combined tree. Merge only the inspected,
 passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 

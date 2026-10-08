@@ -93,7 +93,7 @@ host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 
 ## Required checks before creating a PR
 
-Run from the checkout that will become the PR, after fetching the current base:
+Run from the checkout that will become the PR, using the relevant base:
 
 ```sh
 bun run check:pr --base origin/main --plan  # inspect the selection; does not verify it
@@ -119,7 +119,11 @@ package changes run the complete packed consumer/pin/type/export probes using
 Record the tested head/base, commands and results in the PR's Proof section.
 Planning alone, missing tools, a skipped runtime, or a failed check does not
 fulfil this requirement. Revalidate affected checks after code, dependency,
-harness or base changes. Keep work in draft until required local proof passes;
+harness or relevant base changes. Inspect missing main commits before refreshing:
+rebase and rerun affected proof only when those commits affect this work or its
+checks. For unrelated advancement, retain the actual tested head/base and record
+the relevance assessment; do not restart suites solely because main moved.
+Existing branch/merge-queue rules still apply. Keep work in draft until required local proof passes;
 batch intermediate pushes. A fast green CI run cannot substitute for local proof.
 
 Automatic CI spends minutes only on lint/metadata, explicitly selected fast

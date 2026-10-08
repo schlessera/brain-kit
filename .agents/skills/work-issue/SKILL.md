@@ -183,13 +183,16 @@ never identifies a private-instance follow-up; sanitize the public handoff.
 ## PR, CI and merge
 
 Before creating a PR or marking a draft ready, run `bun run check:pr --base
-origin/main` in the issue checkout after fetching the current base. `--plan`
+origin/main` in the issue checkout against the relevant base. `--plan`
 is inspection, not proof. The command retains complete local runtime/browser/
 visual/endurance tests while automatic CI runs only affected fast guarantees.
 Record tested head/base, commands and results in the PR. Missing tools, skipped
 runtimes or failed checks leave proof unfinished; green fast CI cannot replace
 it. Revalidate affected local proof after code, dependency, harness or base
-changes. Keep drafts on cheap gates and batch intermediate pushes. Do not
+changes that affect this work or its checks. Inspect missing main commits before
+refreshing; unrelated advancement is recorded without rebasing or restarting
+suites. Retain actual tested head/base and satisfy existing branch rules.
+Keep drafts on cheap gates and batch intermediate pushes. Do not
 restore expensive automatic suites or delete tests to obtain green CI; retain
 all default local discovery, pinned offline harnesses and diagnostic artifacts.
 When tuning CI, follow docs/decisions/ci-utility.md: compare size-weighted total

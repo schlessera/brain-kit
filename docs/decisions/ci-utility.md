@@ -69,7 +69,10 @@ Existing test files, discovery, browser permutations, real deadlines and
 measurement scripts remain intact. A shorter automatic list does not establish
 the guarantees of excluded tests. Missing prerequisites, skips and failed local
 checks leave verification unfinished. Revalidate affected proof when code,
-dependencies, harness or the base changes. A green automatic run cannot replace
+dependencies, harness or a relevant base changes. Inspect missing main commits
+before refreshing; unrelated advancement is recorded without rebasing or
+restarting suites. Retain actual tested head/base and existing branch rules.
+A green automatic run cannot replace
 that proof.
 
 ## Alternatives

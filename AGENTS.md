@@ -186,7 +186,7 @@ on, links to or describes them.
 ### Required local proof before a PR
 
 - Run `bun run check:pr --base origin/main` before creating a PR or marking a
-  draft ready. Fetch the current base first. `--plan` is inspection only;
+  draft ready. Check new base commits for relevance before refreshing. `--plan` is inspection only;
   `--all` requires every category for releases or broad tooling changes.
 - The command checks committed and working-tree changes and reverse workspace
   dependencies. Complete unit/integration/runtime tests run for code/tooling;
@@ -199,8 +199,11 @@ on, links to or describes them.
   and diagnostic artifacts. Missing tools, runtime skips or failing checks leave
   proof unfinished; never claim that fast CI covered the omitted categories.
 - Record tested head/base, commands and outcomes in the PR. Revalidate affected
-  proof after code, dependency, harness or base changes. Batch intermediate
+  proof after code, dependency, harness or relevant base changes. Batch intermediate
   pushes and keep drafts on cheap CI until ready.
+  Refresh against newer main only when missing commits affect this work or its
+  checks. Record unrelated base advancement without rebasing or restarting proof.
+  Keep the actual tested head/base and satisfy existing branch rules.
 - Automatic CI admits only fast tests with a demonstrated important guarantee
   and measured cost. No real-time waiting/endurance tests or mostly idle browser
   jobs. New tests remain local-only until explicitly admitted in
