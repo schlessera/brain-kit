@@ -44,10 +44,15 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
     const nativeBitmap = globalThis.createImageBitmap;
     const nativeToBlob = HTMLCanvasElement.prototype.toBlob;
     const nativeRead = FileReader.prototype.readAsDataURL;
+    const nativeDecode = HTMLImageElement.prototype.decode;
+    const nativeObjectUrl = URL.createObjectURL;
+    const nativeRevoke = URL.revokeObjectURL;
     const restores: (() => void)[] = [];
     const snapshot = (stage: string) => {
       const drafts = ui.stores.drafts.getState();
       record(stage, { online: navigator.onLine, uploadCount,
+        authEpoch: ui.authLock.epoch(), authPhase: ui.authLock.state.getState().phase,
+        sessionId: ui.stores.chat.getState().activeSessionId,
         activeDraft: drafts.idFor(ui.stores.chat.getState().activeSessionId),
         images: Array.from(host.querySelectorAll('img'), img => ({alt:img.alt,complete:img.complete,width:img.naturalWidth})),
         text: host.textContent?.slice(0,1200), field:host.querySelector('textarea')?.value,
@@ -110,8 +115,30 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
         nativeRead.call(this,blob);
       });
       restores.push(() => reading.mockRestore());
+      const decode = vi.spyOn(HTMLImageElement.prototype, "decode").mockImplementation(function(this: HTMLImageElement) {
+        record("fallback-decode-start", {src: this.src});
+        const result = nativeDecode.call(this);
+        void result.then(() => record("fallback-decode-done", {width: this.naturalWidth, height: this.naturalHeight}),
+          error => record("fallback-decode-error", {message: String(error)}));
+        return result;
+      });
+      restores.push(() => decode.mockRestore());
+      const objectUrl = vi.spyOn(URL, "createObjectURL").mockImplementation(blob => {
+        const url = nativeObjectUrl.call(URL, blob);
+        record("object-url-created", {url, type: (blob as Blob).type, size: (blob as Blob).size});
+        return url;
+      });
+      restores.push(() => objectUrl.mockRestore());
+      const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(url => {
+        record("object-url-revoked", {url});
+        nativeRevoke.call(URL, url);
+      });
+      restores.push(() => revoke.mockRestore());
+      const authUnsubscribe = ui.authLock.state.subscribe(() => snapshot("auth-change"));
+      restores.push(authUnsubscribe);
       const unsubscribe = ui.stores.drafts.subscribe(() => snapshot("draft-change")); restores.push(unsubscribe);
-      record("picked", {files:originals.map(file=>({name:file.name,type:file.type,size:file.size}))});
+      snapshot("before-pick");
+      record("picked", {imageBytes: image?.size, inputConnected: input.isConnected, files:originals.map(file=>({name:file.name,type:file.type,size:file.size}))});
       input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
       snapshot("change-dispatched");
       await expect.poll(() => {
