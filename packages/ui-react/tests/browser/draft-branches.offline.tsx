@@ -1180,3 +1180,92 @@ for (const mode of ["rebound", "empty"] as const)
     expect((await view(b)).id).toBe(branch);
     expect((await view(b)).text).toBe(`${expected} Bring the oars.`);
   }, 60000);
+
+test("review: a collision keeps a non-stale owner correction written later in the same native snapshot", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("navigate", null);
+  await a.call("edit", "Odysseus shares the voyage plan.");
+  await a.call("save");
+  const u = (await view(a)).id;
+  await a.call("navigate", "ithaca");
+  await a.call("edit", ORIGINAL, true);
+  await a.call("save");
+  const d = (await view(a)).id;
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await b.call("pauseSnapshot");
+  await b.call("openDraft", u);
+  await b.call("send", true);
+  await b.call("edit", INCOMING, true);
+  await b.call("acceptIn", "ithaca");
+  const correction = "Telemachus corrects the committed second chart.";
+  await b.call("edit", correction, true, d);
+  const corrected = await b.call("draftContent", d);
+  await b.call("orderDrafts", u, d);
+  await b.call("startSave");
+  await expect.poll(() => b.call("snapshotWaiting")).toBe(true);
+  await b.call("releaseSnapshot");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(
+    await b.call("draftContent", d),
+    "a later ordinary native put keeps its corrected text and images in memory"
+  ).toEqual(corrected);
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === d)?.value
+  ).toMatchObject(corrected as object);
+  const count = (await rows(b)).length;
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === d)?.value
+  ).toMatchObject(corrected as object);
+  expect(
+    await rows(b),
+    "an adopted final native value needs no duplicate branch"
+  ).toHaveLength(count);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  await b.call("openStored", d);
+  expect((await view(b)).text).toBe(correction);
+  expect((await view(b)).images).toEqual(
+    (corrected as { attachments: Row["value"]["attachments"] }).attachments
+  );
+}, 60000);
+
+test("review: an automatically adopted cold-restore original can be cleared through ordinary session navigation", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("save");
+  await b.call("holdRestore");
+  await b.reload();
+  await b.call("coldReady");
+  await expect.poll(() => b.call("reads")).toBe(1);
+  const incoming = "Odysseus writes a fresh fleet order.";
+  await b.call("edit", incoming, true);
+  await b.call("releaseRead");
+  await b.call("restored");
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openDraft", branch);
+  await b.call("navigate", "ithaca");
+  expect((await view(b)).id).toBe(original);
+  expect((await view(b)).text).toBe(ORIGINAL);
+  await b.call("empty");
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
+    "automatic adoption releases protection so clearing is durable"
+  ).toBe("");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === branch)?.value.text
+  ).toBe(incoming);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe("");
+  await b.call("openDraft", branch);
+  expect((await view(b)).text).toBe(incoming);
+  expect((await view(b)).images.length).toBeGreaterThan(0);
+}, 60000);

@@ -431,7 +431,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           }
           if (incoming) {
             const value = { ...incoming, deviceRevision: draftVersion(saved) + 1 };
-            planned.push({ put: key, value }); actual.set(key, value); nextVersions.set(id, value.deviceRevision);
+            planned.push({ put: key, value }); actual.set(key, value); nextCommitted.set(id, serializedDraft(value)!); nextVersions.set(id, value.deviceRevision);
           } else {
             // Keep an empty revision tombstone. A stale write after deletion
             // must branch rather than reuse the deleted identity's revision.
@@ -442,7 +442,13 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
             }
           }
         }
-        return { changes: planned, result: { forks: result, written: planned.flatMap(c => "put" in c && c.put.startsWith(`${scope}/draft/`) ? [c.put.slice(`${scope}/draft/`.length)] : []) } };
+        // A kept owner may receive an ordinary put later in this same
+        // transaction. Adoption and expectations must use its final value.
+        const finalForks = result.map(f => ({ ...f,
+          kept: f.kept.map(d => actual.get(draftKey(d.draftId)) ?? d),
+          other: f.other ? parseDraft(actual.get(draftKey(f.other.draftId))) ?? f.other : null,
+        }));
+        return { changes: planned, result: { forks: finalForks, written: planned.flatMap(c => "put" in c && c.put.startsWith(`${scope}/draft/`) ? [c.put.slice(`${scope}/draft/`.length)] : []) } };
       }, acceptance?.signal);
       forks = outcome.forks;
       writtenHere = new Set(outcome.written);
@@ -489,6 +495,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (pendingSources.has(id) || !protectedOwners.has(id)) {
         const current = stores.drafts.getState().drafts[id];
         if (!current || JSON.stringify(storeDraft(current)) !== serializedDraft(saved)) stores.drafts.getState().adoptDeviceRecord(d);
+        retained.delete(id);
       }
       if (!stores.drafts.getState().drafts[id]) retained.set(id, committed.get(id)!);
     }

@@ -782,3 +782,20 @@ test("a late host save cannot acknowledge an adopted additional device owner", a
   drafts().hostGone(original);
   expect(Object.values(drafts().drafts)).toContainEqual(expect.objectContaining({text:"Penelope keeps the additional committed chart.",attachments:[image]}));
 });
+
+
+test("a late host save cannot acknowledge an explicitly opened newer device version", async () => {
+  const host = fakeHost(); const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  drafts().edit(original, ITHACA, {text:"Odysseus checks the fleet."});
+  drafts().keepDeviceBranch(original,"voyage-branch",{draftId:original,sessionId:ITHACA,text:"Penelope keeps the loom order.",attachments:[],editedAt:1,host:null},ITHACA);
+  const release = host.hold();
+  await until(()=>host.calls.includes(`PUT /drafts/${original}`));
+  drafts().setSupport(false);
+  const image: PendingAttachment = {attachment:{data:"iVBORw0KGgo=",mediaType:"image/png"},previewUrl:"blob:fixture/shroud",bytes:8,name:"shroud.png"};
+  drafts().openDeviceVersion(original,{draftId:original,sessionId:ITHACA,text:"Telemachus updates the device chart.",attachments:[image],editedAt:2,host:null});
+  release(); await until(()=>host.rows.has(original)); await wait(20);
+  expect(drafts().drafts[original]?.host,"an old reply cannot acknowledge an explicitly adopted version's different text and images").toBeNull();
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts),"missing-host refresh preserves explicitly adopted work").toContainEqual(expect.objectContaining({text:"Telemachus updates the device chart.",attachments:[image]}));
+});

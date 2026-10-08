@@ -156,6 +156,15 @@ let snapshot: { done: boolean; error?: string } = { done: false };
 let hold: ReturnType<typeof holdIndexedDbWrite> | null = null;
 let fault: ReturnType<typeof failIndexedDbWrites> | null = null;
 defineScene({
+  draftContent(id: string) {
+    const d = root.stores.drafts.getState().drafts[id];
+    return d
+      ? {
+          text: d.text,
+          attachments: d.attachments.map((a) => ({ data: a.attachment.data })),
+        }
+      : null;
+  },
   orderDrafts(first: string, second: string) {
     const s = root.stores.drafts.getState();
     const rest = { ...s.drafts };

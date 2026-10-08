@@ -564,12 +564,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set(s => ({ drafts: { ...s.drafts } }));
       },
       openDeviceVersion(draftId, kept) {
-        if (kept) {
-          const current = get().drafts[draftId];
-          if (current) release(current.attachments, []);
-          put({ ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit: 1,
-            host: kept.host ? { ...kept.host, edit: kept.host.clean ? 1 : -1, attachmentIds: [] } : null });
-        }
+        if (kept) get().adoptDeviceRecord(kept);
         successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
