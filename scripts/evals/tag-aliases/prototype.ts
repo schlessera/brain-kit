@@ -12,10 +12,10 @@ import type { JevChoiceAnswer, JevRequest } from "../../../packages/core/src/lib
 
 export const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 export function snapshot(root: string) {
-  const entries: Record<string, { kind: string; mode: number; mtime: number; bytes?: string; target?: string }> = {};
+  const entries: Record<string, { kind: string; mode: number; mtime: number; mtimeNs: string; bytes?: string; target?: string }> = {};
   function visit(path: string) {
-    const full = join(root, path), stat = lstatSync(full);
-    const meta = { mode: stat.mode & 0o7777, mtime: stat.mtimeMs };
+    const full = join(root, path), stat = lstatSync(full, { bigint: true });
+    const meta = { mode: Number(stat.mode & 0o7777n), mtime: Number(stat.mtimeNs) / 1e6, mtimeNs: stat.mtimeNs.toString() };
     if (stat.isSymbolicLink()) {
       const target = realpathSync(full), rel = relative(realpathSync(root), target);
       if (rel === ".." || rel.startsWith("../") || rel.startsWith("/")) throw Error("External fixture symlink refused");

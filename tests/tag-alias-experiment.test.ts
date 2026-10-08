@@ -188,6 +188,23 @@ test("whole fixture observation includes symlink target and non-Markdown mtime",
   } finally { env.close(); }
 });
 
+test("same-byte nanosecond touches cannot disappear in millisecond rounding", () => {
+  const env = prepare(fixtures[1]);
+  try {
+    const path = join(env.root, "sentinel.bin"), ns = "1783814400000000000";
+    const touch = (value: string) => {
+      const child = Bun.spawnSync(["/usr/bin/python3", "-B", "-c", "import os,sys; n=int(sys.argv[2]); os.utime(sys.argv[1],ns=(n,n))", path, value],
+        { env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+      expect(child.exitCode).toBe(0);
+    };
+    touch(ns); const before = snapshot(env.root);
+    touch(String(BigInt(ns) + 1n)); const after = snapshot(env.root);
+    expect(after["sentinel.bin"].mtimeNs, "nanosecond-only touch must be visible in actual metadata").not.toBe(before["sentinel.bin"].mtimeNs);
+    expect(after["sentinel.bin"].mtime).toBe(before["sentinel.bin"].mtime);
+    expect(after["sentinel.bin"].bytes).toBe(before["sentinel.bin"].bytes);
+  } finally { env.close(); }
+});
+
 test("32, 128 and 256 actual tags enforce the output pair bound and disclose omissions", async () => {
   for (const size of [32, 128, 256]) {
     const env = prepare(fixtures[1]);
