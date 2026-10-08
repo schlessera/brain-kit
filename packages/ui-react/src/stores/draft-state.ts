@@ -312,6 +312,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     }
 
     function put(draft: ComposerDraft) {
+      if (draft.deviceConflict && draft.sessionId !== null) {
+        // A retained Draft explicitly sent as a new conversation now owns
+        // that session. The original session goes back to its own version.
+        for (const [session, branch] of deviceViews) if (resolve(branch) === draft.draftId) deviceViews.delete(session);
+        successors.delete(draft.deviceConflict.otherId);
+        deviceRedirects.delete(draft.deviceConflict.otherId);
+      }
       set((state) => ({
         drafts: { ...state.drafts, [draft.draftId]: draft },
         // The new-chat view never shares a draft with a session: one that
@@ -409,7 +416,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const state = get();
         if (sessionId === null) return state.fresh;
         const branch = deviceViews.get(sessionId);
-        if (branch) return resolve(branch);
+        if (branch && state.drafts[resolve(branch)]?.sessionId === null) return resolve(branch);
+        if (branch) deviceViews.delete(sessionId);
         let best: ComposerDraft | undefined;
         for (const d of Object.values(state.drafts)) {
           if (d.sessionId === sessionId && (!best || d.editedAt > best.editedAt)) best = d;
@@ -527,6 +535,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           put({ ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit: 1,
             host: kept.host ? { ...kept.host, edit: kept.host.clean ? 1 : -1, attachmentIds: [] } : null });
         }
+        successors.delete(draftId);
         for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
         for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
         const d = get().drafts[draftId];

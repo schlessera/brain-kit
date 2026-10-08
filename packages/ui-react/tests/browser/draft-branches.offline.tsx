@@ -351,6 +351,13 @@ test("review: a rotation during fork commit retains the live successor and its i
   expect(kept.find((r) => r.value.draftId === original)?.value.text).toBe(
     ORIGINAL
   );
+  await b.call("openOther");
+  await b.call("edit", "Penelope edits the opened original.");
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
+    "editing the opened original bypasses its obsolete rotation alias"
+  ).toBe("Penelope edits the opened original.");
 }, 60000);
 
 test("review: an empty tombstone does not claim the session's next draft", async (ctx) => {
