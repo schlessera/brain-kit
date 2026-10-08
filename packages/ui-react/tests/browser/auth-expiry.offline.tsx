@@ -70,6 +70,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
     status: createStore<LocalWorkStatus>(() => ({ failed: false, pending: false })),
     restore: createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null })),
     snapshotNow: async () => { snapshot.entered = true; await commit; },
+    addTranscript: async () => { throw new Error("This auth fixture has no durable recordings"); },
     register: () => () => {}, changed() {}, restoring: async () => {}, lock() {}, resume: async () => false, dispose() {},
   };
   ctx.onTestFinished(finish);

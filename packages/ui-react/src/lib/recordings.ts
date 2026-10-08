@@ -20,6 +20,8 @@ export interface Recording {
   id: string;
   partition: PartitionId;
   state: RecordingState;
+  /** Device clock at capture start. Older indexes may not have a timestamp. */
+  createdAt?: number;
   mime: string;
   durationMs: number;
   bytes: number;
@@ -50,12 +52,18 @@ export interface RecordingStore {
   /** Deferred sink for a caller that owns capture; nothing persists until begin. Prefer start for preflight before permission. */
   sink(): LocalCaptureSink;
   stop(reason: LocalCaptureStopReason): Promise<void>;
+  /** Identity of this store's live capture; callers may retain it through termination. */
+  active(): Pick<Recording, "partition" | "id"> | null;
   list(partition: PartitionId): Promise<Recording[]>;
   get(partition: PartitionId, id: string): Promise<Recording | undefined>;
   recover(partition: PartitionId): Promise<RecordingRecovery>;
   dismissRemoved(partition: PartitionId): Promise<void>;
   playback(partition: PartitionId, id: string): Promise<{ url: string; revoke(): void }>;
   discard(partition: PartitionId, id: string): Promise<void>;
+  /** Persist editable review text before reporting it ready. */
+  saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
+  /** Commit before marking accepted/deleting audio; retained receipts prevent duplicate appends. Missing recordings are refused. */
+  accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
   /** Only unassigned audio may move, and only into the account held now. */
   assign(id: string): Promise<void>;
   busy(): boolean;
@@ -77,6 +85,8 @@ export function recordingTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
+export const RECORDING_UNAVAILABLE = "This recording is no longer available on this device.";
+export const TRANSCRIPT_CHANGED = "Transcript changed in another tab. Review it before adding it to your draft.";
 const notEnough = "Not enough space on this device to record. Free space by transcribing or discarding recordings.";
 async function hash(blobs: Blob[]): Promise<string> {
   const bytes = await new Blob(blobs).arrayBuffer();
@@ -93,12 +103,13 @@ function contiguousChunks(all: LocalCaptureChunk[]): LocalCaptureChunk[] {
 async function recoveredIndex(index: Index, kept: LocalCaptureChunk[], total: number): Promise<Index> {
   if (index.state !== "recording" && kept.length === index.chunkCount && kept.length === total) return index;
   const end = kept.at(-1)!.endMs;
-  return { ...index, state: "interrupted", interruptedAt: end, durationMs: end, savedThroughMs: end, bytes: kept.reduce((n, c) => n + c.data.size, 0), chunkCount: kept.length, contentHash: await hash(kept.map((c) => c.data)) };
+  return { ...index, state: typeof index.transcript === "string" ? index.state === "accepted" ? "accepted" : "transcript-ready" : "interrupted", interruptedAt: end, durationMs: end, savedThroughMs: end, bytes: kept.reduce((n, c) => n + c.data.size, 0), chunkCount: kept.length, contentHash: await hash(kept.map((c) => c.data)) };
 }
 
 /** Account gating is delegated to #1014's primitive on every read and write. No age expiry or eviction. */
 export function createRecordingStore(options: RecordingStoreOptions): RecordingStore {
   const { partitions } = options;
+  const transcripts = new Set<string>();
   const listeners = new Set<() => void>();
   const events = new Set<(event: RecordingEvent) => void>();
   let running: Session | null = null;
@@ -111,13 +122,14 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   const pendingPlaybacks = new Set<{ partition: PartitionId; id: string; cancelled: boolean }>();
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
-  const fingerprint = (row: Index) => `${row.state}/${row.chunkCount}/${row.bytes}/${row.savedThroughMs}/${row.contentHash}`;
+  const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev]);
   function present(partition: PartitionId, row: Index): Index | null {
     const repair = repaired.get(identity(partition, row.id));
     return repair?.source === fingerprint(row) ? repair.value : row;
   }
   const revoke = (url: string) => { URL.revokeObjectURL(url); urls.delete(url); };
   const unwatchAccount = options.root.stores.connection.subscribe(() => {
+    for (const key of transcripts) if (!key.startsWith("unassigned/") && !key.startsWith(`${heldPartition()}/`)) transcripts.delete(key);
     for (const [url, { partition }] of urls) if (partition !== "unassigned" && partition !== heldPartition()) revoke(url);
     for (const playback of pendingPlaybacks) if (playback.partition !== "unassigned" && playback.partition !== heldPartition()) playback.cancelled = true;
     for (const key of repaired.keys()) if (!key.startsWith("unassigned/") && !key.startsWith(`${heldPartition()}/`)) repaired.delete(key);
@@ -127,6 +139,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     for (const fn of events) fn({ kind, message, savedThroughMs });
   };
   const invalidate = (id: string) => {
+    scan();
+    notify();
     for (const playback of pendingPlaybacks) if (playback.id === id) playback.cancelled = true;
     for (const [url, recording] of urls) if (recording.id === id) revoke(url);
   };
@@ -204,7 +218,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const free = await budget();
           checkStart();
           if (!free.canRecord) { emit("refused", notEnough); throw new Error(notEnough); }
-          const row: Index = { id: crypto.randomUUID(), state: "recording", mime: mimeType, durationMs: 0, bytes: 0, savedThroughMs: 0, contentHash: "", chunkCount: 0 };
+          const row: Index = { id: crypto.randomUUID(), state: "recording", createdAt: Date.now(), mime: mimeType, durationMs: 0, bytes: 0, savedThroughMs: 0, contentHash: "", chunkCount: 0 };
           // The first durable index exists only once capture has really begun.
           const handle = partitions.open(partition);
           await handle.put(indexKey(row.id), row);
@@ -247,6 +261,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           s.row = next;
           s.blobs.push(chunk.data);
           emit("committed", null, next.savedThroughMs);
+          notify();
         } catch (error) {
           // Includes QuotaExceededError and Chromium's DataError / blob IOError.
           s.failure = "write"; s.accepting = false;
@@ -300,14 +315,35 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       notify();
     }
   }
+  async function acceptedView(partition: PartitionId, index: Index): Promise<Recording> {
+    const receipt = await partitions.open(partition).get(`recording:accepted:${index.id}`) as { revision: number } | undefined;
+    checkReadable(partition);
+    // A committed draft is already accepted even if its following metadata
+    // write failed. Review text is then read-only until cleanup can retry.
+    return receipt ? { ...index, partition, state: "accepted", acceptedDraftRev: receipt.revision }
+      : { ...index, partition };
+  }
   async function get(partition: PartitionId, id: string): Promise<Recording | undefined> {
     const value = await partitions.open(partition).get(indexKey(id)) as Index | undefined;
     checkReadable(partition);
     const shown = value ? present(partition, value) : null;
-    return shown ? { ...shown, partition } : undefined;
+    return shown ? acceptedView(partition, shown) : undefined;
   }
   async function chunks(partition: PartitionId, id: string): Promise<LocalCaptureChunk[]> {
     return (await partitions.open(partition).list(chunkPrefix(id))).map((r) => r.value as LocalCaptureChunk).sort((a, b) => a.index - b.index);
+  }
+  function trackTranscripts(partition: PartitionId, rows: Recording[]) {
+    const before = transcripts.size;
+    for (const key of transcripts) if (key.startsWith(`${partition}/`)) transcripts.delete(key);
+    for (const row of rows) if (row.state === "transcript-ready" || row.state === "accepted") transcripts.add(identity(partition, row.id));
+    if (before !== transcripts.size) notify();
+  }
+  async function deleteRecording(partition: PartitionId, id: string) {
+    const audio = await chunks(partition, id);
+    await partitions.open(partition).write([{ delete: indexKey(id) }, { delete: `recording:accepted:${id}` }, ...audio.map((c) => ({ delete: chunkKey(id, c.index) }))]);
+    repaired.delete(identity(partition, id));
+    transcripts.delete(identity(partition, id));
+    changed(id);
   }
   const store: RecordingStore = {
     budget,
@@ -366,14 +402,20 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       if (s.capture || openingCapture) await (s.capture ?? openingCapture)!.stop(reason);
       else { await s.write?.catch(() => {}); s.ending ??= finish(s, reason); await s.ending; }
     },
+    active() {
+      const s = running;
+      return s && (s.partition === "unassigned" || s.partition === heldPartition()) ? { partition: s.partition, id: s.row.id } : null;
+    },
     get,
     async list(partition) {
       const entries = await partitions.open(partition).list(INDEX);
       checkReadable(partition);
-      return entries.flatMap((r) => {
+      const rows = (await Promise.all(entries.map(async r => {
         const shown = present(partition, r.value as Index);
-        return shown ? [{ ...shown, partition }] : [];
-      });
+        return shown ? acceptedView(partition, shown) : null;
+      }))).filter((row): row is Recording => row !== null);
+      trackTranscripts(partition, rows);
+      return rows;
     },
     async recover(partition) {
       // Never recover under a live recorder, including a recorder in another tab.
@@ -390,7 +432,14 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const index = entry.value as Index;
           const all = await chunks(partition, index.id);
           const kept = contiguousChunks(all);
-          if (!kept.length) {
+          if (!kept.length && typeof index.transcript === "string") {
+            // Browser audio loss cannot erase independently surviving review
+            // text. It remains editable and acceptable without playback.
+            const shown: Index = { ...index, state: index.state === "accepted" ? "accepted" : "transcript-ready", bytes: 0, chunkCount: 0, savedThroughMs: 0 };
+            try { await handle.write([{ put: indexKey(index.id), value: shown }, ...all.map(c => ({ delete: chunkKey(index.id, c.index) }))]); }
+            catch { repaired.set(identity(partition, index.id), { source: fingerprint(index), value: shown }); }
+            recovered.push(await acceptedView(partition, shown));
+          } else if (!kept.length) {
             removedCount++;
             removed.push({ index, audio: all });
             repaired.set(identity(partition, index.id), { source: fingerprint(index), value: null });
@@ -404,7 +453,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
                 repaired.set(identity(partition, index.id), { source: fingerprint(index), value: shown });
               }
             }
-            recovered.push({ ...shown, partition });
+            recovered.push(await acceptedView(partition, shown));
           }
         }
         if (removed.length) {
@@ -424,6 +473,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         result = { recordings: recovered, removedCount, removedMessage: removedCount ? `${removedCount} recordings were removed by the browser before they were transcribed.` : null };
       } finally { await release(); }
       checkReadable(partition);
+      trackTranscripts(partition, result.recordings);
       return result;
     },
     async dismissRemoved(partition) {
@@ -435,7 +485,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         for (const entry of await handle.list(INDEX)) {
           const row = entry.value as Index;
           const audio = await chunks(partition, row.id);
-          if (!contiguousChunks(audio).length) {
+          if (!contiguousChunks(audio).length && typeof row.transcript !== "string") {
             changes.push({ delete: indexKey(row.id) }, ...audio.map((c) => ({ delete: chunkKey(row.id, c.index) })));
             removed.push(row.id);
           }
@@ -465,11 +515,45 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     async discard(partition, id) {
       const release = await acquire();
       try {
-        const audio = await chunks(partition, id);
-        await partitions.open(partition).write([{ delete: indexKey(id) }, ...audio.map((c) => ({ delete: chunkKey(id, c.index) }))]);
-        repaired.delete(identity(partition, id));
+        await deleteRecording(partition, id);
+      } finally { await release(); }
+    },
+    async saveTranscript(partition, id, text) {
+      const release = await acquire();
+      try {
+        const row = await get(partition, id);
+        if (!row || row.state === "accepted" || row.state === "recording") throw new Error("Recording is not available for review");
+        const { partition: _partition, ...index } = row;
+        await partitions.open(partition).put(indexKey(id), { ...index, transcript: text, state: "transcript-ready" });
+        transcripts.add(identity(partition, id));
         changed(id);
       } finally { await release(); }
+    },
+    async accept(partition, id, draftId, sessionId, expectedTranscript) {
+      // The global recording lock serializes accept, edit, discard and other
+      // tabs. A receipt committed with the draft closes the crash window
+      // between that commit and accepted metadata / deletion.
+      const release = await acquire();
+      try {
+        checkReadable(partition);
+        if (partition === "unassigned" || !options.root.localWork) throw new Error("Link this recording to an account before adding it to a draft");
+        const row = await get(partition, id);
+        if (!row) throw new Error(RECORDING_UNAVAILABLE);
+        if (expectedTranscript !== undefined && expectedTranscript !== row.transcript) throw new Error(TRANSCRIPT_CHANGED);
+        if (row.state !== "accepted" && (row.state !== "transcript-ready" || !row.transcript?.trim())) throw new Error("The recording has no transcript to add");
+        const revision = await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);
+        // Authority may have gone during the draft commit. The audio stays
+        // locked until the same account returns; it is never deleted early.
+        checkReadable(partition);
+        const { partition: _partition, ...index } = row;
+        await partitions.open(partition).put(indexKey(id), { ...index, state: "accepted", acceptedDraftRev: revision });
+        await deleteRecording(partition, id);
+      } finally {
+        // The draft's durable receipt can change reviewability even when
+        // accepted metadata or cleanup fails. Refresh every mounted tab.
+        changed(id);
+        await release();
+      }
     },
     async assign(id) {
       const to = heldPartition();
@@ -491,11 +575,16 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         changed(id);
       } finally { await release(); }
     },
-    busy: () => opening || beginning !== null || running !== null,
+    busy: () => opening || beginning !== null || running !== null || transcripts.size > 0,
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     onEvent(fn) { events.add(fn); return () => { events.delete(fn); }; },
-    dispose() { disposed = true; unwatchAccount(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
+    dispose() { disposed = true; unwatchAccount(); unwatchInventory(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
   };
+  function scan() {
+    for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
+  }
+  const unwatchInventory = options.root.stores.connection.subscribe(scan);
+  scan();
   const releaseHold = registerUpdateHold(options.root, store);
   return store;
 }

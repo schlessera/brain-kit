@@ -31,6 +31,7 @@ export "." (./src/index.ts)
   type LocalCaptureSink
   type LocalCaptureStopReason
   type LocalCaptureSupport
+  LocalRecordingSheet
   type MaskRequest
   type MessageAttachment
   type Recording
@@ -39,6 +40,7 @@ export "." (./src/index.ts)
   type RecordingRecovery
   type RecordingState
   type RecordingStore
+  RecordingsTray
   type SessionChat
   ShareHarness
   type ShareShellState
@@ -459,6 +461,12 @@ signatures (every public export and the types it is made of)
         saved: "draft" | "pending" | "saved" | "unsaved";
         reason?: string;
     }
+  LocalRecordingSheet (packages/ui-react/src/components/voice/local-recording-sheet.tsx)
+    export function LocalRecordingSheet({ open, onStop, onDiscard }: {
+        open: boolean;
+        onStop: () => Promise<void>;
+        onDiscard: () => Promise<void>;
+    }): import("react").JSX.Element | null;
   MaskRequest (packages/ui-react/src/stores/mask-state.ts)
     export interface MaskRequest {
         requestId: string;
@@ -536,6 +544,7 @@ signatures (every public export and the types it is made of)
         id: string;
         partition: PartitionId;
         state: RecordingState;
+        createdAt?: number;
         mime: string;
         durationMs: number;
         bytes: number;
@@ -573,6 +582,7 @@ signatures (every public export and the types it is made of)
         start(options?: Omit<StartLocalCaptureOptions, "sink">): Promise<LocalCapture>;
         sink(): LocalCaptureSink;
         stop(reason: LocalCaptureStopReason): Promise<void>;
+        active(): Pick<Recording, "partition" | "id"> | null;
         list(partition: PartitionId): Promise<Recording[]>;
         get(partition: PartitionId, id: string): Promise<Recording | undefined>;
         recover(partition: PartitionId): Promise<RecordingRecovery>;
@@ -582,12 +592,19 @@ signatures (every public export and the types it is made of)
             revoke(): void;
         }>;
         discard(partition: PartitionId, id: string): Promise<void>;
+        saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
+        accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;
         onEvent(listener: (event: RecordingEvent) => void): () => void;
         dispose(): void;
     }
+  RecordingsTray (packages/ui-react/src/components/voice/recordings-tray.tsx)
+    export function RecordingsTray({ composerRef, onAccepted }: {
+        composerRef?: RefObject<HTMLDivElement | null>;
+        onAccepted?: () => void;
+    }): import("react").JSX.Element;
   RestoredApprovalClosure (packages/ui-react/src/lib/restored-approvals.ts)
     export type RestoredApprovalClosure = "answered" | "ended" | "revoked" | "unlisted";
   SessionChat (packages/ui-react/src/stores/chat-state.ts)
@@ -646,6 +663,7 @@ signatures (every public export and the types it is made of)
     export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
         sink: LocalCaptureSink;
         timesliceMs?: number;
+        onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
   StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)

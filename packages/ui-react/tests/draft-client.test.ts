@@ -142,6 +142,38 @@ function boot(host: ReturnType<typeof fakeHost>, capabilities: Record<string, bo
 }
 
 describe("saving", () => {
+  test("host deletion refresh never uploads a rotated device-only transcript", async () => {
+    const host = fakeHost(); const { drafts, socket } = boot(host);
+    const id = drafts().idFor(ITHACA); drafts().edit(id, ITHACA, { text: "Inspect the fleet." });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    const text = "Inspect the fleet.\nPenelope confirms the route.";
+    drafts().edit(id, ITHACA, { text, deviceOnly: true }); await wait(800);
+    const puts = host.calls.filter(c => c.startsWith("PUT"));
+    host.rows.set(id, { ...host.rows.get(id)!, deleted: true, revision: 2 });
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { chatRequestAck: true, sessionDrafts: true } });
+    await until(() => drafts().resolveId(id) !== id);
+    const next = drafts().resolveId(id); await wait(800);
+    expect(host.calls.filter(c => c.startsWith("PUT")), "rotation never automatically uploads the accepted transcript").toEqual(puts);
+    expect(drafts().drafts[next]?.text).toBe(text);
+    drafts().edit(next, null, { text: `${text} Bring the wax tablet.` });
+    await until(() => host.rows.get(next)?.text === `${text} Bring the wax tablet.`);
+  });
+
+  test("explicit Send releases a local transcript draft's owed host cleanup", async () => {
+    const host = fakeHost(); const { drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Ask Penelope" });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    const text = "Ask Penelope\nInspect the fleet.";
+    drafts().edit(id, ITHACA, { text, deviceOnly: true });
+    const before = host.calls.length; await wait(800);
+    expect(host.calls.slice(before), "local transcript causes no host request").toEqual([]);
+    drafts().beginSend({ requestId: "req-local-fleet", draftId: id, sessionId: ITHACA, text, attachments: [], message: { type: "chat_message", text, sessionId: ITHACA, requestId: "req-local-fleet", source: "typed" } }, text);
+    drafts().accepted("req-local-fleet", ITHACA);
+    await wait(800);
+    expect(host.rows.get(id)?.deleted, "explicit Send cleans up the older saved host draft").toBe(true);
+  });
+
   test("a host without the capability is never asked, and the draft says so", async () => {
     const host = fakeHost();
     const { drafts } = boot(host, { chatRequestAck: true });

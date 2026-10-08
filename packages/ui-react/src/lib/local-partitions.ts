@@ -34,7 +34,7 @@ export interface PartitionHandle {
   /** Resolves once the transaction has committed. */
   put(key: string, value: unknown): Promise<void>;
   /** Several changes in one transaction; resolves once it has committed. */
-  write(changes: readonly PartitionWrite[]): Promise<void>;
+  write(changes: readonly PartitionWrite[], signal?: AbortSignal): Promise<void>;
   get(key: string): Promise<unknown>;
   /** Every record whose key starts with `prefix`. */
   list(prefix: string): Promise<Array<{ key: string; value: unknown }>>;
@@ -150,28 +150,32 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   /** Records are keyed `[partition, key]`, so a partition is one key range. */
   const range = (id: PartitionId, prefix = "") => IDBKeyRange.bound([id, prefix], [id, `${prefix}￿`]);
 
-  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void): Promise<void> {
+  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void, signal?: AbortSignal): Promise<void> {
     const d = await db();
     // The key may have gone while the database was opening: checked again before anything is written.
     check(id);
     await new Promise<void>((resolve, reject) => {
       const tx = d.transaction(stores, mode);
       // `complete`, not a request's success: only then has it committed.
-      tx.oncomplete = () => resolve();
+      const cleanup = () => signal?.removeEventListener("abort", abort);
+      const abort = () => { try { tx.abort(); } catch { /* already committed */ } };
+      signal?.addEventListener("abort", abort, { once: true });
+      tx.oncomplete = () => { cleanup(); resolve(); };
       // A request's error bubbles here first; an abort names itself on the request.
-      tx.onerror = (event) => reject(tx.error ?? (event.target as IDBRequest | null)?.error ?? new Error("IndexedDB write failed"));
-      tx.onabort = () => reject(tx.error ?? new DOMException("IndexedDB write aborted", "AbortError"));
+      tx.onerror = (event) => { cleanup(); reject(tx.error ?? (event.target as IDBRequest | null)?.error ?? new Error("IndexedDB write failed")); };
+      tx.onabort = () => { cleanup(); reject(tx.error ?? new DOMException("IndexedDB write aborted", "AbortError")); };
       try {
+        if (signal?.aborted) { abort(); return; }
         op(tx);
       } catch (error) {
         try { tx.abort(); } catch { /* already finished */ }
-        reject(error);
+        cleanup(); reject(error);
       }
     });
   }
 
   function handle(id: PartitionId): PartitionHandle {
-    async function write(changes: readonly PartitionWrite[]): Promise<void> {
+    async function write(changes: readonly PartitionWrite[], signal?: AbortSignal): Promise<void> {
       check(id);
       if (!persistAsked) { persistAsked = true; options.persist?.(); }
       await transact(id, [RECORDS, SIZES], "readwrite", (tx) => {
@@ -186,7 +190,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
             sizes.delete([id, change.delete]);
           }
         }
-      });
+      }, signal);
     }
     return {
       id,

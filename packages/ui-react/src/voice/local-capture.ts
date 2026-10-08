@@ -70,6 +70,8 @@ export interface StartLocalCaptureOptions extends LocalCaptureEnvironment {
   /** Nothing reaches it before the microphone opened and the start was not aborted. */
   sink: LocalCaptureSink;
   timesliceMs?: number;
+  /** Optional local level meter; no audio leaves the page. */
+  onAudioLevel?: (level: number) => void;
   /**
    * Cancels a start still waiting on the microphone: the stream it gets is
    * released, nothing records and the sink is never called.
@@ -98,7 +100,16 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
   }
   options.signal?.throwIfAborted();
   const stream = await mediaDevices.getUserMedia({ audio: true });
-  const release = () => { for (const track of stream.getTracks()) track.stop(); };
+  let meter: AudioContext | null = null;
+  let meterTimer: ReturnType<typeof setInterval> | null = null;
+  const release = () => {
+    if (meterTimer !== null) clearInterval(meterTimer);
+    meterTimer = null;
+    void meter?.close().catch(() => {});
+    meter = null;
+    options.onAudioLevel?.(0);
+    for (const track of stream.getTracks()) track.stop();
+  };
   if (options.signal?.aborted) {
     release();
     options.signal.throwIfAborted();
@@ -186,6 +197,20 @@ export async function startLocalCapture(options: StartLocalCaptureOptions): Prom
     throw err;
   }
   startedAt = now();
+  if (options.onAudioLevel && typeof AudioContext !== "undefined") {
+    try {
+      meter = new AudioContext();
+      const analyser = meter.createAnalyser();
+      analyser.fftSize = 256;
+      meter.createMediaStreamSource(stream).connect(analyser);
+      const values = new Uint8Array(analyser.fftSize);
+      meterTimer = setInterval(() => {
+        analyser.getByteTimeDomainData(values);
+        const rms = Math.sqrt(values.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / values.length);
+        options.onAudioLevel?.(Math.min(1, rms * 4));
+      }, 100);
+    } catch { /* Capture still works when metering is unavailable. */ }
+  }
   // Only a recording that started reaches the sink, and begin comes first.
   delivery = delivery.then(() => sink.begin?.({ mimeType, stop: (why) => finish(why) })).then(() => undefined, failSink);
 

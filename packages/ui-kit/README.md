@@ -315,3 +315,11 @@ targets and represents the rest as `+N`; the host's full list remains the
 record. Pass `compact` below a 480px container width, `onOpen(id)` for labelled
 pills and `onOverflow` to reach the list. The count legend defaults on; no
 radius represents completion, and no ring moves without a real state change.
+
+### Local recording rows
+
+`RecordingRow` shows a recording's time, duration and explicit state word.
+Interrupted rows name the committed boundary and say the end may be missing.
+Its optional playback/discard callbacks and children let a root-scoped view
+provide local actions and transcript editing. The row does not transcribe or
+send anything; dark and light stories cover every recording state.

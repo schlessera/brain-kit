@@ -54,6 +54,8 @@ export interface ComposerDraft {
   attachments: PendingAttachment[];
   /** Local clock of the last change: the Sessions row's age and the compare sheet's time. */
   editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
   /** Bumped by every change to the content. */
   edit: number;
   host: DraftHostCopy | null;
@@ -116,6 +118,8 @@ export interface LocalDraft {
   text: string;
   attachments: PendingAttachment[];
   editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
 }
 
@@ -136,6 +140,8 @@ export interface DraftStoreState {
    * work to that session's draft.
    */
   resolveId(draftId: string): string;
+  /** Resolve a late write's identity and session together, including retired drafts. */
+  resolveTarget(draftId: string, sessionId: string | null): { draftId: string; sessionId: string | null };
   /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
   originOf(draftId: string): string;
   /** The root is going: previews no transcript message owns are released. */
@@ -143,7 +149,7 @@ export interface DraftStoreState {
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
   idFor(sessionId: string | null): string;
   /** Change a draft's content; a draft emptied with nothing on the host is forgotten. */
-  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[] }): void;
+  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[]; deviceOnly?: boolean }): void;
   /** These previews belong to a transcript message now: never revoked here. */
   transfer(attachments: readonly PendingAttachment[]): void;
   /** New chat: the new-chat view gets a fresh identity; the old draft stays where it is. */
@@ -274,6 +280,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       return { id, owner: null };
     }
     const resolve = (draftId: string): string => follow(draftId).id;
+    const resolveTarget = (requested: string, requestedSession: string | null) => {
+      const { id, owner } = follow(requested);
+      const current = get().drafts[id];
+      return { draftId: id, sessionId: current ? current.sessionId : owner ?? requestedSession };
+    };
 
     function held(draftId: string, sends = get().sends): boolean {
       return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
@@ -314,7 +325,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1 };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -389,6 +400,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       resolveId: resolve,
+      resolveTarget,
       originOf: (draftId) => origins.get(draftId) ?? draftId,
 
       release() {
@@ -400,14 +412,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
       edit(requested, requestedSession, patch) {
         // Late work for a rotated draft, or one forgotten as its session accepted it.
-        const { id: draftId, owner } = follow(requested);
-        const sessionId = get().drafts[draftId]?.sessionId ?? owner ?? requestedSession;
+        const { draftId, sessionId } = resolveTarget(requested, requestedSession);
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
         if (text === current.text && attachments === current.attachments) return;
         if (patch.attachments) release(current.attachments, attachments);
-        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), failure: current.failure?.kind === "unsaved" ? current.failure : null });
+        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), deviceOnly: patch.deviceOnly === true, failure: current.failure?.kind === "unsaved" ? current.failure : null });
         settle(draftId);
       },
 
@@ -446,7 +457,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           const edit = 1;
           put({
-            ...blank(k.draftId, k.sessionId, k.editedAt),
+            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true,
             text: k.text,
             attachments: k.attachments,
             edit,
@@ -469,7 +480,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
           const text = d.text === consumedText ? "" : d.text;
-          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now() });
+          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
         }
         return draftRef;
       },
