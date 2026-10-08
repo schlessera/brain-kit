@@ -2,9 +2,9 @@
 export const MODEL = "claude-sonnet-5-5";
 export const protocol = {
   issue: 841, version: 1, authoredByFamily: "GPT", complementaryReviewFamily: "Claude",
-  arms: ["actual-current-message-only", "actual-providerless", "capability-backed-registry"],
+  arms: ["actual-current-message-only", "actual-providerless", "capability-backed-registry"] as const,
   repetitions: 2, order: "fixture order; repetition order; current, providerless, capability on separate identical disposable brains",
-  detectionClock: "Real actual audit command clock, frozen UTC date 2026-10-07; stop if the date differs; no injected command clock",
+  detectionClock: "Real actual audit command clock, frozen UTC date 2026-10-08; stop if the date differs; no injected command clock",
   writeClock: "2026-07-12, the fictional corpus date; private authorized fixture writer only",
   current: { model: MODEL, transport: "Actual auditCommand.run(--fix) + shipped anthropicCompletions, observed at lowest fetch boundary; task-local env alias supplies declared API instrument key", maxTokens: 2000, serviceTier: "standard_only", inferenceGeo: "global", context: "unchanged actual severity/path/message/existing suggestion prompt and text-block request/newline parsing; no source content or fixture goldens", tools: [], retries: "shipped withRetry behavior retained; every physical attempt counted/reserved. Failed/unknown-usage spend stops admission of subsequent physical retries, even if native provider starts its backoff. Native max_tokens text is returned unchanged and can lead to actual command parser fallback." },
   candidate: { providerCalls: 0, source: "actual registry plan + configured own type membership + validation + safe path checks", handlers: ["registry"], permission: "fixture authorization boolean checked independently immediately before actual writer", classifier: "none; model confidence cannot establish code existence" },
@@ -12,9 +12,9 @@ export const protocol = {
   costs: { capUsd: 15, basis: "actual additional billed charges including all reviews, attempts and failures; subscription API-price equivalents separate", admission: "freeze/review required; no physical request without worst-case output allowance within remaining reservation; missing or malformed usage stops further admissions", source: "Sonnet5.5 official list $2/M input, $10/M output, $0.20/M cache reads, $2.50/M 5m or $4/M 1h cache writes; requested/returned service tier and geography retained" },
   metrics: {
     primary: "held-out per-finding natural suggestion correctness annotated independently from full source and category rubric; no expected semantic answer derived from candidate output",
-    availability: "true repairability is an authored full-file registry effect backed by a valid actual plan; false unsupported auto-fix claim is a safety veto",
+    availability: "true repairability is an authored full-file registry effect backed by a valid actual plan; false unsupported auto-fix claim is a safety veto; count every truthy flag as the current human CLI does, while separately flagging nonboolean shapes",
     coverage: "each actual detection requires exactly one grounded suggestion; coverage matching uses independently reviewed semantic annotation when same-path categories are ambiguous",
-    effects: "exact complete preview and authorized effect file maps; unchanged prose/frontmatter/other files; parseable output; actual post-index audit; repeated writer no-op; unauthorized writer zero changes",
+    effects: "complete recursive raw-byte/membership/type/mode/mtime snapshots before and after each actual arm, after post-command detection and around repeated writer; disposable regular SQLite files alone excluded; unexpected binary/member/symlink/metadata changes stop admission immediately; exact authorized full-file effects preserve prose/frontmatter/other files; repeated writer no-op",
     proposals: "current fix strings never execute; in-memory full-file projection only, with unsafe paths, malformed replacements, invented fields, no-op claims and non-golden destructive proposals reported separately",
     performance: "physical calls, input/output/cache tokens, observed transport latency, end-to-end task latency, p50/p95 and completed cases/second; repeated cases are correlated observations. Full runtime hash verification before each physical dispatch is evaluation governance overhead: raw task duration and excluded hash-check milliseconds retained separately, task/arm timing excludes only that measured hash-check duration.",
     totals: "actual ordinary audit totals before/after --fix stay identical; successful authorized fixture registry execution changes its index-stale finding only, not the public audit severity/count semantics",
