@@ -10,12 +10,13 @@ export function materialize(c: BenchmarkCase) {
   return {
     "career/criteria.md": `---\ntype: note\ntitle: Voyage work criteria\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${input.criteria}\n`,
     "notes/identity.md": `---\ntype: note\ntitle: Odysseus work identity\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${input.identity}\n`,
-    [`career/opportunities/${c.id}/posting.md`]: `---\ntype: opportunity\ntitle: ${JSON.stringify(c.title)}\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${input.posting}`,
-    [`career/opportunities/${c.id}/status.md`]: `---\ntype: opportunity\ntitle: ${JSON.stringify(c.company)}\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n## Pipeline\n\n| Step | Date | Outcome |\n| --- | --- | --- |\n| Found | 2026-07-12 | Source retained; no application decision |\n`,
-    [`career/opportunities/${c.id}/company-packet.md`]: `---\ntype: note\ntitle: Fictional company research\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${company.source}`,
+    [`career/opportunities/voyage-role/posting.md`]: `---\ntype: opportunity\ntitle: ${JSON.stringify(c.title)}\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${input.posting}`,
+    [`career/opportunities/voyage-role/status.md`]: `---\ntype: opportunity\ntitle: ${JSON.stringify(c.company)}\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n## Pipeline\n\n| Step | Date | Outcome |\n| --- | --- | --- |\n| Found | 2026-07-12 | Source retained; no application decision |\n`,
+    [`career/opportunities/voyage-role/company-packet.md`]: `---\ntype: note\ntitle: Fictional company research\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\n${company.source}`,
     "tablets/sentinel.md": "---\ntype: tablet\ntitle: Penelope's unchanged account\ncreated: 2026-07-12\nupdated: 2026-07-12\nstatus: active\n---\n\nThe unrelated account remains unchanged.\n",
     "inputs/metadata.json": JSON.stringify(input.job, null, 2) + "\n",
     "inputs/scoring.json": JSON.stringify(input.config, null, 2) + "\n",
+    "settings/jobs.json": JSON.stringify({ scoring: input.config }, null, 2) + "\n",
   };
 }
 export async function prepare(c: BenchmarkCase) {

@@ -5,6 +5,7 @@ export const protocol = {
   arms: ["installed-keyword-scoring", "installed-complete-agent-research", "choice-plus-installed-explanation"],
   repetitions: 3, stateSizes: [1, 32, 128], order: "deterministically rotate arms within case/repetition; separate fresh roots",
   inputs: "Identical complete posting, metadata, scoring config, criteria, identity and frozen fictional company packet. No external company research in any arm. Full shipped research-opportunity skill, linked skills and CLI retained for agent assessment/explanation.",
+  nativeControls: "Actual installed core/native293 report-only assessment/Read/denied-Write/no-tools and real keyless jobs CLI controls are preparation. They supply no complete ordinary research/intake baseline equivalence, semantic quality or authority. Neutral filenames omit case/split/labels; actual saved scoring settings match the numeric arm. Whole current baseline remains hard-refused1275.",
   labels: "Author provisional. Complementary independently collected Sonnet5.5 source/label/ranking-rubric approval is required; flag-only or scripted approval cannot admit a live window.",
   tuning: "All9 tuning rows only; freeze one confidence/selected-probability threshold before observing12 held-out rows. Null threshold means no accepted classifications and no hybrid comparison dispatch.",
   choiceScope: "Passage must-have and permanent-residence dealbreaker only. No Score transport. Ordinal autonomy annotations are review context, never measured preferences or probabilities.",

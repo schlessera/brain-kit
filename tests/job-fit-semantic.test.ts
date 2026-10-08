@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync, unlinkSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createJevClient, type JevRequest } from "../packages/core/src/lib/jev";
-import { scoreJob } from "../packages/module-jobs/src/score";
+import { scoreJob, loadScoringConfig } from "../packages/module-jobs/src/score";
 import { benchmark, benchmarkInput, researchPacket, BENCHMARK_SHA, type BenchmarkCase } from "../scripts/evals/job-fit/benchmark";
 import { assessSemantic, calibrate, EVIDENCE_PRECEDENCE, semanticRanking, semanticRequest } from "../scripts/evals/job-fit/semantic";
-import { observe, prepare } from "../scripts/evals/job-fit/brain";
+import { observe, prepare, materialize } from "../scripts/evals/job-fit/brain";
 import { grade } from "../scripts/evals/job-fit/metrics";
 function client(c: BenchmarkCase, probability = 1, model = "jev-1.13.0", capture?: (r: JevRequest) => void) {
   const answer = (choice: string) => ({ type: "choice", choice, confidence: 1, probabilities: { met: choice === "met" ? probability : 0, not_met: choice === "not_met" ? probability : 0, unclear: choice === "unclear" ? probability : 1 - probability } });
@@ -104,4 +107,44 @@ test("scripted full-denominator confusion retains unknowns and literal false exc
   expect(report.labelsApproved).toBeNull(); expect(report.pairwiseRankingAgreement).toBeNull(); expect(report.goNoGo).toBeNull();
   expect(report.measuredProviderCostUsd).toBeNull(); expect(report.reviewEffortSeconds).toBeNull();
   expect(() => grade(benchmark, rows.slice(1), "scripted-control")).toThrow("Complete unique");
+});
+
+
+test("native input paths expose neither private case IDs nor split/golden labels", () => {
+  for (const c of benchmark) {
+    const files = materialize(c);
+    expect(Object.keys(files).filter(p => p.startsWith("career/opportunities/"))).toEqual([
+      "career/opportunities/voyage-role/posting.md", "career/opportunities/voyage-role/status.md", "career/opportunities/voyage-role/company-packet.md",
+    ]);
+    expect(JSON.stringify(files)).not.toContain(c.id);
+    expect(JSON.stringify(files)).not.toContain('"split":');
+  }
+});
+test("actual persisted jobs scoring resolves the same nonempty rules as the frozen numeric arm", async () => {
+  const c = benchmark[0]!, env = await prepare(c);
+  try {
+    const resolved = loadScoringConfig(env.root, "career/criteria.md");
+    expect(resolved.groups.map(g => g.name)).toEqual(["passage", "autonomy", "seniority"]);
+    expect(resolved).toEqual(env.input.config);
+    expect(scoreJob(env.input.job, resolved)).toEqual(scoreJob(env.input.job, env.input.config));
+  } finally { env.close(); }
+});
+
+// Independent actual filesystem controls for the complete effect observer.
+test("whole-fixture observer detects binary changes, extra members, same-length link retargeting and same-byte touches", () => {
+  const root = mkdtempSync(join(tmpdir(), "job-fit-effect-")), binary = join(root, "guard.bin"), link = join(root, "route");
+  try {
+    writeFileSync(binary, Buffer.from([0, 255, 128, 13, 10]));
+    writeFileSync(join(root, "alpha"), "same"); writeFileSync(join(root, "omega"), "same");
+    symlinkSync("alpha", link); const before = observe(root);
+    writeFileSync(binary, Buffer.from([0, 254, 128, 13, 10]));
+    expect((observe(root)["guard.bin"] as { content: string }).content).not.toBe((before["guard.bin"] as { content: string }).content);
+    writeFileSync(join(root, "extra.bin"), Buffer.from([0])); expect(Object.keys(observe(root))).toContain("extra.bin");
+    unlinkSync(link); symlinkSync("omega", link);
+    expect((observe(root).route as { content: string }).content).toBe("omega");
+    expect((before.route as { content: string }).content).toBe("alpha");
+    const touchBefore = observe(root); utimesSync(join(root, "alpha"), 1234, 5678); const touched = observe(root);
+    expect((touched.alpha as { content: string }).content).toBe((touchBefore.alpha as { content: string }).content);
+    expect((touched.alpha as { mtimeNs: string }).mtimeNs).not.toBe((touchBefore.alpha as { mtimeNs: string }).mtimeNs);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

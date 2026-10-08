@@ -256,3 +256,44 @@ probability, erase raw response bytes, replace observed output usage with zero,
 and allow a second physical request after unknown usage. Each fails its named
 behavioral assertion with the module loaded, then the original guard is restored.
 These controls establish neither semantic quality nor production adoption.
+
+## Protected native assessment controls
+
+Fresh fictional opportunity paths use the same neutral `voyage-role` directory
+for every isolated case. Case IDs, split and author labels stay in private run
+metadata, not agent filenames or classifier requests. The identical frozen
+scoring rules are persisted through actual `settings/jobs.json` and resolved by
+the installed jobs loader; a separate `inputs/scoring.json` is not that loader.
+
+The protected native control retains the unchanged research-opportunity,
+jobs-review and interview-scheduled skills and real jobs command registration.
+Configuration check, jobs help and index preparation execute keylessly. Actual
+native Read, denied Write, report-only assessment and no-tools transport run in
+a networkless namespace with bogus credentials. The assessment includes complete
+posting, pipeline, criteria, identity, company packet, metadata and actual saved
+scoring inputs. Full fixture snapshots remain unchanged through validation; a
+parsed report creates no intake, pipeline update, dismissal, application decision
+or writing authority. This restricted assessment control is not the complete
+ordinary research/intake workflow or its quality/cost baseline.
+
+Raw private receipts bind literal stdin/stdout/stderr, physical request/response
+bytes, auth/settings, requested/served models, usage, EOF, actual exit and drain.
+Missing invoice remains unknown. Complementary review reparses complete collected
+artifacts at the exact packet/source/runtime freeze; offline scripted APPROVED
+text and metadata flags cannot approve. Live injected transports refuse before
+launch. Source/workspace/dependency/native/Bun modes are bound, and dependency
+inodes shared outside the owned installed tree are refused. These observations
+do not provide cryptographic proof against a dishonest artifact owner.
+
+The provisional rubric specifies criterion explanations, source/unknown checks,
+independent preference pairs, coverage gaps and every timed reviewer/model event.
+Its two authored preference pairs are a small, correlated source-preference
+diagnostic, separate from configured weighted ranking. Title/seniority weights
+can oppose that preference; report the disagreement without changing rules.
+They provide neither Score transport nor population preference validation. No comparison, calibrated
+threshold, review-effort saving or adoption verdict follows from scripted
+transport controls. The complete current-agent path remains blocked on
+[whole auxiliary accounting](https://github.com/schlessera/brain-kit/issues/1275),
+with the actual omitted permission mode preserved. Every original empirical
+criterion remains required after independently collected semantic review and
+safely verified provider admission.
