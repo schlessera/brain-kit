@@ -144,7 +144,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   };
   const repaired = new Map<string, { source: string; value: Index | null }>();
   const identity = (partition: PartitionId, id: string) => `${partition}/${id}`;
-  const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev]);
+  const fingerprint = (row: Index) => JSON.stringify([row.state, row.chunkCount, row.bytes, row.savedThroughMs, row.contentHash, row.transcript, row.acceptedDraftRev, row.transcribeRequestId, row.transcription, row.transcriptionMessage]);
   function present(partition: PartitionId, row: Index): Index | null {
     const repair = repaired.get(identity(partition, row.id));
     return repair?.source === fingerprint(row) ? repair.value : row;

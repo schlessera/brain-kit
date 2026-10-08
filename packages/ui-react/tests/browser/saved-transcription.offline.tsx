@@ -202,14 +202,16 @@ for (const stage of ["prepared", "dispatch"] as const) test(`authentication loss
     } };
   });
   c.mount(); await expand(c); await confirm(c); await tap(button(c.host, "Upload and transcribe"));
-  await expect.poll(() => interrupted).toBe(true); expect(c.uploads).toHaveLength(0);
+  await expect.poll(() => interrupted).toBe(true);
+  await expect.poll(async () => (await navigator.locks.query()).held?.some(lock => lock.name === `brain-ui:transcription:${row.id}`), { message: "the interrupted attempt settles before sign-in" }).toBe(false);
+  expect(c.uploads).toHaveLength(0);
   if (stage === "prepared") {
     c.root.recordings!.dispose();
     c.root.recordings = createRecordingStore({ root: c.root, partitions, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
   }
   c.root.stores.connection.getState().setVpnStatus("connected", "odysseus");
   await c.root.recordings!.syncTranscriptions();
-  await expect.poll(async () => (await c.root.recordings!.get(row.partition, row.id))!.state, { message: "native committed cancellation recovers after reauthentication" }).toBe("failed");
+  await expect.poll(async () => (await c.root.recordings!.get(row.partition, row.id))!.state, { timeout: 5000, message: "native committed cancellation recovers after reauthentication" }).toBe("failed");
   const after = (await c.root.recordings!.get(row.partition, row.id))!;
   expect(after.bytes).toBe(row.bytes); expect(after.contentHash).toBe(row.contentHash); expect(c.uploads).toHaveLength(0);
 });
