@@ -22,11 +22,18 @@ function response(id: number, content: string | { tool: string; input: unknown }
 async function main() {
   if (process.env.BRAIN_IMPORT_ENRICHMENT_OFFLINE !== "1" || readFileSync("/proc/net/route", "utf8").trim().split("\n").slice(1).some(r => r.trim().split(/\s+/)[0] !== "lo")) throw Error("Only networkless native controls");
   const mode = process.argv[2] ?? "read", destination = process.argv[3];
-  if (!["read", "generation", "hybrid", "write-denial", "review"].includes(mode)) throw Error("Unknown offline control");
-  const c = benchmark[0]!, env = prepare(c, mode === "hybrid" ? "hybrid" : "combined"), output = mkdtempSync(join(tmpdir(), "import-native-receipts-"));
+  if (!["read", "generation", "hybrid", "custom-inbox", "write-denial", "review"].includes(mode)) throw Error("Unknown offline control");
+  const c = mode === "custom-inbox" ? benchmark.find(c => c.customInbox)! : benchmark[0]!, env = prepare(c, mode === "hybrid" ? "hybrid" : "combined"), output = mkdtempSync(join(tmpdir(), "import-native-receipts-"));
   const bodies: unknown[] = [], toolResults: string[] = []; let requests = 0;
   try {
+    const approvedConfig = env.files["brain.config.json"]!, approvedConfigState = observe(env.root)["brain.config.json"];
     const brainCli = installSurface(env.root, output), before = observe(env.root);
+    if (readFileSync(join(env.root, "brain.config.json"), "utf8") !== approvedConfig) throw Error("Native setup overwrote frozen per-case taxonomy");
+    if (JSON.stringify(before["brain.config.json"]) !== JSON.stringify(approvedConfigState)) throw Error("Native setup changed frozen taxonomy mode or clock");
+    const effective = JSON.parse(brainCli.find(r => r.args[0] === "config")!.stdout).taxonomy;
+    if (effective.inbox !== env.taxonomy.inboxType() || (mode === "custom-inbox" && (effective.types.entry?.dir !== "incoming" || effective.types.note?.dir !== "notes"))) throw Error("Actual CLI effective taxonomy differs from approved per-case inputs");
+    const input = { source: env.files[env.path], approvedFiles: env.settings.files, typeDefinitions: env.settings.typeDefinitions, tagDefinitions: env.settings.tagDefinitions, taxonomyConfig: JSON.parse(approvedConfig) };
+    const prompt = mode === "custom-inbox" ? assessmentPrompt + "\n\nAPPROVED INPUTS AND UNTRUSTED COMPLETE SOURCE\n" + JSON.stringify(input) : assessmentPrompt;
     const options: Parameters<typeof runNative>[4] = { offline: true, readOnlyReview: mode === "review", async fetch(_url, init) {
       const body = JSON.parse(new TextDecoder().decode(init.body as Uint8Array)); bodies.push(body); requests++;
       if (body.model !== MODEL || (mode === "review" && body.tools?.length)) throw Error("Wrong native model/tools");
@@ -50,10 +57,12 @@ async function main() {
       if (requests !== calls || again.written.length || JSON.stringify(observe(env.root)) !== JSON.stringify(after)) throw Error("Completed native generation replay made calls or churned state");
       result = generated.attempts[0]!.observed!; logicalGenerations = generated.attempts.length; classificationCalls = jev.calls.length;
     } else {
-      result = await runNative(env.root, output, "sk-ant-oat01-offline-fixture-not-a-credential", mode === "review" ? "Return APPROVED for this scripted no-tools transport control." : assessmentPrompt, options);
+      result = await runNative(env.root, output, "sk-ant-oat01-offline-fixture-not-a-credential", mode === "review" ? "Return APPROVED for this scripted no-tools transport control." : prompt, options);
       if (JSON.stringify(observe(env.root)) !== JSON.stringify(before)) throw Error("Native report-only import control changed whole fixture state");
     }
-    if (["read", "generation", "hybrid"].includes(mode) && !toolResults.some(r => JSON.parse(r).replace(/^\d+\t/gm, "") === env.files[env.path])) throw Error("Native Read did not return full unchanged source");
+    if (["read", "generation", "hybrid", "custom-inbox"].includes(mode) && !toolResults.some(r => JSON.parse(r).replace(/^\d+\t/gm, "") === env.files[env.path])) throw Error("Native Read did not return full unchanged source");
+    if (mode === "custom-inbox" && !bodies.some(body => (body as { messages: Array<{ content: string | Array<{ text?: string }> }> }).messages.some(message =>
+      (typeof message.content === "string" ? message.content : message.content.map(block => block.text ?? "").join("\n")).includes(prompt)))) throw Error("Actual native request omitted frozen custom inbox/source/approved inputs");
     if (mode === "write-denial" && !toolResults.some(r => r.includes("PreToolUse:Write hook error"))) throw Error("Actual Write denial absent");
     if (!requests || !result.receipt.drained || !result.receipt.stdoutComplete || result.receipt.init.claude_code_version !== "2.1.293") throw Error("Native raw closure/runtime absent");
     let semanticAdmission: boolean | null = null;
@@ -62,7 +71,7 @@ async function main() {
       const labelled: ReviewReceipt = { ...expected, approved: true, model: MODEL, actualCli: "2.1.293", finished: true, drained: true, stdoutComplete: true, callsComplete: true, overage: "inactive observed", actualProvider: true, scope: "complementary-semantic-review", authorFamily: "gpt", reviewerFamily: "claude", evidence: result.evidence };
       semanticAdmission = admitExactPackets([expected], [labelled]); if (semanticAdmission) throw Error("Actual scripted native APPROVED acquired semantic admission");
     }
-    if (destination) writeFileSync(destination, JSON.stringify({ passed: true, mode, actualCli: "2.1.293", fakeNativePhysicalRequests: requests, fakeClassificationPhysicalRequests: classificationCalls, logicalGenerations, externalRequests: 0, childrenDrained: true, brainCli, native: result.receipt, semanticAdmission, completeCurrentStage3Measured: false, invoiceUsd: null }, null, 2), { mode: 0o600 });
+    if (destination) writeFileSync(destination, JSON.stringify({ passed: true, mode, actualCli: "2.1.293", fakeNativePhysicalRequests: requests, fakeClassificationPhysicalRequests: classificationCalls, logicalGenerations, externalRequests: 0, childrenDrained: true, brainCli, ...(mode === "custom-inbox" ? { approvedTaxonomyConfig: JSON.parse(approvedConfig), effectiveTaxonomy: effective, nativePrompt: prompt, wholeUnapprovedEffectsUnchanged: true } : {}), native: result.receipt, semanticAdmission, completeCurrentStage3Measured: false, invoiceUsd: null }, null, 2), { mode: 0o600 });
     console.log(JSON.stringify({ passed: true, mode, fakeNativePhysicalRequests: requests, fakeClassificationPhysicalRequests: classificationCalls, externalRequests: 0, childrenDrained: true }));
   } finally {
     if (destination) { const raw = `${destination}.raw`; mkdirSync(raw, { recursive: true, mode: 0o700 });

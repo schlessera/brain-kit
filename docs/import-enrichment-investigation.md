@@ -256,3 +256,10 @@ thresholds, full current accounting and the measured recommendation remain
 unresolved until exact complementary review and safe provider admission. No
 provider call, production default or adopted cache/contract follows from these
 controls.
+
+The native fixture installer preserves the materialized per-case `brain.config.json`
+bytes, mode and clock. The private writer builds its taxonomy from that same file.
+A separate networkless custom-inbox control checks the real CLI effective `entry`
+inbox in `incoming`, complete approved paths/definitions/source in the literal
+native request, and unchanged whole fixture effects. This is report-only transport
+evidence, not a measured full Stage3 baseline or semantic approval.

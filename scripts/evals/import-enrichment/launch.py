@@ -4,7 +4,7 @@ import os, pathlib, subprocess, sys
 def main():
     source = pathlib.Path(__file__).resolve().parents[3]
     mode = sys.argv[1] if len(sys.argv) > 1 else 'read'
-    if mode not in ['read', 'generation', 'hybrid', 'write-denial', 'review']:
+    if mode not in ['read', 'generation', 'hybrid', 'custom-inbox', 'write-denial', 'review']:
         raise RuntimeError('This launcher admits only bounded offline controls')
     bun = pathlib.Path(subprocess.run(['bun', '-e', 'console.log(process.execPath)'], capture_output=True, text=True, check=True).stdout.strip())
     args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-all']

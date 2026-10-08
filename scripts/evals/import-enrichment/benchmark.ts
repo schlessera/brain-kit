@@ -84,7 +84,8 @@ export const benchmark: SourceCase[] = [
 export function materialize(c: SourceCase, mode: Mode = "hybrid") {
   const nl = c.crlf ? "\r\n" : "\n", path = "import/source-export/document.md", inbox = c.customInbox ? "entry" : "note";
   const raw = ["---", `title: '${c.entity} source'`, "# The original custody comment stays.", `type: ${c.owner ? "logbook" : inbox}`, `tags: [${c.owner ? "navigation" : ""}]`, "summary: \"\"", "status: draft", "created: '2026-07-10'", "updated: '2026-07-10'", "source_marker: 'keep exactly'", "---", "", c.body, ""].join("\n").replaceAll("\n", nl);
-  const files: Record<string, string> = { [path]: raw, "tablets/sentinel.md": "---\ntype: note\ntitle: Unrelated account\n---\nThe account remains unchanged.\n", "import/source-export/unsupported.txt": "This non-Markdown member is not approved for Stage3.\n" };
+  const config = { taxonomy: { types: { ...(c.customInbox ? { note: { dir: "notes", inbox: false }, entry: { dir: "incoming", inbox: true } } : {}), logbook: { dir: "logbooks" }, ruling: { dir: "rulings" }, tablet: { dir: "tablets" } } } };
+  const files: Record<string, string> = { "brain.config.json": JSON.stringify(config, null, 2), [path]: raw, "tablets/sentinel.md": "---\ntype: note\ntitle: Unrelated account\n---\nThe account remains unchanged.\n", "import/source-export/unsupported.txt": "This non-Markdown member is not approved for Stage3.\n" };
   if (c.duplicate) files["import/source-export/duplicate.md"] = raw;
   const allowedTypes = [inbox, "logbook", "ruling"];
   const settings: Settings = { requested: true, structureApproved: true, files: Object.keys(files).filter(p => p.endsWith(".md") && p.startsWith("import/")).map(path => ({ path, mutable: c.owner ? ["summary"] : ["type", "tags", "summary"], types: allowedTypes })),
@@ -104,7 +105,7 @@ export function prepare(c: SourceCase, mode: Mode = "hybrid") {
   const built = materialize(c, mode), root = mkdtempSync(join(tmpdir(), "brain-import-source-"));
   for (const [path, raw] of Object.entries(built.files)) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), raw); utimesSync(join(root, path), 1234, 5678); }
   mkdirSync(join(root, "assets")); writeFileSync(join(root, "assets/guard.bin"), Buffer.from([0, 255, 128, 13, 10]));
-  const taxonomy = buildTaxonomy({ user: { taxonomy: { types: { ...(c.customInbox ? { note: { dir: "notes", inbox: false }, entry: { dir: "incoming", inbox: true } } : {}), logbook: { dir: "logbooks" }, ruling: { dir: "rulings" }, tablet: { dir: "tablets" } } } } });
+  const taxonomy = buildTaxonomy({ user: JSON.parse(built.files["brain.config.json"]!) });
   const requests: Array<{ kind: string; input: unknown; output: string }> = [];
   const provider = (id: string): CompletionProvider => ({ id, capabilities: { vision: false }, async complete(req) {
     const kind = req.system!.split(" ")[1]!.replace(":", "");

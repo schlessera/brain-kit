@@ -7,10 +7,10 @@ import { validateReviewEvidence, type EvidenceReference, type RuntimeIdentity } 
 export function packets(proof: { freezeSha: string; testsExitCode: number; typecheckExitCode: number; lintExitCode: number; nativeExitCodes: Record<string, number> }) {
   const frozen = freeze();
   if (proof.freezeSha !== frozen.freezeSha || proof.testsExitCode !== 0 || proof.typecheckExitCode !== 0 || proof.lintExitCode !== 0 ||
-    ["read", "generation", "hybrid", "write-denial", "review"].some(mode => proof.nativeExitCodes[mode] !== 0)) throw Error("Exact current keyless preparation proof absent");
+    ["read", "generation", "hybrid", "custom-inbox", "write-denial", "review"].some(mode => proof.nativeExitCodes[mode] !== 0)) throw Error("Exact current keyless preparation proof absent");
   const root = new URL("../../../", import.meta.url).pathname;
   const allDirect = ["docs/decisions/example-corpus.md", "docs/import-enrichment-investigation.md", "packages/core/skills/brain-import/SKILL.md",
-    "packages/core/src/cli/commands/import.ts", "packages/core/src/lib/frontmatter-edit.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/indexer/caches.ts",
+    "packages/core/src/cli/commands/import.ts", "packages/core/src/cli/commands/config.ts", "packages/core/src/lib/frontmatter-edit.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/indexer/caches.ts",
     "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts", "packages/core/src/lib/jev.ts",
     "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts", "packages/core/src/providers/agents/claude-binary.ts",
     "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "packages/ui-kit/fixtures/README.md", "scripts/measure-sonnet55-cost.ts",
@@ -36,8 +36,8 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     group.push(path); groupText += text;
   }
   emitSource();
-  for (let i = 0; i < frozen.inputs.length; i += 4) {
-    const inputs = frozen.inputs.slice(i, i + 4), key = `cases-${i / 4 + 1}`;
+  for (let i = 0; i < frozen.inputs.length; i += 3) {
+    const inputs = frozen.inputs.slice(i, i + 3), key = `cases-${i / 3 + 1}`;
     const text = common + "\n\nCOMPLETE CASES AND AUTHOR-PROVISIONAL GOLDENS\n" + JSON.stringify(inputs, null, 2);
     const bytes = Buffer.byteLength(text);
     if (bytes > 400_000) throw Error("Full common source plus cases exceeds bounded packet; repartition without truncation");
