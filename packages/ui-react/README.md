@@ -359,6 +359,12 @@ Pending tool approvals open at their full detail height so the controls stay
 still during a touch. Ordinary tool details retain their expansion animation;
 reduced-motion preferences make those transitions immediate.
 
+If a permission decision cannot be sent, Chat (including its subagent view)
+and Actions leave the request pending. Actions prints no accepted decision or
+policy-write receipt for a refused send. Reconnect restores the host's pending
+request after history; it never replays the refused decision. Review the card
+and choose again explicitly once connected.
+
 ## Store hooks
 
 The exported store hooks are what a shell reads and calls, typed against a

@@ -379,10 +379,11 @@ export function ActivityPage() {
   function decideApproval(key: string | null, toolUseId: string, approved: boolean, asked?: boolean) {
     const tool = approvals.find((a) => a.tool.id === toolUseId)?.tool;
     const { receipt, frame } = approvalOutcome(tool, toolUseId, approved, asked);
+    // A refused send keeps the card open and produces no decision receipt.
+    if (!root.connection.send(frame)) return;
     setReceipt(receipt);
     setDrained(inbox.length + approvals.length <= 1);
     resolveToolApproval(key, toolUseId, approved);
-    root.connection.send(frame);
   }
   /**
    * The badge's one number (#684): live approvals plus open, non-FYI durable

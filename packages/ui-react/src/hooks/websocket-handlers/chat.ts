@@ -325,6 +325,13 @@ export const chatFrameHandlers = {
     context.state.completeToolCall(context.key, msg.toolUseId, msg.toolName, msg.input);
   },
   tool_approval_request: (msg, context) => {
+    // The host resends pending approvals after all history chunks (#1259).
+    // Finish that replay before restoring its card, so the later running
+    // status cannot replace it with history that has no tool entry yet.
+    const closed = context.buffer()?.messages.some((message) => message.toolCalls.some((tool) =>
+      tool.id === msg.toolUseId && tool.readOnly && tool.readOnly !== "unlisted"));
+    // Keep the store's rejection of answered/ended/revoked cards intact.
+    if (!closed) context.state.finishHistoryReplay(context.key, true);
     context.state.requestToolApproval(
       context.key,
       msg.toolUseId,
