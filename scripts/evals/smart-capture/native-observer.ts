@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 
 export const MODEL = "claude-sonnet-5-5";
+async function bounded<T>(work: Promise<T>, milliseconds: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([work, new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), milliseconds); })]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
+}
 async function main() {
   if (process.env.BRAIN_LIVE_EVAL !== "839" && process.env.BRAIN_SMART_OFFLINE !== "1") throw Error("Explicit #839 dispatch required");
   const destination = process.env.BRAIN_SMART_RECEIPT;
@@ -25,13 +30,15 @@ async function main() {
   if (readOnlyReview) args.push("--tools", "", "--effort", "low");
   const receipt: any = { model: MODEL, promptReleased: false, result: null, init: null,
     rates: [], account: null, settings: null, apiEquivalent: null, failure: null,
-    additionalBilledUsd: null, overage: "unknown", startedAt: performance.now(), finished: false };
+    additionalBilledUsd: null, overage: "unknown", startedAt: performance.now(), finished: false,
+    nativePid: null, exitCode: null, signalCode: null, drained: false, stdoutComplete: false, stderrDrained: false, termination: null };
   const save = () => writeFileSync(destination, JSON.stringify(receipt, null, 2), { mode: 0o600 });
   writeFileSync(`${destination}.stdout.jsonl`, "", { mode: 0o600 }); save();
   const env = { ...process.env, ANTHROPIC_DEFAULT_SONNET_MODEL: MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL: MODEL,
     ANTHROPIC_SMALL_FAST_MODEL: MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: MODEL,
     CLAUDE_CODE_SUBAGENT_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" };
   const native = Bun.spawn([...command, ...args], { cwd: process.cwd(), env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  receipt.nativePid = native.pid; save();
   const input = (async () => {
     const decoder = new StringDecoder("utf8"); let buffer = "";
     for await (const bytes of Bun.stdin.stream()) {
@@ -45,8 +52,25 @@ async function main() {
     }
     buffer += decoder.end(); if (buffer) native.stdin.write(buffer);
     native.stdin.end();
-  })();
-  const stderr = (async () => { for await (const bytes of native.stderr) process.stderr.write(bytes); })();
+  })().catch(error => { receipt.inputFailure = String(error); save(); });
+  const stderr = (async () => {
+    for await (const bytes of native.stderr) process.stderr.write(bytes);
+    receipt.stderrDrained = true;
+  })().catch(error => { receipt.stderrFailure = String(error); save(); });
+  async function closeFailedNative() {
+    receipt.termination = { requested: "SIGTERM", forced: false, timedOut: false }; save();
+    native.kill("SIGTERM");
+    let exitCode = await bounded(native.exited, 1000);
+    if (exitCode === undefined) {
+      receipt.termination.forced = true; native.kill("SIGKILL");
+      exitCode = await bounded(native.exited, 1000);
+    }
+    if (exitCode === undefined) receipt.termination.timedOut = true;
+    else { receipt.exitCode = exitCode; receipt.signalCode = native.signalCode; }
+    await bounded(stderr, 1000);
+    receipt.drained = exitCode !== undefined && receipt.stderrDrained;
+    save();
+  }
   const decoder = new StringDecoder("utf8"); let buffer = "";
   function observe(line: string) {
     if (!line.trim()) return;
@@ -80,13 +104,20 @@ async function main() {
       process.stdout.write(bytes);
     }
     buffer += decoder.end(); if (buffer.trim()) observe(buffer);
+    receipt.stdoutComplete = true;
     await Promise.all([input, stderr]);
-    receipt.exitCode = await native.exited;
+    receipt.exitCode = await native.exited; receipt.signalCode = native.signalCode;
+    receipt.drained = receipt.stderrDrained;
+    if (receipt.inputFailure || receipt.stderrFailure) throw Error("Native transport input/stderr did not flush");
     if (receipt.exitCode !== 0 || !receipt.result || !receipt.init) throw Error("Native EOF/exit without complete usage receipt");
     receipt.overage = receipt.rates.length && receipt.rates.every((r: any) => r.rate_limit_info?.isUsingOverage === false || r.rate_limit_info?.overageInUse === false) ? "inactive observed" : "unknown";
     if (receipt.overage === "inactive observed") receipt.additionalBilledUsd = 0;
   } catch (error) {
-    receipt.failure = String(error); native.kill(); process.exitCode = 1;
-  } finally { receipt.durationMs = performance.now() - receipt.startedAt; receipt.finished = true; save(); }
+    receipt.failure = String(error); process.exitCode = 1;
+    await closeFailedNative();
+  } finally { receipt.durationMs = performance.now() - receipt.startedAt; receipt.finished = receipt.drained; save(); }
+  // On refusal the real runner may still hold stdin open awaiting a response.
+  // Exit only after the owned native process has a recorded bounded close attempt.
+  if (process.exitCode === 1) process.exit(1);
 }
 if (import.meta.main) await main();

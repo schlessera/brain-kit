@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { classify, Spend } from "../scripts/evals/smart-capture/live";
 import { atReferenceDate, fixtures, prepare, scripted } from "../scripts/evals/smart-capture/pipeline";
 import { summarize } from "../scripts/evals/smart-capture/metrics";
@@ -80,4 +83,46 @@ test("inferred-tag reporting excludes metadata, explicit flags and reserved gene
   ]).find(r => r.arm === "hybrid" && r.split === "held-out")!;
   expect(summary.classificationEligibleTagMetrics).toEqual({ observations: 1, correct: 1, predicted: 2, expected: 4, precision: .5, recall: .25 });
   expect(summary.tagPrecision).toBeCloseTo(11 / 12);
+});
+
+for (const ignoreTermination of [false, true]) test(`observer refusal records actual native closure and stderr flush: ${ignoreTermination ? "forced" : "graceful"}`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "brain-smart-native-close-"));
+  const receiptPath = join(root, "receipt.json"), sentinel = join(root, "sentinel.ts");
+  writeFileSync(sentinel, `process.on("SIGTERM", () => { ${ignoreTermination ? "" : 'setTimeout(() => { process.stderr.write("Odysseus sentinel closed\\n"); process.exit(7); }, 300);'} });
+setTimeout(() => process.exit(9), 10000);
+process.stdout.write(JSON.stringify({ type: "system", subtype: "init", model: "unexpected-fixture-model", apiKeySource: "none", claude_code_version: "2.1.283" }) + "\\n");
+`);
+  const source = resolve(".");
+  const child = Bun.spawn([process.execPath, join(source, "scripts/evals/smart-capture/native-observer.ts"), "--settings", "{}"], {
+    cwd: source, env: { PATH: process.env.PATH, BRAIN_LIVE_EVAL: "839", BRAIN_SMART_SOURCE: source,
+      BRAIN_ROOT: root, BRAIN_SMART_RECEIPT: receiptPath, CLAUDE_CODE_OAUTH_TOKEN: "offline-fixture",
+      BRAIN_SMART_NATIVE_COMMAND: JSON.stringify([process.execPath, sentinel]) },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe", signal: AbortSignal.timeout(5000),
+  });
+  child.stdin.end();
+  try {
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text(), new Response(child.stdout).text()]);
+    expect(exitCode).toBe(1);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    expect(receipt.failure).toBe("Error: Actual native model/auth mismatch");
+    expect(receipt.drained).toBe(true);
+    expect(receipt.finished).toBe(true);
+    expect(receipt.stderrDrained).toBe(true);
+    expect(receipt.stdoutComplete).toBe(false);
+    expect(receipt.termination).toEqual({ requested: "SIGTERM", forced: ignoreTermination, timedOut: false });
+    expect(receipt.exitCode).toBe(ignoreTermination ? 137 : 7);
+    expect(receipt.signalCode).toBe(ignoreTermination ? "SIGKILL" : null);
+    expect(receipt.nativePid).toBeGreaterThan(0);
+    expect(() => process.kill(receipt.nativePid, 0)).toThrow();
+    expect(readFileSync(`${receiptPath}.stdout.jsonl`, "utf8")).toContain("unexpected-fixture-model");
+    if (!ignoreTermination) expect(stderr).toContain("Odysseus sentinel closed");
+  } finally {
+    child.kill(); await child.exited;
+    // A reverted close guard can orphan the controlled sentinel. It is ours.
+    const nativePid = JSON.parse(readFileSync(receiptPath, "utf8")).nativePid;
+    if (Number.isSafeInteger(nativePid) && nativePid > 0) {
+      try { process.kill(nativePid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") console.error("Owned sentinel cleanup failed", error); }
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
 });
