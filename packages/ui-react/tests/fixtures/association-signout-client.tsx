@@ -147,8 +147,8 @@ Object.assign(window, { __work: {
       const handle = open(partition);
       return { ...handle, async get(key) { const value = await handle.get(key); if (key === "recording:index:sirens") { started(); await held; } return value; } };
     };
-    pendingMutation = outcome(coldReader!.recordings!.saveTranscript("unassigned", "sirens", "This old transcript must never commit."));
-    await ready;
+    pendingMutation = outcome(coldReader!.recordings!.saveTranscript("unassigned", "sirens", "This old transcript must never commit.")).then(result => { console.error("STAGED TRANSCRIPT SETTLED",result); return result; });
+    await Promise.race([ready, pendingMutation.then(result => { throw new Error(`Cold transcript settled before staging its read: ${result}`); })]);
   },
   coldRecovery: () => outcome(coldReader!.recordings!.saveTranscript("unassigned", "aeolus", "Aeolus closes the bag.")),
   releaseColdTranscript: () => { releaseMutation(); return pendingMutation!; },

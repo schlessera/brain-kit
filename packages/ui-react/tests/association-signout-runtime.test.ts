@@ -547,17 +547,63 @@ for (const action of ["associate", "discard", "transcript"] as const) runtimeTes
   }finally{await context.close();}
 },30_000);
 
-for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned survivors never readmits an earlier transcript request in the same store (${delayStorage ? "delayed" : "ordinary"} storage events)`,async()=>{
+runtimeTest("cold transcript staging reports native lock refusal before its read hook",async()=>{
   const {page,context}=await boot();
-  try {await signIn(page);await work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");});
-    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await other.evaluate(delay=>window.__work.mountColdReader(delay),delayStorage);await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();await work(other,w=>w.stageColdTranscript());
-    await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();await work(page,w=>w.failUnassignedClear());
-    const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await page.locator('input[type=password]').waitFor();
+  try {
+    await signIn(page);
+    await work(page,w=>w.seed("unassigned","sirens"));
+    const other=await context.newPage();
+    await other.goto(origin);
+    await other.waitForFunction(()=>!!window.__work);
+    await work(other,w=>w.mountColdReader());
+    await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();
+    // A real native owner makes saveTranscript reject before get("sirens").
+    await work(page,w=>w.holdRecordingLock());
+    const result=await other.evaluate(async()=>{
+      const observed: {staging: string|null}={staging:null};
+      void window.__work.stageColdTranscript().then(()=>{observed.staging="staged";},error=>{observed.staging=error.message;});
+      const mutation=await window.__work.releaseColdTranscript();
+      // Let the already-settled operation's rejection reach the staging caller.
+      await new Promise(resolve=>setTimeout(resolve,0));
+      return {mutation,staging:observed.staging};
+    });
+    expect(result.mutation,"the native write actually refused the occupied lock").toBe("Error");
+    expect(result.staging,"staging must reject when its read hook can no longer run").toBe("Cold transcript settled before staging its read: Error");
+  }finally{await work(page,w=>w.releaseRecordingLock());await context.close();}
+},30_000);
+
+for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned survivors never readmits an earlier transcript request in the same store (${delayStorage ? "delayed" : "ordinary"} storage events)`,async()=>{
+  // Keep the last started boundary in the log even if Bun kills Chrome at the
+  // existing deadline. Later closed-browser errors cannot identify this await.
+  const step = async <T>(name: string, run: () => Promise<T>) => {
+    console.error(`SURVIVOR ${delayStorage ? "delayed" : "ordinary"} start ${name}`);
+    const result = await run();
+    console.error(`SURVIVOR ${delayStorage ? "delayed" : "ordinary"} done ${name}`);
+    return result;
+  };
+  const {page,context}=await step("boot",()=>boot());
+  try {
+    await step("sign-in",()=>signIn(page));
+    await step("seed",()=>work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");}));
+    const other=await step("peer-page",()=>context.newPage());
+    other.on("console", message => { if (message.text().startsWith("STAGED TRANSCRIPT")) console.error(message.text()); });
+    await step("peer-navigation",()=>other.goto(origin));
+    await step("peer-work",()=>other.waitForFunction(()=>!!window.__work));
+    await step("cold-mount",()=>other.evaluate(delay=>window.__work.mountColdReader(delay),delayStorage));
+    await step("cold-inventory",()=>other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor());
+    await step("stage-transcript",()=>work(other,w=>w.stageColdTranscript()));
+    await step("sign-out-dialog",async()=>{await click(page,"Sign out everywhere");await signout(page).waitFor();});
+    await step("delete-selection",()=>signout(page).getByRole("checkbox").check());
+    await step("clear-failure",()=>work(page,w=>w.failUnassignedClear()));
+    const nav=page.waitForNavigation();
+    await step("sign-out-click",()=>click(page,"Sign out and delete"));
+    await step("sign-out-navigation",()=>nav);
+    await step("logged-out",()=>page.locator('input[type=password]').waitFor());
     // Admission happens before lock acquisition: this explicit recovery opens
     // the new writer generation, then the still-held old request owns the lock.
-    expect(await work(other,w=>w.coldRecovery())).toBe("Error");
-    expect(await work(other,w=>w.releaseColdTranscript()),"recovery refuses the earlier transcript continuation in the same store").toBe("PartitionRefusedError");
-    const row=(await work(page,w=>w.read("unassigned"))).find(r=>r.key==="recording:index:sirens")!;
+    expect(await step("cold-recovery",()=>work(other,w=>w.coldRecovery()))).toBe("Error");
+    expect(await step("release-transcript",()=>work(other,w=>w.releaseColdTranscript())),"recovery refuses the earlier transcript continuation in the same store").toBe("PartitionRefusedError");
+    const row=(await step("survivor-read",()=>work(page,w=>w.read("unassigned")))).find(r=>r.key==="recording:index:sirens")!;
     expect(row,"the failed clear left a real survivor to protect").toBeDefined();
     expect((row.value as {transcript?:string}).transcript,"an earlier transcript request never writes after renewed admission").not.toBe("This old transcript must never commit.");
   }finally{await context.close();}
