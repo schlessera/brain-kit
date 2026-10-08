@@ -192,9 +192,11 @@ The comparison admission state machine retains failed native receipts and
 refuses the next phase after unknown usage, wrong model or route, active or
 unobserved overage, incomplete closure or an unexpected filesystem effect.
 An undrained writer has no safe final snapshot; its receipt is preserved with
-that snapshot absent. Modeled driver controls establish these stop boundaries
-only. The actual native skill driver, lowest request transport and constrained
-tool execution need separate runtime evidence before any live comparison.
+that snapshot absent. Modeled driver controls establish those stop boundaries only. Separate actual
+native controls now exercise the same complete cycle collector used for the
+prospective comparison, with scripted responses in a network namespace that
+contains only loopback. They establish transport/tool/closure behavior, not
+Claude quality or semantic approval of the authored workload.
 API-price equivalents remain separate from actual subscription billing.
 
 The private protocol defines fresh native sessions for dry-run, apply and
@@ -203,3 +205,63 @@ states. It includes startup and complete runtime work in timing, keeps the
 original file mtimes and pinned document date, and distinguishes native cache
 observations from claims of cold provider cache. These controls neither ship a
 production repair command nor decide unattended adoption.
+
+
+## Protected actual skill experiment
+
+The native baseline executes the unchanged shipped content-hygiene skill through
+SDK 0.3.292 / CLI 2.1.292 with a private fixture hook policy and an isolated home.
+It does not measure the unmodified core runner's implicit auto permissions or
+production classifier overhead. All observed physical and auxiliary requests
+are retained and must serve the pinned Sonnet 5.5 model. Unknown route, model,
+usage, overage or completion evidence stops later admissions. Offline controls
+also permit the exact verified SDK 0.3.293 / CLI 2.1.293 pair to establish current
+CI compatibility; those receipts do not supply proof for the 292 live arm.
+
+Only brain CLI child tools preload the exact July 12 noon UTC fixture clock.
+The native SDK, authentication, subscription entitlement, provider, timers and
+performance clock remain real. Real CLI controls exercise detection, complete
+logs, reference dates and repeated no-op behavior at both document sizes under
+UTC, Honolulu and Kiritimati. The readonly source mount supplies runtime code;
+a real outside-fixture read is denied before its bytes reach model-bound input.
+A mutation that permits that read reveals the controlled sentinel to the model
+transport and fails the named assertion.
+
+The physical relay stores literal request and response bytes before decoding or
+forwarding, including binary HTTP failures and malformed streams. Decoded SSE
+frames are a separate interpretation. It records natural EOF, cancellation,
+owned reader closure, terminal per-request usage and final native reconciliation.
+Known API-price subtotals remain separate from unknown aggregate costs and final
+invoices. A streamed split-codepoint control preserves Unicode and the final
+unterminated frame; real HTTP cancellation and shutdown controls prove upstream
+abort and local closure. An owned process that ignores SIGTERM is forcibly killed
+and its actual close/stdout completion awaited before any post-write snapshot.
+
+The full collector takes a complete input snapshot before each phase and checks
+all source bytes, modes, original mtimes and membership before dispatch. Unexpected
+files or directories, symlinks, stale input, wrong source edits, unapproved log
+bytes or unchanged-file churn veto subsequent phases. Disposable SQLite and two
+exact scratch files have separately checked grammars and retained complete bytes.
+They do not authorize arbitrary files under a directory prefix.
+
+Complete provisional reconciler logs fix paths, identities, membership, counts,
+dates, dispositions and all surrounding bytes. Actual fix descriptions can vary
+only in their explicitly reviewed slots for the exact approved changed paths.
+The collector projects these slots from the actual scratch descriptions and the
+pre-reviewed structure; it never copies an observed log into its own expectation.
+Description quality remains false until a separate source-aware annotation binds
+the full actual description and receipt. Structural agreement alone cannot finish
+the comparison or produce an adoption recommendation.
+
+The deterministic schedule has 108 cycles per arm (18 cases, two sizes, three
+repetitions), each with dry-run, apply and same-brain repeat phases. Both arms
+rotate their order; each native phase uses a fresh protected model session.
+Source/fixture preparation and complete dependency/source admission scans are
+excluded from workflow timing; their separate harness wall duration is retained.
+The freezer binds all workspace source/manifests and the complete installed
+dependency byte/mode/link closure, including native and Bun executables. Every admitted native cell
+requires all exact source/case packets approved and the root's current quota,
+actual-charge allocation and serialized-window intent. The preparation and matrix
+scripts do not change production behavior. The full fresh live comparison and
+independent actual-description annotation remain necessary to assess model work
+and end-to-end savings; the keyless controls supply neither result.

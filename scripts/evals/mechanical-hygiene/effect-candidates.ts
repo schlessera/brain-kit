@@ -7,14 +7,15 @@ import { assessEffects, unchangedApproval, type EffectApproval } from "./effects
 import { workload } from "./workload";
 import { hash, protocolSha } from "./protocol";
 
-export async function effectCandidates(caseId?: string) {
+export async function effectCandidates(caseId?: string, initialDocuments = 20) {
+  if (![20,1000].includes(initialDocuments)) throw Error("Require the actual frozen20/1000 document size");
   const rows = [];
   const selected = caseId ? workload.filter(f => f.id === caseId) : workload;
   if (!selected.length) throw Error("Unknown authored workload case");
   const workerTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (caseId && selected[0].timezone !== workerTimezone) throw Error("Worker timezone differs from the authored case");
   for (const fixture of selected) {
-    const env = prepare(fixture, 20 - Object.keys(fixture.files).length);
+    const env = prepare(fixture, initialDocuments - Object.keys(fixture.files).length);
     try {
       const before = observeTree(env.root);
       await cycle(env, true);
@@ -43,7 +44,7 @@ export async function effectCandidates(caseId?: string) {
       const repeat = observeTree(env.root);
       const repeatAssessment = assessEffects(after, repeat, unchangedApproval(after));
       if (!repeatAssessment.accepted) throw Error(`Repeat changed ${fixture.id}`);
-      rows.push({ fixture: fixture.id, split: fixture.split, initialDocuments: 20,
+      rows.push({ fixture: fixture.id, split: fixture.split, initialDocuments,
         workerTimezone, expectedWorkerTimezone: fixture.timezone,
         timezoneRuntimeVerified: workerTimezone === fixture.timezone,
         authoredDocuments: fixture.files, expectedDocuments: fixture.expected,
@@ -59,7 +60,7 @@ export async function effectCandidates(caseId?: string) {
 if (import.meta.main) {
   const destination = process.argv[2];
   if (!destination) throw Error("Require a protected output file for complete fixture effects");
-  const result = await effectCandidates(process.argv[3]);
+  const result = await effectCandidates(process.argv[3], Number(process.argv[4] ?? 20));
   writeFileSync(destination, JSON.stringify(result, null, 2), { mode: 0o600 });
   console.log(JSON.stringify({ protocolSha, rows: result.rows.length, independentApproval: false }));
 }
