@@ -6,19 +6,21 @@ import { CORPUS } from "./corpus";
 import { frozenBinding, ROOT } from "./binding";
 import { collectLabelPanel, type PanelPhysical } from "./label-panel";
 import { admitExactPackets, type ReviewReceipt } from "./review-admission";
-import { type ExpectedReview } from "./review-evidence";
+import { type ExpectedReview, type RuntimeIdentity } from "./review-evidence";
 import { PanelBudget, validatePanelPolicy, type RootPanelPolicy, type PanelReservation } from "./panel-budget";
+import { type ReviewBinding } from "./paid-policy";
 import { consumeGrant, validGrantEvidence } from "./grant";
 
-export function requireReviewedSource(expected:Array<ExpectedReview & {key:string}>,receipts:ReviewReceipt[],freezeSha:string){
-  if(expected.some(p=>p.freezeSha!==freezeSha) || !admitExactPackets(expected,receipts))throw Error("Exact-source independent complementary approval required before any panel request");
+export function requireReviewedSource(expected:Array<ExpectedReview & {key:string}>,receipts:ReviewReceipt[],current:{binding:ReviewBinding;runtime:RuntimeIdentity}){
+  if(expected.some(p=>p.freezeSha!==current.binding.freezeSha || p.promptSha!==current.binding.promptSha ||
+    JSON.stringify(p.binding)!==JSON.stringify(current.binding) || JSON.stringify(p.runtime)!==JSON.stringify(current.runtime)) || !admitExactPackets(expected,receipts))throw Error("Exact-source independent complementary approval required before any panel request");
 }
 export async function runPanel(options:{sidecar:string;output:string;policy:RootPanelPolicy;policySha:string;
   expected:Array<ExpectedReview & {key:string}>;reviews:ReviewReceipt[]}){
   if(process.env.BRAIN_TRIAGE_PANEL_DISPATCH!=="848-root-approved")throw Error("Explicit root panel admission required");
   const bound=frozenBinding(options.sidecar);validatePanelPolicy(options.policy,bound.binding);
   if(sha(JSON.stringify(options.policy))!==options.policySha)throw Error("Root panel policy changed");
-  requireReviewedSource(options.expected,options.reviews,bound.binding.freezeSha);
+  requireReviewedSource(options.expected,options.reviews,bound);
   if(JSON.stringify(bound.input.corpus)!==JSON.stringify(CORPUS))throw Error("Frozen40-source corpus differs");
   const rubric=readFileSync(join(ROOT,"packages/ui-server/evals/triage/prompt.txt"),"utf8");if(rubric!==bound.input.labelPanel.rubric)throw Error("Unchanged donor rubric differs");
   // Root remaining allocation includes every prior attempt/review and aggregate reservation.

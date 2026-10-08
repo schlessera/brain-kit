@@ -10,6 +10,8 @@ import { CLEARED_API_CREDENTIALS } from "../packages/core/src/providers/agents/c
 import { consumeGrant } from "../packages/ui-server/evals/triage/experiment/grant";
 import { ReviewBudget, EXTRA_USAGE_AUTHORIZATION, type RootPaidPolicy } from "../packages/ui-server/evals/triage/experiment/paid-policy";
 
+import { requireReviewedSource } from "../packages/ui-server/evals/triage/experiment/panel-run";
+
 const model = "claude-sonnet-5-5";
 const runtime: RuntimeIdentity = { sdk: "0.3.293", nativeSha: "fixture-native-byte-hash", nativeMode: 0o755, bunSha: "fixture-bun-byte-hash", bunVersion: "1.4.2", bunMode: 0o755 };
 /** Synthetic complete format control; never an actual provider approval. No transport runs here. */
@@ -154,5 +156,17 @@ test("literal physical reparse refuses extra user source even with self-consiste
   entry.requestSha=call.requestSha;entry.inputBound=Math.min(n,1_000_000);entry.reservedUpperUsd=(entry.inputBound*8+entry.outputBound*20)/1e6;
   writeFileSync(join(f.directory,"physical.json"),JSON.stringify([call]));writeFileSync(join(f.directory,"execution.json"),JSON.stringify(execution));
   expect(admitExactPackets([f.expected],[{...f.receipt,evidence:saveEvidenceBundle(f.directory)}])).toBe(false);
+ }finally{f.close();}
+});
+
+test("actual panel approval entry binds valid raw review descriptor to freshly rebuilt prompt/proof/runtime",()=>{
+ const f=fixture("Complete current review descriptor","subscription-native-direct",true);
+ try{
+  const current={binding:f.expected.binding,runtime:f.expected.runtime};
+  expect(()=>requireReviewedSource([f.expected],[f.receipt],current)).not.toThrow(); // Synthetic format only.
+  for(const change of [{promptSha:sha("another prompt")},{proofSha:sha("another proof")},{inputSha:sha("another input")},{protocolSha:sha("another protocol")},{runtimeSha:sha("another runtime")}]){
+   expect(()=>requireReviewedSource([f.expected],[f.receipt],{...current,binding:{...current.binding,...change}})).toThrow("approval required");
+  }
+  expect(()=>requireReviewedSource([f.expected],[f.receipt],{...current,runtime:{...current.runtime,nativeSha:sha("another native")}})).toThrow("approval required");
  }finally{f.close();}
 });

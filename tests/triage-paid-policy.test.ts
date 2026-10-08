@@ -25,11 +25,23 @@ test("single physical reservation persists before forwarding and failed unknown 
  const first=budget.reserve(bytes());expect(states[0][0].status).toBe("reserved");expect(budget.usedUpper()).toBeGreaterThan(0);
  expect(()=>budget.reserve(bytes())).toThrow("inflight");budget.unknown(first);expect(budget.entries[0]!.status).toBe("unknown");expect(budget.entries[0]!.pricedUpperUsd).toBeNull();expect(budget.usedUpper()).toBe(states[0][0].reservedUpperUsd);expect(()=>budget.reserve(bytes())).toThrow("unknown");
 });
+test("short physical wire reserves full context before forwarding and accepts larger known input counters",async()=>{
+ const wire=bytes(),states:any[]=[];const budget=new ReviewBudget(policy(),binding,e=>states.push(e));let forwarded=0;
+ const upstream=async()=>{forwarded++;return{...tokens,input_tokens:wire.byteLength+257};};
+ const index=budget.reserve(wire);expect(states[0][0].inputBound).toBe(1_000_000);expect(budget.usedUpper()).toBeCloseTo(8.16,12);expect(forwarded).toBe(0);
+ const usage=await upstream();expect(usage.input_tokens).toBeGreaterThan(wire.byteLength);budget.settle(index,usage);
+ expect(forwarded).toBe(1);expect(budget.entries[0]!.status).toBe("complete");expect(budget.usedUpper()).toBeCloseTo((usage.input_tokens*2.2+23*11)/1e6,12);expect(budget.entries[0]!.invoiceUsd).toBeNull();
+});
 test("known complete terminal usage reclaims only conservative priced upper and reparses literal budget",()=>{
- const p=policy(),budget=new ReviewBudget(p,binding,()=>{});budget.settle(budget.reserve(bytes()),tokens);expect(budget.usedUpper()).toBeCloseTo(.000596,12);expect(budget.entries[0]!.invoiceUsd).toBeNull();
+ const p=policy(),budget=new ReviewBudget(p,binding,()=>{});budget.settle(budget.reserve(bytes()),tokens);expect(budget.usedUpper()).toBeCloseTo(.0002904,12);expect(budget.entries[0]!.invoiceUsd).toBeNull();
  const calls=[{rawRequestBase64:bytes().toString("base64"),usage:tokens}];expect(reparseBudget(p,binding,budget.entries,calls)).toBe(true);
  expect(reparseBudget(p,binding,[{...budget.entries[0]!,reservedUpperUsd:0}],calls)).toBe(false);
  expect(reparseBudget(p,binding,budget.entries,[{...calls[0],usage:{...tokens,service_tier:"priority"}}])).toBe(false);
+});
+test("Standard usage settlement retains independent fresh/read/long-write ceilings and refuses unknown modifiers",()=>{
+ const b=new ReviewBudget(policy(),binding,()=>{}),usage={input_tokens:17,output_tokens:23,cache_read_input_tokens:19,cache_creation_input_tokens:11,service_tier:"standard",inference_geo:"us"};
+ b.settle(b.reserve(bytes()),usage);expect(b.usedUpper()).toBeCloseTo(.00034089,12);expect(b.entries[0]!.invoiceUsd).toBeNull();
+ const bad=new ReviewBudget(policy(),binding,()=>{}),id=bad.reserve(bytes());const invalid={...usage,service_tier:"priority"};expect(()=>bad.settle(id,invalid)).toThrow("modifier");expect(bad.entries[0]!.status).toBe("unknown");
 });
 test("per-request cap stops next physical and complete usage cannot exceed reserved context/output",()=>{
  const p={...policy(),remainingUpperUsd:.01};const budget=new ReviewBudget(p,binding,()=>{});expect(()=>budget.reserve(bytes())).toThrow("exceeds remaining");expect(budget.entries).toEqual([]);
@@ -81,7 +93,7 @@ test("completed ledger and consumed grant remain verifiable as-of dispatch after
 });
 test("known Standard US bounds retain omission and literal regional usage without claiming global",()=>{
  const b=new ReviewBudget(policy(),binding,()=>{});b.settle(b.reserve(bytes({inference_geo:"us",service_tier:"auto"})),tokens);
- expect(b.usedUpper()).toBeCloseTo(.000596,12);expect(()=>rejectResponseModifiers({...tokens,inference_geo:"us",service_tier:"standard"})).not.toThrow();
+ expect(b.usedUpper()).toBeCloseTo(.0002904,12);expect(()=>rejectResponseModifiers({...tokens,inference_geo:"us",service_tier:"standard"})).not.toThrow();
  expect(()=>rejectResponseModifiers({...tokens,inference_geo:"not_available",service_tier:"standard"})).not.toThrow();
  expect(()=>rejectResponseModifiers({...tokens,inference_geo:"unknown-region"})).toThrow("modifier");
 });
