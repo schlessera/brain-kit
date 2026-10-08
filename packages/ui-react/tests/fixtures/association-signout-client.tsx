@@ -219,6 +219,8 @@ Object.assign(window, { __work: {
   receipt: (partition: PartitionId) => raw(partition).put("recording:accepted:laertes", { accepted: true }),
   extra: (partition: PartitionId) => raw(partition).put("recording:orphan:ithaca", "orphan witness"),
   quota: () => { fault = failIndexedDbWrites({ next: true }); },
+  fullDiscard: async (id: string) => { const quota = failIndexedDbWrites({ afterBytes: 0 }); try { return await outcome(root.recordings!.discard("unassigned", id)); } finally { quota.restore(); } },
+  reopenUnassigned: async () => { await root.partitions!.prepareSignOut("unassigned")(); await root.partitions!.allowUnassignedAction(); },
   restore: () => { fault?.restore(); fault = null; hold?.restore(); hold = null; },
   holdDraft: () => { hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).includes("/draft/")); },
   release: () => hold?.release(),

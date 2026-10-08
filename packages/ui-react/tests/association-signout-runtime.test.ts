@@ -118,6 +118,7 @@ type Work = {
   edit(): Promise<void>; stage(): void; receipt(partition:string):Promise<void>; extra(partition:string): Promise<void>;
   assign(id:string):Promise<string>; move(from:string,to:string,keys:string[]):Promise<string>;
   refresh():void; quota():void; restore():void; clearFailure():void;
+  fullDiscard(id:string):Promise<string>; reopenUnassigned():Promise<void>;
   authorize():Promise<void>; tryStale():boolean; authExpire():Promise<void>;
   compose():void; background():{settingsClosed:number;dictationCancelled:number;finalText:string;partial:string};
   live(kind:"final"|"partial"|"draining"):void;
@@ -136,7 +137,7 @@ type Work = {
   stageUnassignedClear():void; clearWaiting():boolean; releaseUnassignedClear():void; coldRefreshes():number;
   flushColdStorage():void;
   coldStart():Promise<void>; coldActive():{id:string;partition:string}|null; coldStop():Promise<void>; cacheShell():Promise<void>;
-  replaceRoot():void; replacementReady():boolean; replacementHasSignIn():boolean;
+  replaceRoot():Promise<void>; replacementReady():boolean; replacementHasSignIn():boolean;
   holdPeerQuery():void; peerQueryWaiting():boolean; releasePeerQuery():void;
 };
 declare global { interface Window { __work: Work } }
@@ -708,5 +709,13 @@ for (const action of ["Keep working", "Escape", "uncheck"] as const) runtimeTest
       const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await assertEmpty(page,key);
       expect(await work(page,w=>w.read("unassigned")),"a new confirmation honors the current unticked option").toEqual(unassignedBefore);
     }else expect(await signout(page).count()).toBe(0);
+  }finally{await context.close();}
+},30_000);
+
+for (const generation of ["initial", "reopened"] as const) runtimeTest(`a full origin permits explicit unassigned discard in its ${generation} admitted generation`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);if(generation==="reopened") await work(page,w=>w.reopenUnassigned());await work(page,w=>w.seed("unassigned","sirens"));
+    expect(await work(page,w=>w.fullDiscard("sirens")),`full-origin discard uses the existing ${generation} admission without allocating a fence`).toBe("ok");
+    expect(await work(page,w=>w.read("unassigned")),"full-origin discard deletes all of the recording metadata and audio").toEqual([]);
   }finally{await context.close();}
 },30_000);

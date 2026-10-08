@@ -200,7 +200,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   /** Records are keyed `[partition, key]`, so a partition is one key range. */
   const range = (id: PartitionId, prefix = "") => IDBKeyRange.bound([id, prefix], [id, `${prefix}￿`]);
 
-  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction) => void, signal?: AbortSignal, authority?: FenceAuthority): Promise<void> {
+  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction, stored?: WriterFence) => void, signal?: AbortSignal, authority?: FenceAuthority): Promise<void> {
     if (authority) authority.check(); else check(id);
     const writerToken = adopted.get(id);
     const d = await db();
@@ -235,7 +235,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
                 check(id);
                 if (stored?.closed || (stored?.token ?? "initial") !== writerToken || fence(id).token !== writerToken) throw new PartitionRefusedError(id);
               }
-              op(tx);
+              op(tx, stored);
             } catch (error) { operationError = error; abort(); }
           };
         }
@@ -302,7 +302,11 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
     const previous = fence(id);
     const current = previous.closed ? setFence(id, false) : previous;
     adopted.set(id, current.token);
-    await transact(id, [RECORDS], "readwrite", tx => tx.objectStore(RECORDS).put(current, storedFenceKey(id)), undefined, { fence: current, check() {
+    await transact(id, [RECORDS], "readwrite", (tx, stored) => {
+      // Existing admission still validates native authority, but needs no put.
+      // In particular, explicit discard must remain possible on a full origin.
+      if ((stored?.token ?? "initial") !== current.token || stored?.closed) tx.objectStore(RECORDS).put(current, storedFenceKey(id));
+    }, undefined, { fence: current, check() {
       if (!allowed(id) || fence(id).token !== current.token) throw new PartitionRefusedError(id);
     } });
     return current.token;
