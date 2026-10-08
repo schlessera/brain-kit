@@ -17,6 +17,7 @@ import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/vi
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
+import { designFontUsage } from "./tests/visual/design-font-browser.ts";
 import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
@@ -93,7 +94,18 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    // The story addon inserts preview-head.html into its runner HTML. Its
+    // network font links would compete with the shared locked offline faces.
+    plugins: [{
+      name: "locked-preview-fonts",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html) => html.replace(/<link\b[^>]*href="https:\/\/fonts\.(?:googleapis|gstatic)\.com(?:\/[^\"]*)?"[^>]*>/g, ""),
+      },
+    }],
     test: {
+      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,

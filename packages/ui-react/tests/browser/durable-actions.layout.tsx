@@ -87,7 +87,7 @@ let viewport: { width: number; height: number };
 beforeAll(async () => {
   viewport = { width: window.innerWidth, height: window.innerHeight };
   styles = document.createElement("style");
-  styles.textContent = `${await commands.formConsumerStyles()}\n${await commands.rankFooterFonts()}`;
+  styles.textContent = await commands.formConsumerStyles();
   document.head.append(styles);
 });
 afterAll(async () => {

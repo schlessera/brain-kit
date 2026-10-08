@@ -469,19 +469,9 @@ test("dense: ask list, desktop", async () => {
   await inViewport(1024, 1500, () => looksRight(questionAndMask.ListWide, "dense-ask-list-wide"));
 });
 
-/** The image resolves the unbundled mono stack differently before and after
- * earlier subjects (the host label measured 57.75px alone and 69.31px after
- * them). Pin the same local 0.6em stand-in used by the receipt budget tests
- * for these new baselines, then remove it so existing subjects keep their
- * incumbent environment. No network or product font override is involved. */
+/** All subjects use the shared checksum-pinned design fonts. */
 async function rankLooksRight(story: unknown, name: string, light: boolean) {
-  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
-  document.fonts.add(await face.load());
-  try {
-    await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
-  } finally {
-    document.fonts.delete(face);
-  }
+  await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
 }
 
 for (const light of [false, true]) {
@@ -498,9 +488,6 @@ async function formBaseline(story: unknown, name: string, theme: "dark" | "light
   const width = desktop ? 960 : 320;
   const frameBefore = { width: innerWidth, height: innerHeight };
   const outerBefore = await commands.formViewport(width, 2400);
-  // The same deterministic local mono stand-in as rankLooksRight above.
-  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
-  document.fonts.add(await face.load());
   try {
     await page.viewport(width, 2400);
     await (story as ComposedStory).run({ globals: { theme } });
@@ -512,7 +499,6 @@ async function formBaseline(story: unknown, name: string, theme: "dark" | "light
     console.info(`form layout ${name} ${theme}: ${card.getBoundingClientRect().width}×${card.getBoundingClientRect().height} CSS px`);
     await expect(card).toMatchScreenshot(`${name}-${theme}`, TOLERANCE);
   } finally {
-    document.fonts.delete(face);
     await page.viewport(frameBefore.width, frameBefore.height);
     await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
   }

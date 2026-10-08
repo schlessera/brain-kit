@@ -7,6 +7,11 @@ Another file's failure screenshot must not choose the platform font fallback
 used by these comparisons. This is the same process boundary already used for
 module Settings; it changes neither product styles nor reference images.
 
+The [2026-10-08 font migration](visual-fonts.md) replaces the historical
+fallback/local-alias inputs with verified design faces in every browser
+project. The measured history below and separate provider lifetimes remain;
+its statements about unchanged references describe the original #879 change.
+
 ## What distinguished the runs
 
 The source was main `1d1fcc72a7e06352e8b5ee020b3910864babc5db`, with frozen
@@ -87,7 +92,7 @@ Chromium font-cache mechanism was not established by these measurements.
 
 The subject file is excluded from the shared visual project and included exactly
 once in `subjects`, with its existing `formViewport` command
-(`name: "subjects"`, `packages/ui-kit/vitest.config.ts:172-180`). All 54 tests run,
+(`name: "subjects"`, `packages/ui-kit/vitest.config.ts:184-192`). All 54 tests run,
 including the form comparisons that need that command. The provider owns a
 separate browser for each project. Default wrapper selection includes this
 project; the `visual` and `visual:update` package scripts select both projects

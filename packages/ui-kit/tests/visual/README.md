@@ -6,14 +6,29 @@
 a host run. See `tests/visual/subjects.visual.tsx` for why, and which stories are
 in the set.
 
-The ranking-footer regression renders the real five-item story with the three
-preview font families from `scripts/captures/font-lock.json`. `scripts/visual.mjs`
+Every browser project loads the three design font families from
+`scripts/captures/font-lock.json` through `design-font-setup.ts` before rendering.
+The shared setup waits for every locked weight/style, then checks Chromium's
+actual painted glyph faces through CDP. Before and after each test it checks
+that the verified stylesheet and registered face manifest remain intact: local
+aliases and duplicate font stylesheets are rejected. RecordingRow additionally
+checks the actual timestamp/status faces before each screenshot.
+
+`scripts/visual.mjs`
 prepares the pinned public font files and original notices outside the browser,
 then mounts that checksum-verified cache read-only. CI prepares the same inputs
 before `--inside`; tests never download them. Direct offline container invocations
 must mount the cache prepared by `bun run capture:fonts` under the same
-`/tmp/brain-kit-feature-capture-fonts/` path. Existing subjects retain their font
-setup; the ranking-footer test removes its font stylesheet afterward.
+`/tmp/brain-kit-feature-capture-fonts/` path. Tests use no installed-font stand-ins.
+The host's mono source supplies weights 400–600; weight 700 uses Chromium's
+synthesis from that real face, matching the existing preview source.
+
+Regenerate the complete affected matrix with `node scripts/visual.mjs --update`.
+`bun run visual:update` selects only `visual` and `subjects`; isolated dictation,
+module Settings, ranking touch and mixed-pointer rail snapshots must also be
+included when their font inputs change. Keep existing viewport/pointer/theme
+matrices, baseline names and tolerances. See
+[the font decision](../../../../docs/decisions/visual-fonts.md).
 
 The named readability assertion measures each complete keyboard phrase's text
 rectangles after a real fine-pointer reorder. It also checks Reset/Undo and
