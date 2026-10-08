@@ -3583,6 +3583,11 @@ separate checks.
 
 ## 2026-09-25 — D47: `show_block`'s schema can lose a tenth through `definitions`, not half, and nothing ships until a keyed run says the API and the model accept it
 
+> **2026-10-08 — Superseded choice.** This entry describes the former flat
+> shipped form and its keyless estimates. The #336 measurement and #563
+> provider-acceptance decision below select the shared and trimmed form.
+> Its old counts remain historical; they do not describe the new default.
+
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
 `$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:698-701`).
@@ -3864,6 +3869,95 @@ retains all 81 cells, token columns, verified prices, rate flags, isolation
 verdicts and frozen source/schema/corpus identities. Claude accepted both
 reductions, and the counted saving is real. This result does not switch the
 shipped flat form; #563 owns pi's acceptance and the shipping choice.
+
+## 2026-10-08 — D47 superseded: ship shared definitions and trimmed prose after both serializers accept them (#563)
+
+**Decision.** Ship `shared-trimmed`: define `tone`, `valueTone` and `icon` once,
+and remove the 23 field descriptions that restate the tool description. Tool
+names, all eighteen variants, accepted inputs, validation and handler output
+remain unchanged. The historical `flat`, `shared` and `shared-trimmed` arms now
+have explicit options independent of the shipped default. Production-factory
+checks cover Claude's actual MCP listing and Pi's actual bridge parameters;
+removing the icon registry id fails each backend's named definitions assertion.
+The accepted/refused round trips still compare all three forms.
+
+**Evidence from both serializers.** #336's 81 fresh Sonnet 5.5 turns completed
+27 per form; 21/27 turns in each form contained a parsed block. Its frozen
+counted MCP listing was 8,723 / 8,157 / 7,577 tokens for flat / shared / trimmed,
+a 1,146-token (13.1%) reduction for the selected form. One shared-form block
+was rejected before a valid retry; trimmed parsed 22/22 attempts. These are
+that measurement's model, listing, counter and SDK/CLI versions, described
+above, not a current-runtime recount or a behavioral-equivalence guarantee.
+D44's historical 5,270 and D47's keyless estimates remain qualified by their
+original listing/version; the measured #336 table supersedes them for this
+frozen listing. No new runtime or model default is selected here.
+
+Pi separately sent the actual non-strict draft-2020-12 `$defs`/`$ref` parameters
+through installed `@earendil-works/pi-coding-agent` 0.99.2 to `openai-codex` /
+`gpt-6.1-sol`, using Bun 1.4.2 and the ruled existing native ChatGPT login in a
+read-only memory adapter. One natural, reviewed note-approaches prompt was
+used per form, with the same reviewed 31-file fictional corpus. No login,
+refresh, credential-file copy, alternate key, paid fallback or automatic model
+retry was performed. Empty owned homes/settings, fixture-only tool execution
+and read-only source/runtime mounts bounded private-data access; the live
+network namespace was shared and the selected fetch route was guarded.
+Actual isolated-network server/parser/handler controls preceded inference.
+
+| Pi form | logical turn completed | parsed comparison calls | unique physical requests | strict transport guard |
+| --- | --- | ---: | ---: | --- |
+| flat | yes, after local prefix rehydration | 1 | 2 | failed; historical natural upstream EOF unknown |
+| shared | yes | 1 | 2 | passed, natural upstream EOF observed |
+| shared-trimmed | yes | 1 | 2 | passed, natural upstream EOF observed |
+
+**Retained failures and continuation.** The original flat request returned a
+completed exact-model comparison but its observer rejected its required
+media-type condition before the handler received it; the exact original
+content-type was not saved and remains unknown. Its failed server session remains
+unsuccessful. The preserved response was `response.text()` saved as UTF-8;
+replay preserved those exact file bytes, not independently recorded HTTP-wire
+response bytes. An independently reviewed local replay rehydrated that one
+actual response into the real Pi parser and handler, preserving original
+prompt, instructions, tools, model, call identity, arguments and handler result.
+The reconstructed server/cache key differed; this was continuation of the same
+logical context, not the same server session or unchanged request wire.
+
+One native flat continuation completed, but the old observer mistook Pi's
+normal consumer cancellation after `response.completed` for upstream EOF,
+then failed closing an already closed controller. The completed provider/model
+and parsed-handler evidence is valid; its strict transport guard remains
+failed and natural upstream EOF remains unknown. After real delayed-EOF and
+preterminal-cancellation controls and mutations, an ordered observer drained
+independently to natural EOF before any next request or final admission.
+Only the two originally remaining shared forms were then dispatched; flat
+was never inferred again. Both fresh shared turns passed all request/model,
+handler, usage, EOF and lifecycle guards and exited zero.
+
+**Accounting and limits.** Six unique physical requests are retained, including
+both historical flat requests exactly once: 66,266 raw input, 1,084 output and
+21,248 cache-read tokens. Physical usage reconciles with each logical SDK
+aggregate. Each form stayed below five requests and the total below fifteen.
+No included-only limit or credit-decrease stop was observed. Actual additional
+charges and invoices remain unknown; SDK dollar fields are diagnostics, not
+bills. Account-identity equality across the historical stopped boundary cannot
+be proved by the saved auth-selector booleans; no fingerprint is invented.
+Account/quota/credit details and raw opaque headers stay in protected receipts.
+
+This is provider request/parsed-handler acceptance for the named OpenAI route,
+not a Pi call-rate, quality, cache or cost-saving experiment. Other Pi providers
+were not tested. The equal first-request input count for flat/shared and the
+smaller trimmed count are individual observations, not an isolated token
+counter or a general saving. The small Claude sample also does not establish
+equivalence on other prompts. These limits qualify the selected representation;
+they do not change any accepted input or infer a new API/runtime/model adoption.
+
+The [sanitized six-request artifact](../../scripts/measurements/pi-schema-2026-10-08/results.json)
+and [executed-input hashes](../../scripts/measurements/pi-schema-2026-10-08/executed-inputs.json)
+bind the exact remaining-arms admission `a46ca0ba…`, historical `3d58bf7c…`
+and original prefix. They retain all failures, raw usage, schemas and accepted
+handler evidence without account identities, credit balances or quota details.
+Published current instrumentation is parameterized and now preserves historical
+arms; literal executed source/runtime and complete private receipts remain
+bound to the recorded protected manifests. No further inference was made.
 
 ## 2026-09-25 — measured: the Claude backend at server level, beside pi (#137)
 

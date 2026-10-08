@@ -1287,6 +1287,16 @@ The eight bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
+**Schema representation (#563):** `show_block` now writes its unchanged
+`tone`, `valueTone` and `icon` inputs once as shared definitions, and omits
+field descriptions already stated by the tool description. The Claude MCP
+listing uses draft-7 `definitions` and local `$ref`; Pi uses draft-2020-12
+`$defs` and local `$ref`. Consumers resolve these references according to the
+advertised schema dialect. Tool names, accepted fields, validation, handler
+results and rendered blocks remain unchanged; this representation update ships
+in a minor without a `schema_version` change. The choice and measured limits
+are recorded in [the design-kit decision](decisions/design-kit.md).
+
 ### Tool component contracts
 
 A contract is `{ name, description, input, brief }`, plus `payload` when the
