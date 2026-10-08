@@ -205,6 +205,9 @@ whole-source request and completion policy; changing definitions or full source
 invalidates completed/cache context. The actual Choice bridge requires confidence
 and selected probability together and refuses an uncalibrated gate before dispatch.
 Unknown types require configured-inbox review rather than completed writes.
+Bad or uncertain tags refuse item completion; known-usage later items and retries
+retain the original partial-failure policy. Unknown model/usage or wire failure
+stops new physical admissions.
 
 The summary rubric binds exact complete source, actual output and case/fact/condition
 identities. Supported paraphrases are acceptable; authored exact sentences are
