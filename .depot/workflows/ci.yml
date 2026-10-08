@@ -726,6 +726,12 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
+    # The real ten-minute capture bound plus cold-launch coverage exceed one
+    # job's budget. Keep the deadline and run every file in two offline shards.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -737,7 +743,7 @@ jobs:
       - name: Chat overlay geometry in the pinned offline Chromium image
         # The shared runner starts Docker with --network=none for this project.
         # Only the in-container Vite server is reachable; no keys are forwarded.
-        run: bun run test:layout
+        run: bun run test:layout --shard=${{ matrix.shard }}/2
 
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
