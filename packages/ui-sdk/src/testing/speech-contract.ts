@@ -8,6 +8,8 @@ export interface SpeechProviderContractProbe {
   provider: SpeechProvider;
   /** Terms observed by the actual provider's transport, when keyterms is true. */
   keyterms(): readonly string[];
+  /** Observe saved-audio transport input/result, when the method is supplied. */
+  recording?(): { audio: Uint8Array; contentType: string; keyterms: readonly string[]; text: string };
   dispose(): void | Promise<void>;
 }
 
@@ -57,6 +59,34 @@ export function runSpeechProviderContract(
         }
         expect(JSON.parse(JSON.stringify(session))).toEqual(session);
       } finally { await probe.dispose(); }
+    });
+
+    test("optional saved-audio method forwards unmodified bytes and rejects transport failure", async () => {
+      const probe = harness.create();
+      try {
+        const method = probe.provider.transcribeRecording;
+        if (probe.provider.capabilities.savedAudio !== undefined) expect(probe.provider.capabilities.savedAudio).toBe(typeof method === "function");
+        if (!method) return;
+        const audio = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]);
+        const keyterms = ["Ithaca"];
+        const result = await method.call(probe.provider, { audio, contentType: "audio/webm;codecs=opus", keyterms, signal: new AbortController().signal });
+        expect(typeof result.text).toBe("string"); expect(result.text.trim().length).toBeGreaterThan(0);
+        expect(audio).toEqual(new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]));
+        expect(keyterms).toEqual(["Ithaca"]);
+        // A fixture without transport observation is not a conformance proof.
+        expect(typeof probe.recording).toBe("function");
+        expect(probe.recording!()).toEqual({ audio, contentType: "audio/webm;codecs=opus", keyterms: probe.provider.capabilities.keyterms ? keyterms : [], text: result.text });
+      } finally { await probe.dispose(); }
+      if (harness.failing) {
+        const failure = harness.failing();
+        try {
+          expect(typeof failure.provider.transcribeRecording).toBe("function");
+          let caught: unknown;
+          try { await failure.provider.transcribeRecording!({ audio: new Uint8Array([1]), contentType: "audio/mp4", keyterms: [], signal: new AbortController().signal }); }
+          catch (error) { caught = error; }
+          expect(caught).toBeInstanceOf(Error);
+        } finally { await failure.dispose(); }
+      }
     });
 
     if (harness.failing) test("rejects a session transport failure instead of returning fallback connection material", async () => {

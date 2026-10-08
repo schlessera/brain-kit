@@ -21,7 +21,7 @@ test("createApp uses a supplied provider on the mounted session route and its pu
     const response = await t.fetch("/api/voice/session", { method: "POST" });
     expect(response.status).toBe(200);
     const session = await response.json();
-    expect(session).toEqual({ providerId: provider.id, url: "wss://speech.example.test/dictation", token: "fixture-session-token", params: { language: "en" }, expiresAt: 12345, capabilities: provider.capabilities });
+    expect(session).toEqual({ providerId: provider.id, url: "wss://speech.example.test/dictation", token: "fixture-session-token", params: { language: "en" }, expiresAt: 12345, capabilities: { ...provider.capabilities, savedAudio: false } });
     expect(requests).toEqual([[]]);
     const received: AsrClientOptions[] = [];
     const registry = createAsrClientRegistry();
@@ -49,7 +49,7 @@ test("a supplied provider wins over automatic Deepgram discovery but never an ex
       const body = await response.json();
       if (selection === "" || selection === provider.id) {
         expect(response.status).toBe(200);
-        expect(body).toEqual({ providerId: provider.id, ...localSession, capabilities: provider.capabilities });
+        expect(body).toEqual({ providerId: provider.id, ...localSession, capabilities: { ...provider.capabilities, savedAudio: false } });
         expect(calls).toBe(before + 1);
       } else {
         expect(response.status).toBe(500);
@@ -95,7 +95,7 @@ test("selection without an external value preserves opt-in browser speech and fa
       const body = await response.json();
       if (selection === "webspeech") {
         expect(response.status).toBe(200);
-        expect(body).toEqual({ providerId: "webspeech", ...localSession, capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false } });
+        expect(body).toEqual({ providerId: "webspeech", ...localSession, capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false, savedAudio: false } });
       } else {
         expect(response.status).toBe(500);
         expect(Object.keys(body)).toEqual(["error"]);
@@ -152,6 +152,13 @@ function providerProbe(failing: boolean) {
     if (failing) throw new Error("Fixture session transport failure");
     return { url: "wss://speech.example.test/dictation", params: { language: "en" }, expiresAt: 1000 };
   };
-  const provider = externalProvider({ capabilities: { streaming: true, interimResults: true, keyterms: true, endpointing: true }, createSession: ({ keyterms }) => transport(keyterms) });
-  return { provider, keyterms: () => terms, dispose() {} };
+  let recording!: { audio: Uint8Array; contentType: string; keyterms: string[]; text: string };
+  const provider = externalProvider({ capabilities: { streaming: true, interimResults: true, keyterms: true, endpointing: true }, createSession: ({ keyterms }) => transport(keyterms),
+    async transcribeRecording({ audio, contentType, keyterms }) {
+      recording = { audio: audio.slice(), contentType, keyterms: [...keyterms], text: "Odysseus sails for Ithaca." };
+      if (failing) throw new Error("Fixture saved-audio transport failure");
+      return { text: recording.text };
+    },
+  });
+  return { provider, recording: () => recording, keyterms: () => terms, dispose() {} };
 }

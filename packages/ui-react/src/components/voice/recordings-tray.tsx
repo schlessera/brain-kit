@@ -121,10 +121,30 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
   const root = useBrainUiRoot();
   const recordings = store ?? root.recordings!;
   const [confirm, setConfirm] = useState(false);
+  const [uploadConfirm, setUploadConfirm] = useState(false);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    setUploadConfirm(false); setProvider(null);
+    if (localOnly || offline || row.partition === "unassigned") return;
+    void root.request(`${root.apiBase()}/voice/capabilities`, { credentials: "include", cache: "no-store" }).then(async response => {
+      const body = response.ok ? await response.json() : null;
+      if (live && body?.capabilities?.savedAudio === true) setProvider(body.providerId);
+      if (live) await recordings.syncTranscriptions();
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [root, recordings, localOnly, offline, row.partition, row.id]);
+
   const [text, setText] = useState(row.transcript ?? "");
   const [error, setError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (row.state !== "transcribing" || busy || offline || localOnly) return;
+    const timer = setInterval(() => void recordings.syncTranscriptions().catch(() => {}), 2000);
+    return () => clearInterval(timer);
+  }, [row.state, busy, offline, localOnly, recordings]);
   const active = useRef(false);
   const chain = useRef(Promise.resolve());
   const observedTranscript = useRef(row.transcript);
@@ -183,6 +203,9 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
       onAccepted();
     });
   };
+  const retry = row.transcription?.status === "failed" && row.transcription.failure?.retryable && row.transcription.retryCount < 3 ? row.transcription.attemptId : undefined;
+  const terminal = !!row.transcription && (row.transcription.status === "outcome_unknown" || row.transcription.status === "consumed" || row.transcription.status === "failed" && !retry);
+  const working = busy || row.state === "transcribing";
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
     <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} interrupted={row.interruptedAt !== undefined} offline={offline}>
       {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && <>
@@ -201,11 +224,26 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
         </label>
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
+      {!localOnly && provider && !offline && row.partition !== "unassigned" && !terminal && !["transcript-ready", "accepted", "transcribing"].includes(row.state) && !uploadConfirm && <div className="mt-2">
+        <Button label={retry ? "Retry" : "Transcribe"} ariaLabel={`${retry ? "Retry transcription of" : "Transcribe"} ${name}`} block={false} style={target} disabled={busy || !row.chunkCount} onClick={() => { setUploadConfirm(true); setError(""); }} />
+      </div>}
+      {uploadConfirm && provider && !offline && <div role="group" aria-label={`Upload ${name}`} className="mt-2">
+        <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server for transcription? Your server sends it to {provider === "deepgram" ? "Deepgram" : provider}.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button label="Upload and transcribe" block={false} style={target} disabled={busy} onClick={() => {
+            setUploadConfirm(false); setUploadPercent(0);
+            void run(async () => { await recordings.transcribe(row.partition, row.id, setUploadPercent, retry); }).finally(() => { if (mounted.current) setUploadPercent(null); });
+          }} />
+          <Button label="Cancel" tone="ghost" block={false} style={target} disabled={busy} onClick={() => setUploadConfirm(false)} />
+        </div>
+      </div>}
+      {(busy && uploadPercent !== null || row.state === "transcribing") && <p role="status" className="mt-2 text-xs">{busy && uploadPercent !== null && uploadPercent < 100 ? `Uploading… ${uploadPercent}%` : "Transcribing…"}</p>}
+      {row.transcriptionMessage && <p role="status" className="mt-2 text-xs">{row.transcriptionMessage}</p>}
       <div ref={actions} className="mt-2 flex flex-wrap gap-2">
-        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
+        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={working || !text.trim()} onClick={accept} />}
         {!localOnly && row.partition === "unassigned" && onAssociate && <Button label="Add to my account…" block={false} style={target} disabled={busy} onClick={onAssociate} />}
-        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={busy || row.chunkCount === 0} onClick={play} />
-        <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={busy} onClick={() => setConfirm(true)} />
+        <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={working || row.chunkCount === 0} onClick={play} />
+        <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={working} onClick={() => setConfirm(true)} />
       </div>
       {row.chunkCount === 0 && <p className="mt-2 text-xs text-muted-foreground">Audio is no longer available on this device. Your transcript is kept.</p>}
       {url && <audio controls autoPlay src={url} aria-label={`Playback of ${name}`} className="mt-2 w-full" />}
@@ -216,7 +254,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
           <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
-      {!localOnly && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}
+      {!localOnly && (offline || !provider) && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}
       {saveError && <p role="alert" className="mt-2 text-xs text-destructive">{saveError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </RecordingRow>

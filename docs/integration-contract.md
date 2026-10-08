@@ -3459,6 +3459,108 @@ its protocol-specific authentication, capture and failure behavior. The
 [authoring guide](extending/speech.md) supplies complete public server/client
 examples and points to executable harnesses and real route/Chrome integration.
 
+### Saved-audio transcription (additive, #1021)
+
+The existing experimental `SpeechProvider` adds optional
+`transcribeRecording({ audio: Uint8Array, contentType: string, keyterms: string[],
+signal: AbortSignal }): Promise<SavedAudioTranscription>`; its result is
+`{ text: string }`. Implementations may omit it. Implementations that supply it
+must send unmodified audio server → provider using server-held credentials,
+reject failures, and perform no automatic retry. They must not resolve empty
+text or send audio directly from the browser. This adds no provider registry
+or separate seam. `SpeechTranscriptionError(reason, providerStatus?)` records
+an explicit classification; untyped exceptions, lost/unparseable/invalid
+responses and local timeouts become terminal `outcome_unknown`. Definitive
+HTTP error responses are classified from their status: 401/403 authentication,
+429 rate limit, 408/504 provider timeout, other 5xx provider error, and other
+4xx media/parameter/validation rejection. A contradictory reason cannot
+make a nonretryable HTTP response retryable. Providers without an HTTP status
+must supply a truthful definitive reason or use `outcome_unknown`.
+
+`SpeechCapabilities.savedAudio?: boolean` is additive. Absent/false means
+unavailable to clients. The server derives it solely from a callable optional
+method for discovery, session responses and uploads; a declared flag that
+contradicts that method is invalid. `GET /api/voice/capabilities` is protected,
+read-only, `no-store`, returns `{ providerId, capabilities }`, and mints no
+streaming token or provider request. Selection/validation failures retain 500
+`{ error }`. Deepgram is the only built-in saved-audio provider; Web Speech
+omits the method and reports false. Deepgram sends the raw container body to
+`POST /v1/listen` with `model=nova-3`, `smart_format=true`, `mip_opt_out=true`,
+server `Authorization: Token …`, the original media type and no `encoding`.
+Keyterms use a conservative aggregate 500 UTF-8-byte budget including
+separators, below the provider's 500-token ceiling. No live vendor call is
+part of the conformance proof.
+
+`GET`/`PUT`/`DELETE /api/voice/recordings/:recordingId/transcription` are
+supported HTTP operations, specified in [the HTTP reference](http-api.md#saved-audio-transcription).
+All require a usable account principal. Agents/system principals are refused;
+ambient modes use their existing account mapping (proxy users are distinct).
+The host derives ownership from its existing account key; it never trusts a
+client account id. The calling principal is re-resolved inside the claim
+transaction after reading the bounded body. Expired authorization cannot read
+a completed result. A recording id is host-wide unique, with an immutable
+verified hash and owning account, rather than partitioned by login principal.
+Cross-account reads and mutations return 404 without result disclosure or
+provider dispatch. Reauthentication as the same account reuses the receipt.
+
+`RecordingTranscription` is `{ recordingId, sha256: string|null,
+providerId: string|null, status, attemptId, retryCount, failures,
+text?, failure?, disposition? }`. Status is `transcribing | done | failed |
+outcome_unknown | consumed`. Each failure is `{ reason, retryable,
+providerStatus? }`; `reason` is `provider_error | rate_limit | provider_timeout |
+media | parameters | validation | authentication | outcome_unknown`.
+`failures` retains each failed attempt's classification plus its `attemptId`.
+`retryCount` counts explicit retries (0 initially, maximum 3); it and the
+failure history survive consumption. Disposition is `accepted | discarded`.
+Only `done` carries transcript text. Hash/provider can be null on a tombstone
+that precedes the first upload. `GET` returns the receipt or 404.
+
+Only an immediate transaction inserting a claim may dispatch the provider.
+A repeated same-hash `done` upload returns the same receipt and text. An
+in-progress receipt gives 409 `transcription_in_progress`; a different hash
+gives 409 `recording_hash_mismatch`. A failed plain replay gives 409
+`transcription_failed`. `PUT ?retry=<failed attemptId>` atomically claims a
+new attempt only for a retryable failure: provider 5xx, 429/rate limit or a
+definitive provider timeout including Deepgram 504. Each retry is explicitly
+user initiated. Media, parameter, validation and authentication failures are
+never retried; they give 409 `transcription_not_retryable`. A stale token gives
+409 `transcription_retry_stale`; once three retries are used, a current token
+gives 409 `transcription_retry_limit`. Simultaneous retries can claim only
+one attempt. `outcome_unknown` gives terminal 409
+`transcription_outcome_unknown`, never any retry. A server restart makes any
+leftover `transcribing` receipt unknown. Completion updates only its still
+active attempt, preventing stale replies from overwriting a tombstone.
+Provider rejection is a 200 receipt with `failed`, not a lost HTTP response.
+Errors use `{ error, message, receipt? }`; stored conflict/terminal responses
+include the receipt. Authentication errors retain the existing guard envelope.
+
+Receipts live indefinitely in the UI's operational database, never `brain.db`.
+They outlive login rows and have no TTL or count-based pruning. `DELETE` erases
+text but retains a `consumed` tombstone; delayed PUTs give 410
+`transcription_consumed`. A DELETE before the first claim inserts a hashless
+tombstone. The guarantee lasts for the lifetime of that operational database;
+resetting it is the boundary. Recording ids are random client UUIDs.
+
+The paired UI uploads only after the confirm row's **Upload and transcribe**
+action, and uses a recording-id Web Lock. Reconnect/reload/sign-in never
+uploads audio or sends a chat message. Recovery may read GET status; explicit
+accept/discard may queue a durable DELETE while offline and replay that deletion
+after reconnect. Success is saved to the owning local partition before review
+is ready, and audio remains until explicit acceptance/discard. Unassigned
+recordings require explicit association before upload. A transport loss during
+partial upload retains the original bytes/hash and asks for fresh consent;
+an uploaded request with an unconfirmed reply stays awaiting status. Unknown
+outcomes and exhausted/nonretryable failures keep audio and offer no Retry.
+The root's existing request injection accepts optional `onUploadProgress`
+(callback percentage); its default uses XHR for actual byte-upload progress,
+with the same account epoch and 401 guards as fetch. Injected transports that
+handle this callback must report transferred bytes, never fabricated completion.
+
+`runSpeechProviderContract` adds optional-method probes of unchanged bytes,
+media type, supported keyterms, nonempty results and rejection. A provider
+implementing the method supplies `recording()` transport observations in its
+keyless probe. Existing providers that omit it remain valid.
+
 ### SiteAdapter conformance and migration
 
 Under the [2026-09-28 adoption ruling](https://github.com/schlessera/brain-kit/issues/344#issuecomment-5866304745),

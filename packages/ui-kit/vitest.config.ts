@@ -1,3 +1,4 @@
+import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -104,7 +105,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, startRequestLog, requestLog, grantMicrophone },
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

@@ -85,8 +85,8 @@ export type {
   MapDetail,
 } from "./coastline.js";
 
-export type { SpeechProvider, SpeechSession } from "./speech.js";
-export { defineSpeechProvider } from "./speech.js";
+export type { SpeechProvider, SpeechSession, SavedAudioTranscription } from "./speech.js";
+export { defineSpeechProvider, SpeechTranscriptionError } from "./speech.js";
 
 export type {
   ConversationResync,
