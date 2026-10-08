@@ -312,8 +312,11 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.depot/workflows/ci.yml:88`), so bumping the SDK in this repo fails CI until
-  somebody re-measures. It needs no key and no network, so it is allowed
+  `.depot/workflows/ci.yml:34`), so the guard compares the lockfile-installed pair.
+  This fast version guard remains an affected automatic check under
+  [the current CI policy](ci-utility.md); changing the SDK requires fresh local
+  runtime measurements before updating the constant. It needs no key and no
+  network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
@@ -725,13 +728,13 @@ What that changes and what it does not:
   Tool search is one — the probe turns it on explicitly for its cases — and the
   auto-mode classifier's headers are another. None of the measured cases uses
   auto mode.
-- **CI runs it (#284).** The `claude-runtime-probe` job in
-  `.depot/workflows/ci.yml` (mirrored in `.github/workflows/ci.yml`) runs the probe on every PR and on `main`, inside
+- **Runtime execution (#284; local since #1305).** `bun run check:pr` runs
+  the real probe for affected runtime work under [the current CI policy](ci-utility.md), inside
   a network namespace that holds nothing but loopback: nothing but loopback is
   reachable, so every case passing there shows the probe needs no network. It
   does not audit connection attempts, so a background request that fails
   quietly would not fail a case. A failed or inconclusive case fails
-  the job, and the job prints the JSON report.
+  the local check; its JSON report remains available for review.
 
 ## 2026-09-30 — CI returns to GitHub Actions (#618)
 

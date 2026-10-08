@@ -28,9 +28,13 @@ mistake therefore lands on the whole group at once.
    inspect this contribution, but does not replace full pending-set validation.
    An unknown name prevents plan assembly even when the contribution gate passes;
    correct the reference while preserving its intended bump and release prose.
-2. **`bun run test` and `bunx tsc --noEmit` are green.** The `tests/`
-   directory holds the release guards — a failure there is about the release
-   itself, not the code.
+2. **`bun run check:pr --all` is green before creating the release PR.**
+   This includes complete tests, strict types, real runtime/Chrome enforcement,
+   every pinned browser/layout/endurance project, editorial reproducibility and
+   all packed consumer checks. Record head/base, commands and results; fast
+   automatic CI does not establish release proof. Missing tools or skipped
+   runtime checks leave verification unfinished. The `tests/` directory retains
+   the release guards; none are removed to save CI minutes.
 3. **New package added this cycle?** It must appear in `scripts/publish.ts`,
    `scripts/build.ts`, the `fixed` group in `.changeset/config.json`, and the
    package map in `README.md`. `tests/release-manifest.test.ts` enforces the
@@ -78,7 +82,7 @@ permission-precedence cases during 0.40.0 preparation, so that release retained
 the validated SDK 0.3.283 / CLI 2.1.283 pair.
 
 ```sh
-bunx tsc --noEmit && bun run test && bun run build
+bun run check:pr --all
 ```
 
 ## A cold build tries to download an installed CLI
@@ -87,8 +91,8 @@ bunx tsc --noEmit && bun run test && bun run build
 installed package exports `tailwindcss`, then attempt a registry download.
 Name both explicitly: `bunx -p @tailwindcss/cli tailwindcss`. Diagnose against
 the frozen install with `bunx --no-install -p @tailwindcss/cli tailwindcss --help`;
-it must work without a warm Bun cache or network. The editorial capture CI
-build exercises the actual build script with networking disabled.
+it must work without a warm Bun cache or network. The required local editorial capture
+verification exercises the actual build script with networking disabled.
 
 ## `bun run build` exits 133 with a V8 stack trace
 

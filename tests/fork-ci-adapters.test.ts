@@ -87,8 +87,8 @@ describe("an adapter differs from its source only by the enumerated adaptations"
         test(`job ${id}: routing, runner and checkout credentials are the only differences`, () => {
           const from = source.jobs[id]!;
           const to = adapter.jobs[id]!;
-          expect(from.if).toBe(DEPOT_ROUTE);
-          expect(to.if).toBe(FORK_ROUTE);
+          expect(from.if === DEPOT_ROUTE || from.if!.startsWith(`(${DEPOT_ROUTE}) && `)).toBe(true);
+          expect(to.if).toBe(from.if!.replace(DEPOT_ROUTE, FORK_ROUTE));
           expect(from.name).toBeUndefined();
           expect(to.name).toBe(forkJobName(id));
           expect(RUNNER_MAP[from["runs-on"]]).toBeDefined();
@@ -123,7 +123,7 @@ describe("an adapter differs from its source only by the enumerated adaptations"
 /**
  * Enough of the GitHub Actions expression language to evaluate routes and
  * concurrency keys: property paths, string literals, null, `==`, `!=`, `&&`, `||` and
- * parentheses. String comparison is case-insensitive, as it is in Actions.
+ * parentheses, negation and cancelled(). String comparison is case-insensitive, as it is in Actions.
  * Anything else throws, so a route the evaluator cannot read fails the test.
  */
 function evaluate(expression: string, context: Obj): Json {
@@ -136,6 +136,12 @@ function evaluate(expression: string, context: Obj): Json {
   const truthy = (v: Json) => v !== null && v !== false && v !== 0 && v !== "";
   function primary(): Json {
     const token = take();
+    if (token === "!") return !truthy(primary());
+    if (token === "cancelled" && peek() === "(") {
+      take();
+      if (take() !== ")") throw new Error(`cancelled takes no arguments in ${expression}`);
+      return context.cancelled === true;
+    }
     if (token === "(") {
       const value = or();
       if (take() !== ")") throw new Error(`unbalanced parentheses in ${expression}`);
@@ -259,10 +265,59 @@ const EVENTS: Record<string, { context: Obj; provider: "depot" | "github" }> = {
 function runs(provider: "depot" | "github", workflow: Workflow, job: Job, context: Obj): boolean {
   const event = String(context.event_name);
   const triggered = event in workflow.on || (provider === "depot" && event === "api");
-  return triggered && evaluate(job.if!, { github: context }) === true;
+  return triggered && evaluate(job.if!, { github: context,
+    needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true" } }, pack: { result: "success" } } }) === true;
 }
 
+describe("longer packaging completes before short verification (live scheduler proof remains required)", () => {
+  const ci = pairs.find(pair => pair.spec.source.endsWith("/ci.yml"))!;
+  for (const [label, workflow, repo] of [[ci.spec.source, ci.source, REPO],
+    [ci.spec.target, ci.adapter, "odysseus/brain-kit"]] as const) {
+    const selected = (pack: string, result: string, cancelled = false, verify = "true", changeset = "success") => ({
+      github: pullRequest(repo), cancelled,
+      needs: { changeset: { result: changeset, outputs: { verify, pack } }, pack: { result } },
+    });
+    test(`${label}: the dependency prevents verification starting beside packaging`, () => {
+      expect(workflow.jobs.pack!.needs).toBe("changeset");
+      expect(workflow.jobs.verify!.needs).toEqual(["changeset", "pack"]);
+      for (const state of ["", "queued", "in_progress"]) {
+        expect(evaluate(workflow.jobs.verify!.if!, selected("true", state))).toBe(false);
+      }
+      expect(evaluate(workflow.jobs.verify!.if!, selected("true", "success"))).toBe(true);
+    });
+    test(`${label}: an intentional pack skip still permits selected verification`, () => {
+      // GitHub implicitly adds success() unless a status function is present;
+      // without this override, a skipped pack would hide all tests-only checks.
+      expect(workflow.jobs.verify!.if).toContain("!cancelled()");
+      expect(evaluate(workflow.jobs.verify!.if!, selected("false", "skipped"))).toBe(true);
+      expect(evaluate(workflow.jobs.verify!.if!, selected("true", "skipped"))).toBe(false);
+    });
+    test(`${label}: failure, cancellation and unselected checks never trigger downstream work`, () => {
+      for (const state of ["failure", "cancelled"]) {
+        expect(evaluate(workflow.jobs.verify!.if!, selected("true", state))).toBe(false);
+      }
+      expect(evaluate(workflow.jobs.verify!.if!, selected("true", "success", true))).toBe(false);
+      expect(evaluate(workflow.jobs.verify!.if!, selected("false", "skipped", true))).toBe(false);
+      expect(evaluate(workflow.jobs.verify!.if!, selected("false", "skipped", false, "false"))).toBe(false);
+      for (const state of ["failure", "cancelled", "skipped"]) {
+        expect(evaluate(workflow.jobs.verify!.if!, selected("false", "skipped", false, "true", state))).toBe(false);
+      }
+    });
+  }
+});
+
 describe("exactly one provider runs each job for each kind of contribution", () => {
+  test("unaffected or draft selections skip dependent jobs on both providers", () => {
+    const ci = pairs.find(pair => pair.spec.source.endsWith("/ci.yml"))!;
+    for (const [workflow, route] of [[ci.source, REPO], [ci.adapter, "odysseus/brain-kit"]] as const) {
+      const context = { github: pullRequest(route), needs: {
+        changeset: { result: "success", outputs: { verify: "false", pack: "false" } }, pack: { result: "skipped" },
+      } };
+      expect(evaluate(workflow.jobs.changeset!.if!, context)).toBe(true);
+      expect(evaluate(workflow.jobs.verify!.if!, context)).toBe(false);
+      expect(evaluate(workflow.jobs.pack!.if!, context)).toBe(false);
+    }
+  });
   test("the evaluator reads the routes rather than defaulting", () => {
     expect(() => evaluate("github.x ~ 'y'", {})).toThrow();
     expect(evaluate(DEPOT_ROUTE, { github: pullRequest(REPO) })).toBe(true);

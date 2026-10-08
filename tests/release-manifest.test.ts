@@ -252,9 +252,11 @@ describe("release manifests", () => {
     expect(offenders).toEqual([]);
     const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Manifest;
     expect(root.scripts?.test).toContain("--timeout 30000");
-    // Arguments may follow (CI shards the suite), but the command is the root
-    // script's, so its `--timeout` still applies.
-    expect(CI_YML).toMatch(/run: bun run test( [^\n]*)?\n/);
+    // CI's concurrent runner must still delegate to the root script so its
+    // timeout and offline preload apply to the selected files.
+    expect(CI_YML).toContain("run: bun scripts/ci-runner.ts");
+    const runner = readFileSync(join(ROOT, "scripts/ci-runner.ts"), "utf8");
+    expect(runner).toContain('"run", "test"');
   });
 
   // Changesets majors any package that peer-depends on something being
