@@ -70,6 +70,38 @@ function reconnect(root: BrainUiRoot, socket: Socket): Socket {
 }
 
 describe("a reconnect while the turn in view runs", () => {
+  for (const closure of ["answered", "ended", "revoked"] as const) {
+    test(`a late pending frame after history cannot revive an approval closed as ${closure}`, () => {
+      const { root, socket } = running();
+      root.stores.chat.getState().finishAssistantMessage("s1");
+      const request = { type: "tool_approval_request", sessionId: "s1", turnId: "wax-turn", toolUseId: "wax-closed", toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command" };
+      socket.deliver(request);
+      root.stores.chat.getState().closeRestoredApprovals("s1", [{ toolUseId: request.toolUseId, closure }]);
+      expect(buffer(root).messages.flatMap((m) => m.toolCalls).find((t) => t.id === request.toolUseId)?.readOnly, "the closed card is populated before reconnect").toBe(closure);
+      const next = reconnect(root, socket);
+      next.deliver({ type: "session_history", sessionId: "s1", messages: history("").slice(0, 1) });
+      next.deliver(request);
+      expect(buffer(root).messages.flatMap((m) => m.toolCalls).filter((t) => t.id === request.toolUseId && t.status === "pending_approval" && !t.readOnly), "a late request never restores controls on a closed card").toHaveLength(0);
+      expect(next.frames().filter((frame) => ["tool_approval", "tool_denial"].includes(frame.type)), "a closed replay sends no decision").toHaveLength(0);
+    });
+  }
+  test("a restored approval redelivered after user-only history survives the host's running status", () => {
+    const { root, socket } = running();
+    root.stores.chat.getState().finishAssistantMessage("s1");
+    const request = { type: "tool_approval_request", sessionId: "s1", turnId: "wax-turn", toolUseId: "wax-pending", toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command" };
+    socket.deliver(request);
+    const pending = () => buffer(root).messages.flatMap((m) => m.toolCalls).filter((t) => t.id === request.toolUseId && t.status === "pending_approval");
+    expect(pending(), "the initial restored request is populated").toHaveLength(1);
+    const next = reconnect(root, socket);
+    next.deliver({ type: "session_history", sessionId: "s1", messages: history("").slice(0, 1) });
+    next.deliver(request);
+    expect(pending(), "the host redelivered the original pending request").toHaveLength(1);
+    next.deliver({ type: "status", sessionId: "s1", turnId: request.turnId, status: "thinking" });
+    expect(pending(), "post-history running status retains the redelivered approval").toHaveLength(1);
+    expect(pending()[0]!.approvalTurnId).toBe(request.turnId);
+    expect(next.frames().filter((frame) => ["tool_approval", "tool_denial"].includes(frame.type)), "replay never decides").toHaveLength(0);
+  });
+
   for (const anchor of [false, true]) test(`recovered tools preserve neighboring text boundaries (${anchor ? "separate" : "coalesced"})`, () => {
     const { root, socket } = running();
     const chat = root.stores.chat.getState();
