@@ -6,7 +6,7 @@ import { settingsRefusal, subscriptionRefusal, CLEARED_API_CREDENTIALS } from ".
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 
 const MODEL = "claude-sonnet-5-5";
-export interface RuntimeIdentity { sdk: string; nativeSha: string; bunSha: string; bunVersion: string }
+export interface RuntimeIdentity { sdk: string; nativeSha: string; nativeMode: number; bunSha: string; bunVersion: string; bunMode: number }
 export interface ExecutionEvidence {
   kind: "offline-native-scripted" | "subscription-native-direct";
   transport: "injected-offline-fetch" | "global-fetch"; upstream: string;

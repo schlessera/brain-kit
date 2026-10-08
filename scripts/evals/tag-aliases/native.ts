@@ -1,5 +1,5 @@
 /** Actual current core subscription runner, pinned fresh SDK/native 293. */
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync, chmodSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents/claude-binary";
 import { claudeRunner } from "../../../packages/core/src/providers/agents/cli-runners";
@@ -50,7 +50,7 @@ export async function runNative(root: string, output: string, token: string, pro
     transport: options.offline ? "injected-offline-fetch" : "global-fetch", upstream: "https://api.anthropic.com/v1/messages",
     freezeSha: frozen?.freezeSha ?? null, promptSha: sha(prompt), readOnlyReview: options.readOnlyReview === true,
     runtime: { sdk: JSON.parse(readFileSync(join(SOURCE, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"), "utf8")).version,
-      nativeSha: sha(readFileSync(binary)), bunSha: sha(readFileSync(process.execPath)), bunVersion: Bun.version },
+      nativeSha: sha(readFileSync(binary)), nativeMode: lstatSync(binary).mode & 0o7777, bunSha: sha(readFileSync(process.execPath)), bunVersion: Bun.version, bunMode: lstatSync(process.execPath).mode & 0o7777 },
     relayClosed: false, runnerFailure: null, additionalBilledUsd: null };
   writeFileSync(join(output, "execution.json"), JSON.stringify(execution, null, 2), { mode: 0o600 });
   const receiptPath = join(output, "native.json"), physicalPath = join(output, "physical.json");

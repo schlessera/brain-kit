@@ -9,7 +9,7 @@ import { CLEARED_API_CREDENTIALS } from "../packages/core/src/providers/agents/c
 import { runNative } from "../scripts/evals/tag-aliases/native";
 
 const model = "claude-sonnet-5-5";
-const runtime: RuntimeIdentity = { sdk: "0.3.293", nativeSha: "fixture-native-byte-hash", bunSha: "fixture-bun-byte-hash", bunVersion: "1.4.2" };
+const runtime: RuntimeIdentity = { sdk: "0.3.293", nativeSha: "fixture-native-byte-hash", nativeMode: 0o755, bunSha: "fixture-bun-byte-hash", bunVersion: "1.4.2", bunMode: 0o755 };
 /** Synthetic complete format control; never an actual provider approval. No transport runs here. */
 function fixture(prompt: string, kind = "subscription-native-direct") {
   const directory = mkdtempSync(join(tmpdir(), "brain-tag-alias-review-format-"));

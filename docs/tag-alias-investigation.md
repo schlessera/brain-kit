@@ -55,8 +55,11 @@ stderr closure are observed independently. An inactive reported overage flag is
 route evidence, not an invoice; billing amounts remain unknown without evidence.
 
 The freeze binds source files, workspace source trees, installed dependency bytes
-and link targets, native/Bun identities, protocol, full fictional inputs and
-separate expected effects. Review packet admission rebuilds exact payload hashes;
+and link targets, source/workspace/dependency modes, native/Bun identities,
+protocol, full fictional inputs and
+separate expected effects. Installed dependency inodes with more hardlinks than
+actual regular-file occurrences inside the owned dependency tree are refused.
+Review packet admission rebuilds exact payload hashes;
 a receipt from another payload at the same freeze cannot substitute. Admission
 requires the collected execution kind, exact runtime identity, literal native
 input/output, physical request/response bytes, subscription/settings handshake,
