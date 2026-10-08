@@ -257,3 +257,41 @@ values deliberately exercise leap days, timezone folds and conflicting editions;
 they are hypothetical validation inputs rather than additions to the canonical
 voyage chronology. A fresh keyless report supersedes the earlier draft's Alex
 Example and invented-company samples; it does not rename any live measurement.
+
+## Disk and native control boundaries
+
+Neutral complete brains contain the unmodified notice and context, both module
+skill trees, disk config with custom assembly/address and opportunity paths,
+criteria, identity, bio, prior proposals and owner prose/binary sentinels.
+Labels, splits and expected outputs remain outside model inputs. Real CLI config,
+index and jobs pipeline controls run against these brains. Local module wrappers
+resolve owned source; they do not establish npm installation behavior. Every
+eventual arm must receive the same complete input and effective settings.
+
+The installed SDK/native fixture runs in separate user, PID and network
+namespaces with read-only source/runtime, empty scratch homes and a scripted
+loopback endpoint. It executes an exact source Read, refuses an outside Read and
+an owner-file Write, then reports. Separate no-tools and scripted review controls
+establish parser/roster behavior, never semantic approval. Full observations
+include every member, binary bytes, modes, mtimes and symlink text. Raw stdout
+survives SDK errors. Physical request/response bodies and final provider output
+deltas remain distinct from provisional assistant counters and reconcile to
+native all-model usage. Child close and stdout finish are required. These are
+request/fetch-body bytes, not HTTP wire framing or compression captures.
+
+The explicit default fixture policy is not the core's implicit native-auto
+route. Its auxiliary accounting remains blocked by #1275; an override or scripted
+response is not current-agent performance. No live entry, credential adapter,
+deadline/contact writer, calibrated threshold or production helper is introduced.
+Invoice amounts remain unknown; scripted usage is a format control. The private
+review validator reparses complete prompt/native/auth/runtime/physical evidence
+and rejects offline or flag-only APPROVED claims. The original repeated full
+three-arm comparison and guarded complementary review remain required.
+
+Runtime closure includes all owned workspaces/dependencies, files/directories,
+modes, timestamps, content, symlink text and owned resolved target identity/bytes.
+External physical hardlinks and links leaving the owned root are rejected.
+Complete semantic code and each whole source/role/task/brain checkpoint are
+included in protected review sidecars; hashes alone never replace inspection.
+Packet size does not establish context capacity. Pricing ambiguity remains a
+separate diagnostic follow-up in #1239; no historic rate is silently changed.
