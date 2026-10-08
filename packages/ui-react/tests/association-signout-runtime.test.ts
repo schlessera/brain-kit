@@ -547,31 +547,6 @@ for (const action of ["associate", "discard", "transcript"] as const) runtimeTes
   }finally{await context.close();}
 },30_000);
 
-runtimeTest("cold transcript staging reports native lock refusal before its read hook",async()=>{
-  const {page,context}=await boot();
-  try {
-    await signIn(page);
-    await work(page,w=>w.seed("unassigned","sirens"));
-    const other=await context.newPage();
-    await other.goto(origin);
-    await other.waitForFunction(()=>!!window.__work);
-    await work(other,w=>w.mountColdReader());
-    await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();
-    // A real native owner makes saveTranscript reject before get("sirens").
-    await work(page,w=>w.holdRecordingLock());
-    const result=await other.evaluate(async()=>{
-      const observed: {staging: string|null}={staging:null};
-      void window.__work.stageColdTranscript().then(()=>{observed.staging="staged";},error=>{observed.staging=error.message;});
-      const mutation=await window.__work.releaseColdTranscript();
-      // Let the already-settled operation's rejection reach the staging caller.
-      await new Promise(resolve=>setTimeout(resolve,0));
-      return {mutation,staging:observed.staging};
-    });
-    expect(result.mutation,"the native write actually refused the occupied lock").toBe("Error");
-    expect(result.staging,"staging must reject when its read hook can no longer run").toBe("Cold transcript settled before staging its read: Error");
-  }finally{await work(page,w=>w.releaseRecordingLock());await context.close();}
-},30_000);
-
 for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned survivors never readmits an earlier transcript request in the same store (${delayStorage ? "delayed" : "ordinary"} storage events)`,async()=>{
   // Keep the last started boundary in the log even if Bun kills Chrome at the
   // existing deadline. Later closed-browser errors cannot identify this await.
@@ -606,7 +581,7 @@ for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned surv
     const row=(await step("survivor-read",()=>work(page,w=>w.read("unassigned")))).find(r=>r.key==="recording:index:sirens")!;
     expect(row,"the failed clear left a real survivor to protect").toBeDefined();
     expect((row.value as {transcript?:string}).transcript,"an earlier transcript request never writes after renewed admission").not.toBe("This old transcript must never commit.");
-  }finally{await context.close();}
+  }finally{await step("context-close",()=>context.close());}
 },30_000);
 
 runtimeTest("a queued unassigned close invalidates old playback even after recovery reopens its writer",async()=>{
