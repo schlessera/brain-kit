@@ -223,7 +223,24 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   // The drafts are shared; a tab's selection/branch belongs to that tab.
   let tab: string = crypto.randomUUID();
   try { const key = `brain-ui:work-tab:${scope}`; tab = sessionStorage.getItem(key) ?? tab; sessionStorage.setItem(key, tab); } catch { /* no tab recovery when session storage is unavailable */ }
-  const contextKey = `${scope}/context/${tab}`;
+  let contextKey = `${scope}/context/${tab}`;
+  let releaseTab = () => {};
+  let tabDisposed = false;
+  // Duplicating a tab copies sessionStorage. Hold the identity for this
+  // page's lifetime: a simultaneous copy gets a new one, a reload reuses it.
+  const tabReady = typeof navigator !== "undefined" && navigator.locks
+    ? new Promise<void>(ready => {
+      const claim = () => {
+        void navigator.locks.request(`brain-ui:work-tab:${scope}:${tab}`, { ifAvailable: true }, lock => {
+          if (!lock && !tabDisposed) { tab = crypto.randomUUID(); claim(); return; }
+          contextKey = `${scope}/context/${tab}`;
+          try { sessionStorage.setItem(`brain-ui:work-tab:${scope}`, tab); } catch { /* editing still works without session storage */ }
+          if (tabDisposed) { ready(); return; }
+          return new Promise<void>(release => { releaseTab = release; ready(); });
+        }).catch(() => ready());
+      };
+      claim();
+    }) : Promise.resolve();
   const status = createStore<LocalWorkStatus>(() => ({ failed: false, pending: false }));
   const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null }));
   const probes = new Set<WorkProbe>();
@@ -438,6 +455,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   async function bind(key: string, warm = false): Promise<boolean> {
     const binding = generation;
     const initialSession = stores.chat.getState().activeSessionId;
+    await tabReady;
+    if (disposed || held() !== key || binding !== generation) return false;
     const handle = partitions.open(accountPartition(key));
     const records = await handle.list(`${scope}/`);
     if (disposed || held() !== key || binding !== generation) return false;
@@ -662,6 +681,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     },
     dispose() {
       disposed = true;
+      tabDisposed = true; releaseTab();
       for (const controller of finalizing) controller.abort();
       pendingAcceptances.clear();
       if (timer !== null) clearTimeout(timer);

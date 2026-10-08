@@ -98,12 +98,12 @@ defineScene({
     await settled();
     await root.localWork!.snapshotNow();
   },
-  async edit(text: string, image = false) {
+  async edit(text: string, image = false, target?: string) {
     const data = text.startsWith("Telemachus")
       ? "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII="
       : "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     const s = root.stores.drafts.getState();
-    const id = s.idFor(root.stores.chat.getState().activeSessionId);
+    const id = target ?? s.idFor(root.stores.chat.getState().activeSessionId);
     s.edit(id, root.stores.chat.getState().activeSessionId, {
       text,
       ...(image
@@ -223,24 +223,24 @@ defineScene({
     await wait(0);
   },
   rotate() {
-    root.stores.drafts.getState().hostGone(draft()!.draftId);
+    const id = draft()!.draftId;
+    root.stores.drafts.getState().hostGone(id);
+    return root.stores.drafts.getState().resolveId(id);
   },
   hostConflict() {
     const d = draft()!;
-    root.stores.drafts
-      .getState()
-      .conflictWith(
-        d.draftId,
-        {
-          draftId: d.draftId,
-          sessionId: null,
-          revision: 2,
-          text: "Athena keeps the host version",
-          attachments: [],
-          updatedAt: 2,
-        },
-        true
-      );
+    root.stores.drafts.getState().conflictWith(
+      d.draftId,
+      {
+        draftId: d.draftId,
+        sessionId: null,
+        revision: 2,
+        text: "Athena keeps the host version",
+        attachments: [],
+        updatedAt: 2,
+      },
+      true
+    );
   },
   async compare() {
     await settled();

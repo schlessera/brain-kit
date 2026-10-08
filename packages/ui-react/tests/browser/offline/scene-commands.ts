@@ -27,7 +27,7 @@ import type { BrowserCommand } from "vitest/node";
 export type SceneOp =
   /** `module`: the scene's path on the Vite server, `new URL(file, import.meta.url).pathname`. */
   | { op: "open"; module: string }
-  | { op: "sibling"; id: string }
+  | { op: "sibling"; id: string; copySession?: boolean }
   | { op: "call"; id: string; action: string; args: unknown[] }
   | { op: "viewport"; id: string; width: number; height: number }
   | { op: "reload"; id: string }
@@ -95,7 +95,11 @@ export const offlineScene: BrowserCommand<[SceneOp], unknown> = async (ctx, requ
     case "sibling": {
       const id = `scene-${++next}`;
       const sibling = { context: s.context, url: s.url } as Scene;
-      await attach(sibling, await s.context.newPage());
+      if (request.copySession) {
+        const popup = s.page.waitForEvent("popup");
+        await s.page.evaluate(() => { window.open("about:blank", "_blank"); });
+        await attach(sibling, await popup);
+      } else await attach(sibling, await s.context.newPage());
       await sibling.page.goto(sibling.url);
       await registered(sibling.page);
       scenes.set(id, sibling);

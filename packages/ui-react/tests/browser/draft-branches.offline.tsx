@@ -332,8 +332,13 @@ test("review: a rotation during fork commit retains the live successor and its i
   await b.call("hold");
   await b.call("startSave");
   await b.call("waitHeld");
-  await b.call("rotate");
-  await b.call("edit", "Telemachus edits the live successor.");
+  const successor = await b.call<string>("rotate");
+  await b.call(
+    "edit",
+    "Telemachus edits the live successor.",
+    false,
+    successor
+  );
   await b.call("release");
   await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
   expect(
@@ -391,4 +396,56 @@ test("review: another tab's navigation cannot change a reloaded branch's view", 
     await view(b),
     "reload restores this tab's branch and session before selection"
   ).toMatchObject({ id: branch, text: INCOMING, session: "ithaca" });
+}, 60000);
+
+test("review: opening the original keeps pending-send settlement on the branch", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("send", true);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openOther");
+  await b.call("settleSend", "refuse");
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
+    "opening another version cannot redirect a late send into the newer original"
+  ).toBe(ORIGINAL);
+  await b.call("openDraft", branch);
+  expect((await view(b)).text).toBe(INCOMING);
+}, 60000);
+
+test("review: a rotated branch can still open its original version", async (ctx) => {
+  const { b } = await divergent(ctx);
+  await b.call("save");
+  await b.call("rotate");
+  await b.call("save");
+  await b.call("openOther");
+  expect(
+    (await view(b)).text,
+    "the action opens the original after branch rotation"
+  ).toBe(ORIGINAL);
+}, 60000);
+
+test("review: a duplicated tab keeps an independent context through reload", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", "Odysseus surveys the fleet.");
+  await a.call("save");
+  const original = (await view(a)).id;
+  const b = await a.sibling(true);
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("edit", INCOMING);
+  await b.call("save");
+  await a.reload();
+  await a.call("ready", 320, "dark");
+  expect(
+    await view(a),
+    "duplicating a tab must not share its continuation identity"
+  ).toMatchObject({ id: original, text: ORIGINAL });
 }, 60000);

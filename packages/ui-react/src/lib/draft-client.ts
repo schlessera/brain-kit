@@ -348,9 +348,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    */
   function openOwnNewChat(send: DraftSend) {
     const c = chat.getState();
-    if (c.activeSessionId !== null || drafts.getState().fresh !== send.draftId || c.pendingDraftId !== null) {
+    const draftId = drafts.getState().sendDraftId(send.requestId) ?? send.draftId;
+    if (c.activeSessionId !== null || drafts.getState().fresh !== draftId || c.pendingDraftId !== null) {
       c.clearMessages();
-      drafts.setState({ fresh: send.draftId });
+      drafts.setState({ fresh: draftId });
     }
   }
 

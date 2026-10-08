@@ -5490,6 +5490,10 @@ in memory and uses the existing storage-failure copy; it makes no retention
 claim. Stale emptying, deletion and send consumption cannot erase another
 tab's committed version. Empty revision tombstones fence stale resurrection;
 immutable send snapshots remain separate from editable draft identities.
+Pending sends retain their branch target even when the reader opens the
+original, and Edit follows that target. A live tab claims its context identity
+with a browser lock so a duplicated tab with copied session storage receives
+a distinct identity while an ordinary reload resumes its own context.
 Recording acceptance commits its retained branch and receipt before deleting
 its audio. Host conflicts still use the explicit Compare policy above.
 

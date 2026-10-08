@@ -612,4 +612,20 @@ test("a pending new-chat send accepts onto its retained branch, leaving the newe
   state().accepted("voyage",ITHACA);
   expect(state().drafts[id]!.sessionId, "acceptance must not bind the newer original").toBeNull();
   expect(state().sends.voyage!.draftId, "the send snapshot keeps its original identity").toBe(id);
+  expect(state().sends.voyage!.state, "acceptance settles the immutable send").toBe("accepted");
+  expect(state().drafts["voyage-branch"]!.sessionId, "acceptance binds the retained new-chat branch").toBe(ITHACA);
+});
+
+
+test("editing an unconfirmed new-chat send opens its retained branch", () => {
+  const {state} = store();
+  const id = state().idFor(null);
+  state().edit(id,null,{text:"Telemachus leaves the harbour"});
+  state().beginSend({requestId:"voyage",draftId:id,sessionId:null,text:"Telemachus leaves the harbour",attachments:[],message:message("Telemachus leaves the harbour")},"Telemachus leaves the harbour");
+  state().keepDeviceBranch(id,"voyage-branch",{draftId:id,sessionId:null,text:"Penelope keeps the loom",attachments:[],editedAt:1,host:null},null);
+  state().unconfirmed("disconnected");
+  state().editSend("voyage");
+  expect(state().fresh, "Edit opens the retained branch, preserving the newer original").toBe("voyage-branch");
+  expect(state().drafts[state().fresh]!.text).toBe("Telemachus leaves the harbour");
+  expect(state().drafts[id]!.text).toBe("Penelope keeps the loom");
 });
