@@ -36,7 +36,11 @@ const root = createBrainUiRoot({ storage: null, request: net.request });
 root.stores.connection.getState().setVpnStatus("connected", "odysseus");
 root.stores.connection.setState({ wsStatus: "connected" });
 root.stores.drafts.getState().setSupport(false);
-root.stores.chat.getState().setActiveSession("ithaca");
+root.stores.chat
+  .getState()
+  .setActiveSession(
+    JSON.parse(localStorage.getItem("odysseus-branch-navigation") ?? '"ithaca"')
+  );
 const partitions = createLocalPartitions({
   name: "odysseus-branches",
   heldAccountKey: () => root.stores.connection.getState().accountKey,
@@ -213,7 +217,47 @@ defineScene({
     s.edit(s.idFor("ithaca"), "ithaca", { text: "", attachments: [] });
     return "empty";
   },
-  async send() {
+  async navigate(session: string | null) {
+    localStorage.setItem("odysseus-branch-navigation", JSON.stringify(session));
+    root.stores.chat.getState().setActiveSession(session);
+    await wait(0);
+  },
+  rotate() {
+    root.stores.drafts.getState().hostGone(draft()!.draftId);
+  },
+  hostConflict() {
+    const d = draft()!;
+    root.stores.drafts
+      .getState()
+      .conflictWith(
+        d.draftId,
+        {
+          draftId: d.draftId,
+          sessionId: null,
+          revision: 2,
+          text: "Athena keeps the host version",
+          attachments: [],
+          updatedAt: 2,
+        },
+        true
+      );
+  },
+  async compare() {
+    await settled();
+    const button = document.querySelector<HTMLButtonElement>(
+      "[data-draft-compare]"
+    );
+    if (!button) return false;
+    button.click();
+    await wait(0);
+    return document.querySelector("[data-compare-drafts]")?.textContent;
+  },
+  settleSend(outcome: string) {
+    if (outcome === "accept")
+      root.stores.drafts.getState().accepted("odysseus-send", "ithaca");
+    else root.stores.drafts.getState().sendFailed("odysseus-send");
+  },
+  async send(pending = false) {
     const s = root.stores.drafts.getState();
     const d = draft()!;
     s.beginSend(
@@ -232,7 +276,7 @@ defineScene({
       },
       d.text
     );
-    s.accepted("odysseus-send", "ithaca");
+    if (!pending) s.accepted("odysseus-send", "ithaca");
   },
   async clearAccount() {
     const clear = partitions.prepareSignOut("account:odysseus");

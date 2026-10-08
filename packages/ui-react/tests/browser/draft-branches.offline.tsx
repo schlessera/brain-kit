@@ -280,3 +280,115 @@ test("typing during the native fork commit preserves both dirty composers and up
     `${INCOMING} Bring the oars.`
   );
 }, 60000);
+
+async function divergent(ctx: { onTestFinished(fn: () => unknown): void }) {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", "Odysseus surveys the fleet.");
+  await a.call("save");
+  const original = (await view(a)).id;
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("edit", INCOMING, true);
+  return { a, b, original };
+}
+for (const outcome of ["accept", "refuse"])
+  test(`review: pending send ${outcome} settles on the branch`, async (ctx) => {
+    const { a, b, original } = await divergent(ctx);
+    const images = (await view(b)).images;
+    await b.call("send", true);
+    await b.call("save");
+    const branch = (await view(b)).id;
+    await b.call("settleSend", outcome);
+    await b.call("save");
+    expect(
+      (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
+      "pending-send settlement leaves the newer original untouched"
+    ).toBe(ORIGINAL);
+    if (outcome === "refuse") {
+      expect(
+        (await view(b)).text,
+        "refusal restores the visible retained branch"
+      ).toBe(INCOMING);
+      expect((await view(b)).images).toEqual(images);
+    }
+    await b.call("edit", "Telemachus continues the voyage.");
+    await b.call("save");
+    expect((await view(b)).id).toBe(branch);
+    expect(
+      (await rows(b)).find((r) => r.value.draftId === branch)?.value.sessionId
+    ).toBeNull();
+  }, 60000);
+
+test("review: a rotation during fork commit retains the live successor and its images", async (ctx) => {
+  const { a, b, original } = await divergent(ctx);
+  const images = (await view(b)).images;
+  await b.call("hold");
+  await b.call("startSave");
+  await b.call("waitHeld");
+  await b.call("rotate");
+  await b.call("edit", "Telemachus edits the live successor.");
+  await b.call("release");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(
+    (await view(b)).text,
+    "the live successor stays visible after the fork commit"
+  ).toBe("Telemachus edits the live successor.");
+  expect((await view(b)).images).toEqual(images);
+  const kept = await rows(b);
+  expect(kept.filter((r) => r.value.text)).toHaveLength(2);
+  expect(kept.find((r) => r.value.draftId === original)?.value.text).toBe(
+    ORIGINAL
+  );
+}, 60000);
+
+test("review: an empty tombstone does not claim the session's next draft", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await a.call("empty");
+  await a.call("save");
+  await a.call("edit", INCOMING);
+  await a.call("save");
+  expect(
+    (await view(a)).notice,
+    "clearing and retyping in one tab is not another-tab conflict"
+  ).toBe("");
+  expect(
+    (await rows(a)).find((r) => r.value.text === INCOMING)?.value.sessionId
+  ).toBe("ithaca");
+}, 60000);
+
+test("review: host Compare remains reachable on a retained branch", async (ctx) => {
+  const { b } = await divergent(ctx);
+  await b.call("save");
+  await b.call("hostConflict");
+  expect(
+    await b.call("compare"),
+    "the branch exposes the real host comparison dialog"
+  ).toContain("Athena keeps the host version");
+}, 60000);
+
+test("review: another tab's navigation cannot change a reloaded branch's view", async (ctx) => {
+  const { a, b } = await divergent(ctx);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await a.call("navigate", null);
+  await a.call("save");
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect(
+    await view(b),
+    "reload restores this tab's branch and session before selection"
+  ).toMatchObject({ id: branch, text: INCOMING, session: "ithaca" });
+}, 60000);

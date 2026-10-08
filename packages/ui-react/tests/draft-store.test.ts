@@ -601,3 +601,15 @@ describe("drafts kept on this device (#1014)", () => {
       .toMatchObject({ state: "too_large", copy: "draft · too large to save (64 KB max)" });
   });
 });
+
+
+test("a pending new-chat send accepts onto its retained branch, leaving the newer original unbound", () => {
+  const {state} = store();
+  const id = state().idFor(null);
+  state().edit(id,null,{text:"Telemachus leaves the harbour"});
+  state().beginSend({requestId:"voyage",draftId:id,sessionId:null,text:"Telemachus leaves the harbour",attachments:[],message:message("Telemachus leaves the harbour")},"Telemachus leaves the harbour");
+  state().keepDeviceBranch(id,"voyage-branch",{draftId:id,sessionId:null,text:"Penelope keeps the loom",attachments:[],editedAt:1,host:null},null);
+  state().accepted("voyage",ITHACA);
+  expect(state().drafts[id]!.sessionId, "acceptance must not bind the newer original").toBeNull();
+  expect(state().sends.voyage!.draftId, "the send snapshot keeps its original identity").toBe(id);
+});

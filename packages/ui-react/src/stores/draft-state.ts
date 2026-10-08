@@ -338,7 +338,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -371,7 +371,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function giveBack(send: DraftSend, owned: boolean, settleSend: (sends: Record<string, DraftSend>) => Record<string, DraftSend>) {
       if (owned) for (const a of send.attachments) transferred.delete(a.previewUrl);
       const state = get();
-      const d = state.drafts[send.draftId]
+      const d = state.drafts[follow(send.draftId).id]
         ?? (send.sessionId ? state.drafts[state.idFor(send.sessionId)] : undefined)
         ?? blank(send.draftId, send.sessionId, now());
       const text = d.text ? (send.text ? `${send.text}\n${d.text}` : d.text) : send.text;
@@ -486,20 +486,23 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const state = get();
         // Take the live content, including edits made while the transaction
         // was open. Immutable sends keep their original ids and snapshots.
-        const live = state.drafts[sourceId] ?? blank(sourceId, sessionId, now());
+        const liveId = follow(sourceId).id;
+        const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
         const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId } };
         deviceRedirects.set(sourceId, branchId);
+        if (liveId !== sourceId) deviceRedirects.set(liveId, branchId);
         origins.set(branchId, origins.get(sourceId) ?? sourceId);
         if (sessionId !== null) deviceViews.set(sessionId, branchId);
         set(s => {
           const drafts = { ...s.drafts, [branchId]: branch };
           delete drafts[sourceId];
+          delete drafts[liveId];
           if (other) {
             const edit = 1;
             drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
               host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
           }
-          return { drafts, fresh: s.fresh === sourceId ? branchId : s.fresh };
+          return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
         });
       },
       showDeviceBranch(sessionId, draftId) {
@@ -549,7 +552,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!send || send.state === "accepted" || send.state === "refused") return;
         const acceptedSessionId = sessionId ?? send.sessionId ?? undefined;
         set((s) => ({ sends: { ...s.sends, [requestId]: { ...send, state: "accepted", ...(acceptedSessionId ? { acceptedSessionId } : {}) } } }));
-        const d = get().drafts[send.draftId];
+        const d = get().drafts[follow(send.draftId).id];
         if (!d) return;
         // An unbound draft's first message named a session: the draft is
         // that session's now, whatever view the reader has moved on to.
@@ -565,7 +568,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         if (wasConsumed) {
           consumed.add(d.draftId);
-          if (!hasContent(d) && !held(d.draftId)) { drop(d.draftId, session); return; }
+          if (!hasContent(d) && !held(d.draftId) && !d.deviceConflict) { drop(d.draftId, session); return; }
           // Edits made after submitting become the next revision, under a
           // new id: the host's row for this one is a tombstone now.
           put({ ...d, sessionId: session });
@@ -699,6 +702,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         if (!hasContent(d)) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
+          else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
           return;
         }
@@ -713,13 +717,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         if (!hasContent(d)) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map() });
+          else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
           return;
         }
         if (d.host && isClean(d) && !held(draftId)) {
           // Deleted or sent on another device, with nothing new here.
           release(d.attachments, []);
-          drop(draftId);
+          if (d.deviceConflict) rotate({ ...d, text: "", attachments: [], host: null, uploads: new Map() }, d.sessionId);
+          else drop(draftId);
           return;
         }
         // Dirty content is never lost. The host's tombstone stops this id
@@ -764,7 +770,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           return;
         }
         release(local.attachments, []);
-        put({ ...fromHost(draft), edit: local.edit + 1, host: hostCopy(draft, local.edit + 1) });
+        put({ ...fromHost(draft), deviceConflict: local.deviceConflict, edit: local.edit + 1, host: hostCopy(draft, local.edit + 1) });
       },
 
       conflictWith(draftId, other, sameId) {
@@ -781,7 +787,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (choice === "other") {
           release(d.attachments, []);
           if (sameId) {
-            put({ ...fromHost(other), edit: d.edit + 1, host: hostCopy(other, d.edit + 1) });
+            put({ ...fromHost(other), deviceConflict: d.deviceConflict, edit: d.edit + 1, host: hostCopy(other, d.edit + 1) });
             return;
           }
           // The other device's draft is this session's draft now; this one goes.

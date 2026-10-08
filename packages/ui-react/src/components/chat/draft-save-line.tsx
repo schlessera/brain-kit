@@ -37,7 +37,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
-  if (draft?.deviceConflict && !localFailed) return (
+  if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
       <span role="status">Another tab changed this draft · Both versions kept</span>
       <button type="button" className="min-h-11 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => {

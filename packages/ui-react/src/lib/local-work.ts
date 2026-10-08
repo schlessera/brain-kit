@@ -360,7 +360,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           const incoming = "put" in change ? change.value as StoredDraft : null;
           const stale = draftVersion(saved) !== (versions.get(id) ?? 0) || serializedDraft(saved) !== committed.get(id);
           const collision = (!saved || saved.sessionId !== incoming?.sessionId) && incoming?.sessionId !== null && incoming?.sessionId !== undefined
-            ? [...actual].find(([k,v]) => v.sessionId === incoming.sessionId && k !== key && !removals.has(k)) : undefined;
+            ? [...actual].find(([k,v]) => v.sessionId === incoming.sessionId && (v.text.length > 0 || v.attachments.length > 0 || v.host !== null) && k !== key && !removals.has(k)) : undefined;
           if ((stale && (!incoming || !saved || !sameContent(incoming, saved))) || collision) {
             // A divergent write never replaces the already-committed owner.
             // Branch content, context and any acceptance receipt co-commit.
@@ -388,7 +388,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
             // Keep an empty revision tombstone. A stale write after deletion
             // must branch rather than reuse the deleted identity's revision.
             if (saved) {
-              const value: StoredDraft = { ...saved, text: "", attachments: [], host: null, deviceRevision: draftVersion(saved) + 1 };
+              const value: StoredDraft = { ...saved, text: "", attachments: [], host: null, deviceConflict: undefined, deviceRevision: draftVersion(saved) + 1 };
               planned.push({ put: key, value }); actual.set(key, value);
               next.set(id, null); nextCommitted.set(id, serializedDraft(value)!); nextVersions.set(id, value.deviceRevision!);
             }
@@ -437,6 +437,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
 
   async function bind(key: string, warm = false): Promise<boolean> {
     const binding = generation;
+    const initialSession = stores.chat.getState().activeSessionId;
     const handle = partitions.open(accountPartition(key));
     const records = await handle.list(`${scope}/`);
     if (disposed || held() !== key || binding !== generation) return false;
@@ -446,8 +447,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       if (k === contextKey) ctx = parseContext(value);
       else if (k.startsWith(`${scope}/draft/`)) { const d = parseDraft(value); if (d) kept.push(d); }
     }
+    const ownContext = ctx !== null;
     if (!ctx) ctx = parseContext(records.find(r => r.key === sharedContextKey)?.value);
-    if (warm && ctx) stores.chat.getState().setActiveSession(ctx.sessionId);
+    // Shared navigation is only a fallback. A cold tab resumes its own
+    // committed view unless the reader already navigated or started typing.
+    if (ctx && (warm || (ownContext && stores.chat.getState().activeSessionId === initialSession &&
+      !Object.values(stores.drafts.getState().drafts).some(hasContent)))) stores.chat.getState().setActiveSession(ctx.sessionId);
     stores.drafts.getState().restoreLocal(kept);
     if (warm && ctx?.stagedTracks) options.restoreAllTracks?.(ctx.stagedTracks);
     const drafts = stores.drafts.getState();
