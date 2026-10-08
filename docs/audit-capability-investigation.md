@@ -241,7 +241,8 @@ final invoice remains unknown.
 
 Eight lossless review packets partition all 26 complete cases and every direct
 behavioral source file: four complete-source subsets and four disjoint complete
-case subsets, each with the common protocol, rubric and verification hashes.
+case subsets, each with the complete canonical fictional-world documents, common
+protocol, rubric and verification hashes.
 The 150,000-byte envelope is an operational bound, not proof of native context
 fit. No source file or authored case is truncated. Scored admission rebuilds
 every payload from disk and requires all eight native approvals on the same

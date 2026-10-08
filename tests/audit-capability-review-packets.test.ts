@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { cases, detect, prepareBenchmark } from "../scripts/evals/audit-capabilities/benchmark";
 import { repo, runtimeFreeze, sha } from "../scripts/evals/audit-capabilities/freeze";
 import { MODEL } from "../scripts/evals/audit-capabilities/protocol";
-import { buildReviewPacket, combinedReview, MAX_PACKET_BYTES, REVIEW_FILES, reviewPlan, reviewPlanSha } from "../scripts/evals/audit-capabilities/review-packets";
+import { buildReviewPacket, combinedReview, COMMON_REVIEW_FILES, MAX_PACKET_BYTES, REVIEW_FILES, reviewPlan, reviewPlanSha } from "../scripts/evals/audit-capabilities/review-packets";
 let frozen: ReturnType<typeof runtimeFreeze>, detectedRaw: string, proofRaw: string;
 beforeAll(async () => {
   const detected = [];
@@ -16,13 +16,13 @@ beforeAll(async () => {
 function receipts(): any[] { return reviewPlan.map(packet => ({ packet, model: MODEL, approval: "APPROVED", freezeSha: frozen.freezeSha, detectedSha: sha(detectedRaw), verificationSha: sha(proofRaw), reviewPlanSha, promptSha: buildReviewPacket(frozen, detectedRaw, proofRaw, packet.key).promptSha, reviewDriverSha: frozen.sources["scripts/evals/audit-capabilities/review.ts"], apiEquivalent: { lowerUsd: .000012, upperUsd: .000012 }, promptReleased: true, credentials: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" }, rateLimits: [{ isUsingOverage: false }], result: { subtype: "success", is_error: false, result: "APPROVED controlled predicate fixture", modelUsage: { [MODEL]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 } } }, init: { model: MODEL, apiKeySource: "none", cli: frozen.binaries.claude.cliVersion }, subscriptionOverageState: "reported inactive", childClosed: { code: 0, signal: null } })); }
 test("eight lossless bounded packets cover every authored case and whole behavioral source exactly once", () => {
   expect(reviewPlan).toHaveLength(8);
-  const ids = reviewPlan.flatMap(p => p.caseIds), paths = reviewPlan.flatMap(p => p.sourcePaths);
+  const ids = reviewPlan.flatMap(p => p.caseIds), paths = [...COMMON_REVIEW_FILES, ...reviewPlan.flatMap(p => p.sourcePaths)];
   expect(ids.length).toBe(26); expect(new Set(ids).size).toBe(26); expect([...ids].sort()).toEqual(cases.map(f => f.id).sort());
   expect(paths.length).toBeGreaterThan(25); expect(new Set(paths).size).toBe(paths.length); expect([...paths].sort()).toEqual([...REVIEW_FILES].sort());
   for (const plan of reviewPlan) {
     const built = buildReviewPacket(frozen, detectedRaw, proofRaw, plan.key);
     expect(built.bytes).toBeLessThanOrEqual(MAX_PACKET_BYTES); expect(built.promptSha).toBe(sha(built.payload));
-    for (const path of plan.sourcePaths) expect(built.payload).toContain(readFileSync(join(repo, path), "utf8"));
+    for (const path of [...COMMON_REVIEW_FILES, ...plan.sourcePaths]) expect(built.payload).toContain(readFileSync(join(repo, path), "utf8"));
     for (const id of plan.caseIds) expect(built.payload).toContain(JSON.stringify(cases.find(f => f.id === id)));
   }
 });
