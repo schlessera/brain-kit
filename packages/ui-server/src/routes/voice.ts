@@ -8,7 +8,7 @@ import type { VoiceConfig } from "../config/env.js";
 import type { SpeechProvider, SpeechSession } from "@schlessera/brain-ui-sdk/server";
 import { mintDeepgramToken } from "../voice/deepgram-token.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
-import { pickSpeechProvider } from "../voice/speech-providers.js";
+import { pickSpeechProvider, speechCapabilities } from "../voice/speech-providers.js";
 
 export interface VoiceRoutesDeps {
   voice: VoiceConfig;
@@ -20,11 +20,20 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono {
   const { voice, keyterms, speechProvider } = deps;
 
   return new Hono()
+    .get("/voice/capabilities", (c) => {
+      c.header("Cache-Control", "no-store");
+      try {
+        const provider = pickSpeechProvider(voice, speechProvider);
+        return c.json({ providerId: provider.id, capabilities: speechCapabilities(provider) });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : "Voice capabilities failed" }, 500);
+      }
+    })
     .post("/voice/session", async (c) => {
       try {
         const provider = pickSpeechProvider(voice, speechProvider);
         const providerId = provider.id;
-        const capabilities = { ...provider.capabilities };
+        const capabilities = speechCapabilities(provider);
         // Only fetch domain keyterms when the provider can use them.
         const terms = capabilities.keyterms
           ? getKeyterms(keyterms, false).keyterms

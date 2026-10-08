@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:91-124`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:95-128`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -87,6 +87,10 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
+| `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
+| `GET /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: GET /api/voice/recordings/:recordingId/transcription` | R |
+| `PUT /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: PUT /api/voice/recordings/:recordingId/transcription` | R |
+| `DELETE /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: DELETE /api/voice/recordings/:recordingId/transcription` | R |
 | `POST /api/voice/session` | `mounted supported handler: POST /api/voice/session` | N |
 | `POST /api/voice/token` | `mounted supported handler: POST /api/voice/token` | N |
 | `POST /share-target` | `mounted supported handler: POST /share-target` | L |
@@ -389,3 +393,5 @@ in [http-internal-mounts.test.ts](../packages/ui-server/tests/http-internal-moun
 track measurements and unchanged original bytes; the composer transport creates
 no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
+
+**R** — [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.

@@ -15,7 +15,7 @@
  */
 
 import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
-import { defineSpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import { defineSpeechProvider, SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { VoiceConfig } from "../config/env.js";
 import { mintDeepgramToken } from "./deepgram-token.js";
 
@@ -59,6 +59,37 @@ export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvi
       interimResults: true,
       keyterms: true,
       endpointing: true,
+    },
+    async transcribeRecording({ audio, contentType, keyterms, signal }) {
+      if (!apiKey) throw new SpeechTranscriptionError("authentication", 401);
+      const params = new URLSearchParams({ model: "nova-3", smart_format: "true", mip_opt_out: "true" });
+      // Conservative byte budget: at most one token per UTF-8 byte, including
+      // separators. This stays under Deepgram's 500-token aggregate ceiling
+      // without introducing a tokenizer dependency or changing streaming terms.
+      let budget = 500;
+      for (const term of keyterms) {
+        const cost = new TextEncoder().encode(term).length + 1;
+        if (!term.trim() || cost > budget) continue;
+        params.append("keyterm", term); budget -= cost;
+      }
+      const response = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
+        method: "POST", headers: { authorization: `Token ${apiKey}`, "content-type": contentType },
+        body: audio as BodyInit, signal, redirect: "error",
+      });
+      if (!response.ok) {
+        const status = response.status;
+        // Every HTTP error is a definitive response under #1021's ruling;
+        // fetch/parse/timeout failures without one remain outcome_unknown.
+        const reason = status === 401 || status === 403 ? "authentication"
+          : status === 429 ? "rate_limit" : status === 504 || status === 408 ? "provider_timeout"
+          : status >= 500 ? "provider_error" : status === 415 || status === 422 ? "media" : status === 400 ? "parameters" : "validation";
+        await response.body?.cancel().catch(() => {});
+        throw new SpeechTranscriptionError(reason, status);
+      }
+      const body = await response.json() as { results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> } };
+      const text = body.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+      if (typeof text !== "string" || !text.trim()) throw new SpeechTranscriptionError("outcome_unknown");
+      return { text };
     },
     async createSession({ keyterms }) {
       const { token, expiresAt } = await mintDeepgramToken(apiKey, TOKEN_TTL_SECONDS);
@@ -124,7 +155,7 @@ export function pickSpeechProvider(voice: VoiceConfig, supplied?: SpeechProvider
 }
 
 /** Validate a by-value implementation before invoking it or building keyterms. */
-function assertSpeechProvider(provider: SpeechProvider): void {
+export function assertSpeechProvider(provider: SpeechProvider): void {
   if (!provider || typeof provider !== "object" || typeof provider.id !== "string" ||
       !provider.id || provider.id !== provider.id.trim().toLowerCase()) {
     throw new Error("Invalid SpeechProvider: id must be a nonempty, trimmed, lowercase string.");
@@ -134,7 +165,18 @@ function assertSpeechProvider(provider: SpeechProvider): void {
       throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.${capability} must be boolean.`);
     }
   }
+  if (provider.transcribeRecording !== undefined && typeof provider.transcribeRecording !== "function") {
+    throw new Error(`Invalid SpeechProvider "${provider.id}": transcribeRecording must be a function when supplied.`);
+  }
+  if (provider.capabilities.savedAudio !== undefined && provider.capabilities.savedAudio !== (typeof provider.transcribeRecording === "function")) {
+    throw new Error(`Invalid SpeechProvider "${provider.id}": savedAudio contradicts transcribeRecording.`);
+  }
   if (typeof provider.createSession !== "function") {
     throw new Error(`Invalid SpeechProvider "${provider.id}": createSession must be a function.`);
   }
+}
+
+/** Every route uses method-derived saved-audio support. */
+export function speechCapabilities(provider: SpeechProvider) {
+  return { ...provider.capabilities, savedAudio: typeof provider.transcribeRecording === "function" };
 }

@@ -142,7 +142,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     await tap(button(cardNode, "Discard recording")); await settled(); await tap(button(cardNode, "Delete recording"));
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeNull();
     await expect.poll(() => document.activeElement?.matches("textarea[data-composer]")).toBe(true);
-    expect(c.net.requests.slice(requestsBefore), "local actions send no HTTP requests").toEqual([]); expect(c.net.frames.slice(framesBefore), "local actions send no socket frames").toEqual([]);
+    expect(c.net.requests.slice(requestsBefore).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "local actions send no HTTP beyond read-only speech discovery").toEqual([]); expect(c.net.frames.slice(framesBefore), "local actions send no socket frames").toEqual([]);
     expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
     const a = await c.seed();
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeTruthy();
@@ -298,7 +298,7 @@ test("accept focuses the composer at the end without sending or answering a tool
   expect(field.value, "accepted text remains an unsent draft").toBe(`Check the harbour.\n${TEXT}`);
   expect(field.selectionStart, "caret follows accepted text").toBe(field.value.length);
   expect(field.selectionEnd).toBe(field.value.length);
-  expect(c.net.requests.slice(requests), "accept sends no HTTP").toEqual([]);
+  expect(c.net.requests.slice(requests).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "accept sends no HTTP beyond read-only speech discovery").toEqual([]);
   expect(c.net.frames.slice(frames), "accept sends no socket action or approval").toEqual([]);
   expect(c.root.stores.chat.getState().draft?.messages.flatMap(m => m.toolCalls ?? []).find(t => t.id === "loom-approval")?.status, "pending approval stays unanswered").toBe("pending_approval");
 });
@@ -440,7 +440,7 @@ test("accept stays on this device even when host draft autosave is supported", a
   const id = drafts.idFor(null); const before = c.net.requests.length;
   await c.root.recordings!.accept(row.partition, row.id, id, null);
   await wait(800);
-  expect(c.net.requests.slice(before), "acceptance never schedules an automatic host draft upload").toEqual([]);
+  expect(c.net.requests.slice(before).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "acceptance never schedules an automatic host draft upload").toEqual([]);
   drafts.edit(id, null, { text: `${TEXT} Bring the wax tablet.` });
   await expect.poll(() => c.net.requests.slice(before).filter(r => r.method !== "GET").length, { message: "a later user edit resumes ordinary host draft save" }).toBeGreaterThan(0);
 });
