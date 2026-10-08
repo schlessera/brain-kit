@@ -120,9 +120,9 @@ export function hybrid(f: Fixture, root: string, result: JevResult, threshold: n
   if (!needsInference(f, root) || threshold === null || result.outcome !== "answered" || result.model !== MODEL || !result.answers) return base;
   const answers = result.answers, typeAnswer = answers.type, targetAnswer = answers.target;
   const docs = documents(root).filter(d => taxonomy.appendMatchTypes().includes(d.type));
-  const chosenType = typeAnswer?.type === "choice" && Object.hasOwn(descriptions, typeAnswer.choice) && typeAnswer.confidence >= threshold ? typeAnswer.choice : taxonomy.inboxType();
+  const chosenType = typeAnswer?.type === "choice" && Object.hasOwn(descriptions, typeAnswer.choice) && typeAnswer.confidence >= threshold && typeAnswer.probabilities[typeAnswer.choice]! >= threshold ? typeAnswer.choice : taxonomy.inboxType();
   let reviewTarget: string | null = null;
-  if (targetAnswer?.type === "choice" && targetAnswer.choice !== "none" && targetAnswer.confidence >= threshold) {
+  if (targetAnswer?.type === "choice" && targetAnswer.choice !== "none" && targetAnswer.confidence >= threshold && targetAnswer.probabilities[targetAnswer.choice]! >= threshold) {
     const i = docs.findIndex(d => d.path === targetAnswer.choice), belongs = answers[`belongs_${i}`];
     if (i >= 0 && belongs?.type === "noul" && belongs.noul >= threshold) reviewTarget = docs[i]!.path;
   }

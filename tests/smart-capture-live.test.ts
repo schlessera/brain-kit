@@ -3,8 +3,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { classify, Spend } from "../scripts/evals/smart-capture/live";
-import { atReferenceDate, fixtures, prepare, scripted } from "../scripts/evals/smart-capture/pipeline";
+import { atReferenceDate, capture, fixtures, hybrid, prepare, scripted } from "../scripts/evals/smart-capture/pipeline";
 import { summarize } from "../scripts/evals/smart-capture/metrics";
+import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 
 test("actual core Jev transport keeps physical usage, output count and complete bounded questions", async () => {
   const f = fixtures.find(f => f.id === "t-custom")!, p = await prepare(f);
@@ -126,3 +127,31 @@ process.stdout.write(JSON.stringify({ type: "system", subtype: "init", model: "u
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const field of ["type", "target"] as const) for (const low of ["selected probability", "confidence"] as const)
+  test(`paired Choice admission rejects low ${low} with the other score high: ${field}`, async () => {
+    const f = field === "type" ? fixtures.find(row => row.id === "t-custom")!
+      : fixtures.find(row => row.expected.reviewTarget && !row.expected.appendTarget)!;
+    const p = await prepare(f);
+    try {
+      const answer = scripted(f, p.root);
+      const choice = answer.answers![field]!;
+      if (choice.type !== "choice") throw Error("The independent control must contain an actual Choice answer");
+      const names = Object.keys(choice.probabilities);
+      expect(names.length).toBeGreaterThan(1);
+      choice.confidence = low === "confidence" ? 0.6 : 0.99;
+      const selected = low === "selected probability" ? 0.6 : 0.99;
+      choice.probabilities = Object.fromEntries(names.map(name => [name, name === choice.choice ? selected : (1 - selected) / (names.length - 1)]));
+      const result = await classify(f, p.root, new Spend(15), async () => Response.json({
+        model: "jev-1.13.0", answers: answer.answers, usage: { input_tokens: 300, output_tokens: 24 },
+      }), "offline-key", () => {});
+      expect(result.result.outcome).toBe("answered");
+      const plan = hybrid(f, p.root, result.result, 0.9);
+      const captured = await capture(f, p.root, plan);
+      const actual = parseFrontmatter(readFileSync(join(p.root, captured.path), "utf8"));
+      expect(actual.content).toContain(f.content);
+      if (field === "type") expect(actual.data.type).toBe("note");
+      else expect(captured.reviewTarget).toBeNull();
+      for (const [path, before] of Object.entries(f.files)) expect(readFileSync(join(p.root, path), "utf8")).toBe(before);
+    } finally { p.close(); }
+  });

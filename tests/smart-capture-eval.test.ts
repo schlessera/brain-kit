@@ -192,7 +192,11 @@ test("held-out answers cannot calibrate; absent or unsafe semantic judgments can
     expect(fallback.inferred).toBe(false);
     expect(chooseThreshold([{ fixture: f, plan: () => fallback }])).toBeNull();
     const wrong = structuredClone(good);
-    if (wrong.answers!.type!.type === "choice") wrong.answers!.type!.choice = "study";
+    if (wrong.answers!.type!.type === "choice") {
+      wrong.answers!.type!.choice = "study";
+      wrong.answers!.type!.probabilities = Object.fromEntries(Object.keys(wrong.answers!.type!.probabilities).map(name => [name, name === "study" ? 1 : 0]));
+      expect(wrong.answers!.type!.probabilities.study).toBe(1);
+    }
     expect(chooseThreshold([{ fixture: f, plan: t => hybrid(f, p.root, wrong, t) }])).toBeNull();
   } finally { p.close(); }
 });
