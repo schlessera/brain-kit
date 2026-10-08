@@ -4,6 +4,7 @@
 // (Chrome/Edge yes, Firefox no), so callers must guard with
 // isWebSpeechAvailable() before selecting it.
 
+import { speechError } from "./dictation-failure.js";
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { AsrEvent } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -91,7 +92,7 @@ export class WebSpeechClient implements AsrClient {
 
     recognition.onerror = (event) => {
       if (this.closed) return;
-      this.opts.onError?.(new Error(`Speech recognition error: ${event.error ?? "unknown"}`));
+      this.opts.onError?.(speechError(`Speech recognition error: ${event.error ?? "unknown"}`, event.error ?? "unknown"));
     };
 
     recognition.onend = () => {

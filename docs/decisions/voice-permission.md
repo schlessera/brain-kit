@@ -42,7 +42,7 @@ that needs no interactive approval, or voice is read-only.
 
 Voice today is tap-to-dictate: the speech contract mints a **dictation** session
 (`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26`) and
-`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:25`
+`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26-40`
 drives it into the composer.
 There is no voice output and no spoken turn, so nothing in this record describes
 existing behaviour.

@@ -185,3 +185,33 @@ capture limit remains ten minutes. The additive surface and exact receipt/error
 semantics are already recorded in the
 [integration contract](../integration-contract.md#saved-audio-transcription-additive-1021)
 and [HTTP reference](../http-api.md#saved-audio-transcription).
+
+## Failed capture explanations — 2026-10-08
+
+The [seven maintainer rulings for #1222](https://github.com/schlessera/brain-kit/issues/1222#issuecomment-6057782982)
+select one amber boxed Callout in the composer's capture-notice slot, between
+review and the message field. Provider-ended failures and startup failures use
+fixed, lifecycle-specific explanations; an open-sheet error never claims the
+capture stopped. Reliable codes/categories select connection, microphone or
+no-speech explanations; unknown messages use generic copy. Raw provider text
+is never rendered, and a connection problem does not prove a dropped connection
+or a microphone problem a browser-settings cause.
+
+Retention refers only to the failed capture: “Your words are kept for review.”
+or “Nothing was captured.” Empty no-speech endings omit the redundant detail.
+Failed startup preserves earlier review words without attributing them to that
+attempt. Capture-scoped terminal state is separate from the ambient sheet error;
+Done after a non-ending error does not produce a failure notice. Cancelled or
+superseded starts and late provider events are quiet. The existing single end
+path transfers words to review once, preserving update-reload holds.
+
+The notice has one polite status region, a mic icon and a quiet Dismiss control
+with a 44px target. Appearance takes no focus and has no entrance transition.
+Dismiss returns focus to the microphone, or field if unavailable, when its
+control held focus; a pointer dismissal preserves unrelated focus. Review
+controls precede Dismiss and keep their actions. Distinct local-capture notices
+stack afterward and dismiss independently; identical text is not rendered or
+announced twice. Dismiss, a new dictation/local capture or review Send/Edit/Discard
+clears the failure notice. Typing and session changes keep it; no timer applies.
+Nothing restarts the microphone, retries, sends or uploads automatically.
+Neutral clean-end explanations remain the separate [#1258](https://github.com/schlessera/brain-kit/issues/1258).

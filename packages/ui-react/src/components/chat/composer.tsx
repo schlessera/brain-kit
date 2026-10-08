@@ -19,6 +19,7 @@ import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
+import { dictationNoticeText } from "../../voice/dictation-failure.js";
 import { useDictation } from "../../voice/use-dictation.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
@@ -233,6 +234,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const voiceMode = useVoiceStore((s) => s.mode);
   const reviewText = useVoiceStore((s) => s.reviewText);
   const clearReview = useVoiceStore((s) => s.clearReview);
+  const dictationNotice = useVoiceStore((s) => s.dictationNotice);
+  const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
   const localCapture = useLocalCapture();
   const localSupported = useLocalCaptureSupport();
@@ -248,6 +251,24 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       : wsStatus === "connected" || root.localCapture === null ? "dictate"
       : localSupported === null ? "pending"
       : localSupported ? "local" : "unsupported";
+
+  const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
+  const captureNotice = micMode === "unsupported"
+    ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
+    : localNotice === "denied" && micMode === "local"
+      ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
+      : undefined;
+  useEffect(() => { setDismissedLocalNotice(null); }, [captureNotice]);
+  function dismissNotice(kind: "dictation" | "local") {
+    const frame = frameRef.current;
+    const heldFocus = frame?.querySelector(`[aria-label="Dismiss ${kind === "dictation" ? "dictation" : "capture"} notice"]`) === document.activeElement;
+    if (kind === "dictation") dismissDictationNotice();
+    else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
+    if (heldFocus) {
+      const mic = frame?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Record on this device"]');
+      if (mic) mic.focus(); else focusField();
+    }
+  }
 
   const runCommand = useChatCommands();
 
@@ -713,13 +734,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           dictation={<><DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
-          captureNotice={
-            micMode === "unsupported"
-              ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
-              : localNotice === "denied" && micMode === "local"
-                ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
-                : undefined
-          }
+          dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
+          onDismissDictationNotice={() => dismissNotice("dictation")}
+          captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
+          onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
           micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
           value={input}
