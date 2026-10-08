@@ -164,7 +164,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   // Auth required (password mode) and no valid session: show the login screen,
   // even if we were connected before (an expired session must re-prompt).
   if (auth.phase === "locked" || auth.phase === "restoring") {
-    return <LoginScreen reauth={auth} onLocalCapture={canCapture ? () => setCaptureRoot(root) : undefined} />;
+    return <LoginScreen reauth={auth} onLocalCapture={canCapture ? () => { if (root.authLock.state.getState().phase === "locked") setCaptureRoot(root); } : undefined} />;
   }
   if (issue === "unauthorized" && auth.phase !== "saving") {
     return <LoginScreen />;

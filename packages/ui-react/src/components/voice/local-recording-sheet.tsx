@@ -59,7 +59,7 @@ export function LocalRecordingSheet({ open, onStop, onDiscard, store, inline = f
         <div ref={keep}><Button label="Keep recording" tone="ghost" block={false} style={{ minHeight: 44 }} disabled={stopping} onClick={() => { setConfirm(false); setTimeout(() => sheet.current?.querySelector<HTMLElement>('[aria-label="Discard"]')?.focus(), 0); }} /></div>
       </div>
     </> : <div className="mt-2 flex flex-wrap gap-2">
-      <Button label="Stop and save" block={false} style={{ minHeight: 44, flex: "1 1 auto" }} disabled={stopping} onClick={() => act(onStop)} />
+      <Button label="Stop and save" ariaLabel="Stop and save" block={false} style={{ minHeight: 44, flex: "1 1 auto" }} disabled={stopping} onClick={() => act(onStop)} />
       <Button label="Discard" ariaLabel="Discard" tone="quiet" block={false} style={{ minHeight: 44 }} disabled={stopping} onClick={() => setConfirm(true)} />
     </div>}
   </section>;

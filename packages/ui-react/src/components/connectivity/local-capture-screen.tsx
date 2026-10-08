@@ -27,6 +27,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
   const phase = useRootStore("voice", s => s.local);
   const denied = useRootStore("voice", s => s.localNotice === "denied");
   const error = useRootStore("voice", s => s.error);
+  const [ready, setReady] = useState(false);
   const [rows, setRows] = useState<Recording[]>([]);
   const [lockedBytes, setLockedBytes] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
@@ -40,7 +41,12 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
     heading.current?.focus();
     let live = true;
     let serial = 0;
+    let recovered = false;
+    let recovering = false;
+    setReady(false);
+    setRows([]);
     const refresh = async () => {
+      if (!live || !recovered) return;
       const generation = ++serial;
       const [inventory, sizes] = await Promise.all([store.list("unassigned"), root.partitions!.sizes("recording:chunk:")]);
       if (!live || generation !== serial) return;
@@ -51,14 +57,21 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
     const unwatch = store.subscribe(update);
     const unwatchRoot = root.recordings?.subscribe(update);
     const events = store.onEvent(event => { if (live && event.message) setNotice(event.message); });
-    void store.recover("unassigned").then(result => {
-      if (live) setRemoved(result.removedMessage ?? "");
-    }).catch(() => {}).finally(update);
-    update();
+    const recover = async () => {
+      if (!live || recovered || recovering) return;
+      recovering = true;
+      try {
+        const result = await store.recover("unassigned");
+        if (live) { recovered = true; setRemoved(result.removedMessage ?? ""); setReady(true); update(); }
+      } catch { if (live) setNotice("Couldn't read recordings on this device. Saved recordings are kept."); }
+      finally { recovering = false; }
+    };
+    void recover();
+    const retry = setInterval(() => { void recover(); }, 3000);
     const voice = root.stores.voice.subscribe((state, previous) => {
       if (state.local === "idle" && previous.local !== "idle" && area.current?.querySelector("[data-local-recording-sheet]")?.contains(document.activeElement)) focusRecord();
     });
-    return () => { live = false; unwatch(); unwatchRoot?.(); events(); voice(); };
+    return () => { live = false; clearInterval(retry); unwatch(); unwatchRoot?.(); events(); voice(); };
   }, [root, store]);
   useEffect(() => {
     if (phase === "recording") area.current?.querySelector<HTMLElement>('[aria-label="Stop and save"]')?.focus({ preventScroll: true });
@@ -88,11 +101,11 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       </div>}
       <div ref={area}>
         <LocalRecordingSheet inline store={store} open={phase === "recording" || phase === "stopping"} onStop={stop} onDiscard={discard} />
-        <div ref={record}><Button label={phase === "opening" ? "Opening microphone…" : "Record on this device"} style={{ minHeight: 44 }} disabled={phase !== "idle" || leaving} onClick={() => void capture.start()} /></div>
+        <div ref={record}><Button label={phase === "opening" ? "Opening microphone…" : "Record on this device"} style={{ minHeight: 44 }} disabled={!ready || phase !== "idle" || leaving} onClick={() => void capture.start()} /></div>
       </div>
       {denied && <p role="status" className="text-sm">Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again.</p>}
       {error && <p role="alert" className="text-sm">{error}</p>}
-      <p role="status" className="text-sm text-muted-foreground">{notice}</p>
+      <p role="status" className="text-sm text-muted-foreground">{ready ? notice : notice || "Checking recordings on this device…"}</p>
       <section aria-label="Drafts on this device" className="space-y-3">
         <h2 className="text-sm font-mono">Drafts on this device · {rows.length} · {size(rows.reduce((n, row) => n + row.bytes, 0))}</h2>
         {removed && <p className="text-sm">{removed}</p>}

@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -104,15 +104,31 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     assert(image.complete && image.width === 1, "a real authenticated API image decoded through the controlled worker");
     await noApiCaches(page);
     assert(apiRequests.includes("/api/sessions") && apiRequests.includes("/api/files/content"), "the real network spy observed nonempty authenticated requests");
+    await context.setOffline(true);
+    assert.equal(await action(page, "offlineImage"), false, "the authenticated image is unavailable offline despite the warm visit");
+    await context.setOffline(false);
     apiRequests.length = 0;
-    if (cell.scenario === "reauth") {
+    if (cell.scenario === "reauth" || cell.scenario === "restore") {
       await action(page, "expire");
       await page.getByRole("heading", { name: "Your sign-in has expired" }).waitFor();
       await page.waitForTimeout(350);
+      if (cell.scenario === "restore") {
+        await action(page, "beginRestore");
+        await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { restoreWaiting(): boolean } }).__offlineScene.restoreWaiting());
+        const local = page.getByRole("button", { name: "Record without signing in" });
+        assert.equal(await local.getAttribute("aria-disabled"), "true", "local entry is disabled while same-account restoration is pending");
+        await local.evaluate(el => (el as HTMLElement).click());
+        assert.equal(await page.locator("[data-local-capture-screen]").count(), 0, "the local action cannot replace active account restoration");
+        assert.equal(await action(page, "finishRestore"), true);
+        await page.locator("[data-protected]").waitFor();
+        return "pending account restore cannot enter local capture passed";
+      }
       apiRequests.length = 0;
       await page.getByRole("button", { name: "Record without signing in" }).click();
     } else {
+      if (cell.scenario === "startup") await action(page, "startupGap");
       await page.close();
+      apiRequests.length = 0;
       await context.setOffline(true);
       page = await context.newPage();
       if (cell.scenario === "uncontrolled") {
@@ -138,6 +154,15 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     assert((await page.textContent("[data-locked-recordings]"))?.startsWith("Locked recordings · "), "locked recordings show only aggregate size");
     const dom = await page.content();
     for (const secret of ["ithaca-secret", "Secret plan for the Sirens", "2026-07-12", "12:00", "0:10"]) assert(!dom.includes(secret), `locked metadata ${secret} must not appear in the DOM`);
+    if (cell.scenario === "startup") {
+      await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { recoveryWaiting(): boolean } }).__offlineScene.recoveryWaiting());
+      await page.waitForTimeout(150);
+      assert.equal(await page.getByRole("button", { name: /^Play recording/ }).count(), 0, "startup recovery exposes no unrepaired playback controls");
+      assert.equal(await page.getByRole("button", { name: "Record on this device", exact: true }).getAttribute("aria-disabled"), "true", "capture waits for startup recovery");
+      await action(page, "releaseRecovery");
+      await page.getByRole("button", { name: /^Play recording/ }).waitFor();
+      return "startup recovery gates playback passed";
+    }
     assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), cell.pointer === "coarse", "the cell uses its real pointer mode");
     assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), cell.theme, "the cell uses its real theme");
     await page.addScriptTag({ content: await readFile(resolve("../../node_modules/axe-core/axe.min.js"), "utf8") });
@@ -155,13 +180,12 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await action(page, "restoreQuota");
       return "full-origin recovered playback passed";
     }
-    if (cell.scenario !== "reauth") assert.equal(await action(page, "offlineImage"), false, "the authenticated image is unavailable offline despite the warm visit");
-    // The negative image-cache probe belongs to the harness, outside the local
-    // screen's request window. All subsequent /api traffic must be probe-only.
-    apiRequests.length = 0;
     await page.waitForTimeout(350);
-    await page.getByRole("button", { name: "Record on this device", exact: true }).click();
+    const start = page.getByRole("button", { name: "Record on this device", exact: true });
+    if (cell.pointer === "fine") { await start.click({ trial: true }); await start.focus(); await start.press("Enter"); }
+    else await start.click();
     await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { phase(): string } }).__offlineScene.phase() === "recording");
+    assert.equal(await page.getByRole("button", { name: "Stop and save", exact: true }).evaluate(el => el === document.activeElement), true, "starting capture transfers focus to Stop and save");
     await accessible(page);
     await page.waitForTimeout(1300);
     if (cell.scenario === "dispose") {

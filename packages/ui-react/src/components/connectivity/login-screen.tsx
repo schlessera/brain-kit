@@ -1,3 +1,4 @@
+import { useStore } from "zustand";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
@@ -22,6 +23,7 @@ import {
  */
 export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: boolean; snapshotFailed: boolean; savedThroughMs: number | null }; onLocalCapture?: () => void } = {}) {
   const root = useBrainUiRoot();
+  const restoring = useStore(root.authLock.state, s => s.phase === "restoring");
   const api = root.api;
   const uiConfig = root.config;
   const lifetime = useRef(new AbortController());
@@ -125,7 +127,7 @@ export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: bo
         <p>Your draft and recordings are kept on this device, locked until you sign in again as the same account.</p>
         {reauth.snapshotFailed && <p role="alert">Your draft couldn't be saved on this device.</p>}
       </> : undefined}
-      localCapture={onLocalCapture ? <Button label="Record without signing in" tone="ghost" style={{ minHeight: 44 }} onClick={onLocalCapture} /> : undefined}
+      localCapture={onLocalCapture ? <Button label="Record without signing in" tone="ghost" style={{ minHeight: 44 }} disabled={submitting || restoring} onClick={onLocalCapture} /> : undefined}
       methods={{ password: passwordAvailable, passkey: passkeyAvailable }}
       password={password}
       busy={submitting}
