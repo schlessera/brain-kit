@@ -27,6 +27,7 @@ export interface LoginFormProps {
   appName: string;
   title?: string;
   notice?: ReactNode;
+  localCapture?: ReactNode;
   methods: LoginMethods;
   password: string;
   busy: boolean;
@@ -118,6 +119,7 @@ export function LoginForm(p: LoginFormProps) {
               Password login is disabled. Use a device or browser that supports passkeys.
             </p>
           )}
+          {p.localCapture}
         </form>
       </motion.div>
     </div>

@@ -203,7 +203,9 @@ export function installFaultNetwork(options: FaultNetworkOptions = {}): FaultNet
   XMLHttpRequest.prototype.send = function spiedSend(this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
     const target = xhrTargets.get(this);
     if (target) requests.push({ via: "xhr", ...target });
-    return original.xhrSend.call(this, body);
+    // Workbox adds the worker XHR overload to the shared test type graph.
+    // Forward the browser method unchanged, including its Document overload.
+    return Reflect.apply(original.xhrSend, this, [body]);
   };
   navigator.sendBeacon = function spiedBeacon(url: string | URL, data?: BodyInit | null) {
     requests.push({ via: "beacon", method: "POST", url: new URL(String(url), location.href).href });

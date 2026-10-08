@@ -12,6 +12,7 @@
 export { configureBrainUi, type BrainUiConfig } from "./config.js";
 
 // Top-level surfaces the shell composes.
+export { LocalCaptureScreen } from "./components/connectivity/local-capture-screen.js";
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
 export { AppShell } from "./components/layout/app-shell.js";
 export { ChatPage } from "./components/chat/chat-page.js";

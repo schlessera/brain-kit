@@ -16,6 +16,7 @@ import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/vi
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
+import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
 import viteConfig from "./vite.config.ts";
@@ -103,7 +104,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, startRequestLog, requestLog, grantMicrophone },
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

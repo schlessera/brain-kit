@@ -1,5 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@schlessera/brain-ui-kit";
 import { recordingTime } from "../../lib/recordings.js";
 import { LoginForm } from "./login-form.js";
 import {
@@ -19,7 +20,7 @@ import {
  * passkeys and the browser supports WebAuthn. On success the browser has the
  * HttpOnly session cookie; a reload boots the authenticated app.
  */
-export function LoginScreen({ reauth }: { reauth?: { revoked: boolean; snapshotFailed: boolean; savedThroughMs: number | null } } = {}) {
+export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: boolean; snapshotFailed: boolean; savedThroughMs: number | null }; onLocalCapture?: () => void } = {}) {
   const root = useBrainUiRoot();
   const api = root.api;
   const uiConfig = root.config;
@@ -124,6 +125,7 @@ export function LoginScreen({ reauth }: { reauth?: { revoked: boolean; snapshotF
         <p>Your draft and recordings are kept on this device, locked until you sign in again as the same account.</p>
         {reauth.snapshotFailed && <p role="alert">Your draft couldn't be saved on this device.</p>}
       </> : undefined}
+      localCapture={onLocalCapture ? <Button label="Record without signing in" tone="ghost" style={{ minHeight: 44 }} onClick={onLocalCapture} /> : undefined}
       methods={{ password: passwordAvailable, passkey: passkeyAvailable }}
       password={password}
       busy={submitting}

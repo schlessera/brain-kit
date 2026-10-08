@@ -92,6 +92,7 @@
     "@vitest/browser": "4.1.11",
     "@vitest/browser-playwright": "4.1.11",
     "@vitest/coverage-v8": "4.1.11",
+    "esbuild": "0.28.2",
     "happy-dom": "^20.14.5",
     "playwright": "1.63.0",
     "react": "^19",
@@ -100,6 +101,10 @@
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "workbox-expiration": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1",
+    "workbox-strategies": "7.4.1"
   }
 }

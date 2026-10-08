@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
-import { RECORDING_MAX_MS, recordingTime } from "../../lib/recordings.js";
+import { RECORDING_MAX_MS, recordingTime, type RecordingStore } from "../../lib/recordings.js";
 
 /** Local variant: only state changes and limits announce; timer and meter do not. */
-export function LocalRecordingSheet({ open, onStop, onDiscard }: {
+export function LocalRecordingSheet({ open, onStop, onDiscard, store, inline = false }: {
   open: boolean;
+  store?: RecordingStore;
+  inline?: boolean;
   onStop: () => Promise<void>;
   onDiscard: () => Promise<void>;
 }) {
   const root = useBrainUiRoot();
+  const recordings = store ?? root.recordings;
   const level = useRootStore("voice", s => s.audioLevel);
   const stopping = useRootStore("voice", s => s.local === "stopping");
   const [elapsed, setElapsed] = useState(0);
@@ -28,21 +31,21 @@ export function LocalRecordingSheet({ open, onStop, onDiscard }: {
     setElapsed(0); setConfirm(false); setMessage("Recording on this device"); setError("");
     const update = () => {
       setElapsed(performance.now() - start);
-      void root.recordings?.budget().then(budget => { if (live) setBytes(budget.bytes); }).catch(() => { if (live) setBytes(null); });
+      void recordings?.budget().then(budget => { if (live) setBytes(budget.bytes); }).catch(() => { if (live) setBytes(null); });
     };
     update();
     const account = root.stores.connection.getState().accountKey;
-    void root.recordings?.list(account === null ? "unassigned" : accountPartition(account)).then(rows => {
+    void recordings?.list(account === null ? "unassigned" : accountPartition(account)).then(rows => {
       const active = rows.find(row => row.state === "recording");
       if (live && active?.createdAt !== undefined) { start = performance.now() - Math.max(0, Date.now() - active.createdAt); update(); }
     }).catch(() => {});
     const timer = setInterval(update, 1000);
-    const unwatch = root.recordings?.onEvent(event => { if (event.message) setMessage(event.message); });
+    const unwatch = recordings?.onEvent(event => { if (event.message) setMessage(event.message); });
     return () => { live = false; clearInterval(timer); unwatch?.(); };
-  }, [open, root]);
+  }, [open, root, recordings]);
   if (!open) return null;
   const act = (fn: () => Promise<void>) => { void fn().catch(() => setError("Couldn\u0027t delete the recording on this device. The recording is kept.")); };
-  return <section ref={sheet} role="region" aria-label="Recording on this device" data-local-recording-sheet="" className="absolute inset-x-0 bottom-full z-40 mb-2 rounded-xl border border-border bg-surface p-3 shadow-xl">
+  return <section ref={sheet} role="region" aria-label="Recording on this device" data-local-recording-sheet="" className={`${inline ? "relative" : "absolute inset-x-0 bottom-full"} z-40 mb-2 rounded-xl border border-border bg-surface p-3 shadow-xl`}>
     <div className="flex items-center justify-between gap-2 text-sm"><b>Recording on this device</b><span className="font-mono">{recordingTime(elapsed)}</span></div>
     <div role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(level * 100)} className="my-2 h-2 overflow-hidden rounded bg-border"><div className="h-full bg-primary-mark" style={{ width: `${Math.round(level * 100)}%` }} /></div>
     <p className="text-xs text-muted-foreground">Stays on this device. Nothing is uploaded until you tap Transcribe.</p>

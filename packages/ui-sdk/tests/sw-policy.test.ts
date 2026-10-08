@@ -325,6 +325,7 @@ describe("registerDefaultRoutes", () => {
     });
 
     const response = await navigate(navigateRequest());
+    expect(await response.text()).toBe("Brain needs to load once while online before it can work offline on this device.");
     expect(response.status).toBe(503);
     expect(response.headers.get("Content-Type")).toBe("text/html");
     expect(calls).toEqual(["network", "shell", "offline-page"]);

@@ -286,3 +286,27 @@ forty index-pair edges. The agent supplies topology, optional brain paths,
 focus and tones; the client chooses coordinates. Self-loops and invalid
 indices are refused, duplicates are removed, and the first focus wins.
 The host echoes these claims without looking them up.
+
+## Cached offline capture shell
+
+The host provides a worker entry calling `registerDefaultRoutes`, `/index.html`,
+a web-app manifest, and a revisioned precache manifest covering the shell's
+JavaScript, CSS, fonts and other assets. Include every asset needed by
+`ConnectionGate` and its local capture screen; keep that screen in the eager
+shell bundle rather than a chunk fetched only when offline. Never put `/api`
+URLs in the precache manifest. The policy keeps authenticated API requests
+network-only, including file images, and removes legacy API caches on activate.
+
+The host also provides `/offline.html` with this sentence:
+
+> Brain needs to load once while online before it can work offline on this device.
+
+After a successful online load and worker installation, the precached shell
+can boot in a fresh offline page. The React gate offers unassigned local
+recording when durable local capture is enabled and supported. It loads no
+protected chat or history. A first-ever visit while offline has neither a
+worker nor a shell and cannot render the capture screen; the browser may show
+its own network error. An installed worker missing its cached shell falls back
+to `/offline.html`, or to a 503 carrying the same sentence if that page is also
+missing. Cache or site-data eviction can remove previously available assets.
+The generated files and their precache inventory belong to the hosting template.

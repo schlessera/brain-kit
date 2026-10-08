@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBrainUiRoot } from "../root-context.js";
-import type { Recording } from "../lib/recordings.js";
+import type { RecordingStore, Recording } from "../lib/recordings.js";
 import {
   detectLocalCaptureSupport,
   startLocalCapture,
@@ -31,8 +31,9 @@ export function useLocalCaptureSupport(): boolean | null {
  * only ever called from a tap; nothing here opens the microphone by itself,
  * on load, on reconnect or after a permission grant.
  */
-export function useLocalCapture() {
+export function useLocalCapture({ store, allowLocked = false }: { store?: RecordingStore; allowLocked?: boolean } = {}) {
   const root = useBrainUiRoot();
+  const recordings = store ?? root.recordings;
   const captureRef = useRef<LocalCapture | null>(null);
   const recordingRef = useRef<Pick<Recording, "partition" | "id"> | null>(null);
   // Bumped by every start and every stop: a start whose microphone opens
@@ -46,7 +47,7 @@ export function useLocalCapture() {
   const start = useCallback(async () => {
     const options = root.localCapture;
     const voice = root.stores.voice.getState();
-    if (!options || voice.local !== "idle" || root.authLock.state.getState().phase !== "active") return;
+    if (!options || voice.local !== "idle" || (!allowLocked && root.authLock.state.getState().phase !== "active")) return;
     const gen = ++genRef.current;
     recordingRef.current = null;
     voice.setLocalNotice(null);
@@ -56,8 +57,8 @@ export function useLocalCapture() {
     let capture: LocalCapture;
     try {
       const env = { timesliceMs: options.timesliceMs, signal: opening.signal, onAudioLevel: (level: number) => root.stores.voice.getState().setAudioLevel(level) };
-      capture = root.recordings && options.durable
-        ? await root.recordings.start(env)
+      capture = recordings && options.durable
+        ? await recordings.start(env)
         : await startLocalCapture({ sink: options.sink(), ...env });
     } catch (err) {
       if (openingRef.current === opening) openingRef.current = null;
@@ -78,7 +79,7 @@ export function useLocalCapture() {
       return;
     }
     captureRef.current = capture;
-    recordingRef.current = options.durable ? root.recordings?.active() ?? null : null;
+    recordingRef.current = options.durable ? recordings?.active() ?? null : null;
     root.stores.voice.getState().setLocal("recording");
     // However it ends — a caller's stop, the browser ending the track —
     // the composer goes back to idle once the final chunk was handed over.
@@ -87,7 +88,7 @@ export function useLocalCapture() {
       captureRef.current = null;
       root.stores.voice.getState().setLocal("idle");
     });
-  }, [root]);
+  }, [root, recordings, allowLocked]);
 
   const stop = useCallback(async (reason: LocalCaptureStopReason = "user") => {
     genRef.current++;
@@ -99,9 +100,9 @@ export function useLocalCapture() {
       return;
     }
     voice.setLocal("stopping");
-    if (reason === "auth" && root.localCapture?.durable) await root.recordings?.stop(reason);
+    if (reason === "auth" && root.localCapture?.durable) await recordings?.stop(reason);
     else await capture.stop(reason);
-  }, [root]);
+  }, [root, recordings]);
 
   useEffect(() => root.authLock.registerStop(() => stop("auth")), [root, stop]);
 

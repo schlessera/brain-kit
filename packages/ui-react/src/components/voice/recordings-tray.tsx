@@ -113,7 +113,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   </>;
 }
 
-function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void }) {
+export function RecordingItem({ row, offline, onDiscard, onAccepted, localOnly = false }: { row: Recording; offline: boolean; onDiscard: () => Promise<void>; onAccepted: () => void; localOnly?: boolean }) {
   const root = useBrainUiRoot();
   const [confirm, setConfirm] = useState(false);
   const [text, setText] = useState(row.transcript ?? "");
@@ -180,7 +180,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   };
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
     <RecordingRow time={recordingClock(row)} length={recordingTime(row.durationMs)} durationLabel={recordingDuration(row)} state={row.state} savedThrough={recordingTime(row.savedThroughMs)} interrupted={row.interruptedAt !== undefined} offline={offline}>
-      {(row.state === "transcript-ready" || row.state === "accepted") && <>
+      {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && <>
         <label className="mt-2 block text-xs text-muted-foreground">Transcript · from {recordingClock(row)} recording
           <textarea aria-label={`Transcript of ${name}`} value={text} disabled={busy || row.state === "accepted"} className="mt-1 block min-h-24 w-full rounded-lg border border-border bg-background p-2 text-sm text-foreground" onChange={event => {
             const value = event.target.value; setText(value); dirty.current = true;
@@ -197,7 +197,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
       <div ref={actions} className="mt-2 flex flex-wrap gap-2">
-        {(row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
+        {!localOnly && (row.state === "transcript-ready" || row.state === "accepted") && row.partition !== "unassigned" && <Button label="Add to draft" ariaLabel={`Add transcript of ${name} to draft`} block={false} style={target} disabled={busy || !text.trim()} onClick={accept} />}
         <Button label="Play" ariaLabel={`Play ${name}`} tone="ghost" block={false} style={target} disabled={busy || row.chunkCount === 0} onClick={play} />
         <Button label="Discard…" ariaLabel={`Discard ${name}`} tone="quiet" block={false} style={target} disabled={busy} onClick={() => setConfirm(true)} />
       </div>
@@ -210,7 +210,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
           <div ref={keep}><Button label="Keep" tone="ghost" block={false} style={target} disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
-      <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>
+      {!localOnly && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}
       {saveError && <p role="alert" className="mt-2 text-xs text-destructive">{saveError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </RecordingRow>
