@@ -51,8 +51,18 @@ test("installed CLI hard pruning removes rejected MCP tools and project skill li
 });
 
 test("installed CLI relevance hint follows the unchanged complete skill listing", async () => {
+  // Compare with the actual installed CLI's baseline, including every bundled
+  // skill and its complete description. Runtime updates may add entries.
+  const baseline = await captureSurface();
+  const baselineSkills = observedSkills(baseline.request);
+  expect(baseline.fixtureSkills.map(skill => skill.name).sort()).toEqual(["crew-log", "shipbuilding", "voyage-plan"]);
+  for (const skill of baseline.fixtureSkills) {
+    expect(baselineSkills.find(entry => entry.name === skill.name)).toEqual(skill);
+  }
   const result = await captureSurface({ decision: Promise.resolve({ arm: "hint", routed: true,
     tools: ["mcp__brain-ui__show_block"], skills: ["voyage-plan"] }) });
+  const skills = observedSkills(result.request);
+  expect(skills).toEqual(baselineSkills);
   expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(8);
   expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
   const messages = JSON.stringify(result.request.messages);
@@ -64,8 +74,6 @@ test("installed CLI relevance hint follows the unchanged complete skill listing"
     expect(hint).toBeGreaterThan(listed);
   }
   expect(JSON.stringify(result.request.system)).not.toContain("<tool_relevance>");
-  const skills = observedSkills(result.request);
-  expect(skills).toHaveLength(15);
   expect(skills.find(skill => skill.name === "claude-api")?.description).toContain("SKIP only when another provider");
   expect(skills.find(skill => skill.name === "dataviz")?.description).toContain("color by series");
 });
