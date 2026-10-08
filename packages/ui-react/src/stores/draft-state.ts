@@ -189,7 +189,7 @@ export interface DraftStoreState {
   setChecked(requestId: string, checked: DraftSend["checked"], reason?: string): void;
 
   /** @internal Retarget this tab after a committed device-local fork. */
-  keepDeviceBranch(sourceId: string, branchId: string, other: LocalDraft | null, sessionId: string | null): void;
+  keepDeviceBranch(sourceId: string, branchId: string, other: LocalDraft | null, sessionId: string | null, preserveOther?: boolean): void;
   /** @internal Restore this tab's association without binding the branch to a session. */
   showDeviceBranch(sessionId: string, draftId: string): void;
   /** @internal Explicitly open the other retained version. */
@@ -508,7 +508,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
       },
 
-      keepDeviceBranch(sourceId, branchId, other, sessionId) {
+      keepDeviceBranch(sourceId, branchId, other, sessionId, preserveOther = false) {
         const state = get();
         // Take the live content, including edits made while the transaction
         // was open. Immutable sends keep their original ids and snapshots.
@@ -536,7 +536,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           const drafts = { ...s.drafts, [branchId]: branch };
           delete drafts[sourceId];
           delete drafts[liveId];
-          if (other) {
+          // A distinct other record can be edited while native commit waits.
+          // The caller keeps its prior expectation until those edits save.
+          if (other && (!preserveOther || !drafts[other.draftId])) {
             const edit = 1;
             drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
               host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };

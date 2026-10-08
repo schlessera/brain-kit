@@ -306,6 +306,13 @@ for (const outcome of ["accept", "refuse"])
     const images = (await view(b)).images;
     await b.call("blobPreviews");
     await b.call("send", true);
+    const immutable = await b.call<{
+      snapshotImages: Array<{ data: string; preview: string }>;
+    }>("sendState");
+    expect(
+      immutable.snapshotImages.length,
+      "the input immutable snapshot has nonempty images"
+    ).toBeGreaterThan(0);
     await b.call("save");
     const branch = (await view(b)).id;
     await b.call("settleSend", outcome);
@@ -323,11 +330,15 @@ for (const outcome of ["accept", "refuse"])
       settlement.waiting,
       "settlement releases the branch waiting state"
     ).toEqual([]);
+    expect(
+      settlement.snapshotImages.length,
+      "the settled immutable send retains nonempty images"
+    ).toBeGreaterThan(0);
+    expect(
+      settlement.snapshotImages.map((a) => a.data),
+      "settlement keeps the immutable send's exact input image bytes"
+    ).toEqual(images.map((a) => a.data));
     if (outcome === "refuse") {
-      expect(
-        settlement.snapshotImages.length,
-        "the refused immutable send retains nonempty images"
-      ).toBeGreaterThan(0);
       expect(settlement.editableImages.map((a) => a.data)).toEqual(
         settlement.snapshotImages.map((a) => a.data)
       );
@@ -973,3 +984,91 @@ test("review: a stale source and a colliding session owner both survive continue
   await b.call("openStored", third);
   expect((await view(b)).text).toBe("Athena keeps the third tab's chart.");
 }, 60000);
+
+for (const mode of ["owned", "foreign", "clean"] as const)
+  test(`review: collision restoration preserves late edits and honest baselines (${mode})`, async (ctx) => {
+    const a = await openScene(
+      new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+    );
+    ctx.onTestFinished(() => a.close());
+    await a.call("ready", 320, "dark");
+    await a.call("navigate", "pylos");
+    await a.call("edit", ORIGINAL, true);
+    await a.call("save");
+    const original = (await view(a)).id;
+    const b = await a.sibling();
+    ctx.onTestFinished(() => b.close());
+    await b.call("ready", 320, "dark");
+    await b.call("pauseSnapshot");
+    await b.call("navigate", null);
+    await b.call("edit", "Odysseus starts a voyage.");
+    await b.call("send", true);
+    await b.call("edit", INCOMING, true);
+    const incomingImages = (await view(b)).images;
+    await b.call("navigate", "pylos");
+    if (mode === "owned")
+      await b.call("edit", "Penelope adds a pre-commit correction.", true);
+    await b.call("acceptIn", "pylos");
+    await b.call("hold");
+    await b.call("startSave");
+    await expect.poll(() => b.call("snapshotWaiting")).toBe(true);
+    const foreign = "Penelope changes the saved chart.";
+    if (mode !== "owned") {
+      await a.call("edit", foreign, true);
+      await a.call("save");
+    }
+    const committedImages = (await view(a)).images;
+    await b.call("releaseSnapshot");
+    await b.call("waitHeld");
+    const late = "Telemachus corrects Penelope's chart during commit.";
+    if (mode !== "clean") await b.call("edit", late, true, original);
+    const lateImages = (await view(b)).images;
+    await b.call("release");
+    await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+    expect(
+      (await view(b)).text,
+      "collision restoration preserves a late edit or refreshes the clean other version"
+    ).toBe(mode === "clean" ? INCOMING : late);
+    if (mode === "clean") {
+      const memory = await b.call<{
+        drafts: Array<{ id: string; text: string }>;
+      }>("view");
+      expect(
+        memory.drafts.find((d) => d.id === original)?.text,
+        "a clean collision owner adopts the actual committed version"
+      ).toBe(foreign);
+    }
+    await b.call("save");
+    const kept = await rows(b);
+    if (mode === "foreign") {
+      expect(
+        kept.find((r) => r.value.draftId === original)?.value,
+        "an unadopted foreign baseline cannot be overwritten by the next dirty snapshot"
+      ).toMatchObject({
+        text: foreign,
+        sessionId: "pylos",
+        attachments: committedImages,
+      });
+      expect(kept.find((r) => r.value.text === late)?.value).toMatchObject({
+        sessionId: null,
+        attachments: lateImages,
+      });
+    } else
+      expect(
+        kept.find((r) => r.value.draftId === original)?.value
+      ).toMatchObject({
+        text: mode === "clean" ? foreign : late,
+        sessionId: "pylos",
+        attachments: mode === "clean" ? committedImages : lateImages,
+      });
+    expect(kept.find((r) => r.value.text === INCOMING)?.value).toMatchObject({
+      sessionId: null,
+      attachments: incomingImages,
+    });
+    expect(kept).toHaveLength(mode === "foreign" ? 3 : 2);
+    const active = (await view(b)).id;
+    await b.reload();
+    await b.call("ready", 320, "dark");
+    expect((await view(b)).id).toBe(active);
+    expect((await view(b)).text).toBe(mode === "clean" ? INCOMING : late);
+  }, 60000);

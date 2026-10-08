@@ -367,9 +367,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     if (changes.length === 0) { committedRevision = writingRevision; status.setState({ pending: false }); return; }
     type Fork = { source: string; branch: string; sessionId: string | null; other: LocalDraft | null; kept: StoredDraft[] };
     let forks: Fork[] = [];
+    let writtenHere = new Set<string>();
     const nextVersions = new Map(versions);
     try {
-      forks = await writingPartition.mutate(`${scope}/draft/`, stored => {
+      const outcome = await writingPartition.mutate(`${scope}/draft/`, stored => {
         checkGeneration();
         const actual = new Map(stored.map(r => [r.key, r.value as StoredDraft]));
         const planned: PartitionWrite[] = [];
@@ -441,8 +442,10 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
             }
           }
         }
-        return { changes: planned, result };
+        return { changes: planned, result: { forks: result, written: planned.flatMap(c => "put" in c && c.put.startsWith(`${scope}/draft/`) ? [c.put.slice(`${scope}/draft/`.length)] : []) } };
       }, acceptance?.signal);
+      forks = outcome.forks;
+      writtenHere = new Set(outcome.written);
     } catch (error) {
       // No branch association or kept notice can precede native commit.
       if (!(error instanceof PartitionRefusedError)) status.setState({ failed: true, pending: false });
@@ -450,12 +453,30 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     }
     checkGeneration();
     committedRevision = writingRevision;
+    const previousCommitted = committed;
+    const previousVersions = versions;
     written = next;
     committed = nextCommitted;
     versions = nextVersions;
     // Association changes use the live draft, so typing during commit is
     // still visible. Their next snapshot updates the same retained branch.
-    for (const fork of forks) stores.drafts.getState().keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId);
+    for (const fork of forks) {
+      const state = stores.drafts.getState();
+      const otherId = fork.other?.draftId;
+      const current = otherId ? state.drafts[otherId] : undefined;
+      const saved = fork.kept.find(d => d.draftId === otherId);
+      const preserveOther = !!(current && saved && otherId !== fork.source && otherId !== state.resolveId(fork.source) && current !== drafts[otherId!] && !sameContent(storeDraft(current), saved));
+      if (preserveOther && !writtenHere.has(otherId!)) {
+        // Learning another record exists is not adoption of its new revision.
+        // This tab's intervening edit must still conflict with a foreign write;
+        // an actual write by this transaction supplies its own valid baseline.
+        const old = previousCommitted.get(otherId!);
+        if (old === undefined) committed.delete(otherId!); else committed.set(otherId!, old);
+        const version = previousVersions.get(otherId!);
+        if (version === undefined) versions.delete(otherId!); else versions.set(otherId!, version);
+      }
+      state.keepDeviceBranch(fork.source, fork.branch, fork.other, fork.sessionId, preserveOther);
+    }
     // Restore additional committed owners without overwriting visible work.
     // A conflicting/retired record that cannot enter this tab's store stays
     // protected until the reader explicitly adopts it with openDeviceVersion.
