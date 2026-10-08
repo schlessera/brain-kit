@@ -123,6 +123,135 @@ Share cleanup refuses staging paths that traverse symlinks, including links to
 other directories inside the brain. Accessing the brain root itself through a
 symlink is supported.
 
+## Offline use and local recordings
+
+These are package capabilities for a host using the
+[durable recording root](../../packages/ui-react/README.md#recording-on-the-device)
+and [cached-shell policy](../../packages/ui-sdk/README.md#cached-offline-capture-shell).
+The host must enable durable local capture and precache the shell's capture
+assets. Previously visiting a host does not by itself prove those assets remain
+cached. Generated worker/index/offline pages and manifests are owned by
+[brain-hosting-template #11](https://github.com/schlessera/brain-hosting-template/issues/11).
+Older installed packages or a shell
+without this setup need not offer these capabilities.
+
+| How you opened the app | Available locally | Needs the host |
+| --- | --- | --- |
+| **Warm disconnect:** this page already connected, then lost transport | Drawn chat stays mounted. Keep typing with focus, selection, IME, images and reading position preserved. Start/stop local recording, play retained accessible audio, review a saved transcript and add it to a local draft. | Send, server history/agent work and saved-audio transcription. Reconnect restores availability without sending new local work. |
+| **Cold cached launch:** open a new page offline with a controlling worker and retained shell assets | A minimal capture screen creates **unassigned** device-local recordings and permits their playback/discard. Account audio is locked; only aggregate size is shown. | Protected chat/history, account drafts and transcription. When the server returns, choose Continue; capture drains before leaving, and login/explicit association precede upload. |
+| **First-ever uncached offline visit**, or missing required shell assets | The capture app cannot boot. A browser offline error or a reachable worker's last-resort explanation may appear. | Load successfully online before attempting cached offline use. This is not a supported first-visit offline app. |
+
+The [warm continuity proof](https://github.com/schlessera/brain-kit/pull/1232)
+and [actual cached/uncached worker proof](https://github.com/schlessera/brain-kit/pull/1247)
+exercise these boundaries in real Chromium. A full offline history cache and
+offline server-side agent execution are not provided.
+
+**Transport loss and sign-in expiry differ.** Expiry/revocation stops capture,
+commits the work snapshot and removes protected views. Successful sign-in as
+the same account restores the saved work context without a full reload when
+the snapshot exists. An unfinished IME composition is not recoverable through
+auth loss; only committed text is kept. Another account cannot open the prior
+account's work. A failed snapshot is reported and uses reload/cold recovery.
+[Auth-transition proof](https://github.com/schlessera/brain-kit/pull/1240) covers
+this independently from transport continuity.
+
+### Keeping and accepting audio
+
+Recordings have a **10-minute limit each** and a **100 MiB total retained-audio
+limit per app origin/device**, across all account partitions and unassigned
+recordings. Browser capacity can be lower. A limit or failed write stops
+capture and keeps the committed playable prefix; older recordings are never
+evicted to admit a new one. There is **no automatic age expiry**. Keep audio
+until you explicitly discard it or accept its transcript into a safely saved
+local draft. Transcription success alone does not delete it.
+[Retention ruling](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5907064902)
+and [real recording-store proof](https://github.com/schlessera/brain-kit/pull/1230)
+establish these limits.
+
+**Saved up to** names the last committed audio boundary. The end may be missing
+after interruption or storage failure; the app does not promise a one-second
+loss limit or background recording through screen lock/calls. It never restarts
+the microphone automatically. Microphone denial or unsupported capture/storage
+gets an explanation; warm local typing remains available. Storage persistence
+requests and capacity estimates are not guarantees.
+
+To transcribe, reconnect and sign in, explicitly associate any unassigned
+recording with the account, select Transcribe, then confirm **Upload and
+transcribe**. Only that action uploads audio to your brain server, which sends
+it to the named speech provider. Deepgram is the only built-in saved-audio
+provider; Web Speech and external providers without the capability retain the
+unavailable explanation and your audio. Live dictation is a separate path.
+No audio upload happens just because you sign in, reload or reconnect.
+
+A failed transcription retains audio. Definitive transient/capacity provider
+failures allow at most **three explicit user retries** per recording/hash.
+Unknown outcomes are terminal; media/validation and authentication failures do
+not offer Retry. A lost reply may mean processing happened; it is not called
+Not sent without evidence. Reconnection may query transcription status or flush
+an earlier explicit receipt deletion, and does not upload or retry audio.
+These rules come from the [retry ruling](https://github.com/schlessera/brain-kit/issues/1021#issuecomment-6055129108)
+and [keyless saved-transcription proof](https://github.com/schlessera/brain-kit/pull/1256),
+not measured live-provider performance.
+
+Review and edit the saved transcript, then choose **Add to draft**. The draft
+commits locally before audio deletion; a failed save keeps the recording. Add
+does not send a message, upload the draft or answer an approval. You still
+choose Send; subsequent editing resumes the ordinary host-draft workflow.
+[Acceptance proof](https://github.com/schlessera/brain-kit/pull/1241) exercises
+the native commit-before-delete boundary. Draft text/images can be saved on the
+device; **staged track files stay in this tab only**, including when their view
+is hidden. A browser leave warning does not make those files survive reload.
+[Track lifetime](https://github.com/schlessera/brain-kit/issues/1112#issuecomment-6032010851)
+and [leave-warning proof](https://github.com/schlessera/brain-kit/issues/1150#issuecomment-6033781561)
+explain the distinction.
+
+### Privacy and browser recovery limits
+
+Account partitioning controls what this UI can open; **it is not protection
+against someone with access to the device**. Local audio/drafts are not
+per-account encrypted. Anyone using this browser profile can play unassigned
+recordings. Login does not silently assign them: selection starts empty,
+association moves only the chosen recordings, and cancellation keeps them
+unassigned. Sign-out warns and clears the current account's local partition.
+Unassigned recordings stay unless you tick the separate, initially unticked
+Also delete choice. Storage failure cannot veto the logout attempt and is
+reported afterwards; failed cleanup does not imply that all local work is gone.
+[Approved R1/R2 policy](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5998617047)
+and [native account/sign-out proof](https://github.com/schlessera/brain-kit/pull/1248)
+establish this boundary.
+
+Browser storage can be unavailable, evicted, private-profile-limited or cleared
+by the user. These risks have no measured per-browser loss distribution in V1.
+If an index survives but chunks disappear, recovery can report the removed audio
+or recover an interrupted playable prefix. A surviving transcript can still be
+reviewed. **If both the recording index and its chunks disappear, with no other
+surviving evidence, there is nothing the UI can show or report.** Retention
+policy does not protect against loss of the browser's underlying storage.
+
+The [dated V1 browser matrix](../decisions/design-kit.md#desktop-browser-measurements-and-their-limits)
+gives exact versions, conditions and loss distributions: Playwright 1.63.0,
+Chromium 153.0.8010.12 and Firefox 155.0, requested 1000 ms timeslices, seven
+runs per measured interruption cell plus five confirmation runs for the named
+subset. This was headed desktop Linux with deterministic fake audio, not a
+physical-device trial. All measured runs preserved committed chunks and their
+index. The matrix separates simulated track end, actual process kills/full disk,
+and a hidden Chromium tab from real OS interruptions.
+
+| Browser / condition | Measured boundary or explicit limitation |
+| --- | --- |
+| Desktop Chromium 153.0.8010.12 | WebM/Opus capture, Blob storage, close/crash/browser kill, hidden-then-kill, simulated track end and full disk measured under the linked V1 conditions. MP4 capability detected; interruption runs used WebM. |
+| Desktop Firefox 155.0 | WebM/Opus probe, Blob storage, close/content-process/browser kill, simulated track end and full disk measured. MP4 unsupported in that build. Hidden behavior **NOT MEASURED**: runner could not hide its separate window; [#1236 measurement handoff](https://github.com/schlessera/brain-kit/issues/1236). |
+| Playwright Linux WebKit 26.6 | No MediaRecorder in that build; recording interruptions **NOT MEASURED** for that reason. It is not Safari; [#1236 handoff](https://github.com/schlessera/brain-kit/issues/1236). |
+| Android Chromium | **NOT MEASURED**: V1 had no device and no emulator finding is supplied; [#1236](https://github.com/schlessera/brain-kit/issues/1236). |
+| Safari macOS | **NOT MEASURED**: no available Apple device; [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236) and [ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836). |
+| Safari iOS tab / installed PWA | Both **NOT MEASURED**: no available Apple device; [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236) and [ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836). |
+| Real OS mic interruption, screen lock / background freeze, all browsers | **NOT MEASURED**: V1 could simulate track end, not an OS call or locked screen; the CDP freeze request did not freeze capture. Attainable emulator cells moved to [#1236](https://github.com/schlessera/brain-kit/issues/1236). |
+| Eviction, private-mode lifetime, user-cleared site data and an origin quota lower than free disk, per browser | **NOT MEASURED**: V1 did not provoke these storage-lifecycle events or impose a lower engine quota. [Full reasons and #1236 handoff](../decisions/design-kit.md#unmeasured-cells-and-detectable-storage-loss). |
+
+The [desktop-suffices ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6040793673)
+accepts these desktop findings for package work. It does not certify any
+unmeasured device or interruption cell.
+
 ## The `/brain-host` skill
 
 `/brain-host` is the conversational way to set this up. It interviews you for

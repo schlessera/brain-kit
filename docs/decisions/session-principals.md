@@ -296,3 +296,88 @@ without changing the ordinary interactive queued/running distinction above.
 Attribution and principal checks remain separate from actual credential,
 filesystem and egress containment. Cron's system identity cannot stand in for
 the schedule's creator or approver.
+
+
+## 2026-10-08 — Device-local account partitions and auth transitions (#1023)
+
+The [September 30 retention ruling](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5907064902),
+[October 4 reconciliation](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5980965363)
+and [October 5 approval](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5998617047)
+bind local work to the originating account and app context. A login principal
+is attribution and revocable authority, not durable account identity: a fresh
+principal on every sign-in must still reopen the owner's local work.
+
+The existing authenticated connectivity response carries `accountKey`, derived
+from a random seed in the host's operational database, the canonical brain root
+and the account scope. A different database or root changes the key; resetting
+the database can lock old partitions. The digest names a partition, is not a
+secret, and authorizes nothing on the host
+(`createAccountPartitionKeys`, `packages/ui-server/src/middleware/account-partition.ts:84-97`).
+The [real-auth proof](https://github.com/schlessera/brain-kit/pull/1209) establishes
+this table; the scope function covers every principal kind
+(`accountScope`, `packages/ui-server/src/middleware/account-partition.ts:64-69`):
+
+| Auth mode / principal | Local account scope | Reauthentication identity |
+| --- | --- | --- |
+| Password owner login | Single owner | Same key across logins |
+| Passkey owner login in password mode | Same owner as password login | Same key as password login |
+| Tailscale admitted ambient client | Owner | Stable for the same host/root; no app login |
+| Proxy admitted ambient client | Upstream user's ambient identity | Stable per upstream user; distinct users differ |
+| None admitted ambient client | Owner | Stable for the same host/root; no app login |
+| Agent or system principal, any mode | No account key | Cannot open an account partition |
+
+This does not add roles or a multi-user authorization model. Host-owned
+sessions/drafts keep the single-owner model; partitioning device-local work is
+not a redesign of host authorization. The field's contract is in
+[the account-partition contract](../integration-contract.md#account-partition-key-additive-1014).
+
+**R1 is decided:** account-partitioned IndexedDB is gated by authenticated
+account context in the client. It is **not protection against someone with
+access to the device**. There is no baseline per-account encryption or
+server-released key route. The UI refuses other account partitions and exposes
+only aggregate locked audio size; these are application access rules, not
+cryptographic isolation. Unassigned recordings are device-local and playable
+by anyone using the same browser profile. The actual partition read checks
+recheck access after asynchronous database operations
+(`function allowed`, `packages/ui-react/src/lib/local-partitions.ts:190-200`).
+
+Transport failure leaves the mounted app and local account context intact;
+auth expiry/revocation follows a different sequence. Capture stops immediately,
+at most its already-started chunk write is retained, and the draft/context
+snapshot commits before protected views unmount. Then the gate drops account
+context and managers (`expire(reason`,
+`packages/ui-react/src/lib/auth-lock.ts:51-78`; `dropContext`,
+`packages/ui-react/src/lib/auth-lock.ts:21-44`). The
+[auth runtime proof](https://github.com/schlessera/brain-kit/pull/1240) holds the
+native transaction while observing stopped tracks and still-mounted protected
+views, so unmount cleanup cannot masquerade as the stop boundary. An inert
+protected DOM was rejected because its content remains inspectable.
+
+Successful same-account sign-in remounts and restores committed text, images,
+selection, focus and transcript anchor without navigation. An unfinished IME
+composition cannot be restored through auth loss; only committed text is kept.
+Another account reloads and cannot read/play prior account work. Missing or
+failed snapshots report failure and retain the existing reload/cold recovery
+path; no new complete-save claim follows from a failed write
+(`signedIn(key`, `packages/ui-react/src/lib/auth-lock.ts:83-101`). Uploaded track
+references may survive warm restoration, but staged track queues keep their
+[approved tab-only lifetime](https://github.com/schlessera/brain-kit/issues/1112#issuecomment-6030933778).
+The [manual-leave warning](https://github.com/schlessera/brain-kit/issues/1150#issuecomment-6033781561)
+does not persist those files or guarantee a browser prompt.
+
+**R2 is decided:** intentional sign-out warns about pending local work and
+clears the signed-in account's whole partition, including drafts, recordings
+and unaccepted transcripts. Unassigned audio is listed separately, with an
+initially unticked **Also delete … recordings not linked to any account**
+choice. Left unticked it stays, and the next screen says so. No selection or
+login silently assigns it: the separate association action starts with nothing
+selected and moves only selected unassigned recordings; cancellation retains
+them and association performs no upload
+([native association/sign-out proof](https://github.com/schlessera/brain-kit/pull/1248)).
+Deletion is fenced against late peer-tab writers; other accounts' partitions
+are untouched. A clear failure does not veto the logout attempt, and local or
+server failure is reported afterwards without claiming complete deletion or
+successful logout (`signOut(loss`,
+`packages/ui-react/src/lib/local-work-flow.ts:181-211`). This preserves the
+existing meaning of Sign out everywhere on the host while applying the
+warned device-local policy.
