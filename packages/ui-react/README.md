@@ -86,6 +86,9 @@ unavailable. Nothing in these actions sends audio or a chat message.
 `RecordingsTray` and `LocalRecordingSheet` are exported for other root-scoped
 views. A ready transcript is editable and each input is committed locally.
 Collapsing the tray preserves pending or failed corrections and their warning.
+Playback does not clear a transcript-save warning; it clears only after the
+correction commits or the recording is explicitly discarded. A stale Add for
+a recording removed in another tab reports that it is no longer available.
 A clean editor follows edits from other tabs; Add refuses a stored revision
 that differs from the text the user reviewed.
 Add to draft appends after a newline and commits through the account's local

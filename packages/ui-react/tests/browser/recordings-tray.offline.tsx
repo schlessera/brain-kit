@@ -333,7 +333,17 @@ test("a failed transcript input still allows local playback and confirmed discar
   await expect.poll(() => c.host.textContent).toContain("Couldn't save the transcript");
   await tap(button(c.host, "Play recording"));
   await expect.poll(() => c.host.querySelector("audio")?.getAttribute("src"), { message: "input write failure cannot disable playback" }).toMatch(/^blob:/);
+  expect(c.host.querySelector("[role=alert]")?.textContent, "playback cannot hide the unsaved transcript warning").toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
   fault.restore();
+  const hold = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]) === `recording:index:${row.id}`); ctx.onTestFinished(() => hold.restore());
+  const field = c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!;
+  await expect.poll(() => field.disabled).toBe(false);
+  await userEvent.fill(field, "Penelope confirms the fleet."); await hold.started;
+  expect(c.host.querySelector("[role=alert]")?.textContent, "an input retry preserves its warning until the correction commits").toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
+  hold.release();
+  await expect.poll(() => c.host.querySelector("[role=alert]"), { message: "a committed correction clears its save warning" }).toBeNull();
+  expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ transcript: "Penelope confirms the fleet.", chunkCount: 1 });
+  hold.restore();
   await tap(button(c.host, "Discard recording")); await settled(); await tap(button(c.host, "Delete recording"));
   await expect.poll(async () => c.root.recordings!.get(row.partition, row.id), { message: "input write failure cannot disable explicit discard" }).toBeUndefined();
 });
@@ -512,6 +522,27 @@ test("a transcript changed in another tab during Add cannot silently replace the
   await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "changed revision requires another review" }).toBe("Transcript changed in another tab. Review it before adding it to your draft.");
   expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text ?? "", "unreviewed revision is never appended").toBe("");
   expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", chunkCount: 1 });
+});
+
+test("a stale Add cannot announce acceptance after another root discarded the recording", async ctx => {
+  const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
+  const original = c.partitions.open.bind(c.partitions);
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const spy = vi.spyOn(c.partitions, "open").mockImplementation(partition => {
+    const handle = original(partition);
+    return { ...handle, async list(prefix) { if (prefix === "recording:index:") { entered(); await waiting; } return handle.list(prefix); } };
+  });
+  ctx.onTestFinished(() => { release(); spy.mockRestore(); });
+  const peer = createRecordingStore({ root: c.root, partitions: c.partitions, heldAccountKey: () => "odysseus" }); ctx.onTestFinished(() => peer.dispose());
+  await peer.discard(row.partition, row.id); await started;
+  expect(button(c.host, "Add transcript"), "the real row remains stale while its inventory refresh is held").toBeTruthy();
+  await tap(button(c.host, "Add transcript"));
+  await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "a missing recording cannot report a committed draft append" }).toBe("This recording is no longer available on this device.");
+  expect(c.host.querySelector("[data-recording-live]")?.textContent).not.toContain("Added to your draft");
+  expect(Object.values(c.root.stores.drafts.getState().drafts).map(d => d.text).filter(Boolean)).toEqual([]);
+  release();
 });
 
 test("a committed acceptance with failed cleanup renders a read-only review", async ctx => {

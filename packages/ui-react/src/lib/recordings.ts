@@ -62,7 +62,7 @@ export interface RecordingStore {
   discard(partition: PartitionId, id: string): Promise<void>;
   /** Persist editable review text before reporting it ready. */
   saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
-  /** Commit the chosen draft before marking accepted and deleting audio. Idempotent on recording id. */
+  /** Commit before marking accepted/deleting audio; retained receipts prevent duplicate appends. Missing recordings are refused. */
   accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
   /** Only unassigned audio may move, and only into the account held now. */
   assign(id: string): Promise<void>;
@@ -85,6 +85,7 @@ export function recordingTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
+export const RECORDING_UNAVAILABLE = "This recording is no longer available on this device.";
 export const TRANSCRIPT_CHANGED = "Transcript changed in another tab. Review it before adding it to your draft.";
 const notEnough = "Not enough space on this device to record. Free space by transcribing or discarding recordings.";
 async function hash(blobs: Blob[]): Promise<string> {
@@ -537,7 +538,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         checkReadable(partition);
         if (partition === "unassigned" || !options.root.localWork) throw new Error("Link this recording to an account before adding it to a draft");
         const row = await get(partition, id);
-        if (!row) return;
+        if (!row) throw new Error(RECORDING_UNAVAILABLE);
         if (expectedTranscript !== undefined && expectedTranscript !== row.transcript) throw new Error(TRANSCRIPT_CHANGED);
         if (row.state !== "accepted" && (row.state !== "transcript-ready" || !row.transcript?.trim())) throw new Error("The recording has no transcript to add");
         const revision = await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);

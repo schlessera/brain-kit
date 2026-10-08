@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObje
 import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
-import { recordingTime, TRANSCRIPT_CHANGED, type Recording } from "../../lib/recordings.js";
+import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type Recording } from "../../lib/recordings.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
@@ -118,6 +118,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
   const [confirm, setConfirm] = useState(false);
   const [text, setText] = useState(row.transcript ?? "");
   const [error, setError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [busy, setBusy] = useState(false);
   const active = useRef(false);
   const chain = useRef(Promise.resolve());
@@ -168,12 +169,12 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
           // Never swallow that failure and accept the older stored text.
           chain.current = root.recordings!.saveTranscript(row.partition, row.id, text);
           await chain.current;
-          if (editVersion.current === version) dirty.current = false;
+          if (editVersion.current === version) { dirty.current = false; if (mounted.current) setSaveError(""); }
           if (mounted.current) setSavedVersion(version);
         }
         await root.recordings!.accept(row.partition, row.id, draftId, sessionId, text);
       }
-      catch (error) { throw new Error(error instanceof Error && error.message === TRANSCRIPT_CHANGED ? TRANSCRIPT_CHANGED : ACCEPT_FAILED); }
+      catch (error) { throw new Error(error instanceof Error && (error.message === TRANSCRIPT_CHANGED || error.message === RECORDING_UNAVAILABLE) ? error.message : ACCEPT_FAILED); }
       onAccepted();
     });
   };
@@ -188,9 +189,9 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
             // a failed edit prevents acceptance of older stored text.
             chain.current = chain.current.catch(() => {}).then(() => root.recordings!.saveTranscript(row.partition, row.id, value));
             void chain.current.then(() => {
-              if (version === editVersion.current) dirty.current = false;
-              if (mounted.current) { setError(""); setSavedVersion(version); }
-            }, () => { if (mounted.current) setError("Couldn\u0027t save the transcript on this device. The recording is kept."); });
+              if (version === editVersion.current) { dirty.current = false; if (mounted.current) setSaveError(""); }
+              if (mounted.current) setSavedVersion(version);
+            }, () => { if (mounted.current) setSaveError("Couldn\u0027t save the transcript on this device. The recording is kept."); });
           }} />
         </label>
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
@@ -210,6 +211,7 @@ function RecordingItem({ row, offline, onDiscard, onAccepted }: { row: Recording
         </div>
       </div>}
       <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>
+      {saveError && <p role="alert" className="mt-2 text-xs text-destructive">{saveError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </RecordingRow>
   </div>;
