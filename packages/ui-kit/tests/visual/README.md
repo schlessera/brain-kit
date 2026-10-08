@@ -89,3 +89,13 @@ fine, coarse and mixed pointers under reduced motion. Its pixel baselines are
 taken in `rail-mixed` only; regenerate them with
 `node scripts/visual.mjs --project=rail-mixed --update`. The fine and coarse
 runs write review captures to `.vitest-attachments/session-strip/` instead.
+
+`streaming-handoff.visual.tsx` drives the same populated first-token fixture
+and play function as StreamingAnswer's `LoadingToReady` story. Its 700ms clock
+runs from the committed text/outgoing-ghost layers to actual ghost removal,
+observed through native DOM mutations. Both transition observations are required.
+Input dispatch delays and later polling cannot extend that component interval.
+The controls delay first-token dispatch, delay final observation after removal,
+and retain the native outgoing ghost for 800ms to prove the cap still rejects
+a genuinely slow handoff. Both themes retain the story's layout, geometry,
+nonempty token/tail and rendered-opacity assertions; the approved fade stays 600ms.
