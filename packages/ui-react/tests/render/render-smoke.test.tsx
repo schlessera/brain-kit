@@ -6648,8 +6648,10 @@ for(const [backend,name] of [["pi","show_block"],["claude","mcp__brain-ui__show_
 
 import { AttachmentRow as SentKitAttachmentRow, type AttachmentRowProps as SentKitAttachmentRowProps } from "@schlessera/brain-ui-kit";
 import { sentTrackFiles } from "../sent-track-fixtures.js";
-for (const backend of ["claude", "pi"] as const) {
-  test(`${backend} actual sent and replayed validated tracks use identical static kit attachment rows`, () => {
+for (const backend of ["claude", "pi"] as const) for (const [clock, hour, minute] of [["10:38", 10, 38], ["12:15", 12, 15]] as const) {
+  test(`${backend} actual sent and replayed validated tracks use identical static kit attachment rows (${clock} message time)`, () => {
+    // The message clock may resemble audio duration; attachment assertions own only their rows (#1264).
+    const timestamp = new Date(2026, 6, 12, hour, minute).getTime();
     const root = createBrainUiRoot({ storage: null }); const files = sentTrackFiles(); const sessionId = `sent-tracks-${backend}`;
     expect(files[0]!.detected).toBe("gpx"); expect(files[0]!.summary!.status).not.toBe("no_line");
     expect(files[1]!.detected).toBe("kml"); expect(files[1]!.summary!.status).toBe("no_line"); expect(files[1]!.summary!.waypointCount).toBe(4);
@@ -6657,19 +6659,25 @@ for (const backend of ["claude", "pi"] as const) {
     root.stores.chat.getState().setActiveSession(sessionId); root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
     root.stores.chat.getState().addUserMessage(sessionId, "Here is the route.", undefined, undefined, undefined, files);
     const noop = () => {};
-    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!}
+    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={{ ...root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!, timestamp }}
       onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
     try {
       const view = render(bubble()); expect(root.stores.chat.getState().buffers[sessionId]!.messages[0]!.files).toHaveLength(2);
       const rows = [...view.container.querySelectorAll('[data-kit-attachment-row]')]; expect(rows).toHaveLength(2);
+      expect(view.container.textContent).toContain(clock);
+      for (const row of rows) {
+        expect(row.textContent).not.toContain("sent · staged");
+        expect(row.textContent).not.toContain("0:38");
+        expect(row.textContent).not.toContain("transcribed on device");
+        expect(row.textContent).not.toContain("untrusted");
+        expect(row.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
+      }
       const text = rows.map(row => row.textContent);
       expect(text[0]).toBe(files[0]!.incomingName + `GPX · ${files[0]!.bytes} B · sentStaged as ${files[0]!.name}`);
       expect(text[1]).toBe(files[1]!.name + `KML · ${files[1]!.bytes} B · sent4 waypoints; no usable track line. The original is attached.`);
-      for (const row of rows) expect(row.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
-      expect(view.container.textContent).not.toContain("sent · staged");
-      expect(view.container.textContent).not.toContain("0:38"); expect(view.container.textContent).not.toContain("transcribed on device"); expect(view.container.textContent).not.toContain("untrusted");
       act(() => root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{ role: "user", content: "Here is the route.", toolCalls: [], files }] }));
       view.rerender(bubble()); expect([...view.container.querySelectorAll('[data-kit-attachment-row]')].map(row => row.textContent)).toEqual(text);
+      expect(view.container.textContent).toContain(clock);
     } finally { act(() => root.dispose()); }
   });
 }
