@@ -990,3 +990,47 @@ account is a bogus fixture API key, not a real account; absent account fields
 stay absent, and the billing receipt is explicitly unknown. Application price
 provenance remains #1206. Live model rates, classifier choices, latency and
 first-party-only behavior remain outside this keyless evidence.
+
+
+## 2026-10-08 — Haiku 5.5 and the 293 runtime (#1238)
+
+The [official model configuration](https://code.claude.com/docs/en/model-config#model-aliases)
+requires CLI 2.1.293 for canonical `claude-haiku-5-5`. The package now selects
+SDK 0.3.293 / bundled CLI 2.1.293, after remeasurement with bogus credentials
+and a network namespace containing only loopback. The npm metadata, loaded
+manifest, eight exact-version platform dependencies, SDK-selected binary
+checksum and actual native init agree. External CLI overrides remain supported;
+a Haiku 5.5 selection adds the evidenced 2.1.293 minimum to the host's own
+minimum on both start and resume. Other profiles gain no blanket minimum.
+
+The [sanitized receipts](../../scripts/measurements/claude-runtime-2026-10-08/)
+record all twelve raw permission cases and five credential controls passing,
+all fifteen production enforcement arms passing, both foreground delegation
+controls passing, and the native outside-Read isolation control passing.
+Explicit manual/default mode remains the #1213 ruling. Removing it again
+executes the denied manual-control command with no approval callback or bridge
+request; restoring it returns all fifteen arms to pass. Enforcement, voice and
+no-grant hooks retain their authority. Earlier experiments keep their original
+runtime/model pairs and evidence.
+
+The new production Haiku control observes SDK 0.3.293 / native init 2.1.293,
+canonical `claude-haiku-5-5` in the SDK options, actual Messages request and
+native usage, and explicit default permission mode. SDK and native request
+effort are medium. The native alias resolves to Haiku 5.5 and reports all five
+effort levels plus adaptive thinking. Native usage reports 1,000,000 context
+tokens, 128,000 output tokens, `provider: "firstParty"` and `costBasis: "list"`.
+Fixed 10 input / 6 output fixture tokens produce a $0.000004 native list-price
+estimate. These are scripted-loopback runtime metadata, not actual model
+capacity, account entitlement or a charge. Billing stays unknown. The native
+request omits temperature, top_p and top_k. A restored production older-model
+substitution makes the actual request use Haiku 4.5 and fails the canonical
+request-model assertion, rather than an earlier setup or option assertion.
+
+The existing Models API discovery and profile flow carries the canonical ID
+without another model roster. Its effort metadata takes precedence over the
+known-model fallback, including an explicit empty set. Unknown context stays
+unknown. The fallback's five levels and medium default follow the
+[official effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort#recommended-effort-levels-for-claude-haiku-55).
+No default chat profile or core completion model changes. No live inference,
+new billing policy, authentication fallback or usage-provenance contract is
+part of this upgrade.

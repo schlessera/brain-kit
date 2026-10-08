@@ -1,9 +1,9 @@
-import { assertLoadedSdk } from "@schlessera/brain-ui-sdk/internal";
+import { assertLoadedSdk, canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
 import { assertVersionRequirements, validateVersionMinimum, type BackendVersionRequirements, type VersionRequirement } from "@schlessera/brain-ui-sdk/server";
 
 const OWNER = "@schlessera/brain-backend-claude";
-// No evidenced extra runtime floor exists. Future floors need a feature or
-// reproducible incompatibility receipt; MEASURED_RUNTIME is not a requirement.
+// No backend-wide floor. Model minima follow evidenced upstream feature
+// requirements; MEASURED_RUNTIME is not a compatibility requirement.
 const MIN_CLAUDE_CODE_VERSION: string | undefined = undefined;
 
 export function assertClaudeSdk(requirements: BackendVersionRequirements | undefined, phase: string) {
@@ -12,9 +12,14 @@ export function assertClaudeSdk(requirements: BackendVersionRequirements | undef
     ...(requirements?.sdk !== undefined ? { minimum: requirements.sdk } : {}), phase });
 }
 
-export function claudeRuntimeRequirements(requirements?: BackendVersionRequirements, phase = "backend construction"): VersionRequirement[] {
+export function claudeRuntimeRequirements(requirements?: BackendVersionRequirements, phase = "backend construction", model?: string): VersionRequirement[] {
   const result: VersionRequirement[] = [];
   if (MIN_CLAUDE_CODE_VERSION !== undefined) result.push({ owner: OWNER, kind: "minimum", declaration: MIN_CLAUDE_CODE_VERSION });
+  // https://code.claude.com/docs/en/model-config#model-aliases requires this
+  // CLI version for Haiku 5.5, including explicit external binary overrides.
+  if (canonicalModelId(model ?? "") === "claude-haiku-5-5") {
+    result.push({ owner: "claude-haiku-5-5 model", kind: "minimum", declaration: "2.1.293" });
+  }
   if (requirements?.runtime !== undefined) result.push({ owner: "host versionRequirements.runtime", kind: "minimum", declaration: requirements.runtime });
   for (const req of result) {
     try { validateVersionMinimum(req.declaration, req.owner, "claude-code"); } catch (error) {

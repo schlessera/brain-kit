@@ -214,8 +214,8 @@ export function createClaudeTurnRunner(options: {
      * set, nothing the stream says afterwards can turn the turn into a success.
      */
     let withheld = false;
-    const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements);
     const phase = req.sessionId === undefined ? "start before prompt release" : "resume before prompt release";
+    const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements, phase, profile.model);
     let probedVersion: string | undefined;
     /**
      * Unified terminal frame for cancelled/failed turns. With a session
@@ -289,6 +289,7 @@ export function createClaudeTurnRunner(options: {
           signal: abortController.signal, log: options.log,
         });
         probedVersion = report.runtime.version;
+        assertClaudeRuntime(probedVersion, runtimeRequirements, phase);
         abortController.signal.throwIfAborted();
       }
       let initialization: ReturnType<Query["initializationResult"]> | undefined;
