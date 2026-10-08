@@ -59,8 +59,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
     const workers = navigator.serviceWorker;
     const update = () => setControlled(!!workers?.controller);
     update();
-    workers?.addEventListener("controllerchange", update);
-    return () => workers?.removeEventListener("controllerchange", update);
+    workers?.addEventListener?.("controllerchange", update);
+    return () => workers?.removeEventListener?.("controllerchange", update);
   }, [root]);
   useEffect(() => {
     if (vpnStatus === "connected" && captureRoot !== root) setConnectedRoot(root);

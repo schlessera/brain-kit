@@ -67,7 +67,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       finally { recovering = false; }
     };
     void recover();
-    const retry = setInterval(() => { void recover(); }, 3000);
+    const retry = setInterval(() => { if (recovered) update(); else void recover(); }, 3000);
     const voice = root.stores.voice.subscribe((state, previous) => {
       if (state.local === "idle" && previous.local !== "idle" && area.current?.querySelector("[data-local-recording-sheet]")?.contains(document.activeElement)) focusRecord();
     });

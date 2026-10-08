@@ -20,11 +20,23 @@ let releaseRestore!: () => void;
 let restoration: Promise<boolean> | undefined;
 const requests: string[] = [];
 const microphone = watchMicrophone();
-let quota: QuotaFaultHandle | undefined;
+let quota: QuotaFaultHandle | undefined = localStorage.getItem("odysseus-full-origin") ? failIndexedDbWrites({ afterBytes: 0 }) : undefined;
 const ui = createBrainUiRoot({ storagePrefix: "odysseus-cold-capture", localCapture: true, request: async (url, init) => {
   requests.push(new URL(url, location.href).pathname);
   return fetch(url, init);
 } });
+let inventoryFailed = false;
+if (localStorage.getItem("odysseus-transient-read")) {
+  const store = ui.unassignedRecordings!;
+  const recover = store.recover.bind(store);
+  const list = store.list.bind(store);
+  let recovered = false;
+  store.recover = async partition => { const result = await recover(partition); recovered = true; return result; };
+  store.list = async partition => {
+    if (recovered && !inventoryFailed) { inventoryFailed = true; throw new Error("Odysseus transient inventory read"); }
+    return list(partition);
+  };
+}
 function Protected() {
   useEffect(() => { void ui.api.sessions(); void ui.request("/api/files/content?raw=1"); }, []);
   return <section data-protected="">Odysseus's protected voyage history</section>;
@@ -50,6 +62,9 @@ defineScene({
       { put: "recording:chunk:ithaca-secret:00000000", value: { index: 0, startMs: 0, endMs: 10_000, data: wav } },
     ]);
   },
+  async fullStartup() { const bytes = await seedGap(); localStorage.setItem("odysseus-full-origin", "1"); return bytes; },
+  async transientStartup() { await seedGap(); localStorage.setItem("odysseus-transient-read", "1"); },
+  inventoryFailed() { return inventoryFailed; },
   async startupGap() { const bytes = await seedGap(); localStorage.setItem("odysseus-startup-gap", "1"); return bytes; },
   recoveryWaiting() { return recoveryWaiting; },
   releaseRecovery() { localStorage.removeItem("odysseus-startup-gap"); releaseRecovery(); },

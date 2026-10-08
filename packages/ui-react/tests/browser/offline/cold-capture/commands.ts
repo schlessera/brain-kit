@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import type { BrowserCommand } from "vitest/node";
 import type { Page } from "playwright";
 
-interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
+interface Cell { scenario: "cold" | "reauth" | "unsupported" | "uncontrolled" | "uncached" | "continue-recording" | "dispose" | "gap" | "startup" | "restore" | "full" | "read-retry"; width: number; theme: "dark" | "light"; pointer: "fine" | "coarse" }
 const fallback = "Brain needs to load once while online before it can work offline on this device.";
 const base = resolve("../ui-react/tests/browser/offline/cold-capture");
 let assets: Promise<Map<string, { type: string; body: string }>> | undefined;
@@ -127,6 +127,8 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await page.getByRole("button", { name: "Record without signing in" }).click();
     } else {
       if (cell.scenario === "startup") await action(page, "startupGap");
+      if (cell.scenario === "full") await action(page, "fullStartup");
+      if (cell.scenario === "read-retry") await action(page, "transientStartup");
       await page.close();
       apiRequests.length = 0;
       await context.setOffline(true);
@@ -150,10 +152,6 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     await page.getByRole("heading", { name: "Can't reach your server" }).waitFor();
     assert.equal(await page.locator("[data-protected]").count(), 0, "cold capture never mounts protected content");
     assert.equal(await page.locator("h1").evaluate(el => el === document.activeElement), true, "focus lands on the local screen's title");
-    await page.locator("[data-locked-recordings]").waitFor();
-    assert((await page.textContent("[data-locked-recordings]"))?.startsWith("Locked recordings · "), "locked recordings show only aggregate size");
-    const dom = await page.content();
-    for (const secret of ["ithaca-secret", "Secret plan for the Sirens", "2026-07-12", "12:00", "0:10"]) assert(!dom.includes(secret), `locked metadata ${secret} must not appear in the DOM`);
     if (cell.scenario === "startup") {
       await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { recoveryWaiting(): boolean } }).__offlineScene.recoveryWaiting());
       await page.waitForTimeout(150);
@@ -163,6 +161,26 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
       await page.getByRole("button", { name: /^Play recording/ }).waitFor();
       return "startup recovery gates playback passed";
     }
+    if (cell.scenario === "read-retry") {
+      await page.waitForFunction(() => (globalThis as unknown as { __offlineScene: { inventoryFailed(): boolean } }).__offlineScene.inventoryFailed());
+      await page.getByRole("button", { name: /^Play recording/ }).waitFor();
+      assert.equal(await page.getByRole("button", { name: /^Play recording/ }).count(), 1, "retained recordings return after a transient inventory read without a store event");
+      return "inventory read retry passed";
+    }
+    if (cell.scenario === "full") {
+      await page.getByRole("button", { name: /^Play recording/ }).click();
+      const bytes = await page.locator("audio").evaluate(async el => (await (await fetch((el as HTMLAudioElement).src)).blob()).size);
+      assert.equal(bytes, 320044, "a full origin cold launch preserves playback of the committed prefix");
+      await page.getByRole("button", { name: /^Discard recording/ }).click();
+      await page.getByRole("button", { name: /^Delete recording/ }).click();
+      await page.getByRole("button", { name: /^Play recording/ }).waitFor({ state: "detached" });
+      assert.equal((await action<unknown[]>(page, "inventory")).length, 0, "saved audio can be discarded on a full origin");
+      return "full-origin cold launch preserves playback and discard passed";
+    }
+    await page.locator("[data-locked-recordings]").waitFor();
+    assert((await page.textContent("[data-locked-recordings]"))?.startsWith("Locked recordings · "), "locked recordings show only aggregate size");
+    const dom = await page.content();
+    for (const secret of ["ithaca-secret", "Secret plan for the Sirens", "2026-07-12", "12:00", "0:10"]) assert(!dom.includes(secret), `locked metadata ${secret} must not appear in the DOM`);
     assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), cell.pointer === "coarse", "the cell uses its real pointer mode");
     assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), cell.theme, "the cell uses its real theme");
     await page.addScriptTag({ content: await readFile(resolve("../../node_modules/axe-core/axe.min.js"), "utf8") });
