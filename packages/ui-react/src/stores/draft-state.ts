@@ -333,7 +333,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function settle(draftId: string) {
       const d = get().drafts[draftId];
       // A save still out may yet be acknowledged: then the host has a revision to delete.
-      if (d && !hasContent(d) && d.host === null && d.conflict === null && d.savingSince === null && !d.uncertain && !held(draftId)) drop(draftId);
+      if (d && !hasContent(d) && d.host === null && d.conflict === null && !d.deviceConflict && d.savingSince === null && !d.uncertain && !held(draftId)) drop(draftId);
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */

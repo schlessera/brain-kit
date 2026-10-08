@@ -62,7 +62,10 @@ for (const width of [320, 1280])
         .poll(async () => (await b.call<{ done: boolean }>("snapshot")).done)
         .toBe(true);
       const kept = await rows(b);
-      expect(kept.find(r => r.value.draftId === id)?.value.text, "the committed original version survives the atomic stale write").toBe(ORIGINAL);
+      expect(
+        kept.find((r) => r.value.draftId === id)?.value.text,
+        "the committed original version survives the atomic stale write"
+      ).toBe(ORIGINAL);
       const branch = kept.find((r) => r.value.text === INCOMING);
       expect(
         branch,
@@ -193,11 +196,87 @@ test("quota abort during a fork retains editable text and gives no kept claim; r
   await b.call("save");
   expect(await rows(a)).toHaveLength(2);
   await b.call("clearAccount");
+  expect(await a.call("access", "odysseus")).toBe("PartitionRefusedError");
+  await b.call("edit", "Penelope keeps a new local note.");
+  expect(await b.call("save")).toBe("PartitionRefusedError");
+}, 60000);
+
+test("sending a retained branch never binds subsequent edits to the original session", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", "Odysseus keeps the fleet list.");
+  await a.call("save");
+  const original = (await view(a)).id;
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("edit", INCOMING);
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("send");
+  await b.call("save");
+  await b.call("edit", `${INCOMING} Bring the bow.`);
+  await b.call("save");
+  expect((await view(b)).id, "later edits stay on the retained branch").toBe(
+    branch
+  );
   expect(
-    await rows(a).then(
-      () => "read",
-      (e) => e.name
-    )
-  ).toBe("PartitionRefusedError");
-  expect(await b.call("save")).not.toBe("ok");
+    (await rows(b)).find((r) => r.value.draftId === branch)?.value
+  ).toMatchObject({ sessionId: null, text: `${INCOMING} Bring the bow.` });
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe(ORIGINAL);
+  expect(await rows(b)).toHaveLength(2);
+}, 60000);
+
+test("typing during the native fork commit preserves both dirty composers and updates one branch", async (ctx) => {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("edit", "Odysseus surveys the fleet.");
+  await a.call("save");
+  const original = (await view(a)).id;
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("hold");
+  await b.call("edit", INCOMING, true);
+  await b.call("startSave");
+  await b.call("waitHeld");
+  await b.call("edit", `${INCOMING} Bring the oars.`);
+  await a.call("edit", `${ORIGINAL} Bring the bow.`);
+  expect(
+    (await view(b)).notice,
+    "no kept notice for an open fork transaction"
+  ).toBe("");
+  await b.call("release");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(await view(b)).toMatchObject({
+    text: `${INCOMING} Bring the oars.`,
+    session: "ithaca",
+    selection: [3, 9],
+    focused: true,
+  });
+  expect(
+    (await view(a)).text,
+    "another tab's dirty visible content is untouched"
+  ).toBe(`${ORIGINAL} Bring the bow.`);
+  await a.call("save");
+  const kept = await rows(b);
+  expect(kept).toHaveLength(2);
+  expect(kept.find((r) => r.value.draftId === original)?.value.text).toBe(
+    `${ORIGINAL} Bring the bow.`
+  );
+  expect(kept.find((r) => r.value.sessionId === null)?.value.text).toBe(
+    `${INCOMING} Bring the oars.`
+  );
 }, 60000);

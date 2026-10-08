@@ -361,6 +361,63 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
   }
   const snap = (page: Page) => page.evaluate(() => (window as unknown as { __snap: { done: boolean; result?: Outcome } }).__snap);
 
+  test("two authenticated tabs retain divergent local versions under a racing native commit", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    // Exercise the device fallback through the real password login/account probe.
+    await context.routeWebSocket(/\/ws$/, (route) => {
+      const upstream = route.connectToServer();
+      route.onMessage((message) => upstream.send(message));
+      upstream.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "server_hello" && frame.capabilities) delete frame.capabilities.sessionDrafts;
+        route.send(JSON.stringify(frame));
+      });
+    });
+    const a = await context.newPage();
+    const b = await context.newPage();
+    try {
+      await signIn(a);
+      await a.goto(origin);
+      await until(a, "f.connected() && f.accountKey() !== null");
+      await fixture(a, (f) => f.resume("odysseus-ithaca"));
+      await ready(a);
+      expect(await fixture(a, (f) => f.editAndSnapshot("Penelope's first weave"))).toEqual({ ok: true, value: undefined });
+      const key = (await fixture(a, (f) => f.accountKey()))!;
+      const baseline = await fixture(a, (f) => f.list(f.accountKey()!));
+      if (!baseline.ok) throw new Error(baseline.error);
+      const original = baseline.value.find(r => (r.value as { text?: string }).text === "Penelope's first weave")!;
+      expect(original).toBeDefined();
+      await b.goto(origin);
+      await ready(b);
+      expect(await fixture(b, (f) => f.accountKey()), "both tabs hold the authenticated account key").toBe(key);
+      expect(await field(b).inputValue()).toBe("Penelope's first weave");
+
+      await armHold(a, "release");
+      await startSnapshot(a, "Penelope keeps the committed weave");
+      await a.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0);
+      await startSnapshot(b, "Telemachus keeps his own voyage");
+      expect((await snap(b)).done).toBe(false);
+      await a.evaluate(() => (window as unknown as { __hold: { finish(): void } }).__hold.finish());
+      for (const page of [a, b]) await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done);
+      expect((await snap(a)).result).toEqual({ ok: true, value: undefined });
+      expect((await snap(b)).result).toEqual({ ok: true, value: undefined });
+      const after = await fixture(b, (f) => f.list(f.accountKey()!));
+      if (!after.ok) throw new Error(after.error);
+      expect((after.value.find(r => r.key === original.key)?.value as { text: string }).text,
+        "the authenticated original survives the atomic stale write").toBe("Penelope keeps the committed weave");
+      const branch = after.value.find(r => (r.value as { text?: string }).text === "Telemachus keeps his own voyage");
+      expect(branch, "the authenticated incoming branch is durable").toBeDefined();
+      expect((branch!.value as { sessionId: string | null }).sessionId).toBeNull();
+      expect(await field(b).inputValue()).toBe("Telemachus keeps his own voyage");
+      await b.reload();
+      await ready(b);
+      expect(await field(b).inputValue(), "the authenticated tab resumes its own branch").toBe("Telemachus keeps his own voyage");
+      expect(await b.locator("[data-device-conflict]").innerText()).toContain("Both versions kept");
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
   test("snapshotNow resolves only once its transaction has committed, and rejects when it aborts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
