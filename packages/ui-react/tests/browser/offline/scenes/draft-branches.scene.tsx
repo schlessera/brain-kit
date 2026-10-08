@@ -357,6 +357,15 @@ defineScene({
     action.click();
     await wait(100);
   },
+  async openStored(id: string) {
+    await root.localWork!.openDeviceVersion(id);
+    root.stores.chat
+      .getState()
+      .setActiveSession(
+        root.stores.drafts.getState().drafts[id]?.sessionId ?? null
+      );
+    await wait(0);
+  },
   async openDraft(id: string) {
     root.stores.chat.getState().setActiveSession(null);
     root.stores.drafts.getState().openUnbound(id);

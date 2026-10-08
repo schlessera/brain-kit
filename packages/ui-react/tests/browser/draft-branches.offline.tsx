@@ -816,3 +816,62 @@ test("review: typing during cold restore stays visible instead of selecting the 
   await b.call("ready", 320, "dark");
   expect((await view(b)).text).toBe(typed);
 }, 60000);
+
+test("review: repeated native forks keep the incoming session view past thirty-two continuations", async (ctx) => {
+  const { a, b, original } = await divergent(ctx);
+  await b.call("save");
+  for (let i = 1; i <= 35; i++) {
+    const current = (await view(b)).id;
+    await a.call("openStored", current);
+    await a.call("edit", `Penelope commits loom revision ${i}.`);
+    await a.call("save");
+    const incoming = `Telemachus keeps harbour revision ${i}.`;
+    await b.call("edit", incoming, true);
+    await b.call("save");
+    expect(
+      await view(b),
+      "every native fork keeps the newest incoming text, selection and session visible"
+    ).toMatchObject({ text: incoming, selection: [3, 9], session: "ithaca" });
+  }
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe(ORIGINAL);
+  expect(
+    await rows(b),
+    "each separate divergence creates exactly one branch"
+  ).toHaveLength(37);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe("Telemachus keeps harbour revision 35.");
+}, 120000);
+
+test("review: explicitly adopting a skipped cold-restore original lets it be cleared durably", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("save");
+  await b.call("holdRestore");
+  await b.reload();
+  await b.call("coldReady");
+  await expect.poll(() => b.call("reads")).toBe(1);
+  const incoming = "Odysseus writes a fresh fleet order.";
+  await b.call("edit", incoming, true);
+  await b.call("releaseRead");
+  await b.call("restored");
+  await b.call("save");
+  const branch = (await view(b)).id;
+  await b.call("openOther");
+  expect((await view(b)).text).toBe(ORIGINAL);
+  await b.call("empty");
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text,
+    "an adopted original's intentional clearing is committed instead of treated as unadopted work"
+  ).toBe("");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === branch)?.value.text
+  ).toBe(incoming);
+  await b.reload();
+  await b.call("ready", 320, "dark");
+  expect((await view(b)).text).toBe("");
+  await b.call("openDraft", branch);
+  expect((await view(b)).text).toBe(incoming);
+}, 60000);

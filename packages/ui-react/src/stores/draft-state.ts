@@ -290,7 +290,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   return createStore<DraftStoreState>((set, get) => {
     function follow(draftId: string): { id: string; owner: string | null } {
       let id = draftId;
-      for (let i = 0; i < 32 && (successors.has(id) || deviceRedirects.has(id)); i++) id = deviceRedirects.get(id) ?? successors.get(id)!;
+      const visited = new Set<string>();
+      // Legitimate continuations have no length limit; only a cycle stops us.
+      while (!visited.has(id) && (successors.has(id) || deviceRedirects.has(id))) {
+        visited.add(id);
+        id = deviceRedirects.get(id) ?? successors.get(id)!;
+      }
       const owner = retired.get(id) ?? null;
       if (owner !== null && !get().drafts[id]) return { id: get().idFor(owner), owner };
       return { id, owner: null };

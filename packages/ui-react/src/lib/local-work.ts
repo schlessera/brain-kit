@@ -621,6 +621,9 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           committed.set(draftId, serializedDraft(raw)!);
           versions.set(draftId, draftVersion(raw));
         }
+        // Explicit adoption makes this writer responsible for later clearing,
+        // even when cold restore retained the row rather than replacing edits.
+        retained.delete(draftId);
         stores.drafts.getState().openDeviceVersion(draftId, saved ?? undefined);
       };
       const operation = open().finally(() => { openingVersions.delete(draftId); });
