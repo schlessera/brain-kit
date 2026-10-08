@@ -53,3 +53,42 @@ test("a request transport without progress cannot claim lost audio was not sent"
   expect(row.state, "missing progress leaves result unconfirmed").toBe("transcribing");
   expect(row.transcriptionMessage).toContain("Could not confirm");
 });
+
+test("a lost PUT reply cannot invalidate a transcript edited after status recovery", async () => {
+  const f = fixture(), done = await f.seed("saved"); let uploaded = false, release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  f.root.request = async (url, init) => {
+    if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } });
+    if (init?.method === "PUT") { uploaded = true; await gate; throw new TypeError("Lost reply"); }
+    return uploaded ? Response.json(done) : new Response("{}", { status: 404 });
+  };
+  const a = f.make(), b = f.make(); await Bun.sleep(5);
+  const pending = a.transcribe("account:odysseus", f.id, () => {}).catch(() => {});
+  while (!uploaded) await Bun.sleep(1);
+  try { await b.syncTranscriptions(); await b.saveTranscript("account:odysseus", f.id, "Penelope edited"); } finally { release(); }
+  await pending;
+  expect((await a.get("account:odysseus", f.id))!.state, "late transport error preserves ready state").toBe("transcript-ready");
+  await a.syncTranscriptions();
+  expect((await a.get("account:odysseus", f.id))!.transcript, "later sync keeps the durable correction").toBe("Penelope edited");
+});
+test("a delayed missing receipt cannot regress a newer transcript edit", async () => {
+  const f = fixture(), done = await f.seed(); let release!: () => void, queries = 0;
+  const gate = new Promise<void>(r => { release = r; });
+  f.root.request = async () => { if (++queries === 1) { await gate; return new Response("{}", { status: 404 }); } return Response.json(done); };
+  const a = f.make(), b = f.make(); const pending = a.syncTranscriptions(); while (!queries) await Bun.sleep(1);
+  try { await b.syncTranscriptions(); await b.saveTranscript("account:odysseus", f.id, "Penelope edited"); } finally { release(); }
+  await pending;
+  expect((await a.get("account:odysseus", f.id))!.state, "delayed 404 preserves ready state").toBe("transcript-ready");
+  await a.syncTranscriptions(); expect((await a.get("account:odysseus", f.id))!.transcript).toBe("Penelope edited");
+});
+test("a transcript edited during upload preflight cannot be replaced by provider work", async () => {
+  const f = fixture(); await f.seed("saved"); let preflight = false, calls = 0, release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) { preflight = true; await gate; return Response.json({ capabilities: { savedAudio: true } }); } if (init?.method === "PUT") { calls++; return Response.json({}); } return new Response("{}", { status: 404 }); };
+  const a = f.make(), b = f.make(); const pending = a.transcribe("account:odysseus", f.id, () => {}).catch(() => {});
+  while (!preflight) await Bun.sleep(1);
+  try { await b.saveTranscript("account:odysseus", f.id, "Penelope edited"); } finally { release(); }
+  await pending;
+  expect(calls, "new local review stops the stale upload preflight").toBe(0);
+  expect((await a.get("account:odysseus", f.id))!.state).toBe("transcript-ready");
+});
