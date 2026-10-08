@@ -631,6 +631,26 @@ test("a concurrent ordinary snapshot fences acceptance until its guarded draft c
 });
 
 
+for (const failure of ["quota", "pending"] as const) {
+  test(`tray collapse preserves a ${failure} transcript correction and its retry protection`, async ctx => {
+    const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
+    const correction = "Penelope confirms the corrected loom order.";
+    const fault = failure === "quota" ? failIndexedDbWrites({ afterBytes: 0 }) : null;
+    const hold = failure === "pending" ? holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]) === `recording:index:${row.id}`) : null;
+    ctx.onTestFinished(() => { fault?.restore(); hold?.restore(); });
+    await userEvent.fill(c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!, correction);
+    if (hold) await hold.started;
+    if (fault) await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent).toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
+    await tap(c.host.querySelector("[data-recordings-tray] > button")!); await expand(c);
+    expect(c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!.value, "collapse never abandons the unsaved transcript correction").toBe(correction);
+    if (fault) expect(c.host.querySelector("[role=alert]")?.textContent, "the unsaved correction keeps its failure warning").toBe("Couldn\u0027t save the transcript on this device. The recording is kept.");
+    fault?.restore(); hold?.release();
+    await tap(button(c.host, "Add transcript"));
+    await expect.poll(async () => c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+    expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text, "reopened Add commits the corrected text before deleting audio").toBe(correction);
+  });
+}
+
 test("Add retries a failed transcript input commit without another edit", async ctx => {
   const c = fixture(ctx); await c.ready(); const row = await c.seed(); c.renderTray(); await expand(c);
   const field = c.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!;

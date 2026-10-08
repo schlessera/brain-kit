@@ -32,6 +32,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   const [notice, setNotice] = useState("");
   const listId = useId();
   const tray = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLButtonElement>(null);
   const focusComposer = useCallback(() => {
     const field = composerRef?.current?.querySelector<HTMLTextAreaElement>("textarea[data-composer]");
@@ -76,7 +77,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   useEffect(() => {
     if (focusAfter === null) return;
     if (rows.some(r => r.id === focusAfter)) return;
-    const next = tray.current?.querySelector<HTMLElement>("[data-recording-focus]");
+    const next = list.current?.hidden ? null : tray.current?.querySelector<HTMLElement>("[data-recording-focus]");
     (next ?? header.current)?.focus({ preventScroll: true });
     if (!rows.length) focusComposer();
     setFocusAfter(null);
@@ -87,7 +88,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
     const nextId = nodes[at + 1]?.dataset.recordingFocus;
     await root.recordings!.discard(row.partition, row.id);
     setInventory(current => ({ ...current, rows: current.rows.filter(r => r.id !== row.id) }));
-    if (nextId) nodes[at + 1]?.focus({ preventScroll: true });
+    if (nextId && list.current && !list.current.hidden) nodes[at + 1]?.focus({ preventScroll: true });
     else if (rows.length > 1) header.current?.focus({ preventScroll: true });
     else { setFocusAfter(row.id); }
   };
@@ -98,7 +99,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
       <button ref={header} type="button" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(v => !v)} className="flex w-full items-center justify-between gap-2 px-3 text-xs font-mono" style={{ minHeight: 44 }}>
         <span>On this device · {rows.length} · {size(rows.reduce((n, r) => n + r.bytes, 0))}</span><span aria-hidden="true">{open ? "▴" : "▾"}</span>
       </button>
-      {open && <div id={listId} className="min-h-0 space-y-2 overflow-y-auto px-2 pb-2">
+      <div ref={list} id={listId} hidden={!open} className="min-h-0 space-y-2 overflow-y-auto px-2 pb-2">
         <p className="px-1 text-xs text-muted-foreground">Kept in this browser. Not protected from someone who can use this device.</p>
         {rows.map((row, i) => <Fragment key={`${row.partition}/${row.id}`}>
           {row.partition === "unassigned" && rows[i - 1]?.partition !== "unassigned" && <p className="px-1 text-xs text-muted-foreground">Not linked to an account</p>}
@@ -107,7 +108,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
           onAccepted?.();
           setTimeout(focusComposer, 0);
         }} /></Fragment>)}
-      </div>}
+      </div>
     </div>}
   </>;
 }
