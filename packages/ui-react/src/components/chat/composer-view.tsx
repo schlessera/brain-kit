@@ -138,7 +138,7 @@ export function ComposerView(p: ComposerViewProps) {
           const button = (event.target as HTMLElement).closest('[role="button"]');
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
-          <div className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
           <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissDictationNotice} />
         </div>
       )}
@@ -147,7 +147,7 @@ export function ComposerView(p: ComposerViewProps) {
           const button = (event.target as HTMLElement).closest('[role="button"]');
           if (button && button !== document.activeElement) event.preventDefault();
         }}>
-          <div className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
           {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissCaptureNotice} />}
         </div>
       )}
