@@ -1,15 +1,104 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { admitExactPackets, type ReviewReceipt } from "../scripts/evals/canonical-conflicts/review-packet";
+import { saveEvidenceBundle, type RuntimeIdentity } from "../scripts/evals/canonical-conflicts/review-evidence";
+import { sha } from "../scripts/evals/canonical-conflicts/freeze";
+import { CLEARED_API_CREDENTIALS } from "../packages/core/src/providers/agents/claude-subscription";
+import { runNative } from "../scripts/evals/canonical-conflicts/native";
 
-test("combined exact-packet admission rejects mixed prompts, duplicate subsets and incomplete native evidence", () => {
-  const expected = [{ key: "cases-1", freezeSha: "same-freeze", promptSha: "exact-prompt-a" }, { key: "cases-2", freezeSha: "same-freeze", promptSha: "exact-prompt-b" }];
-  const receipts: ReviewReceipt[] = expected.map(p => ({ ...p, approved: true, model: "claude-sonnet-5-5", actualCli: "2.1.293",
-    finished: true, drained: true, stdoutComplete: true, callsComplete: true, overage: "inactive observed", actualProvider: true,
-    scope: "complementary-semantic-review", authorFamily: "gpt", reviewerFamily: "claude" }));
-  expect(admitExactPackets(expected, receipts)).toBe(true);
-  expect(admitExactPackets(expected, [{ ...receipts[0]!, promptSha: "older-payload-same-freeze" }, receipts[1]!])).toBe(false);
-  expect(admitExactPackets(expected, [receipts[0]!, receipts[0]!])).toBe(false);
-  for (const change of [{ approved: false }, { drained: false }, { stdoutComplete: false }, { callsComplete: false }, { overage: "active" },
-    { actualProvider: false }, { scope: "offline-control" }, { authorFamily: "claude" }, { reviewerFamily: "gpt" }, { actualCli: "2.1.283" }])
-    expect(admitExactPackets(expected, [{ ...receipts[0]!, ...change }, receipts[1]!])).toBe(false);
+const model = "claude-sonnet-5-5";
+const runtime: RuntimeIdentity = { sdk: "0.3.293", nativeSha: "fixture-native-byte-hash", nativeMode: 0o755, bunSha: "fixture-bun-byte-hash", bunVersion: "1.4.2", bunMode: 0o755 };
+/** Synthetic complete format control; never an actual provider approval. No transport runs here. */
+function fixture(prompt: string, kind = "subscription-native-direct") {
+  const directory = mkdtempSync(join(tmpdir(), "brain-canonical-conflict-review-format-"));
+  const usage = { input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  const account = { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" };
+  const settings = { effective: { apiKeyHelper: "", env: { ...CLEARED_API_CREDENTIALS } }, sources: [] };
+  const init = { type: "system", subtype: "init", model, apiKeySource: "none", claude_code_version: "2.1.293", tools: [] };
+  const rate = { type: "rate_limit_event", rate_limit_info: { status: "allowed", isUsingOverage: false } };
+  const result = { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "APPROVED", modelUsage: {
+    [model]: { inputTokens: 10, outputTokens: 7, cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+      canonicalModel: model, provider: "firstParty", costBasis: "list", contextWindow: 1_000_000, maxOutputTokens: 128_000 } } };
+  const output = [ { type: "control_response", response: { request_id: "brain-initialize", subtype: "success", response: { account } } },
+    { type: "control_response", response: { request_id: "brain-settings", subtype: "success", response: settings } }, init, rate, result ];
+  const startUsage = { ...usage, output_tokens: 0 };
+  const response = [ { type: "message_start", message: { model, usage: startUsage } },
+    { type: "content_block_delta", delta: { type: "text_delta", text: "APPROVED" } },
+    { type: "message_delta", usage: { output_tokens: 7 } }, { type: "message_stop" } ].map(e => `data: ${JSON.stringify(e)}\n\n`).join("");
+  const request = JSON.stringify({ model, output_config: { effort: "low" }, tools: [], messages: [{ role: "user", content: [{ type: "text", text: prompt }] }] });
+  const call = { authRoute: "subscription-oauth-no-api-key", upstream: "https://api.anthropic.com/v1/messages", requestMethod: "POST", requestPath: "/v1/messages",
+    status: 200, requestedModel: model, servedModel: model, outcome: "completed", finished: true, responseClosed: true, responseEof: true, responseCancelled: false,
+    rawRequestBase64: Buffer.from(request).toString("base64"), requestSha: sha(request), stateBytes: Buffer.byteLength(request),
+    rawResponseBase64: Buffer.from(response).toString("base64"), rawResponseSha: sha(response), responseBytes: Buffer.byteLength(response),
+    usage, rawUsageEvents: [{ type: "message_start", usage: startUsage }, { type: "message_delta", usage: { output_tokens: 7 } }],
+    apiEquivalent: { lowerUsd: 0.00009, upperUsd: 0.00009, unknownCacheTokens: 0 }, actualInvoiceUsd: null };
+  const native = { init, account, settings, rates: [rate], result, failure: null, exitCode: 0, signalCode: null, finished: true,
+    drained: true, stdoutComplete: true, stderrDrained: true, promptReleased: true, overage: "inactive observed", additionalBilledUsd: null, apiEquivalent: { lowerUsd: 0.00009, upperUsd: 0.00009, unknownCacheTokens: 0 } };
+  const execution = { kind, transport: "global-fetch", upstream: call.upstream, freezeSha: "same-freeze", promptSha: sha(prompt), readOnlyReview: true,
+    runtime, relayClosed: true, runnerFailure: null, additionalBilledUsd: null };
+  for (const [name, value] of Object.entries({ "execution.json": execution, "native.json": native, "physical.json": [call] }))
+    writeFileSync(join(directory, name), JSON.stringify(value));
+  writeFileSync(join(directory, "native.json.stdout.jsonl"), output.map(e => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(directory, "native.json.stdin.jsonl"), JSON.stringify({ type: "user", message: { role: "user", content: prompt } }) + "\n");
+  writeFileSync(join(directory, "native.json.stderr.bin"), "");
+  const expected = { key: "cases-1", freezeSha: "same-freeze", promptSha: sha(prompt), runtime };
+  const receipt: ReviewReceipt = { ...expected, approved: true, model, actualCli: "2.1.293", finished: true, drained: true,
+    stdoutComplete: true, callsComplete: true, overage: "inactive observed", actualProvider: true, scope: "complementary-semantic-review",
+    authorFamily: "gpt", reviewerFamily: "claude", evidence: saveEvidenceBundle(directory) };
+  return { directory, expected, receipt, native, execution, call, output, close: () => rmSync(directory, { recursive: true, force: true }) };
+}
+
+test("flag-only APPROVED metadata cannot stand in for complete actually collected review artifacts", () => {
+  const f = fixture("Odysseus complete review packet");
+  try {
+    expect(admitExactPackets([f.expected], [f.receipt])).toBe(true); // Format control only.
+    expect(admitExactPackets([f.expected], [{ ...f.receipt, evidence: undefined }])).toBe(false);
+    expect(admitExactPackets([f.expected], [{ ...f.receipt, promptSha: sha("older payload") }])).toBe(false);
+    expect(admitExactPackets([f.expected], [f.receipt, f.receipt])).toBe(false);
+    for (const change of [{ approved: false }, { drained: false }, { stdoutComplete: false }, { callsComplete: false }, { overage: "active" },
+      { actualProvider: false }, { scope: "offline-control" }, { authorFamily: "claude" }, { reviewerFamily: "gpt" }, { actualCli: "2.1.283" }])
+      expect(admitExactPackets([f.expected], [{ ...f.receipt, ...change }])).toBe(false);
+  } finally { f.close(); }
+});
+
+test("otherwise complete scripted APPROVED artifacts remain inadmissible even with relabelled provider flags", () => {
+  // Only the collected execution kind differs; intended mutation fails on this admission assertion.
+  const f = fixture("Odysseus complete review packet", "offline-native-scripted");
+  try { expect(admitExactPackets([f.expected], [f.receipt])).toBe(false); } finally { f.close(); }
+});
+
+test("review admission independently reparses literal prompt/auth/model/usage/error/EOF and runtime evidence", () => {
+  const changes = [
+    ["execution.json", (f: ReturnType<typeof fixture>) => ({ ...f.execution, runtime: { ...runtime, nativeSha: "different native" } })],
+    ["native.json", (f: ReturnType<typeof fixture>) => ({ ...f.native, exitCode: 1 })],
+    ["physical.json", (f: ReturnType<typeof fixture>) => [{ ...f.call, responseEof: false }]],
+    ["physical.json", (f: ReturnType<typeof fixture>) => [{ ...f.call, usage: { ...f.call.usage, cache_read_input_tokens: null } }]],
+    ["physical.json", (f: ReturnType<typeof fixture>) => [{ ...f.call, rawRequestBase64: Buffer.from("different literal request").toString("base64") }]],
+    ["native.json.stdout.jsonl", (f: ReturnType<typeof fixture>) => f.output.map(e => JSON.stringify(e.type === "control_response" && "response" in e && e.response?.request_id === "brain-initialize" ?
+      { ...e, response: { ...e.response, response: { account: { tokenSource: "ANTHROPIC_API_KEY", apiProvider: "firstParty" } } } } : e)).join("\n")],
+    ["native.json.stdin.jsonl", () => JSON.stringify({ type: "user", message: { content: "different prompt" } })],
+  ] as const;
+  for (const [name, change] of changes) {
+    const f = fixture("Odysseus complete review packet");
+    try {
+      const value = change(f); writeFileSync(join(f.directory, name), typeof value === "string" ? value : JSON.stringify(value));
+      const changed = { ...f.receipt, evidence: saveEvidenceBundle(f.directory) }; // Even a refreshed manifest cannot replace behavior proof.
+      expect(admitExactPackets([f.expected], [changed])).toBe(false);
+    } finally { f.close(); }
+  }
+  const f = fixture("Odysseus complete review packet");
+  try {
+    writeFileSync(join(f.directory, "native.json.stderr.bin"), "changed after collection");
+    expect(readFileSync(join(f.directory, "native.json.stderr.bin"), "utf8")).not.toBe("");
+    expect(admitExactPackets([f.expected], [f.receipt])).toBe(false);
+  } finally { f.close(); }
+});
+
+test("live readonly review refuses injected fetch before any physical or native dispatch", async () => {
+  let dispatched = 0;
+  await expect(runNative("/unused", "/unused", "offline-fixture", "unused", { readOnlyReview: true,
+    fetch: async () => { dispatched++; return new Response("unused"); } })).rejects.toThrow("Live native review refuses injected transports");
+  expect(dispatched).toBe(0);
 });

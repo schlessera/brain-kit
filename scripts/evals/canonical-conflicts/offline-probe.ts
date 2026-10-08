@@ -7,6 +7,7 @@ import { installSurface, runNative, phase2Prompt } from "./native";
 import { snapshot, assertInspectionUnchanged } from "./effects";
 import { MODEL } from "./relay";
 import { collectCurrent } from "./current";
+import { admitExactPackets, type ReviewReceipt } from "./review-packet";
 
 function response(id: number, content: { tool: string; input: unknown } | string) {
   const tool = typeof content !== "string";
@@ -64,7 +65,18 @@ async function main() {
     if (mode === "cli" && !toolResults.some(r => r.includes("navigator"))) throw Error("Actual indexed brain CLI search returned no fact");
     if (!requests || result.calls.length !== requests || result.receipt.init.claude_code_version !== "2.1.293" ||
       result.receipt.account.tokenSource !== "CLAUDE_CODE_OAUTH_TOKEN" || !result.receipt.drained || !result.receipt.stdoutComplete || result.calls.some(c => c.servedModel !== MODEL)) throw Error("Native identity/auth/raw-physical/drain assertion failed");
-    const receipt = { passed: true, mode, actualCli: "2.1.293", model: MODEL, fakePhysicalRequests: requests,
+    let semanticAdmission: boolean | null = null;
+    if (mode === "review") {
+      const execution = JSON.parse(readFileSync(join(output, "execution.json"), "utf8"));
+      if (execution.kind !== "offline-native-scripted" || execution.transport !== "injected-offline-fetch") throw Error("Actual offline execution provenance absent");
+      const expected = { key: "offline-review", freezeSha: execution.freezeSha, promptSha: execution.promptSha, runtime: execution.runtime };
+      const relabelled: ReviewReceipt = { ...expected, approved: true, model: MODEL, actualCli: "2.1.293", finished: true, drained: true,
+        stdoutComplete: true, callsComplete: true, overage: "inactive observed", actualProvider: true,
+        scope: "complementary-semantic-review", authorFamily: "gpt", reviewerFamily: "claude", evidence: result.evidence };
+      semanticAdmission = admitExactPackets([expected], [relabelled]);
+      if (semanticAdmission) throw Error("Actual scripted native APPROVED text acquired complementary semantic admission");
+    }
+    const receipt = { passed: true, mode, semanticAdmission, actualCli: "2.1.293", model: MODEL, fakePhysicalRequests: requests,
       actualNativeTools: mode !== "review", containedSourceUnchanged: true, childrenDrained: true, liveQuality: null, liveBilling: null,
       calls: result.calls, requestBodies: requestsBodies, native: result.receipt, currentCollector: collected ? { accepted: collected.accepted, invalid: collected.invalid, reconciliation: collected.reconciliation, entries: collected.entries, before: collected.before, inspected: collected.inspected, after: collected.after } : null };
     if (destination) { mkdirSync(join(destination, ".."), { recursive: true }); writeFileSync(destination, JSON.stringify(receipt, null, 2)); }
@@ -75,7 +87,7 @@ async function main() {
     // controls, never a billing receipt or semantic approval.
     if (destination) {
       const raw = `${destination}.raw`; mkdirSync(raw, { recursive: true, mode: 0o700 });
-      for (const name of ["native.json", "native.json.stdout.jsonl", "physical.json"])
+      for (const name of ["execution.json", "review-evidence.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json"])
         if (existsSync(join(output, name))) copyFileSync(join(output, name), join(raw, name));
       writeFileSync(join(raw, "request-bodies.json"), JSON.stringify(requestsBodies, null, 2), { mode: 0o600 });
     }

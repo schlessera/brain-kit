@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 export const MODEL = "claude-sonnet-5-5";
 export interface NativeCall {
+  authRoute: "subscription-oauth-no-api-key"; upstream: string; requestMethod: "POST"; requestPath: "/v1/messages";
   requestSha: string; stateBytes: number; requestedModel: string; servedModel: string | null;
   status: number | null; usage: Record<string, any> | null; finished: boolean;
   outcome: string; durationMs: number; apiEquivalent: ReturnType<typeof priceSonnet55Usage> | null;
@@ -32,7 +33,7 @@ export function startRelay(options: {
     const json = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(requestBytes));
     if (json.model !== MODEL) { stopped = true; return new Response("Unexpected model", { status: 403 }); }
     const started = performance.now();
-    const call: NativeCall = { requestSha: createHash("sha256").update(requestBytes).digest("hex"), stateBytes: requestBytes.byteLength, requestedModel: json.model,
+    const call: NativeCall = { authRoute: "subscription-oauth-no-api-key", upstream: `${upstream.origin}${url.pathname}`, requestMethod: "POST", requestPath: "/v1/messages", requestSha: createHash("sha256").update(requestBytes).digest("hex"), stateBytes: requestBytes.byteLength, requestedModel: json.model,
       servedModel: null, status: null, usage: null, finished: false, outcome: "started", durationMs: 0, apiEquivalent: null, rawUsageEvents: [],
       rawRequestBase64: Buffer.from(requestBytes).toString("base64"), rawResponseBase64: "", rawResponseSha: createHash("sha256").update(new Uint8Array()).digest("hex"),
       responseBytes: 0, responseEof: false, responseCancelled: false, responseClosed: false, actualInvoiceUsd: null };

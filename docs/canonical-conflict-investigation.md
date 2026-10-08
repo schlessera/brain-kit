@@ -233,3 +233,18 @@ under #597. Any fragment-replacement proposal is a separate, explicitly assessed
 effect with zero wrong-replacement/content-loss tolerance and the full permission,
 premise, post-check and recovery requirements. Add no generic classifier or
 canonical-repair extension seam.
+
+Private complementary-review admission requires actually collected direct native
+execution artifacts at the exact current source/runtime/prompt freeze. It reparses
+literal stdin/stdout, subscription/settings handshake, canonical model/provenance,
+physical requests/responses and raw usage, response EOF and actual child closure.
+Offline scripted execution and injected live transports are refused; metadata
+flags and scripted APPROVED text supply no semantic approval. The private artifact
+verifier is not an invoice or cryptographic proof against a dishonest artifact
+owner. Missing billed charges remain unknown.
+
+The runtime freeze binds source/workspace/dependency modes and native/Bun modes
+as well as bytes and dependency link targets. Actual installed dependency inodes
+whose link counts exceed regular-file occurrences inside the owned dependency
+tree are refused. Real chmod and internal/external hardlink controls verify these
+boundaries without touching another worktree's installation.

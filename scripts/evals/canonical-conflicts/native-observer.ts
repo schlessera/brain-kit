@@ -33,7 +33,7 @@ async function main() {
     additionalBilledUsd: null, overage: "unknown", startedAt: performance.now(), finished: false,
     nativePid: null, exitCode: null, signalCode: null, drained: false, stdoutComplete: false, stderrDrained: false, termination: null };
   const save = () => writeFileSync(destination, JSON.stringify(receipt, null, 2), { mode: 0o600 });
-  writeFileSync(`${destination}.stdout.jsonl`, "", { mode: 0o600 }); save();
+  for (const suffix of ["stdout.jsonl", "stdin.jsonl", "stderr.bin"]) writeFileSync(`${destination}.${suffix}`, "", { mode: 0o600 }); save();
   const env = { ...process.env, ANTHROPIC_DEFAULT_SONNET_MODEL: MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL: MODEL,
     ANTHROPIC_SMALL_FAST_MODEL: MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: MODEL,
     CLAUDE_CODE_SUBAGENT_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" };
@@ -62,6 +62,7 @@ async function main() {
   const input = (async () => {
     const decoder = new StringDecoder("utf8"); let buffer = "";
     for await (const bytes of Bun.stdin.stream()) {
+      appendFileSync(`${destination}.stdin.jsonl`, bytes);
       buffer += decoder.write(Buffer.from(bytes));
       const lines = buffer.split("\n"); buffer = lines.pop()!;
       for (const line of lines) {
@@ -74,7 +75,7 @@ async function main() {
     native.stdin.end();
   })().catch(error => { receipt.inputFailure = String(error); save(); });
   const stderr = (async () => {
-    for await (const bytes of native.stderr) process.stderr.write(bytes);
+    for await (const bytes of native.stderr) { appendFileSync(`${destination}.stderr.bin`, bytes); process.stderr.write(bytes); }
     receipt.stderrDrained = true;
   })().catch(error => { receipt.stderrFailure = String(error); save(); });
   async function closeFailedNative() {
