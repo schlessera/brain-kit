@@ -1,4 +1,5 @@
 import { AssociateRecordings } from "./associate-recordings.js";
+import type { BrainUiRoot } from "../../root.js";
 import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObject } from "react";
 import { Button, RecordingRow } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
@@ -30,7 +31,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
   const offline = useRootStore("connection", s => s.wsStatus !== "connected");
   const [inventory, setInventory] = useState<{ account: string | null; rows: Recording[]; removed: string[] }>({ account, rows: [], removed: [] });
   const [open, setOpen] = useState(false);
-  const [associate, setAssociate] = useState(false);
+  const [associateRoot, setAssociateRoot] = useState<BrainUiRoot | null>(null);
   const [notice, setNotice] = useState("");
   const listId = useId();
   const tray = useRef<HTMLDivElement>(null);
@@ -105,14 +106,14 @@ export function RecordingsTray({ composerRef, onAccepted }: {
         <p className="px-1 text-xs text-muted-foreground">Kept in this browser. Not protected from someone who can use this device.</p>
         {rows.map((row, i) => <Fragment key={`${row.partition}/${row.id}`}>
           {row.partition === "unassigned" && rows[i - 1]?.partition !== "unassigned" && <p className="px-1 text-xs text-muted-foreground">Not linked to an account</p>}
-          <RecordingItem onAssociate={account ? () => setAssociate(true) : undefined} row={row} offline={offline} onDiscard={() => remove(row)} onAccepted={() => {
+          <RecordingItem onAssociate={account ? () => setAssociateRoot(root) : undefined} row={row} offline={offline} onDiscard={() => remove(row)} onAccepted={() => {
           setNotice("Added to your draft. The recording was deleted from this device.");
           onAccepted?.();
           setTimeout(focusComposer, 0);
         }} /></Fragment>)}
       </div>
     </div>}
-    {associate && account && <AssociateRecordings onClose={() => setAssociate(false)} />}
+    {associateRoot === root && account && <AssociateRecordings onClose={() => setAssociateRoot(null)} />}
   </>;
 }
 

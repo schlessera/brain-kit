@@ -44,7 +44,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   useEffect(() => root.localWorkFlow.attachGate(), [root]);
   const workFlow = useStore(root.localWorkFlow.state);
   const account = useConnectionStore(s => s.accountKey);
-  const [association, setAssociation] = useState(false);
+  const [associationRoot, setAssociationRoot] = useState<BrainUiRoot | null>(null);
   useEffect(() => {
     if (!account || vpnStatus !== "connected" || auth.phase !== "active" || workFlow.signingOut || workFlow.signingIn) return;
     if (!root.localWorkFlow.hasSignIn()) return;
@@ -53,7 +53,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
       await root.partitions?.allowWritesAfterSignIn(account);
       const rows = await root.recordings?.list("unassigned");
       if (live && root.stores.connection.getState().accountKey === account) {
-        root.localWorkFlow.consumeSignIn(); if (rows?.some(r => r.state !== "recording")) setAssociation(true);
+        root.localWorkFlow.consumeSignIn(); if (rows?.some(r => r.state !== "recording")) setAssociationRoot(root);
       }
     })().catch(() => {});
     return () => { live = false; };
@@ -201,7 +201,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
         {workFlow.notice && <p role="status" className="p-3 text-sm text-foreground">{workFlow.notice}</p>}
         <div className="sr-only" aria-live="polite">{workFlow.associationNotice}</div>
         <LockedRecordingSize />
-        {association && <AssociateRecordings onClose={() => setAssociation(false)} />}
+        {associationRoot === root && <AssociateRecordings onClose={() => setAssociationRoot(null)} />}
       </>
     );
   }

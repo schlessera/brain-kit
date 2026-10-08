@@ -136,6 +136,8 @@ type Work = {
   stageUnassignedClear():void; clearWaiting():boolean; releaseUnassignedClear():void; coldRefreshes():number;
   flushColdStorage():void;
   coldStart():Promise<void>; coldActive():{id:string;partition:string}|null; coldStop():Promise<void>; cacheShell():Promise<void>;
+  replaceRoot():void; replacementReady():boolean; replacementHasSignIn():boolean;
+  holdPeerQuery():void; peerQueryWaiting():boolean; releasePeerQuery():void;
 };
 declare global { interface Window { __work: Work } }
 async function work<T>(page: Page, fn: (w: Work) => T): Promise<Awaited<T>> { return await page.evaluate(fn, await page.evaluateHandle(() => window.__work)) as Awaited<T>; }
@@ -620,6 +622,54 @@ runtimeTest("unassigned clearing revokes idle peer playback, cancels its pending
     expect(await work(other,w=>w.releaseColdPlayback()),"unassigned clearing refuses a previously read pending playback result").not.toBe("ok");
     await cold.getByText(/^On this device ·/).waitFor({state:"detached",timeout:1500}).catch(()=>{});
     expect(await cold.getByText(/^On this device ·/).count(),"committed unassigned clearing refreshes the mounted idle peer tray").toBe(0);
+    expect(await work(page,w=>w.read("unassigned"))).toEqual([]);
+  }finally{await context.close();}
+},30_000);
+
+for (const phase of ["initial","refreshed"] as const) for (const kind of ["recording","transcript","unassigned"] as const) runtimeTest(`${phase} inventory includes durable ${kind} committed during peer discovery`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);const key=(await work(page,w=>w.key()))!;
+    if(kind==="transcript" || phase==="refreshed") await page.evaluate(({key,kind})=>window.__work.seed(kind==="unassigned"?"unassigned":`account:${key}`,"sirens"),{key,kind});
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work?.key());await work(other,w=>w.ready());
+    if(phase==="refreshed") {await click(page,"Sign out everywhere");await signout(page).waitFor();if(kind==="unassigned") await signout(page).getByRole("checkbox").check();}
+    await work(page,w=>w.holdPeerQuery());await click(page,phase==="initial"?"Sign out everywhere":"Sign out and delete");await page.waitForFunction(()=>window.__work.peerQueryWaiting());
+    const partition=kind==="unassigned"?"unassigned":`account:${key}`;
+    await other.evaluate(({partition,kind})=>window.__work.seed(partition,kind==="transcript"?"sirens":"aeolus",kind==="transcript"),{partition,kind});
+    expect((await other.evaluate(partition=>window.__work.read(partition),partition)).some(r=>r.key===`recording:index:${kind==="transcript"?"sirens":"aeolus"}`),"the peer really committed its late recording metadata").toBe(true);
+    await work(page,w=>w.releasePeerQuery());await page.waitForTimeout(500);
+    expect(await signout(page).count(),`${phase} inventory includes durable ${kind} before destructive consent`).toBe(1);
+    const shown=await signout(page).innerText();
+    expect(shown,`${phase} warning counts the durable ${kind} committed during peer discovery`).toContain(kind==="transcript"?"1 with an unaccepted transcript":kind==="unassigned"?`Also delete ${phase==="initial"?1:2} recordings`:`${phase==="initial"?1:2} recordings not yet added to a draft`);
+    if(phase==="refreshed") expect(shown).toContain("Local work changed.");
+    expect(await page.evaluate(async()=>(await fetch("/api/vpn-check")).status)).toBe(200);await click(page,"Keep working");
+  }finally{await context.close();}
+},30_000);
+
+for (const offer of ["automatic","tray"] as const) runtimeTest(`${offer} association belongs to its requesting root and never carries selection into a replacement`,async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,async w=>{await w.seed("unassigned","sirens");await w.seed("unassigned","aeolus");});
+    await click(page,"Sign out everywhere");await signout(page).waitFor();const nav=page.waitForNavigation();await click(page,"Sign out and delete");await nav;await page.locator('input[type=password]').waitFor();await signIn(page);await associationShown(page);
+    if(offer==="tray") {await click(page,"Not now");await act(page,page.getByRole("button",{name:/On this device/}));await act(page,page.getByRole("button",{name:"Add to my account…",exact:true}).first());await associationShown(page);}
+    await association(page).getByRole("checkbox").first().check();expect(await association(page).getByRole("checkbox").first().getAttribute("aria-checked"),"the original sheet has a real selected recording").toBe("true");
+    await work(page,w=>w.replaceRoot());await page.waitForFunction(()=>window.__work.replacementReady());await settled(page);
+    expect(await work(page,w=>w.replacementHasSignIn()),"the replacement connects by a real background probe without an explicit sign-in marker").toBe(false);
+    expect(await association(page).count(),`${offer} association never opens on a replacement root without its own explicit request`).toBe(0);
+    const trayHeader=page.getByRole("button",{name:/On this device/});
+    if(await trayHeader.getAttribute("aria-expanded")!=="true") await act(page,trayHeader);
+    await act(page,page.getByRole("button",{name:"Add to my account…",exact:true}).first());await associationShown(page);
+    expect(await association(page).getByRole("checkbox").evaluateAll(els=>els.some(el=>el.getAttribute("aria-checked")==="true")),"an explicit replacement-root offer carries no old selection").toBe(false);await click(page,"Not now");
+  }finally{await context.close();}
+},30_000);
+
+runtimeTest("committed deletion invalidates peer playback opened during its closed generation",async()=>{
+  const {page,context}=await boot();
+  try {await signIn(page);await work(page,w=>w.seed("unassigned","sirens"));
+    const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await work(other,w=>w.mountColdReader());await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();
+    await work(page,w=>w.stageUnassignedClear());await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();const nav=page.waitForNavigation();await click(page,"Sign out and delete");await page.waitForFunction(()=>window.__work.clearWaiting());
+    await work(other,w=>w.coldPlayback());expect(await work(other,w=>w.coldPlayable()),"the closing generation has a real readable survivor before deletion commits").toBe(true);await work(other,w=>w.stageColdPlayback());
+    await work(page,w=>w.releaseUnassignedClear());await nav;await page.locator('input[type=password]').waitFor();await other.waitForTimeout(300);
+    expect(await work(other,w=>w.coldPlayable()),"committed deletion revokes playback opened during the closed generation").toBe(false);
+    expect(await work(other,w=>w.releaseColdPlayback()),"committed deletion refuses pending playback from the closed generation").not.toBe("ok");
     expect(await work(page,w=>w.read("unassigned"))).toEqual([]);
   }finally{await context.close();}
 },30_000);

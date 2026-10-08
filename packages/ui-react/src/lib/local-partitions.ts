@@ -52,6 +52,8 @@ export interface LocalPartitions {
   openAccount(): PartitionHandle;
   /** A handle on a named partition; every operation on it is checked. */
   open(id: PartitionId): PartitionHandle;
+  /** @internal One native read transaction for the complete authorized loss inventory. */
+  snapshot(ids: readonly PartitionId[]): Promise<Array<{ partition: PartitionId; key: string; value: unknown }>>;
   /** Remove everything one partition holds. */
   clear(id: PartitionId): Promise<void>;
   /** @internal Fence old writers across tabs and return a fixed, authorized clear. */
@@ -360,6 +362,18 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       return handle(accountPartition(held));
     },
     open: handle,
+    async snapshot(ids) {
+      for (const id of ids) check(id, true);
+      const d = await db();
+      for (const id of ids) check(id, true);
+      const store = d.transaction(RECORDS, "readonly").objectStore(RECORDS);
+      const groups = await Promise.all(ids.map(async partition => {
+        const [keys, values] = await Promise.all([request(store.getAllKeys(range(partition))), request(store.getAll(range(partition)))]);
+        return keys.map((key, i) => ({ partition, key: (key as [string, string])[1], value: values[i] }));
+      }));
+      for (const id of ids) check(id, true);
+      return groups.flat();
+    },
     clear,
     async move(from, to, keys) {
       if (from !== "unassigned" || to === "unassigned") throw new PartitionRefusedError(from);

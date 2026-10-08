@@ -153,7 +153,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     for (const fn of events) fn({ kind, message, savedThroughMs });
   };
   const invalidate = (change: RecordingChange) => {
-    const affected = (recording: { partition: PartitionId; id: string; generation: string }) => typeof change === "string" ? recording.id === change : recording.partition === change.partition && (!change.closed || closedGeneration(change.closed, recording.generation));
+    const affected = (recording: { partition: PartitionId; id: string; generation: string }) => typeof change === "string" ? recording.id === change : recording.partition === change.partition && (!change.closed || closedGeneration(change.closed, recording.generation) || recording.generation === change.closed.token);
     if (typeof change !== "string" && (!change.closed || sameGeneration(change.partition, change.closed.token))) {
       for (const key of repaired.keys()) if (key.startsWith(`${change.partition}/`)) repaired.delete(key);
       for (const key of transcripts) if (key.startsWith(`${change.partition}/`)) transcripts.delete(key);

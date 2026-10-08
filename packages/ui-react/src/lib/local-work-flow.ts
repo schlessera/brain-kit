@@ -131,27 +131,6 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
       const epoch = root.authLock.epoch();
       const result: SignOutLoss = { account, epoch, recordings: 0, bytes: 0, transcripts: 0, accepted: 0, drafts: 0, tracks: 0, review: false, unassigned: 0, unknown: false, otherTabs: false, otherUnknown: false };
       const ids = new Set<string>();
-      if (root.partitions) {
-        try { result.unassigned = (await root.partitions.open("unassigned").list("recording:index:")).length; }
-        catch { result.unknown = true; }
-        try {
-          if (account) {
-            const records = await root.partitions.open(accountPartition(account)).list("");
-            for (const { key, value } of records) {
-              const row = value as { state?: string; bytes?: number; transcript?: string; draftId?: string; text?: string; attachments?: unknown[]; reviewText?: string };
-              if (key.startsWith("recording:index:")) {
-                if (row.state === "accepted" || records.some(r => r.key === `recording:accepted:${key.slice("recording:index:".length)}`)) result.accepted++;
-                else { result.recordings++; if (row.transcript !== undefined) result.transcripts++; result.bytes += typeof row.bytes === "number" ? row.bytes : 0; }
-              }
-              if (key.includes("/draft/") && row.draftId && (row.text?.trim() || row.attachments?.length)) ids.add(row.draftId);
-              if (key.endsWith("/context") && row.reviewText?.trim()) result.review = true;
-            }
-          }
-        } catch {
-          const cleared = account ? await root.partitions.isSignOutCleared(accountPartition(account)).catch(() => false) : false;
-          result.unknown ||= !cleared;
-        }
-      }
       if (account && root.partitions) {
         try {
           const locks = await navigator.locks.query();
@@ -165,6 +144,27 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
           result.otherUnknown = !inventory.complete;
           result.otherTabs ||= result.otherUnknown;
         } catch { result.otherTabs = true; result.otherUnknown = true; }
+      }
+      if (root.partitions) {
+        const accountId = account ? accountPartition(account) : null;
+        let snapshot: Awaited<ReturnType<typeof root.partitions.snapshot>> = [];
+        try { snapshot = await root.partitions.snapshot(["unassigned", ...(accountId ? [accountId] : [])]); }
+        catch {
+          const cleared = accountId ? await root.partitions.isSignOutCleared(accountId).catch(() => false) : false;
+          result.unknown = !cleared;
+          try { snapshot = await root.partitions.snapshot(["unassigned"]); } catch { result.unknown = true; }
+        }
+        result.unassigned = snapshot.filter(row => row.partition === "unassigned" && row.key.startsWith("recording:index:")).length;
+        const records = snapshot.filter(row => row.partition === accountId);
+        for (const { key, value } of records) {
+          const row = value as { state?: string; bytes?: number; transcript?: string; draftId?: string; text?: string; attachments?: unknown[]; reviewText?: string };
+          if (key.startsWith("recording:index:")) {
+            if (row.state === "accepted" || records.some(r => r.key === `recording:accepted:${key.slice("recording:index:".length)}`)) result.accepted++;
+            else { result.recordings++; if (row.transcript !== undefined) result.transcripts++; result.bytes += typeof row.bytes === "number" ? row.bytes : 0; }
+          }
+          if (key.includes("/draft/") && row.draftId && (row.text?.trim() || row.attachments?.length)) ids.add(row.draftId);
+          if (key.endsWith("/context") && row.reviewText?.trim()) result.review = true;
+        }
       }
       if (root.stores.connection.getState().accountKey !== account || root.authLock.epoch() !== epoch) throw new Error("Sign-in changed. Sign in again before signing out.");
       // Inventory reads and peer replies yield. Count live work at the final

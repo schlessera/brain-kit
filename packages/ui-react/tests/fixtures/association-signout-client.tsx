@@ -15,11 +15,23 @@ import { tracksFor, trackKey } from "../../src/lib/draft-tracks.js";
 
 const root = createBrainUiRoot({ storagePrefix: "odysseus-association-signout", localCapture: true, config: { appName: "Odysseus’s notebook" } });
 let compose = () => {};
+let replaceRoot = async () => {};
+let shownRoot = root;
 let settingsClosed = 0, dictationCancelled = 0;
 function Fixture() {
   const [composed, setComposed] = useState(false);
+  const [providedRoot, setProvidedRoot] = useState(root);
+  replaceRoot = async () => {
+    shownRoot = createBrainUiRoot({ storagePrefix: "odysseus-replacement-root", localCapture: true });
+    // Mount an already probed root, as a consumer may do without remounting its tray.
+    const response = await shownRoot.request(shownRoot.backendUrl("/api/vpn-check"));
+    if (!response.ok) throw new Error("The replacement host did not authenticate");
+    const { accountKey } = await response.json();
+    shownRoot.stores.connection.getState().setVpnStatus("connected", accountKey);
+    setProvidedRoot(shownRoot);
+  };
   compose = () => setComposed(true);
-  return <BrainUiProvider root={root}><ConnectionGate>{composed ? <>
+  return <BrainUiProvider root={providedRoot}><ConnectionGate>{composed ? <>
     <DictationSheet open onStop={() => {}} onCancel={() => { dictationCancelled++; root.stores.voice.getState().resetCapture(); }} />
     <SlidePanel open title="Settings" onClose={() => { settingsClosed++; }}><PasskeyTab active /></SlidePanel>
   </> : <div style={{ maxWidth: 720, marginInline: "auto", padding: 12 }}><RecordingsTray /><PasskeyTab active /></div>}</ConnectionGate></BrainUiProvider>;
@@ -65,6 +77,8 @@ let releaseMutation = () => {};
 let clearWaiting = false;
 let releaseUnassignedClear = () => {};
 let coldRefreshes = 0;
+let peerQueryWaiting = false;
+let releasePeerQuery = () => {};
 const delayedStorageEvents: StorageEvent[] = [];
 const deferStorage = (event: StorageEvent) => { if (event.key === unassignedFenceKey) { event.stopImmediatePropagation(); delayedStorageEvents.push(event); } };
 async function staleAdministrative(operation: () => Promise<string>) {
@@ -73,6 +87,15 @@ async function staleAdministrative(operation: () => Promise<string>) {
   try { return await operation(); } finally { Storage.prototype.getItem = get; }
 }
 Object.assign(window, { __work: {
+  replaceRoot: () => replaceRoot(),
+  replacementReady: () => shownRoot !== root && !!shownRoot.stores.connection.getState().accountKey && shownRoot.stores.connection.getState().vpnStatus === "connected",
+  replacementHasSignIn: () => shownRoot.localWorkFlow.hasSignIn(),
+  holdPeerQuery: () => {
+    const query = navigator.locks.query.bind(navigator.locks);
+    navigator.locks.query = async () => { const snapshot = await query(); peerQueryWaiting = true; await new Promise<void>(resolve => { releasePeerQuery = resolve; }); return snapshot; };
+  },
+  peerQueryWaiting: () => peerQueryWaiting,
+  releasePeerQuery: () => releasePeerQuery(),
   failUnassignedClear: () => {
     const original = IDBObjectStore.prototype.delete;
     IDBObjectStore.prototype.delete = function(query) {
@@ -103,7 +126,7 @@ Object.assign(window, { __work: {
     await navigator.serviceWorker.register("/signout-worker.js");await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) await new Promise<void>(resolve => { navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true }); });
   },
-  coldPlayable: async () => { try { return (await fetch(coldUrl)).ok; } catch { return false; } },
+  coldPlayable: async () => { try { const response = await fetch(coldUrl); return response.ok && (await response.blob()).size > 0; } catch { return false; } },
   stageColdPlayback: async () => {
     let started!: () => void; const ready = new Promise<void>(resolve => { started = resolve; });
     const held = new Promise<void>(resolve => { releaseCold = resolve; });
