@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { sha } from "./adapter";
 import { settingsRefusal, subscriptionRefusal, CLEARED_API_CREDENTIALS } from "../../../../core/src/providers/agents/claude-subscription";
 import { priceSonnet55Usage } from "../../../../../scripts/measure-sonnet55-cost";
-import { acceptedRate, reparseBudget, type RootPaidPolicy, type ReviewBinding, type Reservation } from "./paid-policy";
+import { acceptedRate, exactUserPrompt, reparseBudget, type RootPaidPolicy, type ReviewBinding, type Reservation } from "./paid-policy";
 import { validGrantEvidence } from "./grant";
 
 const MODEL = "claude-sonnet-5-5";
@@ -112,9 +112,7 @@ export function validateReviewEvidence(expected: ExpectedReview, ref: EvidenceRe
       if (sha(requestBytes) !== call.requestSha || requestBytes.length !== call.stateBytes || sha(responseBytes) !== call.rawResponseSha || responseBytes.length !== call.responseBytes) return false;
       const request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(requestBytes));
       if (request.model !== MODEL || !Array.isArray(request.messages) || request.tools?.length || request.output_config?.effort !== "low") return false;
-      const texts = request.messages.filter((m: any) => m.role === "user").flatMap((m: any) => typeof m.content === "string" ? [m.content] :
-        Array.isArray(m.content) ? m.content.filter((b: any) => b.type === "text").map((b: any) => b.text) : []);
-      if (!texts.some((s: unknown) => typeof s === "string" && sha(s) === expected.promptSha)) return false;
+      if (!exactUserPrompt(request,expected.promptSha)) return false;
       const events = sse(responseBytes), starts = events.filter(e => e.type === "message_start"), stops = events.filter(e => e.type === "message_stop");
       if (starts.length !== 1 || stops.length !== 1 || starts[0].message?.model !== MODEL || events.some(e => e.type === "error" || e.content_block?.type === "tool_use")) return false;
       let counters: Record<string, any> = {}, sawFinal = false;

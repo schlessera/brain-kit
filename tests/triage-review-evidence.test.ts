@@ -121,6 +121,12 @@ test("complete explicit root paid review reparses all raw evidence and reservati
       expect(admitExactPackets([f.expected],[{...f.receipt,evidence:saveEvidenceBundle(f.directory)}])).toBe(false);
     }
     writeFileSync(join(f.directory,"physical.json"),JSON.stringify([f.call]));
+    for(const messages of [[{role:"user",content:"Complete Odysseus paid review format"},{role:"user",content:"unreviewed extra"}],[{role:"user",content:[{type:"text",text:"Complete Odysseus paid review format"},{type:"text",text:"unreviewed extra"}]}]]){
+      const request=JSON.stringify({...JSON.parse(Buffer.from(f.call.rawRequestBase64,"base64").toString()),messages});
+      writeFileSync(join(f.directory,"physical.json"),JSON.stringify([{...f.call,rawRequestBase64:Buffer.from(request).toString("base64"),requestSha:sha(request),stateBytes:Buffer.byteLength(request)}]));
+      expect(admitExactPackets([f.expected],[{...f.receipt,evidence:saveEvidenceBundle(f.directory)}])).toBe(false);
+    }
+    writeFileSync(join(f.directory,"physical.json"),JSON.stringify([f.call]));
     const original = structuredClone(f.execution);
     for (const alter of [
       (e: any) => { delete e.paidAdmission; },
@@ -135,4 +141,18 @@ test("complete explicit root paid review reparses all raw evidence and reservati
   } finally { f.close(); }
   const offline = fixture("Complete Odysseus offline paid format", "offline-native-scripted", true);
   try { expect(admitExactPackets([offline.expected], [offline.receipt])).toBe(false); } finally { offline.close(); }
+});
+
+test("literal physical reparse refuses extra user source even with self-consistent budget hashes",()=>{
+ const f=fixture("Complete Odysseus sole USER review","subscription-native-direct",true);
+ try{
+  expect(admitExactPackets([f.expected],[f.receipt])).toBe(true); // Format only.
+  const r=JSON.parse(Buffer.from(f.call.rawRequestBase64,"base64").toString());
+  r.messages.push({role:"user",content:"Extra unreviewed source"});const literal=JSON.stringify(r),n=Buffer.byteLength(literal);
+  const call={...f.call,rawRequestBase64:Buffer.from(literal).toString("base64"),requestSha:sha(literal),stateBytes:n};
+  const execution=structuredClone(f.execution),entry=execution.paidAdmission.entries[0];
+  entry.requestSha=call.requestSha;entry.inputBound=Math.min(n,1_000_000);entry.reservedUpperUsd=(entry.inputBound*8+entry.outputBound*20)/1e6;
+  writeFileSync(join(f.directory,"physical.json"),JSON.stringify([call]));writeFileSync(join(f.directory,"execution.json"),JSON.stringify(execution));
+  expect(admitExactPackets([f.expected],[{...f.receipt,evidence:saveEvidenceBundle(f.directory)}])).toBe(false);
+ }finally{f.close();}
 });

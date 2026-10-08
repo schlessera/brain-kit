@@ -85,3 +85,16 @@ test("known Standard US bounds retain omission and literal regional usage withou
  expect(()=>rejectResponseModifiers({...tokens,inference_geo:"not_available",service_tier:"standard"})).not.toThrow();
  expect(()=>rejectResponseModifiers({...tokens,inference_geo:"unknown-region"})).toThrow("modifier");
 });
+
+test("actual pretransport sole user payload refuses appended user, text, image and tool blocks",async()=>{
+ let forwarded=0;const b=new ReviewBudget(policy(),binding,()=>{});
+ const send=async(messages:any[])=>{const n=b.reserve(bytes({messages}));forwarded++;b.settle(n,tokens);};
+ for(const messages of [
+  [{role:"user",content:prompt},{role:"user",content:"extra unreviewed source"}],
+  [{role:"user",content:[{type:"text",text:prompt},{type:"text",text:"extra unreviewed source"}]}],
+  [{role:"user",content:[{type:"text",text:prompt},{type:"image",source:{type:"base64",data:"unreviewed"}}]}],
+  [{role:"user",content:[{type:"text",text:prompt},{type:"tool_result",content:"unreviewed"}]}],
+ ])await expect(send(messages)).rejects.toThrow("sole frozen USER");
+ expect(forwarded).toBe(0);
+ await send([{role:"user",content:prompt},{role:"system",content:[{type:"text",text:"Native-generated system context"}]}]);expect(forwarded).toBe(1);
+});
