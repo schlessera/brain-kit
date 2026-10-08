@@ -83,7 +83,7 @@ export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvi
         const reason = status === 401 || status === 403 ? "authentication"
           : status === 429 ? "rate_limit" : status === 504 || status === 408 ? "provider_timeout"
           : status >= 500 ? "provider_error" : status === 415 || status === 422 ? "media" : status === 400 ? "parameters" : "validation";
-        await response.body?.cancel();
+        await response.body?.cancel().catch(() => {});
         throw new SpeechTranscriptionError(reason, status);
       }
       const body = await response.json() as { results?: { channels?: Array<{ alternatives?: Array<{ transcript?: unknown }> }> } };

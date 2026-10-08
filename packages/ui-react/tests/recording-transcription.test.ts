@@ -128,3 +128,18 @@ test("status recovery during a partial upload cannot claim a subsequently proces
   expect((await s.get("account:odysseus", f.id))!.state, "active upload cannot be marked not sent by an early 404").toBe("transcribing");
   await s.syncTranscriptions(); expect((await s.get("account:odysseus", f.id))!.transcript).toBe(done.text);
 });
+
+
+test("a deletion queued during status recovery is drained without another connection event", async () => {
+  const f = fixture(), done = await f.seed(); const other = crypto.randomUUID();
+  f.data.set(`recording:index:${other}`, { ...f.data.get(`recording:index:${f.id}`) as object, id: other, state: "failed", transcribeRequestId: other });
+  const methods: string[] = []; let started = false, release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  f.root.request = async (_url, init) => { const method = init?.method ?? "GET"; methods.push(method); if (method === "GET") { started = true; await gate; return Response.json({ ...done, recordingId: _url.includes(other) ? other : f.id }); } return Response.json({ status: "consumed" }); };
+  const s = f.make(); await Bun.sleep(5); const pending = s.syncTranscriptions(); while (!started) await Bun.sleep(1);
+  try { f.connection.setState({ wsStatus: "disconnected" }); await s.discard("account:odysseus", other); expect(f.data.has(`recording:tombstone:${other}`)).toBe(true); f.connection.setState({ wsStatus: "connected" }); }
+  finally { release(); }
+  await pending; await Bun.sleep(20);
+  expect(methods, "queued deletion drains after the active recovery completes").toContain("DELETE");
+  expect(f.data.has(`recording:tombstone:${other}`)).toBe(false);
+});

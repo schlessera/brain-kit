@@ -247,3 +247,17 @@ test("UUID case aliases share one receipt, account boundary and permanent tombst
     expect(calls).toBe(1);
   } finally { await t.close(); }
 });
+
+
+for (const status of [503, 401]) test(`Deepgram error-body cleanup cannot replace definitive ${status} classification`, async () => {
+  const mock = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async () => new Response(new ReadableStream({ start(controller) { controller.error(new Error("Broken response body")); } }), { status }), { preconnect: fetch.preconnect }));
+  const provider = createDeepgramSpeechProvider("fixture-key");
+  const t = await httpContractApp({ env: { VOICE_PROVIDER: "fixture-speech" }, speechProvider: fake(provider.transcribeRecording!) });
+  try {
+    const id = randomUUID(); await t.fetch(path(id), put()); const receipt = await (await t.fetch(path(id))).json();
+    expect(receipt.status, "known rejection survives broken error body").toBe("failed");
+    expect(receipt.failure.reason).toBe(status === 503 ? "provider_error" : "authentication");
+    expect(receipt.failure.providerStatus).toBe(status);
+    expect(receipt.failure.retryable).toBe(status === 503);
+  } finally { await t.close(); mock.mockRestore(); }
+});

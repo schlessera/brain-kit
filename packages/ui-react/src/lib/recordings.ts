@@ -433,6 +433,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     await partitions.open(partition).put(`recording:tombstone:${id}`, { id, disposition });
   }
   let syncing = false;
+  let syncPending = false;
   const store: RecordingStore = {
     budget,
     sink: () => deferred(),
@@ -729,7 +730,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       });
     },
     async syncTranscriptions() {
-      if (syncing || !online() || heldPartition() === "unassigned") return;
+      if (syncing) { syncPending = true; return; }
+      if (!online() || heldPartition() === "unassigned" || disposed) return;
       syncing = true;
       const partition = heldPartition();
       const epoch = mutationEpoch(partition);
@@ -754,7 +756,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
             else if (row.state === "transcribing") await updateTranscription(partition, row.id, { state: "failed", transcriptionMessage: "Not sent — tap Transcribe again" }, current => receiptSnapshot(current) === receiptSnapshot(row));
           });
         }
-      } finally { syncing = false; }
+      } finally {
+        syncing = false;
+        if (syncPending) { syncPending = false; await store.syncTranscriptions(); }
+      }
     },
     async assign(id) {
       if (signingOut) throw new Error("Signing out");
