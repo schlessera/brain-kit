@@ -304,7 +304,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     };
 
     function held(draftId: string, sends = get().sends): boolean {
-      return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
+      return Object.values(sends).some((s) => (s.draftId === draftId || sendTarget(s) === draftId) && (s.state === "pending" || s.state === "unconfirmed"));
     }
 
     function release(attachments: readonly PendingAttachment[], kept: readonly PendingAttachment[]) {
@@ -503,14 +503,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // was open. Immutable sends keep their original ids and snapshots.
         const liveId = follow(sourceId).id;
         const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
-        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId } };
+        const viewSession = live.sessionId ?? sessionId;
+        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession } };
         // Navigation redirects can be removed when the reader opens the
         // original. Pending sends keep a separate editable-target binding.
         for (const send of Object.values(state.sends)) if (sendTarget(send) === liveId) sendTargets.set(send.requestId, branchId);
         deviceRedirects.set(sourceId, branchId);
         if (liveId !== sourceId) deviceRedirects.set(liveId, branchId);
         origins.set(branchId, origins.get(sourceId) ?? sourceId);
-        if (sessionId !== null) deviceViews.set(sessionId, branchId);
+        if (viewSession !== null) deviceViews.set(viewSession, branchId);
         set(s => {
           const drafts = { ...s.drafts, [branchId]: branch };
           delete drafts[sourceId];

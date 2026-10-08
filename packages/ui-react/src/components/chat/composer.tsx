@@ -201,7 +201,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // from the same new chat could start a second conversation beside it.
   const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.sessionId === sessionId
     && (x.state === "pending" || (sessionId === null && x.state === "unconfirmed"))
-    && (sessionId !== null || x.draftId === draftId)));
+    && (sessionId !== null || s.sendDraftId(x.requestId) === draftId)));
   useEffect(() => {
     // Naming our accepted new conversation is not a conversation switch.
     // Carry a newer choice to its identity; consume only the sent choice.

@@ -20,6 +20,8 @@ type View = {
   failed: boolean;
   width: number;
   overflow: boolean;
+  sendDisabled: boolean;
+  sendCount: number;
   images: Row["value"]["attachments"];
   action: { width: number; height: number };
 };
@@ -455,4 +457,101 @@ test("review: a duplicated tab keeps an independent context through reload", asy
     await view(a),
     "duplicating a tab must not share its continuation identity"
   ).toMatchObject({ id: original, text: ORIGINAL });
+}, 60000);
+
+test("review: overlapping opens preserve edits made after the first open", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("save");
+  await b.call("doubleOpen");
+  await b.call("edit", "Penelope adds another loom order.", true);
+  await b.call("releaseRead");
+  await expect
+    .poll(async () => (await view(b)).text, {
+      message: "a late other-version read cannot discard current edits",
+    })
+    .toBe("Penelope adds another loom order.");
+  expect(await b.call("reads"), "overlapping opens share one native read").toBe(
+    1
+  );
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe("Penelope adds another loom order.");
+}, 60000);
+
+async function newChatDivergence(ctx: {
+  onTestFinished(fn: () => unknown): void;
+}) {
+  const a = await openScene(
+    new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
+  );
+  ctx.onTestFinished(() => a.close());
+  await a.call("ready", 320, "dark");
+  await a.call("navigate", null);
+  await a.call("edit", "Odysseus surveys the fleet.");
+  await a.call("save");
+  const b = await a.sibling();
+  ctx.onTestFinished(() => b.close());
+  await b.call("ready", 320, "dark");
+  await a.call("edit", ORIGINAL);
+  await a.call("save");
+  await b.call("edit", INCOMING);
+  await b.call("send", true);
+  return { a, b };
+}
+
+test("review: a retained new-chat branch still blocks ordinary duplicate Send", async (ctx) => {
+  const { b } = await newChatDivergence(ctx);
+  await b.call("save");
+  await b.call("edit", "Telemachus keeps subsequent edits.");
+  expect((await view(b)).sendCount).toBe(1);
+  expect(
+    await b.call("ordinarySend"),
+    "the real composer blocks a second send while its branch's first send is pending"
+  ).toBe(0);
+}, 60000);
+
+test("review: acceptance during a native fork keeps subsequent edits in the accepted session view", async (ctx) => {
+  const { b } = await newChatDivergence(ctx);
+  await b.call("edit", "Telemachus keeps subsequent edits.");
+  await b.call("hold");
+  await b.call("startSave");
+  await b.call("waitHeld");
+  await b.call("acceptNew");
+  await b.call("release");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(
+    await view(b),
+    "acceptance navigation continues on the retained unbound branch"
+  ).toMatchObject({
+    text: "Telemachus keeps subsequent edits.",
+    session: "pylos",
+  });
+  const branch = (await view(b)).id;
+  await b.call("edit", "Telemachus continues from Pylos.");
+  await b.call("save");
+  expect((await view(b)).id).toBe(branch);
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === branch)?.value.sessionId
+  ).toBeNull();
+}, 60000);
+
+test("review: a single delayed other-version read preserves newly edited target text and images", async (ctx) => {
+  const { b, original } = await divergent(ctx);
+  await b.call("save");
+  await b.call("delayedOpen");
+  await expect.poll(() => b.call("reads")).toBe(1);
+  await b.call("openInMemory", original);
+  await b.call("edit", "Penelope adds another loom order.", true);
+  await b.call("releaseRead");
+  await expect.poll(() => b.call("snapshot")).toEqual({ done: true });
+  expect(
+    (await view(b)).text,
+    "a target changed during an IndexedDB read keeps its editable text"
+  ).toBe("Penelope adds another loom order.");
+  expect((await view(b)).images).toHaveLength(1);
+  await b.call("save");
+  expect(
+    (await rows(b)).find((r) => r.value.draftId === original)?.value.text
+  ).toBe("Penelope adds another loom order.");
 }, 60000);

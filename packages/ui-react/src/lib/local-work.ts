@@ -263,6 +263,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pendingSince = 0;
   let chain: Promise<void> = Promise.resolve();
+  const openingVersions = new Map<string, Promise<void>>();
   let disposed = false;
   let locked = false;
   let generation = 0;
@@ -570,20 +571,31 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         if (locked || bound === null) throw new PartitionRefusedError("account:");
       } while (committedRevision !== revision);
     },
-    async openDeviceVersion(draftId) {
-      await this.snapshotNow();
-      const readingGeneration = generation;
-      const handle = partition;
-      if (!handle) throw new PartitionRefusedError("account:");
-      const raw = await handle.get(draftKey(draftId));
-      if (locked || disposed || readingGeneration !== generation) throw new PartitionRefusedError(handle.id);
-      const saved = parseDraft(raw);
-      if (saved) {
-        written.set(draftId, null);
-        committed.set(draftId, serializedDraft(raw)!);
-        versions.set(draftId, draftVersion(raw));
-      }
-      stores.drafts.getState().openDeviceVersion(draftId, saved ?? undefined);
+    openDeviceVersion(draftId) {
+      const pending = openingVersions.get(draftId);
+      if (pending) return pending;
+      const open = async () => {
+        await this.snapshotNow();
+        const readingGeneration = generation;
+        const handle = partition;
+        if (!handle) throw new PartitionRefusedError("account:");
+        const before = stores.drafts.getState().drafts[draftId];
+        const raw = await handle.get(draftKey(draftId));
+        if (locked || disposed || readingGeneration !== generation) throw new PartitionRefusedError(handle.id);
+        // A late read cannot replace text/images edited while it was out,
+        // nor advance that writer's expected baseline past unseen changes.
+        const unchanged = stores.drafts.getState().drafts[draftId] === before;
+        const saved = unchanged ? parseDraft(raw) : null;
+        if (saved) {
+          written.set(draftId, null);
+          committed.set(draftId, serializedDraft(raw)!);
+          versions.set(draftId, draftVersion(raw));
+        }
+        stores.drafts.getState().openDeviceVersion(draftId, saved ?? undefined);
+      };
+      const operation = open().finally(() => { openingVersions.delete(draftId); });
+      openingVersions.set(draftId, operation);
+      return operation;
     },
     addTranscript(id, text, draftId, sessionId) {
       const account = held();

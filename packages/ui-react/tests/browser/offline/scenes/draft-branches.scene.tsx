@@ -33,6 +33,15 @@ const net = installFaultNetwork({
       : Response.json({}),
 });
 const root = createBrainUiRoot({ storage: null, request: net.request });
+let ordinarySends = 0;
+const nativeSend = root.connection.send.bind(root.connection);
+root.connection.send = (message) => {
+  if (message.type === "chat_message") {
+    ordinarySends++;
+    return true;
+  }
+  return nativeSend(message);
+};
 root.stores.connection.getState().setVpnStatus("connected", "odysseus");
 root.stores.connection.setState({ wsStatus: "connected" });
 root.stores.drafts.getState().setSupport(false);
@@ -45,6 +54,25 @@ const partitions = createLocalPartitions({
   name: "odysseus-branches",
   heldAccountKey: () => root.stores.connection.getState().accountKey,
 });
+let readCount = 0;
+let readDelayAt = 0;
+let releaseRead = () => {};
+let readGate = Promise.resolve();
+const nativeOpen = partitions.open.bind(partitions);
+partitions.open = (id) => {
+  const handle = nativeOpen(id);
+  return {
+    ...handle,
+    async get(key) {
+      const value = await handle.get(key);
+      if (readDelayAt && key.startsWith("root:ithaca/draft/")) {
+        readCount++;
+        if (readCount === readDelayAt) await readGate;
+      }
+      return value;
+    },
+  };
+};
 root.partitions = partitions;
 root.localWork = createLocalWork({
   stores: root.stores,
@@ -138,6 +166,11 @@ defineScene({
     return {
       width: innerWidth,
       overflow: document.documentElement.scrollWidth > innerWidth,
+      sendDisabled:
+        document
+          .querySelector('[aria-label^="Send"]')
+          ?.getAttribute("aria-disabled") === "true",
+      sendCount: document.querySelectorAll('[aria-label^="Send"]').length,
       images: draft()?.attachments.map((a) => ({
         data: a.attachment.data,
         mediaType: a.attachment.mediaType,
@@ -217,6 +250,66 @@ defineScene({
     s.edit(s.idFor("ithaca"), "ithaca", { text: "", attachments: [] });
     return "empty";
   },
+  async ordinarySend() {
+    await settled();
+    const button = document.querySelector<HTMLElement>(
+      '[role="button"][aria-label^="Send"]'
+    );
+    if (!button) throw new Error("the real composer has no Send control");
+    button.click();
+    await wait(0);
+    return ordinarySends;
+  },
+  openInMemory(id: string) {
+    root.stores.drafts.getState().openDeviceVersion(id);
+    root.stores.chat.getState().setActiveSession(root.stores.drafts.getState().drafts[id]?.sessionId ?? null);
+  },
+  delayedOpen() {
+    const id = draft()!.deviceConflict!.otherId;
+    readCount = 0;
+    readDelayAt = 1;
+    readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    snapshot = { done: false };
+    void root.localWork!.openDeviceVersion(id).then(() => {
+      root.stores.chat
+        .getState()
+        .setActiveSession(
+          root.stores.drafts.getState().drafts[id]?.sessionId ?? null
+        );
+      snapshot = { done: true };
+    });
+  },
+  async doubleOpen() {
+    const id = draft()!.deviceConflict!.otherId;
+    readCount = 0;
+    readDelayAt = 2;
+    readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const open = async () => {
+      await root.localWork!.openDeviceVersion(id);
+      root.stores.chat
+        .getState()
+        .setActiveSession(
+          root.stores.drafts.getState().drafts[id]?.sessionId ?? null
+        );
+    };
+    const first = open();
+    void open();
+    await first;
+    await wait(0);
+  },
+  releaseRead() {
+    releaseRead();
+    readDelayAt = 0;
+  },
+  reads: () => readCount,
+  acceptNew() {
+    root.stores.drafts.getState().accepted("odysseus-send", "pylos");
+    root.stores.chat.getState().setActiveSession("pylos");
+  },
   async navigate(session: string | null) {
     localStorage.setItem("odysseus-branch-navigation", JSON.stringify(session));
     root.stores.chat.getState().setActiveSession(session);
@@ -264,7 +357,7 @@ defineScene({
       {
         requestId: "odysseus-send",
         draftId: d.draftId,
-        sessionId: "ithaca",
+        sessionId: root.stores.chat.getState().activeSessionId,
         text: d.text,
         attachments: [...d.attachments],
         message: {

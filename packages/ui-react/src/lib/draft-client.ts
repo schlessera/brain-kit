@@ -83,7 +83,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   function held(draftId: string): boolean {
-    return Object.values(drafts.getState().sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
+    return Object.values(drafts.getState().sends).some((s) => (s.draftId === draftId || drafts.getState().sendDraftId(s.requestId) === draftId) && (s.state === "pending" || s.state === "unconfirmed"));
   }
 
   function bumpHost(draftId: string) { hostSeq.set(draftId, (hostSeq.get(draftId) ?? 0) + 1); }
