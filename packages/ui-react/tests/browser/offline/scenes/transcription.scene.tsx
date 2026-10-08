@@ -7,11 +7,13 @@ import { installFaultNetwork } from "../fault-network.ts";
 import type { ProgressRequestInit } from "../../../../src/lib/upload-request.js";
 
 let queries = 0;
+let ownsUpload = false;
 const net = installFaultNetwork({ routes: async (url, raw) => {
   const init = raw as ProgressRequestInit;
   if (url.pathname.endsWith("/voice/capabilities")) return Response.json({ providerId: "deepgram", capabilities: { savedAudio: true } });
   if (url.pathname.endsWith("/transcription")) {
     if (init.method === "PUT") {
+      ownsUpload = true;
       localStorage.setItem("t9:uploads", String(Number(localStorage.getItem("t9:uploads")) + 1));
       localStorage.setItem("t9:receipt", JSON.stringify({ recordingId: url.pathname.split("/").at(-2), sha256: new Headers(init.headers).get("content-sha256"), providerId: "deepgram", status: "transcribing", attemptId: "held-attempt", retryCount: 0, failures: [] }));
       init.onUploadProgress?.(100);
@@ -54,6 +56,8 @@ defineScene({
     (await waitButton("Upload and transcribe")).click();
     await wait(100);
   },
+  ownsUpload: () => ownsUpload,
+  uploadLockCount: async (id: string) => (await navigator.locks.query()).held?.filter(lock => lock.name === `brain-ui:transcription:${id}`).length ?? 0,
   uploads: () => Number(localStorage.getItem("t9:uploads")),
   statusQueries: () => queries,
 });

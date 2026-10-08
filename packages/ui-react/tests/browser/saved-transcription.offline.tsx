@@ -145,9 +145,11 @@ test("real two tabs upload once and a whole-page reload only queries status", as
   const id = await first.call<string>("seed"); const second = await first.sibling(); ctx.onTestFinished(() => second.close());
   await Promise.all([first.call("prepare", id), second.call("prepare", id)]);
   await Promise.all([first.call("upload"), second.call("upload")]);
+  await expect.poll(() => first.call<number>("uploadLockCount", id), "the native recording-id Web Lock is held").toBe(1);
   await expect.poll(() => first.call<number>("uploads")).toBe(1);
-  await first.reload();
-  await expect.poll(() => first.call<number>("statusQueries")).toBeGreaterThan(0);
+  const owner = await first.call<boolean>("ownsUpload") ? first : second;
+  await owner.reload();
+  await expect.poll(() => owner.call<number>("statusQueries")).toBeGreaterThan(0);
   expect(await first.call("uploads")).toBe(1); expect(await second.call("uploads")).toBe(1);
 });
 
