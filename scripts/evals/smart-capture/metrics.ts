@@ -89,7 +89,7 @@ export function summarize(rows: any[]) {
       cacheWriteTokens: calls.every(c => c.cacheWriteTokens != null) ? calls.reduce((s, c) => s + c.cacheWriteTokens, 0) : null,
       apiEquivalentLowerUsd: calls.every(c => c.apiEquivalentLowerUsd != null) ? calls.reduce((s, c) => s + c.apiEquivalentLowerUsd, 0) : null,
       apiEquivalentUpperUsd: calls.every(c => c.apiEquivalentUpperUsd != null) ? calls.reduce((s, c) => s + c.apiEquivalentUpperUsd, 0) : null,
-      observedAdditionalBilledUsd: calls.every(c => c.observedAdditionalBilledUsd != null) ? calls.reduce((s, c) => s + c.observedAdditionalBilledUsd, 0) : null,
+      observedAdditionalBilledUsd: null, // No invoice evidence, including vacuous empty-call summaries.
       p50Ms: percentile(0.5), p95Ms: percentile(0.95), durationMs: group.reduce((s, r) => s + r.durationMs, 0),
       throughputPerSecond: group.length ? group.length / (group.reduce((s, r) => s + r.durationMs, 0) / 1000) : null,
       gate: !group.length ? "not evaluable" : group.some(r => r.wrongTargetAppend || r.contentLoss || r.appendShapeViolation || r.unintendedCreates) ? "safety veto" : "safety retained on observed sample only",

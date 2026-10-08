@@ -1,5 +1,6 @@
 /** Explicit, frozen #839 live dispatch only. Importing this file sends nothing. */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addCommand } from "../../../packages/core/src/cli/commands/add";
 import { initContext } from "../../../packages/core/src/lib/context";
@@ -10,23 +11,30 @@ import { installBrainSurface } from "./brain-fixture";
 import { chooseThreshold, observe, summarize } from "./metrics";
 import { atReferenceDate, capture, deterministic, fixtures, hybrid, needsInference, prepare, request, type Fixture } from "./pipeline";
 import { fixtureSha, protocol, protocolSha, sourceHashes } from "./protocol";
+import { sourceBinding, sha } from "./admission";
+import { PaidSpend, assertPaidPolicy, consumeGrant, type PaidPolicy } from "./paid-policy";
+import { saveEvidenceBundle, validateReviewEvidence, type ExecutionEvidence } from "./review-evidence";
+import { captureWire, fetchPhysical } from "./wire";
 import { startRelay } from "./relay";
 
 export interface Call {
-  provider: "typesafe" | "claude-subscription"; purpose: string; requestedModel: string; servedModel: string | null;
+  provider: "typesafe" | "claude-subscription"; purpose: string; requestedModel: string | null; servedModel: string | null;
   inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheWriteTokens: number | null;
-  apiEquivalentLowerUsd: number | null; apiEquivalentUpperUsd: number | null; observedAdditionalBilledUsd: number | null;
-  requestSha: string; stateBytes: number; status: number | null; outcome: string; durationMs: number; rawUsage: unknown;
+  apiEquivalentLowerUsd: number | null; apiEquivalentUpperUsd: number | null; observedAdditionalBilledUsd: null; usageDerivedPriceUsd?: number | null;
+  actualInvoiceUsd?: null; usageDerivedChargeUpperUsd?: number | null;
+  rawRequestBase64?: string; rawResponseBase64?: string; rawResponseSha?: string; responseBytes?: number;
+  requestHeaders?: Record<string, string>; responseHeaders?: Record<string, string>; responseEof?: boolean; responseClosed?: boolean; responseCancelled?: boolean; closureTimedOut?: boolean;
+  startedAtUtc?: string; finishedAtUtc?: string | null; requestSha: string; stateBytes: number; status: number | null; outcome: string; durationMs: number; rawUsage: unknown;
 }
 export class Spend {
   usd = 0; uncertain = false;
-  constructor(readonly ceiling: number) { if (!Number.isFinite(ceiling) || ceiling <= 0 || ceiling > 15) throw Error("Invalid actual billed ceiling"); }
-  reserve(upper: number) { if (this.uncertain || !Number.isFinite(upper) || upper < 0 || this.usd + upper > this.ceiling) throw Error("Actual billed charge reservation refused"); }
-  charge(value: number | null) { if (value === null || !Number.isFinite(value) || value < 0) { this.uncertain = true; return; } this.usd += value; if (this.usd > this.ceiling) throw Error("Actual billed issue ceiling exceeded"); }
+  constructor(readonly ceiling: number) { if (!Number.isFinite(ceiling) || ceiling <= 0 || ceiling > 15) throw Error("Invalid conservative usage reservation ceiling"); }
+  reserve(upper: number) { if (this.uncertain || !Number.isFinite(upper) || upper < 0 || this.usd + upper > this.ceiling) throw Error("Conservative usage reservation refused"); }
+  charge(value: number | null) { if (value === null || !Number.isFinite(value) || value < 0) { this.uncertain = true; return; } this.usd += value; if (this.usd > this.ceiling) throw Error("Conservative usage reserve exceeded"); }
 }
 function tokens(value: unknown) { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null; }
 export async function classify(f: Fixture, root: string, spend: Spend, fetch: FetchLike, key: string, save: (calls: Call[]) => void) {
-  const calls: Call[] = [];
+  const calls: Call[] = [], pending: Promise<void>[] = [];
   const client = createJevClient({ apiKey: key, timeoutMs: 10_000, now: () => performance.now(), async fetch(url, init) {
     const body = String(init.body), bytes = Buffer.byteLength(body);
     spend.reserve((bytes + 2048) * 0.042 / 1_000_000);
@@ -34,40 +42,73 @@ export async function classify(f: Fixture, root: string, spend: Spend, fetch: Fe
     const call: Call = { provider: "typesafe", purpose: "classification", requestedModel: "jev-1.13.0", servedModel: null,
       inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null,
       apiEquivalentLowerUsd: null, apiEquivalentUpperUsd: null, observedAdditionalBilledUsd: null,
-      requestSha: (await import("./pipeline")).hash(body), stateBytes: bytes, status: null, outcome: "network_error", durationMs: 0, rawUsage: null };
+      startedAtUtc: new Date(Date.now()).toISOString(), finishedAtUtc: null, requestSha: (await import("./pipeline")).hash(body), stateBytes: bytes, status: null, outcome: "network_error", durationMs: 0, rawUsage: null, actualInvoiceUsd: null, usageDerivedChargeUpperUsd: null, rawRequestBase64: Buffer.from(body).toString("base64"), rawResponseBase64: "", rawResponseSha: (await import("./pipeline")).hash(""), responseBytes: 0, responseEof: false, responseClosed: false, responseCancelled: false, requestHeaders: { "content-type": "application/json" }, responseHeaders: {} };
+    let done!: () => void; pending.push(new Promise<void>(resolve=>{done=resolve;}));
+    calls.push(call); save(calls); // Retain physical attempt before upstream can hang or fail.
     try {
-      const response = await fetch(url, init); call.status = response.status;
-      const raw = await response.clone().json() as any;
+      const response = await fetchPhysical(()=>fetch(url, init), init.signal); call.status = response.status;
+      call.responseHeaders = Object.fromEntries(["content-type", "request-id", "retry-after"].flatMap(name => { const value = response.headers.get(name); return value === null ? [] : [[name, value]]; }));
+      const physical = await captureWire(response, call, () => save(calls), init.signal);
+      save(calls); // Literal bytes persist before JSON parsing, including binary/non-2xx failures.
+      const raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(physical)) as any;
       call.servedModel = typeof raw.model === "string" ? raw.model : null; call.rawUsage = raw.usage ?? null;
       call.inputTokens = tokens(raw.usage?.input_tokens); call.outputTokens = tokens(raw.usage?.output_tokens);
       if (response.ok && call.servedModel === "jev-1.13.0" && call.inputTokens !== null && call.outputTokens !== null) {
         call.apiEquivalentLowerUsd = call.apiEquivalentUpperUsd = call.inputTokens * 0.042 / 1_000_000;
-        call.observedAdditionalBilledUsd = call.apiEquivalentUpperUsd;
+        call.usageDerivedPriceUsd = call.apiEquivalentUpperUsd;
         call.outcome = "completed";
       } else call.outcome = response.ok ? "model_or_usage_mismatch" : "http_error";
-      return response;
+      return new Response(Buffer.from(call.rawResponseBase64!, "base64"), { status: response.status, headers: response.headers });
+    } catch (error) {
+      call.outcome = call.responseEof ? (call.status && call.status >= 400 ? "http_error" : "malformed_response") : "partial_or_network_error";
+      throw error;
     } finally {
-      call.durationMs = performance.now() - started; calls.push(call); spend.charge(call.observedAdditionalBilledUsd); save(calls);
+      call.durationMs = performance.now() - started; call.finishedAtUtc = new Date(Date.now()).toISOString();
+      try { spend.charge(call.usageDerivedPriceUsd ?? null); save(calls); } finally { done(); }
     }
   } });
   const result = await client.ask(request(f, root));
+  await Promise.all(pending); // Await physical cancellation/retention after the client deadline result.
   return { result, calls };
 }
-export async function native(f: Fixture, root: string, out: string, purpose: string, token: string, generationPath?: string, reviewPrompt?: string) {
+export async function native(f: Fixture, root: string, out: string, purpose: string, token: string, generationPath?: string, reviewPrompt?: string, proofSha?: string, policyKey?: string, options?: { offline: true; fetch: (url: string, init: RequestInit) => Promise<Response>; policy: PaidPolicy }) {
   const source = new URL("../../../", import.meta.url).pathname, binary = bundledClaudeBinary();
   if (!binary) throw Error("Actual installed core runner CLI missing");
+  if (!proofSha) throw Error("Native dispatch requires the exact reviewed keyless proof binding");
+  const policyPath = policyKey && process.env.BRAIN_SMART_PAID_POLICY_DIR ? join(process.env.BRAIN_SMART_PAID_POLICY_DIR, `${policyKey}.json`) : process.env.BRAIN_SMART_PAID_POLICY;
+  if (options && (process.env.BRAIN_SMART_OFFLINE !== "1" || readFileSync("/proc/net/route", "utf8").trim().split("\n").slice(1).some(row => row.trim().split(/\s+/)[0] !== "lo"))) throw Error("Injected native transport requires protected networkless execution");
+  if (!policyPath && !options) throw Error("Native dispatch requires an explicit root paid policy; no automatic fallback");
+  const policy = options?.policy ?? JSON.parse(readFileSync(policyPath!, "utf8")) as PaidPolicy;
+  const expected = sourceBinding(reviewPrompt ? sha(reviewPrompt) : policy.promptSha, proofSha);
+  assertPaidPolicy(policy, expected.binding);
+  const scope=reviewPrompt!==undefined?"review":generationPath!==undefined?"generation":"current";
+  if(policy.purpose!==scope)throw Error("Root grant purpose differs from actual native invocation");
+  const sessionNonce=randomBytes(32).toString("hex");
+  const startedAtUtc=new Date(Date.now()).toISOString();
+  const grant=consumeGrant(policy,expected.binding);
+  const spend = new PaidSpend(policy, expected.binding);
+  const execution: ExecutionEvidence = { kind: options ? "offline-native-scripted" : "subscription-native-direct", transport: options ? "injected-offline-fetch" : "global-fetch", upstream: "https://api.anthropic.com/v1/messages",
+    binding: expected.binding, policy, promptSha: expected.binding.promptSha, readOnlyReview: reviewPrompt !== undefined, runtime: expected.runtime,
+    localSessionSha:sha(sessionNonce), startedAtUtc, finishedAtUtc: null, grantSha:grant.sha, relayClosed: false, runnerFailure: null, additionalBilledUsd: null };
+  const evidenceDirectory = join(out, `${purpose}-evidence`); mkdirSync(evidenceDirectory, { mode: 0o700 });
+  copyFileSync(policy.consumedMarkerPath,join(evidenceDirectory,"grant.json"));
+  writeFileSync(join(evidenceDirectory, "execution.json"), JSON.stringify(execution, null, 2), { mode: 0o600 });
   const home = join(root, ".native-home"); mkdirSync(home, { recursive: true });
   const receiptPath = join(out, `${purpose}-native.json`), callPath = join(out, `${purpose}-physical-calls.json`);
-  const relay = startRelay({ oauthToken: token, fetch: globalThis.fetch, save: calls => writeFileSync(callPath, JSON.stringify(calls, null, 2), { mode: 0o600 }) });
+  const relay = startRelay({ oauthToken: token, fetch: options?.fetch ?? globalThis.fetch, paid: spend, sessionNonce, scope, verifyAdmission: () => {
+    const current=sourceBinding(expected.binding.promptSha,proofSha);
+    if(JSON.stringify(current)!==JSON.stringify(expected))throw Error("Current source/runtime/proof bindings changed before physical forwarding");
+    assertPaidPolicy(policy,current.binding);
+  }, save: calls => writeFileSync(callPath, JSON.stringify(calls, null, 2), { mode: 0o600 }) });
   const savedEnv = { ...process.env };
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, {
     PATH: `${root}/bin:/usr/bin:/bin:${join(process.execPath, "..")}`, HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
     BRAIN_ROOT: root, BRAIN_LIVE_EVAL: "839", BRAIN_SMART_SOURCE: source, BRAIN_SMART_RECEIPT: receiptPath,
-    BRAIN_SMART_NATIVE_COMMAND: JSON.stringify([binary]), CLAUDE_CODE_PATH: join(source, "scripts/evals/smart-capture/native-observer.ts"),
+    BRAIN_SMART_NATIVE_DEADLINE_MS: reviewPrompt!==undefined?"290000":generationPath!==undefined?"170000":"180000", BRAIN_SMART_NATIVE_COMMAND: JSON.stringify([binary]), BRAIN_SMART_PAID_GRANT_SHA: grant.sha, BRAIN_SMART_SCOPE: scope, BRAIN_SMART_PAID_ADMISSION: JSON.stringify({ policy, binding: expected.binding }), CLAUDE_CODE_PATH: join(source, "scripts/evals/smart-capture/native-observer.ts"),
     CLAUDE_CODE_OAUTH_TOKEN: token, ANTHROPIC_BASE_URL: relay.url, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     NO_PROXY: "127.0.0.1,localhost", TERM: "dumb",
-    ...(reviewPrompt ? { BRAIN_SMART_READONLY_REVIEW: "1" } : {}),
+    ...(reviewPrompt ? { BRAIN_SMART_READONLY_REVIEW: "1" } : {}), ...(options ? { BRAIN_SMART_OFFLINE: "1" } : {}),
   });
   let failure: string | null = null;
   try {
@@ -79,18 +120,35 @@ export async function native(f: Fixture, root: string, out: string, purpose: str
   } catch (error) { failure = String(error); }
   finally {
     for (const key of Object.keys(process.env)) delete process.env[key]; Object.assign(process.env, savedEnv);
-    relay.stop();
+    const closed = await relay.stop(); execution.relayClosed = closed.closed && closed.unfinished === 0;
+    execution.runnerFailure = failure; execution.finishedAtUtc = new Date(Date.now()).toISOString();
+    writeFileSync(join(evidenceDirectory, "execution.json"), JSON.stringify(execution, null, 2), { mode: 0o600 });
+    for (const [from, to] of [[receiptPath, "native.json"], [`${receiptPath}.stdin.jsonl`, "native.json.stdin.jsonl"], [`${receiptPath}.stdout.jsonl`, "native.json.stdout.jsonl"], [`${receiptPath}.stderr.bin`, "native.json.stderr.bin"], [callPath, "physical.json"]]) {
+      try { copyFileSync(from!, join(evidenceDirectory, to!)); } catch { writeFileSync(join(evidenceDirectory, to!), "", { mode: 0o600 }); }
+    }
+    writeFileSync(join(out, `${purpose}-reservation.json`), JSON.stringify({ rootPolicySha: sha(JSON.stringify(policy)), retainedConservativeUpperUsd: spend.retainedUpperUsd, unknownStop: spend.stopped, invoiceUsd: null }, null, 2), { mode: 0o600 });
   }
+  const evidence = saveEvidenceBundle(evidenceDirectory);
+  if (failure) throw Error(`Stop native dispatch after retained literal evidence: ${failure}`);
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
   const calls: Call[] = relay.calls.map(call => ({ provider: "claude-subscription", purpose, requestedModel: call.requestedModel, servedModel: call.servedModel,
     inputTokens: tokens(call.usage?.input_tokens), outputTokens: tokens(call.usage?.output_tokens),
-    cacheReadTokens: tokens(call.usage?.cache_read_input_tokens ?? 0), cacheWriteTokens: tokens(call.usage?.cache_creation_input_tokens ?? 0),
+    cacheReadTokens: tokens(call.usage?.cache_read_input_tokens), cacheWriteTokens: tokens(call.usage?.cache_creation_input_tokens),
     apiEquivalentLowerUsd: call.apiEquivalent?.lowerUsd ?? null, apiEquivalentUpperUsd: call.apiEquivalent?.upperUsd ?? null,
-    observedAdditionalBilledUsd: receipt.additionalBilledUsd === 0 ? 0 : null,
+    observedAdditionalBilledUsd: null, actualInvoiceUsd: null, usageDerivedChargeUpperUsd: call.usageDerivedChargeUpperUsd,
     requestSha: call.requestSha, stateBytes: call.stateBytes, status: call.status, outcome: call.outcome, durationMs: call.durationMs, rawUsage: call.usage,
   }));
-  if (failure || receipt.failure || !receipt.finished || !receipt.result || !relay.complete() || receipt.overage !== "inactive observed") throw Error(`Stop native dispatch after retained receipts: ${failure ?? receipt.failure ?? "incomplete physical usage"}`);
-  return { calls, receipt };
+  if (failure || receipt.failure || !receipt.finished || !receipt.result || !relay.complete() || !execution.relayClosed) throw Error(`Stop native dispatch after retained receipts: ${failure ?? receipt.failure ?? "incomplete physical usage"}`);
+  return { calls, receipt, evidence, expected: { ...expected.binding, runtime: expected.runtime } };
+}
+/** Recompute current bindings here; approval metadata cannot supply its own expected freeze. */
+export function admitCurrentReview(approval:any) {
+  try {
+    if(approval.approved!==true || approval.model!=="claude-sonnet-5-5" || approval.fixtureSha!==fixtureSha || approval.protocolSha!==protocolSha || JSON.stringify(approval.sourceHashes)!==JSON.stringify(sourceHashes))return false;
+    const actual=sourceBinding(approval.promptSha,approval.proofSha);
+    if(Object.entries(actual.binding).some(([key,value])=>approval.binding?.[key]!==value) || JSON.stringify(approval.runtime)!==JSON.stringify(actual.runtime))return false;
+    return validateReviewEvidence({...actual.binding,runtime:actual.runtime},approval.evidence);
+  }catch{return false;}
 }
 async function main() {
   if (process.env.BRAIN_LIVE_EVAL !== "839") throw Error("Explicit #839 live dispatch required");
@@ -100,7 +158,7 @@ async function main() {
   if (ledger.capUsd !== 150 || ledger.basis !== "actual additional billed charges" || ledger.reservations["839"] !== 15 ||
       Object.values(ledger.reservations).reduce((a: number, b) => a + Number(b), 0) > 150) throw Error("Aggregate actual-billing reservation missing");
   const approval = JSON.parse(readFileSync(approvalPath, "utf8"));
-  if (approval.approved !== true || approval.model !== "claude-sonnet-5-5" || approval.fixtureSha !== fixtureSha || approval.protocolSha !== protocolSha || JSON.stringify(approval.sourceHashes) !== JSON.stringify(sourceHashes)) throw Error("Independent exact-freeze approval absent");
+  if(!admitCurrentReview(approval))throw Error("Current source/runtime-bound raw complementary review absent; wrapper flags are inadmissible");
   const token = process.env.CLAUDE_CODE_OAUTH_TOKEN, key = process.env.TYPESAFE_API_KEY;
   if (!token || !key) throw Error("Protected subscription and Jev credentials required");
   mkdirSync(out, { recursive: true });
@@ -113,7 +171,7 @@ async function main() {
       const started = performance.now();
       const result = await classify(f, p.root, spend, globalThis.fetch, key, calls => writeFileSync(join(out, `tuning-${f.id}-physical.json`), JSON.stringify(calls, null, 2), { mode: 0o600 }));
       tuned.push({ fixture: f, ...result, durationMs: performance.now() - started });
-      if (spend.uncertain) throw Error("Unknown actual Jev charge; stopped after preserved tuning receipts");
+      if (spend.uncertain) throw Error("Unknown Jev usage-derived charge bound; stopped after preserved tuning receipts");
     } finally { p.close(); }
   }
   const calibrations = [];
@@ -134,7 +192,7 @@ async function main() {
           const brain = await initContext({ root: p.root });
           const args = [f.content, ...Object.entries(f.explicit).flatMap(([flag, value]) => [`--${flag}`, Array.isArray(value) ? value.join(",") : String(value)])];
           await atReferenceDate(() => addCommand.run(args, { brain, json: true }));
-        } else calls = (await native(f, p.root, cell, "current", token)).calls;
+        } else calls = (await native(f, p.root, cell, "current", token, undefined, undefined, approval.proofSha, `current-${f.id}-${repetition}`)).calls;
       } else {
         if (arm === "hybrid" && needsInference(f, p.root)) {
           const prior = f.split === "tuning" && repetition === 0 ? tuned.find(t => t.fixture.id === f.id) : undefined;
@@ -143,16 +201,16 @@ async function main() {
         }
         const captured = await atReferenceDate(() => capture(f, p.root, plan));
         capturePath = captured.path; plan = captured.plan;
-        if (f.generation) calls.push(...(await native(f, p.root, cell, "generation", token, captured.path)).calls);
+        if (f.generation) calls.push(...(await native(f, p.root, cell, "generation", token, captured.path, undefined, approval.proofSha, `generation-${f.id}-${repetition}`)).calls);
       }
       const result = observe(f, p.root, arm === "current" ? undefined : plan, capturePath);
       rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, threshold, classificationEligible, durationMs: performance.now() - started +
         (arm === "hybrid" && repetition === 0 ? tuned.find(t => t.fixture.id === f.id)?.durationMs ?? 0 : 0), ...result, calls, failure }); save();
-      if (spend.uncertain) throw Error("Unknown actual billed usage; no further dispatch");
+      if (spend.uncertain) throw Error("Unknown required usage; no further dispatch");
     } catch (error) { failure = String(error); rows.push({ fixture: f.id, split: f.split, category: f.category, arm, repetition, failure, calls, files: observe(f, p.root, plan).files }); save(); throw error; }
     finally { p.close(); }
   }
-  const summary = { fixtureSha, protocolSha, threshold, actualJevPriceDerivedUsd: spend.usd, apiEquivalentIsNotSubscriptionBilling: true, summary: summarize(rows) };
+  const summary = { fixtureSha, protocolSha, threshold, jevUsageDerivedPriceSubtotalUsd: spend.usd, actualInvoiceUsd: null, apiEquivalentIsNotSubscriptionBilling: true, summary: summarize(rows) };
   writeFileSync(join(out, "summary.json"), JSON.stringify(summary, null, 2), { mode: 0o600 }); console.log(JSON.stringify(summary));
 }
 if (import.meta.main) await main();

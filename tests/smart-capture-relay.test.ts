@@ -32,7 +32,7 @@ test("actual loopback relay counts separate main/helper calls and keeps split UT
     expect(relay.calls.map(c => c.usage!.output_tokens)).toEqual([7, 7]);
     expect(relay.calls[0]!.apiEquivalent!.upperUsd).toBeCloseTo(0.0001031, 8);
     expect(saved).toBeGreaterThan(3);
-  } finally { relay.stop(); }
+  } finally { await relay.stop(); }
 });
 test("missing final message usage is retained and refuses subsequent physical dispatch", async () => {
   let dispatches = 0;
@@ -46,7 +46,7 @@ test("missing final message usage is retained and refuses subsequent physical di
     expect(relay.complete()).toBe(false);
     expect((await send(relay.url)).status).toBe(409);
     expect(dispatches).toBe(1);
-  } finally { relay.stop(); }
+  } finally { await relay.stop(); }
 });
 test("unexpected model, API key and wrong OAuth never reach the upstream", async () => {
   for (const mode of ["model", "token", "key"]) {
@@ -54,8 +54,8 @@ test("unexpected model, API key and wrong OAuth never reach the upstream", async
     const relay = startRelay({ oauthToken: "offline-token", save: () => {}, async fetch() { dispatches++; return new Response(sse()); } });
     try {
       const response = mode === "key" ? await fetch(`${relay.url}/v1/messages`, { method: "POST", headers: { authorization: "Bearer offline-token", "x-api-key": "offline-key" }, body: JSON.stringify({ model: MODEL }) }) : await send(relay.url, mode === "model" ? "claude-sonnet-5" : MODEL, mode === "token" ? "wrong-token" : "offline-token");
-      expect(dispatches).toBe(0); expect(response.status).toBe(403); expect(relay.calls).toHaveLength(0);
-    } finally { relay.stop(); }
+      expect(dispatches).toBe(0); expect(response.status).toBe(403); expect(relay.calls).toHaveLength(1);expect(relay.calls[0]!.forwarded).toBe(false);expect(relay.calls[0]!.actualInvoiceUsd).toBeNull();expect(Buffer.from(relay.calls[0]!.rawRequestBase64,"base64").length).toBeGreaterThan(0);expect(JSON.stringify(relay.calls)).not.toContain("wrong-token");expect(JSON.stringify(relay.calls)).not.toContain("offline-key");
+    } finally { await relay.stop(); }
   }
 });
 
@@ -70,7 +70,7 @@ test("nullable provider deltas preserve known counters and retain the raw null r
     expect(relay.calls[0]!.rawUsageEvents[1]!.usage.input_tokens).toBeNull();
     expect(relay.calls[0]!.apiEquivalent!.upperUsd).toBeCloseTo(.0001031, 8);
     expect(relay.complete()).toBe(true);
-  } finally { relay.stop(); }
+  } finally { await relay.stop(); }
 });
 
 test("message-start zero output cannot replace a missing terminal output receipt", async () => {
@@ -81,5 +81,5 @@ test("message-start zero output cannot replace a missing terminal output receipt
     await send(relay.url).then(response => response.text()).catch(() => {});
     expect(relay.calls[0]!.outcome).toBe("missing_usage"); expect(relay.calls[0]!.apiEquivalent).toBeNull();
     expect((await send(relay.url)).status).toBe(409); expect(dispatches).toBe(1);
-  } finally { relay.stop(); }
+  } finally { await relay.stop(); }
 });

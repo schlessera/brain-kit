@@ -64,6 +64,6 @@ async function main() {
     const created = createdValue instanceof Date ? createdValue.toISOString().slice(0, 10) : createdValue;
     if (!readOnlyReview && created !== "2026-07-12") throw Error("Native brain shim did not retain the canonical document date");
     console.log(JSON.stringify({ passed: true, actualCli: receipt.init.claude_code_version, model: receipt.init.model, accountSource: receipt.account.tokenSource, physicalRequests: relay.calls.length, actualToolWrite: !readOnlyReview, created, readOnlyReview, externalRequests: 0 }));
-  } finally { relay.stop(); p.close(); }
+  } finally { await relay.stop(); p.close(); }
 }
 if (import.meta.main) await main();

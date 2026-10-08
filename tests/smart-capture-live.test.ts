@@ -18,10 +18,11 @@ test("actual core Jev transport keeps physical usage, output count and complete 
       expect(body.state.capture).toBe(f.content); dispatches++;
       return Response.json({ model: "jev-1.13.0", answers: expected.answers, usage: { input_tokens: 300, output_tokens: 24 } });
     }, "offline-key", () => saves++);
-    expect(result.result.outcome).toBe("answered"); expect(dispatches).toBe(1); expect(saves).toBe(1);
+    expect(result.result.outcome).toBe("answered"); expect(dispatches).toBe(1); expect(saves).toBeGreaterThanOrEqual(2);
     expect(result.calls[0]!.inputTokens).toBe(300); expect(result.calls[0]!.outputTokens).toBe(24);
     expect(result.calls[0]!.cacheReadTokens).toBeNull(); expect(result.calls[0]!.cacheWriteTokens).toBeNull();
-    expect(result.calls[0]!.observedAdditionalBilledUsd).toBeCloseTo(0.0000126, 10);
+    expect(result.calls[0]!.observedAdditionalBilledUsd).toBeNull(); expect(result.calls[0]!.actualInvoiceUsd).toBeNull();
+    expect(result.calls[0]!.usageDerivedPriceUsd).toBeCloseTo(0.0000126, 10);
     expect(spend.usd).toBeCloseTo(0.0000126, 10);
   } finally { p.close(); }
 });
@@ -96,7 +97,7 @@ process.stdout.write(JSON.stringify({ type: "system", subtype: "init", model: "u
 `);
   const source = resolve(".");
   const child = Bun.spawn([process.execPath, join(source, "scripts/evals/smart-capture/native-observer.ts"), "--settings", "{}"], {
-    cwd: source, env: { PATH: process.env.PATH, BRAIN_LIVE_EVAL: "839", BRAIN_SMART_SOURCE: source,
+    cwd: source, env: { PATH: process.env.PATH, BRAIN_LIVE_EVAL: "839", BRAIN_SMART_OFFLINE:"1", BRAIN_SMART_SOURCE: source,
       BRAIN_ROOT: root, BRAIN_SMART_RECEIPT: receiptPath, CLAUDE_CODE_OAUTH_TOKEN: "offline-fixture",
       BRAIN_SMART_NATIVE_COMMAND: JSON.stringify([process.execPath, sentinel]) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe", signal: AbortSignal.timeout(5000),
@@ -110,7 +111,8 @@ process.stdout.write(JSON.stringify({ type: "system", subtype: "init", model: "u
     expect(receipt.drained).toBe(true);
     expect(receipt.finished).toBe(true);
     expect(receipt.stderrDrained).toBe(true);
-    expect(receipt.stdoutComplete).toBe(false);
+    expect(receipt.stdoutComplete).toBe(true);
+    expect(readFileSync(`${receiptPath}.stderr.bin`, "utf8")).toBe(stderr);
     expect(receipt.termination).toEqual({ requested: "SIGTERM", forced: ignoreTermination, timedOut: false });
     expect(receipt.exitCode).toBe(ignoreTermination ? 137 : 7);
     expect(receipt.signalCode).toBe(ignoreTermination ? "SIGKILL" : null);
@@ -156,3 +158,19 @@ for (const field of ["type", "target"] as const) for (const low of ["selected pr
       for (const [path, before] of Object.entries(f.files)) expect(readFileSync(join(p.root, path), "utf8")).toBe(before);
     } finally { p.close(); }
   });
+
+
+test("Jev binary errors and partial failures retain literal physical bytes and block another dispatch",async()=>{
+  for(const partial of [false,true]){
+    const f=fixtures.find(f=>f.id==="t-custom")!,p=await prepare(f),spend=new Spend(15);let dispatches=0;const bytes=Uint8Array.from([0,255,13]);
+    const transport=async()=>{dispatches++;return partial?new Response(new ReadableStream({start(c){c.enqueue(bytes);setTimeout(()=>c.error(Error("controlled physical disconnect")),5);}})):new Response(bytes,{status:403,headers:{"content-type":"application/octet-stream","set-cookie":"must-not-save"}});};
+    try{const result=await classify(f,p.root,spend,transport,"offline-key",()=>{});expect(result.calls).toHaveLength(1);const call=result.calls[0]!;expect(Buffer.from(call.rawResponseBase64!,"base64")).toEqual(Buffer.from(bytes));expect(call.responseEof).toBe(!partial);expect(call.responseClosed).toBe(true);expect(call.apiEquivalentUpperUsd).toBeNull();expect(call.observedAdditionalBilledUsd).toBeNull();expect(call.actualInvoiceUsd).toBeNull();expect(JSON.stringify(call)).not.toContain("must-not-save");expect(spend.uncertain).toBe(true);await classify(f,p.root,spend,transport,"offline-key",()=>{});expect(dispatches).toBe(1);}finally{p.close();}
+  }
+});
+
+test("observer deadline closes the owned native and captures literal tail before the parent timeout",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"brain-smart-native-deadline-")),receiptPath=join(root,"receipt.json"),sentinel=join(root,"sentinel.ts"),source=resolve(".");
+ writeFileSync(sentinel,`process.on("SIGTERM",()=>{process.stdout.write("Odysseus literal tail\\n");process.stderr.write("Odysseus stderr tail\\n");setTimeout(()=>process.exit(7),20);});setTimeout(()=>process.exit(9),10000);process.stdout.write(JSON.stringify({type:"system",subtype:"init",model:"claude-sonnet-5-5",permissionMode:"default",apiKeySource:"none",claude_code_version:"2.1.283"})+"\\n");`);
+ const child=Bun.spawn([process.execPath,join(source,"scripts/evals/smart-capture/native-observer.ts"),"--settings","{}"],{cwd:source,env:{PATH:process.env.PATH,BRAIN_SMART_OFFLINE:"1",BRAIN_SMART_OFFLINE_DEADLINE_MS:"100",BRAIN_SMART_SOURCE:source,BRAIN_ROOT:root,BRAIN_SMART_RECEIPT:receiptPath,CLAUDE_CODE_OAUTH_TOKEN:"offline-fixture",BRAIN_SMART_NATIVE_COMMAND:JSON.stringify([process.execPath,sentinel])},stdin:"pipe",stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(5000)});child.stdin.end();
+ try{const [exit]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(exit).toBe(1);const receipt=JSON.parse(readFileSync(receiptPath,"utf8"));expect(receipt.failure).toBe("Error: Native transport deadline expired");expect(receipt.drained).toBe(true);expect(receipt.exitCode).toBe(7);expect(()=>process.kill(receipt.nativePid,0)).toThrow();expect(readFileSync(`${receiptPath}.stdout.jsonl`,"utf8")).toContain("Odysseus literal tail");expect(readFileSync(`${receiptPath}.stderr.bin`,"utf8")).toContain("Odysseus stderr tail");expect(receipt.additionalBilledUsd).toBeNull();}finally{child.kill();await child.exited;const receipt=JSON.parse(readFileSync(receiptPath,"utf8"));try{process.kill(receipt.nativePid,"SIGKILL");}catch{}rmSync(root,{recursive:true,force:true});}
+});
