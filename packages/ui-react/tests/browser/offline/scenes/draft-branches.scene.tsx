@@ -348,6 +348,12 @@ defineScene({
     root.stores.chat.getState().setActiveSession(session);
     await wait(0);
   },
+  removeOriginal(kind: string) {
+    const id = draft()!.draftId;
+    if (kind === "gone") root.stores.drafts.getState().hostGone(id);
+    else root.stores.drafts.getState().removed(id);
+    return root.stores.drafts.getState().resolveId(id);
+  },
   rotate() {
     const id = draft()!.draftId;
     root.stores.drafts.getState().hostGone(id);

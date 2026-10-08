@@ -680,3 +680,41 @@ describe("sends", () => {
     expect(ui.stores.chat.getState().activeSessionId).toBe("odysseus-raft");
   });
 });
+
+
+test("a late host save cannot acknowledge the retained original after a device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  const release = host.hold();
+  drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet" });
+  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  drafts().setSupport(false);
+  drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
+  release();
+  await until(() => host.rows.has(original));
+  await wait(20);
+  expect(drafts().drafts[original]!.host, "the old save cannot acknowledge another tab's replacement text").toBeNull();
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts).some((d) => d.text === "Penelope keeps the newer weave"), "host consumption cannot discard the retained original").toBe(true);
+});
+
+
+test("a late host delete cannot rotate the retained original after a device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet" });
+  await until(() => drafts().drafts[original]?.host?.revision === 1);
+  const release = host.holdDeletes();
+  drafts().edit(original, ITHACA, { text: "" });
+  await until(() => host.calls.includes(`DELETE /drafts/${original}`));
+  drafts().setSupport(false);
+  drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
+  release();
+  await until(() => host.rows.get(original)?.deleted === true);
+  await wait(20);
+  expect(drafts().drafts[original]?.text, "an old host delete preserves the retained original identity").toBe("Penelope keeps the newer weave");
+});

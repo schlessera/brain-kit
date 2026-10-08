@@ -660,3 +660,31 @@ test("review: sign-out inventory includes dictation retained in a closed tab con
     "sign-out warns about dictation retained by a closed tab"
   ).toBe(true);
 }, 60000);
+
+for (const kind of ["removed", "gone"])
+  test(`review: a stale original ${kind} cannot exempt a rotated successor from branching`, async (ctx) => {
+    const { b, original } = await divergent(ctx);
+    await b.call("removeOriginal", kind);
+    await b.call("stopAfterFork");
+    await b.call("save");
+    const kept = await rows(b);
+    const branch = kept.find((r) => r.value.text === INCOMING)!;
+    expect(
+      branch.value.sessionId,
+      "the successor of a stale removal is retained unbound in the native commit"
+    ).toBeNull();
+    expect(kept.find((r) => r.value.draftId === original)?.value.text).toBe(
+      ORIGINAL
+    );
+    expect(
+      kept,
+      "one incoming branch and the original co-commit without an extra empty branch"
+    ).toHaveLength(2);
+    await b.reload();
+    await b.call("ready", 320, "dark");
+    expect(await view(b)).toMatchObject({
+      id: branch.value.draftId,
+      text: INCOMING,
+      session: "ithaca",
+    });
+  }, 60000);

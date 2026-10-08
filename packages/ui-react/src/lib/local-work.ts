@@ -371,32 +371,51 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         const actual = new Map(stored.map(r => [r.key, r.value as StoredDraft]));
         const planned: PartitionWrite[] = [];
         const result: Fork[] = [];
-        const removals = new Set(changes.flatMap(c => "delete" in c ? [c.delete] : []));
+        const staleRecord = (id: string, saved: StoredDraft | undefined) => draftVersion(saved) !== (versions.get(id) ?? 0) || serializedDraft(saved) !== committed.get(id);
+        const removals = new Set<string>();
+        const predecessors = new Map<string, { id: string; saved: StoredDraft }>();
+        for (const c of changes) if ("delete" in c && c.delete.startsWith(`${scope}/draft/`)) {
+          const id = c.delete.slice(`${scope}/draft/`.length);
+          const saved = actual.get(c.delete);
+          if (!staleRecord(id, saved)) removals.add(c.delete);
+          else if (saved && (saved.text.length || saved.attachments.length || saved.host)) {
+            const successor = stores.drafts.getState().resolveId(id);
+            if (successor !== id && changes.some(change => "put" in change && change.put === draftKey(successor))) predecessors.set(successor, { id, saved });
+          }
+        }
         for (const change of changes) {
           const key = "put" in change ? change.put : change.delete;
           if (!key.startsWith(`${scope}/draft/`)) { planned.push(change); continue; }
           const id = key.slice(`${scope}/draft/`.length);
           const saved = actual.get(key);
           const incoming = "put" in change ? change.value as StoredDraft : null;
-          const stale = draftVersion(saved) !== (versions.get(id) ?? 0) || serializedDraft(saved) !== committed.get(id);
+          const stale = staleRecord(id, saved);
+          // A rotated writer's successor carries its incoming version. Keep
+          // the stale predecessor without creating a second empty branch.
+          if (!incoming && [...predecessors.values()].some(p => p.id === id)) {
+            next.set(id, null); nextCommitted.set(id, serializedDraft(saved)!); nextVersions.set(id, draftVersion(saved));
+            continue;
+          }
+          const predecessor = predecessors.get(id);
           const collision = (!saved || saved.sessionId !== incoming?.sessionId) && incoming?.sessionId !== null && incoming?.sessionId !== undefined
             ? [...actual].find(([k,v]) => v.sessionId === incoming.sessionId && (v.text.length > 0 || v.attachments.length > 0 || v.host !== null) && k !== key && !removals.has(k)) : undefined;
-          if ((stale && (!incoming || !saved || !sameContent(incoming, saved))) || collision) {
+          if ((stale && (!incoming || !saved || !sameContent(incoming, saved))) || collision || predecessor) {
             // A divergent write never replaces the already-committed owner.
             // Branch content, context and any acceptance receipt co-commit.
-            const other = collision?.[1] ?? saved;
+            const other = predecessor?.saved ?? collision?.[1] ?? saved;
             const branch = mintDraftId();
             const source = incoming ?? { v: 1 as const, draftId: id, sessionId: drafts[id]?.sessionId ?? parseDraft(saved)?.sessionId ?? null, text: "", attachments: [], editedAt: Date.now(), host: null };
-            const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: source.sessionId } };
+            const viewSession = source.sessionId ?? predecessor?.saved.sessionId ?? null;
+            const value: StoredDraft = { ...source, draftId: branch, sessionId: null, host: null, deviceRevision: 1, deviceConflict: { otherId: other?.draftId ?? id, sessionId: viewSession } };
             planned.push({ put: draftKey(branch), value });
-            result.push({ source: id, branch, sessionId: source.sessionId, other: other ? parseDraft(other) : null });
+            result.push({ source: id, branch, sessionId: viewSession, other: other ? parseDraft(other) : null });
             next.delete(id); nextCommitted.delete(id); nextVersions.delete(id);
             if (saved) { next.set(id, null); nextCommitted.set(id, serializedDraft(saved)!); nextVersions.set(id, draftVersion(saved)); }
             if (other) { next.set(other.draftId, null); nextCommitted.set(other.draftId, serializedDraft(other)!); nextVersions.set(other.draftId, draftVersion(other)); }
             next.set(branch, null); nextCommitted.set(branch, serializedDraft(value)!); nextVersions.set(branch, 1);
             // Update the planned context and receipt without changing navigation.
             for (const c of changes) if ("put" in c) {
-              if ((c.put === contextKey || c.put === sharedContextKey) && (c.value as StoredContext).draftId === id) c.value = { ...c.value as StoredContext, draftId: branch };
+              if ((c.put === contextKey || c.put === sharedContextKey) && ((c.value as StoredContext).draftId === id || (predecessor && (c.value as StoredContext).sessionId === viewSession && !drafts[(c.value as StoredContext).draftId]))) c.value = { ...c.value as StoredContext, draftId: branch };
               if (c.put === (acceptance ? receiptKey(acceptance.id) : "") && (c.value as {draftId:string}).draftId === id) c.value = { ...c.value as object, draftId: branch };
             }
             continue;
