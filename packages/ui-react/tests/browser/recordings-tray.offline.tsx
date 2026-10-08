@@ -693,7 +693,7 @@ test("Add retries a failed transcript input commit without another edit", async 
   expect((await c.root.recordings!.get(row.partition, row.id))?.transcript, "the failed input did not change storage").toBe(TEXT);
   await tap(button(c.host, "Add transcript"));
   await expect.poll(() => c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor(null)]?.text, { message: "Add retries the displayed correction before committing the draft" }).toBe("Penelope confirms the new loom order.");
-  expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+  await expect.poll(async () => c.root.recordings!.get(row.partition, row.id), { message: "Add deletes audio after its acknowledged draft commit" }).toBeUndefined();
 });
 
 for (const reason of ["limit", "storage", "interrupted"] as const) {

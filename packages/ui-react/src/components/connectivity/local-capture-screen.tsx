@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import type { RecordingStore, Recording } from "../../lib/recordings.js";
@@ -23,6 +24,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
   store: RecordingStore; reachable: boolean; onContinue: () => void;
 }) {
   const root = useBrainUiRoot();
+  const signOutNotice = useStore(root.localWorkFlow.state, s => s.notice);
   const capture = useLocalCapture({ store, allowLocked: true });
   const phase = useRootStore("voice", s => s.local);
   const denied = useRootStore("voice", s => s.localNotice === "denied");
@@ -98,6 +100,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
   return <main data-local-capture-screen="" className="min-h-[100dvh] bg-background px-4 py-8 text-foreground">
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
       <h1 ref={heading} tabIndex={-1} className="font-[family-name:var(--font-display)] text-2xl">Can't reach your server</h1>
+      {signOutNotice && <p role="status" className="rounded-xl border border-border bg-surface p-3 text-sm">{signOutNotice}</p>}
       <p className="text-sm">You can record a voice note on this device and transcribe it once you're back online and signed in.</p>
       <p className="rounded-xl border border-border bg-surface p-3 text-sm">Recordings made here aren't linked to your account yet. Anyone using this browser can play them. After you sign in you'll choose whether to add them to your account.</p>
       {reachable && <div role="status" className="rounded-xl border border-border bg-surface p-3">

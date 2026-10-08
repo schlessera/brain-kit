@@ -48,7 +48,7 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
     epoch: () => epoch,
     hasSnapshot: () => snapshot && !disposed,
     registerStop(stop: () => Promise<unknown>) { stops.add(stop); return () => { stops.delete(stop); }; },
-    expire(reason = "") {
+    expire(reason = "", discardLocalWork = false) {
       if (/revok|signed out|invalidated/i.test(reason)) state.setState({ revoked: true });
       if (!disposed && state.getState().phase === "restoring") {
         // The gate is still neutral. Invalidate the pending read before its
@@ -71,7 +71,7 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
       transition = (async () => {
         await Promise.allSettled([root.recordings?.stop("auth"), ...[...stops].map((stop) => stop())]);
         if (disposed) return;
-        try { await root.localWork?.snapshotNow(); snapshot = root.localWork !== null; }
+        try { if (discardLocalWork) { await root.localWork?.quiesce(); snapshot = false; } else { await root.localWork?.snapshotNow(); snapshot = root.localWork !== null; } }
         catch { state.setState({ snapshotFailed: true }); snapshot = false; }
         if (!disposed) state.setState({ phase: "locked" });
       })();

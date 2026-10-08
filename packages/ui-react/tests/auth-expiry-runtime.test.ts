@@ -232,11 +232,12 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
         const names = ([] as string[]).concat(args[0] as string | string[]);
         if (done || args[1] !== "readwrite" || !names.includes("records")) return tx;
         const store = tx.objectStore("records");
-        // Issued first, so every write the caller issues next runs, and succeeds, before the spin goes on.
-        let first = true;
+        // Keep the transaction alive through the native writer-fence read,
+        // whose success callback now queues the actual snapshot writes.
+        // Once those writes appear, hold them until the test releases them.
+        let initialReads = 2;
         const spin = () => {
-          if (!done && (first || held.includes(tx))) {
-            first = false;
+          if (!done && (initialReads-- > 0 || held.includes(tx))) {
             store.get(["held", "held"]).onsuccess = spin;
           }
         };

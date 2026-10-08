@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useStore } from "zustand";
 import { LocalCaptureScreen, LOCAL_CAPTURE_UNSUPPORTED } from "./local-capture-screen.js";
 import { useLocalCaptureSupport } from "../../voice/use-local-capture.js";
+import { AssociateRecordings } from "../voice/associate-recordings.js";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
 import {
@@ -40,6 +41,23 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   const reportError = useConnectionStore((s) => s.reportError);
   const socketOpens = useConnectionStore((s) => s.socketOpens);
   const auth = useStore(root.authLock.state);
+  useEffect(() => root.localWorkFlow.attachGate(), [root]);
+  const workFlow = useStore(root.localWorkFlow.state);
+  const account = useConnectionStore(s => s.accountKey);
+  const [associationRoot, setAssociationRoot] = useState<BrainUiRoot | null>(null);
+  useEffect(() => {
+    if (!account || vpnStatus !== "connected" || auth.phase !== "active" || workFlow.signingOut || workFlow.signingIn) return;
+    if (!root.localWorkFlow.hasSignIn()) return;
+    let live = true;
+    void (async () => {
+      await root.partitions?.allowWritesAfterSignIn(account);
+      const rows = await root.recordings?.list("unassigned");
+      if (live && root.stores.connection.getState().accountKey === account) {
+        root.localWorkFlow.consumeSignIn(); if (rows?.some(r => r.state !== "recording")) setAssociationRoot(root);
+      }
+    })().catch(() => {});
+    return () => { live = false; };
+  }, [root, account, vpnStatus, auth.phase, workFlow.association, workFlow.signingOut, workFlow.signingIn]);
   useLayoutEffect(() => { if (auth.phase === "locked") root.authLock.dropContext(); }, [root, auth.phase]);
   const issue = deriveConnectionIssue({
     vpnStatus,
@@ -163,6 +181,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
 
   // Auth required (password mode) and no valid session: show the login screen,
   // even if we were connected before (an expired session must re-prompt).
+  if (workFlow.signingOut) return <div role="status" className="flex h-[100dvh] items-center justify-center bg-background text-foreground">Signing out…</div>;
+  if (workFlow.signingIn) return <LoginScreen {...(workFlow.signInWarm ? { reauth: auth } : {})} />;
   if (auth.phase === "locked" || auth.phase === "restoring") {
     return <LoginScreen reauth={auth} onLocalCapture={canCapture ? () => { if (root.authLock.state.getState().phase === "locked") setCaptureRoot(root); } : undefined} />;
   }
@@ -178,7 +198,10 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           issue={issue}
         />
         {children}
+        {workFlow.notice && <p role="status" className="p-3 text-sm text-foreground">{workFlow.notice}</p>}
+        <div className="sr-only" aria-live="polite">{workFlow.associationNotice}</div>
         <LockedRecordingSize />
+        {associationRoot === root && <AssociateRecordings onClose={() => setAssociationRoot(null)} />}
       </>
     );
   }
@@ -208,6 +231,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           {vpnStatus === "checking" && (
             <p className="text-sm text-muted-foreground">Connecting...</p>
           )}
+          {workFlow.notice && <p role="status" className="max-w-xs text-sm text-foreground">{workFlow.notice}</p>}
 
           {vpnStatus === "forbidden" && (
             <>

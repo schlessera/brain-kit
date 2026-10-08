@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { isUserCancel, registerPasskey, supportsPasskeys } from "../../lib/passkeys.js";
+import { Button, ChoiceOption } from "@schlessera/brain-ui-kit";
+import { LocalWorkDialog } from "../voice/local-work-dialog.js";
+import type { SignOutLoss } from "../../lib/local-work-flow.js";
 import { PasskeyList } from "./passkey-list.js";
 
 /**
@@ -25,6 +28,11 @@ export function PasskeyTab({ active }: { active: boolean }) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loss, setLoss] = useState<SignOutLoss | null>(null);
+  const [alsoDelete, setAlsoDelete] = useState(false);
+  const [lossChanged, setLossChanged] = useState(false);
+  const signOutActive = useRef(false);
+  const consentVersion = useRef(0);
   const [passkeyMode, setPasskeyMode] = useState(true);
 
   const webAuthnSupported = supportsPasskeys();
@@ -56,6 +64,11 @@ export function PasskeyTab({ active }: { active: boolean }) {
     setLoading(false);
     setBusy(false);
     setError(null);
+    setLoss(null);
+    setAlsoDelete(false);
+    setLossChanged(false);
+    signOutActive.current = false;
+    consentVersion.current++;
     setPasskeyMode(true);
     if (active) void refresh();
     return () => controller.abort();
@@ -107,17 +120,41 @@ export function PasskeyTab({ active }: { active: boolean }) {
   }
 
   async function onSignOut() {
+    if (signOutActive.current) return;
+    signOutActive.current = true;
     const signal = lifetime.current.signal;
+    setError(null);
     try {
-      await api.logout();
-      // No other principal may replay what this one submitted (#910).
-      await root.answers.logout();
-    } finally {
-      if (!signal.aborted) window.location.reload();
-    }
+      const summary = await root.localWorkFlow.loss();
+      if (signal.aborted) return;
+      if (summary.recordings || summary.accepted || summary.drafts || summary.tracks || summary.review || summary.unassigned || summary.unknown || summary.otherTabs) {
+        setAlsoDelete(false); setLossChanged(false); setLoss(summary);
+      } else await root.localWorkFlow.signOut(summary, false, root.localWorkFlow.navigationFor(signal));
+    } catch (err) { if (!signal.aborted) setError(err instanceof Error ? err.message : "Sign-out failed"); }
+    finally { if (!signal.aborted) signOutActive.current = false; }
   }
+  async function confirmSignOut() {
+    if (!loss || signOutActive.current) return;
+    signOutActive.current = true;
+    const signal = lifetime.current.signal;
+    const consent = consentVersion.current;
+    try {
+      const fresh = await root.localWorkFlow.loss();
+      if (signal.aborted || consent !== consentVersion.current) return;
+      const expanded = (["recordings", "transcripts", "accepted", "drafts", "tracks"] as const).some(key => fresh[key] > loss[key])
+        || Number((fresh.bytes / (1024 * 1024)).toFixed(1)) > Number((loss.bytes / (1024 * 1024)).toFixed(1))
+        || fresh.review && !loss.review || fresh.unknown && !loss.unknown || fresh.otherUnknown && !loss.otherUnknown
+        || alsoDelete && fresh.unassigned > loss.unassigned;
+      if (expanded) { setLoss(fresh); setLossChanged(true); if (fresh.unassigned > loss.unassigned) setAlsoDelete(false); return; }
+      await root.localWorkFlow.signOut(fresh, alsoDelete, root.localWorkFlow.navigationFor(signal));
+    }
+    catch (err) { if (!signal.aborted && consent === consentVersion.current) { setError(err instanceof Error ? err.message : "Sign-out failed"); setLoss(null); } }
+    finally { if (!signal.aborted) signOutActive.current = false; }
+  }
+  function cancelSignOut() { consentVersion.current++; setLoss(null); }
 
   return (
+    <>
     <PasskeyList
       credentials={credentials}
       status={loading ? "loading" : passkeyMode ? "ready" : "unavailable"}
@@ -130,5 +167,25 @@ export function PasskeyTab({ active }: { active: boolean }) {
       onDelete={(id) => void onDelete(id)}
       onSignOut={() => void onSignOut()}
     />
+    {loss && <LocalWorkDialog focusAction title="Sign out of Brain?" onCancel={cancelSignOut}>
+      {lossChanged && <p role="alert" className="my-3 text-sm text-foreground">Local work changed. Review the updated warning before signing out.</p>}
+      <p className="text-sm text-foreground">This deletes the following from this device:</p>
+      <ul className="my-3 list-inside list-disc text-sm text-foreground">
+        {loss.recordings > 0 && <li>{loss.recordings} recordings not yet added to a draft · {(loss.bytes / (1024 * 1024)).toFixed(1)} MB · {loss.transcripts} with an unaccepted transcript</li>}
+        {loss.accepted > 0 && <li>{loss.accepted} accepted recordings awaiting cleanup</li>}
+        {loss.drafts > 0 && <li>{loss.drafts} unsent drafts, including their images</li>}
+        {loss.tracks > 0 && <li>{loss.tracks} staged track references</li>}
+        {loss.review && <li>Unaccepted dictation text</li>}
+      </ul>
+      {loss.otherTabs && <p className="my-3 text-sm text-foreground">{loss.otherUnknown ? "Other tabs for this account may have unsaved drafts, dictation or staged track references. Their local work will also be lost. Keep working to review it in those tabs." : "Local work in other tabs for this account is included above."}</p>}
+      {loss.unknown && <p role="alert" className="text-sm text-destructive">Local storage could not be read. All local drafts, recordings and transcripts for this account will be deleted if accessible.</p>}
+      <p className="text-sm text-foreground">They can't be recovered.</p>
+      {loss.unassigned > 0 && <div role="group" aria-label="Unassigned recordings" className="my-3"><ChoiceOption multiple title={`Also delete ${loss.unassigned} recordings not linked to any account`} selected={alsoDelete} onClick={() => { consentVersion.current++; setAlsoDelete(value => !value); }} /></div>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span data-initial-focus tabIndex={-1}><Button label="Keep working" tone="ghost" block={false} style={{ minHeight: 44 }} onClick={cancelSignOut} /></span>
+        <Button label="Sign out and delete" tone="danger" block={false} style={{ minHeight: 44 }} onClick={() => void confirmSignOut()} />
+      </div>
+    </LocalWorkDialog>}
+    </>
   );
 }

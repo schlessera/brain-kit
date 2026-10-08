@@ -14,6 +14,7 @@ import { createLocalPartitions, type LocalPartitions } from "./lib/local-partiti
 import { createRecordingStore, type RecordingStore } from "./lib/recordings.js";
 import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
+import { createLocalWorkFlow } from "./lib/local-work-flow.js";
 import { shareNotificationZoneReports } from "./lib/push-registration.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
@@ -86,6 +87,8 @@ export interface BrainUiServices {
   localWork: LocalWork | null;
   /** @internal Ordered stop, snapshot, lock and same-account restore. */
   authLock: ReturnType<typeof createAuthLock>;
+  /** @internal Explicit association and sign-out lifecycle. */
+  localWorkFlow: ReturnType<typeof createLocalWorkFlow>;
   registerVpnRecheck: (callback: () => void) => () => void;
 }
 
@@ -112,7 +115,7 @@ export function createRoot(
   let authLock: ReturnType<typeof createAuthLock> | undefined;
   const request = async (url: string, init?: RequestInit): Promise<Response> => {
     const path = new URL(url, "http://localhost").pathname;
-    const authRoute = /\/api\/auth\/(?:login|methods|passkey\/login-(?:options|verify))$/.test(path);
+    const authRoute = /\/api\/auth\/(?:login|logout|methods|passkey\/login-(?:options|verify))$/.test(path);
     const epoch = authLock?.epoch();
     const phase = authLock?.state.getState().phase;
     if (!authRoute && phase && phase !== "active" && phase !== "restoring" && path !== "/api/vpn-check") throw new DOMException("Sign in again", "AbortError");
@@ -143,7 +146,7 @@ export function createRoot(
     return async (...args: unknown[]) => {
       const recovery = property === "sessionRecovery";
       const unavailable = { ok: false as const, reason: "host_unreachable" as const };
-      const auth = ["login", "authMethods", "passkeyLoginOptions", "passkeyLoginVerify"].includes(String(property));
+      const auth = ["login", "logout", "authMethods", "passkeyLoginOptions", "passkeyLoginVerify"].includes(String(property));
       const epoch = authLock?.epoch();
       const phase = authLock?.state.getState().phase;
       if (!auth && phase && phase !== "active" && phase !== "restoring") {
@@ -208,6 +211,7 @@ export function createRoot(
     : null;
   const services: BrainUiServices = {
     answerStorage, answerTabs, partitions, recordings: null, unassignedRecordings: null, localWork: null,
+    localWorkFlow: undefined as unknown as ReturnType<typeof createLocalWorkFlow>,
     authLock: undefined as unknown as ReturnType<typeof createAuthLock>,
     localCapture: options.localCapture === true ? null : options.localCapture ?? null,
     config, api, request, stores, renderers, asr, apiBase,
@@ -254,6 +258,7 @@ export function createRoot(
     connection,
     answers: connection.answers,
     dispose() {
+      services.localWorkFlow.dispose();
       services.authLock.dispose();
       connection.dispose();
       services.localWork?.dispose();
@@ -269,5 +274,6 @@ export function createRoot(
       vpnRecheck = null;
     },
   });
+  services.localWorkFlow = createLocalWorkFlow(root, prefix);
   return root;
 }
