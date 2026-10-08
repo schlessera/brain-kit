@@ -77,5 +77,5 @@ test("actual installed reviewer CLI refuses API authentication before releasing 
   } finally {
     clearTimeout(deadline); q?.close(); if (owned && closed) await drainReviewChild(owned, closed, 50); await server.stop(true); rmSync(home, { recursive: true, force: true });
   }
-  expect(receipt.credentials).toBeDefined(); expect(receipt.promptReleased).toBe(false); expect(sentPrompt).toBe(false); expect(requests).toBe(0); expect(exit).not.toBeUndefined(); expect(startupPaths.every(path => path === "/api/hello")).toBe(true);
+  expect(receipt.credentials).toBeDefined(); expect(sentPrompt).toBe(false); expect(receipt.promptReleased).toBe(false); expect(requests).toBe(0); expect(exit).not.toBeUndefined(); expect(startupPaths.every(path => path === "/api/hello")).toBe(true);
 });
