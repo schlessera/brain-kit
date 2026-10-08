@@ -1,0 +1,26 @@
+import {strict as assert} from "node:assert";
+import {readFileSync,mkdtempSync,mkdirSync} from "node:fs";
+process.env.TMPDIR=mkdtempSync("/tmp/550-capture-probe-");mkdirSync(`${process.env.TMPDIR}/runs`);
+const {captureQuery,priceResult}=await import("./query-capture.ts");
+const raw={type:"result",subtype:"error_max_budget_usd",is_error:true,total_cost_usd:999,usage:{cache_creation_input_tokens:400,cache_creation:{ephemeral_5m_input_tokens:100,ephemeral_1h_input_tokens:300}},modelUsage:{"claude-sonnet-5-5":{inputTokens:100,outputTokens:200,cacheReadInputTokens:300,cacheCreationInputTokens:400,webSearchRequests:0,costUSD:999,costBasis:"unknown"}}};
+assert(Math.abs(priceResult(raw)!.upperUsd-.00371)<1e-12);
+const interval=priceResult({...raw,usage:{}})!;assert.equal(interval.exact,false);assert.equal(interval.lowerUsd,.00326);assert.equal(interval.upperUsd,.00386);
+assert.equal(priceResult({...raw,modelUsage:{other:raw.modelUsage["claude-sonnet-5-5"]}}),null);
+let observed="",spawnCalls=0;let observedSplitLeadByte=false;const observedDecoder=new TextDecoder();let closed:Promise<void>;
+const fakeQuery=(parameters:any)=>({marker:"unchanged-query",async *[Symbol.asyncIterator](){
+ assert.equal(parameters.options.maxBudgetUsd,1);assert.equal(parameters.options.settings.autoMemoryEnabled,false);assert.equal(parameters.options.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,"claude-sonnet-5-5");assert.equal(parameters.options.env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE,"1");assert(parameters.options.env.HOME.includes("native-turn-"));spawnCalls++;
+ const text=JSON.stringify({type:"control_response",response:{subtype:"success",response:{account:{tokenSource:"CLAUDE_CODE_OAUTH_TOKEN",apiProvider:"firstParty"}}}})+"\n"+JSON.stringify({type:"system",subtype:"init",model:"claude-sonnet-5-5",apiKeySource:"none",fictionalLabel:"Ὀδυσσεύς"})+"\n"+JSON.stringify({...raw,subtype:"error_max_budget_Ὀδυσσεύς"});
+ const nativeCode="process.stderr.write(Buffer.alloc(200000,46));const b=Buffer.from(process.argv[1]); for(let i=0;i<b.length;i++){process.stdout.write(b.subarray(i,i+1));await new Promise(r=>setTimeout(r,1));}";
+ const child=parameters.options.spawnClaudeCodeProcess({command:process.execPath,args:["-e",nativeCode,text],cwd:process.env.TMPDIR,env:{PATH:"/usr/bin:/bin",CLAUDE_CODE_OAUTH_TOKEN:"offline-fictional-placeholder"}});
+ child.stdout.on("data",(chunk:Buffer)=>{if(chunk[chunk.length-1]===0xce)observedSplitLeadByte=true;});
+ closed=new Promise(resolve=>child.once("close",resolve));
+ for await(const chunk of child.stdout)observed+=observedDecoder.decode(chunk,{stream:true});
+ await closed;throw new Error("SDK rejects result after stdout capture");
+}});
+const original=captureQuery(fakeQuery,{prompt:"fictional",options:{model:"claude-sonnet-5-5"}});assert.equal(original.marker,"unchanged-query");
+await assert.rejects(async()=>{for await(const _ of original){}},/SDK rejects result/);
+const receipts=JSON.parse(readFileSync(`${process.env.TMPDIR}/runs/sdk-raw-receipts.json`,"utf8"));
+assert.equal(observedSplitLeadByte,true,"native stream must deliver a chunk ending inside a Greek UTF-8 codepoint");assert.equal(receipts.length,1);assert.equal(receipts[0].finished,true);assert.equal(receipts[0].rawResult.totalCostUsd,999);assert.equal(receipts[0].rawResult.subtype,"error_max_budget_Ὀδυσσεύς");assert.equal(receipts[0].apiEquivalent.upperUsd,.00371);
+assert.equal(receipts[0].subscriptionOverageState,"not reported");assert.equal(readFileSync(receipts[0].stdoutPath,"utf8"),observed);assert.equal(receipts[0].exit.code,0);
+assert.throws(()=>captureQuery(fakeQuery,{prompt:"",options:{model:"claude-sonnet-5"}}),/outside/);assert.equal(spawnCalls,1);
+console.log("native stdout passthrough, final partial line, SDK error-result capture, official prices, billing unknown and exact-model refusal passed");

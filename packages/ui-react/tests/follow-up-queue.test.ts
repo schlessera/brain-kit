@@ -218,17 +218,17 @@ test("a dropped follow-up leaves with its reason", () => {
   expect(users(root)).toEqual(["Chart the way home"]);
 });
 
-test("a new connection clears the old stack and the host's reports rebuild it", () => {
+test("a new connection retains the old stack until the host reports its current queue", () => {
   const { root, socket } = busy();
   socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds, bag] });
   // A hello opens every connection, so it is the reload's first frame.
   socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { followUpQueue: true } });
-  expect(pending(root)).toEqual([]);
+  expect(pending(root).map((f) => f.id), "hello cannot erase pending pills before a queue report").toEqual(["fu-winds", "fu-bag"]);
   socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag] });
   expect(pending(root).map((f) => f.id)).toEqual(["fu-bag"]);
 });
 
-test("previews nobody will draw are released: a dropped entry's, and an accepted one's on a new connection", () => {
+test("accepted follow-up previews survive reconnect and are released when a fresh report excludes them", () => {
   const revoked: string[] = [];
   const original = URL.revokeObjectURL;
   URL.revokeObjectURL = (url: string) => { revoked.push(url); };
@@ -245,7 +245,10 @@ test("previews nobody will draw are released: a dropped entry's, and an accepted
     // A new connection: `bag` was accepted, `oars` was never confirmed and is
     // still the composer's draft.
     socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { followUpQueue: true } });
+    expect(revoked, "hello preserves accepted previews until the queue is known").toEqual(["blob:ithaca/chart"]);
+    socket.deliver({ type: "session_queue", sessionId: S, followUps: [] });
     expect(revoked).toEqual(["blob:ithaca/chart", "blob:ithaca/bag"]);
+    expect(pending(root).map((f) => f.requestId)).toEqual(["req-oars"]);
   } finally {
     URL.revokeObjectURL = original;
   }
@@ -314,4 +317,36 @@ test("each session whose started follow-up arrived incomplete reads its own hist
   socket.deliver({ type: "result", sessionId: S2, turnId: "turn-9", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
   socket.deliver({ type: "result", sessionId: S, turnId: "turn-2", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
   expect(resumes()).toEqual([S2, S]);
+});
+
+test("a different principal or unsupported host discards the previous pending queue", () => {
+  const { root, socket } = busy();
+  const hello = (principalKey: string, supported = true) => socket.deliver({ type: "server_hello", protocolRev: 5, principalKey, capabilities: { followUpQueue: supported } });
+  hello("odysseus");
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [winds] });
+  hello("odysseus");
+  expect(pending(root).map((f) => f.id)).toEqual([winds.id]);
+  hello("penelope");
+  expect(pending(root)).toEqual([]);
+  socket.deliver({ type: "session_queue", sessionId: S, followUps: [bag] });
+  hello("penelope", false);
+  expect(pending(root)).toEqual([]);
+});
+
+test("accepted follow-ups whose first report was lost settle on an empty recovery queue", () => {
+  const { root, socket } = busy();
+  const revoked: string[] = [];
+  const original = URL.revokeObjectURL;
+  URL.revokeObjectURL = (url) => { revoked.push(url); };
+  try {
+    root.stores.followUp.getState().addLocal(S, { requestId: winds.requestId, text: winds.text, source: "typed", queuedAt: 1, attachments: [{ previewUrl: "blob:ithaca/winds", mediaType: "image/png" }] });
+    socket.deliver({ type: "status", sessionId: S, status: "queued", requestId: winds.requestId });
+    expect(pending(root).map((f) => f.requestId), "a nonempty accepted local pill is guarded").toEqual([winds.requestId]);
+    expect(root.stores.followUp.getState().reported[S]).toBeUndefined();
+    socket.deliver({ type: "server_hello", protocolRev: 5, capabilities: { followUpQueue: true } });
+    expect(pending(root)).toHaveLength(1);
+    socket.deliver({ type: "session_queue", sessionId: S, followUps: [] });
+    expect(pending(root), "an accepted but unreported follow-up is no longer pending").toEqual([]);
+    expect(revoked, "settled accepted previews are released").toEqual(["blob:ithaca/winds"]);
+  } finally { URL.revokeObjectURL = original; }
 });

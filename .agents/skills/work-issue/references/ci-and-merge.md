@@ -118,6 +118,15 @@ therefore did not prove the final combined tree. The [outcome](https://github.co
 records the separate post-merge reconstruction and scoped checks without
 calling them the older full CI run.
 
+A local `depot ci run` is evidence for local changes only when its patch was
+actually applied. Inspect dispatch warnings and the job's checkout/patch
+logs: repository or default-branch detection can fail in a worktree and the
+CLI can continue with `skipping patch`. Explicit `--repo` and `--forge`
+selection may resolve repository detection without resolving patch creation.
+Treat an unpatched run as a control of its actual checkout, or push the
+scoped diagnostic commit and pin checkout to it, then verify that SHA in the
+logs. Do not attribute the control's result to unuploaded changes.
+
 When Depot is enabled, use its results and logs directly:
 
 ```sh
@@ -137,6 +146,23 @@ attempt ID for failure logs; run/job shortcuts can select another attempt.
 If no matching run is found, use check links/help to identify the exact run;
 do not substitute latest-main CI. Missing Depot access/dispatch is a handoff
 prerequisite when it prevents verification of enabled Depot checks.
+
+CI groups main pushes by commit SHA and PR executions by their merge ref.
+`cancel-in-progress: false` protects running work; it does not preserve an
+older pending workflow in a shared group. A cancelled main workflow is still
+unfinished verification. Inspect its execution history before recovery:
+
+```sh
+rtk proxy depot ci workflow show <workflow-id> --output json
+rtk proxy depot ci retry <run-id> --failed --workflow <workflow-id> --output json
+```
+
+A concurrency cancellation with no started execution or job attempts can be
+recovered by retrying its cancelled jobs. Verify every current attempt and
+actual checkout against the original squash SHA afterward. Record recovery
+separately from proof of a scheduling correction; retries and local API runs
+do not prove that future automatic main pushes retain independent records.
+Keep real test failures in the diagnosis loop below.
 
 Identify each failing step/assertion and distinguish an issue regression
 from an unrelated base failure or infrastructure problem. Fix related

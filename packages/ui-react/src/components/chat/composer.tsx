@@ -1,6 +1,6 @@
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
-import { useState, useRef, useEffect, useImperativeHandle, useReducer, type Ref } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
@@ -15,9 +15,13 @@ import {
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
+import { RecordingsTray } from "../voice/recordings-tray.js";
+import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
+import { dictationNoticeText } from "../../voice/dictation-failure.js";
 import { useDictation } from "../../voice/use-dictation.js";
+import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
 import { useChatCommands } from "./use-chat-commands.js";
@@ -27,6 +31,10 @@ import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
+import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
+
+/** The hint when the work context could not be written to this device (#1014). */
+const LOCAL_SAVE_FAILED = "Couldn't save your draft on this device.";
 
 /**
  * The composer — everything below the transcript: draft text, attachments,
@@ -82,6 +90,28 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const current = store.drafts[draftId]?.text ?? "";
     store.edit(draftId, sessionId, { text: typeof value === "function" ? value(current) : value });
   };
+  // The work context kept on this device (#1014): where the caret was goes
+  // into each snapshot, and a restore after reload puts it back once the
+  // restored text is in the field.
+  const localSaveFailed = useLocalWorkStatus((s) => s.failed);
+  const restoreSelection = useWorkRestore((s) => s.selection);
+  const restoreFocus = useWorkRestore((s) => s.focusId);
+  useEffect(() => root.localWork?.register(() => {
+    const field = frameRef.current?.querySelector("textarea");
+    return field ? { selectionStart: field.selectionStart, selectionEnd: field.selectionEnd } : {};
+  }), [root]);
+  useLayoutEffect(() => {
+    const work = root.localWork;
+    if (!work || !restoreSelection || restoreSelection.draftId !== draftId) return;
+    const field = frameRef.current?.querySelector("textarea");
+    if (!field || field.value !== input) return;
+    const { start, end } = restoreSelection;
+    if (end <= input.length && start <= end) {
+      if (restoreFocus === "composer") field.focus({ preventScroll: true });
+      field.setSelectionRange(start, end);
+    }
+    work.restore.setState({ selection: null, ...(restoreFocus === "composer" ? { focusId: null } : {}) });
+  }, [root, restoreSelection, restoreFocus, draftId, input]);
   const [lastPrompt, setLastPrompt] = useState("");
   const [effort, setEffort] = useState<DraftEffort>({ key: null });
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
@@ -204,7 +234,41 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const voiceMode = useVoiceStore((s) => s.mode);
   const reviewText = useVoiceStore((s) => s.reviewText);
   const clearReview = useVoiceStore((s) => s.clearReview);
+  const dictationNotice = useVoiceStore((s) => s.dictationNotice);
+  const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
+  const localCapture = useLocalCapture();
+  const localSupported = useLocalCaptureSupport();
+  const localPhase = useVoiceStore((s) => s.local);
+  const localNotice = useVoiceStore((s) => s.localNotice);
+  // What the mic does (#1012). It is decided at the tap and kept for the
+  // capture's life: a recording on the device stays one when the host comes
+  // back, and a dictation never turns into one when the host goes away.
+  // Without local recording on this root, the mic dictates as it always has.
+  const micMode: "dictate" | "local" | "unsupported" | "pending" =
+    voiceMode === "dictate" ? "dictate"
+      : localPhase !== "idle" ? "local"
+      : wsStatus === "connected" || root.localCapture === null ? "dictate"
+      : localSupported === null ? "pending"
+      : localSupported ? "local" : "unsupported";
+
+  const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
+  const captureNotice = micMode === "unsupported"
+    ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
+    : localNotice === "denied" && micMode === "local"
+      ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
+      : undefined;
+  useEffect(() => { setDismissedLocalNotice(null); }, [captureNotice]);
+  function dismissNotice(kind: "dictation" | "local") {
+    const frame = frameRef.current;
+    const heldFocus = frame?.querySelector(`[aria-label="Dismiss ${kind === "dictation" ? "dictation" : "capture"} notice"]`) === document.activeElement;
+    if (kind === "dictation") dismissDictationNotice();
+    else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
+    if (heldFocus) {
+      const mic = frame?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Record on this device"]');
+      if (mic) mic.focus(); else focusField();
+    }
+  }
 
   const runCommand = useChatCommands();
 
@@ -291,7 +355,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
+    const authEpoch = root.authLock.epoch();
     const results = await Promise.all(list.map((f) => fileToAttachment(f)));
+    if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
+      for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
+      return;
+    }
     const fresh: PendingAttachment[] = [];
     const errors: string[] = [...trackErrors];
     results.forEach((r, i) => {
@@ -307,7 +376,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       ...current,
       ...fresh,
     ]);
-    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + track.file.size, 0);
+    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
     const accepted = imageAccepted.filter((image, index) => {
       combinedBytes += image.bytes;
       return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
@@ -505,10 +574,45 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     void dictation.stop(true);
   }
 
+  const [recordingNotice, setRecordingNotice] = useState("");
+  useEffect(() => root.recordings?.onEvent(event => { if (event.message) setRecordingNotice(event.message); }), [root]);
+  const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
+    '[aria-label="Record on this device"], [aria-label="Dictate"], [aria-label="Stop and save"]'
+  )?.focus({ preventScroll: true }), 0);
+  useEffect(() => root.stores.voice.subscribe((state, previous) => {
+    // Observe the end before React removes the sheet's focused control.
+    // Automatic limits and track interruptions share this idle transition.
+    if (state.local === "idle" && previous.local !== "idle" &&
+      frameRef.current?.querySelector("[data-local-recording-sheet]")?.contains(document.activeElement)) focusMic();
+  }), [root]);
+  const stopLocal = async () => { await localCapture.stop("user"); focusMic(); };
+  const discardLocal = async () => {
+    const active = localCapture.recording();
+    try {
+      await localCapture.stop("user");
+      if (!active || !root.recordings) throw new Error("The recording identity is unavailable");
+      await root.recordings.discard(active.partition, active.id);
+      setRecordingNotice("Recording discarded from this device.");
+    } catch (error) {
+      setRecordingNotice("Couldn\u0027t discard this recording on this device. The recording is kept.");
+      throw error;
+    } finally { focusMic(); }
+  };
+
   function handleMicTap() {
     if (root.stores.voice.getState().mode === "dictate") {
       stopDictation();
-    } else {
+    } else if (micMode === "local") {
+      setAttachMenuOpen(false);
+      setProviderMenuOpen(false);
+      setPaletteDismissed(true);
+      // A recording on the device leaves the draft editable, and focus where
+      // the tap put it: on the mic, which is also the stop.
+      // A tap while the microphone is still opening cancels it.
+      const phase = root.stores.voice.getState().local;
+      if (phase === "recording" || phase === "opening") void stopLocal();
+      else if (phase === "idle") void localCapture.start();
+    } else if (micMode === "dictate") {
       setAttachMenuOpen(false);
       setProviderMenuOpen(false);
       setPaletteDismissed(true);
@@ -535,6 +639,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   function handleVoiceAppend() {
+    // Dictation never starts beside a recording on the device.
+    if (root.stores.voice.getState().local !== "idle") return;
     // Review text stays in place; the next capture appends to it on stop.
     void dictation.start();
   }
@@ -607,6 +713,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
               notification that has already happened. */}
           <ShareIntake />
 
+          <RecordingsTray composerRef={frameRef} onAccepted={() => setPaletteDismissed(true)} />
+          {recordingNotice && <p role="status" className="mb-2 text-xs text-muted-foreground">{recordingNotice}</p>}
           {/* Voice review card sits above the composer */}
           <ReviewCard
             text={reviewText}
@@ -623,8 +731,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
 
         <ComposerView
-          dictation={<DictationSheet open={voiceMode === "dictate"}
-            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />}
+          dictation={<><DictationSheet open={voiceMode === "dictate"}
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
+            {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
+          dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
+          onDismissDictationNotice={() => dismissNotice("dictation")}
+          captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
+          onDismissCaptureNotice={() => dismissNotice("local")}
+          mic={micMode !== "unsupported"}
+          micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
@@ -650,7 +765,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
@@ -703,7 +818,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (voiceMode !== "dictate" && canSend) handleSubmit();
           }}
           onStop={handleCancel}
-          onMic={handleMicTap}
+          onMic={micMode === "pending" ? undefined : handleMicTap}
           onAttachToggle={() => setAttachMenuOpen((v) => !v)}
           onPickLibrary={() => {
             setAttachMenuOpen(false);

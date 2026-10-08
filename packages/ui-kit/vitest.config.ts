@@ -1,3 +1,4 @@
+import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,15 +7,20 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
+import { grantMicrophone } from "./tests/visual/microphone-permission.ts";
 import { formViewport, formConsumerStyles, htmlPreviewFixture, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
-import { moduleSettingsScreenshot } from "./tests/visual/module-settings-browser.ts";
+import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
+import { designFontUsage } from "./tests/visual/design-font-browser.ts";
+import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
+import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
+import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
 import viteConfig from "./vite.config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,13 +76,13 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pointer; they need the consumer stylesheet. Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx"],
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, buttonPointer, overlayMouse },
+      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, buttonPointer, overlayMouse, dictationMotion },
       provider: playwright({
-        launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
+        launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
       }),
       headless: true,
@@ -88,19 +94,39 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    // The story addon inserts preview-head.html into its runner HTML. Its
+    // network font links would compete with the shared locked offline faces.
+    plugins: [{
+      name: "locked-preview-fonts",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html) => html.replace(/<link\b[^>]*href="https:\/\/fonts\.(?:googleapis|gstatic)\.com(?:\/[^\"]*)?"[^>]*>/g, ""),
+      },
+    }],
     test: {
+      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,
           test: {
             name: "ui-react-layout",
-            // Measurements of the real consumer, kept out of Bun's test glob.
-            include: ["../ui-react/tests/browser/**/*.layout.tsx"],
+            // Measurements of the real consumer, kept out of Bun's test glob,
+            // and the offline fault harness's self-tests (#1016).
+            include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount },
-              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },
@@ -175,7 +201,7 @@ export default mergeConfig(
             include: ["tests/visual/module-settings.visual.tsx"],
             browser: {
               enabled: true,
-              commands: { formViewport, formConsumerStyles, moduleSettingsScreenshot },
+              commands: { formViewport, formConsumerStyles, moduleSettingsScreenshot, moduleSettingsImportGate },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

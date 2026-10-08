@@ -22,7 +22,7 @@ const results: unknown[] = [];
 let failures = 0;
 
 try {
-  for (const scenario of ["plain", "settings-allow", "settings-hook-allow", "rtk-rewrite"] as const) {
+  for (const scenario of ["manual-default", "plain", "settings-allow", "settings-hook-allow", "rtk-rewrite"] as const) {
     for (const arm of ["denied", "approved", "allowlisted"] as const) {
       const root = mkdtempSync(join(tmpdir(), "enforcement-probe-"));
       const cwd = join(root, "cwd"), home = join(root, "home"), bin = join(root, "bin");
@@ -31,7 +31,7 @@ try {
       const command = `touch ${original}`;
       // Controlled rewrite oracle, invoked by the production RTK hook. Other
       // scenarios explicitly decline, so host RTK installations cannot vary it.
-      writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\n' +
+      writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
         (scenario === "rtk-rewrite" ? `printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command: `touch ${rewritten}` } } })}'\n` : "exit 0\n"));
       chmodSync(join(bin, "rtk"), 0o755);
       if (scenario.startsWith("settings-")) {
@@ -98,7 +98,7 @@ try {
           buildEnv: () => ({ ...CLEARED_API_CREDENTIALS, ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
         const backend = createClaudeBackend({ brainPath: cwd, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
-        await backend.startTurn({ prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: true,
+        await backend.startTurn({ prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: scenario !== "manual-default",
           bridge: { emit: () => {}, requestPermission: async (request) => {
             requests.push(request);
             return arm === "approved" ? { behavior: "allow", updatedInput: request.input } : { behavior: "deny", message: denial };
@@ -116,7 +116,9 @@ try {
         matchingHooks.some((index) => !hookCalls.some((h) => h.index === index)) || toolResults.length === 0 ||
         (scenario === "settings-hook-allow" && !effects.settingsHook) || error;
       const ran = scenario === "rtk-rewrite" ? effects.rewritten && !effects.original : effects.original && !effects.rewritten;
-      const authorized = arm === "allowlisted" ? requests.length === 0 : ask && requests.some((r) => r.toolUseId === callId && r.outsideEnforcedAllowlist === true) && callbackCalls.length > 0;
+      const authorized = arm === "allowlisted" ? requests.length === 0 :
+        (scenario === "manual-default" || ask) && requests.some((r) => r.toolUseId === callId &&
+          (scenario === "manual-default" ? r.outsideEnforcedAllowlist !== true : r.outsideEnforcedAllowlist === true)) && callbackCalls.length > 0;
       const correct = authorized && (arm === "denied" ? !effects.original && !effects.rewritten && toolResults.every((r) => r.isError && r.text.includes(denial)) :
         ran && toolResults.some((r) => !r.isError));
       const verdict = missing ? "inconclusive" : correct ? "pass" : "fail";
@@ -125,7 +127,9 @@ try {
       // installation paths in the report that a reviewer may publish.
       const observation = { scenario, arm, agentSdk, claudeCode, permissionMode: permissionMode ?? "omitted", verdict, error,
         ...(verdict !== "pass" ? { detail: missing ? "The planned call, every matching hook, CLI init, successful turn and nonempty result must be observed." :
-          !authorized ? "The outside-allowlist call must reach the production ask, callback and bridge; an allowlisted control must need no bridge grant." :
+          !authorized ? (scenario === "manual-default" ?
+            "The unlisted command must consult the production callback and bridge in manual default mode; the allowlisted control needs no grant." :
+            "The outside-allowlist call must reach the production ask, callback and bridge; an allowlisted control must need no bridge grant.") :
           "A denied call must leave neither file and return the named denial; a permitted control must create only its intended file." } : {}),
         planned: { name: "Bash", input: { command }, sent: log.callSent, toolUseSeen }, hooks: hookCalls, callbacks: callbackCalls,
         requests, toolResults, effects, resultSubtype };

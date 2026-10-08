@@ -4,13 +4,17 @@
 // unregisters it in `afterAll`. Import it FIRST, before any component module.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
-if (!GlobalRegistrator.isRegistered) {
-  GlobalRegistrator.register();
+export function registerBlockCardDom(): void {
+  if (!GlobalRegistrator.isRegistered) {
+    GlobalRegistrator.register();
+  }
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-export function unregisterBlockCardDom(): void {
+registerBlockCardDom();
+
+export async function unregisterBlockCardDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {
-    void GlobalRegistrator.unregister();
+    await GlobalRegistrator.unregister();
   }
 }

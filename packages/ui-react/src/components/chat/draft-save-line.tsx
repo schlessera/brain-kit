@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { BottomSheet, Button } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
+import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import type { DraftConflictChoice } from "../../stores/draft-state.js";
 
 /**
@@ -17,6 +18,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
+  const localFailed = useLocalWorkStatus((s) => s.failed);
   const [, tick] = useState(0);
   const [comparing, setComparing] = useState(false);
   const compareRef = useRef<HTMLButtonElement>(null);
@@ -30,12 +32,18 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   }, [draft?.savingSince]);
   useEffect(() => { if (!draft?.conflict) setComparing(false); }, [draft?.conflict]);
 
-  const view = draftSaveView(draft, { supported, limits }, Date.now());
+  const view = draftSaveView(draft, { supported, limits, localFailed }, Date.now());
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
-  // Absent, with no spacer, while nothing needs saying.
-  if (view.state === "none") return null;
+  if (view.state === "none") {
+    // Absent, with no spacer, while there is no draft. A draft whose save is
+    // still on its way prints nothing too, but keeps the line's place, so a
+    // keystroke or a drop that turns it into `not saved yet` never moves the
+    // field above it (#1013).
+    if (!draft || (draft.text.length === 0 && draft.attachments.length === 0)) return null;
+    return <div aria-hidden="true" className="mx-auto mt-1 h-4 max-w-3xl" data-draft-save-slot="" />;
+  }
   return (
     <div className="mx-auto mt-1 flex min-h-[16px] max-w-3xl items-center gap-2 px-1 font-mono text-[10.5px] leading-4" data-draft-save={view.state} data-draft-id={draftId}>
       {view.state === "conflict" ? (

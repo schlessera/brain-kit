@@ -13,16 +13,19 @@ From `@schlessera/brain` (`src/lib/seams.ts`):
 export type ContentPart =
   | { kind: "text"; text: string }
   | { kind: "image"; data: Uint8Array; mimeType: string }
-  | { kind: "pdf"; data: Uint8Array };
+  | { kind: "pdf"; data: Uint8Array }
+  | ({ kind: "video"; mimeType: string; clip?: { start?: number; end?: number } } &
+      ({ uri: string } | { path: string } | { data: Uint8Array }));
 
 export interface CompletionProvider {
   id: string;
-  capabilities: { vision: boolean };
+  capabilities: { vision: boolean; video?: boolean };
   complete(req: {
     system?: string;
     prompt: string;
     parts?: ContentPart[];
     maxTokens?: number;
+    signal?: AbortSignal;
   }): Promise<string>;
 }
 ```
@@ -47,7 +50,8 @@ completions: { provider: "gemini-flash", fallback: "anthropic-haiku" }
 ### Fallback
 
 A configured `fallback` wraps the primary: `complete` tries the primary and, on
-any error, retries with the fallback. The wrapper advertises the **primary's**
+any ordinary completion error, retries with the fallback. Video calls and
+cancelled requests do not fall back. The wrapper advertises the **primary's**
 capabilities, so pair it with a fallback that is at least as capable (e.g. don't
 fall back from a vision model to a text-only one if you rely on vision).
 
@@ -158,3 +162,19 @@ for historical entries you have identified as bad.
 - [agent-runners.md](agent-runners.md) — for agentic, tool-using flows.
 - [README.md](README.md) — the seam meta-mechanism and degradation model.
 - [../configuration.md](../configuration.md#completions) — the `completions` config key.
+
+## Video parts
+
+`capabilities.video` is optional for existing custom providers; omission means
+unsupported. Gemini reports true; Anthropic reports false and refuses video
+parts even when called directly. A video part carries a public YouTube or Files
+API `uri`, local `path`, or `data` bytes plus a video MIME type. Clip offsets are
+non-negative seconds; end must exceed start. Gemini maps the URI to `fileData`
+and offsets to `videoMetadata.startOffset` / `endOffset` duration strings.
+
+Local videos use upload → ACTIVE polling → generation → deletion. Only files
+created by that request are deleted; caller-supplied Files URIs are untouched.
+`signal` supplies a request deadline; video calls default to five minutes if
+omitted. Cleanup uses a fresh ten-second deadline and a failure throws, including
+when generation already failed. Custom providers should honor `signal`.
+See the opt-in [video module](../../packages/module-video/README.md).

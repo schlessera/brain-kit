@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery and interactive HTML preview routes mounted by `createApp`: 113 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview and saved-audio transcription routes mounted by `createApp`: 117 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -130,11 +130,15 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/capabilities` | S | Read active-provider capabilities without minting a credential | Saved-audio discovery and independent clients; additive #1021 contract. |
+| GET | `/api/voice/recordings/:recordingId/transcription` | S | Read an account-owned durable transcription receipt | Saved-audio status recovery; never dispatches a provider. |
+| PUT | `/api/voice/recordings/:recordingId/transcription` | S | Explicitly upload or retry saved audio | Account ownership, verified hash, bounded body and durable claim protect idempotency. |
+| DELETE | `/api/voice/recordings/:recordingId/transcription` | S | Erase transcript text and retain a tombstone | Explicit acceptance/discard; delayed uploads cannot reopen consumed ids. |
 | GET | `/api/voice/keyterms` | S | Read or rebuild domain keyterms | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | GET | `/api/voice/overrides` | S | Read pronunciation replacements | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/session` | S | Mint active-provider dictation session | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/token` | S | Mint deprecated Deepgram token response | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
-| GET | `/api/vpn-check` | I | Probe authenticated reachability | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. |
+| GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
@@ -146,7 +150,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 113 declared endpoints are mounted regardless of backend, renderer or
+All 117 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -161,7 +165,7 @@ Range. WebSocket upgrade requires an actual GET.
 `ALL /api/*` installs origin policy, configured CORS and authentication.
 With nonempty `ALLOWED_ORIGINS`, CORS middleware answers allowed **OPTIONS
 /api/** preflights with 204 before authentication, advertising GET, POST, PUT,
-DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` headers, and credentials. Origin policy runs first; a rejected
+DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` and `Content-SHA256` headers, and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
@@ -628,7 +632,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 
 | Supported operation | Inputs/defaults | Success | Errors and behavior |
 | --- | --- | --- | --- |
-| POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
+| POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
 | GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
@@ -876,3 +880,41 @@ real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
 asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
+
+## Saved-audio transcription
+
+The protected `GET /api/voice/capabilities` returns `VoiceCapabilitiesResponse`
+(`{ providerId, capabilities }`) with `savedAudio` derived from the optional
+provider method. It calls neither a provider nor `createSession`. Unavailable
+selection gives the existing 500 `{ error }` response. Responses are `no-store`.
+
+`GET`, `PUT` and `DELETE /api/voice/recordings/:recordingId/transcription`
+require a recording UUID and a currently usable account principal. Owner
+logins and admitted ambient accounts are allowed; agents/system principals
+receive 403 `owner_required`. A different proxy account receives 404
+`transcription_not_found` for a known id on every method; unauthenticated
+requests receive 401. Authority is rechecked after the body and after provider
+completion. The account identity is the same host/root key as `/api/vpn-check`,
+never a browser-supplied key or the transient login id.
+
+`GET` returns 200 `RecordingTranscription`, or 404 when no receipt exists.
+`PUT` takes raw audio with `Content-Type` (`audio/webm`, `audio/ogg`, `audio/mp4`,
+optionally `codecs=opus`) and lowercase 64-digit `Content-SHA256`. The server
+computes SHA-256 itself. Empty bytes or an invalid/mismatching hash produce 400;
+unsupported media gives 415. A streamed or declared body above **10,041,155
+bytes** gives 413 even without an honest Content-Length. This is a ten-minute
+byte budget, not a duration proof. The cap is `ceil(52783 / 3.154 * 600)`:
+the highest byte rate from six additional V1 `track-ended` runs (three each,
+Chromium 153/Firefox 155, pinned Playwright 1.63.0, 2026-10-08). Firefox's
+highest run had 52,783 bytes over 3,154 decoded milliseconds. Other browser
+boundaries remain unmeasured; this receipt is not physical-device coverage.
+
+The [saved-audio integration contract](integration-contract.md#saved-audio-transcription-additive-1021)
+specifies the receipt fields, errors, retry decision and permanent retention.
+`PUT` responds 200 with the stored receipt, including provider failures; a
+failed plain replay gives 409. `?retry=<failed attemptId>` is the only retry
+request, with at most three user retries and no automatic provider calls.
+Unsupported providers return 501 `saved_audio_unsupported`.
+`DELETE ?disposition=accepted|discarded` returns 200 with a `consumed` receipt;
+an invalid disposition gives 400. It removes text, retains the immutable id
+and hash, and inserts a hashless tombstone if no upload has claimed yet.

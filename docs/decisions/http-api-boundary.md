@@ -46,11 +46,11 @@ explicit supported rows, not silently excluded by this distinction.
 
 The source audit on 2026-09-30 used
 `e0875269b21b707482545be9e94901acb897893b`. The public health mount precedes auth
-(`createHealthRoutes`, `packages/ui-server/src/app.ts:518`), the API guard follows
-public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:538`), and the
-WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:637`).
+(`createHealthRoutes`, `packages/ui-server/src/app.ts:521`), the API guard follows
+public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:541`), and the
+WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:648`).
 Static serving is conditional (`if (options.staticRoot)`,
-`packages/ui-server/src/app.ts:657-683`). That order establishes access;
+`packages/ui-server/src/app.ts:668-694`). That order establishes access;
 it does not select compatibility status.
 
 A hermetic real-app launch, with temporary brain root, in-memory database,
@@ -67,7 +67,7 @@ The SDK worker itself fetches its configured subscription endpoint
 (`subscribeUrl`, `packages/ui-sdk/src/client/push-handlers.ts:72`), and the
 share handler's default is explicit (`DEFAULT_SHARE_TARGET_PATH`,
 `packages/ui-sdk/src/client/share-target-handler.ts:45`). The published React entry
-exports its REST adapter (`createBrainApi`, `packages/ui-react/src/index.ts:79`).
+exports its REST adapter (`createBrainApi`, `packages/ui-react/src/index.ts:81`).
 Tracing those consumers prevented a supported feature's dependency being
 mistaken for an unpromised private route.
 

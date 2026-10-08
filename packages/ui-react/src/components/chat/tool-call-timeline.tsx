@@ -13,7 +13,7 @@ import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
 import { awaitsDecision, offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { riskHints } from "./risk-hints.js";
@@ -107,6 +107,43 @@ export function ToolCallTimeline({
   );
 }
 
+/** Flat message slots keep a card mounted when recovered text splits its run. */
+export function ToolCallTimelineCell({
+  toolCalls, toolIndex, onApproval, live, collapsed, onExpand, onCollapse,
+}: {
+  toolCalls: ToolCall[];
+  toolIndex: number;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  live: boolean;
+  collapsed: boolean;
+  onExpand: () => void;
+  onCollapse: () => void;
+}) {
+  const root = useBrainUiRoot();
+  registerBuiltinRenderers(root.renderers);
+  const backendId = useBackendId();
+  const hasPending = toolCalls.some((t) => awaitsDecision(t) || (t.restored && t.readOnly));
+  const effectiveCollapsed = collapsed && !hasPending && !live;
+  const first = toolIndex === 0;
+  return (
+    <div hidden={effectiveCollapsed && !first} style={{
+      marginTop: first ? undefined : 0,
+      marginBottom: toolIndex === toolCalls.length - 1 ? undefined : 0,
+    }}>
+      {first && effectiveCollapsed && <TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} />}
+      {first && !effectiveCollapsed && !live && !hasPending && (
+        <button type="button" onClick={onCollapse} className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground">
+          <ChevronDown className="h-3 w-3" />
+          Hide steps
+        </button>
+      )}
+      <div hidden={effectiveCollapsed} className="relative ml-1 border-l-2 border-border/40 pl-4" style={{ paddingTop: first ? undefined : 6 }}>
+        <ToolCallEntry toolCall={toolCalls[toolIndex]!} backendId={backendId} onApproval={onApproval} />
+      </div>
+    </div>
+  );
+}
+
 function TimelineSummaryRow({
   toolCalls,
   backendId,
@@ -192,6 +229,10 @@ function ToolCallEntry({
       ? renderer.label(toolCall)
       : renderer.label ?? getToolLabel(toolCall.name);
   const isPending = awaitsDecision(toolCall);
+  const reducedMotion = useReducedMotion();
+  // A visible permission control must stay put during a native touch (#1217).
+  // Height animation moves its target even when React keeps the same node.
+  const animateDetails = !isPending && !reducedMotion;
   // A restored card the host no longer lists as pending (#1072, D52 §4 R3):
   // read-only, with the host fact that closed it. Nothing on it can reply.
   const closed = toolCall.restored ? toolCall.readOnly : undefined;
@@ -326,10 +367,10 @@ function ToolCallEntry({
       <AnimatePresence>
         {expanded && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
+            initial={animateDetails ? { height: 0, opacity: 0 } : false}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
+            transition={{ duration: animateDetails ? 0.2 : 0, ease: "easeOut" }}
             className="overflow-hidden"
           >
             <div

@@ -292,8 +292,9 @@ async function runTurn(
     cwd,
     settingSources: ["project"],
     maxTurns: 3,
-    // Diagnostic control only; absence preserves the installed SDK's default.
-    ...(flag("--permission-mode") === "default" ? { permissionMode: "default" as const } : {}),
+    // The production backend explicitly preserves manual approvals (#1213).
+    // Omission remains a diagnostic control for upstream default changes.
+    ...(flag("--permission-mode") === "omitted" ? {} : { permissionMode: "default" as const }),
     allowedTools: setup.allowedTools ?? [],
     canUseTool,
     env: {

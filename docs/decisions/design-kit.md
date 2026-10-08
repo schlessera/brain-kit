@@ -387,7 +387,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:178,179`, `getInitialState()`,
+`render-smoke.test.tsx:136,137`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -3583,6 +3583,11 @@ separate checks.
 
 ## 2026-09-25 — D47: `show_block`'s schema can lose a tenth through `definitions`, not half, and nothing ships until a keyed run says the API and the model accept it
 
+> **2026-10-08 — Superseded choice.** This entry describes the former flat
+> shipped form and its keyless estimates. The #336 measurement and #563
+> provider-acceptance decision below select the shared and trimmed form.
+> Its old counts remain historical; they do not describe the new default.
+
 **Question.** D44 put the bridge tools in every prompt and priced `show_block`
 at 5270 of their 7335 tokens, and its input schema is emitted flat, with no
 `$defs` and no `$ref` (`BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:698-701`).
@@ -3764,6 +3769,195 @@ are counted. *Moving `blocks.ts` to plain JSON Schema to escape Zod's `allOf`
 wrapper:* the SDK's `tool()` takes a Zod shape, and one source of truth for the
 schema, the parser and the renderer's types is worth more than eleven
 characters per reference.
+
+## 2026-10-07 — measured: Claude accepts all three schema forms; the shared and trimmed form saves 1,146 counted tokens (#336)
+
+**Question.** D47 identified two schema reductions but had no live provider or
+behavior evidence. This measurement holds the eighteen current variants and
+accepted inputs constant and compares `flat`, `shared`, and `shared-trimmed`
+on **`claude-sonnet-5-5`**. It measures the Claude half; the cross-backend
+shipping decision remains #563's.
+
+**Counted definitions.** The Agent SDK's actual MCP listing, including the same
+4,918-character tool description in every arm, was counted by `count_tokens`
+under `CLAUDE_CODE_OAUTH_TOKEN`. The tool-search-plus-anchor floor is **616**
+tokens. The flat arm is byte-identical to the production listing. The shared
+forms contain three definitions and sixteen reference sites; the trimmed
+form removes the same 23 descriptions pinned by the parser/listing tests.
+
+| form | input-schema JSON characters | loaded tokens | change from flat |
+| --- | ---: | ---: | ---: |
+| flat | 16,702 | 8,723 | 0 |
+| shared | 15,136 | 8,157 | −566 (6.5%) |
+| shared-trimmed | 13,344 | 7,577 | −1,146 (13.1%) |
+
+The full block brief costs 254 counted tokens, nine lines and 705 characters.
+These are the endpoint's counts of the frozen definitions, not a claim that
+every live round-trip loses exactly that many input tokens.
+
+**Method and isolation.** Nine frozen prompts—compare-short, compare-long,
+trend, contact, recommend, table, steps, quote and bars—ran three times per
+form: **81 fresh turns, 27 per arm, no exclusions**. Every arm loads the bridge
+server and block brief. Each form occupies each order position once across
+the three repetitions. Concurrency is two; each turn has the same fourteen
+model-turn limit, 180-second deadline and SDK `maxBudgetUsd: 1` threshold.
+None censored a turn. The threshold is checked after generation and is not a
+hard billing cap.
+
+Bun 1.3.14, Agent SDK 0.3.283 and Claude Code 2.1.283 were used. Every raw init
+reported model `claude-sonnet-5-5` and `apiKeySource: none`. The fictional
+Odysseus corpus was staged outside a home directory and checkout; HOME and
+config were empty, account credential files were never copied, automatic
+memory was disabled, and no other subscription measurement overlapped.
+The same execution hook bounded Read/Glob/Grep to the staged fixture and
+denied delegation and other tools in every arm (`optionsFor`,
+`scripts/measure-show-block.ts:394-462`). This permission restriction and the
+one-tool MCP server remain measurement divergences from production. The
+actual installed CLI denied a controlled outside Read and admitted an inside
+Read under bypassPermissions; removing its hook exposed the sentinel and
+failed the expected assertion. All **332** live hook verdicts were allowed
+fixture reads/searches or block calls; none named an outside target.
+
+Different-family review covered the frozen prompts, schemas, counters and
+execution guard before inference. Historical corpus model authorship was
+unknown, so a complementary Sonnet 5.5 review also examined all textual
+fixture files and canonical facts; binary fixtures were digest-only. It
+returned APPROVED. Native stdout capture preserves split UTF-8, final JSON
+without a newline and error-result receipts even when a consumer throws.
+
+**Observed behavior.** A call-rate numerator requires at least one parsed
+block in a completed turn. Parse rate counts every attempted block call,
+including a rejected call followed by a valid retry.
+
+| form | completed / attempted | turns with parsed block | call rate | parsed / attempted calls | parse rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flat | 27 / 27 | 21 | 77.8% | 22 / 22 | 100% |
+| shared | 27 / 27 | 21 | 77.8% | 23 / 24 | 95.8% |
+| shared-trimmed | 27 / 27 | 21 | 77.8% | 22 / 22 | 100% |
+
+The shared form's compare-long turn in repetition two first sent `block` as a
+string, which failed the object parser, then sent a valid block. Every contact
+and steps prompt produced no block in every arm; the other seven prompts
+produced one on every repetition. Completed shared-form turns demonstrate
+provider acceptance of both definitions-based request shapes. Equal observed
+call rates in this small repeated prompt set do not establish behavioral
+equivalence or bound regressions on other prompts.
+
+**Usage and money.** Independently priced API equivalents sum to **$4.0214248**:
+flat $1.3931550, shared $1.3425880, trimmed $1.2856818. The complementary review
+adds $0.079636. These use actual modelUsage tokens and cache-write TTL counts,
+not SDK fallback dollar estimates (`priceSonnet55Usage`,
+`scripts/measure-sonnet55-cost.ts:18-39`), against the
+[official Sonnet 5.5 rates](https://platform.claude.com/docs/en/models/sonnet-5-5/overview).
+All scored cache writes had known TTLs. Cache state, output length and retries
+also move these totals; they are diagnostics, not an isolated estimate of the
+schema reduction's dollar effect or a subscription billing receipt.
+
+All 86 captured rate-limit events reported `isUsingOverage: false`; no
+additional billed overage was observed. The
+[maintainer's caps](https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493)
+apply to actual additional charges. The counter is
+[free to use](https://platform.claude.com/docs/en/build-with-claude/token-counting).
+Historical Sonnet 5 controls remain excluded: 42 completed and two
+interrupted attempts, $3.0837498 known-plus-recovered partial SDK estimates,
+two missing tails and an unknown aggregate. No final provider bill is asserted
+for those interruptions. Unknown SDK price provenance is tracked in #1206;
+missing error-result accounting is #1191.
+
+**Evidence and consequence.** The [sanitized per-turn artifact](design-kit-schema-forms-2026-10-07.json)
+retains all 81 cells, token columns, verified prices, rate flags, isolation
+verdicts and frozen source/schema/corpus identities. Claude accepted both
+reductions, and the counted saving is real. This result does not switch the
+shipped flat form; #563 owns pi's acceptance and the shipping choice.
+
+## 2026-10-08 — D47 superseded: ship shared definitions and trimmed prose after both serializers accept them (#563)
+
+**Decision.** Ship `shared-trimmed`: define `tone`, `valueTone` and `icon` once,
+and remove the 23 field descriptions that restate the tool description. Tool
+names, all eighteen variants, accepted inputs, validation and handler output
+remain unchanged. The historical `flat`, `shared` and `shared-trimmed` arms now
+have explicit options independent of the shipped default. Production-factory
+checks cover Claude's actual MCP listing and Pi's actual bridge parameters;
+removing the icon registry id fails each backend's named definitions assertion.
+The accepted/refused round trips still compare all three forms.
+
+**Evidence from both serializers.** #336's 81 fresh Sonnet 5.5 turns completed
+27 per form; 21/27 turns in each form contained a parsed block. Its frozen
+counted MCP listing was 8,723 / 8,157 / 7,577 tokens for flat / shared / trimmed,
+a 1,146-token (13.1%) reduction for the selected form. One shared-form block
+was rejected before a valid retry; trimmed parsed 22/22 attempts. These are
+that measurement's model, listing, counter and SDK/CLI versions, described
+above, not a current-runtime recount or a behavioral-equivalence guarantee.
+D44's historical 5,270 and D47's keyless estimates remain qualified by their
+original listing/version; the measured #336 table supersedes them for this
+frozen listing. No new runtime or model default is selected here.
+
+Pi separately sent the actual non-strict draft-2020-12 `$defs`/`$ref` parameters
+through installed `@earendil-works/pi-coding-agent` 0.99.2 to `openai-codex` /
+`gpt-6.1-sol`, using Bun 1.4.2 and the ruled existing native ChatGPT login in a
+read-only memory adapter. One natural, reviewed note-approaches prompt was
+used per form, with the same reviewed 31-file fictional corpus. No login,
+refresh, credential-file copy, alternate key, paid fallback or automatic model
+retry was performed. Empty owned homes/settings, fixture-only tool execution
+and read-only source/runtime mounts bounded private-data access; the live
+network namespace was shared and the selected fetch route was guarded.
+Actual isolated-network server/parser/handler controls preceded inference.
+
+| Pi form | logical turn completed | parsed comparison calls | unique physical requests | strict transport guard |
+| --- | --- | ---: | ---: | --- |
+| flat | yes, after local prefix rehydration | 1 | 2 | failed; historical natural upstream EOF unknown |
+| shared | yes | 1 | 2 | passed, natural upstream EOF observed |
+| shared-trimmed | yes | 1 | 2 | passed, natural upstream EOF observed |
+
+**Retained failures and continuation.** The original flat request returned a
+completed exact-model comparison but its observer rejected its required
+media-type condition before the handler received it; the exact original
+content-type was not saved and remains unknown. Its failed server session remains
+unsuccessful. The preserved response was `response.text()` saved as UTF-8;
+replay preserved those exact file bytes, not independently recorded HTTP-wire
+response bytes. An independently reviewed local replay rehydrated that one
+actual response into the real Pi parser and handler, preserving original
+prompt, instructions, tools, model, call identity, arguments and handler result.
+The reconstructed server/cache key differed; this was continuation of the same
+logical context, not the same server session or unchanged request wire.
+
+One native flat continuation completed, but the old observer mistook Pi's
+normal consumer cancellation after `response.completed` for upstream EOF,
+then failed closing an already closed controller. The completed provider/model
+and parsed-handler evidence is valid; its strict transport guard remains
+failed and natural upstream EOF remains unknown. After real delayed-EOF and
+preterminal-cancellation controls and mutations, an ordered observer drained
+independently to natural EOF before any next request or final admission.
+Only the two originally remaining shared forms were then dispatched; flat
+was never inferred again. Both fresh shared turns passed all request/model,
+handler, usage, EOF and lifecycle guards and exited zero.
+
+**Accounting and limits.** Six unique physical requests are retained, including
+both historical flat requests exactly once: 66,266 raw input, 1,084 output and
+21,248 cache-read tokens. Physical usage reconciles with each logical SDK
+aggregate. Each form stayed below five requests and the total below fifteen.
+No included-only limit or credit-decrease stop was observed. Actual additional
+charges and invoices remain unknown; SDK dollar fields are diagnostics, not
+bills. Account-identity equality across the historical stopped boundary cannot
+be proved by the saved auth-selector booleans; no fingerprint is invented.
+Account/quota/credit details and raw opaque headers stay in protected receipts.
+
+This is provider request/parsed-handler acceptance for the named OpenAI route,
+not a Pi call-rate, quality, cache or cost-saving experiment. Other Pi providers
+were not tested. The equal first-request input count for flat/shared and the
+smaller trimmed count are individual observations, not an isolated token
+counter or a general saving. The small Claude sample also does not establish
+equivalence on other prompts. These limits qualify the selected representation;
+they do not change any accepted input or infer a new API/runtime/model adoption.
+
+The [sanitized six-request artifact](../../scripts/measurements/pi-schema-2026-10-08/results.json)
+and [executed-input hashes](../../scripts/measurements/pi-schema-2026-10-08/executed-inputs.json)
+bind the exact remaining-arms admission `a46ca0ba…`, historical `3d58bf7c…`
+and original prefix. They retain all failures, raw usage, schemas and accepted
+handler evidence without account identities, credit balances or quota details.
+Published current instrumentation is parameterized and now preserves historical
+arms; literal executed source/runtime and complete private receipts remain
+bound to the recorded protected manifests. No further inference was made.
 
 ## 2026-09-25 — measured: the Claude backend at server level, beside pi (#137)
 
@@ -4165,7 +4359,7 @@ found, and what the ruling did not say:
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/render-template/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:58`), and ui-kit now
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:63`), and ui-kit now
   builds and publishes ahead of ui-sdk. At that point the kit's own row was unchanged.
   #558 later moved the pure classifier to the template's `./links` leaf and
   added the kit-to-template edge; D13's purity gate still holds.
@@ -4386,7 +4580,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:270`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:274`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -4460,9 +4654,10 @@ whose items all drop still counts as a call. Rejected calls, subagent calls,
 incomplete turns and server turns that left the corpus are excluded. The
 question-control rate and the rate over answers whose actual final text part
 ends in a question are separate: asking the model to end with a question does
-not prove that it did. Item accounting follows the client in order: duplicate,
-repeated user prompt, then generic filler, using the same case/punctuation
-folding. Drops are measured over all accepted calls' items. Only the last
+not prove that it did. Item accounting follows the client in order: empty
+normalized label, duplicate, repeated user prompt, then generic filler, using
+the same case/punctuation folding. Drops are measured over all accepted calls'
+items. Only the last
 accepted call supplies the transcript's kept-item sample; question-ending
 suppression is stated separately from item drops. A quality verdict needs a
 read of those transcripts, rather than another automated predicate.
@@ -4483,6 +4678,10 @@ keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
 after the definitions transform; the description remains **336** characters.
 These updated counts do not supply the live measurements reserved for #550.
 
+The maintainer's 2026-10-07 ruling pins new comparisons to
+`claude-sonnet-5-5`. Earlier observations on `claude-sonnet-5` keep their
+original model identity and are not pooled with the new comparison.
+
 Reproduction commands (live commands require authorized API use):
 
 ```sh
@@ -4496,8 +4695,8 @@ bun scripts/measure-show-block.ts --suggestions --tokens
 
 # Server level: 36 turns per backend, each against a separate fixture copy.
 # Copies live outside any checkout and home directory and are indexed first.
-bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5 --runs 3 --out claude.json
-bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5 --runs 3 --out pi.json
+bun scripts/measure-show-block-server.ts --suggestions --brain <claude-fixture-copy> --backend claude --model claude-sonnet-5-5 --runs 3 --out claude.json
+bun scripts/measure-show-block-server.ts --suggestions --brain <pi-fixture-copy> --backend pi --vendor anthropic --model claude-sonnet-5-5 --runs 3 --out pi.json
 bun scripts/measure-show-block-server.ts --report claude.json
 bun scripts/measure-show-block-server.ts --report pi.json
 ```
@@ -4510,6 +4709,42 @@ survivors and question-ending decisions with the actual client's functions,
 and drive accepted, rejected, malformed, subagent and failed-turn frames
 through the server instrument over a real socket. Removing each guard makes
 its named behavioural assertion fail.
+
+
+### D50 Sonnet 5.5 measurement and verdict (#550, 2026-10-07)
+
+Keep the shipped description and variant. The completed comparison used six
+prompts, both description arms and three repetitions through the SDK, Claude
+server and Pi server: 108 completed turns, with no scored exclusions.
+
+| Instrument | Answer turns with suggestions, rule | No-rule | Question controls, each arm |
+| --- | ---: | ---: | ---: |
+| SDK / Claude subscription | 0/9 | 0/9 | 0/9 |
+| Claude server / subscription | 0/9 | 0/9 | 0/9 |
+| Pi server / Anthropic API key | 2/9 | 0/9 | 0/9 |
+
+Actual question-ending turns also had zero calls in every arm. No question
+control emitted a row, so this does not prove active client suppression.
+Pi's rule arm emitted four items; all four passed the client predicates, with
+zero empty, duplicate, prompt-echo or filler drops. Zero-item arms have null
+drop and quality denominators. All four labels are concrete and grounded in
+the prose or accepted rendered comparison; the combined-workflow label is
+weaker because the answer already supplies a workflow outline.
+
+The subscription-authenticated token-count endpoint estimates a marginal
+107 input tokens for the description and 377 for the variant. The updated
+866 flat-schema and 709 definitions-transform characters imply D47 calibrated
+ranges of 338–361 and 276–296 tokens; the 336-character description implies
+131–140. These counted endpoint observations are not future invoice proofs.
+
+This supports a small observed Pi benefit and no demonstrated Claude benefit.
+The fixed arm order, three repeated answer prompts, backend/tool differences
+and Pi API-key route limit generalization. No brief, variant, runtime filter
+or payload change follows. The
+[full report](../../scripts/measurements/suggestions-2026-10-07/report.md)
+retains all transcripts, item judgments, exact models/runtime versions,
+reviewed input hashes, private-data isolation limits, usage and billing
+provenance, and parameterized reproduction sources.
 
 
 ## 2026-09-30 — D51: recoverable failures stay in their turn, and outward diagnostics require review (#576)
@@ -4868,7 +5103,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:72-78`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:180-186`).
 There is no global key.
 
 ```ts
@@ -4935,7 +5170,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:227-231`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:257-261`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5210,6 +5445,32 @@ question-answer rules are independent.
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
 
+> **2026-10-07 — Drafts kept on this device across a reload, implemented by
+> #1014.** Every draft in the root's store, with its images, and the work
+> context around it (the voice review text, the uploaded tracks of the view
+> by reference, the selection, the focused element and the first transcript
+> message in view with its offset) are written to IndexedDB a moment after
+> each change, in the signed-in account's partition. The partition is named
+> by the host's `accountKey` on `/api/vpn-check`, which every sign-in as the
+> same owner shares (the
+> [contract](../integration-contract.md#account-partition-key-additive-1014)
+> has the table per auth mode); the client opens it only while it holds that
+> key, and never writes one account's work into another's. After an
+> authenticated boot as the same account the drafts come back first, before
+> the host's list is read, so a host version meets them as it would meet
+> the page that wrote them; then the selection and focus, then the
+> transcript's place. *Kept on this device* now holds across a reload. A
+> write the browser refuses (quota, private mode, no storage) puts `Couldn't
+> save your draft on this device.` in the composer's hint and takes the words
+> `kept on this device` off the save line until a write succeeds; editing
+> goes on in memory. The store asks once for persistent storage and promises
+> nothing from the answer. Staged tracks keep #1112's lifetime: their
+> references are in the snapshot, and a reload does not bring the queue back.
+> This is not encryption and not protection against someone with access to
+> the device. The modules are `lib/local-partitions.ts` (the partition
+> primitive) and `lib/local-work.ts` (the snapshot, and `snapshotNow`, which
+> resolves only once its transaction has committed).
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
@@ -5332,12 +5593,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:619-627`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:724-732`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:544-551`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:648-655`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
@@ -5851,3 +6112,237 @@ stopped (including AgentRunCard), and core/sample defaults are removed.
 This is an approved exception to D30 parity defaults; examples live in
 fixtures and stories. Hosts pass compact and real navigation callbacks;
 no new wire contract, telemetry or extension seam is introduced.
+
+
+## 2026-10-08 — Offline continuity and committed recording boundaries (#1023)
+
+The [September 30 rulings](https://github.com/schlessera/brain-kit/issues/578)
+choose deferred explicit transcription, bounded persistent audio and minimal
+cached cold capture. The [October 4 reconciliation](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5980965363),
+[approved October 5](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5998617047),
+replaces the conflicting proposal: auth loss stops capture and removes
+protected views; IndexedDB partitioning makes no device-protection claim;
+committed boundaries replace a one-second loss promise. The speech and account
+rationale lives in [dictation-speech.md](dictation-speech.md#2026-10-08--local-capture-and-explicit-saved-audio-transcription-1023)
+and [session-principals.md](session-principals.md#2026-10-08--device-local-account-partitions-and-auth-transitions-1023).
+
+### Preserve work through transport loss
+
+A warm transport outage keeps the established UI mounted
+(`if (vpnStatus === "connected" || everConnected)`,
+`packages/ui-react/src/components/connectivity/connection-gate.tsx:193-207`).
+Connectivity feedback uses stable slots and an overlay; Send availability is
+separate from editing. Replayed history reconciles with drawn chronological
+parts, preserving answer/card/image identity rather than redrawing the reading
+area. Transport recovery restores capability without submitting new local work.
+The [real-host continuity proof](https://github.com/schlessera/brain-kit/pull/1232)
+drives repeated drop/reconnect cycles at phone and desktop widths in dark and
+paper Chromium cells, plus native IME and late-history cases. Its fixed initial
+geometry baseline detects cumulative movement of the field and first visible
+message; a cumulative geometry mutation fails it. This is pinned desktop
+Chromium runtime evidence,
+not Safari, Android or OS interruption coverage.
+
+The device-local snapshot adopts the existing per-session draft identities
+from [#951](https://github.com/schlessera/brain-kit/issues/951#issuecomment-6028717821),
+so reload/auth recovery does not create a second draft store. Failed storage
+shows the save failure and keeps editing in memory; it cannot claim that the
+new edit is kept. Staged tracks remain in this tab only, including hidden-view
+queues. Their [update hold](https://github.com/schlessera/brain-kit/issues/1112#issuecomment-6032010851)
+and [manual-leave warning](https://github.com/schlessera/brain-kit/issues/1150#issuecomment-6033781561)
+do not turn them into durable attachments.
+
+D31's loud stale-client boundary remains. A per-root hold registry extends the
+existing reload guard for drafts, staged tracks, live/draining dictation, review
+text, capture/finalization, unaccepted transcripts, transcription and account
+interaction. Busy local work defers update reload; holding a reload is not a
+new error state (`registerBuiltInUpdateHolds`,
+`packages/ui-react/src/lib/update-holds.ts:78-104`). The
+[update proof](https://github.com/schlessera/brain-kit/pull/1194) observes actual
+controller changes and reload counts. Live dictation hands words to review in
+one update, including the [provider-ended path](https://github.com/schlessera/brain-kit/pull/1220),
+so an empty textarea cannot release the hold while speech still awaits review.
+
+### Recording, review and retention
+
+Capture is explicit, visibly device-local, and never silently restarts on
+launch, reconnect or permission grant. The sheet reports recording, remaining
+capacity and Stop/confirmed Discard; timer ticks are not live announcements.
+The tray distinguishes saved, interrupted, transcribing, failed and
+transcript-ready audio. Playback and review remain local. Transcribe requires
+its explicit upload confirmation and the server capability. Add to draft
+persists the chosen draft and its receipt before accepted metadata/deletion;
+failure keeps the recording. It never sends a message or answers an approval
+(`async accept`, `packages/ui-react/src/lib/recordings.ts:650-674`).
+The [tray runtime proof](https://github.com/schlessera/brain-kit/pull/1241)
+measures focus, reading-anchor preservation, playback, failed writes and native
+transaction ordering. Surviving transcript text remains reviewable even if its
+audio is lost; ambiguous acceptance cleanup retains audio for playback/discard.
+
+The [retention ruling](https://github.com/schlessera/brain-kit/issues/578#issuecomment-5907064902)
+sets **10 minutes per recording** and **100 MiB aggregate retained audio per
+origin/device, across account and unassigned partitions**, with no age expiry
+and no eviction to admit a new recording (`RECORDING_MAX_MS`,
+`packages/ui-react/src/lib/recordings.ts:8-11`). The lower browser capacity
+wins. Estimates are advisory; write success determines what exists
+(`async function budget`, `packages/ui-react/src/lib/recordings.ts:190-200`).
+Limits stop capture and keep a contiguous playable prefix, rather than cutting
+an encoded chunk or deleting older work. Both quota and blob I/O errors stop
+writes. The [store runtime proof](https://github.com/schlessera/brain-kit/pull/1230)
+includes real elapsed ten-minute capture, failure forms, ordered/hash-checked
+chunks and crash recovery.
+
+**Saved up to** is the last chunk end whose chunk/index transaction completed,
+not elapsed UI time or the requested MediaRecorder interval
+(`const next =`, `packages/ui-react/src/lib/recordings.ts:290-306`). Requested
+intervals and warning/minimum-budget defaults are tuning, never promises.
+[#1250's measured fixture correction](https://github.com/schlessera/brain-kit/pull/1253)
+further demonstrates why a visible recording sheet or a timeslice deadline is
+not evidence of a durable chunk: the fixture now awaits the actual root-owned
+commit before its unchanged saved-boundary/focus assertions. That test change
+adds no recording capability or loss guarantee.
+
+### Warm use, cached cold capture and uncached launch
+
+Cold launch is a separate capability, not warm reconnect with remembered auth.
+With durable capture enabled and a controlling worker that precached the shell,
+the gate renders the eager local screen; it never opens protected chat/history.
+A fresh page's new recordings are unassigned, with only aggregate locked audio
+size visible. Server reachability alone neither adopts an account nor changes
+the screen. **Continue** waits for startup recovery and drains initializing/live
+capture before entering the normal gate/login
+(`const leave`, `packages/ui-react/src/components/connectivity/local-capture-screen.tsx:94-99`).
+Same-account authentication unlocks account work; unassigned audio still needs
+explicit selected-only association before upload.
+
+The [cold-launch runtime proof](https://github.com/schlessera/brain-kit/pull/1247)
+uses an actual worker and cached/uncached fresh pages. The SDK owns NetworkOnly
+API policy and navigation fallback; the generated worker entry, precache/web-app
+manifests, index and offline pages belong to the public hosting template
+([shell counterpart #11](https://github.com/schlessera/brain-hosting-template/issues/11)).
+A first-ever uncached offline visit cannot boot this UI. Serving a capture view
+requires prior successful online loading and retained cached assets; it is not
+a blanket offline-ready claim. No authenticated API cache or full offline
+history is approved. Host configuration prerequisites and user limits are in
+[the hosting guide](../hosting/README.md#offline-use-and-local-recordings).
+
+### Desktop browser measurements and their limits
+
+All distributions below reproduce the
+[V1 finding of October 7](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756),
+whose repeatable probe is [PR #1204](https://github.com/schlessera/brain-kit/pull/1204)
+under `scripts/probes/audio-commit-boundary/`, outside published packages.
+Conditions: Playwright **1.63.0**, image
+`mcr.microsoft.com/playwright:v1.63.0-noble`, Ubuntu **24.04.4 LTS**, host Linux
+**7.2.5**, headed Xvfb without a window manager. Chromium **153.0.8010.12**
+used a seeded **48 kHz** fake-microphone WAV; Firefox **155.0** used its native
+fake stream. Both recorded **WebM/Opus**, requested **1000 ms** timeslices, and
+committed each delivered chunk and index boundary in one IndexedDB transaction.
+Loss is measured from recorder start to the observed interruption: **index
+loss** subtracts the last committed delivery-time boundary; **playable loss**
+subtracts the same-engine decoded duration of concatenated committed chunks.
+These are probe observations under this stop policy, not product guarantees.
+
+Main run: **seven runs per measured cell**; milliseconds **min / median / max**.
+Every row is from the linked V1 finding above.
+
+| Browser | Observed interruption | Index loss (ms) | Playable loss (ms) | Surviving storage, all seven runs |
+| --- | --- | --- | --- | --- |
+| Chromium desktop | Tab close, no unload | 24 / 436 / 789 | 22 / 437 / 785 | Index + some chunks |
+| Chromium desktop | Renderer crash (`Page.crash`) | 7 / 463 / 820 | 9 / 466 / 820 | Index + some chunks |
+| Chromium desktop | Whole browser SIGKILL | 109 / 453 / 739 | 111 / 452 / 741 | Index + some chunks |
+| Chromium desktop | Hidden behind another tab for 6 s, then SIGKILL | 119 / 415 / 822 | 122 / 412 / 821 | Index + some chunks |
+| Chromium desktop | Simulated capture-track end | −1 / −1 / −1 | −54 / −38 / −8 | Index + all chunks |
+| Chromium desktop | Full disk, stop on first failed write | 1018 / 1021 / 1026 | 1017 / 1022 / 1025 | Index + some chunks |
+| Firefox desktop | Tab close, no unload | 45 / 546 / 897 | 44 / 546 / 898 | Index + some chunks |
+| Firefox desktop | Tab content processes SIGKILL | 274 / 404 / 643 | 276 / 406 / 645 | Index + some chunks |
+| Firefox desktop | Whole browser SIGKILL | 53 / 361 / 743 | 53 / 362 / 746 | Index + some chunks |
+| Firefox desktop | Simulated capture-track end | −12 / −8 / −3 | −27 / −12 / −1 | Index + all chunks |
+| Firefox desktop | Full disk, stop on first failed write | 999 / 1000 / 1002 | 1002 / 1004 / 1006 | Index + some chunks |
+
+A separate confirmation invocation of the final probe ran **five runs per cell**
+under the same versions/timeslice/source conditions. Its **index-loss**
+distributions (ms, min / median / max), also from V1, are:
+
+| Browser | Case | Index loss (ms) |
+| --- | --- | --- |
+| Chromium desktop | Whole browser SIGKILL | 265 / 666 / 996 |
+| Chromium desktop | Hidden then SIGKILL | 86 / 541 / 857 |
+| Chromium desktop | Full disk | 1020 / 1022 / 1024 |
+| Firefox desktop | Whole browser SIGKILL | 317 / 525 / 789 |
+| Firefox desktop | Full disk | 999 / 1000 / 1000 |
+
+No interrupted run lost its index or a previously committed chunk. **Index +
+some chunks** means a recoverable prefix missing the unsaved tail, not deletion
+of already committed chunks. Negative track-end loss reflects decoder padding
+and recorder-start lag, not extra captured speech. The final track-end chunk
+committed, but that simulated event says nothing about an incoming call. Kill
+observations stayed below the requested interval; full-disk failures lost about
+one chunk under the probe's stop-on-first-write-error policy. Neither result
+establishes a universal tail-loss bound or background-capture promise.
+
+Single capability reports per engine under those same V1 conditions found:
+
+| Primitive | Chromium 153.0.8010.12 | Firefox 155.0 | Playwright Linux WebKit 26.6 |
+| --- | --- | --- | --- |
+| MediaRecorder | Present | Present | Absent |
+| WebM/Opus support | Yes | Yes | No |
+| MP4 support | Yes (capability only; interruption runs used WebM) | No | No |
+| Default recorder container | WebM/Opus | Ogg/Opus (probe explicitly chose WebM) | None |
+| IndexedDB Blob round-trip | Passed | Passed | Passed |
+| Storage persistence request | Returned false | Did not settle within 3 s; prompt unanswered | Returned false |
+
+A separate single Chromium visibility capability trial delivered and committed
+**ten chunks in ten seconds hidden**, still at the requested **1000 ms**
+interval. The single CDP freeze trial produced **four chunks during a five-second
+freeze request**, with no freeze event: it failed to induce a freeze and is
+**not** a freeze measurement. The full-disk runs used a **48 MiB** disk;
+Chromium still estimated **1 GiB** quota/zero usage, while Firefox reported
+**10 MiB** quota. Chromium failed with blob `DataError`/IOError; Firefox with
+`QuotaExceededError`. These V1 results explain why estimates/persistence requests
+cannot establish durable capture or free physical space.
+
+### Unmeasured cells and detectable storage loss
+
+The [October 7 desktop-suffices ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6040793673)
+permits dependent work on the desktop results. The
+[later scope ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836)
+keeps Safari unmeasured and transfers attainable Android/OS/lock cells to
+[#1236](https://github.com/schlessera/brain-kit/issues/1236). None of the
+following is inferred from desktop tests or documentation. Every row links the measurement handoff for context. #1236 owns the attainable
+Android, real OS interruption and screen-lock measurements; it does not expand
+to the desktop/storage omissions below, and Safari remains excluded by the
+ruling.
+
+| Cell | Finding and reason | Tracking |
+| --- | --- | --- |
+| Android Chromium, every capture/interruption cell | **NOT MEASURED**: no device in V1; emulator measurements not supplied | [#1236](https://github.com/schlessera/brain-kit/issues/1236) |
+| Safari macOS, every cell | **NOT MEASURED**: no available Apple device; Linux WebKit is not Safari | [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236), [maintainer ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836) |
+| Safari iOS tab, every cell | **NOT MEASURED**: no available Apple device | [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236), [maintainer ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836) |
+| Safari iOS installed PWA, every cell | **NOT MEASURED**: no available Apple device; no inference from tab/emulator behavior | [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236), [maintainer ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836) |
+| Linux WebKit 26.6, every recording-interruption cell | **NOT MEASURED**: its MediaRecorder is absent | [V1](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756), [#1236 handoff](https://github.com/schlessera/brain-kit/issues/1236) |
+| Firefox hidden-then-kill / hidden delivery | **NOT MEASURED**: separate windows and no window manager prevented hiding a tab | [V1](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756), [#1236 handoff](https://github.com/schlessera/brain-kit/issues/1236) |
+| Real OS microphone interruption, any browser | **NOT MEASURED**: only track end was simulated; no call/OS event was produced | [#1236](https://github.com/schlessera/brain-kit/issues/1236) |
+| Screen lock / actual background freeze, any browser | **NOT MEASURED**: container cannot lock a real screen; Chromium ignored CDP freeze | [#1236](https://github.com/schlessera/brain-kit/issues/1236) |
+| Browser eviction and private-mode lifetime, per browser | **NOT MEASURED**: V1 neither provoked eviction nor ran private profiles | [V1](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756), [#1236 measurement scope](https://github.com/schlessera/brain-kit/issues/1236) |
+| User-cleared site data, per browser | **NOT MEASURED**: V1 did not clear the origin during its trials | [V1](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756), [#1236 measurement scope](https://github.com/schlessera/brain-kit/issues/1236) |
+| Origin quota lower than free disk, per browser | **NOT MEASURED**: runner could fill a disk but not impose an engine quota reflected by estimate | [V1](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6039141756), [#1236 measurement scope](https://github.com/schlessera/brain-kit/issues/1236) |
+
+Eviction, private-mode lifetime and cleared site data are limitations, not
+measured loss distributions. Injected product tests establish what recovery
+can do with surviving data; they do not measure when a real browser evicts it:
+
+| Surviving evidence | Recovery boundary |
+| --- | --- |
+| Index + all chunks | Saved audio; an unfinished capture is marked interrupted |
+| Index + some chunks | Interrupted contiguous playable prefix; saved boundary is adjusted |
+| Index but no audio chunks or transcript | Persistent removed-recording notice |
+| Index and unaccepted transcript, but no audio chunks | Transcript-ready review with an audio-unavailable explanation; transcript is kept, with no added removed-recording count |
+| Neither index nor chunks (and no other surviving record) | Nothing can be listed or reported; no loss notice can be promised |
+
+Recovery uses the surviving index and ordered chunks
+(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:515-579`).
+The store tests force missing-chunk states, including a full origin that cannot
+repair metadata. Requesting `navigator.storage.persist()` is best effort; no
+copy calls it a guarantee. No unload callback can save data after a crash, and
+no local UI can report a recording after all evidence of it has disappeared.

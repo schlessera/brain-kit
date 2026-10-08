@@ -1,0 +1,36 @@
+const {query}=await import(`${process.env.BRAIN_MEASUREMENT_CHECKOUT}/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`);
+import {captureQuery} from "./query-capture.ts";
+import {existsSync,readFileSync,writeFileSync} from "node:fs";
+import {createHash} from "node:crypto";
+const snapshot = await Bun.file(`${process.env.TMPDIR}/input-review-snapshot.json`).text();
+const frozenManifest=JSON.parse(snapshot).manifest;
+const frozenManifestHash=createHash("sha256").update(JSON.stringify(frozenManifest)).digest("hex");
+const requiredHashes=[frozenManifest.prompts,frozenManifest.ruleDescription,frozenManifest.noRuleDescription,frozenManifest.schema,frozenManifest.corpus];
+const prompt = `Independently review this frozen fictional evaluation input/protocol for issue #550. You must assess correctness before measurements. Read the prompt groups, description-only arms, schema equality, parsed-call counters against the included shipped client, empty/duplicate/prompt/filler precedence, actual question endings versus prompted controls, denominator exclusions, planned exhaustive survivor-quality labels, and isolation/order limits. Identify any remaining material flaw that invalidates measurement; otherwise say APPROVED and state precise limitations. Do not propose a model substitution. Historical author family is undocumented, so this complementary Claude-family review accompanies a gpt-6-astra review rather than inventing authorship. Return concise findings. If approved, put APPROVED alone on its own line, then repeat the exact five frozen prompt, rule-description, no-rule-description, schema and corpus hashes. If rejected, put REJECTED alone on its own line. Do not write APPROVED unless the complete protocol is acceptable. Tools are unavailable; review only the following admitted public snapshot.\n\n${snapshot}`;
+const receipt: Record<string, unknown> = { model: "claude-sonnet-5-5", purpose: "complementary independent input review", subscriptionOverageState: "not reported", frozenManifestHash, credential: "CLAUDE_CODE_OAUTH_TOKEN", text: [] };
+const destination = `${process.env.TMPDIR}/runs/complementary-review-retry.json`;
+const save = () => writeFileSync(destination,JSON.stringify(receipt,null,2));
+const controller = new AbortController();
+const deadline = setTimeout(() => controller.abort(),180000);
+try {
+for await (const message of captureQuery(query,{ prompt, options: { cwd: process.env.TMPDIR, model: "claude-sonnet-5-5", pathToClaudeCodeExecutable:process.env.CLAUDE_CODE_PATH, tools: [], settingSources: [], maxTurns: 1, maxBudgetUsd: 1, effort:"low", systemPrompt:"You independently review evaluation protocols. Give concise findings and an explicit approval or rejection. Review only the supplied snapshot. No tools are available.", abortController:controller, permissionMode: "default", persistSession: false,  } })) {
+  if (message.type === "system" && message.subtype === "init") receipt.init = { model: message.model, apiKeySource: message.apiKeySource, claudeCodeVersion: message.claude_code_version };
+  if (message.type === "assistant") for (const block of message.message.content) if (block.type === "text") (receipt.text as string[]).push(block.text);
+  if (message.type === "result") { receipt.result = { subtype: message.subtype, isError: message.is_error, totalCostUsd: message.total_cost_usd, usage: message.usage, modelUsage: message.modelUsage }; }
+  save();
+}
+} catch(error) { receipt.error = error instanceof Error && /budget/i.test(error.message) ? "maximum equivalent-cost budget reached" : "SDK request error"; }
+finally {
+  clearTimeout(deadline);
+  const ledgerPath=`${process.env.TMPDIR}/runs/sdk-raw-receipts.json`;
+  if(existsSync(ledgerPath)){
+    const promptHash=createHash("sha256").update(prompt).digest("hex");
+    const native=JSON.parse(readFileSync(ledgerPath,"utf8")).findLast((row:any)=>row.promptHash===promptHash);
+    if(native){receipt.nativeReceiptId=native.id;receipt.rawResult=native.rawResult;receipt.apiEquivalent=native.apiEquivalent;receipt.reportedSdkUsd=native.reportedSdkUsd;receipt.subscriptionOverageState=native.subscriptionOverageState;receipt.rateLimits=native.rateLimits;}
+  }
+  save();
+}
+const reviewText=(receipt.text as string[]).join("\n");
+receipt.approved=/^\s*APPROVED\s*$/m.test(reviewText)&&requiredHashes.every(hash=>reviewText.includes(hash));save();
+console.log(JSON.stringify(receipt, null, 2));
+if (!receipt.approved || !(receipt.result as { isError?: boolean }) || (receipt.result as { isError?: boolean }).isError) process.exit(1);

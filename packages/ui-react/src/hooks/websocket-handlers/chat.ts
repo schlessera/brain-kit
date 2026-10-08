@@ -325,6 +325,13 @@ export const chatFrameHandlers = {
     context.state.completeToolCall(context.key, msg.toolUseId, msg.toolName, msg.input);
   },
   tool_approval_request: (msg, context) => {
+    // The host resends pending approvals after all history chunks (#1259).
+    // Finish that replay before restoring its card, so the later running
+    // status cannot replace it with history that has no tool entry yet.
+    const closed = context.buffer()?.messages.some((message) => message.toolCalls.some((tool) =>
+      tool.id === msg.toolUseId && tool.readOnly && tool.readOnly !== "unlisted"));
+    // Keep the store's rejection of answered/ended/revoked cards intact.
+    if (!closed) context.state.finishHistoryReplay(context.key, true);
     context.state.requestToolApproval(
       context.key,
       msg.toolUseId,
@@ -414,6 +421,11 @@ export const chatFrameHandlers = {
     if (context.key !== null) context.state.noteHistoryLoaded(context.key);
   },
   status: (msg, context) => {
+    // Both a resume and the host's connect snapshot send their scoped status
+    // after all history chunks. A queued request is not that answer.
+    if (context.frameSessionId && msg.status !== "queued") {
+      context.state.finishHistoryReplay(context.key, msg.status !== "idle" && msg.status !== "cancelled");
+    }
     // A model call the runtime is retrying: the turn is alive, and says why
     // it is waiting (#575). Any other progress means the retry is behind it.
     if (msg.status === "thinking" || msg.status === "tool_executing") {

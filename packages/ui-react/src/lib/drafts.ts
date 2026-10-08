@@ -83,17 +83,19 @@ function bytesLabel(n: number): string {
  */
 export function draftSaveView(
   d: ComposerDraft | undefined,
-  store: Pick<DraftStoreState, "supported" | "limits">,
+  store: Pick<DraftStoreState, "supported" | "limits"> & { localFailed?: boolean },
   now: number,
 ): DraftSaveView {
+  // A failed device write (#1014) takes back the claim that the content is kept on this device.
+  const kept = store.localFailed ? "" : " · kept on this device";
   // A conflict is shown even over an emptied composer: the other version still waits.
   if (d?.conflict) return { state: "conflict", copy: "draft changed on another device", word: "changed on another device" };
   if (!d || (d.text.length === 0 && d.attachments.length === 0)) return { state: "none" };
-  if (store.supported === false) return { state: "unavailable", copy: "draft · this host doesn't keep drafts · kept on this device", word: "kept on this device" };
+  if (store.supported === false) return { state: "unavailable", copy: `draft · this host doesn't keep drafts${kept}`, word: store.localFailed ? "not saved yet" : "kept on this device" };
   if (d.host && d.host.edit === d.edit) return { state: "saved", copy: "draft · saved", word: "saved" };
   if (d.failure?.kind === "too_large") {
     const limit = d.failure.bound === "imageCount" ? `${d.failure.limit} images` : bytesLabel(d.failure.limit);
-    return { state: "too_large", copy: `draft · too large to save (${limit} max) · kept on this device`, word: "too large to save" };
+    return { state: "too_large", copy: `draft · too large to save (${limit} max)${kept}`, word: "too large to save" };
   }
   if (d.failure?.kind === "full") {
     const copy = d.failure.bound === "drafts"
@@ -108,7 +110,7 @@ export function draftSaveView(
 }
 
 /** The word a Draft entry prints for its save state, never `saved` before the host acknowledged. */
-export function draftEntryWord(d: ComposerDraft, store: Pick<DraftStoreState, "supported" | "limits">, now: number): string {
+export function draftEntryWord(d: ComposerDraft, store: Pick<DraftStoreState, "supported" | "limits"> & { localFailed?: boolean }, now: number): string {
   const view = draftSaveView(d, store, now);
   return view.state === "none" ? "not saved yet" : view.word;
 }

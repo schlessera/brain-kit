@@ -7,24 +7,28 @@ import {
   expect,
   test,
 } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderDom } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { AskUserFormCard } from "@schlessera/brain-ui-kit";
 import { AskUserFormExchangeCard } from "../../src/components/chat/ask-user-form-card.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
-import {
-  handleServerMessage,
-  flushChatDeltas,
-} from "../../src/hooks/use-websocket.js";
-import { useChatStore } from "../../src/stores/chat-store.js";
-import { useUIStore } from "../../src/stores/ui-store.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { BrainUiProvider } from "../../src/root-context.js";
+let root: BrainUiRoot;
+let useChatStore: BrainUiRoot["stores"]["chat"];
+let useUIStore: BrainUiRoot["stores"]["ui"];
+const render = (node: ReactNode) => renderDom(<BrainUiProvider root={root}>{node}</BrainUiProvider>);
+const handleServerMessage: BrainUiRoot["connection"]["handleServerMessage"] = (message) => root.connection.handleServerMessage(message);
 import type {
   AskUserFormSpec,
   AskUserFormAnswers,
 } from "@schlessera/brain-ui-sdk/protocol";
 afterEach(cleanup);
+afterEach(() => root.dispose());
 afterAll(unregisterAskUserFormDom);
 beforeEach(() => {
-  flushChatDeltas();
+  root = createBrainUiRoot({ storage: null });
+  useChatStore = root.stores.chat; useUIStore = root.stores.ui;
   useChatStore.setState({
     buffers: {},
     draft: null,

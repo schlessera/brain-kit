@@ -7,14 +7,19 @@
 import { unregisterActivityReportDom } from "./activity-report-dom.js";
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderDom, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { ActivityRunDetail, ActivityRunSummary, ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
-import { useActivityStore } from "../../src/stores/activity-store.js";
-import { useChatStore } from "../../src/stores/chat-store.js";
-import { useConnectionStore } from "../../src/stores/connection-store.js";
-import { useUIStore } from "../../src/stores/ui-store.js";
+import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { BrainUiProvider } from "../../src/root-context.js";
+let root: BrainUiRoot;
+let useActivityStore: BrainUiRoot["stores"]["activity"];
+let useChatStore: BrainUiRoot["stores"]["chat"];
+let useConnectionStore: BrainUiRoot["stores"]["connection"];
+let useUIStore: BrainUiRoot["stores"]["ui"];
+const render = (node: ReactNode) => renderDom(<BrainUiProvider root={root}>{node}</BrainUiProvider>);
 
 afterEach(cleanup);
 afterAll(async () => {
@@ -67,6 +72,9 @@ const realFetch = globalThis.fetch;
 const realOpen = window.open;
 
 beforeEach(() => {
+  root = createBrainUiRoot({ storage: null });
+  useActivityStore = root.stores.activity; useChatStore = root.stores.chat;
+  useConnectionStore = root.stores.connection; useUIStore = root.stores.ui;
   calls = []; opened = []; clipboard = []; clipboardFails = false; detailGate = null; statusOk = true; liveRuns = [];
   useActivityStore.setState({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {}, inbox: [] });
   useChatStore.setState({ activeSessionId: null });
@@ -105,6 +113,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  root.dispose();
   globalThis.fetch = realFetch;
   window.open = realOpen;
 });
@@ -418,12 +427,13 @@ describe("late, limited and offline records", () => {
     expect(opened).toHaveLength(1);
   });
 
-  test("status not authorized: no server line", async () => {
+  test("status not authorized: protected activity records are cleared", async () => {
     statusOk = false;
     const page = await mount();
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/status"))).toBe(true));
-    await openReport(page, "run-storm");
-    expect(field("Exact outgoing text").value).not.toMatch(/^server/m);
+    await waitFor(() => expect(root.authLock.state.getState().phase).toBe("locked"));
+    expect(useActivityStore.getState().spans).toEqual({});
+    expect(reportButtons(page)).toHaveLength(0);
   });
 });
 

@@ -23,7 +23,8 @@ export const FILE_COST_SECONDS: Readonly<Record<string, number>> = measuredCosts
 const SMALL_FILE_SECONDS = 0.1;
 const comparePaths = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
-/** Bun 1.3.14 Scanner.zig's directory exclusions and test-name suffixes. */
+// Verified against bun-v1.4.2 src/runtime/cli/test/Scanner.rs.
+/** Bun 1.4.2 Scanner.rs's directory exclusions and test-name suffixes. */
 export function discoverTests(cwd: string, roots: readonly string[]): string[] {
   const files: string[] = [];
   const visit = (dir: string) => {
@@ -75,7 +76,7 @@ export function balanceTests(
     seconds[lightest]! += cost(file);
   }
   assertPartition(files, shards);
-  // Retain Bun's native alphabetical execution order within each process.
+  // Return a deterministic explicit file list within each process.
   return shards.map((shard) => shard.sort(comparePaths));
 }
 

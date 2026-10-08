@@ -271,7 +271,12 @@ manifest remains the single source for the SDK range, including its upper bound.
 
 `versionRequirements.runtime` is an optional full SemVer minimum for the
 SDK-selected Claude Code executable, including native and JavaScript
-`claudeCodePath` overrides. There is no extra numeric runtime floor by default.
+`claudeCodePath` overrides. There is no backend-wide numeric runtime floor.
+Selecting canonical `claude-haiku-5-5` adds the model's upstream minimum,
+Claude Code 2.1.293, on both start and resume. A higher host minimum still
+applies. The [official model configuration](https://code.claude.com/docs/en/model-config#model-aliases)
+documents this requirement; discovery alone does not prove an older runtime
+supports the model.
 With a runtime requirement, every start and resume probes the selected command
 again through the turn's environment and exec wrapper, then withholds its
 streaming prompt until SDK initialization succeeds. The probe and handshake
@@ -285,6 +290,22 @@ when that guarantee matters. The running CLI's `system/init` is an observation
 after input release; a missing, incompatible or contradictory version aborts
 a constrained turn through its normal error terminal. It cannot unsend input.
 
+The package requires SDK `^0.3.293`; the current measured bundled pair is
+SDK 0.3.293 / Claude Code 2.1.293. Turns explicitly request the default
+permission mode to preserve manual approvals when the SDK leaves an omitted
+mode to the CLI. The existing enforcement and no-grant hooks remain required.
+
 Compatibility does not imply measurement. Supported unmeasured pairs continue
 with the existing warning and actual SDK/runtime provenance. `MEASURED_RUNTIME`
 and its keyless permission/billing probes remain separate evidence.
+
+Haiku 5.5 is available through the existing Models API discovery or an explicit
+profile with `model: "claude-haiku-5-5"`. Its verified effort levels are
+`low`, `medium`, `high`, `xhigh` and `max`, defaulting to `medium`. Discovered
+capability metadata takes precedence, including an empty effort set; missing
+context metadata stays unknown. The native keyless control observes 1M context,
+128K output and list-price provenance. Those are runtime metadata, not proof
+of live capacity, account eligibility or billing. The application does not
+infer a price from discovery; Haiku pricing also varies above 100K prompt
+tokens. See the [effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort#recommended-effort-levels-for-claude-haiku-55)
+and [new-pair measurement](../../docs/decisions/claude-code-runtime.md#2026-10-08--haiku-55-and-the-293-runtime-1238).

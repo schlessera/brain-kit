@@ -68,6 +68,9 @@ export function useChatCommands(): (command: string) => void {
  * starts a session. When it cannot be sent, it stays on screen and says so.
  */
 export async function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void> {
+  const epoch = root.authLock.epoch();
+  const current = () => root.authLock.epoch() === epoch && root.authLock.state.getState().phase === "active";
+  if (!current()) return;
   const chat = root.stores.chat.getState();
   chat.addUserMessage(sessionId, "Stats");
   chat.startAssistantMessage(sessionId);
@@ -83,6 +86,7 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
       settle(root.api.status(), () => true),
       settle(root.api.brainStatsHistory(), (v) => Array.isArray(v.dates)),
     ]);
+    if (!current()) return;
     const server: SoftwareInput["server"] = status.ok ? {
       ok: true, value: {
         release: status.value.software?.release ?? null,
@@ -93,6 +97,7 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
     root.stores.chat.getState().setStatsAnswer(sessionId, sections);
     keepStatsExchange(root, sessionId, sections);
   } catch (err) {
+    if (!current()) return;
     // A figure the composer could not read: say so rather than leave a
     // finished message with nothing in it.
     root.stores.chat.getState().appendText(
@@ -100,7 +105,7 @@ export async function runStats(root: BrainUiRoot, sessionId: string | null): Pro
       `**Error:** ${err instanceof Error ? err.message : "Could not draw the statistics"}`
     );
   } finally {
-    root.stores.chat.getState().finishAssistantMessage(sessionId);
+    if (current()) root.stores.chat.getState().finishAssistantMessage(sessionId);
   }
 }
 

@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
+import { useEffect } from "react";
 import { ActivityPage, AppShell, BrainUiProvider, ChatPage, GraphPage, createBrainUiRoot, useServiceWorkerUpdates, useUIStore } from "../../src/index.ts";
 import { trackerViews } from "../../src/stores/tracker-state.ts";
+import { claudeToolPack } from "../../src/components/chat/renderers/claude-tools.tsx";
 import { anyStagedTracks } from "../../src/lib/draft-tracks.ts";
 
 // The whole app, as a hosting shell composes it (#953): AppShell with Chat,
@@ -8,6 +10,9 @@ import { anyStagedTracks } from "../../src/lib/draft-tracks.ts";
 // is the same root coming back. The test drives it only through what is on
 // screen; this probe reads state and never changes it.
 const root = createBrainUiRoot({ storagePrefix: "odysseus-parallel", config: { appName: "Odysseus’s notebook", assistantName: "Brain" } });
+// The scripted backend emits real Agent activity; use its built-in drill-in
+// renderer without changing ordinary tool rendering in the existing fixture.
+root.renderers.register({ backend: "parallel-scripted", renderers: claudeToolPack.renderers.filter((renderer) => renderer.match === "Agent") });
 
 /** `?update`: the hosting shell's service-worker hook too, against the worker the test stands in for (#1150). */
 const withUpdates = new URLSearchParams(location.search).has("update");
@@ -17,7 +22,9 @@ function UpdateGuard() {
   return null;
 }
 
+// The hosting shell owns a connection across destinations, including Actions.
 function Shell() {
+  useEffect(() => root.connection.connect(), []);
   const view = useUIStore((s) => s.activeView);
   return <AppShell>{withUpdates && <UpdateGuard />}{view === "activity" ? <ActivityPage /> : view === "graph" ? <GraphPage /> : <ChatPage />}</AppShell>;
 }
@@ -50,6 +57,7 @@ new MutationObserver((records) => {
 
 Object.assign(window, {
   __parallel: {
+    approvalTools: (sessionId: string) => root.stores.chat.getState().buffers[sessionId]?.messages.flatMap((m) => m.toolCalls) ?? [],
     connected: () => root.stores.connection.getState().wsStatus === "connected",
     draftsSupported: () => root.stores.drafts.getState().supported,
     activeSessionId: () => root.stores.chat.getState().activeSessionId,

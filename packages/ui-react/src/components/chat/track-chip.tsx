@@ -9,7 +9,7 @@ export function TrackChip({ track, file, onRemove, onRetry }: {
   const meta = file ?? track?.meta;
   const name = track?.name || meta?.incomingName || meta?.name || "Unnamed track";
   const format = meta?.detected ? meta.detected === "geojson" ? "GeoJSON" : meta.detected.toUpperCase() : "track file";
-  const size = trackBytes(track?.file.size ?? meta?.bytes ?? 0);
+  const size = trackBytes(meta?.bytes ?? track?.file.size ?? 0);
   const state = track ? trackStatus(track) : "sent · staged";
   return <div className="min-w-0 rounded-lg border border-border bg-surface text-foreground" data-track-chip="" aria-label={`${name}, ${format} track, ${size}, ${state}`}>
     <div className="flex min-w-0 items-center gap-2 pl-3">

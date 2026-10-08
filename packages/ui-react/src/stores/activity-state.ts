@@ -47,6 +47,7 @@ const HISTORY_RUN_LIMIT = 10;
 export function createActivityStore(env: StoreEnvironment) {
   const { api } = env;
   let disposed = false;
+  let generation = 0;
   const store = createStore<ActivityState>((set, get) => ({
     supported: false,
     subscribed: {},
@@ -60,9 +61,10 @@ export function createActivityStore(env: StoreEnvironment) {
     inbox: [],
 
     loadInbox: async () => {
+      const epoch = generation;
       try {
         const { intents } = await api.activityInbox();
-        if (!disposed) set({ inbox: intents });
+        if (!disposed && epoch === generation) set({ inbox: intents });
       } catch {
         // Badge absence over a crash — the inbox is reachable from Activity.
       }
@@ -195,7 +197,11 @@ export function createActivityStore(env: StoreEnvironment) {
       }
     },
 
-    clear: () => set({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} }),
+    clear: () => {
+      generation++;
+      loadedHistorySessions.clear(); payloadLoadedRuns.clear();
+      set({ spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} });
+    },
   }));
 
   /** One badge poller per page lifetime — the inbox is cheap and the badge
@@ -220,6 +226,7 @@ export function createActivityStore(env: StoreEnvironment) {
    * Fire-and-forget; a failure just leaves badges absent, as before.
    */
   async function loadSessionActivityHistory(sessionId: string): Promise<void> {
+    const epoch = generation;
     if (loadedHistorySessions.has(sessionId)) return;
     loadedHistorySessions.add(sessionId);
     try {
@@ -231,7 +238,7 @@ export function createActivityStore(env: StoreEnvironment) {
           .filter((run) => !run.detailPruned)
           .map((run) => api.activityRun(run.runId))
       );
-      if (disposed) return;
+      if (disposed || epoch !== generation) return;
       for (const detail of details) {
         if (detail.detailPruned || !detail.spans) continue;
         state.applySnapshot({
@@ -245,7 +252,7 @@ export function createActivityStore(env: StoreEnvironment) {
       }
     } catch {
       // History timing is an enhancement; the transcript renders without it.
-      loadedHistorySessions.delete(sessionId);
+      if (epoch === generation) loadedHistorySessions.delete(sessionId);
     }
   }
 
@@ -262,6 +269,7 @@ export function createActivityStore(env: StoreEnvironment) {
    * at the same high-water still applies and events insert-if-absent.
    */
   async function loadSpanPayloads(spanId: string): Promise<void> {
+    const epoch = generation;
     const state = store.getState();
     const runId = state.spanRun[spanId];
     if (!runId || payloadLoadedRuns.has(runId)) return;
@@ -270,7 +278,7 @@ export function createActivityStore(env: StoreEnvironment) {
     payloadLoadedRuns.add(runId);
     try {
       const detail = await api.activityRun(runId, { includePayloads: true });
-      if (disposed || detail.detailPruned || !detail.spans) return;
+      if (disposed || epoch !== generation || detail.detailPruned || !detail.spans) return;
       store.getState().applySnapshot({
         type: "activity_snapshot",
         view: "run",
@@ -281,7 +289,7 @@ export function createActivityStore(env: StoreEnvironment) {
       });
     } catch {
       // Payloads are an enhancement; the row keeps its no-payload notice.
-      payloadLoadedRuns.delete(runId);
+      if (epoch === generation) payloadLoadedRuns.delete(runId);
     }
   }
   function stopInboxPolling() {

@@ -22,6 +22,10 @@ issue when you are not sure.
 
 - [Bun](https://bun.sh) ≥ 1.3.5 — `brain doctor` warns below 1.3.5, citing
   CVE-2026-24910.
+- Running this repository's test suite requires Bun ≥ 1.4.0; CI pins 1.4.2.
+  Earlier Bun versions can close an unrelated recycled descriptor after an
+  extra-pipe subprocess is collected (#1043). Consumer runtime minimums
+  remain governed by the published packages' engines.
 - A local Chrome or Chromium for the puppeteer runtime tests
   (`packages/ui-render-puppeteer/tests/runtime.test.ts`). Without one those
   tests skip, so a green **local** run on a Chrome-less machine has not
@@ -137,6 +141,22 @@ an isolated root with seeded messages and fixture transports, and checks pixels
 without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
 unit-test discovery does not claim them.
 
+The same project runs offline fault tests, named `.offline.tsx`. Their
+harness lives in `packages/ui-react/tests/browser/offline/`, and each module's
+header documents its API:
+
+- `audio-fixtures.ts` generates seeded WAVs: 10 s, 95 s and 10 min 5 s.
+- A fake microphone plays the 10-second WAV. The project's Chromium launch
+  flags feed it, and `fake-microphone.ts` injects it for other engines and can
+  interrupt the microphone or hide the page.
+- `fault-network.ts` provides the transport drop, the auth expiry (a 401 and a
+  1008 close) and a request and frame spy.
+- `indexeddb-faults.ts` simulates a full quota.
+- `scene.ts` reloads or terminates a whole page.
+
+`offline-faults.offline.tsx` checks each primitive against today's app. A
+feature test should use these helpers instead of building its own.
+
 The complete dictation browser fixture has its own `dictation` project so its
 Chromium touch emulation and consumer styles stay outside the shared `visual`
 page. The default browser wrapper includes it in both shards; use
@@ -222,7 +242,7 @@ with a standard XML parser and inspect its testcase names and counts.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all sixteen packages, including packages whose own code did
+   `fixed` group: all seventeen packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line

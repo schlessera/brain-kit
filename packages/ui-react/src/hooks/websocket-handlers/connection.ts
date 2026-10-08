@@ -8,11 +8,11 @@ type ConnectionFrame =
 export const connectionFrameHandlers = {
   server_hello: (msg, context) => {
     context.stores.connection.getState().setChatRequestAck(msg.capabilities?.chatRequestAck === true);
-    // Pending follow-ups (#1002): this host re-reports every non-empty queue
-    // right after this hello, so what this client held belongs to the old
-    // connection. A host that does not report them keeps follow-ups in chat.
+    // A reconnect is no evidence that a pending follow-up disappeared.
+    // Keep its pill until this host reports the queue; a new principal or a
+    // host without queue support cannot retain the old principal's entries.
     context.stores.connection.getState().setFollowUpQueue(msg.capabilities?.followUpQueue === true);
-    context.stores.followUp.getState().reset();
+    context.stores.followUp.getState().reconnect(msg.capabilities?.followUpQueue === true, msg.principalKey);
     context.stores.activity.getState().setSupported(msg.capabilities?.activity === true);
     // A new hello means a new connection: server-side subscriptions are gone.
     context.stores.activity.getState().resetSubscriptions();

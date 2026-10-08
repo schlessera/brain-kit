@@ -195,6 +195,7 @@ export "." (./src/index.ts)
   type QueueAddResult
   type QueueStagingManifest
   type QueuedFollowUpView
+  type RecordingTranscription
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -283,11 +284,15 @@ export "." (./src/index.ts)
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
+  type TranscriptionErrorResponse
+  type TranscriptionFailure
+  type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
+  type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -558,6 +563,7 @@ export "./client" (./src/client/index.ts)
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
+  type RecordingTranscription
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -666,12 +672,16 @@ export "./client" (./src/client/index.ts)
   type ToolSemantics
   type TrackFileSummary
   type TrackFileView
+  type TranscriptionErrorResponse
+  type TranscriptionFailure
+  type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
   type TurnUsage
   type UnavailableProfileInfo
   type UnpinnedReason
   type V1ResolutionEffect
+  type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -960,6 +970,7 @@ export "./protocol" (./src/protocol.ts)
   type QueueAddResult
   type QueueStagingManifest
   type QueuedFollowUpView
+  type RecordingTranscription
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -1048,11 +1059,15 @@ export "./protocol" (./src/protocol.ts)
   type ToolResolutionOutcome
   type TrackFileSummary
   type TrackFileView
+  type TranscriptionErrorResponse
+  type TranscriptionFailure
+  type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
   type TurnUsage
   type UnavailableProfileInfo
   type V1ResolutionEffect
+  type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -1502,6 +1517,7 @@ export "./server" (./src/server/index.ts)
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
+  type RecordingTranscription
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -1535,6 +1551,7 @@ export "./server" (./src/server/index.ts)
   SPAN_TOOL_NAME_PREFIX
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  type SavedAudioTranscription
   type ServerActivityDelta
   type ServerActivitySnapshot
   type ServerAskAnswerReceipt
@@ -1596,6 +1613,7 @@ export "./server" (./src/server/index.ts)
   type SpeechCapabilities
   type SpeechProvider
   type SpeechSession
+  SpeechTranscriptionError
   type StartTurnRequest
   type SubscriptionAuthAction
   type SurfaceTools
@@ -1614,6 +1632,9 @@ export "./server" (./src/server/index.ts)
   type TrackFileSummary
   type TrackFileView
   type TranscriptStore
+  type TranscriptionErrorResponse
+  type TranscriptionFailure
+  type TranscriptionFailureReason
   type TurnFailure
   type TurnRetry
   type TurnUsage
@@ -1624,6 +1645,7 @@ export "./server" (./src/server/index.ts)
   type VersionProbeResult
   type VersionRequirement
   type VersionRequirementCheck
+  type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
   type VoiceSessionResponse
@@ -5793,6 +5815,21 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   REQUEST_IMAGE_MASK_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_TOOL_NAME: "request_image_mask";
+  RecordingTranscription (packages/ui-sdk/src/protocol.ts)
+    export interface RecordingTranscription {
+        recordingId: string;
+        sha256: string | null;
+        providerId: string | null;
+        status: "transcribing" | "done" | "failed" | "outcome_unknown" | "consumed";
+        attemptId: string;
+        retryCount: number;
+        text?: string;
+        failure?: TranscriptionFailure;
+        failures: Array<TranscriptionFailure & {
+            attemptId: string;
+        }>;
+        disposition?: "accepted" | "discarded";
+    }
   RegisterDefaultRoutesDeps (packages/ui-sdk/src/client/sw-policy.ts)
     export interface RegisterDefaultRoutesDeps<NetworkOnlyInstance extends object = object, CacheFirstInstance extends object = object, ExpirationPluginInstance extends object = object> {
         registerRoute(capture: RouteMatchCallback, handler: NetworkOnlyInstance | CacheFirstInstance | RouteHandlerCallback): unknown;
@@ -7332,6 +7369,10 @@ signatures (every public export and the types it is made of)
     const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>>;
   SUBSCRIPTION_RELOGIN_PROCEDURE (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_RELOGIN_PROCEDURE: string;
+  SavedAudioTranscription (packages/ui-sdk/src/server/speech.ts)
+    export interface SavedAudioTranscription {
+        text: string;
+    }
   ServerActivityDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerActivityDelta {
         type: "activity_delta";
@@ -7799,6 +7840,7 @@ signatures (every public export and the types it is made of)
         interimResults: boolean;
         keyterms: boolean;
         endpointing: boolean;
+        savedAudio?: boolean;
     }
   SpeechProvider (packages/ui-sdk/src/server/speech.ts)
     export interface SpeechProvider {
@@ -7807,6 +7849,12 @@ signatures (every public export and the types it is made of)
         createSession(opts: {
             keyterms: string[];
         }): Promise<SpeechSession>;
+        transcribeRecording?(input: {
+            audio: Uint8Array;
+            contentType: string;
+            keyterms: string[];
+            signal: AbortSignal;
+        }): Promise<SavedAudioTranscription>;
     }
   SpeechProviderContractHarness (packages/ui-sdk/src/testing/speech-contract.ts)
     export interface SpeechProviderContractHarness {
@@ -7818,6 +7866,12 @@ signatures (every public export and the types it is made of)
     export interface SpeechProviderContractProbe {
         provider: SpeechProvider;
         keyterms(): readonly string[];
+        recording?(): {
+            audio: Uint8Array;
+            contentType: string;
+            keyterms: readonly string[];
+            text: string;
+        };
         dispose(): void | Promise<void>;
     }
   SpeechSession (packages/ui-sdk/src/server/speech.ts)
@@ -7826,6 +7880,10 @@ signatures (every public export and the types it is made of)
         token?: string;
         params?: Record<string, string>;
         expiresAt: number;
+    }
+  SpeechTranscriptionError (packages/ui-sdk/src/server/speech.ts)
+    export class SpeechTranscriptionError extends Error {
+        constructor(readonly reason: TranscriptionFailureReason, readonly providerStatus?: number);
     }
   StartTurnRequest (packages/ui-sdk/src/server/backend.ts)
     export interface StartTurnRequest {
@@ -7981,6 +8039,20 @@ signatures (every public export and the types it is made of)
         list(): ChatSession[];
         history(sessionId: string): SessionHistoryMessage[];
     }
+  TranscriptionErrorResponse (packages/ui-sdk/src/protocol.ts)
+    export interface TranscriptionErrorResponse {
+        error: string;
+        message: string;
+        receipt?: RecordingTranscription;
+    }
+  TranscriptionFailure (packages/ui-sdk/src/protocol.ts)
+    export interface TranscriptionFailure {
+        reason: TranscriptionFailureReason;
+        retryable: boolean;
+        providerStatus?: number;
+    }
+  TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
+    export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
   TurnFailure (packages/ui-sdk/src/protocol.ts)
     export interface TurnFailure {
         errorClass: string;
@@ -8055,6 +8127,11 @@ signatures (every public export and the types it is made of)
         phase: string;
         action: string;
         unknownReason?: string;
+    }
+  VoiceCapabilitiesResponse (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceCapabilitiesResponse {
+        providerId: string;
+        capabilities: SpeechCapabilities;
     }
   VoiceKeytermsResponse (packages/ui-sdk/src/protocol.ts)
     export interface VoiceKeytermsResponse {

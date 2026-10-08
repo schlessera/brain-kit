@@ -51,6 +51,18 @@ export interface ComposerProvider {
 export interface ComposerViewProps {
   /** Capture panel, kept inside the existing bounded composer frame. */
   dictation?: ReactNode;
+  /**
+   * Why the mic cannot record, in place of the capture panel: a refused
+   * microphone, or a browser that cannot record on the device (#1012).
+   */
+  captureNotice?: string;
+  dictationNotice?: string;
+  onDismissDictationNotice?: () => void;
+  onDismissCaptureNotice?: () => void;
+  /** The mic's accessible name when it does not dictate. */
+  micLabel?: string;
+  /** Off: no mic is drawn, because there is no capture to offer. */
+  mic?: boolean;
   value: string;
   state: ComposerState;
   /** Overrides the state's own placeholder (a connection reason, the host's copy). */
@@ -76,7 +88,8 @@ export interface ComposerViewProps {
   onChange: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
-  onMic: () => void;
+  /** Omitted while the mic has nothing to do yet. */
+  onMic?: () => void;
   onAttachToggle: () => void;
   onPickLibrary: () => void;
   onPickCamera: () => void;
@@ -120,6 +133,24 @@ export function ComposerView(p: ComposerViewProps) {
   return (
     <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste}>
       {p.dictation}
+      {p.dictationNotice && (
+        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="dictation" onPointerDown={(event) => {
+          const button = (event.target as HTMLElement).closest('[role="button"]');
+          if (button && button !== document.activeElement) event.preventDefault();
+        }}>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
+          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissDictationNotice} />
+        </div>
+      )}
+      {p.captureNotice && p.captureNotice !== p.dictationNotice && (
+        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="local" onPointerDown={(event) => {
+          const button = (event.target as HTMLElement).closest('[role="button"]');
+          if (button && button !== document.activeElement) event.preventDefault();
+        }}>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
+          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissCaptureNotice} />}
+        </div>
+      )}
       {p.attachErrors.length > 0 && (
         <div className="mb-2 flex items-start gap-2" role="alert">
           <div className="min-w-0 flex-1">
@@ -201,6 +232,8 @@ export function ComposerView(p: ComposerViewProps) {
         onStop={p.onStop}
         onAttach={p.onAttachToggle}
         onMic={p.onMic}
+        mic={p.mic}
+        micLabel={p.micLabel}
       />
     </div>
   );

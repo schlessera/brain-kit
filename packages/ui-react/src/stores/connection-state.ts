@@ -33,6 +33,13 @@ export interface ConnectionState {
   followUpQueue: boolean;
   setFollowUpQueue(supported: boolean): void;
   vpnStatus: VpnStatus;
+  /**
+   * The account the client is signed in as, for device-local partitions
+   * (#1014): the host's `accountKey` from the last authenticated probe. A
+   * refused probe (401, 403) clears it; an unreachable host leaves it, since
+   * a dropped connection is not a sign-out.
+   */
+  accountKey: string | null;
   handshakeFailures: number;
   lastCloseCode: number | null;
   /**
@@ -44,7 +51,8 @@ export interface ConnectionState {
   socketOpens: number;
   lastError: ConnectionError | null;
   setWsStatus: (status: WsStatus) => void;
-  setVpnStatus: (status: VpnStatus) => void;
+  /** `accountKey` is what an authenticated probe named; absent means none. */
+  setVpnStatus: (status: VpnStatus, accountKey?: string | null) => void;
   recordWsClose: (opened: boolean, code: number) => void;
   /** A socket reached `open`: the refusal evidence so far is spent. */
   noteSocketOpen: () => void;
@@ -60,12 +68,16 @@ export function createConnectionStore() {
     followUpQueue: false,
     setFollowUpQueue: (followUpQueue) => set({ followUpQueue }),
     vpnStatus: "checking",
+    accountKey: null,
     handshakeFailures: 0,
     lastCloseCode: null,
     socketOpens: 0,
     lastError: null,
     setWsStatus: (wsStatus) => set({ wsStatus }),
-    setVpnStatus: (vpnStatus) => set({ vpnStatus }),
+    setVpnStatus: (vpnStatus, accountKey) => set(
+      vpnStatus === "connected" ? { vpnStatus, accountKey: accountKey ?? null }
+        : vpnStatus === "unauthorized" || vpnStatus === "forbidden" ? { vpnStatus, accountKey: null }
+        : { vpnStatus }),
     recordWsClose: (opened, lastCloseCode) =>
       set((state) => ({
         lastCloseCode,

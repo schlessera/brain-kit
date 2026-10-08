@@ -1,4 +1,5 @@
 import { createTrackRoutes } from "./routes/tracks.js";
+import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
@@ -14,6 +15,8 @@ import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createActivityRoutes } from "./routes/activity.js";
+import { createTranscriptionRoutes } from "./routes/transcriptions.js";
+import { createTranscriptionStore } from "./voice/transcription-store.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
@@ -505,7 +508,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         origin: allowedOrigins,
         allowMethods: ["GET", "POST", "PUT", "DELETE"],
         // If-Match and Idempotency-Key carry draft revisions and receipts (#979).
-        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key"],
+        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256"],
         credentials: true,
       })
     );
@@ -536,7 +539,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // behind it: an unauthenticated client gets 401 (password/proxy) or 403
   // (tailscale) from /api/vpn-check and shows the login / VPN screen.
   app.use("/api/*", authGuard(authMode, auth, db));
-  app.get("/api/vpn-check", (c) => c.json({ vpn: true }));
+  // The account partition key rides on the probe every client already makes
+  // before it mounts anything (#1014): an agent principal gets none.
+  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode);
+  app.get("/api/vpn-check", (c) => {
+    const accountKey = accountKeys(c.get("principal"));
+    return c.json(accountKey ? { vpn: true, accountKey } : { vpn: true });
+  });
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
   app.route("/api", passkeyManagementRoutes(authMode, passkeyCtx));
@@ -586,6 +595,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createActivityRoutes({ db, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
+  const transcriptions = createTranscriptionStore(db, accountKeys);
+  app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
   app.route(
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files") })

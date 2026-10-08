@@ -3,10 +3,12 @@
 // the shape, and a result that fails the schema falls back to its own words
 // rather than a blank. Props-only, keyless, mounted in happy-dom. Queries
 // come from `render()`, never `screen` — see tests/render/dom.ts for why.
-import { unregisterBlockCardDom } from "./block-card-dom.js";
+import { registerBlockCardDom, unregisterBlockCardDom } from "./block-card-dom.js";
+
+registerBlockCardDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render as mount, waitFor } from "@testing-library/react";
+import { act, cleanup, render as mount, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import {
   SHOW_BLOCK_CONTRACT,
@@ -29,10 +31,17 @@ import { isShowBlockTool } from "../../src/lib/tool-names.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 
-afterEach(cleanup);
-afterAll(() => {
+const roots: ReturnType<typeof createBrainUiRoot>[] = [];
+afterEach(async () => {
+  await act(async () => {
+    cleanup();
+    for (const root of roots.splice(0)) root.dispose();
+  });
+});
+afterAll(async () => {
+  await act(async () => cleanup());
   resetToolRenderers();
-  unregisterBlockCardDom();
+  await unregisterBlockCardDom();
 });
 
 import { BLOCKS, SUGGESTIONS, type AnswerBlockKind } from "../block-fixtures.js";
@@ -67,6 +76,7 @@ function render(ui: ReactElement) {
       return answer(url);
     },
   });
+  roots.push(root);
   return mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>);
 }
 
@@ -99,7 +109,7 @@ const EXPECTED_TEXT: Record<AnswerBlockKind, string[]> = {
 
 describe("BlockCard", () => {
   for (const kind of Object.keys(BLOCKS) as AnswerBlockKind[]) {
-    test(`${kind}: the contract accepts the payload and the kit draws its words`, () => {
+    test(`${kind}: the contract accepts the payload and the kit draws its words`, async () => {
       const payload = parseToolPayload(
         SHOW_BLOCK_CONTRACT,
         JSON.stringify({ block: BLOCKS[kind] })
@@ -110,6 +120,9 @@ describe("BlockCard", () => {
       for (const text of EXPECTED_TEXT[kind]) {
         expect(container.textContent).toContain(text);
       }
+      // RTL's render commits the original first frame synchronously. Its
+      // real request effects then settle inside act before fixture teardown.
+      await act(async () => {});
     });
   }
 

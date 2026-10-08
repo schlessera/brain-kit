@@ -45,7 +45,7 @@ skill descriptions and defaults are unchanged.
 | Built-in tools | The turn declares its allowlist, disallowed tools and permission callbacks. | Native CLI tool definitions and their per-request token cost. |
 
 The assembly entry is `createClaudeSdkTurn`
-(`packages/ui-backend-claude/src/sdk-options.ts:55-215`); eager bridge
+(`packages/ui-backend-claude/src/sdk-options.ts:55-219`); eager bridge
 registration is `createBrainUiMcpServer`
 (`packages/ui-backend-claude/src/ask-user-tool.ts:93-140`). Skill discovery
 is `discoverSkills` (`packages/core/src/lib/skills/discover.ts:43-81`), and
@@ -54,7 +54,7 @@ project emission is `claudeEmitter`
 The probe connects the returned production server instance through
 `connectSurface` (`scripts/turn-surface-routing.ts:19-31`), rather than
 asserting the factory alone. Core inventory starts its real source entry
-through `connectBrainSurface` (`scripts/turn-surface-fixture.ts:82-98`).
+through `connectBrainSurface` (`scripts/turn-surface-fixture.ts:112-128`).
 Inventory uses a separate production turn instance; returned turns retain
 their fresh MCP transport. Fallback tests connect and inspect the actual
 returned entry, so the inventory cannot occupy that transport unnoticed.

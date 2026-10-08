@@ -32,7 +32,7 @@ The permission bridge asks the user to approve a tool call before it runs
 In chat the user is
 looking at a card: the transcript copy in
 (`Approval buttons`,
-`packages/ui-react/src/components/chat/tool-call-timeline.tsx:356-398`), the
+`packages/ui-react/src/components/chat/tool-call-timeline.tsx:397-439`), the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
@@ -42,7 +42,7 @@ that needs no interactive approval, or voice is read-only.
 
 Voice today is tap-to-dictate: the speech contract mints a **dictation** session
 (`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26`) and
-`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:24`
+`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26-40`
 drives it into the composer.
 There is no voice output and no spoken turn, so nothing in this record describes
 existing behaviour.
@@ -487,7 +487,7 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:84`, and what it
-becomes, `allowedTools: allowed`, `:144`). The voice posture is one
+becomes, `allowedTools: allowed`, `:148`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**

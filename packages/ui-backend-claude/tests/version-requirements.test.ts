@@ -22,6 +22,39 @@ function fixture(js = false) {
   return { dir, path, set };
 }
 const apiProfiles = defineProfiles([{ id: "api", label: "API", apiKeyEnv: "FAKE_KEY", source: "declared" }]);
+for (const resume of [false, true]) test(`Haiku 5.5 refuses a pre-2.1.293 external CLI before ${resume ? "resume" : "start"} prompt release`, async () => {
+  const f = fixture(); f.set("2.1.292"); const h = harness();
+  const profiles = defineProfiles([{ id: "haiku", label: "Claude Haiku 5.5", model: "claude-haiku-5-5", apiKeyEnv: "FAKE_KEY" }]);
+  await createClaudeBackend({ ...options(f, h), profiles, versionRequirements: undefined }).startTurn({
+    prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge, ...(resume ? { sessionId: "existing" } : {}),
+  });
+  expect(h.calls, "reject the incompatible runtime before query dispatch").toHaveLength(0);
+  expect(h.released).toHaveLength(0);
+  expect(h.frames.find(msg => msg.type === "error")).toMatchObject({ type: "error", message: expect.stringContaining("claude-haiku-5-5") });
+});
+test("Haiku 5.5 composes its model minimum with a higher host minimum", async () => {
+  const f = fixture(); f.set("2.1.293"); const h = harness();
+  await createClaudeBackend({ ...options(f, h), profiles: defineProfiles([{ id: "haiku", label: "Haiku", model: "claude-haiku-5-5", apiKeyEnv: "FAKE_KEY" }]),
+    versionRequirements: { runtime: "2.1.294" } }).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
+  expect(h.calls).toHaveLength(0);
+  expect(h.frames.find(msg => msg.type === "error")).toMatchObject({ type: "error", message: expect.stringContaining("host versionRequirements.runtime") });
+});
+test("Haiku 5.5 releases the prompt after a compatible probe and handshake", async () => {
+  const f = fixture(); f.set("2.1.293"); const h = harness(async () => ({}), "2.1.293");
+  await createClaudeBackend({ ...options(f, h), profiles: defineProfiles([{ id: "haiku", label: "Haiku", model: "claude-haiku-5-5", apiKeyEnv: "FAKE_KEY" }]),
+    versionRequirements: undefined }).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
+  expect(h.calls).toHaveLength(1); expect(h.released).toHaveLength(1);
+  expect(h.released[0]!.message.content).toBe("nonempty user work");
+  expect(h.frames.at(-1)).toMatchObject({ type: "result", outcome: "success" });
+});
+test("Haiku 5.5 rejects incompatible init after a compatible pre-prompt probe", async () => {
+  const f = fixture(); f.set("2.1.293"); const h = harness(async () => ({}), "2.1.292");
+  await createClaudeBackend({ ...options(f, h), profiles: defineProfiles([{ id: "haiku", label: "Haiku", model: "claude-haiku-5-5", apiKeyEnv: "FAKE_KEY" }]),
+    versionRequirements: undefined }).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
+  expect(h.released).toHaveLength(1); // Init cannot unsend previously released input.
+  expect(h.frames.at(-1)).toMatchObject({ type: "result", outcome: "error" });
+  expect(h.frames.some(msg => msg.type === "result" && msg.outcome === "success")).toBe(false);
+});
 function harness(init: () => Promise<unknown> = async () => ({}), version = "2.1.999") {
   const released: SDKUserMessage[] = [];
   const calls: unknown[] = [];
@@ -47,7 +80,7 @@ function options(f: ReturnType<typeof fixture>, h: ReturnType<typeof harness>) {
     log: () => {}, versionRequirements: { runtime: "2.1.283" } } as ClaudeBackendOptions;
 }
 test("direct factory enforces the owning SDK upper bound against a conflicting host floor", () => {
-  expect(() => createClaudeBackend({ brainPath: "/unused", versionRequirements: { sdk: "0.4.0" } } as ClaudeBackendOptions)).toThrow(/No version satisfies.*0\.3\.241.*0\.4\.0/);
+  expect(() => createClaudeBackend({ brainPath: "/unused", versionRequirements: { sdk: "0.4.0" } } as ClaudeBackendOptions)).toThrow(/No version satisfies.*0\.3\.293.*0\.4\.0/);
 });
 for (const js of [false, true]) for (const resume of [false, true]) {
   test(`${js ? "JS" : "native"} changed override refuses ${resume ? "resume" : "start"} before user prompt release`, async () => {

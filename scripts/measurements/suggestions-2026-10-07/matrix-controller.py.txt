@@ -1,0 +1,205 @@
+"""Prepared explicit serial measurement controller. No launch on import."""
+import hashlib, json, math, os, shutil, subprocess, sys, importlib.util
+from pathlib import Path
+
+CHECKOUT=Path(os.environ['BRAIN_MEASUREMENT_CHECKOUT'])
+SCRATCH=Path(os.environ['BRAIN_MEASUREMENT_SCRATCH'])
+RUNS=SCRATCH/'runs'
+MODEL='claude-sonnet-5-5'
+LEDGER=RUNS/'matrix-controller-ledger.json'
+CONFIG=SCRATCH/'cap-plan.json'
+PRELOAD=SCRATCH/'raw-capture-preload.ts'
+MANIFEST=SCRATCH/'frozen-inputs.json'
+
+def read(path,default):
+    return json.loads(path.read_text()) if path.exists() else default
+
+def fixture_runtime():
+    path=SCRATCH/'fixture-runtime.py'
+    expected=read(MANIFEST,{}).get('executionObservers',{}).get(path.name)
+    if not expected or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:raise RuntimeError('Stop dispatch: fixture runtime helper drift before import')
+    spec=importlib.util.spec_from_file_location('fixture_runtime',path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+def validate_frozen(brain=None):
+    manifest=read(MANIFEST,{})
+    if manifest.get('model')!=MODEL:raise RuntimeError('Frozen model identity changed')
+    expected=dict(manifest.get('sources') or {})
+    files={CHECKOUT/path:digest for path,digest in expected.items()}
+    files[SCRATCH/'launch.py']=manifest.get('launcher')
+    files[SCRATCH/'complementary-review.ts']=manifest.get('complementaryReviewSource')
+    files.update({CHECKOUT/path:digest for path,digest in (manifest.get('executionRuntimeSources') or {}).items()})
+    files.update({SCRATCH/path:digest for path,digest in (manifest.get('executionObservers') or {}).items()})
+    for path,digest in files.items():
+        if not digest or hashlib.sha256(path.read_bytes()).hexdigest()!=digest:
+            raise RuntimeError('Stop dispatch: frozen source/launcher/observer hash changed')
+    corpus=manifest.get('corpusFiles') or {}
+    if len(corpus)!=manifest.get('corpusFileCount'):raise RuntimeError('Incomplete frozen corpus manifest')
+    aggregate=hashlib.sha256(json.dumps(corpus,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+    if aggregate!=manifest.get('corpus'):raise RuntimeError('Frozen corpus aggregate mismatch')
+    for root in [CHECKOUT/'packages/core/fixtures/corpus',*([brain] if brain else [])]:
+        for name,digest in corpus.items():
+            if hashlib.sha256((root/name).read_bytes()).hexdigest()!=digest:
+                raise RuntimeError('Stop dispatch: corpus source or staged fixture changed')
+    if brain:fixture_runtime().validate_runtime(brain)
+    return manifest
+
+def require_approved_review(manifest):
+    receipt=read(RUNS/'complementary-review-retry.json',{})
+    digest=hashlib.sha256(json.dumps(manifest,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+    result=receipt.get('result') or {}
+    if receipt.get('model')!=MODEL or receipt.get('approved') is not True or result.get('isError') is not False:
+        raise RuntimeError('Stop scored dispatch: approved complementary review of these exact frozen hashes is absent')
+    if receipt.get('frozenManifestHash')!=digest:
+        amendment=read(SCRATCH/'root-transport-path-amendment.json',{})
+        original=read(SCRATCH/'approved-frozen-inputs.json',{})
+        original_digest=hashlib.sha256(json.dumps(original,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+        if amendment.get('scope')!='pi-api-key-standard-transport-only' or amendment.get('fromApprovedManifestHash')!=receipt.get('frozenManifestHash') or amendment.get('toExecutedManifestHash')!=digest or amendment.get('controllerHash')!=manifest.get('executionObservers',{}).get('matrix-controller.py') or amendment.get('preloadHash')!=manifest.get('executionObservers',{}).get('raw-capture-preload.ts') or amendment.get('fixtureRuntimeHash')!=manifest.get('executionObservers',{}).get('fixture-runtime.py') or amendment.get('fixtureWrapperHash')!=manifest.get('executionObservers',{}).get('fixture-brain-wrapper.sh') or amendment.get('launcherHash')!=manifest.get('launcher') or amendment.get('piApiCaptureHash')!=manifest.get('executionObservers',{}).get('pi-api-capture.ts') or amendment.get('piApiPreloadHash')!=manifest.get('executionObservers',{}).get('pi-api-capture-preload.ts') or original_digest!=receipt.get('frozenManifestHash'):
+            raise RuntimeError('Stop scored dispatch: exact root-reviewed preload-resolution amendment absent')
+        old_compare=json.loads(json.dumps(original));new_compare=json.loads(json.dumps(manifest))
+        for name in ['matrix-controller.py','raw-capture-preload.ts','fixture-runtime.py','fixture-brain-wrapper.sh','pi-api-capture.ts','pi-api-capture-preload.ts','pi-api-controls.ts','pi-api-smoke.ts','pi-api-launch-env.ts']:
+            old_compare['executionObservers'].pop(name,None);new_compare['executionObservers'].pop(name,None)
+        old_compare.pop('executionRuntimeSources',None);new_compare.pop('executionRuntimeSources',None)
+        old_compare.pop('launcher',None);new_compare.pop('launcher',None)
+        expected_runtime=read(SCRATCH/'root-runtime-source-manifest.json',{})
+        if manifest.get('executionRuntimeSources')!=expected_runtime or amendment.get('runtimeSourcesHash')!=hashlib.sha256(json.dumps(expected_runtime,separators=(',',':'),ensure_ascii=False).encode()).hexdigest():raise RuntimeError('Stop dispatch: runtime source inventory differs from root-approved exact manifest')
+        if old_compare!=new_compare:raise RuntimeError('Stop scored dispatch: preload amendment cannot change semantic or other execution inputs')
+
+def sdk_receipts():
+    receipts=read(RUNS/'sdk-raw-receipts.json',[])
+    for receipt in receipts:
+        if not receipt.get('finished') or receipt.get('apiEquivalent') is None:
+            raise RuntimeError('Stop dispatch: SDK receipt missing final priced usage')
+        if receipt.get('rawResult',{}).get('isError') or receipt.get('init',{}).get('model')!=MODEL or receipt.get('init',{}).get('apiKeySource')!='none' or receipt.get('credentialPresence',{}).get('oauthToken') is not True or receipt.get('credentialPresence',{}).get('apiKey') is not False or receipt.get('credentialPresence',{}).get('authToken') is not False:
+            raise RuntimeError('Stop dispatch: prior SDK error or model mismatch')
+        account=receipt.get('account') or {}
+        if account.get('tokenSource')!='CLAUDE_CODE_OAUTH_TOKEN' or account.get('apiProvider')!='firstParty' or account.get('apiKeySource') not in [None,'none']:
+            raise RuntimeError('Stop dispatch: initialization account is not isolated first-party OAuth')
+        if receipt.get('subscriptionOverageState')=='active':
+            raise RuntimeError('Stop dispatch: subscription overage reported active')
+    return receipts
+
+def rejected_oauth(row):
+    amendment=read(SCRATCH/'root-transport-path-amendment.json',{})
+    path=SCRATCH/'runs/pi-rule-p0-r1-oauth-extra-usage-rejected.json'
+    if row.get('cell')!='pi-rule-p0-r1-oauth-extra-usage-rejected' or row.get('attemptFor')!='pi-rule-p0-r1' or row.get('output')!=str(path) or row.get('billingRoute')!='anthropic-oauth-env' or row.get('providerRequestRejected') is not True:return False
+    digest=hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest!=row.get('rejectedReceiptHash') or digest!=amendment.get('rejectedOAuthReceiptHash'):return False
+    result=read(path,{})['records'][0].get('result') or {};failure=result.get('failure') or {}
+    return result.get('outcome')=='error' and result.get('isError') is True and failure.get('status')==400 and 'out of extra usage' in failure.get('message','')
+
+def pi_api_receipts():
+    if (RUNS/'pi-api-admission-error.json').exists():raise RuntimeError('Stop: prior PiAPI native admission refusal requires exact reviewed disposition')
+    rows=read(RUNS/'pi-api-raw-receipts.json',[])
+    for row in rows:
+        price=row.get('apiEquivalent') or {}
+        if not row.get('finished') or row.get('error') or row.get('billingRoute')!='anthropic-api-key' or row.get('model')!=MODEL or row.get('responseModel')!=MODEL or row.get('standardCapacity')!='standard_only' or row.get('inferenceGeography')!='global' or row.get('credentialPresence')!={'apiKey':True,'oauthToken':False,'claudeOauthToken':False,'authToken':False} or row.get('requestHeaderSelector')!='x-api-key matches isolated key; Authorization absent':raise RuntimeError('Stop: Pi API unknown/error/model/auth/tier receipt')
+        numbers=[price.get('lowerUsd'),price.get('upperUsd'),row.get('reservedActualApiUsd')]
+        if any(type(value) not in [int,float] or not math.isfinite(value) or value<0 for value in numbers) or numbers[0]>numbers[1] or numbers[1]>numbers[2]:raise RuntimeError('Stop: Pi API invalid finite price/reservation')
+    return rows
+
+def reservation(ledger):
+    cap=read(CONFIG,{})
+    if cap.get('billingMode')!='actual-additional' or cap.get('issueActualBilledCapUsd')!=15 or not cap.get('ruling'):
+        raise RuntimeError('Stop dispatch: explicit actual-additional billing ruling/cap missing')
+    aggregate=read(Path(cap.get('rootLedger') or ''),{})
+    if aggregate.get('capUsd')!=150 or aggregate.get('basis')!='actual additional billed charges' or aggregate.get('ruling')!=cap.get('ruling'):
+        raise RuntimeError('Stop dispatch: aggregate actual-billing ruling/cap differs')
+    reservations=aggregate.get('reservations') or {}
+    if reservations.get('550')!=15 or any(type(value) not in [int,float] or not math.isfinite(value) or value<0 for value in reservations.values()) or sum(reservations.values())>150:
+        raise RuntimeError('Stop dispatch: aggregate reservation absent/invalid/exhausted')
+    known=cap.get('knownNewActualAdditionalBilledUsd')
+    reservation=cap.get('nextActualAdditionalReservationUsd')
+    for value in [known,reservation]:
+        if type(value) not in [int,float] or not math.isfinite(value) or value<0:
+            raise RuntimeError('Stop dispatch: billed amount/reservation must be finite and nonnegative')
+    if known+reservation>15:raise RuntimeError('Stop dispatch: next actual billed reservation would exceed issue cap')
+    sdk=sum(row['apiEquivalent']['upperUsd'] for row in sdk_receipts())
+    api_rows=pi_api_receipts();pi=sum(row['apiEquivalent']['upperUsd'] for row in api_rows)
+    if any(row['backend']=='pi' and not rejected_oauth(row) and (row.get('billingRoute')!='anthropic-api-key' or not row.get('apiEquivalent') or row.get('hadError')) for row in ledger):
+        raise RuntimeError('Stop dispatch: pi error or usage missing/unpriced')
+    if pi+5.28>15:raise RuntimeError('Stop dispatch: worst-case next API request exceeds issue actual charge cap')
+    return dict(actualApiUsageChargeUpperUsd=pi,nextApiRequestMaximumUsd=5.28,billingMode='actual-additional',knownNewActualAdditionalBilledUsd=known,nextActualAdditionalReservationUsd=reservation,newApiEquivalentUpperUsd=sdk+pi,historicalApiEquivalentUsd=None,historicalSubscriptionOverageState='not captured')
+
+def pi_price(record):
+    result=record.get('result') or {}
+    models=(result.get('usage') or {}).get('perModel') or {}
+    if set(models)!={MODEL}:return None
+    usage=models[MODEL]
+    fields=['inputTokens','outputTokens','cacheReadTokens','cacheCreationTokens']
+    values=[usage.get(field) for field in fields]
+    if any(type(n) is not int or n<0 for n in values):return None
+    inp,out,reads,writes=values
+    if result.get('outcome')!='success' and sum(values)==0:return None
+    base=inp*2+out*10+reads*.2
+    return dict(lowerUsd=(base+writes*2.5)/1e6,upperUsd=(base+writes*4)/1e6,exact=writes==0,reason='actual pi per-model tokens; missing cache TTL bounded at official 5m/1h rates')
+
+def launch(args,arm=None,api_cell=None):
+    env=os.environ.copy()
+    if arm:env['BRAIN_MEASURE_SUGGESTIONS_ARM']=arm
+    if api_cell:env['BRAIN_MEASURE_BILLING_ROUTE']='anthropic-api-key';env['BRAIN_MEASURE_CELL']=api_cell
+    return subprocess.run(['rtk','proxy','python3',str(SCRATCH/'launch.py'),'run',*args],cwd=CHECKOUT,env=env)
+
+def main():
+    if len(sys.argv)!=2 or sys.argv[1] not in ['plan','review','sdk','claude','pi']:
+        raise RuntimeError('Use plan, review, sdk, claude, or pi; never implicitly dispatch')
+    if sys.argv[1]=='plan':
+        print(json.dumps(dict(model=MODEL,sdkCells=36,claudeCells=36,piCells=36,concurrency=1,serverInvocation='one cell; ledger checked before next',billingMode='actual-additional',historicalApiEquivalent='unknown separate diagnostic')))
+        return
+    backend=sys.argv[1];ledger=read(LEDGER,[])
+    if backend=='review':
+        validate_frozen();reservation(ledger)
+        if (RUNS/'complementary-review-retry.json').exists():raise RuntimeError('Review already attempted; inspect preserved receipt before retry')
+        child=launch([str(SCRATCH/'complementary-review.ts')])
+        if child.returncode:raise RuntimeError('Complementary review failed; raw usage retained')
+        require_approved_review(validate_frozen());sdk_receipts();return
+    if backend=='sdk':
+        if any(row['backend']=='sdk' for row in ledger):raise RuntimeError('SDK invocation already attempted; inspect preserved partial results before resuming')
+        manifest=validate_frozen();require_approved_review(manifest)
+        plan=reservation(ledger)
+        row=dict(backend='sdk',plan=plan,finished=False);ledger.append(row);LEDGER.write_text(json.dumps(ledger,indent=2))
+        child=launch(['--preload',str(PRELOAD),'scripts/measure-show-block.ts','--suggestions','--reps','3','--concurrency','1','--out',str(RUNS/'sdk-suggestions.json'),'--md',str(RUNS/'sdk-suggestions.md')])
+        row.update(finished=True,exitCode=child.returncode);LEDGER.write_text(json.dumps(ledger,indent=2))
+        if child.returncode:raise RuntimeError('SDK matrix exited nonzero; inspect partial records')
+        sdk_receipts();return
+    for arm in ['rule','no-rule']:
+        brain=SCRATCH/f'{backend}-{arm}-brain'
+        for prompt in range(6):
+            for rep in range(1,4):
+                cell=f'{backend}-{arm}-p{prompt}-r{rep}'
+                if any(row.get('cell')==cell for row in ledger):continue
+                # Reset only this invocation's named staged fixture before every server turn.
+                if brain.parent!=SCRATCH or brain.name!=f'{backend}-{arm}-brain':raise RuntimeError('Refuse unexpected fixture reset target')
+                if brain.exists():shutil.rmtree(brain)
+                shutil.copytree(SCRATCH/f'{backend}-brain',brain)
+                validate_frozen()
+                fixture_runtime().stage_runtime(brain)
+                manifest=validate_frozen(brain);require_approved_review(manifest)
+                plan=reservation(ledger)
+                path=RUNS/f'{cell}.json'
+                row=dict(backend=backend,cell=cell,arm=arm,prompt=prompt,rep=rep,plan=plan,finished=False,**({'billingRoute':'anthropic-api-key'} if backend=='pi' else {}))
+                ledger.append(row);LEDGER.write_text(json.dumps(ledger,indent=2))
+                child=launch([*(['--preload',str(SCRATCH/'pi-api-capture-preload.ts')] if backend=='pi' else []),'--preload',str(PRELOAD),'--preload',str(CHECKOUT/'scripts/measure-suggestions-preload.ts'),'scripts/measure-show-block-server.ts','--suggestions','--brain',str(brain),'--backend',backend,'--model',MODEL,'--prompts',str(prompt),'--runs','1','--out',str(path)],arm,cell if backend=='pi' else None)
+                row.update(finished=True,exitCode=child.returncode,output=str(path))
+                payload=read(path,{})
+                records=payload.get('records') or []
+                if backend=='pi':
+                    try:receipts=[receipt for receipt in pi_api_receipts() if receipt.get('cell')==cell]
+                    except RuntimeError as error:
+                        row.update(hadError=True,apiEquivalent=None,receiptError=str(error));LEDGER.write_text(json.dumps(ledger,indent=2));raise
+                    row['apiReceiptIds']=[receipt['id'] for receipt in receipts]
+                    row['apiEquivalent']={'lowerUsd':sum(receipt['apiEquivalent']['lowerUsd'] for receipt in receipts),'upperUsd':sum(receipt['apiEquivalent']['upperUsd'] for receipt in receipts),'exact':all(receipt['apiEquivalent']['exact'] for receipt in receipts)} if receipts else None
+                    row['hadError']=len(records)!=1 or ((records[0].get('result') or {}).get('outcome')!='success' or (records[0].get('result') or {}).get('isError') is not False)
+                    if not row['hadError'] and receipts:
+                        wire=((records[0].get('result') or {}).get('usage') or {}).get('perModel') or {}
+                        fields={'inputTokens':'input_tokens','outputTokens':'output_tokens','cacheReadTokens':'cache_read_input_tokens','cacheCreationTokens':'cache_creation_input_tokens'}
+                        if set(wire)!={MODEL} or any(wire[MODEL].get(field)!=sum(receipt['usage'][raw] for receipt in receipts) for field,raw in fields.items()):row['hadError']=True;row['receiptError']='Wire usage differs from raw provider receipt sum'
+                    row['subscriptionOverageState']='not applicable to API-key route; prior OAuth failure unknown'
+                LEDGER.write_text(json.dumps(ledger,indent=2))
+                if child.returncode or len(records)!=1:raise RuntimeError('Stop: failed server invocation; preserve all partial records')
+                if backend=='claude':sdk_receipts()
+                if backend=='pi' and (row['apiEquivalent'] is None or row['hadError']):raise RuntimeError('Stop: pi turn has no trustworthy priced usage')
+                reservation(ledger)
+
+if __name__=='__main__':main()

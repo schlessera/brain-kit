@@ -5,7 +5,8 @@
 // The dom.js import MUST stay first — it registers the happy-dom globals
 // before the component module bodies run, and its header documents why every
 // render test lives in this one file and why `screen` must not be used.
-import { unregisterDom } from "./dom.js";
+import { registerDom, unregisterDom } from "./dom.js";
+registerDom();
 
 import { BrainMarkdown } from "../../src/components/chat/brain-markdown.js";
 import { MaskEditor } from "../../src/components/images/mask-editor.js";
@@ -33,8 +34,8 @@ import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { WebSearchChain } from "../../src/components/settings/web-search-chain.js";
-import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { act, cleanup, fireEvent, render, renderHook, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { act, cleanup, fireEvent, render as renderDom, renderHook as renderHookDom, waitFor, within, type RenderOptions } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
 import type {
   ActivityRunDetail,
@@ -66,18 +67,10 @@ import {
   hasUnsentText,
   useServiceWorkerUpdates,
 } from "../../src/hooks/use-service-worker-updates.js";
-import { useFileStore } from "../../src/stores/file-store.js";
-import { useActivityStore } from "../../src/stores/activity-store.js";
-import { useInboxStore } from "../../src/stores/inbox-store.js";
-import {
-  clearGraphSceneCache,
-  useGraphStore,
-} from "../../src/stores/graph-store.js";
-import { useUIStore } from "../../src/stores/ui-store.js";
 import { useShallow } from "zustand/react/shallow";
-import { BrainUiProvider, useBrainUiRoot } from "../../src/root-context.js";
+import { BrainUiProvider, useBrainUiRoot, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
-import { useChatStore, activeChat } from "../../src/stores/chat-store.js";
+import { activeChat } from "../../src/stores/chat-store.js";
 import { useWebSocket } from "../../src/hooks/use-websocket.js";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { Composer } from "../../src/components/chat/composer.js";
@@ -108,9 +101,41 @@ import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-t
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { FilePanel } from "../../src/components/files/file-panel.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
-import { useConnectionStore } from "../../src/stores/connection-store.js";
-import { useProviderStore } from "../../src/stores/provider-store.js";
-import { usePrincipalStore } from "../../src/stores/principal-store.js";
+
+let fixtureRoot = createBrainUiRoot({ storage: null });
+let useFileStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["file"]["getState"]>) => T) => useRootStore("file", selector), fixtureRoot.stores.file);
+let useActivityStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["activity"]["getState"]>) => T) => useRootStore("activity", selector), fixtureRoot.stores.activity);
+let useInboxStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["inbox"]["getState"]>) => T) => useRootStore("inbox", selector), fixtureRoot.stores.inbox);
+let useGraphStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["graph"]["getState"]>) => T) => useRootStore("graph", selector), fixtureRoot.stores.graph);
+let useUIStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["ui"]["getState"]>) => T) => useRootStore("ui", selector), fixtureRoot.stores.ui);
+let useChatStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["chat"]["getState"]>) => T) => useRootStore("chat", selector), fixtureRoot.stores.chat);
+let useConnectionStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["connection"]["getState"]>) => T) => useRootStore("connection", selector), fixtureRoot.stores.connection);
+let useProviderStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["provider"]["getState"]>) => T) => useRootStore("provider", selector), fixtureRoot.stores.provider);
+let usePrincipalStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["principal"]["getState"]>) => T) => useRootStore("principal", selector), fixtureRoot.stores.principal);
+const clearGraphSceneCache = () => fixtureRoot.stores.graph.clearSceneCache();
+const render = (node: ReactNode, options?: RenderOptions) => {
+  const Wrapper = options?.wrapper;
+  return renderDom(node, { ...options, wrapper: ({ children }) => <BrainUiProvider root={fixtureRoot}>{Wrapper ? <Wrapper>{children}</Wrapper> : children}</BrainUiProvider> });
+};
+const renderHook: typeof renderHookDom = (callback, options) => {
+  const Wrapper = options?.wrapper;
+  return renderHookDom(callback, { ...options, wrapper: ({ children }) => <BrainUiProvider root={fixtureRoot}>{Wrapper ? <Wrapper>{children}</Wrapper> : children}</BrainUiProvider> });
+};
+beforeEach(() => {
+  fixtureRoot.dispose();
+  fixtureRoot = createBrainUiRoot({ storage: null });
+  useFileStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["file"]["getState"]>) => T) => useRootStore("file", selector), fixtureRoot.stores.file);
+  useActivityStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["activity"]["getState"]>) => T) => useRootStore("activity", selector), fixtureRoot.stores.activity);
+  useInboxStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["inbox"]["getState"]>) => T) => useRootStore("inbox", selector), fixtureRoot.stores.inbox);
+  useGraphStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["graph"]["getState"]>) => T) => useRootStore("graph", selector), fixtureRoot.stores.graph);
+  useUIStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["ui"]["getState"]>) => T) => useRootStore("ui", selector), fixtureRoot.stores.ui);
+  useChatStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["chat"]["getState"]>) => T) => useRootStore("chat", selector), fixtureRoot.stores.chat);
+  useConnectionStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["connection"]["getState"]>) => T) => useRootStore("connection", selector), fixtureRoot.stores.connection);
+  useProviderStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["provider"]["getState"]>) => T) => useRootStore("provider", selector), fixtureRoot.stores.provider);
+  usePrincipalStore = Object.assign(<T,>(selector: (state: ReturnType<BrainUiRoot["stores"]["principal"]["getState"]>) => T) => useRootStore("principal", selector), fixtureRoot.stores.principal);
+  realGraphFetchMeta = fixtureRoot.stores.graph.getInitialState().fetchMeta;
+  realGraphFetchScene = fixtureRoot.stores.graph.getInitialState().fetchScene;
+});
 
 // happy-dom rejects an animation's `finished` promise when a mounted gate
 // changes branches. These tests exercise the rendered state transitions, not
@@ -161,13 +186,10 @@ mock.module("../../src/components/graph/graph-canvas.js", () => ({
 
 afterEach(cleanup);
 afterAll(async () => {
-  // Let React's scheduler drain before the DOM globals go. A test that
-  // resolves a deferred response late can leave one `performWorkUntilDeadline`
-  // task queued; unregistering underneath it throws "window is not defined"
-  // from the scheduler, which Bun reports as an error and exits non-zero even
-  // though every test passed.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterDom();
+  // Finish owned React work while its DOM still exists, then await happy-dom's
+  // own closure. A timer turn is not proof that scheduled work has drained.
+  await act(async () => cleanup());
+  await unregisterDom();
 });
 
 const realFetch = globalThis.fetch;
@@ -175,8 +197,8 @@ const RealWebSocket = globalThis.WebSocket;
 const realConfirm = window.confirm;
 const realClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 const realDateNow = Date.now;
-const realGraphFetchMeta = useGraphStore.getInitialState().fetchMeta;
-const realGraphFetchScene = useGraphStore.getInitialState().fetchScene;
+let realGraphFetchMeta = useGraphStore.getInitialState().fetchMeta;
+let realGraphFetchScene = useGraphStore.getInitialState().fetchScene;
 
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -267,6 +289,7 @@ afterEach(() => {
     mintError: null,
     oneTimeCredential: null,
   });
+  fixtureRoot.dispose();
 });
 
 async function flushPromises(): Promise<void> {
@@ -3463,6 +3486,7 @@ describe("authentication and passkey root ownership", () => {
       fireEvent.click(view.getByRole("button", { name: "Sign in" }));
       expect(b.matching("/auth/login", "POST")[0].url).toBe("https://beta.example/api/auth/login");
       await reply(b.matching("/auth/login", "POST")[0], { ok: true });
+      await reply(b.matching("/vpn-check")[0], { accountKey: "beta-account" });
       expect(reload).toHaveBeenCalledTimes(1);
     } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
@@ -3538,8 +3562,26 @@ describe("authentication and passkey root ownership", () => {
       const verify = b.matching("/auth/passkey/login-verify", "POST")[0];
       expect(verify.url).toBe("https://beta.example/api/auth/passkey/login-verify");
       await reply(verify, { ok: true });
+      await reply(b.matching("/vpn-check")[0], { accountKey: "beta-account" });
       expect(reload).toHaveBeenCalledTimes(1);
     } finally { view.unmount(); reload.mockRestore(); platform.restore(); a.root.dispose(); b.root.dispose(); }
+  });
+
+  test("a late sign-out inventory cannot authorize logout from a replacement root", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const summary = await a.root.localWorkFlow.loss();
+    const inventory = deferred<typeof summary>();
+    const loss = spyOn(a.root.localWorkFlow, "loss").mockReturnValue(inventory.promise);
+    const view = render(security(a.root));
+    try {
+      await reply(a.requests[0], keys("Alpha key"));
+      fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
+      view.rerender(security(b.root));
+      await reply(b.requests[0], keys("Beta key"));
+      await act(async () => { inventory.resolve(summary); await flushPromises(); });
+      expect(a.matching("/auth/logout", "POST"), "a replaced inventory owner never dispatches logout").toHaveLength(0);
+      expect(view.getByText("Beta key")).toBeTruthy();
+    } finally { view.unmount(); loss.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
 
   test("late passkey mutations and sign-out cannot change or reload a replacement root", async () => {
@@ -3554,6 +3596,8 @@ describe("authentication and passkey root ownership", () => {
       fireEvent.click(view.getByTitle("Save"));
       fireEvent.click(view.getByTitle("Remove"));
       fireEvent.click(view.getByRole("button", { name: "Sign out everywhere" }));
+      await act(async () => { await flushPromises(); });
+      expect(a.matching("/auth/logout", "POST")).toHaveLength(1);
       view.rerender(security(b.root));
       await reply(b.requests[0], keys("Beta key"));
       await reply(a.matching("/auth/passkey/same", "PUT")[0], { ok: true });
@@ -5404,6 +5448,31 @@ describe("chat views", () => {
   });
 });
 
+test("the composer picker displays Haiku 5.5 and sends its canonical selection", async () => {
+  const providers = [
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", thinkingLevel: "medium", supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"] },
+  ];
+  const root = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers }) });
+  await root.stores.provider.getState().loadProviders();
+  root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
+  const sent: Array<import("@schlessera/brain-ui-sdk/protocol").ClientChatMessage> = [];
+  const view = render(<BrainUiProvider root={root}><Composer send={msg => { if (msg.type === "chat_message") sent.push(msg); return true; }} /></BrainUiProvider>);
+  try {
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(view.getByRole("button", { name: /^Model —/ }));
+    expect(view.getAllByRole("radio").length).toBeGreaterThan(0);
+    fireEvent.click(view.getByRole("radio", { name: "Claude Haiku 5.5" }));
+    expect(root.stores.provider.getState().selectedId).toBe("claude-haiku-5-5");
+    expect(view.getByRole("button", { name: /Model — Claude Haiku 5.5/ })).toBeTruthy();
+    const field = view.getByRole("textbox") as HTMLTextAreaElement;
+    field.focus(); changeControlledInput(field, "Tell Odysseus about Ithaca.");
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(sent).toHaveLength(1); expect(sent[0]!.providerId).toBe("claude-haiku-5-5");
+    expect(sent[0]!.text).toBe("Tell Odysseus about Ithaca.");
+  } finally { view.unmount(); root.dispose(); }
+});
+
 describe("one-message composer effort", () => {
   async function mounted(ack = true) {
     const providers = [
@@ -6731,7 +6800,7 @@ for (const backend of ["claude","pi"] as const) {
       expect(view.container.querySelectorAll('[data-lane-fade="true"]')).toHaveLength(0);
       expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('cancelled');
       expect(view.container.querySelector('[data-run-lanes]')!.textContent).toContain('denied');
-    }finally{root.dispose();}
+    }finally{await act(async()=>root.dispose());}
   });
 }
 
@@ -6769,7 +6838,7 @@ for(const variant of ['empty','pruned','unsupported'] as const)test(`run lanes s
     if(variant==='pruned')await waitFor(()=>expect(view.container.textContent).toContain('Trace pruned'));
     else await act(async()=>{await Promise.resolve();});
     expect(view.container.querySelector('[data-kit-lane-chart]')).toBeNull();expect(view.container.textContent).not.toContain('waiting on you');
-  }finally{root.dispose();}
+  }finally{await act(async()=>root.dispose());}
 });
 
 import { parallelSpans as realParallelSpans } from "../orbit-fixtures.js";
@@ -6797,7 +6866,7 @@ for (const backend of ["claude", "pi"] as const) {
       expect(root.stores.ui.getState().activeView).toBe("chat");
       expect(root.stores.chat.getState().activeSessionId).toBe("crossing-chat");
       expect(root.stores.ui.getState().subagentStack).toEqual(["research"]);
-    } finally { root.dispose(); }
+    } finally { await act(async()=>root.dispose()); }
   });
 }
 
@@ -6824,7 +6893,7 @@ for (const variant of ["unsupported","pruned","single","empty"] as const) {
       if(variant==="pruned")await waitFor(()=>expect(view.container.textContent).toContain("Trace pruned"));
       expect(view.container.querySelectorAll('[data-kit-agent-orbit]')).toHaveLength(0);
       expect(view.container.textContent).not.toContain("4,812");
-    }finally{root.dispose();}
+    }finally{await act(async()=>root.dispose());}
   });
 }
 test("live approval and terminal frames update the same orbit without an announcement region", async () => {
@@ -6841,5 +6910,5 @@ test("live approval and terminal frames update the same orbit without an announc
     expect(orbit.getAttribute('aria-label')).toBe("Agents: 0 needs you, 2 running, 4 ended");
     expect(orbit.querySelector('[data-orbit-agent="research"]')?.getAttribute('data-orbit-state')).toBe("stopped");
     expect(orbit.querySelectorAll('[aria-live],[role="status"]')).toHaveLength(0);
-  }finally{root.dispose();}
+  }finally{await act(async()=>root.dispose());}
 });

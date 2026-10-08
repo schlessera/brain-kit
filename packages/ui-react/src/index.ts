@@ -12,6 +12,7 @@
 export { configureBrainUi, type BrainUiConfig } from "./config.js";
 
 // Top-level surfaces the shell composes.
+export { LocalCaptureScreen } from "./components/connectivity/local-capture-screen.js";
 export { ConnectionGate } from "./components/connectivity/connection-gate.js";
 export { AppShell } from "./components/layout/app-shell.js";
 export { ChatPage } from "./components/chat/chat-page.js";
@@ -67,6 +68,7 @@ export {
   hasUnsentText,
   type UseServiceWorkerUpdatesOptions,
 } from "./hooks/use-service-worker-updates.js";
+export { registerUpdateHold, type UpdateHold } from "./lib/update-holds.js";
 export {
   useWebSocket,
 } from "./hooks/use-websocket.js";
@@ -80,5 +82,26 @@ export { createBrainApi, type BrainApi } from "./lib/api-client.js";
 export { apiBase } from "./lib/backend.js";
 
 // Independent UI roots; connection handlers close over the root they belong to.
-export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions } from "./root.js";
+export { createBrainUiRoot, type BrainUiRoot, type BrainUiRootOptions, type LocalCaptureOptions } from "./root.js";
+
+// Recording on the device without a server voice session (#1012). A root
+// offers it only when given `localCapture`; the engine and the support probe
+// are exported for the shell's own capture surfaces.
+export {
+  startLocalCapture,
+  detectLocalCaptureSupport,
+  LOCAL_CAPTURE_MIME_TYPES,
+  type LocalCapture,
+  type LocalCaptureChunk,
+  type LocalCaptureMimeType,
+  type LocalCaptureSink,
+  type LocalCaptureStopReason,
+  type LocalCaptureSupport,
+  type StartLocalCaptureOptions,
+  type LocalCaptureEnvironment,
+} from "./voice/local-capture.js";
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";
+
+export { type RecordingStore, type Recording, type RecordingState, type RecordingBudget, type RecordingEvent, type RecordingRecovery } from "./lib/recordings.js";
+export { RecordingsTray } from "./components/voice/recordings-tray.js";
+export { LocalRecordingSheet } from "./components/voice/local-recording-sheet.js";

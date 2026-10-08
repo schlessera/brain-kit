@@ -8,11 +8,11 @@ on:
 permissions:
   contents: read
 
-# A superseded PR push keeps its obsolete run burning runners to the end
-# without this. Main is never cancelled: every push to main must keep its
-# complete record, and a cancelled main run looks like a failure.
+# Superseded PR heads share a ref and cancel obsolete work. Main commits get
+# separate groups: cancel-in-progress:false protects running work, but does
+# not stop a new pending run from replacing an old one in a shared group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Every job carries the same `if:`: Depot runs pushes and same-repository
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Typecheck (strict)
         run: |
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Network namespace for installed backend runtime tests
         run: |
@@ -134,6 +134,20 @@ jobs:
           # A missing Chrome is a failed test file here, never a silent skip.
           BRAIN_REQUIRE_CHROME: "1"
 
+      - name: Shared-process Chrome then child cleanup on the pinned Bun
+        if: matrix.shard == 1
+        # Native --shard=1/1 sorts the explicit files before keeping both.
+        # This forces chat-focus's in-process Chrome before external-speech's
+        # child, independently of the balanced shard's cost table (#1059).
+        run: >-
+          bun run test --shard=1/1
+          packages/ui-react/tests/chat-focus-runtime.test.ts
+          packages/ui-react/tests/external-speech-runtime.test.ts
+        env:
+          GEMINI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          BRAIN_REQUIRE_CHROME: "1"
+
   pack:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: depot-ubuntu-24.04
@@ -144,7 +158,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -176,6 +190,7 @@ jobs:
             ui-react \
             module-finance \
             module-images \
+            module-video \
             module-jobs \
             module-speaking \
             module-travel
@@ -233,6 +248,7 @@ jobs:
                 "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
                 "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
                 "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
+                "@schlessera/brain-module-video": `file:${tarballs}/module-video.tgz`,
                 "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
                 "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
                 "@schlessera/brain-module-travel": `file:${tarballs}/module-travel.tgz`,
@@ -255,6 +271,7 @@ jobs:
               "@schlessera/brain-ui-react",
               "@schlessera/brain-module-finance",
               "@schlessera/brain-module-images",
+              "@schlessera/brain-module-video",
               "@schlessera/brain-module-jobs",
               "@schlessera/brain-module-speaking",
               "@schlessera/brain-module-travel",
@@ -391,6 +408,7 @@ jobs:
             "@schlessera/brain",
             "@schlessera/brain-module-finance",
             "@schlessera/brain-module-images",
+            "@schlessera/brain-module-video",
             "@schlessera/brain-module-jobs",
             "@schlessera/brain-module-speaking",
             "@schlessera/brain-module-travel",
@@ -603,7 +621,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Allow an unprivileged network namespace
         # Only where AppArmor restricts them (GitHub's Ubuntu images); Depot's
@@ -629,6 +647,18 @@ jobs:
         if: always()
         run: cat enforcement-probe.json 2>/dev/null || echo "The enforcement probe wrote no report."
 
+      - name: Probe native delegation, capabilities and measurement isolation
+        timeout-minutes: 5
+        run: >-
+          unshare --user --map-current-user --keep-caps --net
+          sh -c 'ip link set lo up && bun scripts/measure-claude-delegation.ts --out delegation-probe.json && bun scripts/measure-claude-capability.ts > capability-probe.json && bun scripts/measure-claude-haiku.ts > haiku-probe.json && bun run test tests/measurement-isolation.test.ts'
+      - name: Delegation and capability reports
+        if: always()
+        run: |
+          cat delegation-probe.json 2>/dev/null || echo "The delegation probe wrote no report."
+          cat capability-probe.json 2>/dev/null || echo "The capability probe wrote no report."
+          cat haiku-probe.json 2>/dev/null || echo "The Haiku probe wrote no report."
+
   changeset:
     # A user-visible change without a changeset publishes with no version entry
     # and no changelog line. CONTRIBUTING.md has said so since the repo opened;
@@ -643,7 +673,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Validate all pending changeset package names
         run: bun scripts/check-changeset-packages.ts
@@ -674,7 +704,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Prepare pinned public fonts and original notices
         run: bun run capture:fonts
@@ -697,18 +727,24 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 15
+    # The real ten-minute capture bound plus cold-launch coverage exceed one
+    # job's budget. Keep the deadline and run every file in two offline shards.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Build the consumer exports and Tailwind stylesheet
         run: bun run build
       - name: Chat overlay geometry in the pinned offline Chromium image
         # The shared runner starts Docker with --network=none for this project.
         # Only the in-container Vite server is reachable; no keys are forwarded.
-        run: bun run test:layout
+        run: bun run test:layout --shard=${{ matrix.shard }}/2
 
   ui-kit-browser:
     # The 500-odd Storybook stories and the visual baselines, in the ONE image
@@ -754,7 +790,7 @@ jobs:
         run: apt-get update && apt-get install -y --no-install-recommends unzip
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Build workspace exports used by the browser integration tests
         run: bun run build
@@ -787,7 +823,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
       - name: Personal-string leakage gate
         # Covers the WHOLE tree. The only exemption is LICENSE, which must name
         # the copyright holder. Do not add directory exemptions: the ones that

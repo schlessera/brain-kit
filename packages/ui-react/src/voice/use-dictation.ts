@@ -4,7 +4,9 @@ import { useVoiceStore } from "./voice-store.js";
 import { type AsrClient } from "@schlessera/brain-ui-sdk/client";
 import { speechUiHints } from "@schlessera/brain-ui-sdk/internal/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
+import { dictationFailure, dictationExplanation, speechError } from "./dictation-failure.js";
 import { registerAsrClients } from "./asr-clients.js";
+import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
 
 /** Apply pronunciation overrides client-side to a finalized transcript. */
 function applyOverrides(
@@ -37,6 +39,8 @@ export function useDictation() {
   // AbortController for the in-flight session fetch, so stop/cancel/unmount
   // can actually cancel a pending connect rather than just ignoring its result.
   const sessionAbortRef = useRef<AbortController | null>(null);
+  // The last capture this hook started, on the root it started it on.
+  const captureRef = useRef<Capture | null>(null);
   const setMode = useVoiceStore((s) => s.setMode);
   const setConnecting = useVoiceStore((s) => s.setConnecting);
   const setProviderId = useVoiceStore((s) => s.setProviderId);
@@ -44,10 +48,13 @@ export function useDictation() {
   const appendFinal = useVoiceStore((s) => s.appendFinal);
   const setError = useVoiceStore((s) => s.setError);
   const resetCapture = useVoiceStore((s) => s.resetCapture);
-  const setReviewText = useVoiceStore((s) => s.setReviewText);
 
   const start = useCallback(async () => {
+    if (root.authLock.state.getState().phase !== "active") return;
     const gen = ++startGenRef.current;
+    const capture: Capture = { root: root.stores, client: null };
+    captureRef.current = capture;
+    owners.set(root.stores, capture);
     resetCapture();
     setProviderId(null);
     // Show the sheet immediately, but as "connecting" — the mic is still shut
@@ -64,7 +71,10 @@ export function useDictation() {
       // start() opens the mic and buffers audio until its stream is ready, so
       // words spoken during connect are not lost.
       const [session, ov] = await Promise.all([
-        api.voiceSession(abort.signal),
+        api.voiceSession(abort.signal).catch((error: unknown) => {
+          // Fetch transport failures have no provider code. Do not inspect their text.
+          throw error instanceof TypeError ? speechError("Session transport failed", "network") : error;
+        }),
         api
           .voiceOverrides(abort.signal)
           .catch(() => ({ overrides: [] as PronunciationOverride[] })),
@@ -83,6 +93,12 @@ export function useDictation() {
       const client = root.asr.create({
         session,
         onEvent: (evt) => {
+          // Only the capture still showing on this root, or one a stop() is
+          // draining, writes to it: words from a client whose dictation has
+          // ended (by its provider, a teardown or a newer start) would sit
+          // where nothing shows them, and a later stop() would commit them
+          // a second time.
+          if (!live(capture)) return;
           if (evt.type === "partial") {
             // Providers without interim results skip live partials.
             if (hints.showPartials) {
@@ -92,15 +108,20 @@ export function useDictation() {
             appendFinal(applyOverrides(evt.text, overridesRef.current));
           }
         },
-        onError: (err) => setError(err.message),
+        onError: (err) => {
+          if (!live(capture)) return;
+          capture.failure = dictationFailure(err);
+          setError(dictationExplanation(capture.failure, "open"));
+        },
       });
       // Publish the client before awaiting start() so a concurrent stop() can
       // grab and close it (releasing its MediaStream) while the mic is opening.
       clientRef.current = client;
+      capture.client = client;
       await client.start();
       // Stopped while the mic was opening? Close the client we just started —
       // its start() honors the closed flag and releases the stream.
-      if (startGenRef.current !== gen) {
+      if (startGenRef.current !== gen || !live(capture)) {
         client.stop();
         if (clientRef.current === client) clientRef.current = null;
         return;
@@ -111,9 +132,14 @@ export function useDictation() {
     } catch (err) {
       // A superseded start failing (e.g. the aborted session fetch) is
       // expected — swallow it so it doesn't surface a spurious error.
-      if (startGenRef.current !== gen) return;
+      if (startGenRef.current !== gen || !live(capture)) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
-      setError(err instanceof Error ? err.message : "Voice start failed");
+      const reason = dictationFailure(err);
+      clientRef.current?.stop();
+      clientRef.current = null;
+      setError(dictationExplanation(reason, "startup"));
+      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false } });
+      release(capture);
       setConnecting(false);
       setMode("idle");
     }
@@ -143,36 +169,62 @@ export function useDictation() {
 
   const stop = useCallback(
     async (commitToReview = true) => {
+      // This stop now ends the capture, even if the hook is torn down while
+      // it drains: the transcript still reaches review before it goes idle.
+      // Only a capture still showing on its root: one its provider already
+      // ended has handed its words over, and draining it again would let a
+      // late event commit them twice.
+      const owned = captureRef.current?.root === root.stores ? captureRef.current : null;
+      const capture = owned && (owners.get(owned.root) === owned || stopping.has(owned)) ? owned : null;
+      // A second Done while the first still drains: the first hands
+      // everything to review, this one has nothing to add.
+      // A Cancel then discards what that drain was handing over.
+      if (owned && !capture) {
+        releaseCapture()?.stop();
+        return;
+      }
+      const ownDrain = Boolean(capture && stopping.has(capture));
+      if (commitToReview && ownDrain) return;
       // A slow connect must not open the mic after the user asked it to stop.
-      const client = releaseCapture();
+      const client = releaseCapture() ?? (!commitToReview ? capture?.client : null);
+      if (capture) stopping.add(capture);
 
       const setDraining = root.stores.voice.getState().setDraining;
+      // A failed drain still ends the dictation and keeps what was heard;
+      // the failure is rethrown after, so it is not swallowed.
+      let drainFailure: { error: unknown } | null = null;
+      const drained = Boolean(client && commitToReview);
       if (client) {
         if (commitToReview) {
           setDraining(true);
           try {
             await client.drainAndStop();
-          } finally {
-            setDraining(false);
+          } catch (error) {
+            drainFailure = { error };
           }
         } else {
           client.stop();
         }
       }
 
-      const { finalText, partial, reviewText } = root.stores.voice.getState();
-      const merged = [finalText, partial].filter(Boolean).join(" ").trim();
-      setConnecting(false);
-      setMode("idle");
-      if (commitToReview && merged) {
-        // Append to any text already under review so a prompt can be built up
-        // across multiple record/edit rounds without losing earlier takes.
-        setReviewText(reviewText ? `${reviewText} ${merged}` : merged);
+      // What was heard joins the review text in the update that ends the
+      // drain, so nothing sees the drain over and the words not yet in review.
+      // Auth cancellation may have invalidated a Done still awaiting drain.
+      if (commitToReview && capture && !stopping.has(capture)) return;
+      const handled = endDictation(root.stores.voice, commitToReview, drained || ownDrain ? { draining: false } : {});
+      if (capture) {
+        release(capture);
+        // Ended: nothing it reports from now on is heard.
+        stopping.delete(capture);
       }
-      resetCapture();
+      // Another hook's drain still owns the buffer: leave it to that drain.
+      if (handled) resetCapture();
+      if (drainFailure) throw drainFailure.error;
     },
-    [releaseCapture, resetCapture, setMode, setConnecting, setReviewText, root]
+    [releaseCapture, resetCapture, root]
   );
+
+  useEffect(() => root.authLock.registerStop(() => stop(false)), [root, stop]);
 
   const cancel = useCallback(() => {
     void stop(false);
@@ -181,7 +233,18 @@ export function useDictation() {
   useEffect(() => {
     // Tear down on unmount or root change: invalidate the in-flight start,
     // abort its fetch, and stop the client so no MediaStream survives.
-    return () => releaseCapture()?.stop();
+    // The dictation this hook started has ended, so the store says so: a
+    // live dictation holds update reloads (#1015), and one nobody can stop
+    // would hold them for good. What was heard goes to review, as when the
+    // provider ends it (#1189); text already under review stays.
+    return () => {
+      releaseCapture()?.stop();
+      const capture = captureRef.current;
+      if (!capture || capture.root !== root.stores || stopping.has(capture)) return;
+      if (owners.get(root.stores) !== capture) return;
+      release(capture);
+      endDictation(root.stores.voice, true);
+    };
   }, [root, releaseCapture]);
 
   return { start, stop, cancel };

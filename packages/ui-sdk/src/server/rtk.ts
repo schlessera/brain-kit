@@ -68,6 +68,10 @@ export async function rtkRewriteCommand(
         { timeout: RTK_TIMEOUT_MS, maxBuffer: 1024 * 1024, env },
         (err, out) => resolve(err ? null : out)
       );
+      // An oracle can exit before consuming its input. Stream errors arrive
+      // asynchronously, outside this try/catch; a broken optional oracle must
+      // fall back even if its exit callback later supplies a valid reply.
+      child.stdin?.on("error", () => resolve(null));
       child.stdin?.write(payload);
       child.stdin?.end();
     } catch {

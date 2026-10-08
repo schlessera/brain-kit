@@ -1,0 +1,162 @@
+import { useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import { BrainUiProvider } from "../../../../src/root-context.js";
+import { createBrainUiRoot } from "../../../../src/root.js";
+import { ConnectionGate } from "../../../../src/components/connectivity/connection-gate.js";
+import { AUDIO_FIXTURES, generateWav } from "../audio-fixtures.js";
+import { watchMicrophone } from "../fake-microphone.js";
+import { failIndexedDbWrites, holdIndexedDbWrite, type QuotaFaultHandle } from "../indexeddb-faults.js";
+import { defineScene } from "../define-scene.js";
+
+let probeRequestFailed = false;
+let probeTransactionErrorWasNull = false;
+if (localStorage.getItem("odysseus-request-quota")) {
+  const put = IDBObjectStore.prototype.put;
+  const add = IDBObjectStore.prototype.add;
+  IDBObjectStore.prototype.put = function(value: unknown, key?: IDBValidKey) {
+    if (this.name !== "probe") return put.call(this, value, key);
+    // Duplicate adds produce a native request error and normal bubbling/abort.
+    // Substitute only the request error's name, never transaction.error.
+    add.call(this, value, key);
+    const request = add.call(this, value, key);
+    Object.defineProperty(request, "error", { get: () => new DOMException("Odysseus full origin", "QuotaExceededError") });
+    request.addEventListener("error", () => { probeRequestFailed = true; probeTransactionErrorWasNull = this.transaction.error === null; });
+    return request;
+  };
+}
+const nativeDelete = IDBObjectStore.prototype.delete;
+let finalWaiting = false;
+let finalWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
+let initialWaiting = false;
+let initialWrite: ReturnType<typeof holdIndexedDbWrite> | undefined;
+let recoveryWaiting = false;
+let releaseRecovery!: () => void;
+const recoveryBarrier = new Promise<void>(resolve => { releaseRecovery = resolve; });
+if (localStorage.getItem("odysseus-startup-gap")) {
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  crypto.subtle.digest = async (algorithm, data) => { recoveryWaiting = true; await recoveryBarrier; return digest(algorithm, data); };
+}
+let restoreWaiting = false;
+let releaseRestore!: () => void;
+let restoration: Promise<boolean> | undefined;
+const requests: string[] = [];
+const microphone = watchMicrophone();
+let quota: QuotaFaultHandle | undefined = localStorage.getItem("odysseus-full-origin") ? failIndexedDbWrites({ afterBytes: 0 }) : undefined;
+const ui = createBrainUiRoot({ storagePrefix: "odysseus-cold-capture", localCapture: true, request: async (url, init) => {
+  requests.push(new URL(url, location.href).pathname);
+  return fetch(url, init);
+} });
+let inventoryFailed = false;
+if (localStorage.getItem("odysseus-transient-read")) {
+  const store = ui.unassignedRecordings!;
+  const recover = store.recover.bind(store);
+  const list = store.list.bind(store);
+  let recovered = false;
+  store.recover = async partition => { const result = await recover(partition); recovered = true; return result; };
+  store.list = async partition => {
+    if (recovered && !inventoryFailed) { inventoryFailed = true; throw new Error("Odysseus transient inventory read"); }
+    return list(partition);
+  };
+}
+function Protected() {
+  useEffect(() => { void ui.api.sessions(); void ui.request("/api/files/content?raw=1"); }, []);
+  return <section data-protected="">Odysseus's protected voyage history</section>;
+}
+createRoot(document.getElementById("app")!).render(<BrainUiProvider root={ui}><ConnectionGate><Protected /></ConnectionGate></BrainUiProvider>);
+void navigator.serviceWorker.register("/worker.js");
+async function seedGap() {
+  const wav = new Blob([Uint8Array.from(generateWav(AUDIO_FIXTURES.note10s)).buffer], { type: "audio/wav" });
+  await ui.partitions!.open("unassigned").write([
+    { put: "recording:index:sirens-gap", value: { id: "sirens-gap", state: "saved", mime: "audio/wav", durationMs: 3000, savedThroughMs: 3000, bytes: wav.size + 17, contentHash: "odysseus-gap", chunkCount: 3 } },
+    { put: "recording:chunk:sirens-gap:00000000", value: { index: 0, startMs: 0, endMs: 1000, data: wav } },
+    { put: "recording:chunk:sirens-gap:00000002", value: { index: 2, startMs: 2000, endMs: 3000, data: new Blob([new Uint8Array(17)]) } },
+  ]);
+  return wav.size;
+}
+defineScene({
+  async seed() {
+    const key = ui.stores.connection.getState().accountKey;
+    if (!key) throw new Error("The online seed needs authenticated account authority");
+    const wav = new Blob([Uint8Array.from(generateWav(AUDIO_FIXTURES.note10s)).buffer], { type: "audio/wav" });
+    await ui.partitions!.open(`account:${key}`).write([
+      { put: "recording:index:ithaca-secret", value: { id: "ithaca-secret", state: "saved", createdAt: Date.parse("2026-07-12T12:00:00Z"), mime: "audio/wav", durationMs: 10_000, savedThroughMs: 10_000, bytes: wav.size, contentHash: "odysseus-audio", chunkCount: 1, transcript: "Secret plan for the Sirens" } },
+      { put: "recording:chunk:ithaca-secret:00000000", value: { index: 0, startMs: 0, endMs: 10_000, data: wav } },
+    ]);
+  },
+  holdFinalWrite() {
+    finalWrite = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]).startsWith("recording:index:") && (value as { state?: string }).state === "saved");
+    void finalWrite.started.then(() => { finalWaiting = true; });
+  },
+  finalWaiting() { return finalWaiting; },
+  releaseFinalWrite() { finalWrite?.release(); finalWrite?.restore(); },
+  failDiscard() {
+    IDBObjectStore.prototype.delete = function(key: IDBValidKey | IDBKeyRange) {
+      if (Array.isArray(key) && String(key[1]).startsWith("recording:")) throw new DOMException("Odysseus deletion fault", "UnknownError");
+      return nativeDelete.call(this, key);
+    };
+  },
+  restoreDiscard() { IDBObjectStore.prototype.delete = nativeDelete; },
+  holdInitialWrite() {
+    initialWrite = holdIndexedDbWrite(key => Array.isArray(key) && String(key[1]).startsWith("recording:index:"));
+    void initialWrite.started.then(() => { initialWaiting = true; });
+  },
+  initialWaiting() { return initialWaiting; },
+  releaseInitialWrite() { initialWrite?.release(); initialWrite?.restore(); },
+  async requestQuotaStartup() { await seedGap(); localStorage.setItem("odysseus-request-quota", "1"); },
+  probeRequestFailure() { return { failed: probeRequestFailed, transactionErrorWasNull: probeTransactionErrorWasNull }; },
+  async fullStartup() { const bytes = await seedGap(); localStorage.setItem("odysseus-full-origin", "1"); return bytes; },
+  async transientStartup() { await seedGap(); localStorage.setItem("odysseus-transient-read", "1"); },
+  inventoryFailed() { return inventoryFailed; },
+  async startupGap() { const bytes = await seedGap(); localStorage.setItem("odysseus-startup-gap", "1"); return bytes; },
+  recoveryWaiting() { return recoveryWaiting; },
+  releaseRecovery() { localStorage.removeItem("odysseus-startup-gap"); releaseRecovery(); },
+  beginRestoreWithLocalClick() {
+    const button = [...document.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent === "Record without signing in")!;
+    return new Promise(resolve => {
+      const unwatch = ui.authLock.state.subscribe(state => {
+        if (state.phase !== "restoring") return;
+        unwatch();
+        const enabled = button.getAttribute("aria-disabled") !== "true";
+        button.click();
+        resolve({ enabled, phase: state.phase });
+      });
+      (globalThis as unknown as { __offlineScene: { beginRestore(): void } }).__offlineScene.beginRestore();
+    });
+  },
+  beginRestore() {
+    const resume = ui.localWork!.resume.bind(ui.localWork);
+    const barrier = new Promise<void>(resolve => { releaseRestore = resolve; });
+    ui.localWork!.resume = async () => { restoreWaiting = true; await barrier; return resume(); };
+    restoration = ui.authLock.signedIn("odysseus-ithaca");
+  },
+  restoreWaiting() { return restoreWaiting; },
+  async finishRestore() { releaseRestore(); return restoration; },
+  async gap() {
+    const bytes = await seedGap();
+    quota = failIndexedDbWrites({ afterBytes: 0 });
+    const recovered = await ui.unassignedRecordings!.recover("unassigned");
+    // A deletion of an absent recording publishes the inventory change without
+    // requiring a put on the full origin. No production test-only hooks.
+    await ui.unassignedRecordings!.discard("unassigned", "odysseus-inventory-refresh");
+    return { bytes, failures: quota.failures, row: recovered.recordings[0] };
+  },
+  restoreQuota() { quota?.restore(); },
+  dispose() { ui.dispose(); },
+  microphoneLive() { return microphone.streams.some(stream => stream.getTracks().some(track => track.readyState === "live")); },
+  async image() {
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) throw new Error("API image requires worker control");
+    const image = new Image();
+    image.src = "/api/files/content?raw=1&path=voyage/beacon.png";
+    document.body.append(image);
+    await image.decode();
+    return { complete: image.complete, width: image.naturalWidth };
+  },
+  async offlineImage() {
+    try { await fetch("/api/files/content?raw=1&path=voyage/beacon.png"); return true; } catch { return false; }
+  },
+  async inventory() { return ui.recordings!.list("unassigned"); },
+  async expire() { await ui.authLock.expire(); },
+  phase() { return ui.stores.voice.getState().local; },
+  requests() { return requests; },
+});

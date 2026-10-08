@@ -121,8 +121,8 @@ describe("an adapter differs from its source only by the enumerated adaptations"
 });
 
 /**
- * Enough of the GitHub Actions expression language to evaluate the two
- * routes: property paths, string literals, null, `==`, `!=`, `&&`, `||` and
+ * Enough of the GitHub Actions expression language to evaluate routes and
+ * concurrency keys: property paths, string literals, null, `==`, `!=`, `&&`, `||` and
  * parentheses. String comparison is case-insensitive, as it is in Actions.
  * Anything else throws, so a route the evaluator cannot read fails the test.
  */
@@ -176,8 +176,51 @@ function evaluate(expression: string, context: Obj): Json {
   }
   const result = or();
   if (at !== tokens.length) throw new Error(`trailing tokens in ${expression}`);
-  return truthy(result);
+  return result;
 }
+
+describe("CI concurrency configuration (scheduler behavior is verified in Depot)", () => {
+  const ciPairs = pairs.filter(pair => pair.spec.source.endsWith("/ci.yml"));
+  const push = (sha: string): Obj => ({ event_name: "push", ref: "refs/heads/main", sha });
+  const pr = (number: number, sha: string): Obj => ({
+    event_name: "pull_request", ref: `refs/pull/${number}/merge`, sha,
+  });
+  const key = (workflow: Workflow, event: Obj): string => {
+    const context = { github: { ...event, workflow: workflow.name } };
+    return String((workflow.concurrency as Obj).group).replace(
+      /\$\{\{\s*([^}]*?)\s*\}\}/g,
+      (_, expression: string) => String(evaluate(expression, context)),
+    );
+  };
+
+  test("the evaluator preserves selected string values", () => {
+    expect(ciPairs).toHaveLength(1);
+    expect(evaluate("github.event_name == 'pull_request' && github.ref || github.sha", { github: push("a".repeat(40)) }))
+      .toBe("a".repeat(40));
+    expect(evaluate("github.event_name == 'pull_request' && github.ref || github.sha", { github: pr(7, "b".repeat(40)) }))
+      .toBe("refs/pull/7/merge");
+  });
+
+  for (const { spec, source, adapter } of ciPairs) {
+    for (const [label, workflow] of [[spec.source, source], [spec.target, adapter]] as const) {
+      test(`${label}: main commits cannot replace one another's pending group`, () => {
+        expect(key(workflow, push("a".repeat(40)))).not.toBe(key(workflow, push("b".repeat(40))));
+      });
+      test(`${label}: superseded heads of one PR share a group, distinct PRs do not`, () => {
+        const first = key(workflow, pr(7, "a".repeat(40)));
+        expect(first).toBe(key(workflow, pr(7, "b".repeat(40))));
+        expect(first).not.toBe(key(workflow, pr(8, "a".repeat(40))));
+        expect(first).not.toBe(key(workflow, push("a".repeat(40))));
+      });
+      test(`${label}: only superseded PR executions cancel running work`, () => {
+        const expression = String((workflow.concurrency as Obj)["cancel-in-progress"])
+          .replace(/^\$\{\{\s*|\s*\}\}$/g, "");
+        expect(evaluate(expression, { github: push("a".repeat(40)) })).toBe(false);
+        expect(evaluate(expression, { github: pr(7, "a".repeat(40)) })).toBe(true);
+      });
+    }
+  }
+});
 
 const REPO = "schlessera/brain-kit";
 const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({

@@ -1578,11 +1578,43 @@ export interface VoiceSessionResponse {
   capabilities: SpeechCapabilities;
 }
 
+/** Read-only provider discovery; never mints a streaming credential. */
+export interface VoiceCapabilitiesResponse {
+  providerId: string;
+  capabilities: SpeechCapabilities;
+}
+
+export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
+export interface TranscriptionFailure {
+  reason: TranscriptionFailureReason;
+  retryable: boolean;
+  providerStatus?: number;
+}
+export interface RecordingTranscription {
+  recordingId: string;
+  sha256: string | null;
+  providerId: string | null;
+  status: "transcribing" | "done" | "failed" | "outcome_unknown" | "consumed";
+  attemptId: string;
+  retryCount: number;
+  text?: string;
+  failure?: TranscriptionFailure;
+  failures: Array<TranscriptionFailure & { attemptId: string }>;
+  disposition?: "accepted" | "discarded";
+}
+export interface TranscriptionErrorResponse {
+  error: string;
+  message: string;
+  receipt?: RecordingTranscription;
+}
+
 export interface SpeechCapabilities {
   streaming: boolean;
   interimResults: boolean;
   keyterms: boolean;
   endpointing: boolean;
+  /** Absent/false means saved recordings cannot be transcribed. Derived from the optional server method. */
+  savedAudio?: boolean;
 }
 
 /** @deprecated superseded by VoiceSessionResponse; kept for client migration. */

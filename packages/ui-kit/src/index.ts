@@ -277,3 +277,4 @@ export { AskUserFormCard } from "./decisions/AskUserFormCard.js";
 export type { AskUserFormCardProps, AskUserFormSubmission, FormNodeBase, FormNode, FormOption, FormAnswer, FormAnswers } from "./decisions/AskUserFormCard.js";
 
 export { TrackMap, type TrackMapProps } from "./blocks/TrackMap.js";
+export { RecordingRow, type RecordingRowProps, type RecordingRowState } from "./rows/RecordingRow.js";

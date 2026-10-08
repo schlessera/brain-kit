@@ -119,6 +119,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
   // ---------------------------------------------------------------- views
 
   function show(delivery: AnswerDelivery, broadcast: boolean): void {
+    if (disposed) return;
     chat.getState().setDelivery(delivery.requestId, delivery);
     if (broadcast) tabs?.post({ type: "delivery", delivery: { ...delivery, focus: false, mirror: false } });
   }
@@ -141,6 +142,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
 
   /** Put the submitted answer into the transcript's exchange, read-only. */
   function applyToExchange(item: QueuedAnswer): void {
+    if (disposed) return;
     const state = chat.getState();
     const key = item.sessionId;
     const p = item.payload;
@@ -187,6 +189,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
       entry?.letGo?.();
       return;
     }
+    const readIn = epoch;
     if (tabs && storage) {
       // The previous owner may have settled it just before letting go.
       let fresh: QueuedAnswer | null = null;
@@ -198,6 +201,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
       } catch {
         fresh = entry.item;
       }
+      if (disposed || epoch !== readIn) return;
       if (!fresh) {
         forget(entry);
         return;
@@ -278,7 +282,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
 
   /** Can this tab talk to the host about receipts at all? Shows why not. */
   function usable(entry: Entry): boolean {
-    if (entry.cancelling) return false;
+    if (disposed || entry.cancelling) return false;
     if (overdue(entry)) return false;
     if (!transport.ready()) {
       show(viewOf(entry), true);
@@ -342,7 +346,9 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
    * of an answer already in flight.
    */
   async function submit(input: SubmitAnswer): Promise<"admitted" | "refused" | "ignored"> {
+    if (disposed) return "ignored";
     if (!loaded) await start();
+    if (disposed) return "ignored";
     const { requestId } = input;
     if (saving.has(requestId)) return "ignored";
     const existing = chat.getState().deliveries[requestId];
@@ -355,6 +361,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
     const admittedIn = epoch;
     const focus = input.focus !== false;
     const view = (state: "full" | "notSaved" | "update", full?: "count" | "bytes") => {
+      if (disposed || epoch !== admittedIn) return "refused" as const;
       refused.set(requestId, input);
       chat.getState().setDelivery(requestId, {
         requestId,
@@ -428,7 +435,7 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
     if (disposed || epoch !== admittedIn) {
       // Signed out (or torn down) while this was being written: take it back.
       await exclusive(() => store.remove(saved.submissionId)).catch(() => {});
-      if (epoch !== admittedIn) {
+      if (!disposed && epoch !== admittedIn) {
         chat.getState().setDelivery(requestId, {
           requestId, submissionId: saved.submissionId, sessionId: saved.sessionId, state: "signedOut",
           payload: saved.payload, submittedAt: saved.submittedAt, settledAt: now(),
@@ -520,16 +527,19 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
     const id = byRequest.get(requestId);
     const entry = id ? entries.get(id) : undefined;
     if (!entry || !entry.owned || entry.item.sent || entry.cancelling) return;
+    const cancelledIn = epoch;
     entry.cancelling = true;
     clearTimer(entry.watchdog);
     try {
       const store = storage;
       if (store) await exclusive(() => store.remove(entry.item.submissionId));
     } catch {
+      if (disposed || epoch !== cancelledIn) return;
       entry.cancelling = false;
       replay(entry);
       return;
     }
+    if (disposed || epoch !== cancelledIn) return;
     forget(entry);
     cancelled.set(entry.item.submissionId, entry.item);
     const delivery = viewOf(entry, { state: "cancelled", settledAt: now(), mirror: undefined });
@@ -748,9 +758,11 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
     /** Submissions held on this device, for tests and measurement. */
     held: () => [...entries.values()].map((e) => ({ ...e.item, owned: e.owned })),
     dispose() {
-      disposed = true;
+      disposed = true; epoch++;
+      saving.clear(); principal = null;
       unsubscribe?.();
       for (const entry of [...entries.values()]) forget(entry);
+      cancelled.clear(); refused.clear(); byRequest.clear();
     },
   };
 }

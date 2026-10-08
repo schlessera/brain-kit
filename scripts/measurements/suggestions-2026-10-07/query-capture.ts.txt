@@ -1,0 +1,93 @@
+import {spawn} from "node:child_process";
+import {Transform} from "node:stream";
+import {StringDecoder} from "node:string_decoder";
+import {createHash} from "node:crypto";
+import {appendFileSync,existsSync,mkdirSync,mkdtempSync,readFileSync,writeFileSync} from "node:fs";
+
+const MODEL="claude-sonnet-5-5";
+const destination=`${process.env.TMPDIR}/runs/sdk-raw-receipts.json`;
+const receipts:any[]=existsSync(destination)?JSON.parse(readFileSync(destination,"utf8")):[];
+const accountOk=(account:any)=>account?.tokenSource==="CLAUDE_CODE_OAUTH_TOKEN"&&(account.apiKeySource==null||account.apiKeySource==="none")&&account.apiProvider==="firstParty";
+let active=0;
+let blocked=receipts.some(receipt=>!receipt.finished||!receipt.apiEquivalent||!accountOk(receipt.account)||receipt.rawResult?.isError||(receipt.init?.model!==MODEL||receipt.init?.apiKeySource!=="none"||receipt.credentialPresence?.oauthToken!==true||receipt.credentialPresence?.apiKey!==false||receipt.credentialPresence?.authToken!==false)||receipt.rateLimits?.some((info:any)=>info.isUsingOverage||info.overageInUse));
+const save=()=>writeFileSync(destination,JSON.stringify(receipts,null,2));
+const count=(value:unknown)=>typeof value==="number"&&Number.isInteger(value)&&value>=0?value:null;
+
+/** Official rates; missing cache TTL produces an interval, never an invented exact value. */
+export function priceResult(result:any){
+  const models=Object.entries(result.modelUsage??{});
+  if(!models.length)return result.startup_failure_reason?{lowerUsd:0,upperUsd:0,exact:true,reason:"startup failure before inference"}:null;
+  let lower=0,upper=0;
+  for(const [model,value]of models){
+    if(model!==MODEL)return null;
+    const usage=value as any;
+    const input=count(usage.inputTokens),output=count(usage.outputTokens),reads=count(usage.cacheReadInputTokens),writes=count(usage.cacheCreationInputTokens);
+    if(input===null||output===null||reads===null||writes===null||usage.webSearchRequests)return null;
+    const base=input*2+output*10+reads*.2;
+    let short=null,long=null;
+    if(models.length===1&&result.usage?.cache_creation&&result.usage.cache_creation_input_tokens===writes){
+      short=count(result.usage.cache_creation.ephemeral_5m_input_tokens);
+      long=count(result.usage.cache_creation.ephemeral_1h_input_tokens);
+      if(short===null||long===null||short+long!==writes){short=null;long=null;}
+    }
+    if(short!==null&&long!==null){lower+=base+short*2.5+long*4;upper+=base+short*2.5+long*4;}
+    else{lower+=base+writes*2.5;upper+=base+writes*4;}
+  }
+  return {lowerUsd:lower/1e6,upperUsd:upper/1e6,exact:lower===upper,reason:lower===upper?"actual model token usage with cache TTL breakdown":"actual model token usage; cache TTL bounded at 5m/1h rates"};
+}
+
+/** Observe supported public spawn hook; the upstream query object and protocol remain intact. */
+export function captureQuery(query:any,parameters:any){
+  if(parameters.options?.model!==MODEL)throw new Error("Refuse a model outside the frozen Sonnet 5.5 scope");
+  if(parameters.options?.spawnClaudeCodeProcess)throw new Error("Refuse to replace an existing custom spawn hook");
+  if(blocked||receipts.some(receipt=>receipt.finished&&!receipt.apiEquivalent))throw new Error("Stop new dispatch: unknown/error receipt, observed overage or auth/model mismatch");
+  const receipt:any={id:receipts.length+1,model:MODEL,promptHash:typeof parameters.prompt==="string"?createHash("sha256").update(parameters.prompt).digest("hex"):null,apiEquivalent:null,reportedSdkUsd:null,rateLimits:[],subscriptionOverageState:"not reported",finished:false};
+  receipts.push(receipt);active++;save();
+  if(typeof parameters.options?.settings==="string")throw new Error("Refuse unreviewed path-based settings in measurement");
+  const isolated=mkdtempSync(`${process.env.TMPDIR}/native-turn-`);
+  mkdirSync(`${isolated}/home`);mkdirSync(`${isolated}/config`);
+  receipt.isolation={autoMemoryEnabled:false,freshHome:true,freshConfig:true,backgroundModel:MODEL,forcedSubagentModel:MODEL};save();
+  try { return query({...parameters,options:{...parameters.options,settings:{...(parameters.options?.settings??{}),autoMemoryEnabled:false},env:{...(parameters.options?.env??process.env),ANTHROPIC_SMALL_FAST_MODEL:MODEL,ANTHROPIC_DEFAULT_HAIKU_MODEL:MODEL,ANTHROPIC_DEFAULT_SONNET_MODEL:MODEL,ANTHROPIC_DEFAULT_OPUS_MODEL:MODEL,CLAUDE_CODE_SUBAGENT_MODEL:MODEL,CLAUDE_CODE_SUBAGENT_MODEL_FORCE:"1",HOME:`${isolated}/home`,CLAUDE_CONFIG_DIR:`${isolated}/config`},maxBudgetUsd:Math.min(parameters.options?.maxBudgetUsd??1,1),spawnClaudeCodeProcess:(options:any)=>{
+    receipt.credentialPresence={oauthToken:!!options.env?.CLAUDE_CODE_OAUTH_TOKEN,apiKey:!!options.env?.ANTHROPIC_API_KEY,authToken:!!options.env?.ANTHROPIC_AUTH_TOKEN};save();
+    if(!receipt.credentialPresence.oauthToken||receipt.credentialPresence.apiKey||receipt.credentialPresence.authToken){blocked=true;throw new Error("Refuse non-isolated OAuth credential route");}
+    const child=spawn(options.command,options.args,{cwd:options.cwd,env:options.env,signal:options.signal,stdio:["pipe","pipe","pipe"]});
+    const stdoutPath=`${process.env.TMPDIR}/runs/native-stdout-${receipt.id}.jsonl`;
+    receipt.stdoutPath=stdoutPath;writeFileSync(stdoutPath,"",{mode:0o600});
+    let pending="",settled=false;const decoder=new StringDecoder("utf8");
+    const observe=(line:string)=>{
+      let raw:any;try{raw=JSON.parse(line)}catch{return}
+      if(raw.type==="control_response"&&raw.response?.subtype==="success"&&raw.response.response?.account){
+        const account=raw.response.response.account;
+        receipt.account={tokenSource:account.tokenSource,apiKeySource:account.apiKeySource,apiProvider:account.apiProvider};
+        if(!accountOk(receipt.account)){blocked=true;parameters.options?.abortController?.abort();}
+      }
+      if(raw.type==="system"&&raw.subtype==="init")receipt.init={model:raw.model,apiKeySource:raw.apiKeySource,claudeCodeVersion:raw.claude_code_version};
+      if(raw.type==="system"&&raw.subtype==="init"&&(raw.model!==MODEL||raw.apiKeySource!=="none")){blocked=true;parameters.options?.abortController?.abort();}
+      if(raw.type==="rate_limit_event"){
+        const info=raw.rate_limit_info??{};
+        receipt.rateLimits.push({status:info.status,isUsingOverage:info.isUsingOverage,overageInUse:info.overageInUse});
+        if(info.isUsingOverage===true||info.overageInUse===true){receipt.subscriptionOverageState="active";blocked=true;parameters.options?.abortController?.abort();}
+        else if(info.isUsingOverage===false||info.overageInUse===false)receipt.subscriptionOverageState="reported inactive";
+      }
+      if(raw.type==="result"){
+        receipt.rawResult={subtype:raw.subtype,isError:raw.is_error,totalCostUsd:raw.total_cost_usd,usage:raw.usage,modelUsage:raw.modelUsage,startup_failure_reason:raw.startup_failure_reason};
+        receipt.reportedSdkUsd=raw.total_cost_usd;receipt.apiEquivalent=priceResult(raw);receipt.finished=true;settled=true;
+        if(!accountOk(receipt.account)||!receipt.init||receipt.init.model!==MODEL||receipt.init.apiKeySource!=="none"||!receipt.apiEquivalent||raw.is_error)blocked=true;
+      }
+      save();
+    };
+    const capture=new Transform({transform(chunk,_encoding,callback){
+      try{
+        appendFileSync(stdoutPath,chunk);
+        pending+=decoder.write(chunk);const lines=pending.split("\n");pending=lines.pop()!;
+        for(const line of lines)observe(line);
+        callback(null,chunk);
+      }catch(error){blocked=true;callback(error as Error)}
+    },flush(callback){try{pending+=decoder.end();if(pending)observe(pending);callback()}catch(error){blocked=true;callback(error as Error)}}});
+    const original=child.stdout;original.pipe(capture);Object.defineProperty(child,"stdout",{value:capture});
+    // SpawnedProcess exposes no stderr; custom spawn hooks own draining it.
+    child.stderr?.resume();
+    child.once("close",(code,signal)=>{active--;receipt.exit={code,signal};if(!accountOk(receipt.account)||!receipt.init||receipt.init.model!==MODEL||receipt.init.apiKeySource!=="none")blocked=true;if(!settled){receipt.finished=true;blocked=true;}save();});
+    return child;
+  }}}); }catch(error){active--;receipt.finished=true;receipt.constructionFailure=true;blocked=true;save();throw error}
+}

@@ -27,6 +27,8 @@ export interface AnthropicCompletionConfig {
 /** Convert a neutral ContentPart to an Anthropic content block. */
 function toAnthropicBlock(part: ContentPart): Record<string, unknown> {
   switch (part.kind) {
+    case "video":
+      throw new Error("Anthropic completions do not support video");
     case "text":
       return { type: "text", text: part.text };
     case "image":
@@ -64,7 +66,11 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     prompt: string;
     parts?: ContentPart[];
     maxTokens?: number;
+    signal?: AbortSignal;
   }): Promise<string> {
+    if (req.parts?.some((part) => part.kind === "video")) {
+      throw new Error("Anthropic completions do not support video");
+    }
     const apiKey = readEnvVar(apiKeyEnv);
     if (!apiKey) {
       throw new Error(`${apiKeyEnv} environment variable is required for Anthropic completions`);
@@ -86,6 +92,7 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     const data = await withRetry(async () => {
       const res = await fetch(API_URL, {
         method: "POST",
+        signal: req.signal,
         headers: {
           "x-api-key": apiKey,
           "anthropic-version": ANTHROPIC_VERSION,
@@ -116,7 +123,7 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
 
   return {
     id: `anthropic:${model}`,
-    capabilities: { vision: true },
+    capabilities: { vision: true, video: false },
     complete,
   };
 }

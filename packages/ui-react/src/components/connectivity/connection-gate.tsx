@@ -3,7 +3,11 @@ import { useBrainUiRoot } from "../../root-context.js";
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useStore } from "zustand";
+import { LocalCaptureScreen, LOCAL_CAPTURE_UNSUPPORTED } from "./local-capture-screen.js";
+import { useLocalCaptureSupport } from "../../voice/use-local-capture.js";
+import { AssociateRecordings } from "../voice/associate-recordings.js";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
 import {
@@ -31,12 +35,30 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   const root = useBrainUiRoot();
   // The gate owns its connectivity probe — composing <ConnectionGate> is all
   // an embedder needs; the store would otherwise sit on "checking" forever.
-  const successfulProbeCount = useVpnStatus();
   const vpnStatus = useConnectionStore((s) => s.vpnStatus);
   const handshakeFailures = useConnectionStore((s) => s.handshakeFailures);
   const lastCloseCode = useConnectionStore((s) => s.lastCloseCode);
   const reportError = useConnectionStore((s) => s.reportError);
   const socketOpens = useConnectionStore((s) => s.socketOpens);
+  const auth = useStore(root.authLock.state);
+  useEffect(() => root.localWorkFlow.attachGate(), [root]);
+  const workFlow = useStore(root.localWorkFlow.state);
+  const account = useConnectionStore(s => s.accountKey);
+  const [associationRoot, setAssociationRoot] = useState<BrainUiRoot | null>(null);
+  useEffect(() => {
+    if (!account || vpnStatus !== "connected" || auth.phase !== "active" || workFlow.signingOut || workFlow.signingIn) return;
+    if (!root.localWorkFlow.hasSignIn()) return;
+    let live = true;
+    void (async () => {
+      await root.partitions?.allowWritesAfterSignIn(account);
+      const rows = await root.recordings?.list("unassigned");
+      if (live && root.stores.connection.getState().accountKey === account) {
+        root.localWorkFlow.consumeSignIn(); if (rows?.some(r => r.state !== "recording")) setAssociationRoot(root);
+      }
+    })().catch(() => {});
+    return () => { live = false; };
+  }, [root, account, vpnStatus, auth.phase, workFlow.association, workFlow.signingOut, workFlow.signingIn]);
+  useLayoutEffect(() => { if (auth.phase === "locked") root.authLock.dropContext(); }, [root, auth.phase]);
   const issue = deriveConnectionIssue({
     vpnStatus,
     handshakeFailures,
@@ -47,16 +69,31 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   // drop must not destroy rendered chat state. Show a banner instead.
   const [connectedRoot, setConnectedRoot] = useState<BrainUiRoot | null>(null);
   const everConnected = connectedRoot === root;
+
+  const supported = useLocalCaptureSupport();
+  const [captureRoot, setCaptureRoot] = useState<BrainUiRoot | null>(null);
+  const [controlled, setControlled] = useState(() => typeof navigator !== "undefined" && !!navigator.serviceWorker?.controller);
   useEffect(() => {
-    if (vpnStatus === "connected") setConnectedRoot(root);
-  }, [vpnStatus, root]);
+    const workers = navigator.serviceWorker;
+    const update = () => setControlled(!!workers?.controller);
+    update();
+    workers?.addEventListener?.("controllerchange", update);
+    return () => workers?.removeEventListener?.("controllerchange", update);
+  }, [root]);
+  useEffect(() => {
+    if (vpnStatus === "connected" && captureRoot !== root) setConnectedRoot(root);
+  }, [vpnStatus, root, captureRoot]);
+  const canCapture = supported === true && root.partitions !== null && root.localCapture?.durable === true;
+  const localMode = captureRoot === root || (!everConnected && vpnStatus === "unreachable" && controlled && canCapture);
+  const { successfulProbeCount, localStatus } = useVpnStatus(localMode);
+  useEffect(() => { if (localMode) setCaptureRoot(root); }, [root, localMode]);
 
   const pushRebind = useRef(newPushRebind());
 
   // Client-local Action notice timing follows this client's reported zone.
   useNotificationZoneRefresh(root.api, {
     successfulProbeCount,
-    connected: vpnStatus === "connected",
+    connected: vpnStatus === "connected" && !localMode,
     socketOpens,
   });
 
@@ -77,6 +114,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const state = pushRebind.current;
     if (
+      localMode ||
       successfulProbeCount === 0 ||
       vpnStatus !== "connected" ||
       !state.pending ||
@@ -108,7 +146,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
         }, delay);
       }
     );
-  }, [successfulProbeCount, vpnStatus, root]);
+  }, [successfulProbeCount, vpnStatus, root, localMode]);
 
   const refused = issue === "refused" || issue === "capacity";
   const wasRefused = useRef(false);
@@ -132,9 +170,23 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
     }
   }, [issue, refused, lastCloseCode, reportError]);
 
+  if (localMode) {
+    return <LocalCaptureScreen reachable={localStatus === "connected" || localStatus === "unauthorized" || localStatus === "forbidden"} onContinue={() => {
+      setCaptureRoot(null);
+      root.recheckVpn();
+      // Leaving the local screen is explicit. The next probe selects auth/chat.
+      root.stores.connection.getState().setVpnStatus("checking");
+    }} />;
+  }
+
   // Auth required (password mode) and no valid session: show the login screen,
   // even if we were connected before (an expired session must re-prompt).
-  if (issue === "unauthorized") {
+  if (workFlow.signingOut) return <div role="status" className="flex h-[100dvh] items-center justify-center bg-background text-foreground">Signing out…</div>;
+  if (workFlow.signingIn) return <LoginScreen {...(workFlow.signInWarm ? { reauth: auth } : {})} />;
+  if (auth.phase === "locked" || auth.phase === "restoring") {
+    return <LoginScreen reauth={auth} onLocalCapture={canCapture ? () => { if (root.authLock.state.getState().phase === "locked") setCaptureRoot(root); } : undefined} />;
+  }
+  if (issue === "unauthorized" && auth.phase !== "saving") {
     return <LoginScreen />;
   }
 
@@ -146,6 +198,10 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           issue={issue}
         />
         {children}
+        {workFlow.notice && <p role="status" className="p-3 text-sm text-foreground">{workFlow.notice}</p>}
+        <div className="sr-only" aria-live="polite">{workFlow.associationNotice}</div>
+        <LockedRecordingSize />
+        {associationRoot === root && <AssociateRecordings onClose={() => setAssociationRoot(null)} />}
       </>
     );
   }
@@ -175,6 +231,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           {vpnStatus === "checking" && (
             <p className="text-sm text-muted-foreground">Connecting...</p>
           )}
+          {workFlow.notice && <p role="status" className="max-w-xs text-sm text-foreground">{workFlow.notice}</p>}
 
           {vpnStatus === "forbidden" && (
             <>
@@ -195,6 +252,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
               <p className="text-sm text-muted-foreground max-w-xs">
                 Check your connection and try again. Retrying automatically...
               </p>
+              {supported === false && <p className="text-sm text-muted-foreground max-w-xs">{LOCAL_CAPTURE_UNSUPPORTED}</p>}
             </>
           )}
         </motion.div>
@@ -265,4 +323,19 @@ function OfflineBanner({
       )}
     </AnimatePresence>
   );
+}
+
+/** Capacity honesty only: never opens a locked partition or returns its metadata. */
+function LockedRecordingSize() {
+  const root = useBrainUiRoot();
+  const key = useConnectionStore((s) => s.accountKey);
+  const [bytes, setBytes] = useState(0);
+  useEffect(() => {
+    let current = true;
+    void root.partitions?.sizes("recording:chunk:").then((sizes) => {
+      if (current) setBytes(sizes.filter((s) => s.partition !== "unassigned" && s.partition !== `account:${key}`).reduce((n, s) => n + s.bytes, 0));
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [root, key]);
+  return bytes > 0 ? <p data-locked-recordings className="text-xs text-muted-foreground">Locked recordings from another account · {(bytes / (1024 * 1024)).toFixed(1)} MB</p> : null;
 }

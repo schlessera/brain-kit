@@ -14,6 +14,32 @@ probe and live WebSocket facts. After three consecutive handshakes fail before
 opening, it distinguishes a refused live connection from an unreachable
 server; close code 4008 is shown specifically as the server connection limit.
 
+## Cold offline capture
+
+With `storagePrefix` and `localCapture: true`, `ConnectionGate` offers a
+minimal local screen on an unreachable cold launch controlled by an installed
+service worker. The host must precache the eager app shell and all capture
+assets, as described in the SDK README. A first-ever uncached offline visit
+cannot boot the app. Unsupported browsers keep the connection gate and its
+local-capture limitation sentence.
+
+This screen lists only unassigned recordings, with Play and Discard. Account
+recordings remain locked and contribute only an aggregate size line. Newly
+captured audio always goes to `unassigned`, even if connectivity returns or
+another tab signs in. Nothing uploads, transcribes, assigns an account or opens
+protected content automatically. The recovered-server banner waits for
+Continue; Continue finishes any running capture before leaving. The re-auth
+screen's Record without signing in action opens the same surface. Returning
+from it still requires same-account reauthentication to restore protected work.
+
+`LocalCaptureScreen` is also exported for shells composing their own gate. It
+requires a provider root with durable local capture and partitions enabled;
+its `reachable` prop controls the recovery banner and `onContinue` handles
+explicit departure. It performs local storage/capture operations only; the
+gate owns the connectivity probe. Recordings in this browser are not encrypted
+against device access. Browser eviction, unavailable storage and cleared site
+data can prevent recovery; durable-storage requests are never guarantees.
+
 ## Dictation
 
 At widths of 900px and above, dictation opens a panel immediately above the
@@ -27,6 +53,126 @@ control. Its 200ms upward entrance respects reduced-motion preferences through
 both stylesheet entry points. Both forms keep the provider disclosure,
 transcript scrolling and review flow. The composer preserves its draft and
 prevents typing or sending while capture or its final drain is active.
+
+When a provider ends dictation with an error, or dictation cannot start, a
+persistent amber notice explains the failure below review. Its safe copy refers
+only to words from that capture. Dismiss keeps the review words; a new capture
+or review Send/Edit/Discard clears the notice. Typing and session changes keep
+it. It is announced once politely, appears without moving focus, and offers no
+automatic restart. Distinct local microphone notices remain visible afterward.
+
+### Recording on the device
+
+Set `localCapture: true` and a stable `storagePrefix` on a persistent root to
+use its durable `root.recordings` store. Recording remains opt-in. `start()`
+checks the origin's audio budget and acquires the single recording tab lock
+before asking for microphone permission. Each chunk and its saved boundary
+commit together; events report only committed `savedThroughMs`. The store
+holds service-worker update reloads until capture and finalization finish.
+
+Pending audio has no age expiry and is never evicted to make room. The store
+limits each recording to ten minutes and all partitions together to 100 MiB,
+with the browser's estimated headroom as a tighter budget. A failed write
+stops capture and keeps the committed prefix. Encoded chunks are never sliced
+to fit a limit: playback uses the contiguous chunks that committed.
+
+Account audio is accessible only while the matching `accountKey` is held;
+locked audio still counts toward the cap. New captures without an account are
+`unassigned`, and `assign(id)` requires an explicit choice by the caller.
+Partitioning is an app boundary, not protection against someone with access
+to the device. `stop("auth")` stops capture, accepts at most the in-flight
+write, and retains the originating partition.
+
+`ConnectionGate` stops capture on a 401 or a 1008 close, commits the work
+snapshot, then unmounts protected views and drops their account payloads. A
+failed snapshot is reported on the re-auth screen. Signing in as the same
+account confirms the account key on the existing authenticated probe and
+restores text, images, uploaded track references, selection, focus and the
+transcript anchor without reloading. An unfinished IME composition is not
+recoverable. A different account, or a missing snapshot, reloads; other
+accounts' recordings remain locked, with only their aggregate size shown.
+The account key is retained only through the ordered stop and snapshot, then
+cleared after unmount. Transport loss keeps the views and capture running.
+Service-worker takeover stays held through this auth transition.
+
+After an explicit successful sign-in, unassigned recordings are offered once
+in “Drafts recorded before you signed in”. Nothing is selected initially.
+“Not now” keeps every recording; the tray’s “Add to my account…” reopens the
+choice. Each selected recording moves independently into the current account,
+without upload. Account recordings cannot move to another partition.
+
+Sign-out warns about the account’s retained recordings, unaccepted transcripts,
+unsent drafts and other local review work. “Keep working” has initial focus.
+The warning includes unsaved work in other account tabs. If the displayed loss
+expands before confirmation, it refreshes and asks for renewed consent; a larger
+unassigned inventory returns its separate deletion option to unticked.
+It clears the signed-in account’s whole device partition before logout;
+other accounts remain locked and untouched. Unassigned recordings are kept
+unless “Also delete” is checked. The next screen reports the retained count
+and any clearing or logout failure, including a boot whose server session remains active.
+Storage failure never prevents attempting sign-out. Confirmed sign-out fences old
+account writers across tabs; those tabs stop capture and do not save a new
+auth-expiry snapshot. The fence and deletion share an IndexedDB transaction.
+Only an explicit successful sign-in admits a new writer generation.
+
+Call `recover(partition)` on a readable partition after launch. If capacity
+prevents a repair write, the store still returns and plays the committed
+prefix, and retries the durable classification on later recovery. It never opens
+the microphone: live indexes and partial audio become interrupted recordings,
+using the last contiguous committed end. An index with no playable chunks
+adds a durable removed-by-browser notice until `dismissRemoved(partition)`.
+If both index and chunks disappear, the browser leaves nothing detectable.
+Durable-storage requests and capacity estimates are not guarantees.
+`playback(partition, id)` returns a Blob URL and its `revoke()` cleanup;
+`discard(partition, id)` deletes that recording and its chunks. Playback URLs are revoked on discard, association, auth loss and disposal.
+Recording, playback and recovery perform no upload or transcription.
+
+The composer shows a local recording sheet with the microphone level, timer,
+remaining cap and Stop/Discard controls. Saved recordings appear in a collapsed
+“On this device” tray; expansion preserves the transcript's reading position.
+Confirmed capture discard retains the capture identity through automatic stops
+and reports success only after that recording has been deleted.
+The tray reads only the held account and the unassigned partition. It offers
+playback and confirmed discard, and says when saved-audio transcription is
+unavailable. Nothing in these actions sends audio or a chat message.
+
+`RecordingsTray` and `LocalRecordingSheet` are exported for other root-scoped
+views. A ready transcript is editable and each input is committed locally.
+Collapsing the tray preserves pending or failed corrections and their warning.
+Playback does not clear a transcript-save warning; it clears only after the
+correction commits or the recording is explicitly discarded. A stale Add for
+a recording removed in another tab reports that it is no longer available.
+A clean editor follows edits from other tabs; Add refuses a stored revision
+that differs from the text the user reviewed.
+Add to draft appends after a newline and commits through the account's local
+work snapshot before marking the recording accepted or deleting its audio and
+transcript. A hash-bound finalized receipt makes a retry safe after a failed
+cleanup or reload; a failed draft write retains the recording. A provisional
+receipt cannot authorize cleanup after restart when its target owner is unknown.
+Finalization co-commits the resolved draft owner and aborts the native transaction
+if that identity changes while the transaction is open. Tabs sharing a
+storage prefix serialize changed draft writes and refuse stale replacements
+before they can overwrite accepted text, including different ids claiming the
+same session. Conflicting stored drafts that restoration does not adopt remain durable.
+Acceptance follows a draft identity’s current session ownership and commits
+any redirected target before audio cleanup. Unaccepted
+transcripts hold service-worker reloads even after the tray unmounts. A surviving
+transcript remains reviewable if the browser removes its audio. Acceptance stays
+device-local even when host draft autosave is available; a subsequent user edit
+or explicit Send resumes the ordinary draft workflow.
+
+
+A root created with `localCapture: { sink }` also records without the host.
+While the host is unreachable the mic becomes "Record on this device": a tap
+opens the microphone and records with MediaRecorder into the sink, chunk by
+chunk, with no network request. The draft stays editable, and the mic stops
+the recording ("Stop and save"). A recording stays one when the host returns,
+and a dictation never becomes one. A refused microphone and a browser that
+cannot record on the device (`detectLocalCaptureSupport`) each say so in place
+of the capture panel; the latter draws no mic. Without the option the mic
+dictates online and offline exactly as before. The engine is also exported:
+`startLocalCapture({ sink })` returns a capture whose `stop(reason)` resolves
+once the final chunk was handed over and the microphone released.
 
 ## Track files
 
@@ -215,6 +361,16 @@ for a not-yet-named conversation; frames from background sessions accumulate
 in their own buffers while another session is in view. `activeChat(state)`
 selects the buffer in view; `anyStreaming(state)` is the "something is
 running" signal (used e.g. to defer service-worker update reloads).
+
+Pending tool approvals open at their full detail height so the controls stay
+still during a touch. Ordinary tool details retain their expansion animation;
+reduced-motion preferences make those transitions immediate.
+
+If a permission decision cannot be sent, Chat (including its subagent view)
+and Actions leave the request pending. Actions prints no accepted decision or
+policy-write receipt for a refused send. Reconnect restores the host's pending
+request after history; it never replays the refused decision. Review the card
+and choose again explicitly once connected.
 
 ## Store hooks
 

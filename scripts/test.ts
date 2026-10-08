@@ -25,7 +25,7 @@ export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
 /**
  * Long flags whose value may follow as the NEXT argument (`--timeout 30000`),
  * so that argument is the flag's, not a path. Exactly the required-value
- * params of `test_params` in Bun 1.3.14's `src/cli/Arguments.zig` (test-only,
+ * params of `TEST_PARAMS` in Bun 1.4.2's `src/runtime/cli/Arguments.rs` (test-only,
  * runtime, transpiler and base params), aliases included. Only `bun test`'s
  * own: Bun skips a long flag it does not know, so the argument after one is a
  * path to it, and must be one here too.
@@ -33,16 +33,19 @@ export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
 const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--conditions", "--console-depth", "--coverage-dir", "--coverage-reporter",
   "--cpu-prof-dir", "--cpu-prof-interval", "--cpu-prof-name", "--cron-period",
-  "--cron-title", "--cwd", "--define", "--dns-result-order", "--drop",
-  "--env-file", "--eval", "--extension-order", "--feature",
-  "--fetch-preconnect", "--grep", "--heap-prof-dir", "--heap-prof-name",
-  "--import", "--install", "--jsx-factory", "--jsx-fragment",
-  "--jsx-import-source", "--jsx-runtime", "--loader", "--main-fields",
-  "--max-concurrency", "--max-http-header-size", "--origin",
-  "--parallel-delay", "--path-ignore-patterns", "--port", "--preload",
-  "--print", "--reporter", "--reporter-outfile", "--require", "--rerun-each",
-  "--retry", "--seed", "--shard", "--test-name-pattern", "--timeout",
-  "--title", "--tsconfig-override", "--unhandled-rejections", "--user-agent",
+  "--cron-title", "--cwd", "--define", "--disable-warning",
+  "--dns-result-order", "--drop", "--env-file", "--eval",
+  "--extension-order", "--feature", "--fetch-preconnect", "--grep",
+  "--heap-prof-dir", "--heap-prof-interval", "--heap-prof-name", "--import",
+  "--install", "--jsx-factory", "--jsx-fragment", "--jsx-import-source",
+  "--jsx-runtime", "--loader", "--main-fields", "--max-concurrency",
+  "--max-http-header-size", "--origin", "--parallel-delay", "--path-ignore-patterns",
+  "--port", "--preload", "--print", "--redirect-warnings",
+  "--reporter", "--reporter-outfile", "--require", "--rerun-each",
+  "--retry", "--seed", "--shard", "--stack-trace-limit",
+  "--test-name-pattern", "--timeout", "--timings", "--title",
+  "--trace-event-categories", "--trace-event-file-pattern", "--tsconfig-override", "--unhandled-rejections",
+  "--user-agent", "--watch-kill-signal",
 ]);
 
 /**

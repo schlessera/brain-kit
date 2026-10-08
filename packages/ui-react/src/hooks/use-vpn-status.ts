@@ -1,7 +1,7 @@
 import { defaultRoot } from "../default-root.js";
 import { useBrainUiRoot } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type VpnStatus,
 } from "../stores/connection-store.js";
@@ -11,7 +11,20 @@ const POLL_INTERVAL = 15_000;
 const OFFLINE_POLL_INTERVAL = 3_000;
 const TIMEOUT_MS = 5_000;
 
-async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnStatus> {
+type VpnReading = { status: VpnStatus; accountKey?: string | null };
+
+/** The host's account partition key (#1014): an opaque name, read defensively. */
+async function readAccountKey(res: Response): Promise<string | null> {
+  try {
+    const body = await res.json() as { accountKey?: unknown } | null;
+    const key = body?.accountKey;
+    return typeof key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnReading> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -19,12 +32,12 @@ async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnStatus> {
       signal: controller.signal,
     });
 
-    if (res.ok) return "connected";
-    if (res.status === 401) return "unauthorized";
-    if (res.status === 403) return "forbidden";
-    return "unreachable";
+    if (res.ok) return { status: "connected", accountKey: await readAccountKey(res) };
+    if (res.status === 401) return { status: "unauthorized" };
+    if (res.status === 403) return { status: "forbidden" };
+    return { status: "unreachable" };
   } catch {
-    return "unreachable";
+    return { status: "unreachable" };
   } finally {
     clearTimeout(timeout);
   }
@@ -38,8 +51,11 @@ export function recheckVpnStatus(): void {
   defaultRoot.recheckVpn?.();
 }
 
-export function useVpnStatus() {
+export function useVpnStatus(localOnly = false) {
   const root = useBrainUiRoot();
+  const local = useRef(localOnly);
+  local.current = localOnly;
+  const [localStatus, setLocalStatus] = useState<VpnStatus>("unreachable");
   const [successfulProbe, setSuccessfulProbe] = useState({ root, count: 0 });
 
   useEffect(() => {
@@ -55,9 +71,10 @@ export function useVpnStatus() {
         return;
       }
       inFlight = true;
+      const epoch = root.authLock.epoch();
       const opensAtStart = root.stores.connection.getState().socketOpens;
       try {
-        const status = await fetchVpnStatus(root);
+        const { status, accountKey } = await fetchVpnStatus(root);
         // A socket that reached `open` while this probe was in flight is newer
         // reachability evidence than a failure the probe was started for.
         // Counting opens rather than sampling wsStatus twice also catches a
@@ -65,8 +82,20 @@ export function useVpnStatus() {
         // read "connected".
         const socketOpenedDuringCheck =
           root.stores.connection.getState().socketOpens !== opensAtStart;
+        if (!disposed && local.current) {
+          // Reachability only: a local screen never acquires account authority.
+          setLocalStatus(status);
+          return;
+        }
         if (!disposed && !(socketOpenedDuringCheck && status !== "connected")) {
-          root.stores.connection.getState().setVpnStatus(status);
+          // A locked page is unlocked only by the explicit sign-in completion,
+          // never by a background poll (including another tab signing in).
+          if (epoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") return;
+          if (status === "unauthorized") {
+            await root.authLock.expire();
+            if (disposed || root.authLock.state.getState().phase !== "active") return;
+          }
+          root.stores.connection.getState().setVpnStatus(status, accountKey);
           if (status === "connected") {
             setSuccessfulProbe((previous) => ({ root, count: previous.root === root ? previous.count + 1 : 1 }));
           }
@@ -112,5 +141,5 @@ export function useVpnStatus() {
     };
   }, [root]);
 
-  return successfulProbe.root === root ? successfulProbe.count : 0;
+  return { successfulProbeCount: successfulProbe.root === root ? successfulProbe.count : 0, localStatus };
 }

@@ -1,0 +1,68 @@
+{
+  "protocol": {
+    "version": "840-multi-target-v1",
+    "models": {
+      "current": "claude-sonnet-5-5",
+      "classifier": "jev-1.13.0"
+    },
+    "maxOutputTokens": 4096,
+    "repetitions": 2,
+    "caching": "No explicit prompt caching; all reported cache tokens retained. Repeated requests are marked repeat, not assumed warm.",
+    "gates": {
+      "unsafeAccepted": 0,
+      "fullDocumentLoss": 0,
+      "unsupportedEffect": 0,
+      "acceptedRoutePrecision": 1
+    },
+    "thresholdCandidates": [
+      0.7,
+      0.8,
+      0.9,
+      0.95,
+      1
+    ],
+    "noSafeThreshold": "No write-capable classification gate; all items use current completion fallback",
+    "currentBoundary": "Actual processCommand --keep-note with actual snippet retrieval and instrumented CompletionProvider; no production writes.",
+    "generation": "One focused full-source/full-target body completion for accepted merge/promote. Keep never generates. Uncertain/invalid classification uses actual processCommand fallback, fully counted.",
+    "split": "Entity and representation-template identifiers disjoint; task structures repeat across splits, so nominal disjointness is not independence. Small authored set is not a population guarantee.",
+    "calibrationLimits": "Six tuning items and a preregistered 0.7 floor; no reliable calibration evidence on this small sample. The floor is preregistered; higher candidates are a tuning-only safety screen, not estimated population calibration. No safe write-capable threshold means current-command fallback for all.",
+    "scoring": "Disposition, selected target and safety are primary. Exact files are a strict-format secondary: hybrid promotion paths are fixed while current invents its path. UnsupportedEffect compares complete files allowing a valid ritual promotion filename and repeated blank-line separators; exact files retain strict formatting. Wrong taxonomy types, altered metadata and invented text remain failures; metadata is projected in memory, not a real writer fidelity measurement.",
+    "fixtureNotes": "Exact duplicates require a deduplicating merge by protocol (body once), although safe keep is defensible; both are labelled protocol-forced-duplicate. Negation goldens retain source because literal retention cannot replace conflicting prior statements. Pen-knot is separately labelled ambiguous-label, the most ambiguous recurring-ritual label; pen-once and guest-confirmation add minimal pairs.",
+    "baselineLimits": "Current command uses lexical retrieval with no embeddings and reranker disabled; its source note is indexed and may occur among related snippets. This is the measured fixture baseline, not production retrieval.",
+    "confounding": "Hybrid differences combine bounded classification and full-target access; no full-target current ablation isolates their effects. Instructions express the generic disposition policy corresponding to case categories.",
+    "headlineEvidence": "Held-out only. Tuning is a safety screen. A zero-write split or null hybrid threshold cannot pass an adoption gate; fallback work remains counted.",
+    "sampleLimits": "26 authored cases, six tuning and twenty held-out; two correlated repetitions, unset default model sampling parameters and one large-state fixture. Directional evidence only, no population guarantee.",
+    "pricingSources": [
+      "https://docs.typesafe.ai/models",
+      "https://platform.claude.com/docs/en/about-claude/pricing"
+    ],
+    "budget": "Reserve conservative serialized UTF-8 byte input bounds and maximum output charge before each physical call; unknown billed usage stops further calls."
+  },
+  "sourceHashes": {
+    "./live.ts": "29a2b1ba35163a2577b2f99667342c766b9d55f0bd790552bf6530d73756a5cc",
+    "./benchmark.ts": "9f2a251ff2de7896ab1c1e898ba78b9e3801f529e88e44999eb6c1df67f221dc",
+    "./guard.ts": "5af8985f854c27fb855d03d6eedd035eaf8f74e43cf08cfe6199bb746f518b40",
+    "../../../packages/core/src/cli/commands/process.ts": "f0018dd5a149c8208613045edc11bbc70ae9829747e273e77850570e335f9462"
+  },
+  "protocolSha": "2356f4cb536e2f3efbf6f9cc5f2ae3ece02d0b047debd0f18eccccc542e31be2",
+  "benchmarkSha": "7d2a33ac9b9067b95e5ba77a2df7df137550f88884b9a886a01ea7eb5a4032cc",
+  "review": {
+    "fixtureSha": "7d2a33ac9b9067b95e5ba77a2df7df137550f88884b9a886a01ea7eb5a4032cc",
+    "protocolSha": "2356f4cb536e2f3efbf6f9cc5f2ae3ece02d0b047debd0f18eccccc542e31be2",
+    "reviewerFamily": "Claude",
+    "reviewerModel": "claude-sonnet-5-5",
+    "approved": true,
+    "findings": [
+      "Accuracy sensitivity excluding water-check and guest-confirmation; safe keep is defensible for these soft labels.",
+      "Report per-class recall/write counts and always-keep60% held-out baseline.",
+      "Small authored sample, six-case tuning screen, correlated repetitions and one large-state case; no population guarantee.",
+      "Hybrid gains combine classifier/full-target access and stronger policy/retention prompts; no isolated JEV causal claim.",
+      "Metadata projection is not production-writer fidelity."
+    ],
+    "issueReceiptUrl": "https://github.com/schlessera/brain-kit/issues/840#issuecomment-6040336992"
+  },
+  "runtime": "1.3.14",
+  "issuePrior": 0,
+  "cap": 15,
+  "startedAt": "2026-10-07T14:40:56.374Z"
+}

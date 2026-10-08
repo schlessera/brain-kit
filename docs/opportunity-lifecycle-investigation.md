@@ -120,11 +120,21 @@ source writes, pipeline generation, full keyless index rebuild and briefing;
 they exclude disposable-brain setup and replay. They are local measurements,
 not agent latency or a comparative speedup. No timing threshold gates CI.
 
+The current control report was rerun on 2026-10-07 after the
+[Odysseus corpus correction (#1190)](https://github.com/schlessera/brain-kit/issues/1190).
 Four separate fixture setups run six events each, five times: 120 event
-observations, plus replay of each event. Ridge is the tuning entity; Cedar
-uses custom taxonomy/canonical paths and existing prose prep, while Harbor uses
-the module-directory fallback in held-out controls. The common reference date
-is `2026-07-12`; this is Alex Example's non-UI fixture world.
+observations, plus replay of each event. Ithaca is the tuning entity; Pylos
+uses custom taxonomy/canonical paths and existing prose prep, while Scheria uses
+the module-directory fallback in held-out controls. Odysseus retains the research
+and existing preparation prose; Mentor supplies the interview contact. The
+reference date is `2026-07-12`. These are hypothetical lifecycle cases using
+modern organisational tools, not additional events in the canonical chronology.
+
+The earlier 2026-10-02 control report used the superseded non-UI example world.
+The current report has fresh input/expected-file hashes and local timings;
+historical mutation receipts below retain their original provenance. Entity
+renaming preserves the four technical layouts and does not establish an
+independent template holdout or comparative model quality.
 
 Every checkpoint compares **all Markdown bytes and file membership** against
 the committed [proposed expected files](../scripts/evals/opportunity-lifecycle/expected.json).

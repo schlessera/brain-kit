@@ -123,7 +123,7 @@ function withFakeRtk(behaviour: "rewrites" | "declines" = "rewrites"): () => voi
   writeFileSync(
     binary,
     "#!/bin/sh\n" +
-      'if [ "$1" = "--version" ]; then exit 0; fi\n' +
+      'if [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
       (behaviour === "declines"
         ? "exit 0\n"
         : "printf '%s\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk git status\"}}}'\n")

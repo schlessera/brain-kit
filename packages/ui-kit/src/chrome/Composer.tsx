@@ -130,6 +130,13 @@ export interface ComposerProps {
   onAttach?: () => void;
   /** Opens capture, or stops it while `dictating`. */
   onMic?: () => void;
+  /**
+   * The microphone. On by default. Off where the app has no capture to offer,
+   * so no mic is drawn as if it worked.
+   */
+  mic?: boolean;
+  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"). */
+  micLabel?: string;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
@@ -182,7 +189,7 @@ export function Composer(p: ComposerProps) {
   const recall = p.recall ?? [];
 
   const showAttach = p.attach !== false && v !== "plain";
-  const showMic = v === "send" || v === "plain";
+  const showMic = p.mic !== false && (v === "send" || v === "plain");
   const showSend = v === "send" && !streaming;
   const showStop = v === "send" && streaming;
   const editable = Boolean(p.onChange) && !dictating;
@@ -271,6 +278,7 @@ export function Composer(p: ComposerProps) {
   const stopAct = Boolean(p.onStop);
 
   const mono = (weight: number, size: number): string => `${weight} ${size}px/1.5 ${font.mono}`;
+  const oneLine: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
   return (
     <div
@@ -309,7 +317,7 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label={dictating ? "Stop dictation" : "Dictate"} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
+          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
               style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}
@@ -338,12 +346,12 @@ export function Composer(p: ComposerProps) {
             </span>
           ) : null}
         </div>
-        {v === "voice" ? (
+        {v === "voice" && p.mic !== false ? (
           <span
             style={disc(54, accent.amber.fill, true)}
             className={p.onMic ? "bk-control" : undefined}
             role={p.onMic ? "button" : undefined}
-            aria-label={p.onMic ? "Hold to talk" : undefined}
+            aria-label={p.onMic ? (p.micLabel ?? "Hold to talk") : undefined}
             tabIndex={p.onMic ? 0 : undefined}
             onClick={p.onMic}
             onKeyDown={p.onMic ? pressable(() => p.onMic?.()) : undefined}
@@ -353,12 +361,18 @@ export function Composer(p: ComposerProps) {
         ) : null}
       </div>
       {hintRow ? (
-        <div id={hintId} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 14 }}>
+        // One line, whatever it holds (#1013): a reason that arrives or leaves
+        // with the connection must not change the composer's height, which
+        // would move the field under the writer. Text that does not fit ends
+        // in an ellipsis, and the hint gives way first.
+        <div id={hintId} data-composer-hint="" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minHeight: 14, minWidth: 0 }}>
           {p.provider ? (
             <span
               style={
                 {
-                  flex: "none",
+                  flex: "0 1 auto",
+                  minWidth: 0,
+                  ...oneLine,
                   border: `1px solid ${color.edge}`,
                   borderRadius: 5,
                   padding: "2px 6px",
@@ -384,8 +398,8 @@ export function Composer(p: ComposerProps) {
               {p.providerDetail ? <span style={{ color: accent.amber.ink }}> · {p.providerDetail}</span> : null}
             </span>
           ) : null}
-          {hint ? <span style={{ flex: 1, minWidth: 0, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}
-          {blockedWhy ? <span style={{ flex: "none", font: mono(500, 10), color: accent.gold.ink }}>{blockedWhy}</span> : null}
+          {hint ? <span style={{ flex: "1 1 0", minWidth: 0, ...oneLine, font: mono(400, 10), color: color.inkMute }}>{hint}</span> : null}
+          {blockedWhy ? <span style={{ flex: "0 1 auto", minWidth: 0, ...oneLine, font: mono(500, 10), color: accent.gold.ink }}>{blockedWhy}</span> : null}
         </div>
       ) : null}
     </div>

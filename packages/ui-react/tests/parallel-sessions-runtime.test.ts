@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
-import type { DraftListResponse, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -146,9 +146,17 @@ function scriptedBackend(): AgentBackend {
         bridge.emit({ type: "result", sessionId, outcome: how === "fail" ? "error" : "success", durationMs: 0, numTurns: 1, isError: how === "fail" });
         return;
       }
-      if (kind === "Approve") {
+      if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
         const toolUseId = `wax-${sequence}`;
-        const decision = await bridge.requestPermission({ toolUseId, toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command", description: "Seal the crew's ears with wax." });
+        if (kind === "Subapprove") {
+          const agentId = `wax-agent-${sequence}`;
+          bridge.emit({ type: "tool_use_start", sessionId, toolUseId: agentId, toolName: "Agent" });
+          bridge.activity?.({ kind: "subagent_started", toolUseId: agentId, subagentType: "general-purpose", description: "Prepare the wax" });
+          bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: agentId, toolName: "Agent", input: { description: "Prepare the wax", subagent_type: "general-purpose", prompt: "Seal the crew's ears" } });
+          bridge.emit({ type: "tool_use_start", sessionId, toolUseId, toolName: "Bash", parentToolUseId: agentId });
+          bridge.emit({ type: "tool_use_complete", sessionId, toolUseId, toolName: "Bash", parentToolUseId: agentId, input: { command: "seal --ears crew" } });
+        }
+        const decision = await bridge.requestPermission({ toolUseId, toolName: kind === "Remember" ? "Read" : "Bash", input: kind === "Remember" ? { file_path: "crew/wax.md" } : { command: "seal --ears crew" }, kind: kind === "Remember" ? "tool" : "command", description: "Seal the crew's ears with wax." });
         answers.set(prompt, decision.behavior);
         bridge.emit({ type: "tool_result", sessionId, toolUseId, output: decision.behavior === "allow" ? "Ears sealed." : "Denied by user", isError: decision.behavior !== "allow" });
         finish(`Sealed: ${title}.`, "success");
@@ -195,7 +203,7 @@ async function dropConnections() {
 
 /** A normal host restart: the process's turns end, its database stays. */
 async function restartHost() {
-  server!.stop(true);
+  server?.stop(true);
   app!.cancelActiveTurns();
   await app!.close();
   for (const release of gates.values()) release("ok");
@@ -321,7 +329,9 @@ function waitingWorker() {
   Object.assign(window, { __worker: container, __loads: loads });
 }
 
-type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[] };
+type ApprovalInput = { type: string; target: string | null; at: number; node: number | null; connected: boolean; y: number | null };
+type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
+type Device = { context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
 async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
@@ -337,7 +347,33 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   const dialogs: string[] = [];
   // Every socket the page opens, so a reconnect is observed rather than inferred.
   const sockets: string[] = [];
-  page.on("websocket", (ws) => sockets.push(ws.url()));
+  const approvals: ApprovalFrame[] = [];
+  page.on("websocket", (ws) => {
+    const socket = sockets.push(ws.url()) - 1;
+    const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
+      const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
+      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+    };
+    ws.on("framesent", ({ payload }) => record("framesent", payload));
+    ws.on("framereceived", ({ payload }) => record("framereceived", payload));
+  });
+  // A tap may return without a click. Capture its input events before page
+  // load, without adding a synchronization point before the action (#1217).
+  await page.addInitScript(() => {
+    const events: ApprovalInput[] = [];
+    const nodes = new WeakMap<Element, number>();
+    let sequence = 0;
+    Object.assign(window, { __approvalTouches: events });
+    for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"]) document.addEventListener(type, (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && (target.closest("[data-approval-card]") || /^(Allow|Deny|Always allow)$/.test(target.closest("button")?.textContent?.trim() ?? ""))) {
+        const control = target.closest("button") ?? target;
+        if (!nodes.has(control)) nodes.set(control, ++sequence);
+        events.push({ type, target: control.textContent, at: Date.now(), node: nodes.get(control)!,
+          connected: control.isConnected, y: control.getBoundingClientRect().y });
+      }
+    }, true);
+  });
   // A native confirm, alert or prompt is recorded and refused: none may
   // appear. A leave confirmation is recorded by its type, and refused too:
   // the page stays (#1150).
@@ -345,7 +381,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   await page.goto(opts.update ? `${origin}/?update` : origin);
   await until(page, "p?.connected() && p.draftsSupported() === true");
   expect(await page.evaluate(() => document.documentElement.dataset.theme), "the run's theme is the one drawn").toBe(run.theme);
-  return { context, page, dialogs, sockets };
+  return { context, page, dialogs, sockets, approvals };
 }
 
 /** A real tap under a coarse pointer, a real click otherwise; Playwright waits until the control is at rest (#992). */
@@ -525,8 +561,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         // Sent while A still runs: a follow-up the host queues. Leaving A
         // through Sessions tracks its newest request, queued, over the older
         // running turn; B, opened there, shows its failure and is seen.
-        if (phone(run)) await press(run, button(a.page, "Send"));
-        else await composer(a.page).press("Enter");
+        // A is still running, so its composer offers Stop, not Send, at
+        // every width: the follow-up goes with the keyboard's Enter. (The
+        // phone run pressed Send while a history replay wrongly ended A's
+        // stream; #1013 keeps it running.)
+        await composer(a.page).press("Enter");
         await a.page.locator('[data-row-half="right"] [data-pill]').first().waitFor();
         await openFromSessions(run, a.page, B);
         await until(a.page, `${state(A)}?.state === "queued"`);
@@ -592,128 +631,320 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       }
     }, 180_000);
 
-    test(`${run.name}: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done`, async () => {
-      const tag = `(${run.name})`;
-      const a = await device(run);
-      const approve = `Approve: Seal the crew's ears ${tag}`;
-      const asks = (Object.keys(ASKS) as AskKind[]).map((kind) => `${kind}: Plan the raft, ${kind.toLowerCase()} ${tag}`);
-      const hold = `Hold: Keep watch on the cliffs ${tag}`;
-      const ids: Record<string, string> = {};
-      try {
-        // Six sessions, each left by New chat while it waits on the reader
-        // or still runs.
-        for (const prompt of [approve, ...asks, hold]) {
-          await send(run, a.page, prompt);
-          await until(a.page, `p.activeSessionId() !== null && !${JSON.stringify(Object.values(ids))}.includes(p.activeSessionId())`);
-          ids[prompt] = (await probe(a.page, (p) => p.activeSessionId()))!;
-          if (prompt === approve) await a.page.locator("[data-approval-card]").waitFor();
-          else if (prompt !== hold) await a.page.locator("[data-ask-waiting]").first().waitFor();
-          else await a.page.getByText("Setting out: Keep watch on the cliffs").first().waitFor();
-          await newChat(run, a.page);
+    for (const touch of run.options.hasTouch
+      ? [undefined, { holdMs: 0, motion: "reduce" as const }, { holdMs: 150, motion: "reduce" as const }, { holdMs: 0, motion: "no-preference" as const }, { holdMs: 0, motion: "reduce" as const, refused: true }]
+      : [undefined]) {
+      const approvalRun: Run = touch ? { ...run, options: { ...run.options, reducedMotion: touch.motion } } : run;
+      const refused = touch && "refused" in touch;
+      const activation = refused ? " [refused send recovery]" : touch ? ` [native touch, ${touch.holdMs}ms, motion=${touch.motion}]` : "";
+      test(`${run.name}${activation}: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done`, async () => {
+        const tag = `(${run.name}${activation})`;
+        const a = await device(approvalRun);
+        const approve = `Approve: Seal the crew's ears ${tag}`;
+        const asks = (Object.keys(ASKS) as AskKind[]).map((kind) => `${kind}: Plan the raft, ${kind.toLowerCase()} ${tag}`);
+        const hold = `Hold: Keep watch on the cliffs ${tag}`;
+        const ids: Record<string, string> = {};
+        try {
+          // Six sessions, each left by New chat while it waits on the reader
+          // or still runs.
+          for (const prompt of [approve, ...asks, hold]) {
+            await send(run, a.page, prompt);
+            await until(a.page, `p.activeSessionId() !== null && !${JSON.stringify(Object.values(ids))}.includes(p.activeSessionId())`);
+            ids[prompt] = (await probe(a.page, (p) => p.activeSessionId()))!;
+            if (prompt === approve) await a.page.locator("[data-approval-card]").waitFor();
+            else if (prompt !== hold) await a.page.locator("[data-ask-waiting]").first().waitFor();
+            else await a.page.getByText("Setting out: Keep watch on the cliffs").first().waitFor();
+            await newChat(run, a.page);
+          }
+          const all = Object.values(ids);
+          const expected = (v: View) => v.sessionId === ids[approve] ? v.state === "needs_you" && v.pendingKind === "approval"
+            : v.sessionId === ids[hold] ? v.state === "running"
+            : v.state === "needs_you" && v.pendingKind === "question";
+          const states = async () => probe(a.page, (p) => p.views());
+          await until(a.page, `p.views().length === 6 && p.views().every((v) => v.state === "needs_you" || v.state === "running")`);
+          for (const v of await states()) expect(expected(v), `${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          // Needs you sorts first; running last.
+          expect((await states()).at(-1)!.sessionId, "running sorts after needs you").toBe(ids[hold]);
+          await neverDone(run, a.page, all);
+
+          // Overflow: below 1280 the most urgent pill and a summary of the rest,
+          // whose sheet lists all six; from 1280 the pane's Working lists all six.
+          if (wide(run)) {
+            await until(a.page, `document.querySelectorAll("section[data-sessions-pane] [data-working-row]").length === 6`);
+            expect((await drawn(run, a.page)).sort()).toEqual([...all].sort());
+          } else {
+            const summary = a.page.locator('[data-row-half="left"] [data-strip-summary="overflow"]');
+            await summary.waitFor();
+            expect(await drawn(run, a.page), "one pill beside the summary").toHaveLength(1);
+            expect(await summary.getAttribute("aria-label")).toMatch(/^5 more working sessions: .*\. Open list\.$/);
+            const box = (await summary.boundingBox())!;
+            expect(box.height, "the summary is a 44px target").toBeGreaterThanOrEqual(43.5);
+            await press(run, summary);
+            const sheet = a.page.locator("[data-working-sheet]");
+            await sheet.waitFor();
+            expect((await sheet.locator("[data-session]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.session!))).sort(), "the sheet lists all six").toEqual([...all].sort());
+            await a.page.keyboard.press("Escape");
+            await sheet.waitFor({ state: "detached" });
+          }
+
+          // A dropped connection: the same six, still unfinished.
+          const opened = a.sockets.length;
+          await dropConnections();
+          // The page notices and opens a new socket to the host.
+          const end = Date.now() + 30_000;
+          while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
+          expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
+          await until(a.page, "p.connected()", 30_000);
+          await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
+          for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          await neverDone(run, a.page, all);
+
+          // A reload whose recovery reads fail: the running session can't be
+          // checked, a question the host hands over again still needs you, and
+          // none reads done.
+          await a.context.route("**/api/sessions/*/recovery", (route) => route.abort());
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          // The host hands the questions over again, but the running session
+          // comes back only from this root's own stored set.
+          await until(a.page, "p.views().length >= 5 && p.views().every((v) => v.settled)");
+          await a.page.waitForTimeout(500);
+          expect((await states()).map((v) => v.sessionId).sort(), "the stored set brings every tracker back").toEqual([...all].sort());
+          await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
+          for (const v of await states()) expect(["needs_you", "cant_check"], `unreadable, ${v.sessionId}`).toContain(v.state);
+          await neverDone(run, a.page, all);
+          // The reads come back: the host's own answer, restored, and a cold
+          // load announces nothing.
+          await a.context.unroute("**/api/sessions/*/recovery");
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled && v.state !== 'cant_check')");
+          for (const v of await states()) expect(expected(v), `after reload, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
+          await a.page.waitForTimeout(500);
+          expect(await probe(a.page, (p) => p.spoken()), "a reload announces nothing").toEqual([]);
+
+          // The approval, opened from its tracker after the reload: its card is
+          // restored, answering it finishes the turn, and seeing that clears it.
+          await openTracker(run, a.page, ids[approve]!);
+          await until(a.page, `p.activeSessionId() === ${JSON.stringify(ids[approve])}`);
+          const card = a.page.locator("[data-approval-card]");
+          await card.waitFor();
+          expect(answers.has(approve), "nothing answered by opening").toBe(false);
+          const original = a.approvals.map((entry) => entry.frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === ids[approve]);
+          expect(original?.type, "the original approval request was observed").toBe("tool_approval_request");
+          if (original?.type !== "tool_approval_request") throw new Error("Missing original approval request");
+          expect(original.turnId, "the host bound the approval to a turn").toBeTruthy();
+          const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && frame.type === "tool_approval" && frame.toolUseId === original.toolUseId);
+          expect(replies(), "opening and restoring never sends an approval").toHaveLength(0);
+          try {
+            if (refused) {
+              server!.stop(true);
+              server = undefined;
+              await until(a.page, "!p.connected()");
+              await press(run, card.getByRole("button", { name: "Allow", exact: true }));
+              expect(replies(), "a disconnected click sends no approval").toHaveLength(0);
+              expect(answers.has(approve), "a disconnected click settles no host decision").toBe(false);
+              const tools = await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => Array<{id: string; status: string}> } }).__parallel.approvalTools(id), ids[approve]!);
+              expect(tools.find((tool) => tool.id === original.toolUseId)?.status, "a refused send keeps the original tool pending locally").toBe("pending_approval");
+              expect(await card.getByRole("button", { name: "Allow", exact: true }).count(), "a refused send keeps the original control available").toBe(1);
+              server = Bun.serve({ hostname: "127.0.0.1", port, fetch: app!.fetch, websocket: app!.websocket });
+              await until(a.page, "p.connected()", 30_000);
+              await card.getByRole("button", { name: "Allow", exact: true }).waitFor();
+              expect(replies(), "reconnect does not send the unsent decision automatically").toHaveLength(0);
+            }
+            const allow = card.getByRole("button", { name: "Allow", exact: true });
+            if (touch && !refused) {
+              // A reader can touch a visible card before its entrance settles.
+              // No stable-element wait, second tap or synthetic DOM click (#1217).
+              await allow.scrollIntoViewIfNeeded();
+              const box = (await allow.boundingBox())!;
+              const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent, point),
+                "the native gesture targets the visible Allow control").toContain("Allow");
+              const cdp = await a.context.newCDPSession(a.page);
+              try {
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+                if (touch.holdMs) await Bun.sleep(touch.holdMs);
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+              } finally {
+                await cdp.detach();
+              }
+            } else await press(run, allow);
+            // `cleared` means seen (D52 §4), and may already be true while the
+            // card still waits. It cannot prove delivery or completion (#1217).
+            const replyDeadline = Date.now() + 5_000;
+            while (replies().length === 0 && Date.now() < replyDeadline) await Bun.sleep(10);
+            expect(replies(), "Allow emits exactly one reply for the original approval").toHaveLength(1);
+            if (touch && !refused) {
+              const inputs = await a.page.evaluate(() => (window as unknown as { __approvalTouches: ApprovalInput[] }).__approvalTouches);
+              const down = inputs.find((event) => event.type === "pointerdown" && event.target?.trim() === "Allow");
+              const up = inputs.find((event) => event.type === "pointerup" && event.target?.trim() === "Allow");
+              expect(down, "the native touch reached Allow").toBeDefined();
+              expect(up, "the native touch ended on Allow").toBeDefined();
+              expect(up!.node, "the same control survives the gesture").toBe(down!.node);
+              expect(up!.connected, "the control stays mounted until the gesture ends").toBe(true);
+              expect(Math.abs(up!.y! - down!.y!), "the approval target stays still through the gesture").toBeLessThan(0.5);
+              expect(inputs.filter((event) => event.type === "click" && event.target?.trim() === "Allow"),
+                "the gesture generated exactly one click").toHaveLength(1);
+            }
+            expect(replies()[0]!.frame).toMatchObject({ type: "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card" });
+            const decisionDeadline = Date.now() + 5_000;
+            while (!answers.has(approve) && Date.now() < decisionDeadline) await Bun.sleep(10);
+            expect(answers.get(approve), "the backend settled the original approval").toBe("allow");
+            await a.page.getByText("Sealed: Seal the crew's ears.", { exact: true }).first().waitFor({ state: "attached" });
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(ids[approve])} && v.turnId === ${JSON.stringify(original.turnId)} && v.state === "done" && v.cleared)`);
+            expect(a.approvals.filter(({ event, frame }) => event === "framereceived" && frame.type === "tool_result" && frame.toolUseId === original.toolUseId).map(({ frame }) => frame)).toEqual([
+              expect.objectContaining({ type: "tool_result", sessionId: ids[approve], turnId: original.turnId, isError: false, output: "Ears sealed." }),
+            ]);
+            const response = await fetch(`${origin}/api/sessions/${ids[approve]}/recovery`);
+            expect(response.status, "the host supplied completion evidence").toBe(200);
+            const recovery = await response.json() as SessionRecovery;
+            expect(recovery).toMatchObject({ sessionId: ids[approve], latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+            expect(replies(), "completion introduced no duplicate decision").toHaveLength(1);
+            for (const v of (await states()).filter((v) => v.sessionId !== ids[approve])) {
+              expect(expected(v), `approval completion does not settle ${v.sessionId}`).toBe(true);
+              expect(v.cleared, `approval completion does not clear ${v.sessionId}`).toBe(false);
+            }
+          } catch (error) {
+            // Keep the failed assertion, plus evidence separating a missed
+            // gesture, a missing/wrong reply and a host that did not settle.
+            const [touches, views, records, recovery] = await Promise.allSettled([
+              a.page.evaluate(() => (window as unknown as { __approvalTouches: unknown[] }).__approvalTouches),
+              states(), probe(a.page, (p) => p.records()),
+              fetch(`${origin}/api/sessions/${ids[approve]}/recovery`).then((response) => response.json()),
+            ]);
+            console.error("Restored approval diagnostic", JSON.stringify({
+              run: `${run.name}${activation}`, runtime: Bun.version, browser: browser!.version(), original, frames: a.approvals, answer: answers.get(approve) ?? null,
+              touches, views, records, recovery, tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), ids[approve]!),
+            }));
+            throw error;
+          }
+
+          // A normal host restart ends the running turn and the waiting
+          // questions with the process. The trackers stay, and none reads done.
+          await restartHost();
+          await until(a.page, "p.connected()", 30_000);
+          await a.page.reload();
+          await until(a.page, "p?.connected()");
+          const left = all.filter((id) => id !== ids[approve]);
+          // The host no longer holds any of this work, so only the root's own
+          // stored set can bring these trackers back.
+          await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
+          expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
+          await neverDone(run, a.page, left);
+          for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
+            expect(["failed", "cancelled", "unknown"], `after a restart, ${v.sessionId} is ${v.state}`).toContain(v.state);
+          }
+          expect(a.dialogs).toEqual([]);
+        } finally {
+          await a.context.close();
+          // Questions still waiting would reach the next test's page.
+          await restartHost();
+          await clearHostDrafts();
         }
-        const all = Object.values(ids);
-        const expected = (v: View) => v.sessionId === ids[approve] ? v.state === "needs_you" && v.pendingKind === "approval"
-          : v.sessionId === ids[hold] ? v.state === "running"
-          : v.state === "needs_you" && v.pendingKind === "question";
-        const states = async () => probe(a.page, (p) => p.views());
-        await until(a.page, `p.views().length === 6 && p.views().every((v) => v.state === "needs_you" || v.state === "running")`);
-        for (const v of await states()) expect(expected(v), `${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        // Needs you sorts first; running last.
-        expect((await states()).at(-1)!.sessionId, "running sorts after needs you").toBe(ids[hold]);
-        await neverDone(run, a.page, all);
+      }, 240_000);
+    }
 
-        // Overflow: below 1280 the most urgent pill and a summary of the rest,
-        // whose sheet lists all six; from 1280 the pane's Working lists all six.
-        if (wide(run)) {
-          await until(a.page, `document.querySelectorAll("section[data-sessions-pane] [data-working-row]").length === 6`);
-          expect((await drawn(run, a.page)).sort()).toEqual([...all].sort());
-        } else {
-          const summary = a.page.locator('[data-row-half="left"] [data-strip-summary="overflow"]');
-          await summary.waitFor();
-          expect(await drawn(run, a.page), "one pill beside the summary").toHaveLength(1);
-          expect(await summary.getAttribute("aria-label")).toMatch(/^5 more working sessions: .*\. Open list\.$/);
-          const box = (await summary.boundingBox())!;
-          expect(box.height, "the summary is a 44px target").toBeGreaterThanOrEqual(43.5);
-          await press(run, summary);
-          const sheet = a.page.locator("[data-working-sheet]");
-          await sheet.waitFor();
-          expect((await sheet.locator("[data-session]").evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.session!))).sort(), "the sheet lists all six").toEqual([...all].sort());
-          await a.page.keyboard.press("Escape");
-          await sheet.waitFor({ state: "detached" });
-        }
-
-        // A dropped connection: the same six, still unfinished.
-        const opened = a.sockets.length;
-        await dropConnections();
-        // The page notices and opens a new socket to the host.
-        const end = Date.now() + 30_000;
-        while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
-        expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
-        await until(a.page, "p.connected()", 30_000);
-        await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
-        for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        await neverDone(run, a.page, all);
-
-        // A reload whose recovery reads fail: the running session can't be
-        // checked, a question the host hands over again still needs you, and
-        // none reads done.
-        await a.context.route("**/api/sessions/*/recovery", (route) => route.abort());
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        // The host hands the questions over again, but the running session
-        // comes back only from this root's own stored set.
-        await until(a.page, "p.views().length >= 5 && p.views().every((v) => v.settled)");
-        await a.page.waitForTimeout(500);
-        expect((await states()).map((v) => v.sessionId).sort(), "the stored set brings every tracker back").toEqual([...all].sort());
-        await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[hold])})?.state === "cant_check"`);
-        for (const v of await states()) expect(["needs_you", "cant_check"], `unreadable, ${v.sessionId}`).toContain(v.state);
-        await neverDone(run, a.page, all);
-        // The reads come back: the host's own answer, restored, and a cold
-        // load announces nothing.
-        await a.context.unroute("**/api/sessions/*/recovery");
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled && v.state !== 'cant_check')");
-        for (const v of await states()) expect(expected(v), `after reload, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
-        await a.page.waitForTimeout(500);
-        expect(await probe(a.page, (p) => p.spoken()), "a reload announces nothing").toEqual([]);
-
-        // The approval, opened from its tracker after the reload: its card is
-        // restored, answering it finishes the turn, and seeing that clears it.
-        await openTracker(run, a.page, ids[approve]!);
-        await until(a.page, `p.activeSessionId() === ${JSON.stringify(ids[approve])}`);
-        const card = a.page.locator("[data-approval-card]");
-        await card.waitFor();
-        expect(answers.has(approve), "nothing answered by opening").toBe(false);
-        await press(run, card.getByRole("button", { name: "Allow", exact: true }));
-        await a.page.getByText(`Sealed: Seal the crew's ears ${tag}.`.replace(` ${tag}`, "")).first().waitFor({ state: "attached" }).catch(() => undefined);
-        await until(a.page, `p.views().find((v) => v.sessionId === ${JSON.stringify(ids[approve])})?.cleared === true`);
-        expect(answers.get(approve)).toBe("allow");
-
-        // A normal host restart ends the running turn and the waiting
-        // questions with the process. The trackers stay, and none reads done.
-        await restartHost();
-        await until(a.page, "p.connected()", 30_000);
-        await a.page.reload();
-        await until(a.page, "p?.connected()");
-        const left = all.filter((id) => id !== ids[approve]);
-        // The host no longer holds any of this work, so only the root's own
-        // stored set can bring these trackers back.
-        await until(a.page, "p.views().length > 0 && p.views().every((v) => v.settled)").catch(() => undefined);
-        expect((await states()).map((v) => v.sessionId).sort(), "the trackers survive a restart and a reload").toEqual(expect.arrayContaining([...left].sort()));
-        await until(a.page, `${JSON.stringify(left)}.every((id) => p.views().some((v) => v.sessionId === id && v.settled && !v.cleared))`);
-        await neverDone(run, a.page, left);
-        for (const v of (await states()).filter((x) => left.includes(x.sessionId))) {
-          expect(["failed", "cancelled", "unknown"], `after a restart, ${v.sessionId} is ${v.state}`).toContain(v.state);
-        }
-        expect(a.dialogs).toEqual([]);
-      } finally {
-        await a.context.close();
-        // Questions still waiting would reach the next test's page.
-        await restartHost();
-        await clearHostDrafts();
+    for (const surface of ["Chat", "Actions", "Subagent"] as const) {
+      for (const decision of surface === "Actions" ? ["Allow", "Deny", "Always allow"] as const : ["Allow", "Deny"] as const) {
+        test(`${run.name}: ${surface} ${decision} refuses a disconnected approval send and recovers for one explicit decision`, async () => {
+          const a = await device(run);
+          const approve = `${surface === "Subagent" ? "Subapprove" : decision === "Always allow" ? "Remember" : "Approve"}: Seal the crew's ears (${run.name}, ${surface}, ${decision})`;
+          const question = `Ask user: Choose the harbour (${run.name}, ${surface}, ${decision})`;
+          let sessionId = "";
+          try {
+            // Another pending session is never settled by this decision.
+            await send(run, a.page, question);
+            await a.page.locator("[data-ask-waiting]").first().waitFor();
+            const otherId = (await probe(a.page, (p) => p.activeSessionId()))!;
+            await newChat(run, a.page);
+            await send(run, a.page, approve);
+            await a.page.locator("[data-approval-card]").waitFor();
+            sessionId = (await probe(a.page, (p) => p.activeSessionId()))!;
+            const original = a.approvals.map(({ frame }) => frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === sessionId);
+            if (original?.type !== "tool_approval_request") throw new Error("Missing original permission request");
+            expect(original.turnId, "the original request is turn-bound").toBeTruthy();
+            if (surface === "Subagent") {
+              // Leave/open through the real tracker so recovery is observed
+              // for this run too; a never-left active turn has no tracker.
+              await newChat(run, a.page);
+              await openTracker(run, a.page, sessionId);
+              await press(run, a.page.getByRole("button", { name: /^Prepare the wax/ }));
+              await a.page.getByText("Approval needed: Bash", { exact: true }).waitFor();
+            } else {
+              await a.page.reload();
+              await until(a.page, "p?.connected()");
+              await a.page.locator("[data-restored-approval]").waitFor();
+              if (surface === "Actions") {
+                await press(run, a.page.getByRole("tab", { name: /^Actions/ }).locator("visible=true").first());
+                await until(a.page, "p.view() === 'activity'");
+              }
+            }
+            const controls = surface === "Subagent"
+              ? a.page.getByText("Approval needed: Bash", { exact: true }).locator("..")
+              : a.page;
+            const target = controls.getByRole("button", { name: decision === "Always allow" ? /^Always allow\b/ : decision, exact: true });
+            await target.waitFor();
+            const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && ["tool_approval", "tool_denial"].includes(frame.type));
+            const tools = () => a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => Array<{id: string; status: string; readOnly?: string}> } }).__parallel.approvalTools(id), sessionId);
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval"), "the original pending tool is populated before the fault").toHaveLength(1);
+            await until(a.page, "p.connected()");
+            const readPolicy = async () => {
+              const response = await fetch(`${origin}/api/tool-permissions`);
+              expect(response.status, "the host supplies the remembered policy").toBe(200);
+              const policy = await response.json() as { tools: string[] };
+              expect(Array.isArray(policy.tools), "the policy response is populated with its tools field").toBe(true);
+              return policy;
+            };
+            const policy = await readPolicy();
+            server!.stop(true);
+            server = undefined;
+            await until(a.page, "!p.connected()");
+            await press(run, target);
+            expect(replies(), "a disconnected decision sends no permission frame").toHaveLength(0);
+            expect(answers.has(approve), "the host did not accept an offline decision").toBe(false);
+            if (surface === "Actions") {
+              expect(await a.page.locator('[aria-live="polite"]').filter({ hasText: /^(Allowed|Denied|Always allowed)/ }).count(), "a refused send prints no accepted or policy-write receipt").toBe(0);
+            }
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval"), "a refused send leaves the original tool pending").toHaveLength(1);
+            expect(await target.count(), "a refused send retains the explicit decision control").toBe(1);
+            const clicks = await a.page.evaluate(() => (window as unknown as { __approvalTouches: ApprovalInput[] }).__approvalTouches);
+            expect(clicks.filter((event) => event.type === "click" && event.target?.trim().startsWith(decision)), "the real offline activation reached its handler").toHaveLength(1);
+            server = Bun.serve({ hostname: "127.0.0.1", port, fetch: app!.fetch, websocket: app!.websocket });
+            await until(a.page, "p.connected()", 30_000);
+            await target.waitFor();
+            // Wait for the actual host resume/recovery, not only socket-open.
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(sessionId)} && v.settled && v.state === "needs_you")`);
+            const response = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
+            expect(await response.json()).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "running" }, pending: [{ kind: "approval", requestId: original.toolUseId, turnId: original.turnId }] });
+            expect(replies(), "reconnect never replays the refused decision").toHaveLength(0);
+            expect(await readPolicy(), "a refused send wrote no remembered policy").toEqual(policy);
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval" && !tool.readOnly), "the recovered original request remains answerable").toHaveLength(1);
+            await press(run, target);
+            const deadline = Date.now() + 5_000;
+            while (!answers.has(approve) && Date.now() < deadline) await Bun.sleep(10);
+            expect(replies(), "one explicit online decision sends only one permission frame").toHaveLength(1);
+            expect(replies()[0]!.frame).toMatchObject({ type: decision === "Deny" ? "tool_denial" : "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card", ...(decision === "Always allow" ? { always: true } : {}) });
+            expect(answers.get(approve), "the backend settled the original decision").toBe(decision === "Deny" ? "deny" : "allow");
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(sessionId)} && v.state === "done")`);
+            const terminal = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
+            expect(await terminal.json()).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+            expect(answers.has(question), "the other question remains unanswered").toBe(false);
+            expect((await probe(a.page, (p) => p.views())).find((v) => v.sessionId === otherId)).toMatchObject({ state: "needs_you", pendingKind: "question", cleared: false });
+            expect(replies(), "completion sends no duplicate decision").toHaveLength(1);
+            if (decision === "Always allow") expect(await readPolicy(), "only the explicit online decision wrote policy").toMatchObject({ tools: expect.arrayContaining(["Read"]) });
+          } catch (error) {
+            console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId) }));
+            throw error;
+          } finally {
+            await a.context.close();
+            await restartHost();
+            if (decision === "Always allow") await fetch(`${origin}/api/tool-permissions/Read`, { method: "DELETE", headers: { origin } });
+            await clearHostDrafts();
+          }
+        }, 120_000);
       }
-    }, 240_000);
+    }
 
     test(`${run.name}: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words`, async () => {
       const tag = `(${run.name})`;

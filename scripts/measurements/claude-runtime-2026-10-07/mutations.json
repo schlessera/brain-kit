@@ -1,0 +1,9 @@
+{
+  "date": "2026-10-07",
+  "restored": true,
+  "mutations": [
+    { "change": "Remove backend permissionMode default", "command": "scripts/measure-claude-enforcement.ts", "exit": 1, "failure": "manual-default denied and approved arms fail callback/bridge admission", "deniedMarker": true, "deniedCallbacks": 0 },
+    { "change": "Remove production enforcement hook registration", "command": "scripts/measure-claude-delegation.ts", "exit": 1, "failure": "the child must inherit the enforcement ask" },
+    { "change": "Replace measurement Read denial with an empty hook result", "command": "bun run test tests/measurement-isolation.test.ts -t installed CLI denies", "exit": 1, "failure": "expect(received).not.toContain(CONTROLLED OUTSIDE SENTINEL)" }
+  ]
+}

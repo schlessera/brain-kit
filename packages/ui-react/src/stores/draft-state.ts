@@ -54,6 +54,8 @@ export interface ComposerDraft {
   attachments: PendingAttachment[];
   /** Local clock of the last change: the Sessions row's age and the compare sheet's time. */
   editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
   /** Bumped by every change to the content. */
   edit: number;
   host: DraftHostCopy | null;
@@ -106,6 +108,21 @@ export interface DraftSend {
 
 export type DraftConflictChoice = "mine" | "other" | "both";
 
+/**
+ * A draft as this device kept it (#1014): its content, and the host
+ * revision it last knew. `clean` says the content is that revision.
+ */
+export interface LocalDraft {
+  draftId: string;
+  sessionId: string | null;
+  text: string;
+  attachments: PendingAttachment[];
+  editedAt: number;
+  /** A locally accepted transcript waits for a user edit/send before host sync. */
+  deviceOnly?: boolean;
+  host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
+}
+
 export interface DraftStoreState {
   drafts: Record<string, ComposerDraft>;
   /** The draft the new-chat view shows. Not stored until it has content. */
@@ -123,6 +140,8 @@ export interface DraftStoreState {
    * work to that session's draft.
    */
   resolveId(draftId: string): string;
+  /** Resolve a late write's identity and session together, including retired drafts. */
+  resolveTarget(draftId: string, sessionId: string | null): { draftId: string; sessionId: string | null };
   /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
   originOf(draftId: string): string;
   /** The root is going: previews no transcript message owns are released. */
@@ -130,13 +149,20 @@ export interface DraftStoreState {
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
   idFor(sessionId: string | null): string;
   /** Change a draft's content; a draft emptied with nothing on the host is forgotten. */
-  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[] }): void;
+  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[]; deviceOnly?: boolean }): void;
   /** These previews belong to a transcript message now: never revoked here. */
   transfer(attachments: readonly PendingAttachment[]): void;
   /** New chat: the new-chat view gets a fresh identity; the old draft stays where it is. */
   newChat(): void;
   /** Open an unbound draft in the new-chat view (a Sessions Draft entry). */
   openUnbound(draftId: string): void;
+  /**
+   * Drafts this device kept, after a reload (#1014). Anything this page
+   * already holds is newer and stays: a kept draft only fills a gap. One
+   * the host had acknowledged keeps that revision, so the host's newer
+   * version replaces a clean one and meets a dirty one as a conflict.
+   */
+  restoreLocal(drafts: readonly LocalDraft[]): void;
 
   /**
    * A send left the composer: the snapshot is kept, and the draft's content
@@ -254,6 +280,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       return { id, owner: null };
     }
     const resolve = (draftId: string): string => follow(draftId).id;
+    const resolveTarget = (requested: string, requestedSession: string | null) => {
+      const { id, owner } = follow(requested);
+      const current = get().drafts[id];
+      return { draftId: id, sessionId: current ? current.sessionId : owner ?? requestedSession };
+    };
 
     function held(draftId: string, sends = get().sends): boolean {
       return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
@@ -294,7 +325,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1 };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -369,24 +400,25 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       resolveId: resolve,
+      resolveTarget,
       originOf: (draftId) => origins.get(draftId) ?? draftId,
 
       release() {
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
         // A held send's rows left the transcript: its snapshot alone owns its previews.
         for (const s of Object.values(get().sends)) if (s.state === "unconfirmed") for (const a of s.attachments) revoke(a.previewUrl);
+        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear();
       },
 
       edit(requested, requestedSession, patch) {
         // Late work for a rotated draft, or one forgotten as its session accepted it.
-        const { id: draftId, owner } = follow(requested);
-        const sessionId = get().drafts[draftId]?.sessionId ?? owner ?? requestedSession;
+        const { draftId, sessionId } = resolveTarget(requested, requestedSession);
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
         if (text === current.text && attachments === current.attachments) return;
         if (patch.attachments) release(current.attachments, attachments);
-        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), failure: current.failure?.kind === "unsaved" ? current.failure : null });
+        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), deviceOnly: patch.deviceOnly === true, failure: current.failure?.kind === "unsaved" ? current.failure : null });
         settle(draftId);
       },
 
@@ -409,6 +441,32 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set({ fresh: id });
       },
 
+      restoreLocal(kept) {
+        for (const k of kept) {
+          const state = get();
+          if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
+          // An emptied draft comes back only while its deletion is owed to the host.
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean)) continue;
+          // A session whose draft this page already holds keeps that one.
+          if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
+          // An id handed to the session before this arrived goes to it, as in
+          // `restore`: work begun on it (an image decoding) lands here.
+          if (k.sessionId !== null) {
+            const handed = minted.get(k.sessionId);
+            if (handed && !state.drafts[handed]) { successors.set(handed, k.draftId); minted.delete(k.sessionId); }
+          }
+          const edit = 1;
+          put({
+            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true,
+            text: k.text,
+            attachments: k.attachments,
+            edit,
+            // Its images upload again before the next save: the ids they had are not kept.
+            host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
+          });
+        }
+      },
+
       beginSend(input, consumedText) {
         const state = get();
         const d = state.drafts[input.draftId];
@@ -422,7 +480,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
           const text = d.text === consumedText ? "" : d.text;
-          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now() });
+          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
         }
         return draftRef;
       },

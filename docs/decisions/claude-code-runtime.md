@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:495`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:178-179`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:182-183`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -62,7 +62,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:108-160`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:273`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:276`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +71,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:48`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:421`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:444`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,10 +85,10 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:421`, eight
+  (`optionalDependencies`, `bun.lock:444`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile (`"@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:431`). The SDK carries a manifest naming the release and a checksum
+  `bun.lock:454`). The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
   `"version": "2.1.278"`, `linux-x64` checksum `5c47359…`).
 - It is byte-identical to the standalone release. `sha256sum` of the SDK's
@@ -207,7 +207,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:253-258`).
+  `packages/ui-server/src/app.ts:256-261`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -446,7 +446,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:47-53`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:204`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:208`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -618,7 +618,7 @@ subscription authenticates.
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
    completions, have to keep working under a separately named key. The
    provider can already read one
-   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:59`),
+   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:61`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
    (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry
@@ -937,3 +937,100 @@ hand-run probe: `packages/ui-backend-claude/tests/follow-up-delivery.test.ts`
 drives the production backend through the real CLI and asserts what the CLI
 sent the model, with a control whose CLI never receives the follow-up. A
 version bump that moves any of the behaviours above fails that test.
+
+## 2026-10-07 — Sonnet 5.5 runtime and explicit manual approvals (#1213)
+
+**Decision (maintainer, 2026-10-07).** Upgrade to SDK 0.3.292 / bundled CLI
+2.1.292 and preserve manual approvals with explicit `permissionMode: "default"`
+in the backend and the raw runtime probe. This resolves the mode choice left
+open by the [2.1.287 comparison](claude-2.1.287-compatibility.md). Enforcement,
+voice and no-grant postures still use their existing hooks and callbacks.
+
+The [official model configuration documentation](https://code.claude.com/docs/en/model-config)
+requires CLI 2.1.284 or later for Sonnet 5.5. The npm registry and loaded SDK
+manifest identify 0.3.292 and eight exact-version platform dependencies; the
+actual native init reports 2.1.292. The dependency remains a caret range,
+now `^0.3.292`, with the lockfile selecting this measured pair. No separate
+runtime download or updater is introduced. Successful earlier-pair experiments
+retain their recorded identities and evidence.
+
+The [sanitized native receipts](../../scripts/measurements/claude-runtime-2026-10-07/)
+record Linux x64, Bun 1.4.2, bogus credentials, fresh homes and config, and a
+network namespace containing only loopback. The omitted-mode candidate again
+failed the command-shape, settings-rule and rewrite callback cases: a denied
+`touch` created its marker without invoking the callback. Explicit default
+passes all twelve raw permission cases and five credential controls. The
+production probe passes fifteen arms, including three new unenforced manual
+approval controls and the original enforcement/settings/rewrite composition.
+The measured constant moves only after these actual receipts.
+
+The added production delegation probe runs an actual foreground subagent
+through the existing Agent rewrite and inherited enforcement hooks. Both
+parent and child request canonical `claude-sonnet-5-5`. The child command
+outside the enforced roster reaches the inherited ask, callback and bridge,
+and creates no marker; the allowlisted child control creates it without a
+grant. The existing native measurement-isolation test denies an outside Read
+under bypass permissions and reads the fictional fixture. CI runs these
+controls alongside the existing probes. The non-root user mapping for the
+isolation test preserves the CLI's refusal of root bypass-permission sessions.
+
+Restored mutations show the guards observe their intended boundaries: removing
+the backend's explicit mode executes the denied manual-control write with no
+callback; removing enforcement registration fails the child's inherited-ask
+assertion; removing the measurement Read denial exposes the controlled outside
+sentinel and fails its exclusion assertion. No load error counts as a receipt.
+
+The keyless capability control reports canonical Sonnet 5.5, 1,000,000 context
+tokens, 128,000 output tokens and `costBasis: "list"`, with the same canonical
+model and `provider: "firstParty"` in native model usage. Its fixed 10 input / 6
+output fixture tokens yield a native list-price estimate of $0.00008. This
+is CLI metadata against scripted loopback responses, not actual model capacity,
+account eligibility, subscription billing or a charged amount. The selected
+account is a bogus fixture API key, not a real account; absent account fields
+stay absent, and the billing receipt is explicitly unknown. Application price
+provenance remains #1206. Live model rates, classifier choices, latency and
+first-party-only behavior remain outside this keyless evidence.
+
+
+## 2026-10-08 — Haiku 5.5 and the 293 runtime (#1238)
+
+The [official model configuration](https://code.claude.com/docs/en/model-config#model-aliases)
+requires CLI 2.1.293 for canonical `claude-haiku-5-5`. The package now selects
+SDK 0.3.293 / bundled CLI 2.1.293, after remeasurement with bogus credentials
+and a network namespace containing only loopback. The npm metadata, loaded
+manifest, eight exact-version platform dependencies, SDK-selected binary
+checksum and actual native init agree. External CLI overrides remain supported;
+a Haiku 5.5 selection adds the evidenced 2.1.293 minimum to the host's own
+minimum on both start and resume. Other profiles gain no blanket minimum.
+
+The [sanitized receipts](../../scripts/measurements/claude-runtime-2026-10-08/)
+record all twelve raw permission cases and five credential controls passing,
+all fifteen production enforcement arms passing, both foreground delegation
+controls passing, and the native outside-Read isolation control passing.
+Explicit manual/default mode remains the #1213 ruling. Removing it again
+executes the denied manual-control command with no approval callback or bridge
+request; restoring it returns all fifteen arms to pass. Enforcement, voice and
+no-grant hooks retain their authority. Earlier experiments keep their original
+runtime/model pairs and evidence.
+
+The new production Haiku control observes SDK 0.3.293 / native init 2.1.293,
+canonical `claude-haiku-5-5` in the SDK options, actual Messages request and
+native usage, and explicit default permission mode. SDK and native request
+effort are medium. The native alias resolves to Haiku 5.5 and reports all five
+effort levels plus adaptive thinking. Native usage reports 1,000,000 context
+tokens, 128,000 output tokens, `provider: "firstParty"` and `costBasis: "list"`.
+Fixed 10 input / 6 output fixture tokens produce a $0.000004 native list-price
+estimate. These are scripted-loopback runtime metadata, not actual model
+capacity, account entitlement or a charge. Billing stays unknown. The native
+request omits temperature, top_p and top_k. A restored production older-model
+substitution makes the actual request use Haiku 4.5 and fails the canonical
+request-model assertion, rather than an earlier setup or option assertion.
+
+The existing Models API discovery and profile flow carries the canonical ID
+without another model roster. Its effort metadata takes precedence over the
+known-model fallback, including an explicit empty set. Unknown context stays
+unknown. The fallback's five levels and medium default follow the
+[official effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort#recommended-effort-levels-for-claude-haiku-55).
+No default chat profile or core completion model changes. No live inference,
+new billing policy, authentication fallback or usage-provenance contract is
+part of this upgrade.
