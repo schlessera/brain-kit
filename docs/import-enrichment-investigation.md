@@ -237,10 +237,13 @@ case inputs, expected effects, rubric and protocol. The verifier reparses actual
 literal evidence and rejects offline scripted APPROVED text or self-asserted flags.
 It is not cryptographic proof against a dishonest artifact owner. Inactive overage
 is an observation, never an invoice-zero; unknown cache or billed amounts remain
-null. Current Jev pricing ambiguity is tracked in
-[#1239](https://github.com/schlessera/brain-kit/issues/1239), so this new observer
-retains usage without inventing a price. Existing frozen historical rates are not
-relabelled.
+null. [#1239](https://github.com/schlessera/brain-kit/issues/1239) concerns
+conflicting Sonnet 5.5 cache-read diagnostic rates, not Jev pricing. The dated
+Sonnet table basis is retained with that caveat. The official
+[Jev model list](https://docs.typesafe.ai/models) gives $0.042/M input tokens
+and free output; this new observer retains usage with optional diagnostic price,
+unreported cache and invoice amounts left null. Existing historical rates are
+not relabelled.
 
 The prospective comparison preserves the original complete current,
 classification-only and classification-plus-summary arms, batch sizes 1/5/20,

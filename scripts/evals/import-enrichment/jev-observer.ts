@@ -4,7 +4,8 @@ import { hash } from "./prototype";
 import type { JevRequest } from "../../../packages/core/src/lib/jev";
 
 // Primary usage/model shapes verified 2026-10-08: https://docs.typesafe.ai/api.
-// Current pricing ambiguity is tracked in#1239; no price or cache counter is invented.
+// Primary Jev model list: https://docs.typesafe.ai/models ($0.042/M input, output free).
+// This observer leaves optional price, cache and invoice unknown;#1239 concerns Sonnet cache-read diagnostics, not Jev.
 export interface PhysicalCall {
   requestBytes: string; responseBytes: string | null; requestSha: string; responseSha: string | null;
   requestedModel: string; servedModel: string | null; status: number | null;
