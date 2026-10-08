@@ -372,7 +372,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
   function trackTranscripts(partition: PartitionId, rows: Recording[]) {
     const before = transcripts.size;
     for (const key of transcripts) if (key.startsWith(`${partition}/`)) transcripts.delete(key);
-    for (const row of rows) if (row.state === "transcript-ready" || row.state === "accepted") transcripts.add(identity(partition, row.id));
+    for (const row of rows) if (row.state === "transcript-ready" || row.state === "accepted" || row.state === "transcribing") transcripts.add(identity(partition, row.id));
     if (before !== transcripts.size) notify();
   }
   async function deleteRecording(partition: PartitionId, id: string) {
@@ -386,14 +386,15 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     changed(id);
   }
   const transcriptionPath = (id: string) => `${options.root.apiBase()}/voice/recordings/${encodeURIComponent(id)}/transcription`;
-  const online = () => options.root.stores.connection.getState().wsStatus === "connected" && options.root.authLock.state.getState().phase === "active";
-  async function updateTranscription(partition: PartitionId, id: string, update: Partial<Index>) {
+  const online = () => options.root.stores.connection.getState().wsStatus === "connected" && options.root.authLock?.state.getState().phase === "active";
+  async function updateTranscription(partition: PartitionId, id: string, update: Partial<Index>, eligible?: (row: Recording) => boolean) {
     const epoch = mutationEpoch(partition);
     const release = await acquire();
     try {
       const row = await get(partition, id);
       checkMutation(partition, epoch);
       if (!row || row.state === "accepted") throw new Error(RECORDING_UNAVAILABLE);
+      if (eligible && !eligible(row)) return;
       const { partition: _, ...index } = row;
       await partitions.open(partition).put(indexKey(id), { ...index, ...update });
       checkMutation(partition, epoch);
@@ -401,7 +402,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       changed(id);
     } finally { await release(); }
   }
-  async function applyReceipt(partition: PartitionId, id: string, result: RecordingTranscription) {
+  const receiptSnapshot = (row: Recording) => JSON.stringify([fingerprint(row), row.transcribeRequestId, row.transcription]);
+  async function applyReceipt(partition: PartitionId, id: string, result: RecordingTranscription, observed?: Recording) {
     const row = await get(partition, id);
     if (!row || result.recordingId !== id || result.sha256 !== row.contentHash) throw new Error("The transcription does not match this recording. The recording is kept.");
     const message = result.status === "outcome_unknown" ? "The provider may have processed this audio. It cannot be retried. The recording is kept."
@@ -413,7 +415,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       transcription: result, transcriptionMessage: message,
       state: result.status === "done" ? "transcript-ready" : result.status === "transcribing" ? "transcribing" : "failed",
       ...(result.status === "done" && typeof result.text === "string" ? { transcript: result.text } : {}),
-    });
+    }, current => current.state !== "transcript-ready" && current.contentHash === result.sha256 && (!observed || receiptSnapshot(current) === receiptSnapshot(observed)));
   }
   async function statusOf(id: string) {
     const response = await options.root.request(transcriptionPath(id), { credentials: "include", cache: "no-store" });
@@ -680,7 +682,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         check();
         const existing = await statusOf(id); check();
         if (existing) {
-          await applyReceipt(partition, id, existing); check();
+          await applyReceipt(partition, id, existing, row); check();
           if (!retry || existing.status !== "failed" || !existing.failure?.retryable || existing.retryCount >= 3 || existing.attemptId !== retry) return;
         } else if (retry) throw new Error("The failed attempt is no longer available. The recording is kept.");
         const audio = (await chunks(partition, id)).slice(0, row.chunkCount);
@@ -691,6 +693,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         await updateTranscription(partition, id, { state: "transcribing", transcribeRequestId: id, transcriptionMessage: undefined });
         check();
         let uploaded = false;
+        let lastProgress: number | undefined;
         let received = false;
         const controller = new AbortController();
         const unwatch = options.root.stores.connection.subscribe(() => { if (options.heldAccountKey() === null || heldPartition() !== partition) controller.abort(); });
@@ -698,7 +701,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         try {
           const response = await options.root.request(`${transcriptionPath(id)}${retry ? `?retry=${encodeURIComponent(retry)}` : ""}`, {
             method: "PUT", credentials: "include", headers: { "content-type": row.mime, "content-sha256": row.contentHash }, body: blob, signal: controller.signal,
-            onUploadProgress(percent) { uploaded ||= percent >= 100; progress(percent); },
+            onUploadProgress(percent) { lastProgress = percent; uploaded ||= percent >= 100; progress(percent); },
           });
           checkMutation(partition, epoch);
           if (authEpoch !== options.root.authLock.epoch()) throw new Error("Sign in again");
@@ -710,6 +713,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           else throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
         } catch (error) {
           checkMutation(partition, epoch);
+          uploaded ||= lastProgress === undefined; // A transport with no progress cannot prove a partial upload.
           await updateTranscription(partition, id, { state: uploaded ? "transcribing" : "failed", transcriptionMessage: uploaded
             ? received ? "Couldn\u0027t save the transcript on this device. The recording is kept." : "Could not confirm the result. Check transcription status after reconnecting. The recording is kept."
             : "Not sent — tap Transcribe again" });
@@ -734,7 +738,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           if (!row.transcribeRequestId || !["transcribing", "failed"].includes(row.state)) continue;
           checkMutation(partition, epoch);
           const result = await statusOf(row.id); checkMutation(partition, epoch);
-          if (result) await applyReceipt(partition, row.id, result);
+          if (result) await applyReceipt(partition, row.id, result, row);
           else if (row.state === "transcribing") await updateTranscription(partition, row.id, { state: "failed", transcriptionMessage: "Not sent — tap Transcribe again" });
         }
       } finally { syncing = false; }
@@ -788,7 +792,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     busy: () => opening || beginning !== null || running !== null || transcripts.size > 0,
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     onEvent(fn) { events.add(fn); return () => { events.delete(fn); }; },
-    dispose() { disposed = true; unwatchSignOut(); unwatchAccount(); unwatchInventory(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
+    dispose() { disposed = true; unwatchSignOut(); unwatchAccount(); unwatchInventory(); unwatchAuth(); invalidators.delete(invalidate); channel?.close(); repaired.clear(); for (const url of urls.keys()) revoke(url); void store.stop("interrupted").finally(releaseHold); },
   };
   function scan() {
     for (const p of new Set<PartitionId>(["unassigned", heldPartition()])) void store.list(p).catch(() => {});
@@ -804,8 +808,11 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       void store.stop("interrupted");
     }
   });
-  const unwatchInventory = options.root.stores.connection.subscribe(scan);
+  const recoverTranscriptions = () => { scan(); if (!disposed) void store.syncTranscriptions().catch(() => {}); };
+  const unwatchInventory = options.root.stores.connection.subscribe(recoverTranscriptions);
+  let unwatchAuth = () => {};
   scan();
   const releaseHold = registerUpdateHold(options.root, store);
+  queueMicrotask(() => { if (!disposed) { unwatchAuth = options.root.authLock.state.subscribe(recoverTranscriptions); recoverTranscriptions(); } });
   return store;
 }

@@ -23,6 +23,7 @@ export function browserRequest(url: string, init?: ProgressRequestInit): Promise
     xhr.onabort = () => { cleanup(); reject(new DOMException("Upload stopped", "AbortError")); };
     init.signal?.addEventListener("abort", abort, { once: true });
     if (init.signal?.aborted) { cleanup(); reject(new DOMException("Upload stopped", "AbortError")); return; }
+    init.onUploadProgress(0);
     xhr.send(init.body as XMLHttpRequestBodyInit);
   });
 }
