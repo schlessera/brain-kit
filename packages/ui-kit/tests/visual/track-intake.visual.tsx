@@ -1,5 +1,5 @@
 /** Actual browser picker, image decoding and shared-target multipart with synthetic files. */
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -38,6 +38,27 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
     let resolveUpload!: (response: Response) => void;
     let uploaded: File | undefined;
     let uploadCount = 0;
+    const started = performance.now();
+    const trace: Record<string, unknown>[] = [];
+    const record = (stage: string, detail: Record<string, unknown> = {}) => trace.push({stage, ms: Math.round(performance.now() - started), ...detail});
+    const nativeBitmap = globalThis.createImageBitmap;
+    const nativeToBlob = HTMLCanvasElement.prototype.toBlob;
+    const nativeRead = FileReader.prototype.readAsDataURL;
+    const nativeDecode = HTMLImageElement.prototype.decode;
+    const nativeObjectUrl = URL.createObjectURL;
+    const nativeRevoke = URL.revokeObjectURL;
+    const restores: (() => void)[] = [];
+    const snapshot = (stage: string) => {
+      const drafts = ui.stores.drafts.getState();
+      record(stage, { online: navigator.onLine, uploadCount,
+        authEpoch: ui.authLock.epoch(), authPhase: ui.authLock.state.getState().phase,
+        sessionId: ui.stores.chat.getState().activeSessionId,
+        activeDraft: drafts.idFor(ui.stores.chat.getState().activeSessionId),
+        images: Array.from(host.querySelectorAll('img'), img => ({alt:img.alt,complete:img.complete,width:img.naturalWidth})),
+        text: host.textContent?.slice(0,1200), field:host.querySelector('textarea')?.value,
+        drafts: Object.entries(drafts.drafts).map(([id,draft]) => ({id,textLength:draft.text.length,attachments:draft.attachments.map(image=>({name:image.name,bytes:image.bytes}))})),
+      });
+    };
     const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
       if (url.endsWith("/track-upload")) {
         uploadCount++;
@@ -73,8 +94,60 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       const originals = Array.from(transfer.files);
       expect(originals).toHaveLength(2);
       const input = host.querySelector<HTMLInputElement>('input[accept*=".gpx"]')!;
+      const bitmap = vi.spyOn(globalThis, "createImageBitmap").mockImplementation(((...args: unknown[]) => {
+        record("bitmap-start", {size:(args[0] as Blob).size,type:(args[0] as Blob).type});
+        const result: Promise<ImageBitmap> = Reflect.apply(nativeBitmap, globalThis, args);
+        void result.then(bitmap => record("bitmap-done", {width:bitmap.width,height:bitmap.height}),
+          error => record("bitmap-error", {message:String(error)}));
+        // Return the native promise, preserving the product's continuation.
+        return result;
+      }) as typeof nativeBitmap);
+      restores.push(() => bitmap.mockRestore());
+      const encoding = vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function(this:HTMLCanvasElement, callback, type, quality) {
+        record("encode-start", {type,width:this.width,height:this.height});
+        nativeToBlob.call(this, blob => {record("encode-done", {type:blob?.type,size:blob?.size});callback(blob);},type,quality);
+      });
+      restores.push(() => encoding.mockRestore());
+      const reading = vi.spyOn(FileReader.prototype, "readAsDataURL").mockImplementation(function(this:FileReader, blob) {
+        record("read-start", {type:blob.type,size:blob.size});
+        this.addEventListener("load",()=>record("read-done",{length:String(this.result).length}),{once:true});
+        this.addEventListener("error",()=>record("read-error",{message:String(this.error)}),{once:true});
+        nativeRead.call(this,blob);
+      });
+      restores.push(() => reading.mockRestore());
+      const decode = vi.spyOn(HTMLImageElement.prototype, "decode").mockImplementation(function(this: HTMLImageElement) {
+        record("fallback-decode-start", {src: this.src});
+        const result = nativeDecode.call(this);
+        void result.then(() => record("fallback-decode-done", {width: this.naturalWidth, height: this.naturalHeight}),
+          error => record("fallback-decode-error", {message: String(error)}));
+        return result;
+      });
+      restores.push(() => decode.mockRestore());
+      const objectUrl = vi.spyOn(URL, "createObjectURL").mockImplementation(blob => {
+        const url = nativeObjectUrl.call(URL, blob);
+        record("object-url-created", {url, type: (blob as Blob).type, size: (blob as Blob).size});
+        return url;
+      });
+      restores.push(() => objectUrl.mockRestore());
+      const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(url => {
+        record("object-url-revoked", {url});
+        nativeRevoke.call(URL, url);
+      });
+      restores.push(() => revoke.mockRestore());
+      const authUnsubscribe = ui.authLock.state.subscribe(() => snapshot("auth-change"));
+      restores.push(authUnsubscribe);
+      const unsubscribe = ui.stores.drafts.subscribe(() => snapshot("draft-change")); restores.push(unsubscribe);
+      snapshot("before-pick");
+      record("picked", {imageBytes: image?.size, inputConnected: input.isConnected, files:originals.map(file=>({name:file.name,type:file.type,size:file.size}))});
       input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
-      await expect.poll(() => host.querySelectorAll('img[alt="raft.png"]').length).toBe(1);
+      snapshot("change-dispatched");
+      await expect.poll(() => {
+        const count = host.querySelectorAll('img[alt="raft.png"]').length;
+        record("preview-poll", {count});
+        return count;
+      }).toBe(1);
+      snapshot("preview-ready");
+      console.info("TRACK_INTAKE_CONTROL", JSON.stringify({width,initiallyOnline,trace}));
       if (!initiallyOnline) {
         expect(navigator.onLine).toBe(false);
         expect(uploadCount).toBe(0); expect(uploaded).toBeUndefined();
@@ -102,7 +175,19 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       const user = ui.stores.chat.getState().draft!.messages.find(message => message.role === "user");
       expect(user!.files![0]!.summary!.counts.retained).toBe(129); expect(user!.attachments).toHaveLength(1);
       await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/ready-${suffix}.png` });
+    } catch (error) {
+      snapshot("failure-before-cleanup");
+      console.error("TRACK_INTAKE_DIAGNOSTIC", JSON.stringify({width,initiallyOnline,error: String(error),trace}));
+      try {
+        if (host.isConnected) await page.screenshot({element:host,path:`../../.vitest-attachments/track-intake/failure-${initiallyOnline ? "online" : "offline"}-${width}.png`});
+      } catch (captureError) {
+        record("failure-capture-error", {message: String(captureError)});
+      }
+      snapshot("after-failure-capture");
+      console.error("TRACK_INTAKE_AFTER_CAPTURE", JSON.stringify(trace.slice(-8)));
+      throw error;
     } finally {
+      for (const restore of restores.reverse()) restore();
       // Sent previews belong to this throwaway chat; unmount only revokes unsent ones.
       const previews = Array.from(host.querySelectorAll<HTMLImageElement>('img[src^="blob:"]'), image => image.src);
       try { if (renderer) flushSync(() => renderer!.unmount()); }

@@ -57,6 +57,14 @@ picker FileList, so offline input evidence remains available after processing.
 Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
 
+Mixed-picker traces record nonempty file metadata, native bitmap/fallback decoding,
+JPEG encoding, FileReader completion, object URL lifecycle, authentication state,
+draft ownership and each original preview poll. Observers delegate to native
+methods and restore them before cleanup. On failure, the trace and original
+assertion are printed before capturing the still-mounted Composer; a capture
+error is recorded without replacing the original assertion. These observations
+help distinguish pending conversion from an absent or rejected draft preview.
+
 The dictation height-cap checks wait for the phone entrance animation to finish
 and require an identity transform before comparing the exact rendered height.
 Chromium can round translated rect edges independently while the layout box
