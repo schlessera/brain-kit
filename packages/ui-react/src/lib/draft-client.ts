@@ -378,7 +378,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   // Changes to a draft's content schedule its save.
   const unsubscribeDrafts = drafts.subscribe((state, prev) => {
     for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
-      for (const source of Object.keys(prev.drafts)) if (state.resolveId(source) === id || (source === d.deviceConflict.otherId && state.drafts[source] !== prev.drafts[source])) {
+      // The other identity can be a predecessor retired by a send while
+      // the native fork was pending. Its outstanding calls still need a fence.
+      const sources = new Set([...Object.keys(prev.drafts), d.deviceConflict.otherId]);
+      for (const source of sources) if (state.resolveId(source) === id || source === d.deviceConflict.otherId) {
         deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
         bumpHost(source);
       }

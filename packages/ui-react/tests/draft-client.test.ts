@@ -735,3 +735,33 @@ test("a late host delete cannot rotate the retained original after a device fork
   await wait(20);
   expect(drafts().drafts[original]?.text, "an old host delete preserves the retained original identity").toBe("Penelope keeps the newer weave");
 });
+
+
+test("a delayed host save is fenced even when its predecessor rotated before the device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().fresh;
+  host.rows.set(original, { draftId: original, sessionId: null, revision: 1, text: "Inspect the fleet.", attachments: [], updatedAt: 1 });
+  drafts().restoreLocal([{ draftId: original, sessionId: null, text: "Inspect the fleet.", attachments: [], editedAt: 1,
+    host: { revision: 1, sessionId: null, updatedAt: 1, clean: true } }]);
+  const release = host.hold();
+  drafts().edit(original, null, { text: "Telemachus checks the harbour." });
+  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  drafts().beginSend({ requestId: "voyage-rotated", draftId: original, sessionId: null, text: "Telemachus checks the harbour.", attachments: [],
+    message: { type: "chat_message", requestId: "voyage-rotated", text: "Telemachus checks the harbour." } }, "Telemachus checks the harbour.");
+  drafts().edit(original, null, { text: "Bring the oars." });
+  drafts().accepted("voyage-rotated", "pylos");
+  expect(drafts().drafts[original], "the predecessor is retired before fork completion").toBeUndefined();
+  drafts().setSupport(false);
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: null, text: "Penelope keeps the newer weave.", attachments: [], editedAt: 2,
+    host: { revision: 1, sessionId: null, updatedAt: 1, clean: false } }, null);
+  drafts().openDeviceVersion(original);
+  const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "blob:fixture/shroud", bytes: 8, name: "shroud.png" };
+  drafts().edit(original, null, { text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] });
+  release();
+  await until(() => host.rows.get(original)?.revision === 2);
+  await wait(20);
+  expect(drafts().drafts[original]?.host?.edit, "the retired predecessor's reply cannot acknowledge the restored original's different text and images").not.toBe(drafts().drafts[original]!.edit);
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts), "a missing-host refresh preserves the newer restored original's editable content").toContainEqual(expect.objectContaining({ text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] }));
+});
