@@ -103,8 +103,14 @@ describe("fresh triage Jev actual shipped transport",()=>{
   try{const o=await classify(items,"choice",8,rubric,endpoint.fetch);expect(endpoint.requests).toHaveLength(0);expect(o.boundsRejected).toEqual(["tail0","tail1"]);expect(o.items.every(i=>!i.rawJudged)).toBe(true);expect(evaluateRepetition(items,o).pass).toBe(false);}finally{endpoint.close();}
  });
  test("state plus longest question bound rejects complete oversized batches before HTTP",async()=>{
-  const items=CORPUS.slice(0,8).map(i=>({...i,body:i.body+"x".repeat(3300)}));const endpoint=await serve("ordered-noul");
-  try {const o=await classify(items,"ordered-noul",8,rubric,endpoint.fetch);expect(endpoint.requests).toHaveLength(0);expect(o.boundsRejected).toEqual(items.map(i=>i.id));expect(o.judgmentCoverageComplete).toBe(false);}finally{endpoint.close();}
+  const items=CORPUS.slice(0,8).map(i=>({...i,body:i.body+"x".repeat(3300)}));const endpoint=await serve("choice");
+  try {const q=requestFor(items,"choice",rubric);expect(Buffer.byteLength(JSON.stringify(q))).toBeLessThan(40000);expect(Buffer.byteLength(JSON.stringify(q.state))+Math.max(...Object.values(q.questions).map(q=>Buffer.byteLength(JSON.stringify(q))))).toBeGreaterThan(32000);
+   const o=await classify(items,"choice",8,rubric,endpoint.fetch);expect(endpoint.requests).toHaveLength(0);expect(o.boundsRejected).toEqual(items.map(i=>i.id));expect(o.judgmentCoverageComplete).toBe(false);}finally{endpoint.close();}
+ });
+ test("whole request bound rejects fan-out before HTTP with state-only bound still satisfied",async()=>{
+  const items=CORPUS.slice(0,8).map(i=>({...i,body:i.body+"x".repeat(3000)})),q=requestFor(items,"ordered-noul",rubric);
+  expect(Buffer.byteLength(JSON.stringify(q))).toBeGreaterThan(40000);expect(Buffer.byteLength(JSON.stringify(q.state))+Math.max(...Object.values(q.questions).map(q=>Buffer.byteLength(JSON.stringify(q))))).toBeLessThan(32000);
+  const endpoint=await serve("ordered-noul");try{const o=await classify(items,"ordered-noul",8,rubric,endpoint.fetch);expect(endpoint.requests).toHaveLength(0);expect(o.boundsRejected).toEqual(items.map(i=>i.id));}finally{endpoint.close();}
  });
  test("truncated response body retains partial exact bytes and cannot become judged/billed complete",async()=>{
   const partial=Buffer.from('{"model":"jev-1.13.0","answers":');
