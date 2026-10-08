@@ -52,6 +52,8 @@ export interface RecordingStore {
   /** Deferred sink for a caller that owns capture; nothing persists until begin. Prefer start for preflight before permission. */
   sink(): LocalCaptureSink;
   stop(reason: LocalCaptureStopReason): Promise<void>;
+  /** Identity of this store's live capture; callers may retain it through termination. */
+  active(): Pick<Recording, "partition" | "id"> | null;
   list(partition: PartitionId): Promise<Recording[]>;
   get(partition: PartitionId, id: string): Promise<Recording | undefined>;
   recover(partition: PartitionId): Promise<RecordingRecovery>;
@@ -398,6 +400,10 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       }
       if (s.capture || openingCapture) await (s.capture ?? openingCapture)!.stop(reason);
       else { await s.write?.catch(() => {}); s.ending ??= finish(s, reason); await s.ending; }
+    },
+    active() {
+      const s = running;
+      return s && (s.partition === "unassigned" || s.partition === heldPartition()) ? { partition: s.partition, id: s.row.id } : null;
     },
     get,
     async list(partition) {

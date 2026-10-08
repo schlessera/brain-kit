@@ -17,7 +17,6 @@ import { CommandPalette } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
 import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
-import { accountPartition } from "../../lib/local-partitions.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { useDictation } from "../../voice/use-dictation.js";
@@ -567,12 +566,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }), [root]);
   const stopLocal = async () => { await localCapture.stop("user"); focusMic(); };
   const discardLocal = async () => {
-    const key = root.stores.connection.getState().accountKey;
-    const partition = key === null ? "unassigned" : accountPartition(key);
-    const active = (await root.recordings!.list(partition)).find(row => row.state === "recording");
+    const active = localCapture.recording();
     try {
       await localCapture.stop("user");
-      if (active) await root.recordings!.discard(partition, active.id);
+      if (!active || !root.recordings) throw new Error("The recording identity is unavailable");
+      await root.recordings.discard(active.partition, active.id);
       setRecordingNotice("Recording discarded from this device.");
     } catch (error) {
       setRecordingNotice("Couldn\u0027t discard this recording on this device. The recording is kept.");

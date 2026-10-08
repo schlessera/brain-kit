@@ -77,6 +77,8 @@ Recording, playback and recovery perform no upload or transcription.
 The composer shows a local recording sheet with the microphone level, timer,
 remaining cap and Stop/Discard controls. Saved recordings appear in a collapsed
 “On this device” tray; expansion preserves the transcript's reading position.
+Confirmed capture discard retains the capture identity through automatic stops
+and reports success only after that recording has been deleted.
 The tray reads only the held account and the unassigned partition. It offers
 playback and confirmed discard, and says when saved-audio transcription is
 unavailable. Nothing in these actions sends audio or a chat message.

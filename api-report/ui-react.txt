@@ -582,6 +582,7 @@ signatures (every public export and the types it is made of)
         start(options?: Omit<StartLocalCaptureOptions, "sink">): Promise<LocalCapture>;
         sink(): LocalCaptureSink;
         stop(reason: LocalCaptureStopReason): Promise<void>;
+        active(): Pick<Recording, "partition" | "id"> | null;
         list(partition: PartitionId): Promise<Recording[]>;
         get(partition: PartitionId, id: string): Promise<Recording | undefined>;
         recover(partition: PartitionId): Promise<RecordingRecovery>;

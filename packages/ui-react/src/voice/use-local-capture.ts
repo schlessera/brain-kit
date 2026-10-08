@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBrainUiRoot } from "../root-context.js";
+import type { Recording } from "../lib/recordings.js";
 import {
   detectLocalCaptureSupport,
   startLocalCapture,
@@ -33,6 +34,7 @@ export function useLocalCaptureSupport(): boolean | null {
 export function useLocalCapture() {
   const root = useBrainUiRoot();
   const captureRef = useRef<LocalCapture | null>(null);
+  const recordingRef = useRef<Pick<Recording, "partition" | "id"> | null>(null);
   // Bumped by every start and every stop: a start whose microphone opens
   // after the user already stopped (or the composer went away) closes it.
   const genRef = useRef(0);
@@ -46,6 +48,7 @@ export function useLocalCapture() {
     const voice = root.stores.voice.getState();
     if (!options || voice.local !== "idle" || root.authLock.state.getState().phase !== "active") return;
     const gen = ++genRef.current;
+    recordingRef.current = null;
     voice.setLocalNotice(null);
     voice.setLocal("opening");
     const opening = new AbortController();
@@ -75,6 +78,7 @@ export function useLocalCapture() {
       return;
     }
     captureRef.current = capture;
+    recordingRef.current = options.durable ? root.recordings?.active() ?? null : null;
     root.stores.voice.getState().setLocal("recording");
     // However it ends — a caller's stop, the browser ending the track —
     // the composer goes back to idle once the final chunk was handed over.
@@ -107,9 +111,10 @@ export function useLocalCapture() {
     cancelOpening();
     const capture = captureRef.current;
     captureRef.current = null;
+    recordingRef.current = null;
     if (capture) void capture.stop("interrupted");
     if (root.stores.voice.getState().local !== "idle") root.stores.voice.getState().setLocal("idle");
   }, [root]);
 
-  return { start, stop };
+  return { start, stop, recording: () => recordingRef.current };
 }
