@@ -63,7 +63,19 @@ function fixture(ctx: TestContext) {
     if (state === "transcript-ready") await root.recordings!.saveTranscript(row.partition, row.id, transcript);
     return { ...row, state, transcript, mime: "audio/wav" };
   };
-  return { root, partitions, host, react, net, ref, ready, seed, renderTray, mountChat };
+  // Subscribe before the tap: a visible sheet acknowledges start, not audio.
+  // MediaRecorder's requested one-second timeslice includes native dispatch
+  // latency, so it must not race expect.poll's one-second storage assertion.
+  // A premature stop also releases the wait so the saved-boundary assertion
+  // below reports missing audio instead of proceeding to a focus assertion.
+  const nextAudioCommit = () => new Promise<void>(resolve => {
+    const off = root.recordings!.onEvent(event => {
+      if (event.kind !== "committed" && event.kind !== "stopped") return;
+      off(); resolve();
+    });
+    ctx.onTestFinished(off);
+  });
+  return { root, partitions, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
 }
 async function tap(el: Element) {
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -244,18 +256,20 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
   const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
   const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
   await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+  const audioCommitted = c.nextAudioCommit();
   await tap(button(c.host, "Record on this device"));
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
   await expect.poll(() => Number(c.host.querySelector('[role="meter"][aria-label="Microphone level"]')?.getAttribute("aria-valuenow")), { message: "recorded audio reaches the rendered meter" }).toBeGreaterThan(0);
   await expect.poll(() => c.host.querySelector<HTMLElement>('[role="meter"] > div')?.getBoundingClientRect().width ?? 0, { message: "microphone activity paints a nonzero bar" }).toBeGreaterThan(0);
-  await wait(1100); await settled();
+  await audioCommitted; await settled();
   await tap(button(c.host, "Stop and save"));
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeNull();
   await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Stop returns focus to mic" }).toBe("Record on this device");
   expect((await c.root.recordings!.list("account:odysseus"))).toHaveLength(1);
   await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+  const secondAudioCommitted = c.nextAudioCommit();
   await tap(button(c.host, "Record on this device")); await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
-  await wait(1100); await settled();
+  await secondAudioCommitted; await settled();
   await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
   await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
   await tap(button(c.host, "Discard recording"));
@@ -562,10 +576,11 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
     const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
     await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+    const audioCommitted = c.nextAudioCommit();
     await tap(button(c.host, "Record on this device"));
     await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
-    // The real MediaRecorder emits one-second chunks; allow dispatch and the native commit beyond that interval.
-    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0, { timeout: 5000, message: "a real audio chunk commits before the automatic-stop race" }).toBeGreaterThanOrEqual(1000);
+    await audioCommitted;
+    await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs ?? 0, { message: "a real audio chunk commits before the automatic-stop race" }).toBeGreaterThanOrEqual(1000);
     const row = (await c.root.recordings!.list("account:odysseus"))[0]!;
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
@@ -585,8 +600,9 @@ test("failed capture discard stays visible after Stop and restores mic focus", a
   const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10s)); ctx.onTestFinished(() => mic.restore());
   const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
   await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+  const audioCommitted = c.nextAudioCommit();
   await tap(button(c.host, "Record on this device"));
-  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await audioCommitted;
   const original = IDBObjectStore.prototype.delete;
   vi.spyOn(IDBObjectStore.prototype, "delete").mockImplementation(function(this: IDBObjectStore, key) {
     if (Array.isArray(key) && String(key[1]).startsWith("recording:index:")) throw new DOMException("Full", "QuotaExceededError"); return original.call(this, key);
@@ -703,8 +719,10 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     const watch = watchMicrophone(); ctx.onTestFinished(() => { watch.restore(); mic.restore(); });
     const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
     await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+    const audioCommitted = c.nextAudioCommit();
     await tap(button(c.host, "Record on this device"));
     await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy();
+    await audioCommitted;
     await expect.poll(async () => (await c.root.recordings!.list("account:odysseus"))[0]?.savedThroughMs, { message: "the real microphone has committed an audio boundary" }).toBeGreaterThanOrEqual(1000);
     await expect.poll(() => button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"), { message: "the settled sheet offers Discard before confirmation" }).toBeTruthy();
     await tap(button(c.host.querySelector<HTMLElement>("[data-local-recording-sheet]")!, "Discard"));
@@ -722,8 +740,9 @@ test("automatic capture termination leaves composer editing focus alone", async 
   const watch = watchMicrophone(); ctx.onTestFinished(() => { watch.restore(); mic.restore(); });
   const c = fixture(ctx); await c.ready(); c.net.drop(); c.mountChat(); await settled();
   await expect.poll(() => button(c.host, "Record on this device"), { message: "the asynchronous microphone support probe exposes the local recording action" }).toBeTruthy();
+  const audioCommitted = c.nextAudioCommit();
   await tap(button(c.host, "Record on this device"));
-  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await wait(1100);
+  await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeTruthy(); await audioCommitted;
   const field = c.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!; field.focus();
   expect(document.activeElement).toBe(field); watch.interrupt();
   await expect.poll(() => c.host.querySelector("[data-local-recording-sheet]")).toBeNull(); await wait(100);
