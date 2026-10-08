@@ -699,14 +699,17 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const uploadRow = await get(partition, id); check();
         if (!uploadRow || uploadRow.state === "transcript-ready" || uploadRow.state === "accepted" || uploadRow.contentHash !== row.contentHash) return;
         if (!await updateTranscription(partition, id, { state: "transcribing", transcribeRequestId: id, transcriptionMessage: undefined }, current => receiptSnapshot(current) === receiptSnapshot(uploadRow))) return;
-        check();
         let uploaded = false;
+        let dispatched = false;
+        let definitiveRejection: string | undefined;
         let lastProgress: number | undefined;
         let received = false;
         const controller = new AbortController();
         const unwatch = options.root.stores.connection.subscribe(() => { if (options.heldAccountKey() === null || heldPartition() !== partition) controller.abort(); });
         const unlock = options.root.authLock.state.subscribe(() => { if (options.root.authLock.epoch() !== authEpoch) controller.abort(); });
         try {
+          check();
+          dispatched = true;
           const response = await options.root.request(`${transcriptionPath(id)}${retry ? `?retry=${encodeURIComponent(retry)}` : ""}`, {
             method: "PUT", credentials: "include", headers: { "content-type": row.mime, "content-sha256": row.contentHash }, body: blob, signal: controller.signal,
             onUploadProgress(percent) { lastProgress = percent; uploaded ||= percent >= 100; progress(percent); },
@@ -718,13 +721,17 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           received = response.ok;
           if (response.ok) await applyReceipt(partition, id, result);
           else if (result.receipt) await applyReceipt(partition, id, result.receipt);
-          else throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
+          else {
+            const preclaim: Record<string, number> = { recording_id_invalid: 400, recording_hash_invalid: 400, recording_empty: 400, recording_too_large: 413, recording_media_unsupported: 415, saved_audio_unsupported: 501, transcription_not_found: 404, transcription_retry_stale: 409 };
+            if (preclaim[result.error] === response.status) definitiveRejection = typeof result.message === "string" ? result.message : "The recording was rejected before transcription. The recording is kept.";
+            throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
+          }
         } catch (error) {
           checkMutation(partition, epoch);
-          uploaded ||= lastProgress === undefined || lastProgress <= 0; // Initialization is not evidence of a partial transfer.
-          await updateTranscription(partition, id, { state: uploaded ? "transcribing" : "failed", transcriptionMessage: uploaded
+          uploaded ||= dispatched && (lastProgress === undefined || lastProgress <= 0); // Initialization is not evidence of a partial transfer.
+          await updateTranscription(partition, id, { state: uploaded && !definitiveRejection ? "transcribing" : "failed", transcriptionMessage: definitiveRejection ?? (uploaded
             ? received ? "Couldn\u0027t save the transcript on this device. The recording is kept." : "Could not confirm the result. Check transcription status after reconnecting. The recording is kept."
-            : "Not sent — tap Transcribe again" }, current => current.state === "transcribing" && current.contentHash === row.contentHash);
+            : "Not sent — tap Transcribe again") }, current => current.state === "transcribing" && current.contentHash === row.contentHash);
           throw error;
         } finally { unwatch(); unlock(); }
       });

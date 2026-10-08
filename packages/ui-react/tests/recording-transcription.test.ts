@@ -14,14 +14,15 @@ function fixture() {
   const data = new Map<string, unknown>();
   let inventoryGate: Promise<void> | undefined;
   let staleInventoryGate: Promise<void> | undefined;
-  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && staleInventoryGate) { const rows = [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); const gate = staleInventoryGate; staleInventoryGate = undefined; await gate; return rows; } if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
+  let beforeTranscribingPut: (() => void) | undefined;
+  const handle = { async get(k: string) { return structuredClone(data.get(k)); }, async put(k: string, v: unknown) { data.set(k, structuredClone(v)); if (k.startsWith("recording:index:") && (v as { state?: string }).state === "transcribing") beforeTranscribingPut?.(); }, async write(cs: Array<{ delete?: string; put?: string; value?: unknown }>) { for (const c of cs) { if (c.delete) data.delete(c.delete); else data.set(c.put!, structuredClone(c.value)); } }, async list(prefix: string) { if (prefix === "recording:index:" && staleInventoryGate) { const rows = [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); const gate = staleInventoryGate; staleInventoryGate = undefined; await gate; return rows; } if (prefix === "recording:index:" && inventoryGate) await inventoryGate; return [...data].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })); } };
   const connection = createStore(() => ({ accountKey: "odysseus", wsStatus: "connected" }));
   const root = { apiBase: () => "/api", stores: { connection }, authLock: { epoch: () => 0, state: createStore(() => ({ phase: "active" })) }, request: async () => new Response("{}", { status: 404 }) } as unknown as BrainUiServices;
   const empty = { async get() { return undefined; }, async list() { return []; } };
   const partitions = { open: (partition: string) => partition === "unassigned" ? empty : handle, writerGeneration: () => "initial", subscribeSignOut: () => () => {} } as unknown as LocalPartitions;
   const make = () => { const s = createRecordingStore({ root, partitions, heldAccountKey: () => connection.getState().accountKey }); stores.push(s); return s; };
   const id = crypto.randomUUID(), blob = new Blob([new Uint8Array([1, 2, 3])]);
-  return { data, connection, root, make, id, blob, holdOldInventory() { let release!: () => void; staleInventoryGate = new Promise<void>(r => { release = r; }); return release; }, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
+  return { data, connection, root, make, id, blob, beforeTranscribingPut(fn: () => void) { beforeTranscribingPut = fn; }, holdOldInventory() { let release!: () => void; staleInventoryGate = new Promise<void>(r => { release = r; }); return release; }, blockInventory() { let release!: () => void; inventoryGate = new Promise<void>(r => { release = r; }); return () => { inventoryGate = undefined; release(); }; }, async seed(state = "transcribing") { const hash = Buffer.from(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer())).toString("hex"); data.set(`recording:index:${id}`, { id, state, mime: "audio/webm", durationMs: 1000, bytes: 3, savedThroughMs: 1000, contentHash: hash, chunkCount: 1, ...(state !== "saved" ? { transcribeRequestId: id } : {}) }); data.set(`recording:chunk:${id}:00000000`, { index: 0, startMs: 0, endMs: 1000, data: blob }); return { recordingId: id, sha256: hash, providerId: "fixture", status: "done", attemptId: "first", retryCount: 0, failures: [], text: "Odysseus original" }; } };
 }
 test("delayed status recovery cannot overwrite another tab's durable edit", async () => {
   const f = fixture(), done = await f.seed(); let release!: () => void, queries = 0;
@@ -155,4 +156,33 @@ test("an ambiguous upload stays recoverable while the host has not claimed its b
   receipt = done; await s.syncTranscriptions();
   expect((await s.get("account:odysseus", f.id))!.transcript, "later provider receipt is recovered without another upload").toBe(done.text);
   expect(uploads).toBe(1);
+});
+
+
+for (const [status, error] of [[413, "recording_too_large"], [415, "recording_media_unsupported"], [400, "recording_hash_invalid"], [501, "saved_audio_unsupported"]] as const) test(`definitive pre-claim ${status} rejection leaves audio reviewable`, async () => {
+  const f = fixture(); await f.seed("saved"); let uploads = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({ error, message: "Recording rejected before provider dispatch." }, { status }); } return new Response("{}", { status: 404 }); };
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); await s.syncTranscriptions();
+  const row = (await s.get("account:odysseus", f.id))!;
+  expect(row.state, "definitive rejection ends pending state without a receipt").toBe("failed");
+  expect(row.transcriptionMessage).toContain("Recording rejected"); expect(row.bytes).toBe(3); expect(uploads).toBe(1);
+});
+
+test("a disconnect after the pending marker commits restores the known never-dispatched recording", async () => {
+  const f = fixture(); await f.seed("saved"); let uploads = 0;
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({}); } return new Response("{}", { status: 404 }); };
+  f.beforeTranscribingPut(() => f.connection.setState({ wsStatus: "disconnected" }));
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow();
+  expect(uploads).toBe(0); f.connection.setState({ wsStatus: "connected" }); await s.syncTranscriptions();
+  const row = (await s.get("account:odysseus", f.id))!;
+  expect(row.state, "known pre-dispatch cancellation does not strand audio").toBe("failed");
+  expect(row.transcriptionMessage).toContain("Not sent"); expect(row.bytes).toBe(3);
+});
+
+
+for (const [status, error] of [[401, "authentication_required"], [500, "transcription_request_failed"], [413, "proxy_rejected"]] as const) test(`unconfirmed HTTP ${status} without a pre-claim proof stays recoverable`, async () => {
+  const f = fixture(); await f.seed("saved");
+  f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") return Response.json({ error, message: "Reply without a known pre-claim refusal." }, { status }); return new Response("{}", { status: 404 }); };
+  const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); await s.syncTranscriptions();
+  expect((await s.get("account:odysseus", f.id))!.state, "HTTP status alone cannot prove the provider was never called").toBe("transcribing");
 });

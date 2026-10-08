@@ -28,7 +28,7 @@ async function settled() {
 async function tap(el: Element) { el.scrollIntoView({ block: "nearest" }); await settled(); await userEvent.click(el); }
 const button = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLElement>('button,[role="button"]')].find(el => el.getClientRects().length && (el.getAttribute("aria-label") ?? el.textContent ?? "").includes(label))!;
 function fixture(ctx: TestContext, backendUrl?: string) {
-  let available = true, drop = false, hold = false, fail = false;
+  let available = true, drop = false, hold = false, fail = false, reject = false;
   let release: (() => void) | undefined;
   let stored: RecordingTranscription | null = null;
   const uploads: Blob[] = [];
@@ -39,6 +39,7 @@ function fixture(ctx: TestContext, backendUrl?: string) {
       if ((init.method ?? "GET") === "GET") return stored ? Response.json(stored) : new Response("{}", { status: 404 });
       if (init.method === "DELETE") { stored = { ...stored!, status: "consumed", text: undefined }; return Response.json(stored); }
       const body = init.body as Blob; uploads.push(body);
+      if (reject) return Response.json({ error: "recording_too_large", message: "The recording exceeds the upload byte budget." }, { status: 413 });
       init.onUploadProgress?.(40);
       await new Promise(r => setTimeout(r, 40));
       if (drop) throw new TypeError("Connection lost at 40%");
@@ -69,7 +70,7 @@ function fixture(ctx: TestContext, backendUrl?: string) {
     return (await root.recordings!.list(unassigned ? "unassigned" : "account:odysseus"))[0]!;
   };
   ctx.onTestFinished(async () => { release?.(); flushSync(() => react.unmount()); host.remove(); root.dispose(); net.restore(); vi.restoreAllMocks(); });
-  return { root, host, net, uploads, seed, mount, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, release: () => release?.() };
+  return { root, host, net, uploads, seed, mount, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, reject: () => { reject = true; }, release: () => release?.() };
 }
 async function expand(c: ReturnType<typeof fixture>) { await expect.poll(() => c.host.querySelector("[data-recordings-tray] button")).toBeTruthy(); await tap(c.host.querySelector("[data-recordings-tray] button")!); }
 async function confirm(c: ReturnType<typeof fixture>, retry = false) {
@@ -171,3 +172,17 @@ for (const drop of [false, true]) test(`real XHR upload ${drop ? "drops at forty
   const audio = await c.root.recordings!.playback(row.partition, row.id);
   try { expect(new Uint8Array(await (await fetch(audio.url)).arrayBuffer()), "retained bytes unchanged").toEqual(payload); } finally { audio.revoke(); }
 }, 30000);
+
+
+test("a definitive upload rejection restores playback and discard with unchanged audio", async ctx => {
+  const c = fixture(ctx); const row = await c.seed(); c.reject(); c.mount(); await expand(c); await confirm(c);
+  await tap(button(c.host, "Upload and transcribe"));
+  await expect.poll(() => c.host.textContent).toContain("The recording exceeds the upload byte budget.");
+  await expect.poll(() => button(c.host, "Play recording")?.getAttribute("aria-disabled"), { message: "definitive rejection restores playback" }).not.toBe("true");
+  const play = button(c.host, "Play recording"), discard = button(c.host, "Discard recording");
+  expect(play, "playback is present after rejection").toBeTruthy(); expect(play.getAttribute("aria-disabled"), "playback is enabled after rejection").not.toBe("true");
+  expect(discard, "discard is present after rejection").toBeTruthy(); expect(discard.getAttribute("aria-disabled"), "discard is enabled after rejection").not.toBe("true");
+  await tap(play); await expect.poll(() => c.host.querySelector("audio")).toBeTruthy();
+  await tap(discard); await expect.poll(() => button(c.host, "Delete recording")).toBeTruthy();
+  const after = await c.root.recordings!.get(row.partition, row.id); expect(after!.bytes).toBe(row.bytes); expect(after!.contentHash).toBe(row.contentHash); expect(c.uploads).toHaveLength(1);
+});
