@@ -1,0 +1,107 @@
+import { expect, test } from "bun:test";
+import { createJevClient, type JevRequest } from "../packages/core/src/lib/jev";
+import { scoreJob } from "../packages/module-jobs/src/score";
+import { benchmark, benchmarkInput, researchPacket, BENCHMARK_SHA, type BenchmarkCase } from "../scripts/evals/job-fit/benchmark";
+import { assessSemantic, calibrate, EVIDENCE_PRECEDENCE, semanticRanking, semanticRequest } from "../scripts/evals/job-fit/semantic";
+import { observe, prepare } from "../scripts/evals/job-fit/brain";
+import { grade } from "../scripts/evals/job-fit/metrics";
+function client(c: BenchmarkCase, probability = 1, model = "jev-1.13.0", capture?: (r: JevRequest) => void) {
+  const answer = (choice: string) => ({ type: "choice", choice, confidence: 1, probabilities: { met: choice === "met" ? probability : 0, not_met: choice === "not_met" ? probability : 0, unclear: choice === "unclear" ? probability : 1 - probability } });
+  return createJevClient({ apiKey: "offline-sentinel", endpoint: "http://127.0.0.1/semantic-control", retryDelayMs: 0,
+    fetch: async (_url, init) => { capture?.(JSON.parse(String(init.body))); return Response.json({ model, answers: { passage: answer(c.passage), relocation: answer(c.relocation) }, usage: { input_tokens: 400, output_tokens: 17 } }); } });
+}
+test("fresh companies/families/prose split and complete input/request/research identities", () => {
+  expect(benchmark).toHaveLength(21);
+  expect(benchmark.filter(c => c.split === "tuning")).toHaveLength(9);
+  for (const field of ["id", "company", "family", "prose"] as const) expect(new Set(benchmark.map(c => c[field])).size, field).toBe(21);
+  const tune = benchmark.filter(c => c.split === "tuning");
+  for (const criterion of ["passage", "relocation"] as const) expect([...new Set(tune.map(c => c[criterion]))].sort()).toEqual(["met", "not_met", "unclear"]);
+  const levels: Array<BenchmarkCase["autonomy"]> = [0, 1, 2, null];
+  expect([...new Set(tune.map(c => c.autonomy))].sort()).toEqual(levels.sort());
+  expect(BENCHMARK_SHA).toHaveLength(64);
+  for (const c of benchmark) {
+    const input = benchmarkInput(c), req = semanticRequest(input);
+    expect(input.posting).toContain(c.prose); expect(input.criteria.length).toBeGreaterThan(200); expect(input.identity.length).toBeGreaterThan(100);
+    expect(req.state).toEqual({ posting: input.posting, metadata: input.job, criteria: input.criteria, identity: input.identity });
+    expect(JSON.stringify(req)).not.toContain('"split"'); expect(JSON.stringify(req)).not.toContain('"decision"');
+    expect(JSON.stringify(req)).not.toContain('"autonomy"');
+    expect(researchPacket(c).unknown).toHaveLength(4);
+    expect(researchPacket(c).externalResearchAllowed).toBe(false);
+  }
+});
+test.each(benchmark)("$id: actual Choice parser and ranking retain arithmetic/exclusions/source", async c => {
+  const input = benchmarkInput(c), before = JSON.stringify(input), asks: JevRequest[] = [];
+  const row = await assessSemantic(input, client(c, 1, "jev-1.13.0", r => asks.push(r)), 1);
+  expect(row.decision, c.id).toBe(c.decision);
+  expect(semanticRanking([row])).toEqual(c.decision === "candidate" ? [c.id] : []);
+  expect(row.baseline).toEqual(scoreJob(input.job, input.config));
+  expect(row.hybrid.compensation).toBe(row.baseline.compensation);
+  expect(row.hybrid.location).toBe(row.baseline.location);
+  expect(row.hybrid.autonomy).toBe(row.baseline.autonomy);
+  expect(row.evidence.posting).toBe(input.posting); expect(row.evidence.metadata).toEqual(input.job);
+  expect(row.ordinalPreferenceMeasured).toBe(false); expect(row.effect).toBeNull();
+  expect(asks).toHaveLength(1); expect(asks[0]).toEqual(semanticRequest(input));
+  expect(JSON.stringify(input)).toBe(before);
+  if (c.literalFalseExclusion) { expect(row.literalLocationMatches.length).toBeGreaterThan(0); expect(row.semanticDealbreaker).toBe(false); }
+});
+test.each(["tune-home", "tune-unknown-pay", "held-low-guarantee", "held-title-filter"])("%s cannot enter the actual candidate ranking", async id => {
+  const c = benchmark.find(c => c.id === id)!;
+  const row = await assessSemantic(benchmarkInput(c), client(c), 1);
+  expect(semanticRanking([row])).toEqual([]);
+  expect(row.decision).not.toBe("candidate");
+});
+test("low selected probability at confidence1 stays out of actual ranking", async () => {
+  const c = benchmark[0];
+  const row = await assessSemantic(benchmarkInput(c), client(c, 0.01), 0.9);
+  expect(semanticRanking([row])).toEqual([]);
+  expect(row.judgments).toBeNull(); expect(row.decision).toBe("review");
+});
+test("null gate dispatches nothing; exact requested model is checked", async () => {
+  const c = benchmark[0]; let calls = 0;
+  const fake = client(c, 1, "jev-1.13.0", () => calls++);
+  const uncalibrated = await assessSemantic(benchmarkInput(c), fake, null);
+  expect(calls).toBe(0); expect(semanticRanking([uncalibrated])).toEqual([]);
+  const mismatched = await assessSemantic(benchmarkInput(c), client(c, 1, "jev-latest"), 1);
+  expect(semanticRanking([mismatched])).toEqual([]);
+  expect(mismatched.judgments).toBeNull();
+});
+test("binding evidence precedence is explicit, not fabricated metadata", () => {
+  expect(EVIDENCE_PRECEDENCE).toContain("Contradictory current binding clauses remain unclear");
+  const conflicting = benchmarkInput(benchmark.find(c => c.id === "held-contradictory")!);
+  expect(conflicting.job.location).toBe("Troy"); expect(conflicting.job.remote_type).toBeNull();
+  const absent = benchmarkInput(benchmark.find(c => c.id === "held-no-residence")!);
+  expect(absent.job.location).toBeNull(); expect(absent.job.remote_type).toBe("fully_remote");
+  expect(absent.posting).toContain("says nothing about permanent");
+});
+test("complete tuning-only calibration excludes held-out rows and all-unknown results", () => {
+  const rows = benchmark.filter(c => c.split === "tuning").map(c => ({ id: c.id, split: c.split, accepted: c.decision === "candidate", correct: true, probability: 0.95, confidence: 0.95 }));
+  const ids = rows.map(r => r.id);
+  expect(calibrate(rows, ids)).toBe(0.7);
+  expect(() => calibrate(rows.slice(1), ids)).toThrow("Complete tuning-only");
+  expect(() => calibrate([{ ...rows[0], split: "held-out" }, ...rows.slice(1)], ids)).toThrow("Complete tuning-only");
+  expect(calibrate(rows.map(r => ({ ...r, accepted: false })), ids)).toBeNull();
+});
+test.each(benchmark)("$id: full persisted jobs module inputs stay byte-identical during actual report-only assessment", async c => {
+  const env = await prepare(c);
+  try {
+    expect(env.brain.taxonomy.types.opportunity.dir).toBe("career/opportunities");
+    expect(env.brain.taxonomy.types.tablet.dir).toBe("tablets");
+    const before = observe(env.root);
+    expect(Object.keys(before).length).toBeGreaterThan(15);
+    const row = await assessSemantic(env.input, client(c), 1);
+    expect(row.decision).toBe(c.decision);
+    expect(observe(env.root)).toEqual(before);
+  } finally { env.close(); }
+});
+test("scripted full-denominator confusion retains unknowns and literal false exclusions without a measured verdict", async () => {
+  const rows = await Promise.all(benchmark.map(c => assessSemantic(benchmarkInput(c), client(c), 1)));
+  const report = grade(benchmark, rows, "scripted-control");
+  expect(report.denominator).toBe(21); expect(report.membershipAgreement).toBe(1);
+  expect(report.confusion.passage["unclear=>unclear"]).toBe(1);
+  expect(report.confusion.relocation["unclear=>unclear"]).toBe(4);
+  expect(report.unknown).toEqual({ labels: 5, answered: 0, abstained: 5 });
+  expect(report.literalFalseExclusions).toBe(2); expect(report.criticalDealbreakerMisses).toBe(0);
+  expect(report.labelsApproved).toBeNull(); expect(report.pairwiseRankingAgreement).toBeNull(); expect(report.goNoGo).toBeNull();
+  expect(report.measuredProviderCostUsd).toBeNull(); expect(report.reviewEffortSeconds).toBeNull();
+  expect(() => grade(benchmark, rows.slice(1), "scripted-control")).toThrow("Complete unique");
+});

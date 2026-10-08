@@ -187,3 +187,72 @@ Assess settings, queue, CLI/JSON, MCP and frontmatter impact before implementing
 it; the current preparation changes none of those surfaces. Do not introduce a
 new provider seam, replace research, enable default scoring or auto-apply results
 on the strength of the scripted controls.
+
+## Whole-source Choice comparison
+
+`benchmark.ts` specifies a separate 21-case author-provisional corpus with nine
+tuning and twelve held-out postings. Companies, job families and complete prose
+are disjoint; the fictional world, criteria, identity and document representation
+remain shared. Every Choice criterion has supported, negative and unclear tuning
+examples. Autonomy annotations include each descriptive level and unknown, but
+the comparison is limited to Choice: these annotations establish no measured
+ordinal preference or Score transport.
+
+`semantic.ts` submits complete raw posting text and metadata. It uses an explicit
+precedence rule: user criteria define the question; current binding responsibility
+and permanent-residence clauses govern over advertised worksite/remote metadata;
+contradictory binding clauses remain unclear. Unknown metadata stays null.
+Negated, quoted, historical and hostile instructions are evidence to interpret,
+not authority. This addresses the historical marker grammar's narrow extraction
+boundary without claiming measured semantic accuracy.
+
+The private report preserves installed numeric scoring, deterministic guaranteed
+minimum arithmetic, configured title exclusions and the conservative literal
+location veto. Negated and quoted configured markers deliberately demonstrate
+false literal exclusions; those are reported separately from semantic dealbreaker
+misses. Both confidence and selected probability must reach a tuning-only gate.
+A null gate dispatches nothing. No model judgment can supply a salary fact or
+authorize a file mutation.
+
+`brain.ts` materializes complete per-case source, criteria, identity, company
+packet, pipeline, parsed metadata and scoring configuration with the actual
+on-disk jobs module and an unrelated custom document type. Company funding,
+team size, leadership and hiring history are explicitly unknown. All arms receive
+the same frozen fictional research; external company research is disabled for
+this bounded comparison. Whole descendant observation covers binary files,
+membership, modes, links and nanosecond clocks during report-only assessment.
+The shared fixture representation and deliberately incomplete company knowledge
+limit generalization to live research workflows.
+
+`jev-observer.ts` runs the actual core Choice client with injected keyless
+transport controls. Literal physical bytes survive decoding failures; output
+tokens retain their observed nonzero value; unreported cache and actual invoice
+amounts stay null. Unknown usage or served-model identity stops subsequent
+physical requests. Diagnostic list-price equivalence is separate from billed
+charges. This observer exposes no paid launcher.
+
+`protocol.ts` specifies prospective keyword, complete installed agent and hybrid
+arms, three repetitions and state sizes 1/32/128. It retains explanation,
+clarification, verification and generation work in comparison costs. Core's
+implicit auto permission auxiliary traffic must be fully accounted for under
+[#1275](https://github.com/schlessera/brain-kit/issues/1275) before a native
+current-path comparison can be admitted. Whole runtime/source freezes, collected
+complementary review, label/ranking rubric approval and threshold calibration
+remain prerequisites; protocol text provides none of those receipts.
+
+`metrics.ts` requires complete unique denominators and reports per-criterion
+confusion, critical dealbreaker misses, unknown salary candidates, uncertainty
+and literal false exclusions. Candidate membership agreement is distinct from
+pairwise preference ordering. The latter, reviewer effort, actual cost, latency,
+throughput and go/no-go remain null until corresponding measurements exist.
+An origin annotation never establishes label approval.
+
+Keyless assertions observe actual private ranking and unchanged complete brains.
+Removing relocation protection requires deleting both the exclusion and the
+positive eligibility condition; changing only one leaves the other effective.
+Removing both admits the excluded tuning role and fails the actual empty-ranking
+assertion. Separate mutations admit unknown salary, accept low selected
+probability, erase raw response bytes, replace observed output usage with zero,
+and allow a second physical request after unknown usage. Each fails its named
+behavioral assertion with the module loaded, then the original guard is restored.
+These controls establish neither semantic quality nor production adoption.
