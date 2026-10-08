@@ -732,8 +732,9 @@ test("review: a decoding image follows its branch even after opening the origina
     "the image decoded for the stale writer lands in its retained branch"
   ).toBe(incomingImages.length + 1);
   expect(
-    kept.find((r) => r.value.draftId === original)?.value.attachments.length
-  ).toBe(1);
+    kept.find((r) => r.value.draftId === original)?.value.attachments,
+    "the committed original keeps its empty image set"
+  ).toEqual([]);
   await b.reload();
   await b.call("ready", 320, "dark");
   await b.call("openDraft", branch);
