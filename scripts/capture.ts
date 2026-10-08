@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { readCatalogue, type Viewport } from "./captures/catalogue.ts";
@@ -121,14 +121,6 @@ async function run(): Promise<void> {
     await writeFile(resolve(staging, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
     for (const entry of result.artifacts) for (const file of entry.files) await rename(resolve(staging, file.file), resolve(output, file.file));
     await rename(resolve(staging, "manifest.json"), resolve(output, "manifest.json"));
-    // Temporary #1263 measurement output, separate from catalogue artifacts and comparisons.
-    if (ids.includes("approval-roundtrip")) {
-      const observations = resolve(output,"raster-observer");await mkdir(observations,{recursive:true});
-      for (const name of ["approval-allow-before-dark.png.state.json","approval-deny-before-dark.png.state.json","diagnostic-0","diagnostic-1","diagnostic-2","diagnostic-3"]) {
-        await cp(resolve(staging,name),resolve(observations,name),{recursive:true});
-      }
-    }
-
     console.log(`Captured ${ids.length} selected recipes; each artifact records its own source/environment provenance.`);
   } finally {
     if (staging) await rm(staging, { recursive: true, force: true });

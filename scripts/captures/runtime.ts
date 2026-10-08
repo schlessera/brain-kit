@@ -58,33 +58,6 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           if(pixels.width!==viewport.width || (!fullPage && pixels.height!==viewport.height))throw new Error("Runtime PNG dimensions differ");
           if(faults.length)throw new Error(faults.join("; "));
           const file=filename(name);await writeFile(resolve(output,file),bytes);files.push({file,bytes:bytes.length,sha256:pixels.sha256});
-          // Temporary #1263 observation: collect after the accepted image, never before it.
-          if (name.includes("before-dark")) {
-            const state = await page.evaluate(() => {
-              const link = document.querySelector<HTMLAnchorElement>(".brain-file-link");
-              if (!link) throw new Error("diagnostic: expected nonempty native file link");
-              const chain: unknown[] = [];
-              for (let e: Element | null = link; e; e = e.parentElement) {
-                const s = getComputedStyle(e), r = e.getBoundingClientRect();
-                chain.push({ tag: e.tagName, class: e.className, x:r.x,y:r.y,width:r.width,height:r.height,
-                  transform:s.transform,opacity:s.opacity,willChange:s.willChange,contain:s.contain,
-                  font:s.font,fontFamily:s.fontFamily,fontSize:s.fontSize,lineHeight:s.lineHeight,
-                  decoration:s.textDecoration,decorationThickness:s.textDecorationThickness,
-                  underlineOffset:s.textUnderlineOffset,animation:s.animation,transition:s.transition });
-              }
-              return { text:link.textContent,chain,fonts:[...document.fonts].map(f=>({family:f.family,weight:f.weight,status:f.status})),
-                animations:document.getAnimations().map(a=>({playState:a.playState,currentTime:a.currentTime,timing:a.effect?.getComputedTiming()})),
-                scroll:{x:scrollX,y:scrollY},deviceScaleFactor:devicePixelRatio };
-            });
-            const cdp = await context.newCDPSession(page);
-            await cdp.send("DOM.enable");await cdp.send("CSS.enable");
-            const doc = await cdp.send("DOM.getDocument");
-            const node = await cdp.send("DOM.querySelector", {nodeId:doc.root.nodeId,selector:".brain-file-link"});
-            const platformFonts = await cdp.send("CSS.getPlatformFontsForNode", {nodeId:node.nodeId});
-            await cdp.detach();
-            await writeFile(resolve(output, `${file}.state.json`),JSON.stringify({image_sha256:pixels.sha256,state,platformFonts},null,2)+"\n");
-          }
-
         };
         if (decision === "search") {
           const evidence=await (await fetch(`${origin}/capture-evidence`)).json() as {transcript:Record<string,unknown>};

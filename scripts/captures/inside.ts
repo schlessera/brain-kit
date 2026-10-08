@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { readCatalogue } from "./catalogue.ts";
@@ -54,27 +54,9 @@ async function run(): Promise<void> {
       if ("outputs" in recipe) {
         const result = await captureRuntime(browser, root, cache, catalogue, recipe, output, theme, job.viewport);
         artifacts.push({ id:recipe.id,file:result.files[0].file,files:result.files,theme,viewport:job.viewport ?? recipe.viewport,recipe,readiness:result.evidence,provenance,browser:browserEvidence });
-        if (recipe.id === "approval-roundtrip") {
-          for (let sample = 0; sample < 4; sample++) {
-            const directory = resolve(output, `diagnostic-${sample}`);await mkdir(directory,{recursive:true});
-            const measuredBrowser = sample < 2 ? browser : await launchCaptureBrowser();
-            try { await captureRuntime(measuredBrowser,root,cache,catalogue,recipe,directory,theme,job.viewport); }
-            finally { if (measuredBrowser !== browser) await measuredBrowser.close(); }
-          }
-        }
-
       } else if ("fallback" in recipe) {
         const result = await captureDemo(browser, root, cache, catalogue, server.origin, recipe, output, theme, job.viewport);
         artifacts.push({ id:recipe.id,file:result.files[0].file,files:result.files,theme,viewport:job.viewport ?? recipe.viewport,recipe,readiness:result.evidence,provenance,browser:browserEvidence });
-        if (recipe.id === "approval-roundtrip") {
-          for (let sample = 0; sample < 4; sample++) {
-            const directory = resolve(output, `diagnostic-${sample}`);await mkdir(directory,{recursive:true});
-            const measuredBrowser = sample < 2 ? browser : await launchCaptureBrowser();
-            try { await captureRuntime(measuredBrowser,root,cache,catalogue,recipe,directory,theme,job.viewport); }
-            finally { if (measuredBrowser !== browser) await measuredBrowser.close(); }
-          }
-        }
-
       } else {
         const file = variantFile(recipe.output,recipe.theme,theme,job.viewport);
         const { bytes, evidence } = await captureStill(browser, root, cache, catalogue, server.origin, recipe, theme, job.viewport);
