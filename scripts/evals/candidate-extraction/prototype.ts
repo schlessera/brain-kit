@@ -68,7 +68,7 @@ export function domainRoles(domain: Domain): Role[] {
   return (Object.keys(roles) as Role[]).filter((role) => roles[role].domain === domain || roles[role].domain === "both");
 }
 
-export function prepare(source: string, domain: Domain): Prepared {
+export function prepare(source: string, domain: Domain, sourceContext: Record<string, unknown> = {}): Prepared {
   const candidates = findCandidates(source);
   const questions: JevRequest["questions"] = {};
   const overflow = domainRoles(domain).some((role) => candidates.filter((c) => c.kind === roles[role].kind).length > 253);
@@ -90,7 +90,7 @@ export function prepare(source: string, domain: Domain): Prepared {
   }
   const prepared = freeze({
     domain, source, sourceHash: sha256(source), candidates, overflow,
-    request: { model: "jev-latest", state: { source, domain, candidates }, questions },
+    request: { model: "jev-1.13.0", state: { source, domain, candidates, sourceContext }, questions },
   });
   issued.add(prepared);
   return prepared;
@@ -183,7 +183,10 @@ function normalize(candidate: Candidate): Value | null {
 }
 
 /** Copies a selected span, never a model-provided value. Report-only; cannot authorize writes. */
-export function resolve(prepared: Prepared, result: JevResult, currentSource = prepared.source): Report {
+export type FieldGates = Partial<Record<Role, number | null>>;
+/** Historical control floor only; a live comparison must supply its frozen tuning-only map. */
+export const CONTROL_GATES: FieldGates = Object.fromEntries(Object.keys(roles).map(role => [role, 0.9]));
+export function resolve(prepared: Prepared, result: JevResult, currentSource = prepared.source, gates: FieldGates = CONTROL_GATES): Report {
   const report: Report = {};
   for (const role of domainRoles(prepared.domain)) {
     if (!issued.has(prepared) || sha256(currentSource) !== prepared.sourceHash) { report[role] = unresolved("stale_or_unissued_source"); continue; }
@@ -191,8 +194,11 @@ export function resolve(prepared: Prepared, result: JevResult, currentSource = p
     if (result.outcome !== "answered" || !result.answers) { report[role] = unresolved(result.outcome); continue; }
     const answer = result.answers[role];
     const question = prepared.request.questions[role];
+    const floor = gates[role];
     if (!answer || answer.type !== "choice" || !question || question.type !== "choice" || !Object.hasOwn(question.criteria, answer.choice) ||
-        !Number.isFinite(answer.confidence) || answer.confidence < 0.9 || answer.confidence > 1) {
+        typeof floor !== "number" || !Number.isFinite(floor) || floor < 0 || floor > 1 ||
+        !Number.isFinite(answer.confidence) || answer.confidence < floor || answer.confidence > 1 ||
+        !Number.isFinite(answer.probabilities[answer.choice]) || answer.probabilities[answer.choice] < floor || answer.probabilities[answer.choice] > 1) {
       report[role] = unresolved("missing_invalid_or_low_confidence"); continue;
     }
     if (answer.choice === "none") { report[role] = { status: "absent", value: null, provenance: null, reason: "explicit_none" }; continue; }
@@ -243,18 +249,18 @@ export function checkOutline(segments: string[], requested: string) {
 }
 
 // Two concrete experiment consumers, sharing only this private bounded candidate pipeline.
-export const conferenceResearch = (prepared: Prepared, result: JevResult) => {
+export const conferenceResearch = (prepared: Prepared, result: JevResult, gates: FieldGates = CONTROL_GATES) => {
   if (prepared.domain !== "cfp") throw new Error("CFP input required");
-  return { fields: resolve(prepared, result), automaticDeadlineWrite: false as const };
+  return { fields: resolve(prepared, result, prepared.source, gates), automaticDeadlineWrite: false as const };
 };
-export const jobResearch = (prepared: Prepared, result: JevResult) => {
+export const jobResearch = (prepared: Prepared, result: JevResult, gates: FieldGates = CONTROL_GATES) => {
   if (prepared.domain !== "job") throw new Error("Job input required");
-  return { fields: resolve(prepared, result), automaticOpportunityWrite: false as const };
+  return { fields: resolve(prepared, result, prepared.source, gates), automaticOpportunityWrite: false as const };
 };
 
 /** Private submission consumer: even a selected role cannot bypass counting/arithmetic. */
-export function submissionReview(prepared: Prepared, result: JevResult, bio: string, outline: string[]) {
-  const research = conferenceResearch(prepared, result);
+export function submissionReview(prepared: Prepared, result: JevResult, bio: string, outline: string[], gates: FieldGates = CONTROL_GATES) {
+  const research = conferenceResearch(prepared, result, gates);
   const limit = research.fields.bio_limit?.value; const duration = research.fields.talk_duration?.value;
   const bioCheck = limit && typeof limit === "object" && "max" in limit && "unit" in limit
     ? checkBio(bio, limit.max, limit.unit) : { valid: false, count: null };

@@ -208,11 +208,48 @@ and assess CLI/JSON, MCP, config/frontmatter and contract/changeset requirements
 Otherwise retain domain-local code. No generic extraction plugin seam follows
 from this preparation. Roadmap rules, D42–D44 and deterministic-sync remain binding.
 
-The issue retains the exact access/spending and independent-review handoff.
-Authorizing provider/account/model and total spend, supplying credential access
-without posting secrets, independently reviewing/freezing the goldens, and running
-the comparison are required before a measured per-field decision. This document
-changes no production contract; #849 remains open until that evidence exists.
+The standing evaluation ruling supplies the exact Sonnet 5.5 and Jev 1.13.0
+models and additional-charge ceilings. Each execution still requires verified
+included availability, complete physical accounting, independently reviewed
+inputs and the unchanged comparison criteria. This private evaluation changes
+no production contract.
+
+## Natural source and full-task comparison
+
+The separate workload holds 24 complete sources, ten tuning and fourteen
+held-out, with distinct entity groups, prose templates and occurrence labels.
+They share the established fictional world, field vocabulary and grammar;
+group separation does not establish generalization to other populations.
+Legacy exact parser controls remain a separate regression set. Neither corpus
+has independent semantic approval merely because an authored selection passes.
+
+Candidate recall, semantic role/occurrence correctness, parser support and
+complete task outputs use different denominators. Selecting the right date at
+the wrong repeated occurrence is a role error even when normalization produces
+the same date. An exact role whose syntax exceeds the helper grammar requires
+fallback. Monthly pay retains its monthly period; the dated notice's next
+Saturday uses its stated reference date; an announced HTML application href
+decodes its entity while retaining the raw source occurrence. Correct helper
+abstention does not complete these broader tasks. Missing timezone, currency or
+counting-unit evidence still requires clarification rather than invention.
+
+Calibration requires complete unique tuning field observations. Each field
+requires both finite confidence and selected probability above its own frozen
+floor. No accepted positive or explicit-none tuning outcome produces a null
+gate, which stays unresolved in research and submission consumers. Synthetic
+historical 0.9 controls do not supply a calibrated live threshold. Held-out
+observations cannot enter calibration.
+
+The keyless collector runs the real Jev request/response parser around an
+injected transport, preserving literal bytes before interpretation, nonzero
+output usage, unknown cache and invoice fields, failures and physical attempts.
+Missing model or usage evidence stops another attempt. Those controls do not
+measure the complete installed conference-research or research-opportunity
+workflow. The prospective three-arm comparison retains their full source,
+criteria, identity, downstream outputs, fallback and generation costs at three
+repetitions and state sizes 1, 32 and 128. The implicit native-auto auxiliary
+transport documented in #1275 must be accounted for before a complete current
+baseline can be admitted; a permission-mode override is not baseline evidence.
 
 The executable source samples use the Odysseus world at reference date
 `2026-07-12`: assemblies, harbour work and estate roles. The future calendar
