@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { completion, priceUsage, Spend, type PhysicalCall } from "../scripts/evals/audit-capabilities/live";
+import { tokenTotal } from "../scripts/evals/audit-capabilities/analyze";
 import { MODEL } from "../scripts/evals/audit-capabilities/protocol";
 
 test("physical baseline attempt persists before HTTP, retains selectors/raw TTL usage, and uses independent official arithmetic", async () => {
@@ -57,4 +58,18 @@ test("shipped Anthropic text-block request and newline parsing retain max-token 
   expect(await provider.complete({ prompt: "Two findings", maxTokens: 2000 })).toBe("first\nsecond");
   expect((calls[0]!.response as any).stop_reason).toBe("max_tokens");
   expect(spend.stopped).toBe(false);
+});
+
+test("known subtotal stays separate from unknown aggregate after a lost physical receipt", async () => {
+  const calls: PhysicalCall[] = []; const spend = new Spend(1, calls, () => {}); let physical = 0;
+  const provider = completion(spend, "raft-board", 0, "offline-credential", async () => {
+    physical++;
+    return Response.json({ model: MODEL, content: [{ type: "text", text: "[]" }], ...(physical === 1 ? { usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } : {}) });
+  });
+  await provider.complete({ prompt: "First finding", maxTokens: 2000 });
+  expect(spend.usedUpper).toBe(.0003); expect(spend.aggregateUpperUsd).toBe(.0003);
+  await expect(provider.complete({ prompt: "Second finding", maxTokens: 2000 })).rejects.toThrow("Raw usage missing");
+  expect(spend.usedUpper).toBe(.0003); expect(spend.unknownCostAttempts).toBe(1); expect(spend.aggregateUpperUsd).toBeNull();
+  expect(tokenTotal(calls, "input_tokens")).toBeNull(); expect(tokenTotal([calls[0]!], "input_tokens")).toBe(100);
+  await expect(provider.complete({ prompt: "Third finding", maxTokens: 2000 })).rejects.toThrow("before physical dispatch"); expect(physical).toBe(2);
 });

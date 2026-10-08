@@ -14,9 +14,10 @@ import { capability, applyFixtureCandidate } from "./prototype";
 import type { LoadedModule } from "../../../packages/core/src/lib/module-types";
 import type { AuditIssue } from "../../../packages/core/src/lib/types";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
+import { sourceSnapshot, sourceTextMap, assertSourceEffect } from "./effects";
 
 export const WRITE_DAY = "2026-07-12";
-export const DETECTION_DAY = "2026-10-07";
+export const DETECTION_DAY = "2026-10-08";
 export interface BenchmarkCase {
   id: string; split: "tuning" | "held-out"; entity: string; template: string;
   files: Record<string, string>; authorization: boolean;
@@ -72,8 +73,8 @@ export async function commandOutput(p: Awaited<ReturnType<typeof prepareBenchmar
   if (output === undefined) throw new Error("Actual audit command emitted no JSON");
   return output;
 }
-export function fileMap(p: Awaited<ReturnType<typeof prepareBenchmark>>, f: BenchmarkCase) {
-  return Object.fromEntries(Object.keys(f.files).sort().map(path => [path, readFileSync(join(p.root, path), "utf8")]));
+export function fileMap(p: Awaited<ReturnType<typeof prepareBenchmark>>, _f: BenchmarkCase) {
+  return sourceTextMap(sourceSnapshot(p.root));
 }
 export async function detect(p: Awaited<ReturnType<typeof prepareBenchmark>>) {
   const report = await commandOutput(p) as ReturnType<typeof auditTotals> & { issues: AuditIssue[] };
@@ -89,6 +90,7 @@ export async function detect(p: Awaited<ReturnType<typeof prepareBenchmark>>) {
 }
 
 export async function capabilityArm(p: Awaited<ReturnType<typeof prepareBenchmark>>, f: BenchmarkCase, issues: AuditIssue[]) {
+  const before = sourceSnapshot(p.root);
   const db = openDatabase(p.brain.dbPath);
   let inspected;
   try {
@@ -99,13 +101,19 @@ export async function capabilityArm(p: Awaited<ReturnType<typeof prepareBenchmar
   for (const row of inspected) for (const index of row.capability.plan?.indexes ?? []) if (index.next !== null) previewFiles[index.path] = index.next;
   const effects = inspected.map(row => ({ id: row.capability.id, ...applyFixtureCandidate(p.root, p.taxonomy, row.issue, WRITE_DAY, f.authorization) }));
   const effectFiles = fileMap(p, f);
+  const afterWrite = sourceSnapshot(p.root);
+  assertSourceEffect(before, afterWrite, f.expectedEffectFiles);
   const nextDb = openDatabase(p.brain.dbPath);
   try { await indexAll(nextDb, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true }); } finally { nextDb.close(); }
   const after = await detect(p);
+  const beforeRepeat = sourceSnapshot(p.root);
   const repeated = issues.map(issue => applyFixtureCandidate(p.root, p.taxonomy, issue, WRITE_DAY, f.authorization));
+  const afterRepeat = sourceSnapshot(p.root);
+  assertSourceEffect(beforeRepeat, afterRepeat, f.expectedEffectFiles);
+  if (Object.keys(afterRepeat).some(path => path && afterRepeat[path]?.mtimeNs !== beforeRepeat[path]?.mtimeNs)) throw Error("Repeated writer changed source timestamps");
   return {
     suggestions: inspected.map(({ issue, capability: c }) => ({ id: c.id, path: issue.path, category: issue.category, issue: issue.message, suggestion: c.suggestion, canAutoFix: c.handlerAvailable, executionAuthorized: c.handlerAvailable && f.authorization, handler: c.handler, reason: c.reason })),
-    previewFiles, effectFiles, effects, repeated, after,
+    previewFiles, effectFiles, effects, repeated, after, sourceEffects: { before, afterWrite, beforeRepeat, afterRepeat },
   };
 }
 
@@ -115,7 +123,9 @@ export async function keylessProof() {
     const p = await prepareBenchmark(f);
     try {
       const detected = await detect(p);
+      const beforeManual = sourceSnapshot(p.root);
       const manual = await commandOutput(p, true);
+      assertSourceEffect(beforeManual, sourceSnapshot(p.root), f.files);
       if (!isDeepStrictEqual(fileMap(p, f), f.files)) throw new Error(`${f.id}: audit changed source bytes`);
       const start = performance.now(); const candidate = await capabilityArm(p, f, detected.report.issues);
       const available = candidate.suggestions.filter(s => s.canAutoFix).map(s => s.path).sort();

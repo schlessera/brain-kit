@@ -229,3 +229,40 @@ fixture writer effects use the fictional `2026-07-12` date. Neither becomes a
 new CLI clock contract. Input review precedes dispatch and the source-aware
 output review precedes any measured recommendation; keyless controls alone
 establish neither live suggestion quality nor production adoption.
+
+
+## Resumed measurement controls
+
+The resumed protocol uses the actual UTC detection day `2026-10-08` and Bun
+1.4.2 while preserving the installed SDK 0.3.283 / native CLI 2.1.283 baseline.
+The fictional writer date remains `2026-07-12`. The earlier whole-input review
+failed at the native context limit; it supplied no semantic approval. Its missing
+final invoice remains unknown.
+
+Eight lossless review packets partition all 26 complete cases and every direct
+behavioral source file: four complete-source subsets and four disjoint complete
+case subsets, each with the common protocol, rubric and verification hashes.
+The 150,000-byte envelope is an operational bound, not proof of native context
+fit. No source file or authored case is truncated. Scored admission rebuilds
+every payload from disk and requires all eight native approvals on the same
+source, detected-input, prompt and verification hashes, complete raw usage,
+inactive reported overage, successful native result and actual child close.
+The private reviewer forcibly terminates an owned child that misses its drain
+window and records that outcome as failure rather than approval.
+
+The effect observer records all recursive source members with binary bytes,
+symlink targets, file types, modes and nanosecond modification times. It excludes
+only regular root SQLite cache files. Each actual arm is checked before execution,
+after execution and after ordinary detection; candidate execution also records
+both sides of its repeated writer. Any unexpected byte, member or metadata
+change stops admission immediately. Failure snapshots remain in the observation
+receipt. The current arm still emits suggestions only and never executes its
+untrusted replacement strings.
+
+A lost physical usage receipt stops subsequent provider attempts. Known raw-usage
+cost subtotals remain separate from a null aggregate and the count of unknown
+attempts; missing token counts also remain null. Token arithmetic is an
+independent standard-price diagnostic, never a subscription invoice. Actual
+additional billed charges and shared reservations remain in the coordinator's
+protected ledger. Fresh complementary semantic approval and the full comparison
+are still required before a measured recommendation.
