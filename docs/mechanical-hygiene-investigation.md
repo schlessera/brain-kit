@@ -166,3 +166,40 @@ baseline, all input/output/cache tokens, retries/fallbacks, billed/effective cos
 model-call reduction and comparative latency remain unmeasured. Access to the
 approved provider/account/model and a total spend ceiling must be recorded on
 #842 before that evaluation, following #838. Ordinary CI remains keyless.
+
+## Comparing complete effects
+
+The unchanged 24 boundary controls are distinct from an authored 18-case
+workload: six Ogygia cases and twelve Ithaca/Pylos/Sparta cases. The latter
+include three positive table repairs and explicit UTC calendar boundaries under
+Honolulu and Kiritimati workers. The row detector identifies a finding by the
+first cell, so supported positive tables keep the explicit link first while
+varying the other columns. Entity separation and different surrounding prose
+provide directional coverage; shared table grammar does not demonstrate
+unseen-template generalization. Every new expected document remains subject
+to complementary review.
+
+The observer retains every filesystem entry, including binary bytes, deleted
+and created files, complete logs, permissions, timestamps and symlink targets,
+without following symlinks. The effect checker requires exact approved bytes
+and permissions for each file; a hygiene directory prefix cannot approve an
+arbitrary write. Unchanged files also retain their timestamps. Complete
+reconciler log candidates are generated with the real detector and reconciler
+for independent review. These source-derived log candidates are explicitly
+provisional, rather than independent goldens or automatic write approval.
+
+The comparison admission state machine retains failed native receipts and
+refuses the next phase after unknown usage, wrong model or route, active or
+unobserved overage, incomplete closure or an unexpected filesystem effect.
+An undrained writer has no safe final snapshot; its receipt is preserved with
+that snapshot absent. Modeled driver controls establish these stop boundaries
+only. The actual native skill driver, lowest request transport and constrained
+tool execution need separate runtime evidence before any live comparison.
+API-price equivalents remain separate from actual subscription billing.
+
+The private protocol defines fresh native sessions for dry-run, apply and
+same-brain repeat phases, three repetitions, and materialized 20/1,000-document
+states. It includes startup and complete runtime work in timing, keeps the
+original file mtimes and pinned document date, and distinguishes native cache
+observations from claims of cold provider cache. These controls neither ship a
+production repair command nor decide unattended adoption.
