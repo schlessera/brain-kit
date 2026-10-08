@@ -62,8 +62,6 @@ function nativeFields(judge: Judge, j: any, r: PanelPhysical) {
       thinking: thoughts, cacheRead: optionalCount(u.cachedContentTokenCount), cacheWrite: null };
     r.terminal = j.candidates?.length === 1 && j.candidates[0]?.finishReason === "STOP" && !j.promptFeedback?.blockReason &&
       !j.candidates[0]?.content?.parts?.some((p: any) => p.thought && p.text);
-    if (count(u.totalTokenCount) && r.tokens.input !== null && r.tokens.output !== null &&
-      u.totalTokenCount !== r.tokens.input + r.tokens.output) r.error = "inconsistent native token total";
   }
   r.usageComplete = r.tokens.input !== null && r.tokens.output !== null &&
     Object.values(r.tokens).every(v => v === null || count(v)) &&
@@ -74,8 +72,9 @@ function nativeFields(judge: Judge, j: any, r: PanelPhysical) {
     ? [u.prompt_tokens_details?.cached_tokens,u.prompt_tokens_details?.cache_write_tokens,u.completion_tokens_details?.reasoning_tokens,u.total_tokens]
     : [u.cachedContentTokenCount,u.totalTokenCount];
   if(optional.some(v=>v !== undefined && !count(v))) r.usageComplete=false;
-  if(judge.provider === "openai" && count(u.total_tokens) && r.tokens.input !== null && r.tokens.output !== null &&
-    u.total_tokens !== r.tokens.input+r.tokens.output) {r.error="inconsistent native token total";r.usageComplete=false;}
+  const total=judge.provider === "gemini"?u.totalTokenCount:judge.provider === "openai"?u.total_tokens:undefined;
+  if(count(total) && r.tokens.input !== null && r.tokens.output !== null &&
+    total !== r.tokens.input+r.tokens.output) {r.error="inconsistent native token total";r.usageComplete=false;}
 }
 /** This guard runs before the donor's deliberately permissive parser/tally can accept a batch. */
 export function admittedRows(text: string, items: HardItem[]): Row[] | null {
@@ -122,7 +121,7 @@ export async function collectLabelPanel(items: HardItem[], rubric: string, trans
     try {
       await options.beforePhysical?.(structuredClone(r), headers);
       r.transportDispatched=true;
-      const response = await transport(url, { ...init, headers, signal: controller.signal });
+      const response = await transport(url, { ...init, headers, signal: controller.signal, redirect:"manual" });
       r.status = response.status;
       r.headers = Object.fromEntries([...response.headers].filter(([key, value]) =>
         /^(?:request-id|x-request-id|retry-after|anthropic-ratelimit-|x-ratelimit-|service-tier|x-goog-)/i.test(key) &&

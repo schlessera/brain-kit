@@ -93,7 +93,8 @@ export class ReviewBudget {
       request.tools?.length || request.output_config?.effort !== "low") throw Error("Wrong model/output/tools/effort before physical dispatch");
     rejectPriceModifiers(request, headers);
     if (!exactUserPrompt(request,this.binding.promptSha)) throw Error("Exact sole frozen USER prompt absent before dispatch");
-    const inputBound = Math.min(bytes.byteLength, this.policy.contextWindowTokens), outputBound = request.max_tokens;
+    // Request bytes constrain transport only; hidden token framing has no byte upper proof.
+    const inputBound = this.policy.contextWindowTokens, outputBound = request.max_tokens;
     const reservedUpperUsd = (inputBound * this.policy.inputUsdPerMillionUpper + outputBound * this.policy.outputUsdPerMillionUpper) / 1e6;
     if (!finite(reservedUpperUsd) || this.usedUpper() + reservedUpperUsd > this.policy.remainingUpperUsd) throw Error("Next physical reservation exceeds remaining allocation");
     const entry: Reservation = { index: this.records.length, at: this.clock(), requestSha: sha(Buffer.from(bytes)), inputBound, outputBound, reservedUpperUsd,
@@ -103,7 +104,11 @@ export class ReviewBudget {
   settle(index: number, tokens: RawTokens) {
     const entry = this.records[index]; if (!entry || entry.status !== "reserved") throw Error("Unknown or already settled physical reservation");
     try {
-      const priced = usageUpper(tokens, entry.inputBound, entry.outputBound, this.policy.inputUsdPerMillionUpper, this.policy.outputUsdPerMillionUpper);
+      rejectResponseModifiers(tokens);
+      usageUpper(tokens, entry.inputBound, entry.outputBound, this.policy.inputUsdPerMillionUpper, this.policy.outputUsdPerMillionUpper);
+      // Standard/global-or-US1.1x ceilings; longest cache-write TTL. Verified2026-10-08:
+      // https://platform.claude.com/docs/en/about-claude/pricing
+      const priced=(tokens.input_tokens*2.2+tokens.cache_read_input_tokens*.11+tokens.cache_creation_input_tokens*4.4+tokens.output_tokens*11)/1e6;
       const completed: Reservation = { ...entry, rawUsage: structuredClone(tokens), pricedUpperUsd: priced, status: "complete" };
       this.persist(this.records.map(r => structuredClone(r.index === index ? completed : r)));
       Object.assign(entry, completed);

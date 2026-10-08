@@ -63,14 +63,30 @@ export class PanelBudget {
       const output=entry.judge==="claude-sonnet-5-5"?raw.output_tokens:entry.judge==="gpt-6.1-sol"?raw.completion_tokens:
         count(raw.candidatesTokenCount)&&count(raw.thoughtsTokenCount)?raw.candidatesTokenCount+raw.thoughtsTokenCount:null;
       if(!count(input)||!count(output)||output!==r.tokens.output || input!==r.tokens.input)throw Error("Unknown or inconsistent literal token counts");
+      const total=entry.judge==="gemini-3.8-flash"?raw.totalTokenCount:entry.judge==="gpt-6.1-sol"?raw.total_tokens:undefined;
+      if(total!==undefined && (!count(total)||total!==input+output))throw Error("Inconsistent literal panel token total");
       if(entry.judge==="claude-sonnet-5-5"){
         if(!count(raw.cache_read_input_tokens)||!count(raw.cache_creation_input_tokens)||raw.cache_read_input_tokens!==r.tokens.cacheRead||raw.cache_creation_input_tokens!==r.tokens.cacheWrite)throw Error("Unknown Anthropic aggregate cache usage");input+=raw.cache_read_input_tokens+raw.cache_creation_input_tokens;
       }
       if(!Number.isSafeInteger(input)||input>entry.inputBound || output>8000)throw Error("Panel usage exceeds reserved bound");
-      const completed:PanelReservation={...entry,status:"complete",pricedUpperUsd:(input*bounds.inputRate+output*bounds.outputRate)/1e6,rawUsage:structuredClone(raw)};
+      // Every present modifier must pass before releasing the physical reservation.
+      // Literal failed raw response/usage stays in the separately durable physical receipt.
+      const tiers=[body.service_tier,raw.service_tier,raw.serviceTier,r.headers["service-tier"]];
+      const geographies=[body.inference_geo,raw.inference_geo];
+      if(tiers.some(t=>t!=null && !["default","standard","ON_DEMAND","STANDARD"].includes(t)) ||
+        geographies.some(g=>g!=null&&! ["global","us","not_available"].includes(g)) ||
+        [body.speed,body.fast_mode,raw.speed,raw.fast_mode].some(v=>v!=null))throw Error("Unsupported observed panel pricing modifier");
+      // Standard ceilings verified2026-10-08: known US1.1x, longest cache-write TTL.
+      // Missing GPT tier remains at the full Fast/context bound; no inferred Standard.
+      // https://platform.claude.com/docs/en/about-claude/pricing
+      // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+      const pricedUpperUsd=entry.judge==="claude-sonnet-5-5"
+        ?(raw.input_tokens*2.2+raw.cache_read_input_tokens*.11+raw.cache_creation_input_tokens*4.4+output*11)/1e6
+        :entry.judge==="gpt-6.1-sol" && tiers.some(t=>["default","standard"].includes(t))
+          ?(input*5.5+output*16.5)/1e6 // All input at longest write rate covers absent cache detail.
+          :(input*bounds.inputRate+output*bounds.outputRate)/1e6;
+      const completed:PanelReservation={...entry,status:"complete",pricedUpperUsd,rawUsage:structuredClone(raw)};
       this.persist(this.records.map(row=>structuredClone(row.index===index?completed:row)));Object.assign(entry,completed);
-      const tier=body.service_tier??body.usage?.service_tier??body.usageMetadata?.serviceTier;
-      if(tier!=null && !["default","standard","ON_DEMAND","STANDARD"].includes(tier)) {this.blocked=true;throw Error("Unsupported observed panel service tier");}
     }catch(e){this.blocked=true;if(entry.status==="reserved"){entry.status="unknown";this.persist(this.entries);}throw e;}
   }
   unknown(index:number){const entry=this.records[index];if(!entry || entry.status!=="reserved")throw Error("Unknown panel reservation");entry.status="unknown";this.blocked=true;this.persist(this.entries);}

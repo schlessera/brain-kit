@@ -168,8 +168,9 @@ loopback observer/relay. The root policy binds exact freeze, input, protocol,
 runtime, local proof and literal prompt hashes, canonical Sonnet5.5, issued-at/expiry and
 remaining allocation. Its USD8/M aggregate input/cache and USD20/M output rates
 are conservative planning bounds, not list prices. Each physical request reserves
-`min(body bytes,1M verified context)` plus its positive literal output ceiling
-(max128000) before forwarding. Completed final named input/output/cache usage
+the full documented1M-token context bound plus its positive literal output ceiling
+(max128000) before forwarding, including for short wires. Bytes remain a transport
+bound; no byte/token or hidden-framing ceiling is inferred. Completed final named input/output/cache usage
 settles only a known conservative upper; errors or missing usage retain their
 reservation and stop future requests. Source/runtime closure is independently
 checked at both exported entry and actual relay before every physical request.
@@ -192,7 +193,12 @@ not rewritten as current list invoices.
 
 The raw panel uses unchanged donor JSON/effort/output/batching and actual
 `callModel`; a new serialized pre-fetch reservation and post-receipt settlement
-wrap that call. Canonical context maxima are1M Sonnet,1,050,000 GPT and1,048,576
+wrap that call. Redirects are manual: a3xx status/body is retained without
+following to an unobserved second endpoint. Every present response pricing
+modifier passes before a reservation can be discounted; a failed modifier keeps
+the entire unknown reservation. Review descriptors match all fresh sidecar
+bindings and the literal full prompt/runtime before grant claim or panel traffic.
+Canonical context maxima are1M Sonnet,1,050,000 GPT and1,048,576
 Gemini; output remains8000. Raw-panel planning rates are deliberately upper
 bounds: Sonnet8/20, GPT11/33 (covering long-context cache writes, Fast and regional
 premiums; Responses-only Ultrafast is outside this literal Chat Completions
@@ -239,3 +245,21 @@ claimed flag or rewritten artifact hash cannot replace them. Source/runtime
 changes, expired policy or missing required proof stops before forwarding.
 The networkless `review-offline.ts` controls deliberately remain ineligible even
 when the actual native text says APPROVED and paid transport succeeds.
+
+Completed receipts are settled at verified Standard ceilings only after literal
+model, named usage, EOF and all observed pricing modifiers pass. Native/Sonnet
+fresh input/read/long-write/output rates are2.2/.11/4.4/11 USD per million,
+covering documented US1.1x without claiming measured global geography. GPT
+requires an explicitly observed Standard/default tier for its tighter5.5/16.5
+input/output ceiling: all input is conservatively charged at the longest write
+rate, covering missing cache detail and long-context/regional rates. Missing
+GPT tier retains11/33. Gemini retains1.35/6.75. These are usage-derived bounds,
+not invoices. Full-context pre-reservations and unknown physical holds are
+unchanged; no finite hidden-framing bound or token count is inferred from the
+tiny donor body. Contradictory present native total counters are independently
+refused by the observer and settlement entry.
+
+Settlement sources verified2026-10-08:
+https://platform.claude.com/docs/en/about-claude/pricing,
+https://developers.openai.com/api/docs/models/gpt-6.1-sol,
+https://developers.openai.com/api/docs/guides/fast-mode.
