@@ -13,7 +13,7 @@ import type {
   AskUserExchange,
 } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
-import { ToolCallTimeline } from "./tool-call-timeline.js";
+import { ToolCallTimelineCell } from "./tool-call-timeline.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
@@ -347,6 +347,12 @@ function AssistantContent({
 }) {
   const root = useBrainUiRoot();
   const contentRef = useRef<HTMLDivElement>(null);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(() => new Set());
+  const previousLive = useRef(message.isStreaming);
+  useEffect(() => {
+    if (previousLive.current && !message.isStreaming) setExpandedTools(new Set());
+    previousLive.current = message.isStreaming;
+  }, [message.isStreaming]);
   const showShare =
     !message.isStreaming && !!message.content && message.content.trim().length > 0;
   const shareOptions = showShare
@@ -390,7 +396,7 @@ function AssistantContent({
     <div className="space-y-3">
       {message.statsAnswer ? <StatsAnswer sections={message.statsAnswer} /> : null}
       {message.localExchange ? <LocalExchangeNote exchange={message.localExchange} /> : null}
-      {groups.map((group, i) => {
+      {groups.flatMap((group, i) => {
         switch (group.kind) {
           case "thinking":
             return (
@@ -400,15 +406,27 @@ function AssistantContent({
                 isStreaming={message.isStreaming && group.isLast}
               />
             );
-          case "tools":
-            return (
-              <ToolCallTimeline
-                key={i}
+          case "tools": {
+            const setExpanded = (expanded: boolean) => setExpandedTools((previous) => {
+              const next = new Set(previous);
+              for (const tool of group.toolCalls) {
+                if (expanded) next.add(tool.id); else next.delete(tool.id);
+              }
+              return next;
+            });
+            return group.toolCalls.map((tool, toolIndex) => (
+              <ToolCallTimelineCell
+                key={`tool:${tool.id}`}
                 toolCalls={group.toolCalls}
+                toolIndex={toolIndex}
                 onApproval={onToolApproval}
-                live={message.isStreaming}
+                live={!!message.isStreaming}
+                collapsed={!group.toolCalls.some((t) => expandedTools.has(t.id))}
+                onExpand={() => setExpanded(true)}
+                onCollapse={() => setExpanded(false)}
               />
-            );
+            ));
+          }
           case "block":
             return <BlockCard key={i} {...group.payload} />;
           case "askUser":

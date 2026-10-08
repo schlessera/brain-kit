@@ -42,6 +42,44 @@ test("offline pauses and resumes automatically, removal aborts and ignores late 
   } finally { queue.dispose(); }
 });
 
+test("an upload that fails in transit just before the connection goes waits and resumes with it; a refusal stays failed (#1013)", async () => {
+  let count = 0;
+  const queue = createTrackUploads(async () => {
+    count++;
+    if (count === 1) throw new TypeError("Failed to fetch");
+    if (count === 2) return Response.json({ error: "unsupported_track" }, { status: 422 });
+    return answer();
+  }, "/api", () => {});
+  try {
+    queue.add([original()]);
+    await settle(() => queue.files[0]?.state === "failed");
+    // The page then sees the drop: the unanswered request was the drop's.
+    queue.setOnline(false);
+    expect(queue.files[0]).toMatchObject({ state: "paused", error: undefined });
+    queue.setOnline(true);
+    await settle(() => queue.files[0]?.state === "failed");
+    expect(count).toBe(2);
+    // A refusal is the host's answer, not the network's: a drop leaves it failed.
+    queue.setOnline(false);
+    expect(queue.files[0]!.state).toBe("failed");
+    expect(queue.files[0]!.error).toContain("ordinary JSON");
+  } finally { queue.dispose(); }
+});
+
+test("an answer the page cannot read is still the host's answer: a drop does not resend it (#1013)", async () => {
+  let count = 0;
+  const queue = createTrackUploads(async () => { count++; return new Response("Payload Too Large", { status: 413 }); }, "/api", () => {});
+  try {
+    queue.add([original()]);
+    await settle(() => queue.files[0]?.state === "failed");
+    queue.setOnline(false);
+    queue.setOnline(true);
+    await Bun.sleep(2);
+    expect(queue.files[0]!.state).toBe("failed");
+    expect(count).toBe(1);
+  } finally { queue.dispose(); }
+});
+
 test("two concurrent uploads respect mixed-message count, byte and parser limits before upload", async () => {
   expect(TRACK_MAX_BYTES).toBe(MAX_ROUTE_BYTES);
   let count = 0; const held = deferred<Response>();

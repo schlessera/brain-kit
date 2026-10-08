@@ -36,8 +36,14 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
-  // Absent, with no spacer, while nothing needs saying.
-  if (view.state === "none") return null;
+  if (view.state === "none") {
+    // Absent, with no spacer, while there is no draft. A draft whose save is
+    // still on its way prints nothing too, but keeps the line's place, so a
+    // keystroke or a drop that turns it into `not saved yet` never moves the
+    // field above it (#1013).
+    if (!draft || (draft.text.length === 0 && draft.attachments.length === 0)) return null;
+    return <div aria-hidden="true" className="mx-auto mt-1 h-4 max-w-3xl" data-draft-save-slot="" />;
+  }
   return (
     <div className="mx-auto mt-1 flex min-h-[16px] max-w-3xl items-center gap-2 px-1 font-mono text-[10.5px] leading-4" data-draft-save={view.state} data-draft-id={draftId}>
       {view.state === "conflict" ? (

@@ -27,6 +27,8 @@ export function createWebSocketClient(root: BrainUiServices) {
    * host predates it), so the answer queue can tell what this host supports.
    */
   let answersReady = false;
+  // A connect snapshot may answer after its captured turn ended on this socket.
+  const endedTurns = new Map<string, Set<string>>();
 
   const makeAnswers = () => createAnswerDelivery({
     chat: root.stores.chat,
@@ -302,10 +304,38 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleServerMessage(msg: ServerMessage) {
     if (disposed || root.authLock.state.getState().phase !== "active") return;
+    const { sessionId, turnId } = msg as { sessionId?: string; turnId?: string };
+    // A history read failing does not cancel a turn or disprove drawn content.
+    if (msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && sessionId
+      && !msg.requestId && !turnId && !msg.failure) {
+      flushDeltas();
+      root.stores.connection.getState().reportError(msg.code, msg.message);
+      if (sessionId === reattachSessionId) reattachSessionId = null;
+      return;
+    }
+    if (msg.type === "status") {
+      flushDeltas();
+      const live = sessionId ? root.stores.chat.getState().buffers[sessionId]?.messages.at(-1) : undefined;
+      const currentTurn = live?.streamTurnId ?? live?.turnId;
+      if (live?.isStreaming && currentTurn && sessionId && turnId
+        && turnId !== currentTurn && endedTurns.get(sessionId)?.has(turnId)) return;
+    }
+    if (sessionId && turnId && (msg.type === "result"
+      || (msg.type === "status" && (msg.status === "idle" || msg.status === "cancelled")))) {
+      const ended = endedTurns.get(sessionId) ?? new Set<string>();
+      ended.add(turnId); endedTurns.set(sessionId, ended);
+    }
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
-    if (msg.type === "server_hello") { trackers.hello(msg); drafts.hello(msg); }
+    if (msg.type === "server_hello") {
+      trackers.hello(msg); drafts.hello(msg);
+      // Resume reports even an empty queue. Revalidate retained background
+      // pills too; the selected session already reattaches on connection.
+      for (const sessionId of Object.keys(root.stores.followUp.getState().pending)) {
+        if (sessionId !== root.stores.chat.getState().activeSessionId) client.send({ type: "session_resume", sessionId });
+      }
+    }
     else trackers.frame(msg);
     // The first frame of a connection settles what its host supports: a hello,
     // or anything else from a host too old to send one. Only then can queued
@@ -345,6 +375,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     const state = root.stores.chat.getState();
     if ((msg.type === "session_info" || (msg.type === "status" && msg.status === "queued")) && msg.requestId) {
       state.setChatReceipt(msg.requestId, "accepted", msg.sessionId);
+      if (msg.type === "status") root.stores.followUp.getState().markAccepted(msg.requestId);
       // Before the demux below: a new conversation's draft must already be
       // its session's when the view follows the session there.
       if (drafts.receipt(msg.requestId, "accepted", msg.sessionId)) state.clearChatReceipt(msg.requestId);
@@ -413,6 +444,25 @@ export function createWebSocketClient(root: BrainUiServices) {
     // Frames without a sessionId (legacy single-session servers, or a new
     // session's pre-binding frames) apply to the buffer in view.
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
+    if (msg.type === "status" && frameSessionId && msg.status !== "queued" && msg.status !== "idle" && msg.status !== "cancelled") {
+      // Any resumed buffer may have missed an old turn ending, including a
+      // background session reopened after reconnect. New turns get new answers.
+      const live = state.buffers[frameSessionId]?.messages.at(-1);
+      const oldTurn = live?.streamTurnId ?? live?.turnId;
+      if (msg.turnId && live?.isStreaming && oldTurn && oldTurn !== msg.turnId) state.finishAssistantMessage(frameSessionId);
+    }
+    if (msg.type === "status" && reattachSessionId !== null) {
+      // The host's own answer for the session being reattached settles it.
+      // A queued status (another request waiting) names no running turn:
+      // the reattach waits for one that does, or that ends it.
+      if (frameSessionId === reattachSessionId && msg.status !== "queued") {
+        reattachSessionId = null;
+      }
+      // The host greets every connection with an unscoped idle, also while
+      // this session's turn is still running beside others. That greeting is
+      // not about the session in view; the reattach's answer is (#1013).
+      else if (!frameSessionId && state.activeSessionId === reattachSessionId) return;
+    }
     if (frameSessionId) {
       // `detail` on a queued status is the host's queue-pressure note; it rides
       // along so the session's badge can show WHY it is queued deep.
@@ -492,6 +542,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       coldResumeIfNeeded,
       markHistoryReplaced,
     });
+
   }
 
   /**
@@ -608,9 +659,15 @@ export function createWebSocketClient(root: BrainUiServices) {
   // connection — an empty session would otherwise re-trigger on every idle
   // status and loop.
   let coldResumedSessionId: string | null = null;
+  /** The running session in view that a reconnect reattached, until the host answers for it. */
+  let reattachSessionId: string | null = null;
 
   function markHistoryReplaced(key: ChatKey): void {
-    if (key !== null && key === resyncSessionId) resyncSessionId = null;
+    // A replay of a transcript that was streaming is not the whole answer
+    // yet (a backend may keep it only once it ends, and a first chunk may
+    // stop before it): the turn's end replays again.
+    const replayed = key === null ? undefined : root.stores.chat.getState().buffers[key];
+    if (key !== null && key === resyncSessionId && !replayed?.isStreaming && !replayed?.replay?.base.isStreaming) resyncSessionId = null;
     coldResumedSessionId = key;
   }
 
@@ -629,6 +686,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     }
 
     if (status === "connected") {
+      endedTurns.clear();
       root.stores.connection.getState().noteSocketOpen();
       for (const sessionId of Object.keys(root.stores.chat.getState().turnRetries)) checkRetryDelivery(sessionId);
     }
@@ -647,6 +705,7 @@ export function createWebSocketClient(root: BrainUiServices) {
         if (pending.state === "waiting") chat.setTurnRetry(sessionId, { ...pending, state: "unknown" });
       }
       wasDisconnected = true;
+      reattachSessionId = null;
       // Allow a fresh cold-resume attempt after we reconnect.
       coldResumedSessionId = null;
     } else if (status === "connected" && wasDisconnected) {
@@ -655,10 +714,17 @@ export function createWebSocketClient(root: BrainUiServices) {
       const active = activeChat(chat);
       if (chat.activeSessionId && active.messages.length > 0) {
         resyncSessionId = chat.activeSessionId;
-        // Not mid-stream: replay right away. Mid-stream: the flag holds until
-        // the running turn finishes (result or idle status).
         if (!active.isStreaming) {
+          // Not mid-stream: replay right away.
           resyncIfNeeded(chat.activeSessionId);
+        } else {
+          // Mid-stream: reattach. Only the host knows whether the turn is
+          // still running or ended while this page was away, and its answer
+          // to a resume says which (a scoped `thinking` or `idle`) after a
+          // history that keeps the messages already drawn (#1013). The
+          // resync flag stays: the turn's end replays the finished answer.
+          reattachSessionId = chat.activeSessionId;
+          wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
         }
       }
     }
@@ -789,6 +855,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     answers,
     flushChatDeltas,
     dispose() {
+      endedTurns.clear();
       if (disposed) return;
       disposed = true;
       for (const timer of retryTimers.values()) clearTimeout(timer);

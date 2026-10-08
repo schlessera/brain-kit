@@ -38,6 +38,8 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
   const uncertain = Boolean(pending) && pending?.failedTurnId === message.retryOfTurnId && pending?.state === "unknown";
   const presentation = failurePresentation(failure);
   const resetSeconds = useResetCountdown(latest && presentation.retry && message.retryOfTurnId ? failure.resetsAt : undefined);
+  // A failure the host replayed (it carries no `failureLive`) is not the
+  // newly received one, also when a replay keeps this card mounted (#1013).
   const [announce] = useState(message.failureLive);
   const [review, setReview] = useState<Review | null>(null);
   const [notice, setNotice] = useState("");
@@ -82,7 +84,7 @@ export function TurnError({ message, latest }: { message: ChatMessage; latest: b
     <div data-turn-failure={failure.errorClass}>
       <TurnErrorCard headline={presentation.headline} explanation={presentation.explanation} tone={presentation.tone}
         rows={rows} backend={backend} providerMessage={redactProviderMessage(failure.message)} providerOpen={failure.errorClass === "unknown"}
-        operator={presentation.operator} announce={announce} actions={actions} busy={busy} notice={uncertain ? "Delivery is unconfirmed. Check delivery before sending another turn." : pending?.state === "refused" ? pending.message : notice}
+        operator={presentation.operator} announce={announce && message.failureLive !== undefined} actions={actions} busy={busy} notice={uncertain ? "Delivery is unconfirmed. Check delivery before sending another turn." : pending?.state === "refused" ? pending.message : notice}
         retryWarning={latest && presentation.retry && Boolean(message.retryOfTurnId)} />
       {review ? (
         <DiagnosticReview mode={review.mode} initialBody={review.initial} defaultIssueTitle="Chat turn failure"

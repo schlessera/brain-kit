@@ -107,6 +107,43 @@ export function ToolCallTimeline({
   );
 }
 
+/** Flat message slots keep a card mounted when recovered text splits its run. */
+export function ToolCallTimelineCell({
+  toolCalls, toolIndex, onApproval, live, collapsed, onExpand, onCollapse,
+}: {
+  toolCalls: ToolCall[];
+  toolIndex: number;
+  onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  live: boolean;
+  collapsed: boolean;
+  onExpand: () => void;
+  onCollapse: () => void;
+}) {
+  const root = useBrainUiRoot();
+  registerBuiltinRenderers(root.renderers);
+  const backendId = useBackendId();
+  const hasPending = toolCalls.some((t) => awaitsDecision(t) || (t.restored && t.readOnly));
+  const effectiveCollapsed = collapsed && !hasPending && !live;
+  const first = toolIndex === 0;
+  return (
+    <div hidden={effectiveCollapsed && !first} style={{
+      marginTop: first ? undefined : 0,
+      marginBottom: toolIndex === toolCalls.length - 1 ? undefined : 0,
+    }}>
+      {first && effectiveCollapsed && <TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} />}
+      {first && !effectiveCollapsed && !live && !hasPending && (
+        <button type="button" onClick={onCollapse} className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground">
+          <ChevronDown className="h-3 w-3" />
+          Hide steps
+        </button>
+      )}
+      <div hidden={effectiveCollapsed} className="relative ml-1 border-l-2 border-border/40 pl-4" style={{ paddingTop: first ? undefined : 6 }}>
+        <ToolCallEntry toolCall={toolCalls[toolIndex]!} backendId={backendId} onApproval={onApproval} />
+      </div>
+    </div>
+  );
+}
+
 function TimelineSummaryRow({
   toolCalls,
   backendId,
