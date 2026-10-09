@@ -1,10 +1,12 @@
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { notes } from '../../../packages/ui-kit/fixtures/notes.ts';
 import { people } from '../../../packages/ui-kit/fixtures/people.ts';
 import { places } from '../../../packages/ui-kit/fixtures/places.ts';
 import { goal, projects, launchChecklist, straitChoice, voyageSteps } from '../../../packages/ui-kit/fixtures/projects.ts';
 import { crewLosses, crewTable } from '../../../packages/ui-kit/fixtures/money.ts';
 import { REFERENCE_DATE, REFERENCE_INSTANT } from '../../../packages/ui-kit/fixtures/time.ts';
-import { BLOCK_SCHEMA, type Block } from '../../../packages/ui-sdk/src/tool-contracts/blocks.ts';
+import { BLOCK_SCHEMA, type Block } from '@schlessera/brain-ui-sdk/tool-contracts';
 
 export const referenceNow = REFERENCE_INSTANT.getTime();
 export interface DemoDocument { path: string; title: string; kind: 'markdown' | 'html' | 'text'; content: string; links: string[]; updated: string }

@@ -1,18 +1,15 @@
 // A local transport simulation around the production UI. Nothing is sent to a host.
-import React, { lazy, Suspense } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrainUiProvider, useRootStore } from '../../../packages/ui-react/src/root-context.tsx';
-import { createBrainUiRoot } from '../../../packages/ui-react/src/root.ts';
-import { AppShell } from '../../../packages/ui-react/src/components/layout/app-shell.tsx';
-import { ChatPage } from '../../../packages/ui-react/src/components/chat/chat-page.tsx';
+import { ActivityPage, AppErrorBoundary, AppShell, BrainUiProvider, ChatPage, GraphPage, createBrainUiRoot, useUIStore } from '@schlessera/brain-ui-react';
+import type { ActivitySpan, RenderRequest } from '@schlessera/brain-ui-sdk/protocol';
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { geo } from '../../../packages/ui-kit/fixtures/geo/index.ts';
-import type { ActivitySpan } from '../../../packages/ui-sdk/src/protocol.ts';
 import { binaryDocuments, corpusBlocks, demoDocuments, departureDiagram, directories, documentByPath, referenceNow, supportingFilesBlock, treeEntries, wikilinks } from './odyssey.ts';
 import { exportKey, type ExportCatalogue } from './export-key.ts';
 import { knowledgeResponse } from './knowledge.ts';
 
-const ActivityPage = lazy(() => import('../../../packages/ui-react/src/components/activity/activity-page.tsx').then(m => ({ default: m.ActivityPage })));
-const GraphPage = lazy(() => import('../../../packages/ui-react/src/components/graph/graph-page.tsx').then(m => ({ default: m.GraphPage })));
 const workStart = referenceNow - 60000;
 // The clock, like the responses, is fictional and isolated inside this iframe.
 Date.now = () => referenceNow;
@@ -257,11 +254,11 @@ function respond(text: string, key: string, turnId: string) {
   else { chat.appendText(key, 'This demo has prepared Odyssey responses. Try “show the plan”, “crew ledger”, “Scylla”, “files”, “departure diagram”, “prioritise preparations”, or “archive the checklist”. Your text stays in this page; no model is running.'); chat.finishAssistantMessage(key); }
 }
 function Surface() {
-  const view = useRootStore('ui', state => state.activeView);
-  return <><div style={{ display: view === 'chat' ? 'contents' : 'none' }}><ChatPage /></div><Suspense fallback={<p role="status">Opening the application view…</p>}>{view === 'activity' ? <ActivityPage /> : view === 'graph' ? <GraphPage /> : null}</Suspense></>;
+  const view = useUIStore(state => state.activeView);
+  return <><div style={{ display: view === 'chat' ? 'contents' : 'none' }}><ChatPage /></div>{view === 'activity' ? <ActivityPage /> : view === 'graph' ? <GraphPage /> : null}</>;
 }
 seed(scene);
-createRoot(document.getElementById('app')!).render(<BrainUiProvider root={ui}><AppShell><Surface /></AppShell></BrainUiProvider>);
+createRoot(document.getElementById('app')!).render(<AppErrorBoundary><BrainUiProvider root={ui}><AppShell><Surface /></AppShell></BrainUiProvider></AppErrorBoundary>);
 ready = true;
 window.parent.postMessage({ type: 'brain-demo-ready' }, location.origin);
 window.addEventListener('message', event => {
@@ -281,11 +278,8 @@ window.addEventListener('keydown', event => { if (event.key === 'Escape') window
 // Offline authoring harness. The published demo never needs this catalogue
 // walk; it builds exact export inputs through the product's own share helpers.
 if (params.get('catalogue') === '1') Object.assign(window, { __brainDemoCatalogue: async () => {
-  const { shareMarkdown, renderBlockHtml } = await import('../../../packages/ui-react/src/components/chat/share-document.tsx');
-  const { inlineMermaidDiagrams } = await import('../../../packages/ui-react/src/lib/mermaid.ts');
-  const { splitFrontmatter } = await import('../../../packages/ui-react/src/lib/frontmatter.ts');
-  const { buildDiagramShareOptions } = await import('../../../packages/ui-react/src/components/chat/mermaid-share.ts');
-  const requests: import('../../../packages/ui-sdk/src/protocol.ts').RenderRequest[] = [];
+  const { shareMarkdown, renderBlockHtml, inlineMermaidDiagrams, splitFrontmatter, buildDiagramShareOptions, runStats } = await import('@schlessera/brain-ui-react');
+  const requests: RenderRequest[] = [];
   async function messages() {
     for (const message of ui.stores.chat.getState().buffers.ogygia?.messages || []) {
       if (message.role !== 'assistant' || !message.content?.trim()) continue;
@@ -312,7 +306,6 @@ if (params.get('catalogue') === '1') Object.assign(window, { __brainDemoCatalogu
   }
   for (const prompt of ['show the plan', 'water and provisions', 'checklist', 'not a prepared prompt', ...Object.values(scenarioPrompts)]) { seed('comparison'); respond(prompt, 'ogygia', `fixture-turn-${++turn}`); await messages(); }
   seed('comparison');
-  const { runStats } = await import('../../../packages/ui-react/src/components/chat/use-chat-commands.ts');
   await runStats(ui, 'ogygia'); await messages();
   for (const record of demoDocuments) {
     if (record.kind === 'text') continue;

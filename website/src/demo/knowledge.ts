@@ -1,5 +1,5 @@
 import { demoDocuments, referenceNow } from './odyssey.ts';
-import type { GraphNodePayload } from '../../../packages/ui-sdk/src/protocol.ts';
+import type { GraphNodePayload } from '@schlessera/brain-ui-sdk/protocol';
 
 const records = demoDocuments.filter(record => record.kind === 'markdown');
 const folders = [...new Set(records.map(record => record.path.split('/')[0]))].sort();

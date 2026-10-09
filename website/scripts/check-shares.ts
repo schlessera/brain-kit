@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { exportRecipeHash, repository } from './export-recipe.ts';
 import { demoDocuments, documentByPath } from '../src/demo/odyssey.ts';
-import { splitFrontmatter } from '../../packages/ui-react/src/lib/frontmatter.ts';
+import { splitFrontmatter } from '@schlessera/brain-ui-react';
 import { exportKey } from '../src/demo/export-key.ts';
 
 const output = process.argv[2] ? resolve(process.argv[2]) : resolve(repository, 'website/public/assets/shares');
