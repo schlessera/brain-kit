@@ -6,6 +6,8 @@
 export "." (./src/index.ts)
   type ActiveView
   ActivityPage
+  AppErrorBoundary
+  type AppErrorBoundaryProps
   AppShell
   type AskUserExchange
   type BrainApi
@@ -135,6 +137,13 @@ signatures (every public export and the types it is made of)
         clear(): Promise<void>;
         getPrincipalKey(): Promise<string | null>;
         setPrincipalKey(key: string): Promise<void>;
+    }
+  AppErrorBoundary (packages/ui-react/src/components/layout/app-error-boundary.tsx)
+    export function AppErrorBoundary({ children, reload }: AppErrorBoundaryProps): import("react").JSX.Element;
+  AppErrorBoundaryProps (packages/ui-react/src/components/layout/app-error-boundary.tsx)
+    export interface AppErrorBoundaryProps {
+        children: ReactNode;
+        reload?: () => void;
     }
   AppShell (packages/ui-react/src/components/layout/app-shell.tsx)
     export function AppShell({ children }: {

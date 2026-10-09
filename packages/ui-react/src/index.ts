@@ -101,6 +101,7 @@ export {
   type LocalCaptureEnvironment,
 } from "./voice/local-capture.js";
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";
+export { AppErrorBoundary, type AppErrorBoundaryProps } from "./components/layout/app-error-boundary.js";
 
 // Share exports and the stats command, for hosts that assemble their own
 // shell around the kit (the project website's demo is one, #1382).

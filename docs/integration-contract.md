@@ -92,6 +92,12 @@ root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
 website's demo uses exactly these, so it builds from the public entry instead of
 from ui-react's source tree.
 
+**Additive: `AppErrorBoundary` (#1377).** `@schlessera/brain-ui-react` exports
+`AppErrorBoundary` and `AppErrorBoundaryProps` (`children`, plus a `reload`
+hook for tests). A shell wraps its whole tree in it, providers included, so a
+render error outside a page shows a reload screen instead of a blank app. The
+page-level boundary inside `AppShell` needs nothing from the shell.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.

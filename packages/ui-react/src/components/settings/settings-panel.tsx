@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useRef, type RefObject } from "react";
+import { Suspense, useMemo, useRef, type RefObject } from "react";
 import { KeyRound, Laptop, Puzzle, SlidersHorizontal } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel, type SlidePanelClosedBy } from "../layout/slide-panel.js";
@@ -12,6 +12,7 @@ import { Button, Callout, Icon, Label, ScreenHeader, Surface, type IconName } fr
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 import { createModuleSettingsSession, type ModuleSettingsSessionStore } from "./module-settings-state.js";
+import { lazyChunk } from "../../lib/lazy-chunk.js";
 
 /**
  * Each tab is fetched the first time it is opened. Settings is the largest
@@ -20,11 +21,11 @@ import { createModuleSettingsSession, type ModuleSettingsSessionStore } from "./
  * panel frame and its tab strip stay eager, so opening settings is immediate
  * and only the body fills in.
  */
-const ModelsTab = lazy(() => import("./models-tab.js").then((m) => ({ default: m.ModelsTab })));
-const PasskeyTab = lazy(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
-const DevicesAgentsTab = lazy(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
-const SkillsTab = lazy(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
-const ModulesTab = lazy(() => import("./modules-tab.js").then((m) => ({ default: m.ModulesTab })));
+const ModelsTab = lazyChunk(() => import("./models-tab.js").then((m) => ({ default: m.ModelsTab })));
+const PasskeyTab = lazyChunk(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
+const DevicesAgentsTab = lazyChunk(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
+const SkillsTab = lazyChunk(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
+const ModulesTab = lazyChunk(() => import("./modules-tab.js").then((m) => ({ default: m.ModulesTab })));
 
 /** The phone strip's tabs. Appearance and input sit above the strip there. */
 type StripTab = Exclude<SettingsTab, "appearance">;
