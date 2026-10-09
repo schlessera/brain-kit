@@ -84,11 +84,12 @@ function nativeFields(judge: Judge, j: any, r: PanelPhysical) {
     u.total_tokens !== r.tokens.input+r.tokens.output) {r.error="inconsistent native token total";r.usageComplete=false;}
 }
 /** This guard runs before the donor's deliberately permissive parser/tally can accept a batch. */
+/** The panel votes on `route` only: an over-long `summary` is the prompt's style limit, not a label error, so it is admitted. */
 export function admittedRows(text: string, items: HardItem[]): Row[] | null {
   const rows = parseRows(text);
   if (!rows || rows.length !== items.length || new Set(rows.map(r => r?.id)).size !== items.length ||
     !rows.every((r, i) => object(r) && items[i]?.id === r.id && ROUTES.includes(r.route as any) &&
-      count(r.stakes) && r.stakes >= 1 && r.stakes <= 3 && typeof r.summary === "string" && r.summary.length <= 140)) return null;
+      count(r.stakes) && r.stakes >= 1 && r.stakes <= 3 && typeof r.summary === "string")) return null;
   return rows;
 }
 let observerOwned = false;

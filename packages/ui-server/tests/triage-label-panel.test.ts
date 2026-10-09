@@ -101,8 +101,12 @@ if(process.env.BRAIN_TRIAGE_PANEL_SYNTHETIC !== "1") {
   "missing row":(rows:any[])=>rows.pop(),"duplicate row":(rows:any[])=>rows[1]={...rows[0]},
   "extra row":(rows:any[])=>rows.push({...rows[0],id:"unexpected"}),"wrong route":(rows:any[])=>rows[0].route="approve",
   "wrong order":(rows:any[])=>rows.reverse(),"invalid stakes":(rows:any[])=>rows[0].stakes=0,
-  "oversized summary":(rows:any[])=>rows[0].summary="x".repeat(141),
+  "non-string summary":(rows:any[])=>rows[0].summary=null,
  };
+ test("an over-long summary still counts its route vote",async()=>{
+  const result=await collectLabelPanel(CORPUS,rubric,transport((j,p,n,rows)=>{rows[0].summary="x".repeat(400);Object.assign(j,native(p,rows));}));
+  expect(result.stopReason).toBeNull();expect(result.coverageComplete).toBe(true);expect(result.judgments.length).toBeGreaterThan(0);
+ });
  for(const [name,alter] of Object.entries(invalidRows)) test(`${name} stops actual panel with retained successful usage`,async()=>{
   const result=await collectLabelPanel(CORPUS,rubric,transport((j,p,n,rows)=>{alter(rows);Object.assign(j,native(p,rows));}));
   expect(result.stopReason).toBe("invalid blind label batch");expect(result.physical).toHaveLength(1);expect(result.coverageComplete).toBe(false);
