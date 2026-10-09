@@ -10,7 +10,7 @@ export function StreamingHandoff() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
       <button type="button" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))}>Token</button>
-      <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" text={TOKENS.slice(0, count).join("")} />
+      <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" cost="~$0.03 so far" text={TOKENS.slice(0, count).join("")} />
     </div>
   );
 }

@@ -80,7 +80,7 @@ import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { SessionList } from "../../src/components/chat/session-list.js";
 import { WelcomeState } from "../../src/components/chat/welcome-state.js";
 import { ComposerView } from "../../src/components/chat/composer-view.js";
-import { AttachmentCount, ThinkingBlock, ThinkingIndicator, TurnHeader, UserTurn } from "../../src/components/chat/transcript-turn.js";
+import { AttachmentCount, ThinkingBlock, TurnHeader, UserTurn } from "../../src/components/chat/transcript-turn.js";
 import { Segmented, SwitchRow } from "../../src/components/graph/graph-form.js";
 import { NodeCard } from "../../src/components/graph/node-card.js";
 import { PrincipalList } from "../../src/components/settings/principal-list.js";
@@ -5786,9 +5786,6 @@ describe("transcript turn views", () => {
     fireEvent.click(summary);
     expect(onOpenChange).toHaveBeenCalledWith(true);
     done.unmount();
-    const waiting = render(<ThinkingIndicator />);
-    expect(waiting.getByText("Thinking...")).toBeTruthy();
-    waiting.unmount();
   });
 });
 
@@ -7115,4 +7112,152 @@ describe("SearchResultCard adversarial output", () => {
       } finally { view.unmount(); ui.dispose(); }
     });
   }
+});
+
+import { MessageBubble as WaitingMessageBubble } from "../../src/components/chat/message-bubble.js";
+import { emptyEvidence as waitingEmptyEvidence } from "../../src/lib/trackers.js";
+import { StreamingAnswer as WaitingKitAnswer } from "@schlessera/brain-ui-kit";
+import { describeRetry as waitingRetryText } from "@schlessera/brain-ui-sdk/internal/client";
+function waitingBubble(root: BrainUiRoot, message: import("../../src/stores/chat-store.js").ChatMessage) {
+  const noop = () => {};
+  return <BrainUiProvider root={root}><WaitingMessageBubble message={message} onToolApproval={noop}
+    onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
+}
+for (const backend of ["claude", "pi"] as const) {
+  test(`${backend} actual no-first-token turn uses two kit ghosts without answer text or its own Stop`, () => {
+    const root = createBrainUiRoot({ storage: null });
+    try {
+      const chat = root.stores.chat.getState(); chat.setActiveSession("waiting-turn");
+      root.stores.chat.setState({ backendIds: { "waiting-turn": backend } });
+      chat.startAssistantMessage("waiting-turn", "odysseus-turn");
+      const message = root.stores.chat.getState().buffers["waiting-turn"]!.messages[0]!;
+      expect(message.isStreaming).toBe(true); expect(message.parts).toHaveLength(0);
+      const view = render(waitingBubble(root, message));
+      const row = view.container.querySelector('[data-kit-streaming-answer]'); expect(row !== null).toBe(true);
+      expect(row!.querySelector('[aria-live="polite"]')!.textContent).toBe("thinking");
+      expect(row!.querySelectorAll('.bk-ghost')).toHaveLength(2);
+      expect(row!.querySelectorAll('[role="button"],button')).toHaveLength(0);
+      expect(row!.textContent).not.toContain("Stop"); expect(row!.textContent).not.toContain("$");
+      expect(row!.textContent).not.toContain("tools done"); expect(row!.textContent).not.toContain("Three venues");
+      act(() => chat.appendText("waiting-turn", "Circe **names the passage**."));
+      view.rerender(waitingBubble(root, root.stores.chat.getState().buffers["waiting-turn"]!.messages[0]!));
+      expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+      expect(view.container.querySelector('strong')!.textContent).toBe("names the passage");
+    } finally { act(() => root.dispose()); }
+  });
+}
+test("kit status supplies no unmeasured cost, target, elapsed, phase or answer", () => {
+  const view = render(<WaitingKitAnswer bars={false}/>);
+  expect(view.container.textContent).not.toContain("$");
+  expect(view.container.textContent).toBe("Stop");
+});
+test("kit announces only the phase word, leaving supplied elapsed and target outside it", () => {
+  const view = render(<WaitingKitAnswer phase="thinking" elapsed="4s" target="Scylla passage" bars={false} stoppable={false}/>);
+  const live = view.container.querySelector('[aria-live="polite"]')!;
+  expect(live.textContent).toBe("thinking");
+  view.rerender(<WaitingKitAnswer phaseLabel="waiting for approval" elapsed="5s" target="Write" bars={false} stoppable={false}/>);
+  expect(live.textContent).toBe("waiting for approval");
+});
+
+
+test("waiting status follows thinking, tools, approvals, retry and terminal facts without duplicating prose", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.startAssistantMessage(null, "crossing-turn");
+    const current = () => root.stores.chat.getState().draft!.messages.at(-1)!;
+    const view = render(waitingBubble(root, current()));
+    const redraw = () => view.rerender(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    act(() => chat.appendThinking(null, "Compare the cost of each passage.")); redraw();
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    expect(view.container.textContent).toContain("Compare the cost of each passage.");
+    act(() => chat.startToolCall(null, "read-directions", "Read")); redraw();
+    expect(current().toolCalls).toHaveLength(1);
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    act(() => chat.requestToolApproval(null, "write-directions", "Write", { file_path: "voyage/crossing.md", content: "Keep six men clear of Scylla." })); redraw();
+    const row = view.container.querySelector('[data-kit-streaming-answer]')!;
+    expect(row !== null).toBe(true); expect(row.textContent).toContain("waiting for approval"); expect(row.textContent).toContain("Write");
+    expect(row.querySelectorAll('.bk-ghost,button,[role="button"]')).toHaveLength(0);
+    expect(view.getByRole('button', { name: 'Allow' })).toBeTruthy();
+    const retry = { attempt: 2, maxAttempts: 5, delayMs: 8000, errorClass: "overloaded", status: 503 };
+    act(() => chat.setRetry(null, retry)); redraw();
+    expect(view.container.querySelectorAll('[data-kit-streaming-answer]')).toHaveLength(1);
+    expect(view.container.querySelector('[data-kit-streaming-answer]')!.textContent).toContain(waitingRetryText(retry));
+    expect(view.container.querySelector('[aria-live="polite"]')!.textContent).toBe("retrying");
+    act(() => { chat.resolveToolApproval(null, "write-directions", true); chat.appendText(null, "Take the **Scylla passage**."); }); redraw();
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    expect(view.container.querySelector('strong')!.textContent).toBe("Scylla passage");
+    act(() => chat.finishAssistantMessage(null)); redraw();
+    expect(current().isStreaming).toBe(false); expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+  } finally { act(() => root.dispose()); }
+});
+test("a recovered waiting shell without a host start has no elapsed, and host timing matches its turn", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-wait"); chat.startAssistantMessage("restored-wait", "restored-turn");
+    const base = root.stores.chat.getState().buffers["restored-wait"]!.messages[0]!;
+    const shell = { ...base, turnShell: true as const };
+    const view = render(waitingBubble(root, shell));
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => root.stores.trackers.setState({ recoverySupported: true, evidence: { "restored-wait": {
+      ...waitingEmptyEvidence(), latest: { requestId: null, turnId: "different-turn", state: "running", outcome: null, endedAt: null, startedAt: Date.now() - 70_000 }
+    } } }));
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => root.stores.trackers.setState({ evidence: { "restored-wait": {
+      ...waitingEmptyEvidence(), latest: { requestId: null, turnId: "restored-turn", state: "running", outcome: null, endedAt: null, startedAt: Date.now() - 70_000 }
+    } } }));
+    expect(view.container.querySelector('[data-stream-elapsed]')!.textContent).toMatch(/^1m (9|10)s$/);
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("actual restored pending approval shell keeps truthful wait status until the host closes it", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-approval-wait");
+    chat.addUserMessage("restored-approval-wait", "Write the directions.", "typed");
+    chat.requestToolApproval("restored-approval-wait", "pending-write", "Write", { file_path: "voyage/directions.md" }, undefined, "tool", true, "restored-turn");
+    const current = () => root.stores.chat.getState().buffers["restored-approval-wait"]!.messages.at(-1)!;
+    expect(current().turnShell).toBe(true); expect(current().isStreaming).toBe(false); expect(current().toolCalls[0]!.restored).toBe(true);
+    const view = render(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    expect(view.container.querySelector('[aria-live="polite"]')!.textContent).toBe("waiting for approval");
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => chat.closeRestoredApprovals("restored-approval-wait", [{ toolUseId: "pending-write", closure: "ended" }]));
+    view.rerender(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("an older pending tool does not label a later running tool group as approval-wait", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.startAssistantMessage(null);
+    chat.requestToolApproval(null, "old-write", "Write", { file_path: "voyage/directions.md" });
+    chat.appendText(null, "The passage remains open."); chat.startToolCall(null, "new-read", "Read");
+    const message = root.stores.chat.getState().draft!.messages.at(-1)!;
+    expect(message.toolCalls[0]!.status).toBe("pending_approval"); expect(message.toolCalls[1]!.status).toBe("streaming");
+    const view = render(waitingBubble(root, message));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(false);
+    expect(view.container.textContent).toContain("The passage remains open.");
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("actual history with a restored approval never uses replay time as elapsed", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-history-wait");
+    root.connection.handleServerMessage({ type: "session_history", sessionId: "restored-history-wait", messages: [
+      { role: "user", content: "Write the directions.", toolCalls: [] },
+      { role: "assistant", content: "The directions are ready.", toolCalls: [], turnId: "restored-turn" }
+    ] });
+    chat.requestToolApproval("restored-history-wait", "pending-write", "Write", { file_path: "voyage/directions.md" }, undefined, "tool", true, "restored-turn");
+    const message = root.stores.chat.getState().buffers["restored-history-wait"]!.messages.at(-1)!;
+    expect(message.turnShell).toBeUndefined(); expect(message.toolCalls[0]!.restored).toBe(true); expect(message.content).toBe("The directions are ready.");
+    const view = render(waitingBubble(root, message));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    expect(view.container.querySelector('[data-stream-elapsed]') !== null).toBe(false);
+  } finally { act(() => root.dispose()); }
 });
