@@ -224,58 +224,75 @@ the authorized $15 actual-additional-charge allowance, and no usage estimate
 is presented as a supplied invoice. JEV does not decide whether code exists.
 
 The expanded controls use Bun 1.4.2. The actual audit command reads its real
-clock; the measured detection date is frozen explicitly, while authorized
-fixture writer effects use the fictional `2026-07-12` date. Neither becomes a
-new CLI clock contract. Input review precedes dispatch and the source-aware
+clock; the live harness compares each brain's detection with the reviewed
+detected inputs instead of pinning a calendar day, while authorized fixture
+writer effects use the fictional `2026-07-12` date. Neither becomes a new CLI
+clock contract. No fixture carries a `draft` status, so the 90-day stale-draft
+check cannot add a clock-dependent finding to a frozen input. Input review precedes dispatch and the source-aware
 output review precedes any measured recommendation; keyless controls alone
 establish neither live suggestion quality nor production adoption.
 
+## Keyless results
 
-## Resumed measurement controls
+Both providerless arms are deterministic, so their availability and effect
+metrics are measured without a model call. From
+`bun scripts/evals/audit-capabilities/benchmark.ts --summary` on Bun 1.4.2,
+asserted exactly by `tests/audit-capability-benchmark.test.ts`:
 
-The resumed protocol uses the actual UTC detection day `2026-10-08` and Bun
-1.4.2 while preserving the installed SDK 0.3.283 / native CLI 2.1.283 baseline.
-The fictional writer date remains `2026-07-12`. The earlier whole-input review
-failed at the native context limit; it supplied no semantic approval. Its missing
-final invoice remains unknown.
+| Split | Arm | Brains | Findings | Auto-fix claims | False claims | Available missed | Writes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| tuning | providerless `audit --fix` | 6 | 8 | 0 | 0 | 3 of 3 | 0 |
+| tuning | capability-backed registry | 6 | 8 | 3 | 0 | 0 of 3 | 3 |
+| held-out | providerless `audit --fix` | 20 | 20 | 0 | 0 | 6 of 6 | 0 |
+| held-out | capability-backed registry | 20 | 20 | 6 | 0 | 0 of 6 | 5 |
 
-Eight lossless review packets partition all 26 complete cases and every direct
-behavioral source file: four complete-source subsets and four disjoint complete
-case subsets, each with the complete canonical fictional-world documents, common
-protocol, rubric and verification hashes.
-The 150,000-byte envelope is an operational bound, not proof of native context
-fit. No source file or authored case is truncated. Scored admission rebuilds
-every payload from disk and requires all eight native approvals on the same
-source, detected-input, prompt and verification hashes, complete raw usage,
-inactive reported overage, successful native result and actual child close.
-The private reviewer forcibly terminates an owned child that misses its drain
-window and records that outcome as failure rather than approval.
+Every preview and effect matched its authored golden, each authorized
+`index-stale` finding cleared after reindex with every other finding
+preserved, and the repeated writer wrote nothing. The held-out registry brain
+whose independent authorization is false is reported available and left
+unchanged; that is the six-versus-five difference. Neither arm makes a
+provider call. The 28 findings are 13 `index-stale` (9 with a valid plan),
+4 `todo`, 3 `broken-link`, 2 `tag-noise`, 2 `verify` and 4 module-owned
+categories; 22 of the 26 brains carry exactly one finding, so the coverage
+metric is only exercised by the two brains that pair `index-stale` with `todo`.
 
-The effect observer records all recursive source members with binary bytes,
-symlink targets, file types, modes and nanosecond modification times. It excludes
-only regular root SQLite cache files. Each actual arm is checked before execution,
-after execution and after ordinary detection; candidate execution also records
-both sides of its repeated writer. Any unexpected byte, member or metadata
-change stops admission immediately. Failure snapshots remain in the observation
-receipt. The current arm still emits suggestions only and never executes its
-untrusted replacement strings.
+What the current message-only arm can still add is bounded by its prompt. It
+carries severity, path, message and the existing suggestion only, so a `fix`
+string cannot be the generated region it never received, and `canAutoFix:
+true` on `index-stale` is a false claim by construction. The prompt's own
+auto-fixable examples (missing frontmatter, invalid type/status/relevance, tag
+formatting) are validation rules the audit never emits as findings, so the
+guidance names cases the command never sees. A live run can measure how often
+the model claims auto-fix without content and how its prose compares with the
+built-in suggestions under the rubric; it cannot change which findings are
+repairable. That part of the go/no-go follows from the table above.
 
-A lost physical usage receipt stops subsequent provider attempts. Known raw-usage
-cost subtotals remain separate from a null aggregate and the count of unknown
-attempts; missing token counts also remain null. Token arithmetic is an
-independent standard-price diagnostic, never a subscription invoice. Actual
-additional billed charges and shared reservations remain in the coordinator's
-protected ledger. Fresh complementary semantic approval and the full comparison
-are still required before a measured recommendation.
+## Live measurement controls
 
+The live harness runs two repetitions of the three arms on separate identical
+disposable brains and compares each brain's detection with the reviewed
+detected inputs before its arms run; the audit's real clock is not injected,
+so clock-dependent drift stops the run on the case it affects. The effect
+observer records every recursive source member with raw bytes, symlink
+targets, file types, modes and nanosecond modification times, excluding only
+regular root SQLite cache files; any unexpected change stops the next
+admission and the failure snapshot stays in the receipt. The current arm emits
+suggestions only and never executes its replacement strings; an in-memory
+projection reports unsafe paths, malformed shapes, no-op and non-golden
+proposals separately.
 
-The resumed real-command parser controls also preserve an important distinction:
-`[null]` throws inside the shipped suggestion-normalization catch and triggers
-whole-batch manual fallback; string/number array entries become empty normalized
-objects. Neither makes the shipped command crash. The task-local instrument
-retains the unchanged returned completion text and records a source-backed parser
-diagnostic, including fallback reason and non-object raw entries, beside its
-physical receipt. Invalid model proposals and fallback work remain quality
-observations with their full cost, rather than collector success claims or
-unaccounted attempts. These diagnostics do not validate or repair the shipped
-suggestion parser.
+Each physical request is reserved against the remaining allowance before
+dispatch and settled from the response's raw usage at official list prices; a
+missing or malformed usage receipt stops further requests and leaves the
+aggregate unknown while known subtotals remain. The shipped parser's behaviour
+is shadowed, not changed: a `[null]` entry throws inside `suggestFixes`' catch
+and falls back to manual suggestions for the whole batch, and string or number
+entries normalize to empty objects. Both outcomes are recorded as parser
+diagnostics beside the physical receipt so invalid proposals keep their cost
+without counting as collector failures.
+
+Review packets partition the 26 brains and every direct behavioural source
+file into eight lossless payloads under a 150,000-byte envelope; scored
+admission rebuilds every payload from disk and requires all eight approvals on
+the same source, detected-input, prompt and verification hashes. The envelope
+is an operational bound, not proof of native context fit.

@@ -17,7 +17,6 @@ import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import { sourceSnapshot, sourceTextMap, assertSourceEffect } from "./effects";
 
 export const WRITE_DAY = "2026-07-12";
-export const DETECTION_DAY = "2026-10-08";
 export interface BenchmarkCase {
   id: string; split: "tuning" | "held-out"; entity: string; template: string;
   files: Record<string, string>; authorization: boolean;
@@ -142,6 +141,43 @@ export async function keylessProof() {
       rows.push({ id: f.id, split: f.split, detected, manual, candidate, durationMs: performance.now() - start, checks });
     } finally { p.close(); }
   }
-  return { kind: "actual-command-keyless-proof", detectionDay: new Date().toISOString().slice(0, 10), writeDay: WRITE_DAY, rows, allChecksPassed: rows.every(r => Object.values(r.checks).every(Boolean)) };
+  return { kind: "actual-command-keyless-proof", detectionDay: new Date().toISOString().slice(0, 10), writeDay: WRITE_DAY, rows, allChecksPassed: rows.every(r => Object.values(r.checks).every(Boolean)), summary: summarizeKeyless(rows) };
 }
-if (import.meta.main) console.log(JSON.stringify(await keylessProof(), null, 2));
+
+/**
+ * The two providerless arms are deterministic, so their availability and
+ * effect metrics need no model call. The current message-only arm is absent
+ * here: its suggestion text needs independent annotation, and its auto-fix
+ * claims need the live run. Correctness of a claim is judged against the
+ * authored goldens, not against the candidate's own output.
+ */
+type KeylessRow = { id: string; split: string; detected: Awaited<ReturnType<typeof detect>>; manual: unknown; candidate: Awaited<ReturnType<typeof capabilityArm>>; checks: Record<string, boolean> };
+export function summarizeKeyless(rows: KeylessRow[]) {
+  const summaries = [];
+  for (const split of ["tuning", "held-out"] as const) {
+    const group = rows.filter(r => r.split === split);
+    const golden = (row: KeylessRow) => cases.find(f => f.id === row.id)!;
+    const available = (row: KeylessRow, s: { path: string }) => golden(row).expectedAvailablePaths.includes(s.path) && row.detected.report.issues.some(i => i.path === s.path && i.category === "index-stale");
+    for (const arm of ["actual-providerless", "capability-backed-registry"] as const) {
+      const suggestionsOf = (row: KeylessRow) => arm === "actual-providerless" ? (row.manual as Array<{ path: string; canAutoFix: unknown }>) : row.candidate.suggestions;
+      let findings = 0, suggestions = 0, autoClaims = 0, falseAutoFix = 0, availableMissed = 0, expectedAvailable = 0, actualWrites = 0;
+      for (const row of group) {
+        const list = suggestionsOf(row);
+        findings += row.detected.report.issues.length; suggestions += list.length;
+        expectedAvailable += golden(row).expectedAvailablePaths.length;
+        for (const s of list) if (s.canAutoFix) { autoClaims++; if (!available(row, s)) falseAutoFix++; }
+        for (const path of golden(row).expectedAvailablePaths) if (!list.some(s => s.path === path && s.canAutoFix)) availableMissed++;
+        if (arm === "capability-backed-registry") actualWrites += row.candidate.effects.reduce((n, e) => n + e.written.length, 0);
+      }
+      summaries.push({ split, arm, cases: group.length, findings, suggestions, autoClaims, falseAutoFix, availableMissed, expectedAvailable, actualWrites,
+        authorizedCases: arm === "capability-backed-registry" ? group.filter(r => golden(r).authorization).length : null,
+        allPreviewEffectsCorrect: arm === "capability-backed-registry" ? group.every(r => r.checks.preview && r.checks.effect && r.checks.repeatedNoOp && r.checks.authorizedFindingCleared && r.checks.otherFindingsPreserved) : null,
+        providerCalls: 0 });
+    }
+  }
+  return summaries;
+}
+if (import.meta.main) {
+  const proof = await keylessProof();
+  console.log(JSON.stringify(process.argv.includes("--summary") ? { detectionDay: proof.detectionDay, allChecksPassed: proof.allChecksPassed, summary: proof.summary } : proof, null, 2));
+}

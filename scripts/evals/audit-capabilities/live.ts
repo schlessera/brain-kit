@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { cases, commandOutput, detect, capabilityArm, prepareBenchmark, DETECTION_DAY } from "./benchmark";
+import { cases, commandOutput, detect, capabilityArm, prepareBenchmark } from "./benchmark";
 import { MODEL, protocol } from "./protocol";
 import { runtimeFreeze, sha } from "./freeze";
 import { parserDiagnostic } from "./parser-diagnostics";
@@ -140,7 +140,9 @@ export async function observeArm(p: Awaited<ReturnType<typeof prepareBenchmark>>
 }
 async function main() {
   if (process.env.BRAIN_LIVE_EVAL !== "841") throw Error("Only explicitly authorized #841 dispatch");
-  if (new Date().toISOString().slice(0, 10) !== DETECTION_DAY) throw Error("Real audit detection date differs from frozen protocol");
+  // The audit reads its real clock. Instead of pinning a calendar day, every
+  // brain's detection is compared with the reviewed detected inputs before its
+  // arms run, so clock-dependent drift stops the run on the case it affects.
   const out = process.argv[2], reviewPath = process.argv[3], expectedPath = process.argv[4], proofPath = process.argv[5];
   if (!out || existsSync(out) || !reviewPath || !expectedPath || !proofPath) throw Error("Fresh protected output, exact review and detected inputs required");
   const frozen = runtimeFreeze(); const review = JSON.parse(readFileSync(reviewPath, "utf8"));
@@ -172,7 +174,6 @@ async function main() {
           observations.push({ fixture: f.id, split: f.split, repetition, arm, detected, durationMs, rawTaskDurationMs, taskDurationMs: rawTaskDurationMs - excludedFreezeCheckMs, excludedFreezeCheckMs, physicalCallIndices: calls.slice(firstCall).map((_, n) => firstCall + n), ...observed, projection: arm === "actual-current-message-only" ? currentProposalStats(output, f) : null });
           save();
           if (spend.stopped) throw Error("Stop after failed/unknown physical attempt, even if actual audit fell back to manual output");
-          if (new Date().toISOString().slice(0, 10) !== DETECTION_DAY) throw Error("Audit date crossed frozen day");
         } finally { p.close(); }
       }
     }
