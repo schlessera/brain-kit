@@ -183,24 +183,25 @@ never identifies a private-instance follow-up; sanitize the public handoff.
 ## PR, CI and merge
 
 Before creating a PR or marking a draft ready, run `bun run check:pr --base
-origin/main` in the issue checkout against the relevant base. `--plan`
-is inspection, not proof. The command retains complete local runtime/browser/
-visual/endurance tests while automatic CI runs only affected fast guarantees.
-Record tested head/base, commands and results in the PR. Missing tools, skipped
-runtimes or failed checks leave proof unfinished; green fast CI cannot replace
-it. Revalidate affected local proof after code, dependency, harness or base
-changes that affect this work or its checks. Inspect missing main commits before
-refreshing; unrelated advancement is recorded without rebasing or restarting
-suites. Retain actual tested head/base and satisfy existing branch rules.
-Keep drafts on cheap gates and batch intermediate pushes. Do not
-restore expensive automatic suites or delete tests to obtain green CI; retain
-all default local discovery, pinned offline harnesses and diagnostic artifacts.
-When tuning CI, follow docs/decisions/ci-utility.md: compare size-weighted total
-attempt time including cancellations, prefer bounded concurrency within one
-runner, and benchmark current Bun parallel modes with the offline guard intact.
-More shards or workers require measured consumption and memory justification.
-Delay shorter jobs behind longer selected work; keep cheap rejection gates first
-and preserve intentional-skip, failure and cancellation behavior on both providers.
+origin/main` in the issue checkout. This supplies focused local preflight;
+`--plan` is inspection only. Record behavioral failing-first/restored mutation
+receipts and visual review where relevant. Complete repeatable proof runs in
+hosted CI on ready PRs under #1326: types, packaging, full affected discovery,
+pinned browser/layout/offline/endurance/editorial and native runtime categories.
+`check:pr --full` and `--all` retain opt-in full local/release execution.
+
+Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
+leave selected hosted proof incomplete. Never delete tests, weaken offline
+harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
+pushes. After cheap gates independent categories run concurrently; per-PR
+cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
+cancellations before adding shards. Follow docs/decisions/ci-utility.md.
+
+Assess missing main commits before refreshing. Revalidate affected proof after
+code, dependency, harness or relevant base changes. Unrelated advancement alone
+does not require a rebase or repeat long suites; retain actual tested head/base
+and the relevance assessment, satisfying existing branch rules. Never relabel
+older green evidence as a new combined-tree receipt.
 
 Before every push, confirm the branch's PR is not already merged/closed.
 Open one PR against `main` using the repository template and appropriate

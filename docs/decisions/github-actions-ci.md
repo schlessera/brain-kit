@@ -12,20 +12,19 @@ Ubuntu 24.04 runners and no provider-routing predicates. Checkout credentials
 are not persisted. The former fork-only copies and active Depot definitions
 are removed, so there is one workflow definition and one execution provider.
 
-The [CI utility policy](ci-utility.md) still binds. Automatic execution retains
-metadata/lint, affected fast verification and conditional packaging. Drafts
-run cheap gates only. Packaging precedes verification, and an intentional
-packaging skip still admits selected verification through the explicit
-cancellation-aware condition. Failures and cancellations do not admit it.
+The revised [CI utility policy](ci-utility.md) under #1326 binds. Automatic execution retains cheap metadata gates and runs complete affected
+hosted proof on ready PRs. Independent packaging, types, test and browser/runtime
+categories run concurrently after metadata; an aggregate rejects missing,
+failed, cancelled or unexpectedly skipped proof. Drafts run cheap gates only.
 Main pushes retain independent SHA-based concurrency groups; superseded PR
 heads share their PR group and remain cancellable.
 
 The migration preserves action and runtime pins, triggers, job phases,
 environment data, deadlines, outputs and complete consumer probes. Local
 packaging and declaration guards read the GitHub pack job directly. Every
-existing full local unit/runtime/browser/layout/endurance/editorial category
-remains required before PR readiness; a provider change does not excuse a
-missing runtime or unrelated failure.
+existing unit/runtime/browser/layout/endurance/editorial category remains
+covered by affected hosted proof under #1326. Focused local behavioral receipts
+remain required; missing runtimes and unrelated failures cannot be called green.
 
 Forks use `pull_request` with `contents: read`, no secrets, no job-level
 permission escalation and no persisted token. Titles and labels reach the

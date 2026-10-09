@@ -312,7 +312,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:34`), so the guard compares the lockfile-installed pair.
+  `.github/workflows/ci.yml:42`), so the guard compares the lockfile-installed pair.
   This fast version guard remains an affected automatic check under
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no
@@ -728,13 +728,14 @@ What that changes and what it does not:
   Tool search is one — the probe turns it on explicitly for its cases — and the
   auto-mode classifier's headers are another. None of the measured cases uses
   auto mode.
-- **Runtime execution (#284; local since #1305).** `bun run check:pr` runs
-  the real probe for affected runtime work under [the current CI policy](ci-utility.md), inside
+- **Runtime execution (#284; hosted again under #1326).** Selected hosted
+  proof and optional `bun run check:pr --full` run the real probe under
+  [the current CI policy](ci-utility.md), inside
   a network namespace that holds nothing but loopback: nothing but loopback is
   reachable, so every case passing there shows the probe needs no network. It
   does not audit connection attempts, so a background request that fails
   quietly would not fail a case. A failed or inconclusive case fails
-  the local check; its JSON report remains available for review.
+  the selected proof; its JSON report remains available for review.
 
 ## 2026-09-30 — CI returns to GitHub Actions (#618)
 

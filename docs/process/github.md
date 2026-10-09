@@ -249,7 +249,9 @@ sit in the Ready view as traps.
 5. **In review.** Open the PR with `Closes #<n>` in the body when merging meets
    every acceptance criterion and verification step. If a required human step
    will remain, use `Refs #<n>` instead and name the step under "Anything left
-   open". The PR template's checklist is the merge bar.
+   open". The PR template's checklist is the merge bar. Focused local preflight and
+   behavioral receipts accompany complete selected hosted proof under #1326;
+   drafts remain cheap, and failed/cancelled/missing selected jobs cannot merge.
 6. **Human handoff, when needed.** Once independent agent work is complete,
    update the body with the remaining action and its completion evidence,
    replace `agent-ready` with `needs: human`, and leave the issue open. Keep

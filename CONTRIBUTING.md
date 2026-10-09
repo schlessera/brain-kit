@@ -32,7 +32,7 @@ issue when you are not sure.
   exercised the renderer — the run says so in a banner rather than leaving you
   to notice.
 
-  Before opening a PR, `bun run check:pr` requires Chrome and sets
+  Hosted unit/runtime proof and optional `bun run check:pr --full` require Chrome and set
   `BRAIN_REQUIRE_CHROME=1`; missing Chrome fails instead of silently skipping.
   The real renderer proves isolation. `renderer.test.ts` covers an allowlist
   predicate and `crash-recovery.test.ts` drives a fake browser; neither replaces
@@ -117,55 +117,49 @@ with explicit overrides pointing only at test fixtures. Do not append the
 host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 `runCli` and direct children using `keylessEnv`, including `doctor --fix`.
 
-## Required checks before creating a PR
+## Local feedback and hosted proof
 
-Run from the checkout that will become the PR, using the relevant base:
+Run from the contribution checkout using the relevant base:
 
 ```sh
-bun run check:pr --base origin/main --plan  # inspect the selection; does not verify it
-bun run check:pr --base origin/main         # required before opening or marking ready
-bun run check:pr --all                      # full release/tooling validation
+bun run check:pr --base origin/main --plan  # inspect selection only
+bun run check:pr --base origin/main         # local preflight and affected fast tests
+bun run check:pr --base origin/main --full  # optional complete affected local fallback
+bun run check:pr --all                      # complete local release/diagnostic inventory
 ```
 
-The command includes committed, staged, unstaged and untracked changes. It uses
-reverse workspace dependencies, including peers, optional and development
-dependencies, to identify affected work. A missing diff base fails visibly.
-It always runs lint/leakage, environment documentation and changeset checks.
-Code and tooling changes require the complete `bun run test` suite: every
-existing unit/integration/runtime test remains discoverable there. Strict
-source/test typechecking runs alongside it with a 4 GiB V8 old-space allowance.
-Affected UI work additionally runs all pinned browser/visual/accessibility/
-pointer projects, all layout/offline/endurance tests, and editorial capture
-verification. Relevant runtime work includes the loopback-only Claude probes,
-native delegation/capability/Haiku probes and measurement isolation,
-the real Chrome launch/render and the shared-process cleanup regression. Shipped
-package changes run the complete packed consumer/pin/type/export probes using
-`bun run check:pack`, which reads the authoritative pack job from CI.
+Preflight includes committed, staged, unstaged and untracked changes. It runs
+lint/leakage, environment documentation, changeset checks and affected fast
+invariants. Ordinary contributions do not need Docker, Chrome or namespaces
+for preflight or repeated local type/pack/browser proof. Keep focused debugging,
+behavioral failing-first/restored mutations and visual review local.
 
-Record the tested head/base, commands and results in the PR's Proof section.
-Planning alone, missing tools, a skipped runtime, or a failed check does not
-fulfil this requirement. Revalidate affected checks after code, dependency,
-harness or relevant base changes. Inspect missing main commits before refreshing:
-rebase and rerun affected proof only when those commits affect this work or its
-checks. For unrelated advancement, retain the actual tested head/base and record
-the relevance assessment; do not restart suites solely because main moved.
-Existing branch/merge-queue rules still apply. Keep work in draft until required local proof passes;
-batch intermediate pushes. A fast green CI run cannot substitute for local proof.
+Ready PR CI supplies authoritative strict types, complete tests for affected
+packages and reverse dependencies plus root tests, conditional complete packed
+consumer probes, and selected pinned visual/accessibility/pointer,
+layout/offline/endurance, editorial and native runtime categories. Global or
+unknown tooling/dependency changes expand to complete discovery. New tests are
+discovered automatically. Relevant Claude probes use loopback-only fixtures;
+real Chrome and required namespaces may not silently skip. The final `proof`
+check requires every selected category to pass. Scheduled/manual exhaustive
+runs supplement affected PR proof; they do not replace it.
 
-Automatic CI spends minutes only on lint/metadata, explicitly selected fast
-contract/integrity/permission tests, conditional strict typechecking and one
-conditional packaging job. Drafts run the cheap gates only. Documentation and
-changeset entries do not launch compiler/packaging/runtime jobs unless their
-changed inputs need them. The fast-test inventory is `scripts/ci-plan.ts`;
-new tests are local-only until their measured cost and distinct guarantee justify
-adding them. Real-time waits, browser launch matrices, visual permutations and
-editorial generation are local requirements, not automatic CI work.
+Drafts stay on cheap gates. Batch intermediate pushes, then mark ready for
+hosted proof. Independent packaging, types, unit and browser/runtime jobs start
+together after cheap rejection gates. Complete unit proof includes the curated
+subset once. Each PR cancels only its own obsolete heads; main SHA groups remain
+independent. The browser image, per-project concurrency bounds and failure
+artifacts remain pinned. Measure queue delay, elapsed time and cancellations
+before adding shards or changing timeouts.
 
-After the cheap planning/lint/metadata gates, conditional packaging completes
-before the shorter verification job starts. When packaging is not selected,
-verification proceeds directly; packaging failures/cancellations prevent it.
-This delays shorter work to avoid its cost when a head is superseded during
-packaging. It adds feedback latency to completed runs without an idle wait step.
+Record actual head/base, job/attempt IDs, checkout logs and focused local
+receipts in the PR. Missing tools, failed/cancelled jobs and unexpected skips
+leave proof incomplete. Assess new main commits before refreshing; unrelated
+advancement alone does not require rebasing or repeating long suites. Preserve
+the earlier tested tree rather than attributing it to a new base. Relevant
+input/dependency/harness changes require fresh proof; unknown changes expand
+conservatively. There is no generic cache of passing tests. Respect branch rules
+and verify the actual squash parent/tree and automatic main-push result.
 
 Independent fast test batches and typechecking share a queue with at most two
 active processes on one runner. Each selected test runs exactly once; another batch
@@ -189,6 +183,13 @@ and `3/3`) retains complete discovered-test coverage. `scripts/test-shards.ts`
 uses measured file weights, not an allowlist; newly added tests remain included.
 This layout is no longer automatic CI. Browser shard arguments also remain
 available, with the pinned image and diagnostics unchanged.
+
+Browser shards use a committed per-project/file timing table, not live CI
+artifacts or a fixed allowlist. Unknown specs get a positive one-second weight;
+invalid tables fail visibly. Refresh explicitly from two successful browser jobs:
+`bun scripts/refresh-browser-costs.ts <run-id> <attempt>`. Review the source
+head/checkout/tree, job IDs and seconds/median metadata alongside the table.
+Unsharded discovery is unchanged and existing browser file concurrency is kept.
 
 `bun run test:browser` runs every configured browser project in the pinned
 Playwright image. The shared `scripts/visual.mjs` runner defaults to

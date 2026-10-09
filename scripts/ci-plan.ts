@@ -9,14 +9,15 @@ export interface Workspace {
   files: string[];
 }
 
-// Joining automatic CI is an explicit decision: a new test is local-only until
-// its runtime and distinct guarantee justify spending runner minutes on it.
+// Focused local feedback and cheap CI use this inventory. Complete affected
+// suites discover every test in hosted proof; this list is not a proof allowlist.
 // These suites exercise contracts, data integrity and permission boundaries
 // without real browsers, installed model runtimes or real-time deadline waits.
 export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
     "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
-    "tests/local-checks.test.ts",
+    "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
+    "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
     "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
@@ -68,6 +69,7 @@ export interface CheckPlan {
   typecheck: boolean;
   tests: string[];
   pack: boolean;
+  // Complete proof categories, shared by hosted CI and opt-in full local checks.
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean };
 }
 
@@ -141,6 +143,15 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
       runtime: global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
 }
 
+/** Explicit false outputs distinguish intentional exclusions from missing proof. */
+export function proofSelections(plan: CheckPlan, draft = false): Record<string, boolean> {
+  return Object.fromEntries(Object.entries({
+    verify: plan.typecheck || (!plan.local.fullTests && plan.tests.length > 0), pack: plan.pack,
+    unit: plan.local.fullTests, browser: plan.local.browser, layout: plan.local.layout,
+    captures: plan.local.captures, runtime: plan.local.runtime,
+  }).map(([name, selected]) => [name, !draft && selected]));
+}
+
 function git(root: string, args: string[]): string {
   const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(`Cannot determine changed files: ${new TextDecoder().decode(result.stderr).trim()}`);
@@ -162,7 +173,7 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
 }
 
 export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): CheckPlan {
-  if (env.GITHUB_EVENT_NAME === "api") return planChecks(["package.json"], workspaces(root));
+  if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root));
   const pr = env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
@@ -176,8 +187,9 @@ if (import.meta.main) {
     const path = process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json");
     await Bun.write(path, JSON.stringify(plan, null, 2) + "\n");
     const draft = process.env.PR_DRAFT === "true";
+    const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-      `verify=${!draft && (plan.typecheck || plan.tests.length > 0)}\npack=${!draft && plan.pack}\n`);
+      Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft }, null, 2));
   } catch (error) { console.error(error); process.exit(1); }
 }

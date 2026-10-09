@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections } from "../scripts/ci-plan";
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -120,7 +120,10 @@ describe("affected CI checks", () => {
           BASE_SHA: f.base, HEAD_SHA: "HEAD", PR_DRAFT: draft, GITHUB_OUTPUT: output, CI_PLAN_PATH: plan } });
       const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
-      expect(readFileSync(output, "utf8")).toBe(`verify=${draft === "false"}\npack=${draft === "false"}\n`);
+      const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
+      expect(readFileSync(output, "utf8")).toBe(Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
+      expect(expected.unit).toBe(draft === "false");
+      expect(expected.runtime).toBe(draft === "false");
       expect(JSON.parse(readFileSync(plan, "utf8")).tests.length).toBeGreaterThan(0);
     }
   });

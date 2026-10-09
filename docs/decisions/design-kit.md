@@ -3811,7 +3811,7 @@ config were empty, account credential files were never copied, automatic
 memory was disabled, and no other subscription measurement overlapped.
 The same execution hook bounded Read/Glob/Grep to the staged fixture and
 denied delegation and other tools in every arm (`optionsFor`,
-`scripts/measure-show-block.ts:394-462`). This permission restriction and the
+`scripts/measure-show-block.ts:397-465`). This permission restriction and the
 one-tool MCP server remain measurement divergences from production. The
 actual installed CLI denied a controlled outside Read and admitted an inside
 Read under bypassPermissions; removing its hook exposed the sentinel and

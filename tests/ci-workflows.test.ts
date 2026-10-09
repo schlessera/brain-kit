@@ -21,7 +21,7 @@ const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
 });
 function runs(workflow: Workflow, job: Job, context: Obj): boolean {
   return String(context.event_name) in workflow.on && (job.if === undefined || evaluate(job.if, {
-    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true" } }, pack: { result: "success" } },
+    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", browser: "true", layout: "true", captures: "true" } }, pack: { result: "success" } },
   }) === true);
 }
 function evaluate(expression: string, context: Obj): Json {
@@ -36,10 +36,10 @@ function evaluate(expression: string, context: Obj): Json {
   function primary(): Json {
     const token = take();
     if (token === "!") return !truthy(primary());
-    if (token === "cancelled" && peek() === "(") {
+    if ((token === "cancelled" || token === "always") && peek() === "(") {
       take();
       if (take() !== ")") throw new Error(`cancelled takes no arguments in ${expression}`);
-      return context.cancelled === true;
+      return token === "always" || context.cancelled === true;
     }
     if (token === "(") {
       const value = or();
@@ -123,8 +123,8 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.name).toBe("CI");
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
-    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack"]);
-    expect(ci.jobs.changeset!.outputs).toEqual({ verify: "${{ steps.plan.outputs.verify }}", pack: "${{ steps.plan.outputs.pack }}" });
+    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "browser", "layout", "captures", "proof"]);
+    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
@@ -173,32 +173,26 @@ describe("CI concurrency configuration (live scheduler proof remains separate)",
   });
 });
 
-describe("longer packaging completes before short verification", () => {
-  const selected = (pack: string, result: string, cancelled = false, verify = "true", changeset = "success") => ({
-    github: pullRequest(REPO), cancelled, needs: { changeset: { result: changeset, outputs: { verify, pack } }, pack: { result } },
+describe("independent hosted proof after cheap gates", () => {
+  const context = (selected = "true", result = "success") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, browser: selected, layout: selected, captures: selected } } } });
+  test("all independent categories depend only on metadata", () => {
+    for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"]) {
+      expect(ci.jobs[name]!.needs).toBe("changeset");
+      expect(evaluate(ci.jobs[name]!.if!, context())).toBe(true);
+      expect(evaluate(ci.jobs[name]!.if!, context("false"))).toBe(false);
+    }
   });
-  test("the dependency prevents verification starting beside packaging", () => {
-    expect(ci.jobs.pack!.needs).toBe("changeset"); expect(ci.jobs.verify!.needs).toEqual(["changeset", "pack"]);
-    for (const state of ["", "queued", "in_progress"]) expect(evaluate(ci.jobs.verify!.if!, selected("true", state))).toBe(false);
-    expect(evaluate(ci.jobs.verify!.if!, selected("true", "success"))).toBe(true);
-  });
-  test("an intentional pack skip still permits selected verification", () => {
-    expect(ci.jobs.verify!.if).toContain("!cancelled()");
-    expect(evaluate(ci.jobs.verify!.if!, selected("false", "skipped"))).toBe(true);
-    expect(evaluate(ci.jobs.verify!.if!, selected("true", "skipped"))).toBe(false);
-  });
-  test("failure, cancellation and unselected checks never trigger downstream work", () => {
-    for (const result of ["failure", "cancelled"]) expect(evaluate(ci.jobs.verify!.if!, selected("true", result))).toBe(false);
-    expect(evaluate(ci.jobs.verify!.if!, selected("true", "success", true))).toBe(false);
-    expect(evaluate(ci.jobs.verify!.if!, selected("false", "skipped", true))).toBe(false);
-    expect(evaluate(ci.jobs.verify!.if!, selected("false", "skipped", false, "false"))).toBe(false);
-    for (const state of ["failure", "cancelled", "skipped"]) expect(evaluate(ci.jobs.verify!.if!, selected("false", "skipped", false, "true", state))).toBe(false);
+  test("the aggregate observes every category even after an intentional skip or failed prerequisite", () => {
+    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "browser", "layout", "captures"]);
+    expect(ci.jobs.proof!.if).toContain("always()");
+    expect(evaluate(ci.jobs.proof!.if!, { cancelled: false })).toBe(true);
+    expect(evaluate(ci.jobs.proof!.if!, { cancelled: true })).toBe(false);
   });
   test("draft or unaffected selections skip dependent jobs for forks and same-repository PRs", () => {
     for (const repo of [REPO, "odysseus/brain-kit"]) {
-      const context = { github: pullRequest(repo), needs: { changeset: { result: "success", outputs: { verify: "false", pack: "false" } }, pack: { result: "skipped" } } };
+      const c = { github: pullRequest(repo), ...context("false") };
       expect(ci.jobs.changeset!.if).toBeUndefined();
-      expect(evaluate(ci.jobs.verify!.if!, context)).toBe(false); expect(evaluate(ci.jobs.pack!.if!, context)).toBe(false);
+      for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
     }
   });
 });
@@ -295,7 +289,7 @@ describe("the workflow lint refuses unsafe or duplicate execution shapes", () =>
     const bad = original.replace("  changeset:\n", "  changeset:\n    if: github.event.pull_request.head.repo.full_name == github.repository\n");
     expect(workflowProblems(bad, "ci.yml")).toContain("ci.yml: changeset: provider routing must not exclude contributions");
   });
-  test("unexpected triggers fail", () => { expect(workflowProblems(original.replace("on:\n", "on:\n  workflow_dispatch:\n"), "ci.yml")).toContain("ci.yml: unexpected contribution triggers"); });
+  test("unexpected triggers fail", () => { expect(workflowProblems(original.replace("on:\n", "on:\n  release:\n"), "ci.yml")).toContain("ci.yml: unexpected contribution triggers"); });
   test("secrets and privileged triggers fail", () => {
     expect(workflowProblems(original.replace("bun run lint", "echo ${{ secrets.NPM_TOKEN }}"), "ci.yml")).toContain("ci.yml: CI must not expose secrets or privileged triggers");
     expect(workflowProblems(original.replace("pull_request:", "pull_request_target:"), "ci.yml")).toContain("ci.yml: CI must not expose secrets or privileged triggers");
@@ -323,4 +317,18 @@ describe("the workflow lint refuses unsafe or duplicate execution shapes", () =>
       expect(checkCIWorkflows(dir)).toContain("Active Depot CI workflow definitions must be removed");
     } finally { rmSync(dir,{recursive:true,force:true}); }
   });
+});
+
+
+test("independent verification starts after metadata without waiting for packaging", () => {
+  expect(ci.jobs.verify!.needs).toBe("changeset");
+});
+
+
+test("workflow guard rejects an omitted complete proof command and aggregate prerequisite", () => {
+  const original = read("ci.yml");
+  expect(workflowProblems(original.replace("bun scripts/ci-proof.ts runtime", "echo omitted"), "ci.yml")).toContain("ci.yml: runtime: complete proof command is missing");
+  const workflow = Bun.YAML.parse(original) as Workflow;
+  workflow.jobs.proof!.needs = ["changeset", "verify", "pack"];
+  expect(workflowProblems(Bun.YAML.stringify(workflow), "ci.yml")).toContain("ci.yml: proof: aggregate must observe every selected category");
 });

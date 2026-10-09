@@ -351,14 +351,16 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
-Before opening a PR or marking a draft ready, run `bun run check:pr --base
-origin/main` against the relevant base and record tested head/base, commands and
-results in Proof. `--plan`, skipped runtimes and green fast CI are not substitutes
-for required full local proof. Revalidate affected checks after implementation,
-harness, dependency or relevant base changes. Inspect missing main commits first;
-refresh only if they affect this work or its checks. Record unrelated advancement
-without rebasing or restarting suites; retain actual tested head/base and satisfy
-existing branch rules. Keep drafts on cheap gates and batch pushes.
+Before opening or marking ready, run `bun run check:pr --base origin/main`
+for focused local preflight and record actual behavioral/mutation receipts.
+Complete repeatable proof is authoritative in affected hosted jobs under #1326;
+`--full`/`--all` retain local fallback/release commands. Missing tools, failed or
+cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch
+pushes. Independent selected jobs run after metadata, with per-PR cancellation.
+Assess new base commits before refreshing: revalidate affected inputs, preserve
+the actual tested head/base and do not restart long suites for unrelated merges.
+Inspect selected job checkouts and the proof aggregate before matching-head
+merge; verify the actual squash and automatic main push afterward.
 
 The PR normally closes the issue; do not close it by hand before merging. If
 required human verification remains, follow "Handing work to a human" instead:

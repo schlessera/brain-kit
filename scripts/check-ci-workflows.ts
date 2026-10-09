@@ -9,7 +9,7 @@ type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
-  jobs?: Record<string, { "runs-on"?: unknown; if?: string; permissions?: unknown; steps?: Step[] }>;
+  jobs?: Record<string, { "runs-on"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
 };
 
 export function workflowProblems(text: string, file: string): string[] {
@@ -26,9 +26,9 @@ export function workflowProblems(text: string, file: string): string[] {
   const fail = (message: string) => problems.push(`${file}: ${message}`);
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("CI must not expose secrets or privileged triggers");
   if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read" })) fail("workflow permissions must be contents: read only");
-  const expectedTriggers = file === "ci.yml" ? ["pull_request", "push"] : ["pull_request"];
+  const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
-  const expectedJobs = file === "ci.yml" ? ["changeset", "pack", "verify"] : ["contract"];
+  const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "layout", "pack", "proof", "runtime", "unit", "verify"] : ["contract"];
   if (JSON.stringify(Object.keys(workflow.jobs ?? {}).sort()) !== JSON.stringify(expectedJobs)) fail("missing or unexpected CI jobs");
   for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
     if (job["runs-on"] !== "ubuntu-24.04") fail(`${name}: unmapped GitHub-hosted runner`);
@@ -43,6 +43,21 @@ export function workflowProblems(text: string, file: string): string[] {
         if (!RUN_EXPRESSIONS.has(match[1]!)) fail(`${name}: untrusted expression in run script: ${match[1]}`);
       }
     }
+  }
+  if (file === "ci.yml") {
+    const names = ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"];
+    for (const name of names) {
+      const job = workflow.jobs?.[name];
+      if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
+      if (job?.if !== `needs.changeset.outputs.${name} == 'true'`) fail(`${name}: proof must use its explicit planner selection`);
+    }
+    const proof = workflow.jobs?.proof;
+    if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
+    if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
+    for (const category of ["unit", "runtime", "browser", "layout", "captures"]) {
+      if (!workflow.jobs?.[category]?.steps?.some(step => step.run?.startsWith(`bun scripts/ci-proof.ts ${category}`))) fail(`${category}: complete proof command is missing`);
+    }
+    if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
   }
   return problems;
 }

@@ -5,16 +5,17 @@ installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
 monitoring.
 
-## Required local evidence
+## Required evidence
 
-Before PR creation/readiness, execute `bun run check:pr --base origin/main`
-against the relevant base and record its required commands and results.
-Use `--plan` only to inspect selection. Complete runtime/browser/visual/endurance
-proof remains local; automatic CI covers affected fast guarantees. Confirm local
-proof matches the inspected head/base and rerun affected categories after relevant changes.
-The planner's intentional skips are valid; a missing runtime, unavailable required
-tool or failed local check is not. Do not turn a green fast run into a claim that
-excluded suites ran. Batch intermediate pushes and keep incomplete work in draft.
+Before opening/marking ready, execute `bun run check:pr --base origin/main`
+for focused preflight. Record actual behavioral failing-first/restored mutation
+receipts and visual judgment. Complete repeatable proof runs in selected hosted
+jobs under #1326, including full affected discovery, pinned browser/layout/
+endurance/editorial and native runtime categories. Optional `--full` and `--all`
+retain complete local commands. Every selected hosted job must pass; missing
+runtimes, failures/cancellations and unexpected skips leave proof unfinished.
+Keep drafts cheap and batch pushes. Assess relevant base changes before redoing
+heavy work; an unrelated merge alone does not justify restarting every suite.
 
 ## Read the actual head
 
@@ -130,7 +131,7 @@ therefore did not prove the final combined tree. The [outcome](https://github.co
 records the separate post-merge reconstruction and scoped checks without
 calling them the older full CI run.
 
-Local full verification uses `bun run check:pr --base origin/main`; its
+Optional local full verification uses `bun run check:pr --base origin/main --full`; its
 packaging command reads the authoritative GitHub workflow. Local runs and
 manual workflow dispatch do not establish automatic PR or main-push behavior.
 For a cancelled GitHub run, inspect its original event, SHA and attempts before
