@@ -265,3 +265,32 @@ describe("contrast", () => {
     expect(contrast(paper("color-ink-mute"), P_CANVAS)).toBeGreaterThanOrEqual(5);
   });
 });
+
+// D55 / #1379: measure the new controls' actual token expressions.
+for (const [theme, tokens] of [["dark", TOKENS], ["light", LIGHT_TOKENS]] as const) {
+  function resolveColor(value: string): { rgb: Rgb; alpha: number } {
+    const reference = /^var\(--bk-([\w-]+)\)$/.exec(value);
+    if (reference) return resolveColor(tokens[reference[1]! as keyof typeof TOKENS]);
+    const mix = /^color-mix\(in srgb, var\(--bk-([\w-]+)\) ([\d.]+)%, transparent\)$/.exec(value);
+    if (mix) {
+      const base = resolveColor(tokens[mix[1]! as keyof typeof TOKENS]);
+      return { rgb: base.rgb, alpha: base.alpha * Number(mix[2]) / 100 };
+    }
+    return parse(value);
+  }
+  test(`${theme} — red-ink clears danger hover over surface`, () => {
+    const ground = over(resolveColor(tokens["button-hover-bg-danger"]), parse(tokens["color-surface"]).rgb);
+    expect(contrast(parse(tokens["red-ink"]).rgb, ground)).toBeGreaterThanOrEqual(4.5);
+  });
+  test(`${theme} — the overlay ground is the raised colour at 80%`, () => {
+    const overlay = resolveColor(tokens["icon-button-overlay-bg"]);
+    expect(overlay.rgb).toEqual(parse(tokens["color-raised"]).rgb);
+    expect(overlay.alpha).toBeCloseTo(0.8, 5);
+  });
+  for (const backdrop of ["#ffffff", "#000000"]) {
+    test(`${theme} — overlay ink-dim clears raised/80 over ${backdrop}`, () => {
+      const ground = over(resolveColor(tokens["icon-button-overlay-bg"]), parse(backdrop).rgb);
+      expect(contrast(parse(tokens["color-ink-dim"]).rgb, ground)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+}

@@ -15,6 +15,8 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, inject, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
+import { IconButton } from "../../src/primitives/IconButton.js";
+import { TextButton } from "../../src/primitives/TextButton.js";
 import { Button } from "../../src/primitives/Button.js";
 import { color } from "../../src/tokens.js";
 import type { ButtonTone } from "../../src/types.js";
@@ -126,6 +128,35 @@ for (const theme of ["light", "dark"] as const) {
         expect(measure(button).ratio, `${theme} ${tone} hover text over ${ground}`).toBeGreaterThanOrEqual(4.5);
       });
     }
+  }
+}
+
+// D55: read painted colours after native pointer movement, independently of token wiring.
+for (const theme of ["light", "dark"] as const) {
+  for (const kind of ["icon", "text"] as const) {
+    test(`${theme} native ${kind} hover contrast`, async () => {
+      premise();
+      document.documentElement.dataset.theme = theme;
+      await page.viewport(320, 400);
+      host = document.createElement("div");
+      host.style.cssText = "padding:24px;width:320px;background:var(--bk-color-surface)";
+      document.body.append(host);
+      root = createRoot(host);
+      // All tones are exercised on surface; token contrast tests cover arbitrary media extremes.
+      const cases = kind === "icon" ? ["mute", "danger", "overlay"] as const : ["link", "meta", "inherit"] as const;
+      for (const tone of cases) {
+        host.style.color = "var(--bk-color-ink)";
+        flushSync(() => root!.render(kind === "icon"
+          ? createElement(IconButton, { name: "Refresh manifest", icon: "retry", tone: tone as "mute" | "danger" | "overlay", onClick: vi.fn() })
+          : createElement(TextButton, { label: "Open manifest", tone: tone as "link" | "meta" | "inherit", onClick: vi.fn() })));
+        const button = host.firstElementChild as HTMLButtonElement;
+        await userEvent.hover(host, { position: { x: 1, y: 1 } });
+        expect(measure(button).ratio, `${theme} ${kind} ${tone} rest`).toBeGreaterThanOrEqual(4.5);
+        await userEvent.hover(button);
+        expect(button.matches(":hover")).toBe(true);
+        expect(measure(button).ratio, `${theme} ${kind} ${tone} hover`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
   }
 }
 

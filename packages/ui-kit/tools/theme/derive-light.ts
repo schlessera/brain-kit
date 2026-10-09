@@ -297,6 +297,9 @@ function rgba([r, g, b]: Rgb, a: number): string {
 
 function derive(name: string, dark: string): string {
   if (name in SPECIFIED) return SPECIFIED[name]!;
+  // The icon overlay is the raised ground at 80% in each theme (D55): a
+  // literal, because the design-system token grammar has no color-mix.
+  if (name === "icon-button-overlay-bg") return "rgba(255,254,250,0.8)";
   // A reference stays a reference: the thing it points at is themed.
   if (dark.startsWith("var(")) return dark;
 

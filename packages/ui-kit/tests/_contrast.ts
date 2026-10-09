@@ -11,6 +11,9 @@ export function parse(value: string): { rgb: Rgb; alpha: number } {
     const hex = value.length === 4 ? [...value.slice(1)].map((c) => c + c).join("") : value.slice(1);
     return { rgb: [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb, alpha: 1 };
   }
+  // Chromium serializes an sRGB color-mix as normalized channels, retaining alpha.
+  const srgb = /^color\(srgb ([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+)(?: \/ ([\d.e+-]+))?\)$/.exec(value);
+  if (srgb) return { rgb: srgb.slice(1, 4).map((channel) => Number(channel) * 255) as Rgb, alpha: Number(srgb[4] ?? 1) };
   const parts = value.match(/rgba?\(([^)]+)\)/)?.[1].split(",").map(Number);
   if (!parts) throw new Error(`not a colour: ${value}`);
   return { rgb: [parts[0]!, parts[1]!, parts[2]!], alpha: parts[3] ?? 1 };
