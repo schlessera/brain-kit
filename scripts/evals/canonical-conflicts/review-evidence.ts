@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { sha } from "./freeze";
 import { settingsRefusal, subscriptionRefusal, CLEARED_API_CREDENTIALS } from "../../../packages/core/src/providers/agents/claude-subscription";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
-import {type ReviewBinding} from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {type ReviewBinding} from "../native-pricing";
 
 import {admittedNativeRate,literalNativeUsage,reparseNativeBudget} from "../native-paid-policy";
 import {type NativePaidEvidence} from "../native-paid-entry";
-import {validGrantEvidence} from "../../../packages/ui-server/evals/triage/experiment/grant";
+import {validGrantEvidence} from "../native-grant";
 const MODEL = "claude-sonnet-5-5";
 export interface RuntimeIdentity { sdk: string; nativeSha: string; nativeMode: number; bunSha: string; bunVersion: string; bunMode: number }
 export interface ExecutionEvidence {
@@ -94,7 +94,7 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
     const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
     let physicalText = "";
     for (const call of calls) {
-      if (call.authRoute !== "subscription-oauth-no-api-key" || call.upstream !== "https://api.anthropic.com/v1/messages" || call.requestMethod !== "POST" || call.requestPath !== "/v1/messages" || call.status !== 200 || call.requestedModel !== MODEL || call.servedModel !== MODEL || call.outcome !== "completed" || call.failure ||
+      if (call.authRoute !== "subscription-oauth-no-api-key" || call.upstream !== `https://api.anthropic.com${call.requestPath}` || call.requestMethod !== "POST" || !["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath) || call.status !== 200 || call.requestedModel !== MODEL || call.servedModel !== MODEL || call.outcome !== "completed" || call.failure ||
         !call.finished || !call.responseClosed || !call.responseEof || call.responseCancelled || call.actualInvoiceUsd !== null) return false;
       const requestBytes = Buffer.from(call.rawRequestBase64, "base64"), responseBytes = Buffer.from(call.rawResponseBase64, "base64");
       if (sha(requestBytes) !== call.requestSha || requestBytes.length !== call.stateBytes || sha(responseBytes) !== call.rawResponseSha || responseBytes.length !== call.responseBytes) return false;

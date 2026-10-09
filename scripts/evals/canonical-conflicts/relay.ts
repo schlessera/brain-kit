@@ -2,11 +2,11 @@
 import { createHash } from "node:crypto";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 import {observedNativeModifiers,type NativeBudget} from "../native-paid-policy";
-import {rejectResponseModifiers} from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {rejectResponseModifiers} from "../native-pricing";
 export const MODEL = "claude-sonnet-5-5";
 export interface NativeCall {
   upstreamReaderClosed:boolean;upstreamDispatched:boolean;requestPricingHeaders:Record<string,string>;responseHeaders:Record<string,string>;
-  authRoute: "subscription-oauth-no-api-key"|"refused"; upstream: string; requestMethod: "POST"; requestPath: "/v1/messages";
+  authRoute: "subscription-oauth-no-api-key"|"refused"; upstream: string; requestMethod: string; requestPath: string;
   requestSha: string; stateBytes: number; requestedModel: string; servedModel: string | null;
   status: number | null; usage: Record<string, any> | null; finished: boolean;
   outcome: string; durationMs: number; apiEquivalent: ReturnType<typeof priceSonnet55Usage> | null;
@@ -27,15 +27,15 @@ export function startRelay(options: {
   if (upstream.origin !== "https://api.anthropic.com" && !["127.0.0.1", "localhost"].includes(upstream.hostname)) throw Error("Unapproved upstream");
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/v1/messages") return new Response("Measurement permits only the native Messages endpoint", { status: 403 });
     const requestBytes = new Uint8Array(await request.arrayBuffer()),started=performance.now();
     const authenticated=request.headers.get("authorization")===`Bearer ${options.oauthToken}`&&!request.headers.get("x-api-key");
     let json:any=null,parseFailure:unknown=null;try{json=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(requestBytes));}catch(error){parseFailure=error;}
-    const call:NativeCall={upstreamReaderClosed:false,upstreamDispatched:false,requestPricingHeaders:Object.fromEntries([...request.headers].filter(([name])=>name==="anthropic-beta")),responseHeaders:{},authRoute:authenticated?"subscription-oauth-no-api-key":"refused",upstream:`${upstream.origin}${url.pathname}`,requestMethod:"POST",requestPath:"/v1/messages",
+    const call:NativeCall={upstreamReaderClosed:false,upstreamDispatched:false,requestPricingHeaders:Object.fromEntries([...request.headers].filter(([name])=>name==="anthropic-beta")),responseHeaders:{},authRoute:authenticated?"subscription-oauth-no-api-key":"refused",upstream:`${upstream.origin}${url.pathname}${url.search}`,requestMethod:request.method,requestPath:`${url.pathname}${url.search}`,
       requestSha:createHash("sha256").update(requestBytes).digest("hex"),stateBytes:requestBytes.byteLength,requestedModel:json?.model??"unknown",servedModel:null,status:null,usage:null,finished:false,outcome:"received",durationMs:0,apiEquivalent:null,rawUsageEvents:[],rawRequestBase64:Buffer.from(requestBytes).toString("base64"),rawResponseBase64:"",rawResponseSha:createHash("sha256").update(new Uint8Array()).digest("hex"),responseBytes:0,responseEof:false,responseCancelled:false,responseClosed:false,actualInvoiceUsd:null};
     calls.push(call); options.save(calls);
     const reject=(status:number,outcome:string,error?:unknown)=>{stopped=true;call.status=status;call.outcome=outcome;call.failure=error==null?outcome:String(error);call.finished=true;call.responseClosed=true;call.durationMs=performance.now()-started;options.save(calls);options.onRefusal?.(call.failure);return new Response(outcome,{status});};
     if(stopped||calls.length>24||calls.slice(0,-1).some(c=>c.finished&&c.outcome!=="completed"))return reject(409,"admission_stopped");
+    if(request.method!=="POST"||!["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath))return reject(403,"unsupported_native_endpoint");
     if(!authenticated)return reject(403,"subscription_header_refused");
     if(parseFailure)return reject(400,"invalid_native_request",parseFailure);
     if(json.model!==MODEL)return reject(403,"unexpected_requested_model");

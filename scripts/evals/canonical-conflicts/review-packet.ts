@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { freeze, sha } from "./freeze";
-import {type ReviewBinding} from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {type ReviewBinding} from "../native-pricing";
 import { validateReviewEvidence, type EvidenceReference, type RuntimeIdentity } from "./review-evidence";
 
 export function packets(proof: { freezeSha: string; testsExitCode: number; typecheckExitCode: number; lintExitCode: number; nativeExitCodes: Record<string, number> }) {
@@ -11,7 +11,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     ["read", "finding", "write-denial", "review"].some(mode => proof.nativeExitCodes[mode] !== 0)) throw Error("Exact current keyless preparation proof absent");
   const root = new URL("../../../", import.meta.url).pathname;
   const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/canonical-conflict-investigation.md",
-    "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","packages/ui-server/evals/triage/experiment/grant.ts","packages/ui-server/evals/triage/experiment/paid-policy.ts","packages/ui-server/evals/triage/experiment/adapter.ts",
+    "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts",
     "packages/core/skills/content-hygiene/SKILL.md", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/document-parts.ts",
     "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts",
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",

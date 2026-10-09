@@ -3,7 +3,7 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {freeze,sha} from "./freeze";
 import {openNativePaidEntry,protectedNativeJson,type NativePaidEvidence} from "../native-paid-entry";
-import {type ReviewBinding} from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {type ReviewBinding} from "../native-pricing";
 import {type RuntimeIdentity} from "./review-evidence";
 import {type NativePaidPolicy} from "../native-paid-policy";
 export function openCanonicalPaid(options:{root:string;output:string;offline:boolean;review:boolean;prompt:string;runtime:RuntimeIdentity;frozen:ReturnType<typeof freeze>;

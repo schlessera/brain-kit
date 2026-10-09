@@ -2,8 +2,8 @@
 import {lstatSync,readFileSync,writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {NativeBudget,PAID_AUTHORIZATION,digest,validateNativePaidPolicy,type NativePaidPolicy,type NativeIssue,type NativeReservation} from "./native-paid-policy";
-import {consumeGrant,type GrantClaim} from "../../packages/ui-server/evals/triage/experiment/grant";
-import {type ReviewBinding} from "../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {consumeGrant,type GrantClaim} from "./native-grant";
+import {type ReviewBinding} from "./native-pricing";
 // Fixture preload replaces Date construction/now, but retains the intrinsic
 // constructor on its prototype. Budget/authorization clocks stay real.
 const WallDate=Date.prototype.constructor as DateConstructor;
