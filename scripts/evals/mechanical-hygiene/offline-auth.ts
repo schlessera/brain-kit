@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { CLEARED_API_CREDENTIALS } from "../../../packages/ui-backend-claude/src/subscription";
 import { captureNative, drainOwned } from "./native-capture";
 import { join } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "claude-agent-sdk-research-292";
 import { protectedPrompt, runtime } from "./native-driver";
 import { actualNativeRuntime } from "./native-runtime";
 import { response } from "./offline-native";

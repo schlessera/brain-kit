@@ -7,6 +7,7 @@ import { document, TODAY } from "./fixture";
 import { workload } from "./workload";
 import { assertWriteDayUTC } from "./write-day";
 export const packetLimitBytes=250000;
+const paidSource=["scripts/evals/native-paid-policy.ts","scripts/evals/mechanical-hygiene/paid.ts","scripts/evals/mechanical-hygiene/frozen-file.ts","tests/mechanical-hygiene-offline-source.ts","packages/ui-server/evals/triage/experiment/grant.ts","packages/ui-server/evals/triage/experiment/paid-policy.ts","packages/ui-server/evals/triage/experiment/adapter.ts"];
 const direct=["scripts/evals/mechanical-hygiene/write-day.ts","scripts/evals/mechanical-hygiene/native-cycle.ts","scripts/evals/mechanical-hygiene/native-runtime.ts","scripts/evals/mechanical-hygiene/native-input.ts","scripts/evals/mechanical-hygiene/admission.ts","scripts/evals/mechanical-hygiene/review-run.ts","scripts/evals/mechanical-hygiene/review-approval.ts","scripts/evals/mechanical-hygiene/fixture.ts","scripts/evals/mechanical-hygiene/workload.ts","scripts/evals/mechanical-hygiene/prototype.ts","scripts/evals/mechanical-hygiene/protocol.ts","scripts/evals/mechanical-hygiene/observer.ts","scripts/evals/mechanical-hygiene/effects.ts","scripts/evals/mechanical-hygiene/effect-candidates.ts","scripts/evals/mechanical-hygiene/collector.ts","scripts/evals/mechanical-hygiene/native-driver.ts","scripts/evals/mechanical-hygiene/native-relay.ts","scripts/evals/mechanical-hygiene/native-tools.ts","scripts/evals/mechanical-hygiene/native-surface.ts","scripts/evals/mechanical-hygiene/clock.ts","scripts/evals/mechanical-hygiene/native-capture.ts","scripts/evals/mechanical-hygiene/native-effects.ts","scripts/evals/mechanical-hygiene/native-log-expectations.ts","scripts/evals/mechanical-hygiene/freeze.ts","scripts/evals/mechanical-hygiene/review-packets.ts","packages/core/src/lib/hygiene.ts","packages/core/src/cli/commands/hygiene.ts","packages/core/src/cli/brain.ts","packages/core/src/lib/auditor.ts","packages/core/src/lib/index-registry.ts","packages/core/src/lib/config.ts","packages/core/skills/content-hygiene/SKILL.md","packages/ui-backend-claude/src/subscription.ts","scripts/measure-sonnet55-cost.ts"];
 export interface ReviewChunk { kind:"source"|"case"|"log"; key:string; sha:string; part:number; parts:number; text:string; context?:unknown }
 export function chunks(key:string,text:string,kind:ReviewChunk["kind"],context?:unknown):ReviewChunk[]{
@@ -53,7 +54,7 @@ export function buildReviewPackets(effects:any[],verificationRaw:string){
   // Coalesce complete small source chunks without changing a single byte. Big
   // files remain explicitly indexed parts, never an implicit truncation.
   let group:ReviewChunk[]=[];
-  for(const path of direct)for(const entry of chunks(path,readFileSync(join(source,path),"utf8"),"source")){
+  for(const path of [...direct,...paidSource])for(const entry of chunks(path,readFileSync(join(source,path),"utf8"),"source")){
     if(group.length&&Buffer.byteLength(JSON.stringify({common,entries:[...group,entry]}))>packetLimitBytes){add(group);group=[];}
     group.push(entry);
   }

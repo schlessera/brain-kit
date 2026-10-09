@@ -1,10 +1,14 @@
 /** Admission state machine for the private actual-skill driver; imports dispatch nothing. */
 import { observeTree, type TreeEvidence } from "./observer";
 import { assessEffects, type EffectApproval } from "./effects";
+import { literalNativeUsage,reparseNativeBudget } from "../native-paid-policy";
+import { validGrantEvidence } from "../../../packages/ui-server/evals/triage/experiment/grant";
+import { type HygienePaidEvidence } from "./paid";
 
 export const phases = ["dry-run", "apply", "repeat"] as const;
 export type Phase = typeof phases[number];
 export interface PhysicalCall {
+  literal?:unknown;
   requestedModel: string;
   servedModel: string;
   route: "native-claude-subscription";
@@ -18,6 +22,7 @@ export interface PhysicalCall {
   rawUsage: unknown;
 }
 export interface NativeEvidence {
+  paid?:HygienePaidEvidence;
   model: string;
   exitCode: number;
   naturalStdoutEof: boolean;
@@ -29,7 +34,7 @@ export interface NativeEvidence {
 const known = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 export function assertNativeEvidence(receipt: NativeEvidence) {
   if (receipt.model !== "claude-sonnet-5-5" || receipt.exitCode !== 0 ||
-    !receipt.naturalStdoutEof || !receipt.ownedChildDrained || receipt.overage !== "reported inactive" ||
+    !receipt.naturalStdoutEof || !receipt.ownedChildDrained || (receipt.overage !== "reported inactive"&&!(receipt.overage==="active"&&receipt.paid)) ||
     receipt.failure || !receipt.calls.length || receipt.calls.length > 24) throw Error("Native model/route/usage/closure evidence is incomplete");
   for (const call of receipt.calls) {
     if (call.requestedModel !== "claude-sonnet-5-5" || call.servedModel !== "claude-sonnet-5-5" ||
@@ -38,6 +43,11 @@ export function assertNativeEvidence(receipt: NativeEvidence) {
       !known(call.inputTokens) || !known(call.outputTokens) ||
       (call.cacheReadTokens !== null && !known(call.cacheReadTokens)) ||
       (call.cacheWriteTokens !== null && !known(call.cacheWriteTokens))) throw Error("Physical native evidence is incomplete");
+  }
+  if(receipt.paid){
+    const paid=receipt.paid,calls=receipt.calls.map(call=>{const literal:any=call.literal;return{requestBytesBase64:literal?.requestBytesBase64,usage:literalNativeUsage(literal)};});
+    if(!reparseNativeBudget(842,paid.policy.control,paid.policy,paid.binding,paid.entries,calls)||
+      !validGrantEvidence(paid.policy,paid.binding,Buffer.from(JSON.stringify(paid.grant.marker,null,2)),paid.grant.sha,paid.startedAtUtc,paid.entries[0]?.at??NaN))throw Error("Exact root paid physical/grant evidence differs");
   }
 }
 

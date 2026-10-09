@@ -189,7 +189,7 @@ for independent review. These source-derived log candidates are explicitly
 provisional, rather than independent goldens or automatic write approval.
 
 The comparison admission state machine retains failed native receipts and
-refuses the next phase after unknown usage, wrong model or route, active or
+refuses the next phase after unknown usage, wrong model or route, unadmitted or
 unobserved overage, incomplete closure or an unexpected filesystem effect.
 An undrained writer has no safe final snapshot; its receipt is preserved with
 that snapshot absent. Modeled driver controls establish those stop boundaries only. Separate actual
@@ -214,9 +214,29 @@ SDK 0.3.292 / CLI 2.1.292 with a private fixture hook policy and an isolated hom
 It does not measure the unmodified core runner's implicit auto permissions or
 production classifier overhead. All observed physical and auxiliary requests
 are retained and must serve the pinned Sonnet 5.5 model. Unknown route, model,
-usage, overage or completion evidence stops later admissions. Offline controls
-also permit the exact verified SDK 0.3.293 / CLI 2.1.293 pair to establish current
-CI compatibility; those receipts do not supply proof for the 292 live arm.
+usage, overage or completion evidence stops later admissions. The private
+development alias resolves and executes the actual 292 pair independently of
+the public backend's 293 dependency. Historical 293 offline compatibility
+receipts do not supply proof for the 292 live arm.
+
+Active extra usage requires a matching root-issued source, runtime, proof and
+prompt policy for #842, an atomically consumed one-use grant and the existing
+serialized root window. The original $15 issue and $150 aggregate actual-charge
+allocations and unknown reservations remain authoritative. No new pool is
+created by this instrument. Before releasing USER input, the allocation must
+hold the full supported million-token context and maximum output; before each
+physical request, the relay reserves that context and its exact output cap.
+Wire bytes constrain transport only. Missing usage or incomplete/failed streams
+retain the full unknown hold and stop forwarding. Complete raw usage gives a
+conservative price upper bound, never an invoice or account-wide spend reading.
+
+The isolated native settings disable attribution so the harness cannot append
+an unreviewed USER reminder. Exact frozen USER checks, the original fixture
+tool hooks, real native clocks, deadlines and model/runtime pins remain in
+force. Preserved upstream and native bytes independently reconstruct usage,
+init, quota events and terminal output. Scripted paid controls cannot become
+semantic approval by changing their receipt labels; the original consumed grant
+binds their offline provenance. Every source change invalidates old packets.
 
 Only brain CLI child tools preload the exact July 12 noon UTC fixture clock.
 The native SDK, authentication, subscription entitlement, provider, timers and

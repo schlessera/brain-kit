@@ -9,10 +9,12 @@ import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 import { type NativeEvidence, type Phase } from "./collector";
 import { captureNative, drainOwned } from "./native-capture";
 import { MODEL, startRelay, physicalPriceDiagnostics, type NativeCall } from "./native-relay";
-import { assertReviewAdmission, assertScoredAdmission, type ReviewArtifacts } from "./admission";
+import { assertReviewAdmission, assertScoredAdmission, verifyHygieneAuthority,type ReviewArtifacts } from "./admission";
 import type { TreeEvidence } from "./observer";
 import { toolVerdict, type ToolObservation } from "./native-tools";
 import { actualWriteDayUTC, assertWriteDayUTC, assertNativeWriteWindowUTC, previousWriteDayUTC } from "./write-day";
+import { openHygienePaid,type HygienePaidEvidence } from "./paid";
+import { admittedNativeRate,digest,type NativePaidPolicy } from "../native-paid-policy";
 export const runtime = { sdk: "0.3.292", cli: "2.1.292", model: MODEL };
 export interface NativeOptions {
   root: string; source: string; destination: string; phase: Phase; token: string;
@@ -28,9 +30,12 @@ export interface NativeOptions {
   caseId?: string;
   initialDocuments?: number;
   inputEvidence?:TreeEvidence;
+  offlinePaidPolicy?:NativePaidPolicy;
   reviewBinding?: { freezeSha:string; proofSha:string; planSha:string; writeDayUTC:string };
 }
 export interface ActualNativeReceipt {
+  rawNative?:{stdoutBase64:string;stdoutSha:string;stderrBase64:string;stderrSha:string};
+  paid?:HygienePaidEvidence;
   writeDayUTC: string | null; physicalWriteDayUTC: string; writeDayRefused: boolean;
   runtimePair: ReturnType<typeof actualNativeRuntime>;
   executionKind: "offline-scripted-control" | "live-subscription";
@@ -42,7 +47,7 @@ export interface ActualNativeReceipt {
   forcedKill: boolean; stdoutComplete: boolean; stderrComplete: boolean;
 }
 export async function* protectedPrompt(handle: Promise<any>, payload: string,
-  receipt: ActualNativeReceipt, save: () => void, controller: AbortController) {
+  receipt: ActualNativeReceipt, save: () => void, controller: AbortController,beforeRelease?:()=>void) {
   const cli = await handle, init = await cli.initializationResult();
   const verdict = subscriptionVerdict(init.account), settings = await cli.getSettings();
   const refusal = settingsRefusal(settings);
@@ -50,6 +55,7 @@ export async function* protectedPrompt(handle: Promise<any>, payload: string,
     apiKeySource: init.account?.apiKeySource ?? "none", apiProvider: init.account?.apiProvider };
   receipt.settingsChecked = !refusal; save();
   if (!verdict.ok || refusal) { controller.abort(); throw Error("Protected subscription/settings handshake refused"); }
+  beforeRelease?.();
   receipt.promptReleased = true; save();
   yield { type: "user" as const, session_id: "", parent_tool_use_id: null, message: { role: "user" as const, content: payload } };
 }
@@ -100,6 +106,10 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     rateLimits: [], result: null, apiEquivalent: null, physicalCalls: [], diagnostics:physicalPriceDiagnostics([]), tools: [], durationMs: 0,
     childClose:null, forcedKill: false, stdoutComplete: false, stderrComplete: false };
   const save = () => writeFileSync(join(options.destination, "receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });
+  const payload=options.prompt??`Run the installed /content-hygiene skill${options.phase === "dry-run" ? " --dry-run" : ""}. The brain CLI tool clock and fictional document reference day are 2026-07-12. Use the shipped phases, stop on command failure and report. Read the actual source before editing. Native process clocks stay real.`;
+  const paid=openHygienePaid({offline:options.offline,reviewing,prompt:payload,destination:options.destination,
+    proofSha:options.reviewBinding?.proofSha??(admissionEvidence as any)?.proofSha,planSha:options.reviewBinding?.planSha??(admissionEvidence as any)?.planSha,
+    policy:options.offlinePaidPolicy,save:e=>{receipt.paid=e;receipt.native.paid=e;save();}});
   const controller = new AbortController(), started = performance.now();
   if(options.offline&&!options.physicalFetch)throw Error("Scripted offline physical transport required");
   let armActiveDeadline:(()=>void)|undefined;
@@ -109,6 +119,8 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     return fetch(url,{...init,redirect:"error"});
   };
   const relay = startRelay({ oauthToken: options.token, fetch: physicalFetch,
+    budget:paid.budget,verifyPaid:()=>{paid.verify();if(!options.offline)verifyHygieneAuthority((admissionEvidence as any)?.admission??admissionEvidence);},
+    onRefusal:reason=>{receipt.native.failure??=`Physical native admission failed: ${reason}`;save();controller.abort();},
     save: calls => { receipt.physicalCalls = calls; receipt.diagnostics=physicalPriceDiagnostics(calls); save(); } });
   let child: ChildProcess | undefined, childClosed: Promise<void> | undefined, cli: any;
   let resolveHandle!: (value: any) => void;
@@ -125,9 +137,8 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     ANTHROPIC_DEFAULT_OPUS_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL: MODEL,
     CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1", TZ: process.env.TZ ?? "UTC" };
   try {
-    cli = query({ prompt: protectedPrompt(handle, options.prompt ??
-      `Run the installed /content-hygiene skill${options.phase === "dry-run" ? " --dry-run" : ""}. The brain CLI tool clock and fictional document reference day are 2026-07-12. Use the shipped phases, stop on command failure and report. Read the actual source before editing. Native process clocks stay real.`, receipt, save, controller), options: {
-      cwd: root, settingSources: [], settings: { ...NEUTRALISED_SETTINGS, autoMemoryEnabled: false },
+    cli = query({ prompt: protectedPrompt(handle,payload, receipt, save, controller,()=>{paid.beforeRelease();if(!options.offline)verifyHygieneAuthority((admissionEvidence as any)?.admission??admissionEvidence);}), options: {
+      cwd: root, settingSources: [], settings: { ...NEUTRALISED_SETTINGS, autoMemoryEnabled: false, attribution: false },
       persistSession: false, model: MODEL, env, abortController:controller, maxTurns: reviewing?1:24, effort: "low",
       ...(reviewing?{maxBudgetUsd:3}:{}),
       permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true,
@@ -161,7 +172,8 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
           }
           if (frame.type === "rate_limit_event") {
             const info = frame.rate_limit_info ?? {}; receipt.rateLimits.push(info);
-            if (info.isUsingOverage === true || info.overageInUse === true) { receipt.native.overage = "active"; receipt.native.failure = "Subscription overage reported"; controller.abort(); }
+            if (info.isUsingOverage === true || info.overageInUse === true) receipt.native.overage = "active";
+            if(!admittedNativeRate(info,paid.evidence.policy.allowOverage)){receipt.native.failure="Native quota/paid admission refused";controller.abort();}
           }
           if (frame.type === "result") { receipt.result = frame; if (frame.is_error || frame.subtype !== "success") { receipt.native.failure = "Native result failed"; controller.abort(); } }
           save();
@@ -183,7 +195,7 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
       receipt.native.ownedChildDrained = true; if (drain.forcedKill) receipt.native.failure ??= "Owned child required forced kill"; }
     receipt.native.naturalStdoutEof = receipt.stdoutComplete && !receipt.forcedKill;
     receipt.native.overage = receipt.rateLimits.some(r => r.isUsingOverage === true || r.overageInUse === true) ? "active" : receipt.rateLimits.length && receipt.rateLimits.every(r => r.isUsingOverage === false || r.overageInUse === false) ? "reported inactive" : "unknown";
-    receipt.native.calls = relay.calls.map(call => ({ requestedModel: call.requestedModel,
+    receipt.native.calls = relay.calls.map(call => ({ literal:call,requestedModel: call.requestedModel,
       servedModel: call.servedModel ?? "unknown", route: "native-claude-subscription", subscriptionAuthenticated: receipt.promptReleased,
       status: call.status ?? -1, inputTokens: call.usage?.input_tokens ?? NaN,
       outputTokens: call.usage?.output_tokens ?? NaN, cacheReadTokens: call.usage?.cache_read_input_tokens ?? null,
@@ -195,7 +207,9 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
       receipt.apiEquivalent = equivalent;
     } catch (error) { receipt.apiEquivalent = null; receipt.native.failure ??= String(error); }
     if (!receipt.init || !receipt.result || !relay.complete() || !receipt.stderrComplete) receipt.native.failure ??= "Missing complete native/physical/stream evidence";
-    await relay.stop(); receipt.physicalWriteDayUTC=actualWriteDayUTC(); if(writeDayUTC !== null)try { assertWriteDayUTC(writeDayUTC); } catch(error) { receipt.writeDayRefused=true; receipt.native.failure ??= String(error); } receipt.durationMs = performance.now() - started; save();
+    await relay.stop();
+    const stdout=readFileSync(raw),stderr=readFileSync(rawError);receipt.rawNative={stdoutBase64:stdout.toString("base64"),stdoutSha:digest(stdout),stderrBase64:stderr.toString("base64"),stderrSha:digest(stderr)};
+    receipt.physicalWriteDayUTC=actualWriteDayUTC(); if(writeDayUTC !== null)try { assertWriteDayUTC(writeDayUTC); } catch(error) { receipt.writeDayRefused=true; receipt.native.failure ??= String(error); } receipt.durationMs = performance.now() - started; save();
   }
   return receipt;
 }

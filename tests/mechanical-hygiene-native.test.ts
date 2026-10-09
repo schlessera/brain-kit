@@ -1,12 +1,14 @@
 /** Runtime proof runs in its own loopback-only namespace, with fake credentials. */
-import { expect, test } from "bun:test";
+import { beforeAll,expect,test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 const source = new URL("../", import.meta.url).pathname;
+import {offlineSource} from "./mechanical-hygiene-offline-source";
+beforeAll(()=>{offlineSource(source);},30000);
 async function probe(script: string, args: string[],stopAfterMs=25000) {
   const command = ["unshare","--user","--map-current-user","--keep-caps","--net","sh","-c",
     'ip link set lo up && exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all "$@"',"hygiene-offline",process.execPath,script,...args];
-  const child = Bun.spawn(command,{cwd:source,env:{PATH:`${process.execPath.slice(0,process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,BRAIN_HYGIENE_OFFLINE:"1",TZ:"UTC"},stdout:"pipe",stderr:"pipe"});
+  const child = Bun.spawn(command,{cwd:offlineSource(source),env:{PATH:`${process.execPath.slice(0,process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,BRAIN_HYGIENE_OFFLINE:"1",TZ:"UTC"},stdout:"pipe",stderr:"pipe"});
   let watchdog=false;const timer=setTimeout(()=>{watchdog=true;child.kill("SIGKILL");},stopAfterMs);
   const [out,err,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);clearTimeout(timer);
   expect(watchdog,"Native proof watchdog fired instead of owned deadline/drain").toBe(false);
@@ -49,7 +51,7 @@ test("actual native helper-auth settings keep the user prompt held with zero phy
 test("actual complete native collector stops before repeat on an unexpected file",async()=>{
   const parent=mkdtempSync("/tmp/hygiene-native-effect-veto-"),out=join(parent,"cycle");
   try{
-    const child=Bun.spawn(["unshare","--user","--map-current-user","--keep-caps","--net","sh","-c",'ip link set lo up && exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all "$@"',"hygiene-offline",process.execPath,"scripts/evals/mechanical-hygiene/offline-cycle.ts",out,"ogygia-raft-status","20","--controlled-unexpected-write"],{cwd:source,env:{PATH:`${process.execPath.slice(0,process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,BRAIN_HYGIENE_OFFLINE:"1",TZ:"UTC"},stdout:"pipe",stderr:"pipe"});
+    const child=Bun.spawn(["unshare","--user","--map-current-user","--keep-caps","--net","sh","-c",'ip link set lo up && exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all "$@"',"hygiene-offline",process.execPath,"scripts/evals/mechanical-hygiene/offline-cycle.ts",out,"ogygia-raft-status","20","--controlled-unexpected-write"],{cwd:offlineSource(source),env:{PATH:`${process.execPath.slice(0,process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,BRAIN_HYGIENE_OFFLINE:"1",TZ:"UTC"},stdout:"pipe",stderr:"pipe"});
     const [stdout,stderr,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
     expect(code,stdout+stderr).toBe(1);const rows=JSON.parse(readFileSync(join(out,"phases.json"),"utf8"));
     expect(rows.rows).toHaveLength(2);expect(rows.complete).toBe(false);expect(rows.failure).toContain("Unapproved complete native apply effects");
