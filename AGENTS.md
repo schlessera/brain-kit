@@ -54,9 +54,9 @@ on, links to or describes them.
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
   Odysseus is the sole fictional example world for fixtures, CLI/MCP
-  demonstrations, renderer examples, docs, skills, onboarding, UI stories, screenshots and website assets:
-  ancient problems with modern organisational tools, the established cast and
-  the pinned `2026-07-12` date. Core and UI fixtures may differ technically
+  demonstrations, renderer examples, docs, skills, onboarding, UI stories,
+  screenshots and website assets: ancient problems with modern organisational
+  tools, the established cast and the pinned `2026-07-12` date. Core and UI fixtures may differ technically
   but share the world and canonical facts
   ([the corpus decision](docs/decisions/example-corpus.md), superseding D18/D19).
   CI's leakage gate covers the whole tree, with no exempt directories.
