@@ -14,6 +14,11 @@ type Workflow = {
 
 export function workflowProblems(text: string, file: string): string[] {
   const problems: string[] = [];
+  const keys = new Set<string>();
+  for (const match of text.matchAll(/^([A-Za-z_-]+):/gm)) {
+    if (keys.has(match[1]!)) problems.push(`${file}: duplicate top-level key ${match[1]}`);
+    keys.add(match[1]!);
+  }
   let workflow: Workflow;
   try { workflow = Bun.YAML.parse(text) as Workflow; }
   catch { return [`${file}: invalid YAML`]; }

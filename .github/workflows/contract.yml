@@ -24,23 +24,6 @@ concurrency:
   cancel-in-progress: true
 
 # GitHub Actions runs this gate for every ordinary pull request.
-name: contract
-
-on:
-  pull_request:
-    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: contract-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
-# Every job carries the same `if:`: Depot runs pushes and same-repository
-# pull requests, and a fork PR runs on GitHub Actions instead, from the
-# adapter scripts/fork-ci-adapters.ts generates out of this file. Change a
-# gate here, then run `bun scripts/fork-ci-adapters.ts --write`.
 jobs:
   contract:
     runs-on: ubuntu-24.04

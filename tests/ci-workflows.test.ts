@@ -274,6 +274,9 @@ function evaluateValue(path: string, context: Obj): Json {
 describe("the workflow lint refuses unsafe or duplicate execution shapes", () => {
   const original = read("ci.yml");
   test("a valid authoritative workflow passes", () => { expect(workflowProblems(original, "ci.yml")).toEqual([]); });
+  test("duplicate top-level YAML keys cannot hide a malformed workflow", () => {
+    expect(workflowProblems(`name: CI\n${original}`, "ci.yml")).toContain("ci.yml: duplicate top-level key name");
+  });
   test("an unmapped runner is rejected", () => { expect(workflowProblems(original.replaceAll("ubuntu-24.04", "depot-ubuntu-24.04"), "ci.yml")).toContain("ci.yml: changeset: unmapped GitHub-hosted runner"); });
   test("provider routing cannot omit forks", () => {
     const bad = original.replace("  changeset:\n", "  changeset:\n    if: github.event.pull_request.head.repo.full_name == github.repository\n");
