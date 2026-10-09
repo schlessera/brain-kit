@@ -1,9 +1,9 @@
-import { CLIENT_RELEASE, softwareDetails, type SoftwareInput } from "./stats/software.js";
+import { CLIENT_RELEASE, softwareDetails, type SoftwareInput } from "../../lib/stats/software.js";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback } from "react";
-import { composeStatsAnswer, type Fetched, type StatsSection } from "./stats/compose-stats.js";
-import { statsContextText } from "./stats/context-text.js";
+import { composeStatsAnswer, type Fetched, type StatsSection } from "../../lib/stats/compose-stats.js";
+import { statsContextText } from "../../lib/stats/context-text.js";
 
 /**
  * Slash-command dispatch, shared by the composer's palette and the welcome

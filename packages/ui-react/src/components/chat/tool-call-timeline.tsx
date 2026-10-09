@@ -12,10 +12,13 @@ import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-s
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
+import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
+import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPermissionCard } from "./tool-permission-card.js";
+import { ToolRendererBoundary } from "./tool-renderer-boundary.js";
 import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
@@ -153,8 +156,15 @@ function TimelineSummaryRow({
   const files = new Set(
     toolCalls
       .map(
-        (t) =>
-          root.renderers.resolve(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t)
+        (t) => {
+          // Outside any row boundary: a throwing renderer must not take the
+          // summary row down with it.
+          try {
+            return root.renderers.resolve(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t);
+          } catch {
+            return getTouchedFile(t);
+          }
+        }
       )
       .filter(Boolean)
   ).size;
@@ -188,20 +198,54 @@ function TimelineSummaryRow({
   );
 }
 
-function ToolCallEntry({
-  toolCall,
-  backendId,
-  onApproval,
-}: {
+type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
   onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
-}) {
-  const root = useBrainUiRoot();
+};
+
+function ToolCallEntry(props: EntryProps) {
+  const { toolCall } = props;
+  // Above the boundary: a caught throw remounts the row, and the row a user
+  // just opened should stay open in its generic view.
   const [expanded, setExpanded] = useState(
     toolCall.status === "pending_approval"
   );
   const prevStatus = useRef(toolCall.status);
+
+  useEffect(() => {
+    if (
+      toolCall.status === "pending_approval" &&
+      prevStatus.current !== "pending_approval"
+    ) {
+      setExpanded(true);
+    } else if (
+      prevStatus.current === "pending_approval" &&
+      toolCall.status !== "pending_approval"
+    ) {
+      setExpanded(false);
+    }
+    prevStatus.current = toolCall.status;
+  }, [toolCall.status]);
+
+  return (
+    <ToolRendererBoundary toolCall={toolCall}>
+      {(failed) => (
+        <ToolCallEntryView {...props} fallback={failed} expanded={expanded} setExpanded={setExpanded} />
+      )}
+    </ToolRendererBoundary>
+  );
+}
+
+function ToolCallEntryView({
+  toolCall,
+  backendId,
+  onApproval,
+  fallback,
+  expanded,
+  setExpanded,
+}: EntryProps & { fallback: boolean; expanded: boolean; setExpanded: (expanded: boolean) => void }) {
+  const root = useBrainUiRoot();
   // One clock for live and reloaded views: when the activity stream carries
   // this call's span, its server-stamped timing wins over the client stamps
   // (which don't exist at all for history-loaded messages). Selecting the
@@ -217,7 +261,9 @@ function ToolCallEntry({
     : toolCall;
   // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
   // shape-sniffing predicate). Falls back to the generic renderer.
-  const renderer = root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
+  const renderer: ToolRenderer = fallback
+    ? GENERIC_RENDERER
+    : root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
   const Icon = renderer.icon ?? FileText;
   const label =
     typeof renderer.label === "function"
@@ -236,21 +282,6 @@ function ToolCallEntry({
   const meta = renderer.meta?.(timed) ?? null;
   const Input = renderer.Input;
   const Output = renderer.Output;
-
-  useEffect(() => {
-    if (
-      toolCall.status === "pending_approval" &&
-      prevStatus.current !== "pending_approval"
-    ) {
-      setExpanded(true);
-    } else if (
-      prevStatus.current === "pending_approval" &&
-      toolCall.status !== "pending_approval"
-    ) {
-      setExpanded(false);
-    }
-    prevStatus.current = toolCall.status;
-  }, [toolCall.status]);
 
   return (
     <div className="relative">
@@ -355,7 +386,7 @@ function ToolCallEntry({
               {/* Tool input */}
               {!isPending && Input && <Input tool={toolCall} />}
 
-              {isPending && <ToolPermissionCard toolCall={toolCall} backendId={backendId} onApproval={onApproval} />}
+              {isPending && <ToolPermissionCard toolCall={toolCall} backendId={backendId} onApproval={onApproval} renderer={fallback ? GENERIC_RENDERER : undefined} />}
 
               {/* Tool output */}
               {toolCall.output && Output && (

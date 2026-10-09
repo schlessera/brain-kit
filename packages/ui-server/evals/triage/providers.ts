@@ -214,6 +214,10 @@ export const MODELS: ModelSpec[] = [
   { id: "claude-haiku-4-5", label: "haiku-4.5", provider: "anthropic", inPerMTok: 1, outPerMTok: 5, efforts: [null] },
   { id: "claude-sonnet-4-6", label: "sonnet-4.6", provider: "anthropic", inPerMTok: 3, outPerMTok: 15, efforts: ["low", "medium", "high"] },
   { id: "claude-sonnet-5", label: "sonnet-5", provider: "anthropic", inPerMTok: 3, outPerMTok: 15, efforts: ["low", "medium", "high"] },
+  // The #848 baseline (maintainer ruling on #838, 2026-10-07). Rates as in
+  // scripts/measure-sonnet55-cost.ts; the effort ladder is Sonnet 5's and has
+  // not been probed against this model yet.
+  { id: "claude-sonnet-5-5", label: "sonnet-5.5", provider: "anthropic", inPerMTok: 2, outPerMTok: 10, efforts: ["low", "medium", "high"] },
   { id: "claude-opus-5", label: "opus-5", provider: "anthropic", inPerMTok: 5, outPerMTok: 25, efforts: ["low", "medium", "high"] },
   { id: "gpt-5.6-luna", label: "gpt-5.6-luna", provider: "openai", inPerMTok: 0.2, outPerMTok: 1.2, efforts: ["none", "low", "medium", "high", "xhigh"] },
   { id: "gpt-5.6-terra", label: "gpt-5.6-terra", provider: "openai", inPerMTok: 2, outPerMTok: 12, efforts: ["none", "low", "medium", "high", "xhigh"] },

@@ -13,7 +13,7 @@ import {
   type ReportRun,
 } from "../../lib/activity-report.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import { CLIENT_RELEASE } from "../chat/stats/software.js";
+import { CLIENT_RELEASE } from "../../lib/stats/software.js";
 import { cn } from "../../lib/utils.js";
 import { DiagnosticReview, type ReviewCopy } from "../report/diagnostic-review.js";
 

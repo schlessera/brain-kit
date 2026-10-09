@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, type RefObject } from "react";
+import { Suspense, useEffect, useRef, type RefObject } from "react";
 import { Button, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
@@ -15,6 +15,7 @@ import { DisabledToggleRow } from "../graph/graph-form.js";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
+import { lazyChunk } from "../../lib/lazy-chunk.js";
 
 /** Matches the `duration-300` slide-out below. */
 const SLIDE_OUT_MS = 300;
@@ -32,8 +33,8 @@ const PANES_QUERY = "(min-width: 900px)";
  * they carry the markdown, HTML, image and PDF viewers, none of which the chat
  * surface needs to have on hand.
  */
-const FileTree = lazy(() => import("./file-tree.js").then((m) => ({ default: m.FileTree })));
-const FileViewer = lazy(() => import("./file-viewer.js").then((m) => ({ default: m.FileViewer })));
+const FileTree = lazyChunk(() => import("./file-tree.js").then((m) => ({ default: m.FileTree })));
+const FileViewer = lazyChunk(() => import("./file-viewer.js").then((m) => ({ default: m.FileViewer })));
 
 export function FilePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const currentPath = useFileStore((s) => s.currentPath);

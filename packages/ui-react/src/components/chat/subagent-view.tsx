@@ -9,8 +9,10 @@ import { useActivityStore, childSpans, eventsFor, spanForTool } from "../../stor
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat, awaitsDecision } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
-import { formatDuration } from "./tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { ToolPermissionCard } from "./tool-permission-card.js";
+import { ToolRendererBoundary } from "./tool-renderer-boundary.js";
+import { GENERIC_RENDERER } from "./renderers/index.js";
 import { SpanPayload, SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
 
 /**
@@ -94,7 +96,11 @@ export function SubagentView({
       </div>
 
       <div className="flex-1 space-y-1.5 overflow-y-auto p-4">
-        {approvalsHere.map(tool => <ToolPermissionCard key={tool.id} toolCall={tool} onApproval={onApproval} />)}
+        {approvalsHere.map(tool => (
+          <ToolRendererBoundary key={tool.id} toolCall={tool}>
+            {failed => <ToolPermissionCard toolCall={tool} onApproval={onApproval} renderer={failed ? GENERIC_RENDERER : undefined} />}
+          </ToolRendererBoundary>
+        ))}
 
         {timelineItems.length === 0 && (
           <p className="text-xs text-muted-foreground">

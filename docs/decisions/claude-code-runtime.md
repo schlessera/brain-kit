@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:135-136`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:131`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -320,7 +320,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no
   network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:131`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
