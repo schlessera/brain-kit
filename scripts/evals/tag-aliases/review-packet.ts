@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { freeze, sha } from "./freeze";
-import {type ReviewBinding} from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import {type ReviewBinding} from "../native-pricing";
 import { validateReviewEvidence, type EvidenceReference, type RuntimeIdentity } from "./review-evidence";
 
 export function packets(proof: { freezeSha: string; testsExitCode: number; typecheckExitCode: number; lintExitCode: number; nativeExitCodes: Record<string, number> }) {
@@ -12,7 +12,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   const root = new URL("../../../", import.meta.url).pathname;
   const sourceOnly = ["packages/core/src/lib/auditor.ts", "packages/core/src/lib/hygiene.ts"];
   const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/tag-alias-investigation.md",
-    "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","packages/ui-server/evals/triage/experiment/grant.ts","packages/ui-server/evals/triage/experiment/paid-policy.ts","packages/ui-server/evals/triage/experiment/adapter.ts",
+    "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts",
     "packages/core/skills/audit/SKILL.md", "packages/core/src/lib/tags.ts", "packages/core/src/lib/tags-apply.ts", "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/document-parts.ts",
     "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts",
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",

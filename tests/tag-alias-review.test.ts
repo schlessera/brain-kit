@@ -7,8 +7,8 @@ import { saveEvidenceBundle, type RuntimeIdentity } from "../scripts/evals/tag-a
 import { sha } from "../scripts/evals/tag-aliases/freeze";
 import { CLEARED_API_CREDENTIALS } from "../packages/core/src/providers/agents/claude-subscription";
 import {NativeBudget,PAID_AUTHORIZATION,type NativePaidPolicy} from "../scripts/evals/native-paid-policy";
-import {consumeGrant} from "../packages/ui-server/evals/triage/experiment/grant";
-import {type ReviewBinding} from "../packages/ui-server/evals/triage/experiment/paid-policy";
+import {consumeGrant} from "../scripts/evals/native-grant";
+import {type ReviewBinding} from "../scripts/evals/native-pricing";
 import { runNative } from "../scripts/evals/tag-aliases/native";
 
 const model = "claude-sonnet-5-5";
