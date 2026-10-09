@@ -45,7 +45,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
- * `container:` image in `.depot/workflows/ci.yml`, and D10. */
+ * pinned offline browser image used by local proof, and D10. */
 const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");

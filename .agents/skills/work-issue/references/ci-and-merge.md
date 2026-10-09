@@ -1,7 +1,7 @@
 # CI and merge for the claimed issue
 
 Read this when the implementation has a PR. Commands were checked against
-installed `gh`/`depot` help; use their help again if an interface changes.
+installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
 monitoring.
 
@@ -46,18 +46,13 @@ tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
 
-Read the checked-out `.depot/workflows/`, `.github/workflows/project-sync.yml`
-and merge requirements for expected checks. CI and contract checks use Depot
-CI; project-sync uses GitHub Actions because Depot does not support issue
-events and its Actions runners require an organization-owned repository.
-A PR whose head repository is a fork is the exception: Depot does not
-receive it, and the generated `.github/workflows/fork-ci.yml` and
-`fork-contract.yml` run the same gates on GitHub Actions as `fork / <job>`
-checks. Choose the provider by the PR's `headRepository`, never by which
-rows happen to be green. On a same-repository PR the `fork / …` rows are
-skipped by their route and are not evidence; on a fork PR, Depot rows are
-absent and the `fork / …` runs are the gates. A fork run awaiting maintainer
-approval has not run.
+Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
+`project-sync.yml`, plus the merge requirements, for expected checks. GitHub
+Actions is the sole CI provider for main, same-repository PRs and forks under
+#1320. The former Depot definitions and fork fallback copies are retired.
+Forks use the ordinary read-only PR context and nonpersisted checkout
+credentials; an approval-held run has not passed. Read actual GitHub checks
+and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
 Skipped/neutral checks count only where actual workflow/branch rules
@@ -131,51 +126,12 @@ therefore did not prove the final combined tree. The [outcome](https://github.co
 records the separate post-merge reconstruction and scoped checks without
 calling them the older full CI run.
 
-A local `depot ci run` is evidence for local changes only when its patch was
-actually applied. Inspect dispatch warnings and the job's checkout/patch
-logs: repository or default-branch detection can fail in a worktree and the
-CLI can continue with `skipping patch`. Explicit `--repo` and `--forge`
-selection may resolve repository detection without resolving patch creation.
-Treat an unpatched run as a control of its actual checkout, or push the
-scoped diagnostic commit and pin checkout to it, then verify that SHA in the
-logs. Do not attribute the control's result to unuploaded changes.
-
-When Depot is enabled, use its results and logs directly:
-
-```sh
-rtk proxy depot ci workflow list --repo schlessera/brain-kit \
-  --pr <pr> --sha <head-sha> --output json -n 200
-rtk proxy depot ci status <run-id> --output json
-rtk proxy depot ci diagnose --run <run-id> --output json
-rtk proxy depot ci logs <attempt-id> --timestamps
-```
-
-Inspect repo, PR/trigger, SHA, workflow, expected jobs and current attempts.
-Use at most four simultaneous finite log exports. Depot limits active log
-streams per token; `resource_exhausted` means to finish exports and retry
-sequentially, even if preceding CLI fallback errors say `Not found`.
-A `finished` workflow requires examination of job results. Prefer the known
-attempt ID for failure logs; run/job shortcuts can select another attempt.
-If no matching run is found, use check links/help to identify the exact run;
-do not substitute latest-main CI. Missing Depot access/dispatch is a handoff
-prerequisite when it prevents verification of enabled Depot checks.
-
-CI groups main pushes by commit SHA and PR executions by their merge ref.
-`cancel-in-progress: false` protects running work; it does not preserve an
-older pending workflow in a shared group. A cancelled main workflow is still
-unfinished verification. Inspect its execution history before recovery:
-
-```sh
-rtk proxy depot ci workflow show <workflow-id> --output json
-rtk proxy depot ci retry <run-id> --failed --workflow <workflow-id> --output json
-```
-
-A concurrency cancellation with no started execution or job attempts can be
-recovered by retrying its cancelled jobs. Verify every current attempt and
-actual checkout against the original squash SHA afterward. Record recovery
-separately from proof of a scheduling correction; retries and local API runs
-do not prove that future automatic main pushes retain independent records.
-Keep real test failures in the diagnosis loop below.
+Local full verification uses `bun run check:pr --base origin/main`; its
+packaging command reads the authoritative GitHub workflow. Local runs and
+manual workflow dispatch do not establish automatic PR or main-push behavior.
+For a cancelled GitHub run, inspect its original event, SHA and attempts before
+retrying; record any recovery separately from evidence that automatic scheduling
+preserves future commits. Never rerun a real test failure without diagnosis.
 
 Identify each failing step/assertion and distinguish an issue regression
 from an unrelated base failure or infrastructure problem. Fix related

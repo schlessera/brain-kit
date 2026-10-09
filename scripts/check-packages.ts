@@ -5,7 +5,7 @@ import { resolve, join } from "node:path";
 import { runCommands } from "./ci-runner";
 
 export function packCommands(root: string): Array<{ name: string; run: string }> {
-  const workflow = Bun.YAML.parse(readFileSync(join(root, ".depot/workflows/ci.yml"), "utf8")) as {
+  const workflow = Bun.YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")) as {
     jobs: { pack: { steps: Array<{ name?: string; run?: string }> } };
   };
   const commands = workflow.jobs.pack.steps.flatMap(step => step.run ? [{ name: step.name ?? step.run, run: step.run }] : []);
@@ -15,7 +15,7 @@ export function packCommands(root: string): Array<{ name: string; run: string }>
 }
 
 export async function checkPackages(root: string): Promise<void> {
-  const workflow = Bun.YAML.parse(readFileSync(join(root, ".depot/workflows/ci.yml"), "utf8")) as {
+  const workflow = Bun.YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8")) as {
     jobs: { pack: { steps: Array<{ uses?: string; with?: { "node-version"?: string } }> } };
   };
   const required = workflow.jobs.pack.steps.find(step => step.uses?.startsWith("actions/setup-node@"))?.with?.["node-version"];

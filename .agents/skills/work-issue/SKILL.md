@@ -10,7 +10,7 @@ when its PR is merged and reconciled, or its blocker is documented and its
 claim released. Do not take the next issue after that handoff.
 
 Requires this checkout, authenticated `gh` with issue/PR write access, git,
-Bun and `jq`; also `depot` when Depot CI is enabled. GitHub Project access
+Bun and `jq`. GitHub Actions is the CI provider. GitHub Project access
 is optional.
 
 An end-to-end request authorizes assignment, tracker updates, scoped

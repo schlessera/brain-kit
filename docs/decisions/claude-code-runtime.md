@@ -312,7 +312,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.depot/workflows/ci.yml:34`), so the guard compares the lockfile-installed pair.
+  `.github/workflows/ci.yml:34`), so the guard compares the lockfile-installed pair.
   This fast version guard remains an affected automatic check under
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no
@@ -797,6 +797,18 @@ pushes to main, and project sync keeps its separate exception above.
 
 Retiring the fallback needs verified native Depot fork behaviour and a new
 entry here. A provider roadmap claim alone does not change the routing.
+
+## 2026-10-09 — GitHub Actions is the sole provider (#1320)
+
+The maintainer requested moving the current Depot definitions back to GitHub
+Actions after making the repository public. The [provider decision](github-actions-ci.md)
+supersedes the #983 and #988 routing/location rules above. The current metadata,
+affected fast verification, complete packaging probes and contract checks live
+in `.github/workflows/`; the separate fork adapters and active Depot definitions
+are removed. Fork execution retains its read-only token, nonpersisted checkout
+credentials and environment-only handling of hostile metadata. The unchanged
+keyless runtime probes and complete browser/endurance proof remain required
+locally under [the CI utility policy](ci-utility.md).
 
 ## 2026-09-30 — What a sync ran is observed per run, not probed (#290)
 
