@@ -1,4 +1,10 @@
-/** Private blind label-panel preparation. No entry point, credential discovery or live admission. */
+/**
+ * The three-family label panel over the experiment corpus, on the donor's
+ * raw provider routes with its rubric, batching and judge logic. What it adds
+ * is a receipt per physical attempt: exact request and response bytes, served
+ * model and native usage, so a panel result can be audited. `panel.ts` is the
+ * opt-in entry; nothing here reads a credential or changes a label.
+ */
 import { callModel, type ModelSpec } from "../providers";
 import { parseRows, type Row } from "../score";
 import { recordVotes, judgeItem, type Votes } from "../judge";
