@@ -167,6 +167,8 @@ test("Git-derived, unknown dynamic module selection and exported foreign helpers
   expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
   write(root, visual, "const input = await import(modulePath);\n"); commit(root);
   expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+  write(root, visual, 'const input = Bun.spawn(["git", "rev-parse", "HEAD"]);\n'); commit(root);
+  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
   write(root, visual, "export {};\n"); write(root, layout, "export const helper = 1;\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).excluded).not.toContain(layout);
 });

@@ -93,13 +93,14 @@ export function proofInputs(root: string, category: Reusable, inventory: Spec[],
   if (!runner) throw new Error("Unknown runner image requires fresh proof");
   const selected = selectedSpecs(category, inventory);
   const executionFiles = new Set(selected.map(spec => spec.file));
-  for (const entry of treeEntries(root, ref)) if (/^packages\/(?:ui-react\/tests\/browser|ui-kit\/tests\/visual|ui-kit\/\.storybook)\//.test(entry.path) && /\.[cm]?[jt]sx?$/.test(entry.path) && !inventory.some(spec => spec.file === entry.path)) executionFiles.add(entry.path);
+  for (const entry of treeEntries(root, ref)) if ((/^packages\/(?:ui-react\/tests\/browser|ui-kit\/tests\/visual|ui-kit\/\.storybook)\//.test(entry.path) && /\.[cm]?[jt]sx?$/.test(entry.path) && !inventory.some(spec => spec.file === entry.path)) ||
+    ["scripts/build.ts", "scripts/visual.mjs", "scripts/workspace-lease.mjs", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts"].includes(entry.path)) executionFiles.add(entry.path);
   for (const file of executionFiles) {
     // These categories normally execute browser assertions against fixtures,
     // not repository Git identity. Unknown dynamic module selection cannot
     // establish a closed domain; it keeps complete fresh execution.
     const text = readFileSync(join(root, file), "utf8");
-    if (/\bGITHUB_(?:SHA|REF|EVENT_PATH)\b|\bgit\s+(?:rev-parse|log|show|diff)\b|\b(?:import|require)\s*\(\s*[^\s'"]/.test(text)) throw new Error("Git-dependent or unknown browser inputs require fresh execution");
+    if (/\bGITHUB_(?:SHA|REF|EVENT_PATH)\b|\bgit\s+(?:rev-parse|log|show|diff)\b|['"]git['"]\s*,|\b(?:import|require)\s*\(\s*[^\s'"]/.test(text)) throw new Error("Git-dependent or unknown browser inputs require fresh execution");
   }
   const owned = new Set(selected.map(s => s.file));
   const files = treeEntries(root, ref);
