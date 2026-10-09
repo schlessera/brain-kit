@@ -366,8 +366,8 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
     Object.assign(window, { __approvalTouches: events });
     for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"]) document.addEventListener(type, (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target && (target.closest("[data-approval-card]") || /^(Allow|Deny|Always allow)$/.test(target.closest("button")?.textContent?.trim() ?? ""))) {
-        const control = target.closest("button") ?? target;
+      if (target && (target.closest("[data-approval-card]") || /^(Allow|Deny|Always allow)$/.test(target.closest('button, [role="button"]')?.textContent?.trim() ?? ""))) {
+        const control = target.closest('button, [role="button"]') ?? target;
         if (!nodes.has(control)) nodes.set(control, ++sequence);
         events.push({ type, target: control.textContent, at: Date.now(), node: nodes.get(control)!,
           connected: control.isConnected, y: control.getBoundingClientRect().y });
@@ -819,7 +819,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
               await allow.scrollIntoViewIfNeeded();
               const box = (await allow.boundingBox())!;
               const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent, point),
+              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('button, [role="button"]')?.textContent, point),
                 "the native gesture targets the visible Allow control").toContain("Allow");
               const cdp = await a.context.newCDPSession(a.page);
               try {
@@ -930,7 +930,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
               await newChat(run, a.page);
               await openTracker(run, a.page, sessionId);
               await press(run, a.page.getByRole("button", { name: /^Prepare the wax/ }));
-              await a.page.getByText("Approval needed: Bash", { exact: true }).waitFor();
+              await a.page.getByRole("button", { name: "Back", exact: true }).locator("../..").locator(`[data-approval-card][data-tool-use-id="${original.toolUseId}"]`).waitFor();
             } else {
               await a.page.reload();
               await until(a.page, "p?.connected()");
@@ -941,7 +941,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
               }
             }
             const controls = surface === "Subagent"
-              ? a.page.getByText("Approval needed: Bash", { exact: true }).locator("..")
+              ? a.page.getByRole("button", { name: "Back", exact: true }).locator("../..").locator(`[data-approval-card][data-tool-use-id="${original.toolUseId}"]`)
               : a.page;
             const target = controls.getByRole("button", { name: decision === "Always allow" ? /^Always allow\b/ : decision, exact: true });
             await target.waitFor();
