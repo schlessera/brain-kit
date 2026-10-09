@@ -15,13 +15,13 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture(leaseHelper = helper) {
   const root = mkdtempSync(join(tmpdir(), "brain-workspace-lease-")); dirs.push(root);
   mkdirSync(join(root, "dist"));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "odysseus-build-fixture", type: "module", exports: "./dist/index.js" }));
   writeFileSync(join(root, "dist/index.js"), 'export const captain = "Odysseus";\n');
   writeFileSync(join(root, "runner.mjs"), `
-import {ensureWorkspaceLease,inheritWorkspaceLease} from ${JSON.stringify(helper)};
+import {ensureWorkspaceLease,inheritWorkspaceLease} from ${JSON.stringify(leaseHelper)};
 import {spawn} from "node:child_process";
 import {existsSync,writeFileSync,rmSync} from "node:fs";
 import {join} from "node:path";
@@ -117,8 +117,8 @@ for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} of the out
   expect(() => process.kill(ownedPid, 0)).toThrow();
 });
 
-for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} while waiting removes the waiter before the current owner releases access`, async () => {
-  const root = fixture(), holder = start(root, "write", "hold", "holder");
+async function cancelledWaiter(signal: "SIGTERM" | "SIGKILL", leaseHelper = helper) {
+  const root = fixture(leaseHelper), holder = start(root, "write", "hold", "holder");
   await entered(root, "holder");
   const waiter = start(root, "write", "reader", "cancelled");
   const descendants = (pid: number): number[] => {
@@ -144,12 +144,44 @@ for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} while wait
     expect(await waiter.child.exited).not.toBe(0);
     const stoppedBy = Date.now() + 2_000;
     while (owned.some(alive) && Date.now() < stoppedBy) await Bun.sleep(5);
-    expect(owned.filter(alive)).toEqual([]);
+    const remaining = owned.filter(alive);
+    const evidence = remaining.map(pid => {
+      try {
+        const status = readFileSync(`/proc/${pid}/status`, "utf8").split("\n")
+          .filter(line => /^(Name|State|PPid|SigBlk|SigIgn|SigCgt):/.test(line));
+        const command = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\u0000").filter(Boolean);
+        return { pid, status, command };
+      } catch { return { pid, gone: true }; }
+    });
+    expect(remaining, JSON.stringify(evidence)).toEqual([]);
     expect(existsSync(join(root, "cancelled-entered"))).toBe(false);
   } finally {
     for (const pid of owned.filter(alive)) { try { process.kill(pid, "SIGTERM"); } catch { /* Already stopped. */ } }
     release(root, "holder"); await holder.child.exited;
   }
+}
+
+for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} while waiting removes the waiter before the current owner releases access`, async () => {
+  await cancelledWaiter(signal);
+});
+
+test("SIGTERM during the native flock startup gap cannot orphan a cancelled waiter", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-lease-startup-")); dirs.push(scratch);
+  const original = readFileSync(join(project, "scripts/workspace-lease.mjs"), "utf8");
+  const anchor = 'const { spawn } = await import("node:child_process");';
+  expect(original.split(anchor).length - 1).toBe(3);
+  const instrumented = original.replaceAll(anchor, `
+const { spawn: nativeSpawn } = await import("node:child_process");
+const spawn = (...args) => {
+  const child = nativeSpawn(...args);
+  // A native signal may arrive before JavaScript returns from spawn. Keep
+  // that real startup boundary open without replacing flock or its owner.
+  if (args[0] === "flock") Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+  return child;
+};`);
+  const path = join(scratch, "workspace-lease.mjs");
+  writeFileSync(path, instrumented);
+  await cancelledWaiter("SIGTERM", pathToFileURL(path).href);
 });
 
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {

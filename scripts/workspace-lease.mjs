@@ -84,15 +84,24 @@ function originalCommand(entry) {
   return [process.execPath, ...process.execArgv, ...process.argv.slice(1)];
 }
 
-async function waitForChild(child, stop) {
+async function waitForChild(startChild, stop) {
+  let child, pendingSignal;
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
-  const listeners = signals.map(signal => () => stop(signal));
+  const listeners = signals.map(signal => () => {
+    if (child) stop(child, signal);
+    else pendingSignal = signal;
+  });
+  // Install forwarding before creating descendants. A signal in the native
+  // spawn/startup gap must not kill this monitor and orphan its new child.
   signals.forEach((signal, index) => process.on(signal, listeners[index]));
   try {
-    return await new Promise((resolveExit, reject) => {
+    child = startChild();
+    const result = new Promise((resolveExit, reject) => {
       child.once("error", reject);
       child.once("exit", (code, signal) => resolveExit(exitCode(code, signal)));
     });
+    if (pendingSignal) stop(child, pendingSignal);
+    return await result;
   } finally {
     signals.forEach((signal, index) => process.off(signal, listeners[index]));
   }
@@ -116,19 +125,19 @@ export async function ensureWorkspaceLease(root, mode, entry = "script") {
   console.error(`Acquiring ${mode === "write" ? "exclusive" : "shared"} workspace output access; overlapping commands wait.`);
   // Import subprocess APIs only when a command needs a new coordinator.
   const { spawn } = await import("node:child_process");
-  const child = spawn(process.execPath, [script, "--wait", root, mode, "3", ...originalCommand(entry)],
-  { stdio: ["inherit", "inherit", "inherit", "pipe"] });
-  return await waitForChild(child, signal => child.kill(signal));
+  return await waitForChild(() => spawn(process.execPath,
+    [script, "--wait", root, mode, "3", ...originalCommand(entry)],
+    { stdio: ["inherit", "inherit", "inherit", "pipe"] }),
+  (child, signal) => child.kill(signal));
 }
 
 async function waitForLease(root, mode, lifetimeFd, executable, args) {
   const { spawn } = await import("node:child_process");
   const { Socket } = await import("node:net");
-  const child = spawn("flock", [mode === "write" ? "--exclusive" : "--shared", "--no-fork", lockPath(root),
-    process.execPath, script, "--enter", root, mode, "3", executable, ...args],
-  { stdio: [0, 1, 2, "pipe"] });
-  let force;
+  let child, force, stopRequested;
   const stop = signal => {
+    stopRequested = signal;
+    if (!child) return;
     child.kill(signal);
     // An acquired owner has its own one-second process-group cleanup.
     if (!force) force = setTimeout(() => child.kill("SIGKILL"), 2_000);
@@ -140,7 +149,13 @@ async function waitForLease(root, mode, lifetimeFd, executable, args) {
   lifetime.on("error", () => stop("SIGTERM"));
   lifetime.resume();
   try {
-    return await waitForChild(child, stop);
+    return await waitForChild(() => {
+      child = spawn("flock", [mode === "write" ? "--exclusive" : "--shared", "--no-fork", lockPath(root),
+        process.execPath, script, "--enter", root, mode, "3", executable, ...args],
+      { stdio: [0, 1, 2, "pipe"] });
+      if (stopRequested) stop(stopRequested);
+      return child;
+    }, (_, signal) => stop(signal));
   } catch (error) {
     if (error.code === "ENOENT") throw new Error("Workspace coordination requires the flock executable (util-linux).");
     throw error;
@@ -163,12 +178,10 @@ async function enter(root, mode, lifetimeFd, executable, args) {
   process.env[MARKER] = JSON.stringify({ mode, fd, dev: held.dev, ino: held.ino, ...owner });
   const { spawn } = await import("node:child_process");
   const { Socket } = await import("node:net");
-  const child = spawn(executable, args, {
-    stdio: [0, 1, 2, fd], detached: process.platform !== "win32",
-    env: { ...process.env, [MARKER]: JSON.stringify({ mode, fd: 3, dev: held.dev, ino: held.ino, ...owner }) },
-  });
-  let force;
+  let child, force, stopRequested;
   const stop = signal => {
+    stopRequested = signal;
+    if (!child?.pid) return;
     try {
       if (process.platform === "win32") child.kill(signal);
       else process.kill(-child.pid, signal);
@@ -182,13 +195,22 @@ async function enter(root, mode, lifetimeFd, executable, args) {
   lifetime.on("error", () => stop("SIGTERM"));
   lifetime.resume();
   let result, cleanupFailed = false;
-  try { result = await waitForChild(child, stop); }
+  try {
+    result = await waitForChild(() => {
+      child = spawn(executable, args, {
+        stdio: [0, 1, 2, fd], detached: process.platform !== "win32",
+        env: { ...process.env, [MARKER]: JSON.stringify({ mode, fd: 3, dev: held.dev, ino: held.ino, ...owner }) },
+      });
+      if (stopRequested) stop(stopRequested);
+      return child;
+    }, (_, signal) => stop(signal));
+  }
   finally {
     lifetime.destroy();
     clearTimeout(force);
     // Include compilers/CLI grandchildren when the main command failed or
     // was killed. The open descriptor keeps ownership until they stop.
-    if (process.platform !== "win32") {
+    if (child?.pid && process.platform !== "win32") {
       try { process.kill(-child.pid, "SIGKILL"); }
       catch (error) {
         if (error.code !== "ESRCH") { cleanupFailed = true; console.error("Workspace child cleanup failed", error); }
