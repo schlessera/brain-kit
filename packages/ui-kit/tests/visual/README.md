@@ -46,6 +46,11 @@ CI include this project; scoped direct invocations use `--project=visual` plus
 `--project=rank-footer-touch`. Separate contexts keep touch media queries from
 changing the fine-pointer hint cases.
 
+The `module-settings` project writes its review captures to
+`.vitest-attachments/module-settings/` at the repository root. These PNGs cover
+the module list, editors and lifecycle states in both themes and viewport sizes;
+they are review artifacts rather than visual baseline inputs.
+
 `track-intake.visual.tsx` gives each mixed picker its own `navigator.onLine`
 descriptor and restores the previous descriptor in `finally`. Connected cases
 start from a deliberately offline sentinel; separate offline cases retain a
