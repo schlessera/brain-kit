@@ -137,11 +137,10 @@ on, links to or describes them.
   `evals/expected-ranks.json`, asserted by
   `packages/core/tests/eval-corpus.test.ts`) make any ranking change a
   reviewed diff. Never add a test that needs an API key or the network.
-- Contract tests assert the `--json` envelopes. Automatic CI runs affected
-  fast contract/integrity tests, conditional
-  strict typechecking and packaging, and the lint/leakage/metadata gates.
-  Complete unit/integration/runtime, keyless funnel and affected pinned browser
-  proof must run locally before PR creation; see the rules below.
+- Contract tests assert the `--json` envelopes. Automatic CI runs cheap metadata gates and complete affected hosted
+  unit/integration/runtime, keyless funnel, pinned browser proof, strict types
+  and packaging on ready PRs. Agents keep focused local behavioral proof; see
+  the rules below.
 - Predicate-only unit tests are not proof for anything with a runtime: the
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
@@ -189,38 +188,34 @@ on, links to or describes them.
   transports. Guard regression probes use controlled native sentinels so
   failing-first and mutation runs cannot send external requests or start curl.
 
-### Required local proof before a PR
+### Required proof for a PR
 
-- Run `bun run check:pr --base origin/main` before creating a PR or marking a
-  draft ready. Check new base commits for relevance before refreshing. `--plan` is inspection only;
-  `--all` requires every category for releases or broad tooling changes.
-- The command checks committed and working-tree changes and reverse workspace
-  dependencies. Complete unit/integration/runtime tests run for code/tooling;
-  affected UI work also runs all pinned visual/accessibility/pointer projects,
-  layout/offline/endurance tests and editorial reproducibility. Relevant real
-  Claude permission probes, real Chrome enforcement and shared-process cleanup
-  remain required. Packaging uses the same complete probes as the CI pack job.
-- No existing test may be deleted to save CI minutes. Retain complete default
-  local discovery, existing runtime harnesses, the pinned offline browser image
-  and diagnostic artifacts. Missing tools, runtime skips or failing checks leave
-  proof unfinished; never claim that fast CI covered the omitted categories.
-- Record tested head/base, commands and outcomes in the PR. Revalidate affected
-  proof after code, dependency, harness or relevant base changes. Batch intermediate
-  pushes and keep drafts on cheap CI until ready.
-  Refresh against newer main only when missing commits affect this work or its
-  checks. Record unrelated base advancement without rebasing or restarting proof.
-  Keep the actual tested head/base and satisfy existing branch rules.
-- Automatic CI admits only fast tests with a demonstrated important guarantee
-  and measured cost. No real-time waiting/endurance tests or mostly idle browser
-  jobs. New tests remain local-only until explicitly admitted in
-  `scripts/ci-plan.ts`. Select by actual changed inputs and transitive workspace
-  dependencies; unknown/global tooling changes expand checks conservatively.
-  Run independent fast tests and strict types concurrently within one runner;
-  extra shards or CPUs are useful only if they reduce total runner consumption.
-  Delay shorter automatic jobs behind longer selected work to reduce cancellation
-  waste; keep cheap rejection/selection gates first. Dependent checks must still
-  run after an intentional prerequisite skip, and never after failure/cancellation.
-  See [the CI decision](docs/decisions/ci-utility.md).
+- Run `bun run check:pr --base origin/main` before opening or marking ready.
+  This is local preflight and affected fast feedback, including working-tree
+  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  receipts and visual judgment; ordinary PRs do not duplicate complete types,
+  packaging or browser/runtime suites locally.
+- Ready PR CI supplies complete repeatable proof for affected workspaces and
+  reverse dependencies plus root tests. Global/unknown changes expand to full
+  discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
+  endurance, editorial, real Claude/Chrome and cleanup categories remain intact.
+  The `proof` aggregate requires every selected job to succeed; missing tools,
+  unavailable runtimes, failures, cancellations and unexpected skips are not green.
+- Retain every test, default discovery, pinned offline image and failure artifact.
+  Optional `check:pr --full` runs complete affected local proof; `--all` retains
+  every local release/diagnostic category. Scheduled exhaustive CI is additional
+  coverage, not a replacement for selected pre-merge proof.
+- Keep drafts cheap and batch intermediate pushes. After cheap gates, run
+  independent proof categories concurrently. Preserve per-browser file bounds;
+  measure queue/elapsed time and cancellation/repeated work before adding shards.
+  Different PRs never share cancellation groups. Metadata edits do not launch
+  heavy proof, and every main SHA retains independent evidence.
+- Record actual tested head/base, selected jobs/attempts/checkout logs and focused
+  local receipts. Assess base changes before rebasing; unrelated main advancement
+  alone does not require repeated long proof. Relevant input/dependency/harness
+  changes require fresh checks; never call an old receipt a new combined-tree pass.
+  Verify actual squash parent/tree and automatic main-push proof. Respect branch
+  rules. See [the CI decision](docs/decisions/ci-utility.md).
 
 ### Tests that cannot fail
 
@@ -371,11 +366,11 @@ and generated fork fallback workflows are retired under #1320; do not restore
 a second provider or duplicate workflow copies. The local pack command reads
 the authoritative GitHub pack job rather than copying its probes.
 
-Preserve the automatic fast gates, complete required local proof, action and
-runtime versions, pinned offline browser image and diagnostic artifacts. CI
-keeps metadata/lint, conditional concurrent verification and conditional
-packaging. Tests-only changes intentionally skip pack; the selected verify job
-must still run after that skip, and never after failure or cancellation.
+Preserve cheap gates, complete affected hosted proof, focused local receipts,
+action/runtime versions, pinned offline browser image and diagnostic artifacts.
+Independent selected categories run after metadata; the final proof aggregate
+rejects failures, cancellations, missing outputs and unexpected skips. Tests-only
+changes may intentionally skip packaging while complete affected tests run.
 Drafts run cheap gates only. Forks use ordinary `pull_request`, a read-only
 token, no secrets and nonpersisted checkout credentials. A fork run awaiting
 maintainer approval has not passed.
@@ -404,8 +399,8 @@ workflow intentionally exclude that job. A job log can be read through its
 API while other jobs still run. A refused-start job has no execution log;
 inspect its check-run annotations instead.
 
-Before merging, retain complete `bun run check:pr --base origin/main` proof
-for the relevant combined state. Inspect new base commits before refreshing;
+Before merging, retain focused `bun run check:pr --base origin/main` receipts
+and complete selected hosted proof for the inspected state. Inspect new base commits before refreshing;
 refresh and revalidate affected categories only when those commits affect
 this work or its checks. Record unrelated advancement without substituting a
 new base for the old tested one. After merging, prove the squash is on main,

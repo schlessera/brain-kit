@@ -55,6 +55,7 @@ test("empty selections do not invoke bun test with its full-suite defaults", () 
 
 test("selected tests retain the root command and are explicit absolute files", () => {
   const plan = planChecks(["tsconfig.json"], []);
+  plan.local.fullTests = false; // This run selects cheap invariants, not complete hosted discovery.
   const root = join(import.meta.dir, "..");
   const commands = verificationCommands(plan, root);
   expect(commands).toHaveLength(3);
@@ -73,4 +74,12 @@ test("a renamed or deleted curated test fails instead of silently dropping its g
 test("a single child failure cannot be reported as success", async () => {
   await expect(runCommands([{ name: "broken", argv: [process.execPath, "-e", "process.exit(3)"] }], fixture()))
     .rejects.toThrow("broken failed (3)");
+});
+
+
+test("complete hosted unit discovery avoids repeating its curated subset", () => {
+  const plan = planChecks(["tsconfig.json"], []);
+  expect(plan.tests.length).toBeGreaterThan(0);
+  const commands = verificationCommands(plan, join(import.meta.dir, ".."));
+  expect(commands.map(command => command.name)).toEqual(["strict typecheck"]);
 });

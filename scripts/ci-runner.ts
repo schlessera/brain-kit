@@ -12,7 +12,7 @@ export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   }
   if (plan.typecheck) commands.push({ name: "strict typecheck", argv: [process.execPath, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.tests.length) {
+  if (plan.tests.length && !plan.local.fullTests) {
     const batches = balanceTests(plan.tests, Math.min(2, plan.tests.length));
     for (const [index, files] of batches.entries()) commands.push({ name: `fast contract and integrity tests ${index + 1}/${batches.length}`,
       argv: [process.execPath, "run", "test", ...files.map(file => join(root, file))], env: { BRAIN_WORKSPACE_ACCESS: "read" } });

@@ -1,16 +1,20 @@
-/** Full required local proof before PR creation/readiness; no CI-only shortcuts. */
+/** Focused local preflight; repeatable full proof is authoritative in hosted CI. */
 import { resolve } from "node:path";
 import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan";
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 
-export function localChecks(plan: CheckPlan): Command[] {
+export function localChecks(plan: CheckPlan, full = false): Command[] {
   const bun = process.execPath;
   const checks: Command[] = [
     { name: "all lint and leakage gates", argv: [bun, "run", "lint"] },
     { name: "environment documentation", argv: [bun, "scripts/env-docs.ts", "--check"] },
     { name: "pending changeset package names", argv: [bun, "scripts/check-changeset-packages.ts"] },
   ];
+  if (!full) {
+    if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
+    return checks;
+  }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
   if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test"],
@@ -56,20 +60,21 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
 
 if (import.meta.main) {
   try {
-    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let print = false;
+    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--base" && args[i + 1]) base = args[++i]!;
-      else if (args[i] === "--all") all = true;
+      else if (args[i] === "--all") { all = true; full = true; }
+      else if (args[i] === "--full") full = true;
       else if (args[i] === "--plan") print = true;
-      else throw new Error("usage: bun run check:pr [--base <ref>] [--all] [--plan]");
+      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--plan]");
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root));
-    const commands = localChecks(plan);
-    console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: plan.pack }, null, 2));
+    const commands = localChecks(plan, full);
+    console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
-    const chrome = requireRuntimeTools(plan);
+    const chrome = full ? requireRuntimeTools(plan) : undefined;
     // Setup/metadata are ordered. Full Bun tests and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.
@@ -78,13 +83,13 @@ if (import.meta.main) {
     const parallel = commands.filter(command => command.name === "strict typecheck" || command.name === "complete unit and integration suite");
     for (const command of commands.slice(0, 3)) await runCommands([withEnv(command)], root);
     await runCommands([{ name: "contribution changeset", argv: [process.execPath, "scripts/check-changeset.ts", base] }], root);
-    if (plan.local.captures) await runCommands([{ name: "pinned capture fonts and original notices",
+    if (full && plan.local.captures) await runCommands([{ name: "pinned capture fonts and original notices",
       argv: [process.execPath, "run", "capture:fonts"] }], root);
     if (chrome) await runCommands([{ name: "first real Chrome launch and render",
       argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome], env }], root);
     await runCommands(parallel.map(withEnv), root);
     for (const command of commands.slice(3).filter(command => !parallel.includes(command))) await runCommands([withEnv(command)], root);
-    if (plan.pack) await checkPackages(root);
-    console.log("All required local pre-PR checks passed. Record the base/head and commands in the PR proof.");
+    if (full && plan.pack) await checkPackages(root);
+    console.log("Local preflight passed. Record focused receipts; selected hosted proof must pass before merge.");
   } catch (error) { console.error(error); process.exit(1); }
 }

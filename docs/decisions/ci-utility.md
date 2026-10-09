@@ -1,94 +1,92 @@
-# CI guarantees per runner-minute
+# Hosted proof without a merge bottleneck
 
-The provider is GitHub Actions under [#1320](github-actions-ci.md); the
-performance measurements below retain their original Depot context.
+The maintainer selected this policy on 2026-10-09 under
+[#1326](https://github.com/schlessera/brain-kit/issues/1326), after the public
+repository moved to GitHub Actions. Standard hosted runner minutes are free;
+queue delay, ready-to-merge elapsed time and cancellation/repeated work now
+matter more than summed paid consumption. This supersedes #1305's requirement
+for complete mandatory local proof and packaging-before-verification scheduling.
+Every test, offline boundary, image/runtime pin and behavioral assertion remains.
+The earlier #1321 exception was one PR's ruling; this is the general policy.
 
-The maintainer selected this policy on 2026-10-08 under
-[#1305](https://github.com/schlessera/brain-kit/issues/1305): keep only fast,
-important automatic checks, make them conditional on affected inputs, and move
-expensive checks into mandatory local proof before creating a PR. No test or
-guarantee is removed. This execution policy supersedes earlier records'
-requirements to run complete browser/runtime suites on every automatic PR run;
-their isolation, image pins, fixtures and behavioral assertions remain binding.
+## Local feedback and authoritative proof
 
-## The unit being optimized
+`bun run check:pr --base origin/main` runs local lint/leakage, metadata,
+contribution changeset and affected fast invariants, including uncommitted work.
+It does not require Docker, Chrome or namespaces and does not duplicate complete
+packaging, strict types or full browser/runtime proof. Agents still supply
+focused failing-first and restored mutation receipts, debug failures and review
+visual results. A test failure is not excused by moving its execution.
 
-Parallel job elapsed time hides consumption. A sample of 198 terminal CI
-workflows used about 14,514 summed attempt-minutes in roughly 23 hours. Successful
-workflows cost a median 93 runner-minutes despite finishing in 21 wall-clock
-minutes. Cancelled workflows consumed 43%; tests, browser checks and layout
-checks consumed 89%. These are a dated sample, not a monthly forecast or invoice.
+CI supplies authoritative complete repeatable proof on ready PRs. Complete
+unit/integration discovery includes affected workspaces and every reverse
+dependant, plus root tooling tests. Global/unknown inputs expand to complete
+default discovery. Newly added files are discovered, not admitted through a
+fixed allowlist. Shipped changes retain all packed-consumer probes; selected
+strict types remain complete. UI inputs retain every pinned visual/accessibility/
+pointer project, layout/offline/endurance file and editorial verification.
+Relevant runtime work retains real Chrome, Claude permission/enforcement,
+native delegation/capability/Haiku probes, measurement isolation and shared
+process cleanup. Native probes run against loopback fixtures without live keys.
+The Linux runner setup retains the existing ephemeral namespace prerequisite;
+the test/preload and offline namespace guards remain enabled.
 
-Automatic CI therefore runs cheap metadata/lint gates, strict typechecking and
-explicit fast contract/data-integrity/permission tests, plus one conditional
-packed-consumer job. Strict types and two cost-balanced fast-test batches
-share a queue on one runner, with at most two active processes. A freed slot
-starts the next batch; every selected file runs once. Ordinary Bun processes
-preserve the existing registry/preload behavior. Native parallel workers are
-another option only after current-version runtime/guard and cost validation;
-older comments about isolation are not a permanent ruling against parallelism.
-Draft PRs run only the cheap gates. Main pushes retain integrated commit
-verification. Superseded PR work remains cancellable.
+Complete local commands remain available: `check:pr --full` runs the affected
+full inventory and `check:pr --all` runs every category for releases or diagnosis.
+Neither is mandatory for an ordinary contribution with complete passing hosted
+proof. They are not substitutes for automatic event/checkout evidence.
 
-After cheap selection/lint/metadata gates, the longer conditional packaging job
-runs before fast verification. Verification depends on packaging success, or an
-intentional packaging skip when the planner selected no shipped changes. Failed,
-cancelled or unexpectedly skipped packaging does not launch verification. The
-short compiler/test tasks still share their two-process queue once that job
-starts. Cancelling during packaging therefore avoids spending any minutes on
-the downstream verification runner; completed upfront gates still cost time.
-This trades longer feedback on completed runs for less speculative work on
-superseded heads. Cheap gates stay first because they can reject a contribution
-before either runtime job starts. The independent title/label contract workflow
-stays separate so metadata edits cannot rerun packaging.
+## Scheduling and selection
 
-GitHub Actions supports the job dependencies used by the current provider. The [status-function rule](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions)
-requires an explicit cancellation check when continuing after an intentionally
-skipped prerequisite; relying on the default `success()` would skip verification
-for tests-only changes. [Depot supports the same expressions](https://depot.dev/docs/ci/compatibility).
+Drafts run cheap rejection/metadata gates only. Marking ready selects complete
+proof; subsequent synchronize events reselect actual changed inputs. Batch
+intermediate pushes. Title/label edits run the separate contract gate, not long
+proof. Main commits keep independent SHA concurrency groups; obsolete heads of
+one PR share a cancellable group. Different PRs never cancel one another.
 
-Check selection uses the actual git diff and reverse workspace dependencies,
-including peers, optional and development dependencies. Renames include both
-owners; deleted/unknown packages and global tooling/dependency changes expand
-selection conservatively. An unreadable diff fails instead of skipping checks.
-Fork and same-repository PRs use the same authoritative GitHub workflows
-under [the provider decision](github-actions-ci.md). An intentional conditional skip is distinct from an unavailable check.
+After cheap gates, packaging, strict verification, unit shards, runtime probes,
+browser shards, layout/endurance shards and captures start independently.
+There are two measured-cost unit partitions and two browser/layout partitions,
+with full coverage assertions and original per-browser file concurrency bounds.
+A complete unit selection already includes cheap invariants, so CI does not run
+that subset twice. No independent test/type job waits for packaging. The final
+`proof` gate examines every selected job: success is required; missing output,
+failure, cancellation and unexpected skips cannot pass. Only explicit planner
+exclusions permit skips. Exhaustive scheduled/manual runs detect selection drift
+and remain supplementary to affected pre-merge proof.
 
-## Full proof remains local
+Retain actual tested head/base/checkout identities, commands, attempts and
+artifacts. Inspect new main commits before refreshing. Unrelated advancement
+alone does not demand a rebase or repeat long suites. Reuse is justified only
+when the complete suite inputs, dependency closure, fixtures and harness are
+unchanged and recorded evidence establishes that fact; unknown/global changes
+require fresh proof. There is no generic passing-result cache. The earlier run
+still names its own tree, not a later combined checkout. Required branch rules
+and actual merge-result parent/tree validation remain binding.
 
-Before creating or marking a PR ready, run `bun run check:pr --base origin/main`.
-Its planner includes committed, staged, unstaged and untracked changes. Code and
-tooling changes run the complete default unit/integration/runtime suite. Affected
-UI work also runs every pinned browser project and every layout/offline/endurance
-test. Capture inputs require editorial provenance/reproducibility verification.
-Relevant runtime work keeps the production Claude probes and shared-process
-cleanup control, plus native delegation, capability and Haiku probes with their
-measurement-isolation tests; real Chrome and permitted offline namespaces are
-prerequisites.
-Shipped changes retain the complete packed consumer checks. Logs and artifacts
-remain available locally, and the PR records commands, outcomes and head/base.
+## Measuring the critical path
 
-Existing test files, discovery, browser permutations, real deadlines and
-measurement scripts remain intact. A shorter automatic list does not establish
-the guarantees of excluded tests. Missing prerequisites, skips and failed local
-checks leave verification unfinished. Revalidate affected proof when code,
-dependencies, harness or a relevant base changes. Inspect missing main commits
-before refreshing; unrelated advancement is recorded without rebasing or
-restarting suites. Retain actual tested head/base and existing branch rules.
-A green automatic run cannot replace
-that proof.
+Record queue wait, job elapsed times, ready-to-merge duration, cancelled attempt
+time and repeated work after base advancement. Historical Depot samples (198
+terminal workflows, 43% cancellation consumption, median successful 21-minute
+elapsed/93-minute summed time) explain the former policy; they are not hosted
+GitHub benchmarks. Measure the new pinned runner before changing shard counts,
+browser file concurrency or test deadlines. Free runner minutes do not remove
+account concurrency limits. Preserve diagnostic reports and failure images,
+with bounded artifact retention. Fix flaky behavior; never rerun a real failure
+or shorten its assertion merely to obtain green.
 
-## Alternatives
+The repository is user-owned, so native GitHub merge queues are unavailable.
+Do not invent a queue or require ownership migration as part of this change.
+The existing matching-head merge plus relevance assessment remains in use.
 
-More shards shorten feedback but duplicate setup and do not remove work. Larger
-runners charge more and cannot shorten a real ten-minute recording boundary.
-Dependency installs took only a few seconds in the inspected run; caching them
-does not address the dominant cost. Dropping tests entirely loses guarantees.
-Keeping automatic exhaustive UI matrices spends minutes on unrelated changes.
-The selected policy preserves those assertions while moving execution to the
-checkout where the PR is prepared.
+## Historical measurement and upstream guidance
 
-## Measurement and upstream guidance
+The following guidance records the paid-provider investigation which motivated
+#1305. Its recommendations to keep idle/browser work local and serialize shorter
+jobs are superseded above; its measurements and isolation cautions retain their
+historical context.
+
 
 Depot [bills by the second, weighted by sandbox size](https://depot.dev/docs/ci/overview).
 Compare the sum of `elapsed seconds × plan-minutes multiplier` across every
