@@ -18,15 +18,29 @@ export interface PhysicalCall {
   cost: { lowerUsd: number; upperUsd: number } | null;
   requestedTier: "standard_only"; requestedGeo: "global"; servedModel: string | null;
   returnedTier: unknown; returnedGeo: unknown; error: string | null; headers: Record<string, string>; freezeCheckMs: number; reservedUpperUsd: number;
+  requestBytes: number; inputTokenUpperBound: number; outputTokenUpperBound: number;
+  chargeDebitUpperUsd: number | null; retainedReservationUpperUsd: number; actualInvoiceUsd: null;
 }
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+// Sonnet5.5's documented supported context, not a byte/token estimate:
+// https://platform.claude.com/docs/en/models/sonnet-5-5/overview
+// These conservative rates cover this frozen Standard/global, text-only baseline.
+const INPUT_TOKEN_UPPER = 1_000_000;
+const INPUT_USD_PER_MILLION_UPPER = 8;
+const OUTPUT_USD_PER_MILLION_UPPER = 20;
 /** Independently official raw-usage pricing; incomplete TTL is a bounded interval. */
 export function priceUsage(u: any): PhysicalCall["cost"] {
   if (!u || ![u.input_tokens, u.output_tokens, u.cache_read_input_tokens, u.cache_creation_input_tokens].every(count)) return null;
+  if (u.cache_creation != null && (typeof u.cache_creation !== "object" || Array.isArray(u.cache_creation))) return null;
   const base = (u.input_tokens * 2 + u.output_tokens * 10 + u.cache_read_input_tokens * .2) / 1e6;
   const write = u.cache_creation_input_tokens;
-  if (!write) return { lowerUsd: base, upperUsd: base };
   const short = u.cache_creation?.ephemeral_5m_input_tokens, long = u.cache_creation?.ephemeral_1h_input_tokens;
+  // Missing TTL permits the documented interval; malformed or contradictory
+  // supplied counters cannot settle a reservation.
+  if ((short !== undefined && (!count(short) || short > write)) ||
+    (long !== undefined && (!count(long) || long > write)) ||
+    (count(short) && count(long) && short + long !== write)) return null;
+  if (!write) return { lowerUsd: base, upperUsd: base };
   if (count(short) && count(long) && short + long === write) {
     const exact = base + (short * 2.5 + long * 4) / 1e6; return { lowerUsd: exact, upperUsd: exact };
   }
@@ -34,16 +48,23 @@ export function priceUsage(u: any): PhysicalCall["cost"] {
 }
 export class Spend {
   usedUpper = 0; stopped = false; unknownCostAttempts = 0;
+  reservedUpperUsd = 0; knownChargeDebitUpperUsd = 0;
   get aggregateUpperUsd() { return this.unknownCostAttempts ? null : this.usedUpper; }
   constructor(readonly cap: number, readonly calls: PhysicalCall[], readonly save: () => void) {
     if (!Number.isFinite(cap) || cap <= 0 || cap > 15) throw Error("Invalid actual-charge allowance");
   }
   admit(maximum: number) {
-    if (this.stopped || !Number.isFinite(maximum) || maximum <= 0 || this.usedUpper + maximum > this.cap) throw Error("Budget/unknown-usage stop before physical dispatch");
+    if (this.stopped || this.reservedUpperUsd > 0 || !Number.isFinite(maximum) || maximum <= 0 || this.knownChargeDebitUpperUsd + maximum > this.cap) throw Error("Budget/unknown-usage stop before physical dispatch");
+    this.reservedUpperUsd = maximum;
   }
   settle(call: PhysicalCall) {
-    if (call.cost) this.usedUpper += call.cost.upperUsd; else { this.stopped = true; this.unknownCostAttempts++; }
-    if (call.outcome !== "answered") this.stopped = true;
+    if (call.cost) this.usedUpper += call.cost.upperUsd;
+    if (call.outcome === "answered" && call.cost && call.chargeDebitUpperUsd !== null &&
+      Number.isFinite(call.chargeDebitUpperUsd) && call.chargeDebitUpperUsd >= 0 && call.chargeDebitUpperUsd <= this.reservedUpperUsd) {
+      this.knownChargeDebitUpperUsd += call.chargeDebitUpperUsd;
+      this.reservedUpperUsd = 0;
+    } else { this.stopped = true; this.unknownCostAttempts++; }
+    call.retainedReservationUpperUsd = this.reservedUpperUsd;
     this.save();
   }
 }
@@ -67,9 +88,11 @@ export function completion(spend: Spend, fixture: string, repetition: number, ke
       if (request.model !== MODEL || request.max_tokens !== 2000 || request.messages?.length !== 1 || request.messages[0]?.content?.length !== 1 || request.messages[0].content[0]?.type !== "text") { spend.stopped = true; throw Error("Shipped provider request differs from frozen baseline"); }
       // Only explicit billing route selectors are added to the real provider body.
       const body = JSON.stringify({ ...request, service_tier: "standard_only", inference_geo: "global" });
-      const reservedUpperUsd = (Buffer.byteLength(body) + 2048) * 4 / 1e6 + request.max_tokens * 10 / 1e6;
+      const reservedUpperUsd = (INPUT_TOKEN_UPPER * INPUT_USD_PER_MILLION_UPPER + request.max_tokens * OUTPUT_USD_PER_MILLION_UPPER) / 1e6;
       try { spend.admit(reservedUpperUsd); } catch (error) { spend.stopped = true; throw error; }
-      const call: PhysicalCall = { fixture, repetition, request: JSON.parse(body), response: null, status: null, outcome: "pending", elapsedMs: 0, cost: null, requestedTier: "standard_only", requestedGeo: "global", servedModel: null, returnedTier: null, returnedGeo: null, error: null, headers: {}, freezeCheckMs, reservedUpperUsd };
+      const call: PhysicalCall = { fixture, repetition, request: JSON.parse(body), response: null, status: null, outcome: "pending", elapsedMs: 0, cost: null, requestedTier: "standard_only", requestedGeo: "global", servedModel: null, returnedTier: null, returnedGeo: null, error: null, headers: {}, freezeCheckMs, reservedUpperUsd,
+        requestBytes: Buffer.byteLength(body), inputTokenUpperBound: INPUT_TOKEN_UPPER, outputTokenUpperBound: request.max_tokens,
+        chargeDebitUpperUsd: null, retainedReservationUpperUsd: reservedUpperUsd, actualInvoiceUsd: null };
       spend.calls.push(call); spend.save();
       const started = performance.now();
       try {
@@ -83,6 +106,13 @@ export function completion(spend: Spend, fixture: string, repetition: number, ke
         if (response.ok && j.model !== MODEL) { call.cost = null; call.outcome = "unapproved_model"; throw Error("Unapproved served model"); }
         if ((call.returnedTier !== null && call.returnedTier !== "standard") || (call.returnedGeo !== null && call.returnedGeo !== "global")) { call.cost = null; call.outcome = "unexpected_rate_metadata"; throw Error("Returned billing tier/geography differs from requested bounded route"); }
         if (response.ok && !call.cost) { call.outcome = "unknown_usage"; throw Error("Raw usage missing or invalid"); }
+        if (call.cost) {
+          const inputTotal = j.usage.input_tokens + j.usage.cache_read_input_tokens + j.usage.cache_creation_input_tokens;
+          if (!count(inputTotal) || inputTotal > call.inputTokenUpperBound || j.usage.output_tokens > call.outputTokenUpperBound) {
+            call.cost = null; call.outcome = "over_bound_usage"; throw Error("Raw usage exceeds admitted input/output bounds");
+          }
+          call.chargeDebitUpperUsd = (inputTotal * INPUT_USD_PER_MILLION_UPPER + j.usage.output_tokens * OUTPUT_USD_PER_MILLION_UPPER) / 1e6;
+        }
         // The shipped provider returns text on max_tokens as well as end_turn.
         // Retain that native behavior and record raw stop_reason; never silently
         // upgrade the baseline by requesting more output or adding instructions.
@@ -176,6 +206,8 @@ async function main() {
         } finally { p.close(); }
       }
     }
-  } finally { writeFileSync(join(out, "billing.json"), JSON.stringify({ reservationUsd: cap, usageDerivedStandardCostUpperUsd: spend.aggregateUpperUsd, knownUsageDerivedStandardCostUpperSubtotalUsd: spend.usedUpper, unknownCostAttempts: spend.unknownCostAttempts, missingUsageStop: spend.stopped, actualInvoice: "not supplied", physicalAttempts: calls.length }, null, 2), { mode: 0o600 }); save(); }
+  } finally { writeFileSync(join(out, "billing.json"), JSON.stringify({ reservationUsd: cap, usageDerivedStandardCostUpperUsd: spend.aggregateUpperUsd, knownUsageDerivedStandardCostUpperSubtotalUsd: spend.usedUpper,
+    conservativeKnownChargeDebitUpperUsd: spend.knownChargeDebitUpperUsd, retainedReservationUpperUsd: spend.reservedUpperUsd,
+    unknownCostAttempts: spend.unknownCostAttempts, missingUsageStop: spend.stopped, actualInvoiceUsd: null, actualInvoice: "not supplied", physicalAttempts: calls.length }, null, 2), { mode: 0o600 }); save(); }
 }
 if (import.meta.main) await main();
