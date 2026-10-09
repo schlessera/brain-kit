@@ -1,78 +1,92 @@
-# Private tag alias investigation
+# Tag alias investigation (#844)
 
-This harness compares lexical tag variants, a scoped current-agent judgment and
-Jev same-concept proposals. It changes no production detector, vocabulary or tag
-writer. Its corpus and semantic labels are author-provisional; scripted control
-agreement is not model quality, a calibration result or an adoption decision.
+A spike harness for one question: does a Jev same-concept judgment over
+code-generated candidate tag pairs find true aliases that lexical variant
+detection misses, without merging related, hierarchical or homonymous tags?
+It changes no production detector, vocabulary or tag writer, and nothing in
+it has been run against a paid model yet. Everything below is keyless.
 
-The current judgment reads the installed `audit` skill. Its tag-noise disposition
-normally normalizes clear duplicates directly. The private comparison explicitly
-requests report-only proposals and performs no other audit phases. The actual
-keyless audit contributes an aggregate singleton-tag finding, not semantic pair
-labels. There is no `audit-tags` skill. This scoped comparison does not represent
-a complete ordinary audit sweep.
+## Arms
 
-The corpus has eight Ogygia tuning cases and thirteen Ithaca/Pylos/Sparta held-out
-cases. Entity and location distinctions still share a small authored template
-family and world. It distinguishes synonyms from related/hierarchical concepts,
-homonyms, acronyms, sparse unknowns, negation and quoted instructions, with a
-known candidate miss. Every case stays in the denominator. Threshold selection
-uses only tuning labels; missing calibration admits no hybrid proposal. Selected
-same-concept probability and derived confidence both meet the calibrated floor.
+| Arm | What it is | Status |
+| --- | --- | --- |
+| lexical | `findVariantGroups` treated as an alias proposal. This is what ships today. | Measured keyless (`scripts/evals/tag-aliases/keyless.ts`). |
+| current | The installed `audit` skill's tag-noise judgment, run by the real core Claude runner in report-only mode (`native.ts`, `current.ts`). | Transport proven offline against a scripted upstream; never run live. |
+| hybrid | Code-owned candidates (`candidates` in `prototype.ts`) judged by the core Jev Choice client (`jev.ts`), admitted by `proposal` only above a threshold frozen on the tuning split. | Client proven against injected transport; never run live. |
 
-Candidate contexts sample at most three complete document bodies per tag. An
-explicit alias review must instead bind every complete current usage file and
-its full source/configuration snapshot. Classifier state contains actual tags
-and contexts, without case labels or expected effects. Current native proposals
-also require actual source/target usage, configured vocabulary and representative
-paths. Neither a probability nor a native proposal creates review authority.
+All three start from the same disposable keyless index. A proposal is
+report-only in every arm; `applyReviewed` writes only after an explicit review
+that binds every current usage file and the full config snapshot, then calls
+the shipped conditional writer. Chains, cycles, conflicting aliases, replay and
+concurrent edits keep the writer's existing behaviour (`tests/tag-alias-experiment.test.ts`).
 
-The private JSON-fixture application preserves the complete configuration,
-custom types, exclusions and existing aliases, reloads it and uses the shipped
-conditional writer. Existing chains, cycles, conflicting aliases, replay and
-concurrent edits retain their separate outcomes. This does not implement a
-TypeScript config editor, atomic multi-file migration or crash recovery. The
-provisional positive effect maps include every authored file and the complete
-configuration; without an independent explicit review all bytes remain unchanged.
+## Corpus
 
-Whole fixture snapshots record regular binary bytes, member sets, modes,
-mtime nanoseconds and symlink targets, refusing external links. Inspection and
-validation may change no fixture member. These boundary observations do not
-prove containment or absence of transient writes restored between observations.
+`fixtures.ts` holds 23 author-provisional Odysseus pairs: ten Ogygia tuning
+cases (4 same, 5 different, 1 unknown) and thirteen Ithaca/Pylos/Sparta
+held-out cases (5 same, 7 different, 1 unknown). Both splits contain spelling,
+synonym, acronym, hierarchy, related, homonym and sparse cases; held-out adds
+an acronym collision, negation, a quoted injection and one synonym whose two
+contexts share no vocabulary (the known candidate miss). No positive pair has
+byte-identical contexts, so a judge cannot recover the label by comparing the
+two bodies for equality; a test enforces that.
 
-Native controls use the actual core runner and pinned SDK 0.3.293/native 2.1.293 under an
-isolated networkless namespace with bogus credentials. The disposable index and
-actual audit are built keylessly before the turn. The baseline permission mode
-is preserved. Live scoring refuses until the native auto-classifier auxiliary
-transport and whole-task accounting are verified; see
-[#1275](https://github.com/schlessera/brain-kit/issues/1275).
+Known limitations: every body is a single sentence, every case is its own
+two-document brain, and the splits share one authored grammar. Candidate-stage
+behaviour on these fixtures therefore does not predict behaviour on real
+documents, and the labels still need the cross-family review the epic
+requires before a paid run. Record that review as the reviewer model, verdict
+and the SHA-256 of `fixtures.ts` on the issue.
 
-Private physical receipts capture literal requests and response chunks before
-decoding or forwarding. Complete EOF differs from partial cancellation, network
-failure and owned shutdown. Missing aggregate cache counters prevent a known
-price claim; missing cache TTL detail yields an interval. Native exit, stdout and
-stderr closure are observed independently. An inactive reported overage flag is
-route evidence, not an invoice; billing amounts remain unknown without evidence.
+## Keyless results
 
-The freeze binds source files, workspace source trees, installed dependency bytes
-and link targets, source/workspace/dependency modes, native/Bun identities,
-protocol, full fictional inputs and
-separate expected effects. Installed dependency inodes with more hardlinks than
-actual regular-file occurrences inside the owned dependency tree are refused.
-Review packet admission rebuilds exact payload hashes;
-a receipt from another payload at the same freeze cannot substitute. Admission
-requires the collected execution kind, exact runtime identity, literal native
-input/output, physical request/response bytes, subscription/settings handshake,
-usage, inactive reported overage, EOF and actual child closure. Offline scripted
-receipts and injected live transports are refused; approval flags alone supply
-no semantic evidence. The artifact verifier is not an invoice or a cryptographic
-proof against a dishonest artifact owner. Every
-complete case subset and its shared sources requires complementary review before
-any measured comparison. Input approval alone grants neither live admission nor
-alias application.
+From `bun scripts/evals/tag-aliases/keyless.ts` at this revision:
 
-With Bun 1.4.2 and the pinned native pair installed, reproduce the keyless native
-controls in a fresh dedicated output parent:
+| Split | Positives | Candidate recall | Lexical recall | Lexical false merges |
+| --- | --- | --- | --- | --- |
+| tuning | 4 | 4/4 | 1/4 | 1 (`rowing`/`roving`) |
+| held-out | 5 | 4/5 (misses `night-watch`/`guard-shift`) | 1/5 | 1 (`hosting`/`hoisting`) |
+
+Lexical detection finds only the spelling variants and treats near-spellings
+of unrelated words as aliases; that is the baseline the hybrid has to beat.
+
+Candidate volume on the real example corpus (`packages/core/fixtures/corpus`,
+45 tags, 24 documents, 990 possible pairs): the any-shared-word rule admits
+959 pairs, so the 128-pair cap, not the rule, bounds the work. Co-occurrence
+alone admits 74 pairs; a Jaccard overlap of at least 0.15 admits 129. At the
+cap, one full run is 128 pairs x 2 orientations x 3 repetitions = 768 Jev
+calls for a 45-tag brain. The candidate rule is the open design problem the
+issue calls "minimal candidate/context strategy"; the report records the
+per-rule breakdown and the lowest admitted overlap so a stricter rule can be
+compared against the same fixtures.
+
+The earlier "hybrid" column in this report was scripted from the gold labels
+and has been removed: it restated candidate recall as model recall.
+
+## Metrics and gates
+
+`metrics.ts` aggregates per case. Repetitions of one pair vote; a pair whose
+repetitions disagree is listed as unstable rather than counted three times.
+Candidate misses stay in the denominator. `calibrate` scans
+.7/.8/.9/.95/1 on tuning only and returns the lowest threshold with at least
+one true proposal and no false one; a missing threshold admits nothing.
+
+`gates` in `protocol.ts` records the proposed go/no-go before any live run: zero
+held-out false merges, hybrid recall at least two cases above lexical, no
+unstable proposal, one cited document per tag, and a cost ceiling the
+maintainer sets. The gates are not moved after measuring.
+
+## Live run (not yet performed)
+
+`native.ts` and `jev.ts` retain literal request and response bytes, usage,
+model identity, EOF and child closure for every physical call; `relay.ts` is
+the loopback tee for the native arm; `freeze.ts` binds source, runtime and
+fixture identity. `review-packet.ts` and `review-evidence.ts` implement the
+cross-family review admission. Live dispatch refuses until the native
+auxiliary accounting prerequisite ([#1275](https://github.com/schlessera/brain-kit/issues/1275))
+is verified and `BRAIN_TAG_ALIAS_DISPATCH` is set explicitly.
+
+Reproduce the keyless native transport controls in a networkless namespace:
 
 ```sh
 python3 scripts/evals/tag-aliases/launch.py read /tmp/tag-alias-controls/read.json
@@ -81,7 +95,5 @@ python3 scripts/evals/tag-aliases/launch.py write-denial /tmp/tag-alias-controls
 python3 scripts/evals/tag-aliases/launch.py review /tmp/tag-alias-controls/review.json
 ```
 
-The last command is a scripted no-tools transport control, not independent
-semantic approval. The private collectors report no measured recommendation
-without complete comparable arms, all physical attempts, reviewer effort,
-per-size costs/latencies and held-out quality evidence.
+These prove the transport and the report-only tool policy; they prove nothing
+about model quality.
