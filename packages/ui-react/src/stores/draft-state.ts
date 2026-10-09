@@ -56,6 +56,10 @@ export interface ComposerDraft {
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
+  /** @internal A committed device adoption fences older host operations. */
+  deviceEpoch?: number;
+  /** @internal A device-local keep-both branch; its other version stays reachable. */
+  deviceConflict?: { otherId: string; sessionId: string | null };
   /** Bumped by every change to the content. */
   edit: number;
   host: DraftHostCopy | null;
@@ -120,6 +124,8 @@ export interface LocalDraft {
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
+  /** @internal A device-local keep-both branch; its other version stays reachable. */
+  deviceConflict?: { otherId: string; sessionId: string | null };
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
 }
 
@@ -144,6 +150,8 @@ export interface DraftStoreState {
   resolveTarget(draftId: string, sessionId: string | null): { draftId: string; sessionId: string | null };
   /** The first id of a draft's line of rotations: what its staged tracks are kept under. */
   originOf(draftId: string): string;
+  /** @internal The editable target of an immutable send snapshot. */
+  sendDraftId(requestId: string): string | undefined;
   /** The root is going: previews no transcript message owns are released. */
   release(): void;
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
@@ -181,6 +189,15 @@ export interface DraftStoreState {
   /** Send again under a new request id; returns the message to send, or null. */
   resend(requestId: string, nextRequestId: string): DraftSend | null;
   setChecked(requestId: string, checked: DraftSend["checked"], reason?: string): void;
+
+  /** @internal Retarget this tab after a committed device-local fork. */
+  keepDeviceBranch(sourceId: string, branchId: string, other: LocalDraft | null, sessionId: string | null, preserveOther?: boolean): void;
+  /** @internal Adopt a committed owner without changing this tab's selected view. */
+  adoptDeviceRecord(kept: LocalDraft): void;
+  /** @internal Restore this tab's association without binding the branch to a session. */
+  showDeviceBranch(sessionId: string, draftId: string): void;
+  /** @internal Explicitly open the other retained version. */
+  openDeviceVersion(draftId: string, kept?: LocalDraft): void;
 
   // The draft client's reports.
   setSupport(supported: boolean, limits?: SessionDraftLimits): void;
@@ -270,16 +287,25 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
   /** The session a forgotten draft belonged to: late work on its id goes to that session's draft. */
   const retired = new Map<string, string>();
   const origins = new Map<string, string>();
+  const deviceViews = new Map<string, string>();
+  const deviceRedirects = new Map<string, string>();
+  const sendTargets = new Map<string, string>();
 
   return createStore<DraftStoreState>((set, get) => {
     function follow(draftId: string): { id: string; owner: string | null } {
       let id = draftId;
-      for (let i = 0; i < 32 && successors.has(id); i++) id = successors.get(id)!;
+      const visited = new Set<string>();
+      // Legitimate continuations have no length limit; only a cycle stops us.
+      while (!visited.has(id) && (successors.has(id) || deviceRedirects.has(id))) {
+        visited.add(id);
+        id = deviceRedirects.get(id) ?? successors.get(id)!;
+      }
       const owner = retired.get(id) ?? null;
       if (owner !== null && !get().drafts[id]) return { id: get().idFor(owner), owner };
       return { id, owner: null };
     }
     const resolve = (draftId: string): string => follow(draftId).id;
+    const sendTarget = (send: DraftSend) => resolve(sendTargets.get(send.requestId) ?? send.draftId);
     const resolveTarget = (requested: string, requestedSession: string | null) => {
       const { id, owner } = follow(requested);
       const current = get().drafts[id];
@@ -287,7 +313,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     };
 
     function held(draftId: string, sends = get().sends): boolean {
-      return Object.values(sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
+      return Object.values(sends).some((s) => (s.draftId === draftId || sendTarget(s) === draftId) && (s.state === "pending" || s.state === "unconfirmed"));
     }
 
     function release(attachments: readonly PendingAttachment[], kept: readonly PendingAttachment[]) {
@@ -295,6 +321,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     }
 
     function put(draft: ComposerDraft) {
+      if (draft.deviceConflict && draft.sessionId !== null) {
+        // A retained Draft explicitly sent as a new conversation now owns
+        // that session. The original session goes back to its own version.
+        for (const [session, branch] of deviceViews) if (resolve(branch) === draft.draftId) deviceViews.delete(session);
+        successors.delete(draft.deviceConflict.otherId);
+        deviceRedirects.delete(draft.deviceConflict.otherId);
+      }
       set((state) => ({
         drafts: { ...state.drafts, [draft.draftId]: draft },
         // The new-chat view never shares a draft with a session: one that
@@ -320,12 +353,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function settle(draftId: string) {
       const d = get().drafts[draftId];
       // A save still out may yet be acknowledged: then the host has a revision to delete.
-      if (d && !hasContent(d) && d.host === null && d.conflict === null && d.savingSince === null && !d.uncertain && !held(draftId)) drop(draftId);
+      if (d && !hasContent(d) && d.host === null && d.conflict === null && !d.deviceConflict && d.savingSince === null && !d.uncertain && !held(draftId)) drop(draftId);
     }
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly };
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -347,6 +380,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       const settled = Object.values(sends).filter((s) => s.state === "accepted" || s.state === "refused");
       if (settled.length <= SETTLED_SENDS_KEPT) return sends;
       const drop = new Set(settled.sort((a, b) => a.sentAt - b.sentAt).slice(0, settled.length - SETTLED_SENDS_KEPT).map((s) => s.requestId));
+      for (const id of drop) sendTargets.delete(id);
       return Object.fromEntries(Object.entries(sends).filter(([id]) => !drop.has(id)));
     }
 
@@ -358,7 +392,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     function giveBack(send: DraftSend, owned: boolean, settleSend: (sends: Record<string, DraftSend>) => Record<string, DraftSend>) {
       if (owned) for (const a of send.attachments) transferred.delete(a.previewUrl);
       const state = get();
-      const d = state.drafts[send.draftId]
+      const d = state.drafts[sendTarget(send)]
         ?? (send.sessionId ? state.drafts[state.idFor(send.sessionId)] : undefined)
         ?? blank(send.draftId, send.sessionId, now());
       const text = d.text ? (send.text ? `${send.text}\n${d.text}` : d.text) : send.text;
@@ -375,6 +409,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
     const without = (requestId: string) => (sends: Record<string, DraftSend>) => {
       const next = { ...sends };
       delete next[requestId];
+      sendTargets.delete(requestId);
       return next;
     };
 
@@ -389,6 +424,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       idFor(sessionId) {
         const state = get();
         if (sessionId === null) return state.fresh;
+        const branch = deviceViews.get(sessionId);
+        if (branch && state.drafts[resolve(branch)]?.sessionId === null) return resolve(branch);
+        if (branch) deviceViews.delete(sessionId);
         let best: ComposerDraft | undefined;
         for (const d of Object.values(state.drafts)) {
           if (d.sessionId === sessionId && (!best || d.editedAt > best.editedAt)) best = d;
@@ -402,12 +440,13 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       resolveId: resolve,
       resolveTarget,
       originOf: (draftId) => origins.get(draftId) ?? draftId,
+      sendDraftId: requestId => { const send = get().sends[requestId]; return send ? sendTarget(send) : undefined; },
 
       release() {
         for (const d of Object.values(get().drafts)) release(d.attachments, []);
         // A held send's rows left the transcript: its snapshot alone owns its previews.
         for (const s of Object.values(get().sends)) if (s.state === "unconfirmed") for (const a of s.attachments) revoke(a.previewUrl);
-        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear();
+        minted.clear(); transferred.clear(); consumed.clear(); successors.clear(); retired.clear(); origins.clear(); deviceViews.clear(); deviceRedirects.clear(); sendTargets.clear();
       },
 
       edit(requested, requestedSession, patch) {
@@ -433,6 +472,12 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
       openUnbound(draftId) {
+        // An explicit Draft choice names an existing retained version, not
+        // the continuation alias used by late work from its old composer.
+        if (get().drafts[draftId]?.sessionId === null) {
+          get().openDeviceVersion(draftId);
+          return;
+        }
         // A new chat holding only staged tracks has no stored draft (#1112):
         // its view opens under the id its work lives under now, never a
         // session's.
@@ -446,7 +491,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           const state = get();
           if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
           // An emptied draft comes back only while its deletion is owed to the host.
-          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean)) continue;
+          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean) && !k.deviceConflict) continue;
           // A session whose draft this page already holds keeps that one.
           if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
           // An id handed to the session before this arrived goes to it, as in
@@ -457,7 +502,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           }
           const edit = 1;
           put({
-            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true,
+            ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true, deviceConflict: k.deviceConflict,
             text: k.text,
             attachments: k.attachments,
             edit,
@@ -465,6 +510,66 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
           });
         }
+      },
+
+      keepDeviceBranch(sourceId, branchId, other, sessionId, preserveOther = false) {
+        const state = get();
+        // Take the live content, including edits made while the transaction
+        // was open. Immutable sends keep their original ids and snapshots.
+        const followed = follow(sourceId).id;
+        // The retained original may itself change while this tab continues
+        // another branch. Its direct content is a separate incoming version.
+        const liveId = state.drafts[sourceId] ? sourceId : followed;
+        const live = state.drafts[liveId] ?? blank(sourceId, sessionId, now());
+        const viewSession = live.sessionId ?? sessionId;
+        const viewed = viewSession !== null && (state.idFor(viewSession) === liveId || (followed === liveId && !hasContent(state.drafts[state.idFor(viewSession)])));
+        const branch: ComposerDraft = { ...live, draftId: branchId, sessionId: null, host: null, uploads: new Map(), bind: null, conflict: null, savingSince: null, uncertain: false, deviceConflict: { otherId: other?.draftId ?? sourceId, sessionId: viewSession } };
+        // Navigation redirects can be removed when the reader opens the
+        // original. Pending sends keep a separate editable-target binding.
+        for (const send of Object.values(state.sends)) if (sendTarget(send) === liveId) sendTargets.set(send.requestId, branchId);
+        if (followed === liveId) {
+          deviceRedirects.set(sourceId, branchId);
+          if (liveId !== sourceId) deviceRedirects.set(liveId, branchId);
+        }
+        origins.set(branchId, origins.get(sourceId) ?? sourceId);
+        // An unbound incoming view keeps its staged queue. The restored
+        // original has no files staged in this tab and owns a separate queue.
+        if (other?.sessionId === null && (!preserveOther || other.draftId === sourceId || other.draftId === liveId)) origins.set(other.draftId, mintDraftId());
+        if (viewSession !== null && viewed) deviceViews.set(viewSession, branchId);
+        set(s => {
+          const drafts = { ...s.drafts, [branchId]: branch };
+          delete drafts[sourceId];
+          delete drafts[liveId];
+          // A distinct other record can be edited while native commit waits.
+          // The caller keeps its prior expectation until those edits save.
+          if (other && (!preserveOther || !drafts[other.draftId])) {
+            const edit = 1;
+            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
+              host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
+          }
+          return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
+        });
+      },
+      adoptDeviceRecord(kept) {
+        const current = get().drafts[kept.draftId];
+        if (current) release(current.attachments, []);
+        const edit = 1;
+        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
+          host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
+        set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
+      },
+      showDeviceBranch(sessionId, draftId) {
+        if (get().drafts[draftId]?.sessionId !== null) return;
+        deviceViews.set(sessionId, draftId);
+        set(s => ({ drafts: { ...s.drafts } }));
+      },
+      openDeviceVersion(draftId, kept) {
+        if (kept) get().adoptDeviceRecord(kept);
+        successors.delete(draftId);
+        for (const [source, target] of deviceRedirects) if (source === draftId || target === draftId) deviceRedirects.delete(source);
+        for (const [session, branch] of deviceViews) if (branch === draftId || get().drafts[resolve(branch)]?.deviceConflict?.otherId === draftId) deviceViews.delete(session);
+        const d = get().drafts[draftId];
+        set(s => ({ drafts: { ...s.drafts }, ...(d?.sessionId === null ? { fresh: draftId } : {}) }));
       },
 
       beginSend(input, consumedText) {
@@ -496,11 +601,11 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!send || send.state === "accepted" || send.state === "refused") return;
         const acceptedSessionId = sessionId ?? send.sessionId ?? undefined;
         set((s) => ({ sends: { ...s.sends, [requestId]: { ...send, state: "accepted", ...(acceptedSessionId ? { acceptedSessionId } : {}) } } }));
-        const d = get().drafts[send.draftId];
+        const d = get().drafts[sendTarget(send)];
         if (!d) return;
         // An unbound draft's first message named a session: the draft is
         // that session's now, whatever view the reader has moved on to.
-        const session = d.sessionId ?? acceptedSessionId ?? null;
+        const session = d.deviceConflict && send.sessionId !== null ? d.sessionId : d.sessionId ?? acceptedSessionId ?? null;
         const wasConsumed = send.draftRef !== null && send.draftRef.draftId === d.draftId && d.host?.revision === send.draftRef.revision;
         if (wasConsumed && d.savingSince !== null) {
           // A save is out: the host may have stored a newer revision before
@@ -512,7 +617,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         if (wasConsumed) {
           consumed.add(d.draftId);
-          if (!hasContent(d) && !held(d.draftId)) { drop(d.draftId, session); return; }
+          if (!hasContent(d) && !held(d.draftId) && !d.deviceConflict) { drop(d.draftId, session); return; }
           // Edits made after submitting become the next revision, under a
           // new id: the host's row for this one is a tombstone now.
           put({ ...d, sessionId: session });
@@ -552,7 +657,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const send = get().sends[requestId];
         if (!send || send.state !== "unconfirmed") return;
         // A new chat's first message goes back to its own draft, which the new-chat view then shows.
-        if (send.sessionId === null) set({ fresh: send.draftId });
+        const target = sendTarget(send);
+        if (send.sessionId === null) set({ fresh: target });
+        else if (get().drafts[target]?.deviceConflict && get().drafts[target]?.sessionId === null) deviceViews.set(send.sessionId, target);
         giveBack(send, true, without(requestId));
       },
 
@@ -560,7 +667,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const state = get();
         const send = state.sends[requestId];
         if (!send || send.state !== "unconfirmed") return null;
-        const d = state.drafts[send.draftId];
+        const d = state.drafts[sendTarget(send)];
         // The revision is named again only while the host still holds it.
         const draftRef = send.draftRef && send.draftRef.draftId === d?.draftId && d.host?.revision === send.draftRef.revision ? send.draftRef : null;
         const { draftRef: _old, ...message } = send.message;
@@ -572,6 +679,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           state: "pending",
           sentAt: now(),
         };
+        sendTargets.set(nextRequestId, sendTarget(send));
         delete next.reason;
         delete next.checked;
         delete next.checkReason;
@@ -646,6 +754,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         if (!hasContent(d)) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map(), savingSince: null });
+          else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
           return;
         }
@@ -660,13 +769,15 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (!d) return;
         if (!hasContent(d)) {
           if (held(draftId)) put({ ...d, host: null, uploads: new Map() });
+          else if (d.deviceConflict) rotate({ ...d, host: null, uploads: new Map(), savingSince: null }, d.sessionId);
           else drop(draftId);
           return;
         }
         if (d.host && isClean(d) && !held(draftId)) {
           // Deleted or sent on another device, with nothing new here.
           release(d.attachments, []);
-          drop(draftId);
+          if (d.deviceConflict) rotate({ ...d, text: "", attachments: [], host: null, uploads: new Map() }, d.sessionId);
+          else drop(draftId);
           return;
         }
         // Dirty content is never lost. The host's tombstone stops this id
@@ -711,7 +822,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           return;
         }
         release(local.attachments, []);
-        put({ ...fromHost(draft), edit: local.edit + 1, host: hostCopy(draft, local.edit + 1) });
+        put({ ...fromHost(draft), deviceConflict: local.deviceConflict, edit: local.edit + 1, host: hostCopy(draft, local.edit + 1) });
       },
 
       conflictWith(draftId, other, sameId) {
@@ -728,7 +839,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (choice === "other") {
           release(d.attachments, []);
           if (sameId) {
-            put({ ...fromHost(other), edit: d.edit + 1, host: hostCopy(other, d.edit + 1) });
+            put({ ...fromHost(other), deviceConflict: d.deviceConflict, edit: d.edit + 1, host: hostCopy(other, d.edit + 1) });
             return;
           }
           // The other device's draft is this session's draft now; this one goes.

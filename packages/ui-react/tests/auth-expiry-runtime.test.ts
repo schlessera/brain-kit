@@ -225,41 +225,31 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
   async function armHold(page: Page, outcome: "release" | "abort") {
     await page.evaluate((outcome) => {
       const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void } };
-      const transaction = IDBDatabase.prototype.transaction;
       const put = IDBObjectStore.prototype.put;
       const held: IDBTransaction[] = [];
       let done = false;
       w.__hold = { held: 0, puts: 0, finish: () => {} };
-      IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
-        const tx = transaction.apply(this, args);
-        const names = ([] as string[]).concat(args[0] as string | string[]);
-        if (done || args[1] !== "readwrite" || !names.includes("records")) return tx;
-        const store = tx.objectStore("records");
-        // Keep the transaction alive through the native writer-fence read,
-        // whose success callback now queues the actual snapshot writes.
-        // Once those writes appear, hold them until the test releases them.
-        let initialReads = 2;
-        const spin = () => {
-          if (!done && (initialReads-- > 0 || held.includes(tx))) {
-            store.get(["held", "held"]).onsuccess = spin;
-          }
-        };
-        spin();
-        return tx;
-      };
       IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...a: Parameters<IDBObjectStore["put"]>) {
-        const key = a[1];
-        if (Array.isArray(key) && String(key[1]).startsWith("root:")) {
-          if (!held.includes(this.transaction)) held.push(this.transaction);
-          w.__hold.held = held.length;
-        }
         const req = put.apply(this, a);
-        if (held.includes(this.transaction)) req.addEventListener("success", () => { w.__hold.puts++; });
+        const key = a[1];
+        if (this.name === "records" && Array.isArray(key) && String(key[1]).startsWith("root:")) {
+          if (!held.includes(this.transaction)) {
+            held.push(this.transaction);
+            w.__hold.held = held.length;
+            // Start at the actual write's success, regardless of how many
+            // native fence/planner reads preceded it. Each next read keeps
+            // this transaction alive until explicit release or abort.
+            req.addEventListener("success", () => {
+              const spin = () => { if (!done) this.get(key).onsuccess = spin; };
+              spin();
+            });
+          }
+          req.addEventListener("success", () => { w.__hold.puts++; });
+        }
         return req;
       };
       w.__hold.finish = () => {
         done = true;
-        IDBDatabase.prototype.transaction = transaction;
         IDBObjectStore.prototype.put = put;
         if (outcome === "abort") for (const tx of held) tx.abort();
       };

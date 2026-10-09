@@ -15,6 +15,7 @@ import type { DraftConflictChoice } from "../../stores/draft-state.js";
  * Content is kept here in every state.
  */
 export function DraftSaveLine({ draftId }: { draftId: string }) {
+  const root = useBrainUiRoot();
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
   const supported = useRootStore("drafts", (s) => s.supported);
   const limits = useRootStore("drafts", (s) => s.limits);
@@ -36,6 +37,43 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   const tone = view.state === "saved" ? "text-accent"
     : view.state === "conflict" || view.state === "too_large" || view.state === "full" || view.state === "unsaved" ? "text-primary"
     : "text-muted-foreground";
+  if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
+    <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
+      <span role="status">Another tab changed this draft · Both versions kept</span>
+      <button type="button" className="min-h-11 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => {
+        const otherId = draft.deviceConflict!.otherId;
+        const controller = new AbortController();
+        // This action may wait for native storage. A later navigation owns
+        // the view, including New conversation while already in a new chat.
+        const unwatch = [
+          root.stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) controller.abort(); }),
+          root.stores.drafts.subscribe((s, prev) => {
+            if (s.fresh === prev.fresh || s.fresh === otherId) return;
+            const continued = s.drafts[s.fresh]?.deviceConflict && s.resolveId(prev.fresh) === s.fresh;
+            if (!continued) controller.abort();
+          }),
+          root.stores.ui.subscribe((s, prev) => {
+            const navigation = ["activeView", "sessionPanelOpen", "syncPanelOpen", "whatsupPanelOpen", "searchPanelOpen", "addPanelOpen", "filePanelOpen", "settingsPanelOpen", "subagentStack", "destinationPress", "panelPress", "sessionsPaneFocus"] as const;
+            if (navigation.some(key => s[key] !== prev[key])) controller.abort();
+          }),
+          root.stores.connection.subscribe((s, prev) => { if (s.accountKey !== prev.accountKey) controller.abort(); }),
+        ];
+        const open = async () => {
+          if (root.localWork) await root.localWork.openDeviceVersion(otherId, controller.signal);
+          else root.stores.drafts.getState().openDeviceVersion(otherId);
+          if (controller.signal.aborted) return;
+          unwatch.forEach(stop => stop());
+          const other = root.stores.drafts.getState().drafts[otherId];
+          const sessionId = other?.sessionId ?? null;
+          const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
+          root.stores.chat.getState().setActiveSession(sessionId);
+          if (sessionId !== null && changedSession) root.connection.send({ type: "session_resume", sessionId });
+          root.stores.ui.getState().setActiveView("chat");
+        };
+        void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ }).finally(() => { unwatch.forEach(stop => stop()); });
+      }}>Open other version</button>
+    </div>
+  );
   if (view.state === "none") {
     // Absent, with no spacer, while there is no draft. A draft whose save is
     // still on its way prints nothing too, but keeps the line's place, so a

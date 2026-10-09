@@ -165,7 +165,7 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
             else { result.recordings++; if (row.transcript !== undefined) result.transcripts++; result.bytes += typeof row.bytes === "number" ? row.bytes : 0; }
           }
           if (key.includes("/draft/") && row.draftId && (row.text?.trim() || row.attachments?.length)) ids.add(row.draftId);
-          if (key.endsWith("/context") && row.reviewText?.trim()) result.review = true;
+          if ((key.endsWith("/context") || key.includes("/context/")) && row.reviewText?.trim()) result.review = true;
         }
       }
       if (root.stores.connection.getState().accountKey !== account || root.authLock.epoch() !== epoch) throw new Error("Sign-in changed. Sign in again before signing out.");

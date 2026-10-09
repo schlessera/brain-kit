@@ -146,7 +146,7 @@ Reconnection, reload and sign-in do not upload or retry audio. Status recovery
 uses read-only queries; an explicit earlier accept/discard may also flush its
 queued receipt deletion. Missing status after a lost reply is not proof that
 nothing was sent (`async syncTranscriptions`,
-`packages/ui-react/src/lib/recordings.ts:753-801`). The transcript commits locally
+`packages/ui-react/src/lib/recordings.ts:758-806`). The transcript commits locally
 before review. Add to draft commits a hash-bound draft receipt before deleting
 the audio; acceptance stays device-local and resumes ordinary host draft
 workflow only after a subsequent user edit or explicit Send
