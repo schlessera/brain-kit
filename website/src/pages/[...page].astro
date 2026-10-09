@@ -4,6 +4,7 @@ import Page from '../layouts/Page.astro';
 import ExternalLink from '../components/ExternalLink.astro';
 import { publications } from '../../publication.mjs';
 import { href, sourceUrl, docNavigation, documentTitle } from '../../model.mjs';
+import '../styles/docs.css';
 export async function getStaticPaths() {
   const entries = await getCollection('docs');
   return entries.map(entry => ({ params: { page: publications[entry.id] }, props: { entry } }));
@@ -14,10 +15,20 @@ const title = documentTitle(entry.id);
 ---
 <Page title={`${title} — brain-kit`} description={`Canonical brain-kit documentation: ${title}.`}>
   <main id="main" class="docs-layout">
-    <nav class="docs-nav" aria-label="Documentation">
+    <details class="docs-menu" open>
+      <summary class="docs-menu-toggle">Browse documentation<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+      <nav class="docs-nav" aria-label="Documentation">
       <a href={href('docs/')} class="docs-home" aria-current={entry.id === 'docs/README.md' ? 'page' : undefined}>Documentation</a>
-      {docNavigation.filter(group => group.items.length).map(group => <details open={group.title === 'Get started'} data-current={group.items.some(item => item.source === entry.id) || undefined}><summary>{group.title}</summary><ul>{group.items.map(item => <li><a href={href(`${item.route}/`)} aria-current={item.source === entry.id ? 'page' : undefined}>{item.title}</a></li>)}</ul></details>)}
-    </nav>
+      {docNavigation.filter(group => group.items.length).map(group => <details open={group.title === 'Get started' || group.items.some(item => item.source === entry.id)} data-current={group.items.some(item => item.source === entry.id) || undefined}><summary>{group.title}</summary><ul>{group.items.map(item => <li><a href={href(`${item.route}/`)} aria-current={item.source === entry.id ? 'page' : undefined}>{item.title}</a></li>)}</ul></details>)}
+      </nav>
+    </details>
+    <script is:inline>
+      const docsMenu = document.querySelector('.docs-menu');
+      const compactDocs = matchMedia('(max-width: 900px)');
+      function fitDocsNavigation() { docsMenu.open = !compactDocs.matches; }
+      fitDocsNavigation();
+      compactDocs.addEventListener('change', fitDocsNavigation);
+    </script>
     <article class="prose"><Content/><footer class="source-links"><ExternalLink href={sourceUrl(entry.id)} data-source-link>View Markdown source</ExternalLink><ExternalLink href={sourceUrl(entry.id, 'blob', 'main')} data-source-link>Edit on GitHub</ExternalLink></footer></article>
   </main>
 </Page>

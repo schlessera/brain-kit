@@ -106,10 +106,10 @@ components:
     width: "44px"
     height: "44px"
   docs-nav-current:
-    backgroundColor: "{colors.amber}"
-    textColor: "{colors.selected-ink}"
+    backgroundColor: "color-mix(in srgb, {colors.amber} 10%, transparent)"
+    textColor: "inherit"
     rounded: "{rounded.control}"
-    padding: "10px 14px"
+    padding: "10px 14px 10px 26px"
   phone-stage:
     backgroundColor: "{colors.phone-shell}"
     rounded: "{rounded.phone-shell}"
@@ -230,7 +230,7 @@ locally rather than requested from a font service.
 
 Type sources: (`.hero-copy h1`, `website/src/styles/site.css:5-5`),
 (`.answer-passage h2`, `website/src/styles/site.css:16-17`) and
-(`.docs-layout`, `website/src/styles/site.css:19-21`).
+(`.docs-layout`, `website/src/styles/docs.css:1-33`).
 
 ## Layout
 
@@ -248,7 +248,7 @@ multiple for every margin.
 | --- | --- |
 | At least 1400px | Full (1208px) container; opening copy column (621px), (34px) gap and two (261px) phone stages. Opening display is (78px); later headings are (64px). Desktop application retains its (1100:760) aspect ratio. |
 | 901–1399px | Content width becomes `calc(100% - 80px)` with (40px) side gutters. Opening columns use (1.1fr / 1fr), and later paired gaps reduce to (50px). Display scales with `clamp(54px, 5.38vw, 78px)`; lead with `clamp(21px, 1.87vw, 27px)`. Later headings use `clamp(45px, 4.4vw, 64px)`. Phone previews and the desktop iframe scale to fit. |
-| At most 900px | Sections stack in source order with (24px) gutters. Later sections use (64px) vertical padding; section leads become (20px) and later headings (46px). Opening display uses `clamp(40px, 7.8vw, 68px)`. Primary button text becomes (16px) with (12px 20px) padding. Header keeps Docs, GitHub and the theme control; the two same-page links hide. Docs navigation loses stickiness and wraps above its article. |
+| At most 900px | Sections stack in source order with (24px) gutters. Later sections use (64px) vertical padding; section leads become (20px) and later headings (46px). Opening display uses `clamp(40px, 7.8vw, 68px)`. Primary button text becomes (16px) with (12px 20px) padding. Header keeps Docs, GitHub and the theme control; the two same-page links hide. Docs navigation loses stickiness and collapses into a disclosure above the article. |
 | At most 480px | Opening/header gutters become (20px), opening display uses `clamp(37px, 10.5vw, 43px)`, and portrait stages stack. Phone frames fill the available width up to (390px), retain (390:844) proportions and use native unscaled iframe viewports. Expansion controls hide because the product already fills the phone width. |
 | At most 360px | GitHub hides from the header. Phone and capture stages reach the viewport edges; all device bezels and proportional screens remain visible. The desktop iframe scales its (1100:760) composition to fit. The product's bottom navigation stays within its own stage. |
 
@@ -336,8 +336,14 @@ control is a borderless square with a drawn sun and a translucent ink hover
 surface. Its accessible name states the next theme; the selected website
 theme persists when local storage is available.
 
-Docs navigation is a sticky (230px) column on desktop, with rounded amber
-current-page styling. It wraps above the article at mobile widths. Footer
+Docs navigation is a sticky (230px) column on desktop. The current page uses
+a subtle (10%) amber tint, inherited readable ink, semibold text and a small
+amber/ink position marker; every row keeps (26px) left padding. The selected
+page's section opens automatically. Below (900px), a native "Browse
+documentation" disclosure starts collapsed so the article remains visible in
+the first viewport. Its navigation remains available without JavaScript.
+Table rules and callout borders use a (20%) ink mix; callouts remove outer
+paragraph margins to keep their padding even. Footer
 destinations wrap naturally with (44px) link targets. A keyboard-visible skip
 link leads directly to the main content.
 

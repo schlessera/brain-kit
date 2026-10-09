@@ -23,6 +23,18 @@ export async function verifyDocumentation(page: Page, origin: string, base: stri
     if (await page.evaluate(() => document.documentElement.dataset.theme) !== theme) await page.locator('.theme-toggle').click();
     await page.evaluate(() => document.fonts.ready);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Documentation overflow at ${width}/${theme}`);
+    if (width === 390) {
+      assert.equal(await page.locator('.docs-menu').getAttribute('open'), null, 'Mobile navigation did not start collapsed');
+      const heading = await article.locator('h1').boundingBox();
+      assert(heading && heading.y < 250, 'Mobile navigation pushed the article below the first viewport');
+      await page.locator('.docs-menu-toggle').focus();
+      await page.locator('.docs-menu-toggle').press('Enter');
+      assert(await page.getByRole('navigation', { name: 'Documentation', exact: true }).isVisible(), 'Keyboard could not reveal mobile documentation navigation');
+      const current = page.locator('.docs-nav a[aria-current=page]');
+      assert(await current.isVisible(), 'Current documentation page is hidden inside the open menu');
+      assert(Number.parseFloat(await current.evaluate(link => getComputedStyle(link).paddingLeft)) >= 20, 'Current page label touches the selection edge');
+      await page.locator('.docs-menu-toggle').press('Enter');
+    }
     const violations = await page.evaluate(async () => (await (window as any).axe.run({ runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations.map((v: any) => ({ id: v.id, targets: v.nodes.map((n: any) => n.target) })));
     assert.deepEqual(violations, [], `Documentation accessibility at ${width}/${theme}`);
     if (capture) await page.screenshot({ path: resolve(captures, `docs-${width}-${theme}.png`), fullPage: true });
@@ -31,9 +43,13 @@ export async function verifyDocumentation(page: Page, origin: string, base: stri
   await reference.click();
   await page.getByRole('heading', { name: 'Supported configuration and module formats', exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, `${base}docs/supported-inputs/`);
+  await page.locator('.docs-menu-toggle').click();
   const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
   const referenceGroup = navigation.locator('details').filter({ has: page.getByText('Reference', { exact: true }) });
+  assert(await navigation.locator('a[aria-current=page]').isVisible(), 'Selected reference page was hidden in a collapsed section');
   await referenceGroup.locator('summary').focus();
+  await referenceGroup.locator('summary').press('Enter');
+  assert.equal(await referenceGroup.getAttribute('open'), null, 'Reference section did not close from the keyboard');
   await referenceGroup.locator('summary').press('Enter');
   await navigation.getByRole('link', { name: 'Extending: embeddings', exact: true }).click();
   await page.getByRole('heading', { name: 'Extending: embeddings', exact: true }).waitFor();
