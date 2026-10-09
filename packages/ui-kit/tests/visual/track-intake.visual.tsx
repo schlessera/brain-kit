@@ -27,7 +27,7 @@ async function withNavigatorOnline(initial: boolean, run: (setOnline: (online: b
   }
 }
 
-async function mixedPicker(width: number, initiallyOnline: boolean) {
+async function mixedPicker(width: number, initiallyOnline: boolean, encodingLoad = false) {
   await withNavigatorOnline(initiallyOnline, async setOnline => {
     const before = { width: innerWidth, height: innerHeight };
     const previousTheme = document.documentElement.dataset.theme;
@@ -139,6 +139,7 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       const unsubscribe = ui.stores.drafts.subscribe(() => snapshot("draft-change")); restores.push(unsubscribe);
       snapshot("before-pick");
       record("picked", {imageBytes: image?.size, inputConnected: input.isConnected, files:originals.map(file=>({name:file.name,type:file.type,size:file.size}))});
+      if (encodingLoad) await commands.canvasEncodingLoad(true);
       input.files = transfer.files; input.dispatchEvent(new Event("change", { bubbles: true }));
       snapshot("change-dispatched");
       await expect.poll(() => {
@@ -147,6 +148,11 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
         return count;
       }).toBe(1);
       snapshot("preview-ready");
+      if (encodingLoad) {
+        const load = await commands.canvasEncodingLoad(false);
+        expect(load.frames).toBeGreaterThan(0);
+        expect(load.workMs).toBeGreaterThanOrEqual(18);
+      }
       console.info("TRACK_INTAKE_CONTROL", JSON.stringify({width,initiallyOnline,trace}));
       if (!initiallyOnline) {
         expect(navigator.onLine).toBe(false);
@@ -167,7 +173,7 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       if (initiallyOnline) { await userEvent.click(field); await userEvent.keyboard("{Enter}"); }
       expect(sent).toHaveLength(0); expect(host.textContent).toContain("sends when 1 file finishes");
       expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
-      const suffix = initiallyOnline ? `${width}` : `offline-${width}`;
+      const suffix = (initiallyOnline ? `${width}` : `offline-${width}`) + (encodingLoad ? "-encoding-load" : "");
       await page.screenshot({ element: host, path: `../../.vitest-attachments/track-intake/held-${suffix}.png` });
       resolveUpload(Response.json({ files: [trackView().file] }));
       await expect.poll(() => sent.length).toBe(1);
@@ -187,23 +193,31 @@ async function mixedPicker(width: number, initiallyOnline: boolean) {
       console.error("TRACK_INTAKE_AFTER_CAPTURE", JSON.stringify(trace.slice(-8)));
       throw error;
     } finally {
-      for (const restore of restores.reverse()) restore();
-      // Sent previews belong to this throwaway chat; unmount only revokes unsent ones.
-      const previews = Array.from(host.querySelectorAll<HTMLImageElement>('img[src^="blob:"]'), image => image.src);
-      try { if (renderer) flushSync(() => renderer!.unmount()); }
-      finally {
-        try { ui.dispose(); }
+      try {
+        if (encodingLoad) await commands.canvasEncodingLoad(false);
+      } finally {
+        for (const restore of restores.reverse()) restore();
+        // Sent previews belong to this throwaway chat; unmount only revokes unsent ones.
+        const previews = Array.from(host.querySelectorAll<HTMLImageElement>('img[src^="blob:"]'), image => image.src);
+        try { if (renderer) flushSync(() => renderer!.unmount()); }
         finally {
-          host.remove(); style.remove();
-          for (const preview of previews) URL.revokeObjectURL(preview);
-          if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme;
-          try { await page.viewport(before.width, before.height); }
-          finally { if (outer) await commands.formViewport(outer.width - 100, outer.height - 120); }
+          try { ui.dispose(); }
+          finally {
+            host.remove(); style.remove();
+            for (const preview of previews) URL.revokeObjectURL(preview);
+            if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme;
+            try { await page.viewport(before.width, before.height); }
+            finally { if (outer) await commands.formViewport(outer.width - 100, outer.height - 120); }
+          }
         }
       }
     }
   });
 }
+
+test("offline mixed picker keeps its preview and complete multipart flow when encoding has no idle time", async () => {
+  await mixedPicker(1440, false, true);
+});
 
 for (const width of [390, 1440]) {
   test(`mixed image and track picker preserves the held draft at ${width}px`, async () => {
