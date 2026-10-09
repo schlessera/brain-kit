@@ -1,5 +1,14 @@
 import { test, expect } from "bun:test";
 import { startRelay, MODEL, physicalPriceDiagnostics } from "../scripts/evals/mechanical-hygiene/native-relay";
+import {literalNativeUsage} from "../scripts/evals/native-paid-policy";
+test("literal review reconstruction admits pinned native beta routing and rejects rewritten endpoint metadata",async()=>{
+  const token="offline-route-review-not-a-credential",relay=startRelay({oauthToken:token,save:()=>{},fetch:async()=>sse(true)});
+  try{
+    await (await fetch(`${relay.url}/v1/messages?beta=true`,{method:"POST",headers:{authorization:`Bearer ${token}`},body:JSON.stringify({model:MODEL,messages:[]})})).text();
+    const row=relay.calls[0];expect(row.requestPath).toBe("/v1/messages?beta=true");expect(literalNativeUsage(row).output_tokens).toBe(9);
+    for(const change of [{requestMethod:"GET"},{requestPath:"/v1/messages/count_tokens"},{requestPath:"/v1/messages?unreviewed=1"}])expect(()=>literalNativeUsage({...row,...change})).toThrow("Literal native endpoint differs");
+  }finally{await relay.stop();}
+});
 for(const [method,path] of [["GET","/v1/messages"],["POST","/v1/messages/count_tokens"],["POST","/v1/messages?unreviewed=1"]])test(`unsupported native ${method} ${path} preserves the literal attempt and stops subsequent forwarding`,async()=>{
   let forwarded=0;const refusals:string[]=[],token="offline-endpoint-not-a-credential";
   const relay=startRelay({oauthToken:token,save:()=>{},onRefusal:reason=>refusals.push(reason),fetch:async()=>{forwarded++;return sse(true);}});

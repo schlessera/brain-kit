@@ -45,6 +45,7 @@ export function observedNativeModifiers(headers:Record<string,string>){
 }
 /** Reparse preserved upstream bytes rather than trusting a supplied usage summary. */
 export function literalNativeUsage(call:any):RawTokens{
+  if(call.requestMethod!=="POST"||!["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath))throw Error("Literal native endpoint differs");
   if(call.status!==200||!call.upstreamDispatched||!call.subscriptionHeaderAccepted||!call.finished||!call.responseNaturalEof||call.consumerCancelled||!call.streamClosed||!call.upstreamReaderClosed||call.outcome!=="completed")throw Error("Incomplete physical native receipt");
   const request=Buffer.from(call.requestBytesBase64,"base64");
   rejectPriceModifiers(JSON.parse(call.requestBody),new Headers(call.requestPricingHeaders));
