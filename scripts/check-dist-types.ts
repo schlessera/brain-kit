@@ -102,7 +102,7 @@ function packageNameOf(specifier: string): string {
 const packages = publishablePackages();
 const allNames = packages.map((p) => p.manifest.name).sort();
 
-const ciYml = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
+const ciYml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
 const nodeNames = new Set(ciImportList(ciYml, "nodePackages").map(packageNameOf));
 const bunNames = new Set(ciImportList(ciYml, "bunApiPackages").map(packageNameOf));
 

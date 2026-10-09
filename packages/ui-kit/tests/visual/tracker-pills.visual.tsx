@@ -170,9 +170,8 @@ for (const theme of THEMES) {
         const labels = [...hostEl.children] as HTMLElement[];
         for (const label of labels) expect(lineCount(label), label.textContent!).toBe(1);
         labels.slice(0, -1).forEach((label) => expect(label.textContent).toMatch(/\.$/));
-        // Whether it has to wrap is the font's call (the CI image's mono is
-        // narrower than JetBrains Mono), so it is measured: laid out on one
-        // line, the host is wider than the column at 288px with either face.
+        // Whether it has to wrap is measured with the shared pinned mono
+        // face: on one line the host is wider than the 288px column.
         const probe = hostEl.cloneNode(true) as HTMLElement;
         probe.style.cssText = "position:absolute;white-space:nowrap;width:max-content";
         hostEl.parentElement!.append(probe);
@@ -289,8 +288,7 @@ for (const theme of THEMES) {
 }
 
 describe("tracker pills below the narrowest supported column", () => {
-  // 224px: past what a 320px phone gives the list, and narrow enough that
-  // the CI image's narrower mono face overflows too. The widest fixed part,
+  // 224px: past what a 320px phone gives the list. The widest fixed part,
   // `reopened` with a cut 16-character qualifier and `PR 1234`, no longer
   // fits beside even an empty title, so the qualifier gives way after the
   // title does, and the action, the number and the open glyph stay whole

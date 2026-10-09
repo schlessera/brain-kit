@@ -24,7 +24,7 @@ const travelModule: ModuleManifest<TravelConfig> = defineModule({
       },
     },
     skills: "./skills",
-    instructions: { text: `## Travel workflow\n\nUse travel/ for journeys, trips/ for repeatable day trips and places/ for visited places. Keep visit identity on the canonical journey or trip and link places to those visits; unknown dates and coordinates stay unknown. Plan for the configured travel party (${config.travelParty.length} members), reading each declared requirementsDoc before proposing a route. Preserve original documents and use brain travel commands for derived assets.` },
+    instructions: { text: `## Travel workflow\n\nUse travel/ for journeys, trips/ for repeatable day trips and places/ for visited places. Keep visit identity on the canonical journey or trip and link places to those visits; unknown dates and coordinates stay unknown. Plan for the configured travel party (${config.travelParty.length} members), reading each declared requirementsDoc before proposing a route. Preserve original documents and use brain travel commands for derived assets. Run brain travel sync to regenerate the trip and place registries, preserving prose outside their regions.` },
     indexRules: { dirAnchors: ["status.md", "itinerary.md", "outline.md"] },
     commands: { travel: () => import("./cli.js") },
   }),

@@ -5,7 +5,7 @@ import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { deriveConnectionIssue } from "../connectivity/connection-state.js";
+import { deriveConnectionIssue } from "../../lib/connection-issue.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import {
   fileToAttachment,
@@ -19,6 +19,7 @@ import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
+import { dictationNoticeText } from "../../voice/dictation-failure.js";
 import { useDictation } from "../../voice/use-dictation.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
@@ -200,7 +201,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // from the same new chat could start a second conversation beside it.
   const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.sessionId === sessionId
     && (x.state === "pending" || (sessionId === null && x.state === "unconfirmed"))
-    && (sessionId !== null || x.draftId === draftId)));
+    && (sessionId !== null || s.sendDraftId(x.requestId) === draftId)));
   useEffect(() => {
     // Naming our accepted new conversation is not a conversation switch.
     // Carry a newer choice to its identity; consume only the sent choice.
@@ -233,6 +234,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const voiceMode = useVoiceStore((s) => s.mode);
   const reviewText = useVoiceStore((s) => s.reviewText);
   const clearReview = useVoiceStore((s) => s.clearReview);
+  const dictationNotice = useVoiceStore((s) => s.dictationNotice);
+  const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
   const localCapture = useLocalCapture();
   const localSupported = useLocalCaptureSupport();
@@ -248,6 +251,24 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       : wsStatus === "connected" || root.localCapture === null ? "dictate"
       : localSupported === null ? "pending"
       : localSupported ? "local" : "unsupported";
+
+  const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
+  const captureNotice = micMode === "unsupported"
+    ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
+    : localNotice === "denied" && micMode === "local"
+      ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
+      : undefined;
+  useEffect(() => { setDismissedLocalNotice(null); }, [captureNotice]);
+  function dismissNotice(kind: "dictation" | "local") {
+    const frame = frameRef.current;
+    const heldFocus = frame?.querySelector(`[aria-label="Dismiss ${kind === "dictation" ? "dictation" : "capture"} notice"]`) === document.activeElement;
+    if (kind === "dictation") dismissDictationNotice();
+    else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
+    if (heldFocus) {
+      const mic = frame?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Record on this device"]');
+      if (mic) mic.focus(); else focusField();
+    }
+  }
 
   const runCommand = useChatCommands();
 
@@ -326,7 +347,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    */
   async function addFiles(files: FileList | File[]) {
     // The draft that asked: decoding is async, and the view may move on.
-    const target = draftId;
+    let target = draftId;
     const owner = sessionId;
     const incoming = Array.from(files);
     const list = incoming.filter(file => file.type.startsWith("image/"));
@@ -335,40 +356,45 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const authEpoch = root.authLock.epoch();
-    const results = await Promise.all(list.map((f) => fileToAttachment(f)));
-    if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
-      for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
-      return;
-    }
-    const fresh: PendingAttachment[] = [];
-    const errors: string[] = [...trackErrors];
-    results.forEach((r, i) => {
-      if ("error" in r) {
-        errors.push(r.error);
-      } else {
-        fresh.push({ ...r, name: list[i].name });
+    // Keep the operation's ownership when opening the other version removes
+    // a navigation redirect. The subscription sees each committed fork first.
+    const unwatch = root.stores.drafts.subscribe(state => { target = state.resolveId(target); });
+    try {
+      const results = await Promise.all(list.map((f) => fileToAttachment(f)));
+      if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
+        for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
+        return;
       }
-    });
+      const fresh: PendingAttachment[] = [];
+      const errors: string[] = [...trackErrors];
+      results.forEach((r, i) => {
+        if ("error" in r) {
+          errors.push(r.error);
+        } else {
+          fresh.push({ ...r, name: list[i].name });
+        }
+      });
 
-    const current = attachmentsOf(target);
-    const { accepted: imageAccepted } = validateAttachments([
-      ...current,
-      ...fresh,
-    ]);
-    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
-    const accepted = imageAccepted.filter((image, index) => {
-      combinedBytes += image.bytes;
-      return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
-    });
-    // Revoke URLs of freshly-decoded images that didn't make the cut.
-    for (const f of fresh) {
-      if (!accepted.includes(f)) {
-        URL.revokeObjectURL(f.previewUrl);
-        errors.push(`${f.name}: not added (message limit reached)`);
+      const current = attachmentsOf(target);
+      const { accepted: imageAccepted } = validateAttachments([
+        ...current,
+        ...fresh,
+      ]);
+      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
+      const accepted = imageAccepted.filter((image, index) => {
+        combinedBytes += image.bytes;
+        return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
+      });
+      // Revoke URLs of freshly-decoded images that didn't make the cut.
+      for (const f of fresh) {
+        if (!accepted.includes(f)) {
+          URL.revokeObjectURL(f.previewUrl);
+          errors.push(`${f.name}: not added (message limit reached)`);
+        }
       }
-    }
-    setAttachmentsOf(target, owner, accepted);
-    if (target === draftIdRef.current) setAttachErrors(errors);
+      setAttachmentsOf(target, owner, accepted);
+      if (target === draftIdRef.current) setAttachErrors(errors);
+    } finally { unwatch(); }
   }
 
   /** One chip removes only that image, in the draft's next revision (D52 §5). */
@@ -713,13 +739,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           dictation={<><DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
-          captureNotice={
-            micMode === "unsupported"
-              ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
-              : localNotice === "denied" && micMode === "local"
-                ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
-                : undefined
-          }
+          dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
+          onDismissDictationNotice={() => dismissNotice("dictation")}
+          captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
+          onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
           micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
           value={input}

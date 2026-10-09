@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { softwareDetails } from "../src/components/chat/stats/software";
+import { softwareDetails } from "../src/lib/stats/software.js";
 
 const client = { release: "1.2.3", sourceCommit: "a".repeat(40) };
 test("matching metadata verifies only what both peers report", () => {

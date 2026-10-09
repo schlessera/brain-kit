@@ -92,7 +92,7 @@ requirements into the itinerary.
 
 ### Workflow Position
 - **Before**: talk accepted (`/submission-outcome`) or attendance decided
-- **After**: bookings land → update itinerary + index Status to `Booked`; journey completed → use `brain archive <path>` for its completed files. A conference-linked journey can close during `/conference-aftermath`; personal journeys do not need a conference.
+- **After**: bookings land → update itinerary + index Status to `Booked`; journey completed → record it on the itinerary as a `visits:` entry (stable `id`, `date`, `party`) and link the places it reached with `/places`, run `brain travel validate` and `brain travel sync`, then use `brain archive <path>` for its completed files. Day outings are trips, not journeys: use `/trip-log`. A conference-linked journey can close during `/conference-aftermath`; personal journeys do not need a conference.
 
 ## Notes
 

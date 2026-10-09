@@ -40,6 +40,15 @@ gate owns the connectivity probe. Recordings in this browser are not encrypted
 against device access. Browser eviction, unavailable storage and cleared site
 data can prevent recovery; durable-storage requests are never guarantees.
 
+## Live turn status
+
+The transcript uses StreamingAnswer while waiting for first content, a tool
+approval or a retry. Initial status has two ghost lines which disappear when
+any rich group arrives. Approval status names the pending tool with a static
+dot; retry retains the runtime's wording. Elapsed ticks use this page's turn
+start or matching host timing, and recovered shells without timing show none.
+Only the phase changes announce. The existing composer owns the single Stop.
+
 ## Dictation
 
 At widths of 900px and above, dictation opens a panel immediately above the
@@ -53,6 +62,13 @@ control. Its 200ms upward entrance respects reduced-motion preferences through
 both stylesheet entry points. Both forms keep the provider disclosure,
 transcript scrolling and review flow. The composer preserves its draft and
 prevents typing or sending while capture or its final drain is active.
+
+When a provider ends dictation with an error, or dictation cannot start, a
+persistent amber notice explains the failure below review. Its safe copy refers
+only to words from that capture. Dismiss keeps the review words; a new capture
+or review Send/Edit/Discard clears the notice. Typing and session changes keep
+it. It is announced once politely, appears without moving focus, and offers no
+automatic restart. Distinct local microphone notices remain visible afterward.
 
 ### Recording on the device
 
@@ -205,6 +221,7 @@ entry point, and typechecks the emitted `.d.ts` against React 18's types.
 ```tsx
 import {
   configureBrainUi,
+  AppErrorBoundary,
   ConnectionGate,
   AppShell,
   ChatPage,
@@ -221,23 +238,45 @@ export function App() {
   const activeView = useUIStore((state) => state.activeView);
 
   return (
-    <ConnectionGate>
-      <AppShell>
-        {/* Keep chat mounted so an in-flight turn survives a view switch.
-            `display: contents` rather than a plain wrapper: ChatPage is a
-            flex child of AppShell and its `flex-1` needs to reach the shell's
-            flex container, or the chat loses its viewport-filling layout and
-            bounded scrolling. */}
-        <div style={{ display: activeView === "chat" ? "contents" : "none" }}>
-          <ChatPage />
-        </div>
-        {activeView === "graph" && <GraphPage />}
-        {activeView === "activity" && <ActivityPage />}
-      </AppShell>
-    </ConnectionGate>
+    <AppErrorBoundary>
+      <ConnectionGate>
+        <AppShell>
+          {/* Keep chat mounted so an in-flight turn survives a view switch.
+              `display: contents` rather than a plain wrapper: ChatPage is a
+              flex child of AppShell and its `flex-1` needs to reach the shell's
+              flex container, or the chat loses its viewport-filling layout and
+              bounded scrolling. */}
+          <div style={{ display: activeView === "chat" ? "contents" : "none" }}>
+            <ChatPage />
+          </div>
+          {activeView === "graph" && <GraphPage />}
+          {activeView === "activity" && <ActivityPage />}
+        </AppShell>
+      </ConnectionGate>
+    </AppErrorBoundary>
   );
 }
 ```
+
+## Error boundaries
+
+A render error never blanks the whole app.
+
+- `AppShell` puts a boundary inside its `<main>`. A page that throws is
+  replaced by a screen offering Try again, Go to Chat and Copy details, while
+  the rail, the tab bar and dialogs keep working. A second failure after a
+  retry offers Reload app instead.
+- A lazy chunk that a redeploy has replaced is told apart from an ordinary
+  error. The app reloads by itself when that is safe: it is online, nothing
+  unsent is held (the same guard as the service-worker update), and it has not
+  reloaded for this reason in the last two minutes. Otherwise the screen waits
+  for a tap.
+- `AppErrorBoundary` is the outermost layer, and the shell supplies it. Wrap
+  everything in it, providers included. Its screen reads no context and uses
+  no kit component, so it still renders when a provider or the kit stylesheet
+  is what failed.
+- Tool-call rows have their own boundaries: a renderer that throws falls back
+  to the generic view for that call only.
 
 ## Shell hooks
 
@@ -470,6 +509,13 @@ each block's span and renders the kit block between the markdown pieces. A
 message without blocks renders exactly as before, and a span that does not
 fit the text is ignored.
 
+Search uses the kit's `SearchResultCard`, including every highlighted snippet
+segment and the retrieval score when the result supplies one. Agent
+`brain_search` results use the same cards: core MCP JSON on Claude and the
+existing formatted list on pi. Pi does not supply scores. Invalid, ambiguous
+or clipped tool output keeps its readable text fallback. Opening a result
+uses the current UI root's file viewer; unsafe paths have no open action.
+
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.
@@ -534,3 +580,10 @@ rings; no progress is estimated. Phone containers draw marks and keep named
 subagent view over chat, selecting the recorded session when one is present;
 overflow scrolls to the complete list. Unavailable, pruned, empty and single-agent
 runs draw no overview or sample content.
+
+Pending tool permissions in the main timeline and subagent drill-in use the
+same kit ApprovalCard adapter. Original request identities, inputs, risks and
+command effects are preserved. Remembered grants remain eligibility-gated;
+restored closed requests remain read-only. Decisions use the current shared
+request state, so a duplicate view cannot send another reply, and keyboard
+focus moves to a different pending request or the composer.

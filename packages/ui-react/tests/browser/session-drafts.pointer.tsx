@@ -108,12 +108,15 @@ function draftHost() {
   return { rows, handle, race: (text: string) => { raceWith = text; } };
 }
 
-function fixtureRequest(host: ReturnType<typeof draftHost>) {
+function fixtureRequest(host: ReturnType<typeof draftHost>, uploads: File[]) {
   return async (url: string, init: RequestInit = {}): Promise<Response> => {
     const path = new URL(url, "http://fixture.invalid").pathname;
     if (path.includes("/drafts")) return host.handle(path, init);
     // The host's track intake: every staged file comes back as the invented Ithaca loop.
-    if (path.endsWith("/track-upload")) return Response.json({ files: [trackView().file] });
+    if (path.endsWith("/track-upload")) {
+      uploads.push(...(init.body as FormData).getAll("files").filter((file): file is File => file instanceof File));
+      return Response.json({ files: [trackView().file] });
+    }
     if (path.endsWith("/sessions")) return Response.json({ sessions: LISTED });
     if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
@@ -146,7 +149,7 @@ class WaitingWorker extends EventTarget {
   }
 }
 
-type Scene = { ui: BrainUiRoot; host: HTMLDivElement; socket: FixtureSocket; drafts: ReturnType<typeof draftHost>; width: number; signal: AbortSignal };
+type Scene = { ui: BrainUiRoot; host: HTMLDivElement; socket: FixtureSocket; drafts: ReturnType<typeof draftHost>; uploads: File[]; picked: { name: string; bytes: number }[]; width: number; signal: AbortSignal };
 
 let styles: HTMLStyleElement | undefined;
 let viewport: { width: number; height: number };
@@ -213,7 +216,8 @@ async function mount(ctx: TestContext, width: number, height: number, theme: "da
   host.style.cssText = `position:fixed;inset:0;width:${width}px;height:${height}px`;
   document.body.append(host);
   const drafts = draftHost();
-  const ui = createBrainUiRoot({ storage: null, request: fixtureRequest(drafts) });
+  const uploads: File[] = [];
+  const ui = createBrainUiRoot({ storage: null, request: fixtureRequest(drafts, uploads) });
   const renderer: Root = createRoot(host);
   ctx.onTestFinished(() => {
     flushSync(() => renderer.unmount());
@@ -231,7 +235,7 @@ async function mount(ctx: TestContext, width: number, height: number, theme: "da
   socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: history() });
   // The replay is over: nothing runs in A until a cell starts a turn.
   socket.deliver({ type: "status", sessionId: ITHACA.id, status: "idle" });
-  const s: Scene = { ui, host, socket, drafts, width, signal: ctx.signal };
+  const s: Scene = { ui, host, socket, drafts, uploads, picked: [], width, signal: ctx.signal };
   await document.fonts.ready;
   await settle(s, 4);
   return s;
@@ -300,6 +304,8 @@ async function attach(s: Scene, file: File) {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   input.files = transfer.files;
+  expect(input.files[0]!.size, "the picked native track is nonempty").toBeGreaterThan(0);
+  s.picked.push({ name: input.files[0]!.name, bytes: input.files[0]!.size });
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
@@ -548,11 +554,65 @@ function stageTrack(s: Scene, name = TRACK) {
 }
 
 /** The chip is back in this composer, its upload done. */
-async function expectTrackChip(message: string) {
+async function expectTrackChip(message: string, s?: Scene) {
   await expect.poll(() => removeTrack(), { message }).not.toBeNull();
   const chip = removeTrack()!.closest<HTMLElement>("[data-track-chip]")!;
-  await expect.poll(() => chip.getAttribute("aria-label"), { message: `${message}: ready` }).toMatch(/km/);
+  try {
+    await expect.poll(() => chip.getAttribute("aria-label"), { message: `${message}: ready` }).toMatch(/km/);
+  } catch (error) {
+    console.error("STAGED_TRACK_CONNECTIVITY", JSON.stringify({
+      online: navigator.onLine, chip: chip.getAttribute("aria-label"),
+      files: s?.picked,
+      uploaded: s?.uploads.map(file => ({ name: file.name, bytes: file.size })),
+    }));
+    throw error;
+  }
 }
+
+/** Only the fixture upload is online; navigation/leave checks inherit the browser again. */
+async function withTrackOnline(run: () => Promise<void>) {
+  const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  const online = navigator.onLine;
+  Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+  window.dispatchEvent(new Event("online"));
+  try {
+    await run();
+  } finally {
+    if (previous) Object.defineProperty(navigator, "onLine", previous);
+    else Reflect.deleteProperty(navigator, "onLine");
+    window.dispatchEvent(new Event(online ? "online" : "offline"));
+    expect(Object.getOwnPropertyDescriptor(navigator, "onLine"), "the complete connectivity descriptor is restored").toEqual(previous);
+    expect(navigator.onLine, "the following connectivity sentinel inherits the browser").toBe(online);
+  }
+}
+
+async function stageReadyTrack(s: Scene, message: string) {
+  const before = s.uploads.length;
+  await withTrackOnline(async () => {
+    stageTrack(s);
+    await expectTrackChip(message, s);
+  });
+  expect(s.uploads.slice(before), "one native nonempty track reached the fixture host").toHaveLength(1);
+  expect(s.uploads[before]!.size).toBeGreaterThan(0);
+}
+
+test("a failing staged-track fixture restores the preceding offline descriptor", async () => {
+  const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false });
+  const offline = Object.getOwnPropertyDescriptor(navigator, "onLine");
+  const failure = new Error("the fixture deliberately stops before upload");
+  try {
+    await expect(withTrackOnline(async () => {
+      expect(navigator.onLine).toBe(true);
+      throw failure;
+    })).rejects.toBe(failure);
+    expect(navigator.onLine, "the following offline sentinel").toBe(false);
+    expect(Object.getOwnPropertyDescriptor(navigator, "onLine")).toEqual(offline);
+  } finally {
+    if (previous) Object.defineProperty(navigator, "onLine", previous);
+    else Reflect.deleteProperty(navigator, "onLine");
+  }
+});
 
 /** Opens the track-only Draft entry from Sessions and checks what it says. */
 async function openTrackEntry(s: Scene, mode: string) {
@@ -575,8 +635,7 @@ for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of TH
     const s = await mount(ctx, width, 800, theme);
     await press(s, await must(s, newChatName(width)), mode);
     await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "a new chat" }).toBeNull();
-    stageTrack(s);
-    await expectTrackChip("the track is staged");
+    await stageReadyTrack(s, "the track is staged");
 
     // New chat from the palette, where the width has one.
     if (width >= 900) {
@@ -619,8 +678,7 @@ for (const width of [390, 1280] as const) for (const theme of THEMES) for (const
     ctx.onTestFinished(() => { delete (navigator as { serviceWorker?: unknown }).serviceWorker; });
     let reloads = 0;
     const s = await mount(ctx, width, 800, theme, { reload: () => reloads++ });
-    stageTrack(s);
-    await expectTrackChip("A's track is staged");
+    await stageReadyTrack(s, "A's track is staged");
 
     // B in view, through its Sessions row.
     await openSessions(s, mode);

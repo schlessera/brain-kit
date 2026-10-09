@@ -1,0 +1,46 @@
+{
+  "referenceDate": "2026-07-12",
+  "generator": "tmp/homepage-proposals/capture.ts",
+  "applicationFixture": "tmp/homepage-proposals/app-reference.tsx",
+  "browser": "Chromium via installed Playwright",
+  "styles": "packages/ui-react/dist/styles.css",
+  "fonts": "scripts/captures/font-lock.json",
+  "entries": [
+    {
+      "source": "tmp/homepage-proposals/actual-comparison-dark-1280.png",
+      "file": "actual-comparison-dark-1280.png",
+      "sha256": "58ed40e5c8b528013fce2d215f964ab91462739a98dbde3a6adbe0c9d6d80a19",
+      "purpose": "Actual application composition reference for homepage concepts; fictional transport and staged responses; not launch evidence",
+      "source_sha256": "1fed000a09e9a8199e4291af4f252abe4b5eddff5da1c78b306a2d9bd75598f5"
+    },
+    {
+      "source": "tmp/homepage-proposals/actual-rank-light-1024.png",
+      "file": "actual-rank-light-1024.png",
+      "sha256": "940b771794e40dcd620553aef223fdb5ebcc1a351422170b6cef704b8b0ea071",
+      "purpose": "Actual application composition reference for homepage concepts; fictional transport and staged responses; not launch evidence",
+      "source_sha256": "c73c4442d417e76c318c99a8f22bbc14132e5668eca15abdd7c6b0959960f57b"
+    },
+    {
+      "source": "tmp/homepage-proposals/actual-comparison-dark-390.png",
+      "file": "actual-comparison-dark-390.png",
+      "sha256": "1a40607655ddfbdfa554272b79bc3bb7ad56b37406fabd37a6643a0ded3a29e2",
+      "purpose": "Actual application composition reference for homepage concepts; fictional transport and staged responses; not launch evidence",
+      "source_sha256": "dde65a563cba07eba965898f529d48525ec53995e6b22403e43366996b9d07f4"
+    },
+    {
+      "source": "tmp/homepage-proposals/actual-voice-light-390.png",
+      "file": "actual-voice-light-390.png",
+      "sha256": "6acdca728e0735a16a6d143bd194d3cebc8a5d21009e55724cdd84a224f808cf",
+      "purpose": "Actual application composition reference for homepage concepts; fictional transport and staged responses; not launch evidence",
+      "source_sha256": "cd048e388bdad3a44e192e6b5f7b4f64aec3c73f2bede1d0f708eb882dfbd0f2"
+    }
+  ],
+  "sourceHashes": {
+    "tmp/homepage-proposals/capture.ts": "48adcc5959ac2f0cc8d08777b3b41823676885d5983eeec96c3c0443c9e7793e",
+    "tmp/homepage-proposals/app-reference.tsx": "5fc30bd7fdfda9de391f88f2109c9296030094fac27d5e93c61d5ad720bc0fd1",
+    "packages/ui-react/src/components/layout/app-shell.tsx": "1e8b21d09abe2f39a87b4f5615d61bb95dbbb943cc5577627213ef586ad4eb8d",
+    "packages/ui-react/src/components/chat/chat-page.tsx": "7f813500856fff1bb4dbd12ced8e75a25c27ec6092bc35a1dcb04c300f0487f9",
+    "packages/ui-react/dist/styles.css": "b6df42af05e1e440b97921d85fb97c63a4064bad25c4c4f9fed4323bafa9d16f",
+    "scripts/captures/font-lock.json": "3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad"
+  }
+}

@@ -233,19 +233,25 @@ describe("the calibration", () => {
 });
 
 describe("the shipped schema", () => {
-  test("show_block's union is found, every variant carries prose, and sharing round-trips", async () => {
+  test("show_block's dereferenced union is found and sharing round-trips", async () => {
     const tools = await listBridgeTools();
     const tool = tools.find((entry) => entry.name === "show_block");
     expect(tool).toBeDefined();
-    const variants = variantsOf(tool!.inputSchema);
-    expect(variants.length).toBeGreaterThan(0);
+    const inputSchema = tool!.inputSchema;
+    if (inputSchema === null || typeof inputSchema !== "object" || Array.isArray(inputSchema)) {
+      throw new Error("show_block must list an object schema");
+    }
+    const schema = dereference(inputSchema);
+    const variants = variantsOf(schema);
+    expect(variants.length).toBe(18);
     const { rows } = attribute(variants);
     expect(rows.map((row) => row.kind)).not.toContain("?");
-    for (const row of rows) expect(row.prose).toBeGreaterThan(0);
+    // Redundant prose can be entirely omitted from a variant in the trimmed form.
+    expect(rows.some(row=>row.prose>0)).toBe(true);
     expect(rows.some((row) => row.repeated > 0)).toBe(true);
-    const shared = shareDefinitions(tool!.inputSchema);
+    const shared = shareDefinitions(schema);
     expect(JSON.stringify(shared)).toContain("#/definitions/");
-    expect(dereference(shared)).toEqual(tool!.inputSchema);
+    expect(dereference(shared)).toEqual(schema);
     for (const id of Object.keys(shared.definitions as JsonObject)) {
       expect(len(inlineOne(shared, id))).toBeGreaterThan(len(shared));
     }

@@ -233,6 +233,7 @@ export function createRoot(
     services.localWork = createLocalWork({
       stores, partitions,
       scope: `root:${prefix}`,
+      onSessionRestore: (sessionId) => root.connection.send({ type: "session_resume", sessionId }),
       tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
       watchTracks: (fn) => subscribeAllTracks(services, fn),
       restoreTracks: (sessionId, origin, refs) => tracksFor(services, trackKey(sessionId, origin)).uploads.restore(refs),
