@@ -12,7 +12,7 @@ import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-s
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
+import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import { useShallow } from "zustand/react/shallow";
 import { ToolPermissionCard } from "./tool-permission-card.js";

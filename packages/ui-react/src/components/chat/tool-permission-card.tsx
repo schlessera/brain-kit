@@ -11,7 +11,7 @@ import { riskHints } from "./risk-hints.js";
 
 export function ToolPermissionCard({ toolCall, onApproval, backendId }: {
   toolCall: ToolCall;
-  onApproval?: (id: string, approved: boolean, always?: boolean) => void;
+  onApproval?: (id: string, approved: boolean, always?: boolean) => boolean | void;
   backendId?: string;
 }) {
   const root = useBrainUiRoot();
@@ -33,8 +33,12 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId }: {
   function decide(approved: boolean, always?: boolean) {
     if (!onApproval || decision.current.sent) return;
     decision.current.sent = true;
+    const focused = document.activeElement;
     if (card.current) focusAfterDecision(card.current, "[data-approval-card]", "textarea[data-composer]");
-    onApproval(toolCall.id, approved, always);
+    if (onApproval(toolCall.id, approved, always) === false) {
+      decision.current.sent = false;
+      if (focused instanceof HTMLElement && focused.isConnected) focused.focus();
+    }
   }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!keys) return;
