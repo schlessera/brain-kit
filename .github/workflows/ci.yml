@@ -18,8 +18,7 @@ concurrency:
 # proof is mandatory locally before a PR: bun run check:pr. See CONTRIBUTING.md.
 jobs:
   changeset:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     outputs:
       verify: ${{ steps.plan.outputs.verify }}
@@ -27,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -40,7 +40,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: bun scripts/ci-plan.ts
-      - name: Lint, leakage and generated fork parity
+      - name: Lint, leakage and contribution workflow guards
         run: bun run lint
       - name: Env documentation matches its descriptors
         run: bun scripts/env-docs.ts --check
@@ -62,12 +62,13 @@ jobs:
     # diff deliberately skips pack; override implicit success() without starting
     # new work on a cancelled run or treating an unexpected pack skip as proof.
     needs: [changeset, pack]
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !cancelled() && needs.changeset.result == 'success' && needs.changeset.outputs.verify == 'true' && (needs.pack.result == 'success' || (needs.changeset.outputs.pack == 'false' && needs.pack.result == 'skipped'))
-    runs-on: depot-ubuntu-24.04
+    if: ${{ !cancelled() && needs.changeset.result == 'success' && needs.changeset.outputs.verify == 'true' && (needs.pack.result == 'success' || (needs.changeset.outputs.pack == 'false' && needs.pack.result == 'skipped')) }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
@@ -84,14 +85,16 @@ jobs:
 
   pack:
     needs: changeset
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changeset.outputs.pack == 'true'
+    if: needs.changeset.outputs.pack == 'true'
     timeout-minutes: 5
-    runs-on: depot-ubuntu-24.04
+    runs-on: ubuntu-24.04
     env:
       GEMINI_API_KEY: ""
       ANTHROPIC_API_KEY: ""
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"

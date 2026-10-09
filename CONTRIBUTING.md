@@ -315,24 +315,22 @@ before `bun install` stays dependency-free.
 
 ## Contract checks
 
-CI runs on Depot CI from `.depot/workflows/`, including the contract gate
-below. These are the authoritative workflows; update them directly when
-adding or changing a check. See [AGENTS.md](AGENTS.md#depot-ci) for commands
-to find a PR's runs, diagnose failures, export logs and download artifacts.
-Project-board sync stays on GitHub Actions to retain issue-event triggers.
+CI runs on GitHub Actions from `.github/workflows/ci.yml`, including the
+separate contract gate below. These are the authoritative workflows for
+main pushes and all pull requests. Update them directly when changing a check;
+local packed-consumer proof reads the same pack job. See [AGENTS.md](AGENTS.md#github-actions-ci)
+for exact-head runs, failed-step logs and checkout receipts. Depot CI and the
+former generated fork fallback copies are retired.
 
-A pull request from a fork runs the same gates on GitHub Actions instead,
-because Depot CI does not receive fork pull requests. Open it as usual; its
-checks are named `fork / <job>`. GitHub may hold a first-time contributor's
-run until a maintainer approves it. Until then the checks have not run, and
-the PR has not passed. The fork workflows in `.github/workflows/` are
-generated from `.depot/workflows/`: change the Depot file, then run
-`bun scripts/fork-ci-adapters.ts --write` and commit both. `bun run lint`
-fails while they disagree.
+Fork pull requests use the same read-only CI and contract workflows. No secrets
+or persisted checkout credentials are exposed. GitHub may hold a first-time
+contributor's run until a maintainer approves it; until its jobs run, it has
+not passed. The provider migration preserves the current automatic fast gates
+and every mandatory local runtime/browser/layout/endurance/capture check.
 
 Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 
-**The contract gate** (`.depot/workflows/contract.yml`, rule in
+**The contract gate** (`.github/workflows/contract.yml`, rule in
 `scripts/check-contract-pr.ts`) runs on every pull request and again whenever
 its title or labels change. A PR whose diff touches
 `docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`

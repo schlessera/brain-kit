@@ -356,77 +356,55 @@ different commit from the one you mean:
     --jq '.check_runs[] | "\(.name) \(.status) \(.conclusion)"'
   ```
 
-### Depot CI
+### GitHub Actions CI
 
-CI and contract checks run from `.depot/workflows/`. Edit those files as the
-source of truth; do not restore a stale GitHub workflow or maintain a second
-copy. Preserve every guarantee through the automatic fast gates or required
-local checks. Automatic CI has metadata/lint, conditional concurrent verification
-and conditional packaging; full suites and browser/endurance work run locally.
-Preserve action versions, the pinned offline browser image and diagnostic
-artifacts. The local pack command reads this workflow rather than duplicating it. Project sync remains
-in `.github/workflows/project-sync.yml`: Depot CI does not support `issues`
-events, and Depot's GitHub Actions runners require an organization-owned repo.
+CI and contract checks run from `.github/workflows/ci.yml` and `contract.yml`.
+These are the source of truth for all main pushes and pull requests, including
+forks. Project-board sync remains in `project-sync.yml`. Depot CI definitions
+and generated fork fallback workflows are retired under #1320; do not restore
+a second provider or duplicate workflow copies. The local pack command reads
+the authoritative GitHub pack job rather than copying its probes.
 
-Pull requests from forks are the one other exception. Depot CI does not
-receive them, so GitHub Actions runs the same CI and contract gates for them
-from `.github/workflows/fork-ci.yml` and `fork-contract.yml`. Those files are
-generated from the Depot workflows by `scripts/fork-ci-adapters.ts`, so never
-edit them by hand: change the Depot source and run
-`bun scripts/fork-ci-adapters.ts --write`. Every Depot job carries the same
-`if:` provider route that keeps it off fork PRs, optionally combined with
-affected-check conditions; every adapter preserves those conditions with the
-inverse provider route, named `fork / <job>`. `bun run lint` and
-`tests/fork-ci-adapters.test.ts` fail when the two drift. For a fork PR, read
-the `fork / …` GitHub Actions checks (`gh run`), not Depot. For a
-same-repository PR, those rows are skipped by design and prove nothing: read
-Depot. A fork run that is waiting for maintainer approval has not passed.
+Preserve the automatic fast gates, complete required local proof, action and
+runtime versions, pinned offline browser image and diagnostic artifacts. CI
+keeps metadata/lint, conditional concurrent verification and conditional
+packaging. Tests-only changes intentionally skip pack; the selected verify job
+must still run after that skip, and never after failure or cancellation.
+Drafts run cheap gates only. Forks use ordinary `pull_request`, a read-only
+token, no secrets and nonpersisted checkout credentials. A fork run awaiting
+maintainer approval has not passed.
 
-Use the installed `depot` CLI to monitor CI and investigate failed checks.
-Check `depot ci <command> --help` before assuming flags. Prefix commands with
-`rtk proxy` as required by the session's RTK instructions. For a PR, get its
-current head SHA with `gh pr view`, then query that PR and SHA explicitly:
+Use `gh` to inspect runs for the PR's actual current head and the live base,
+including the actual checkout SHA in every selected verification/pack log.
+Prefix commands with `rtk proxy` as required by the session's RTK instructions:
 
 ```sh
-rtk proxy depot ci workflow list --repo schlessera/brain-kit \
-  --pr <pr-number> --sha <head-sha> --output json -n 200
-rtk proxy depot ci status <run-id> --output json
-rtk proxy depot ci diagnose --run <run-id> --output json
-rtk proxy depot ci logs <attempt-id> --timestamps --output-file /tmp/ci-attempt.log
-rtk proxy depot ci artifacts list <run-id> --output json
-rtk proxy depot ci artifacts download <artifact-id> --output-file /tmp/ci-artifact.zip
+rtk proxy gh pr view <pr-number> --repo schlessera/brain-kit \
+  --json headRefOid,statusCheckRollup
+rtk proxy gh run list --repo schlessera/brain-kit --commit <head-sha> \
+  --limit 100 --json databaseId,headSha,status,conclusion,event,url
+rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
+  --json headSha,status,conclusion,jobs,url,attempt
+rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
+  --attempt <attempt-number> --log-failed
+rtk proxy gh api repos/schlessera/brain-kit/actions/jobs/<job-id>/logs
 ```
 
-`depot ci run list` defaults to queued/running runs. Pass `--status failed`
-to find failures or `--status finished` for completed runs, with `--repo`,
-`--pr` and `--sha` as appropriate. Workflow listings include completed runs
-without a status filter. Read each expected job and its current attempt;
-`finished` alone is not proof that every required job passed. Record the
-run/job/attempt IDs and inspect the actual failing step and assertion. Prefer
-an attempt ID for logs: a job/run shortcut resolves the latest attempt and
-can select different evidence after a retry. Use `logs --follow` only for a
-bounded live inspection; finite exports keep monitoring responsive.
-Limit concurrent log exports to four. If Depot reports `resource_exhausted:
-Too many active log streams for this token`, let exports finish and retry
-sequentially; the preceding `Not found` fallback messages do not prove that
-the attempt is missing.
+Check links may identify synthetic-merge runs omitted by a head-SHA filter.
+Record run/job/attempt IDs and the actual failing step/assertion. Missing runs,
+queued work, cancelled jobs, unavailable runtimes and older green attempts
+leave proof unfinished. Conditional skips count only where the planner and
+workflow intentionally exclude that job. A job log can be read through its
+API while other jobs still run. A refused-start job has no execution log;
+inspect its check-run annotations instead.
 
-For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
-uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
-When limiting jobs, include their complete prerequisite chain: verification
-needs both `changeset` and `pack`, including the planner's intentional pack skip.
-The CLI's `api` event has no PR/push changeset base; the planner conservatively
-selects all fast gates and the contribution-diff gate is omitted for that event.
-This is fast CI verification, not a replacement for `bun run check:pr`.
-A local API run does not establish PR-event or main-push behavior. Before
-merging, verify automatic PR runs for the current head and live base, including
-the checkout SHA in the selected verification/pack logs, plus required local
-proof for the same combined state. Conditional skips are valid only when the
-planner and workflow intentionally exclude that job. After merging, verify the squash commit
-is on main and inspect Depot's push run for that SHA. Missing runs, cancelled
-jobs and older green attempts leave verification unfinished. Use GitHub checks
-to discover check links, then Depot for CI logs; `gh run` applies to the
-project-sync exception.
+Before merging, retain complete `bun run check:pr --base origin/main` proof
+for the relevant combined state. Inspect new base commits before refreshing;
+refresh and revalidate affected categories only when those commits affect
+this work or its checks. Record unrelated advancement without substituting a
+new base for the old tested one. After merging, prove the squash is on main,
+verify its immutable parent/tree and inspect the GitHub push run for that SHA.
+A missing, cancelled or failed push run remains unfinished verification.
 
 ## Repo-local skills
 

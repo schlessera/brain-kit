@@ -1,5 +1,8 @@
 # CI guarantees per runner-minute
 
+The provider is GitHub Actions under [#1320](github-actions-ci.md); the
+performance measurements below retain their original Depot context.
+
 The maintainer selected this policy on 2026-10-08 under
 [#1305](https://github.com/schlessera/brain-kit/issues/1305): keep only fast,
 important automatic checks, make them conditional on affected inputs, and move
@@ -39,7 +42,7 @@ superseded heads. Cheap gates stay first because they can reject a contribution
 before either runtime job starts. The independent title/label contract workflow
 stays separate so metadata edits cannot rerun packaging.
 
-Both providers support job dependencies. The [status-function rule](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions)
+GitHub Actions supports the job dependencies used by the current provider. The [status-function rule](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions)
 requires an explicit cancellation check when continuing after an intentionally
 skipped prerequisite; relying on the default `success()` would skip verification
 for tests-only changes. [Depot supports the same expressions](https://depot.dev/docs/ci/compatibility).
@@ -48,8 +51,8 @@ Check selection uses the actual git diff and reverse workspace dependencies,
 including peers, optional and development dependencies. Renames include both
 owners; deleted/unknown packages and global tooling/dependency changes expand
 selection conservatively. An unreadable diff fails instead of skipping checks.
-Fork workflows preserve the same affected conditions and gates through generated
-adapters. An intentional conditional skip is distinct from an unavailable check.
+Fork and same-repository PRs use the same authoritative GitHub workflows
+under [the provider decision](github-actions-ci.md). An intentional conditional skip is distinct from an unavailable check.
 
 ## Full proof remains local
 

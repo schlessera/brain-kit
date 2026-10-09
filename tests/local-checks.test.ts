@@ -10,13 +10,13 @@ const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "local-checks-")); dirs.push(dir);
-  mkdirSync(join(dir, ".depot/workflows"), { recursive: true });
+  mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   return dir;
 }
 
 test("local packaging executes the source job's phases in order and removes the temporary consumer", async () => {
   const dir = fixture();
-  writeFileSync(join(dir, ".depot/workflows/ci.yml"), `jobs:
+  writeFileSync(join(dir, ".github/workflows/ci.yml"), `jobs:
   pack:
     steps:
       - run: mkdir -p "$RUNNER_TEMP/consumer"; echo packed > "$RUNNER_TEMP/consumer/package"
@@ -29,7 +29,7 @@ test("local packaging executes the source job's phases in order and removes the 
 
 test("a failing packed probe cannot pass through a pipeline or execute later phases", async () => {
   const dir = fixture();
-  writeFileSync(join(dir, ".depot/workflows/ci.yml"), `jobs:
+  writeFileSync(join(dir, ".github/workflows/ci.yml"), `jobs:
   pack:
     steps:
       - name: broken consumer

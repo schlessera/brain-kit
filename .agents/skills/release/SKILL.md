@@ -42,8 +42,7 @@ mistake therefore lands on the whole group at once.
    Record the issue-approved internal dependencies in
    `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
    rejects a package without an edge policy. Add the package to every pack/import
-   inventory in `.depot/workflows/ci.yml`, then regenerate the fork adapters with
-   `bun scripts/fork-ci-adapters.ts --write`. In `publish.ts` and `build.ts`, order matters: a package must
+   inventory in the authoritative `.github/workflows/ci.yml`. In `publish.ts` and `build.ts`, order matters: a package must
    be listed **before** anything that depends on it.
 
 ## Versioning

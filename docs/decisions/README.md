@@ -11,6 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Fast affected automatic guarantees, concurrent verification within a runner and mandatory complete local proof before PR creation, without removing tests. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D53, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, the navigation, session-tracker and per-session draft design, ghost-text loading, and offline continuity with committed recording boundaries and measured browser limits. |

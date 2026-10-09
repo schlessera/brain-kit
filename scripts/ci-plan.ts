@@ -17,7 +17,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
     "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
     "tests/local-checks.test.ts",
-    "tests/fork-ci-adapters.test.ts", "tests/release-manifest.test.ts",
+    "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
     "tests/decision-citations.test.ts", "tests/dependency-edges.test.ts",
