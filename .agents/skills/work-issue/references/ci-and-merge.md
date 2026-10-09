@@ -79,10 +79,14 @@ ruleset or synthetic-merge runs omitted by the head-SHA filter.
 
 While a workflow is still running, `gh run view --log` and `--log-failed`
 refuse logs even for a completed job. Read that job's log directly instead
-(`databaseId` in the run's jobs), then inspect its failing step:
+(`databaseId` in the run's jobs), then inspect its failing step. The installed
+GitHub CLI refuses raw logs containing terminal escape sequences unless they
+are explicitly allowed, even when stdout is redirected. Export those logs to
+a file rather than printing the escaped response in a terminal:
 
 ```sh
-rtk proxy gh api 'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs'
+rtk proxy gh api --allow-escape-sequences \
+  'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs' > /tmp/ci-job.log
 ```
 
 Read the checkout SHA from the actual selected jobs' logs (including verification/pack
