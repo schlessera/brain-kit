@@ -32,13 +32,13 @@ export const protocol = Object.freeze({
    * held-out split is scored.
    *
    * `choice` was frozen at 0.4 on 2026-10-09 from the first live run at the
-   * provisional 0.8. The tuning split had no wrong answers at any threshold,
-   * so it could not set a floor; the reference split supplied the only
-   * errors, every one a missed escalation answered at confidence <= 0.36.
-   * 0.4 is the first grid value above all of them. The held-out split was
-   * error-free at every threshold up to 0.6 and did not inform the choice.
-   * The Noul floors are unchanged: that arm fails on question wording, not
-   * on its floors (results/2026-10-09.json).
+   * provisional 0.8. The tuning split had no raw errors, so it could not set
+   * a floor. The reference split supplied the only errors, every one a missed
+   * escalation answered at confidence <= 0.36, and 0.4 is the first grid
+   * value above all of them. The held-out split had no raw errors and did not
+   * inform the choice. The Noul floors are unchanged: that arm fails on
+   * question wording, not on its floors. `calibrate.ts` recomputes the sweep
+   * from results/2026-10-09-answers.json.
    */
   thresholds: { choice: 0.4, noulTrue: 0.8, noulFalse: 0.2 },
   /** List rate read from https://docs.typesafe.ai/models on 2026-10-08. Not an invoice. */
