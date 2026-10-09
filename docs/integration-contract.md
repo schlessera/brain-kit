@@ -84,6 +84,14 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive: ui-react share and stats exports (#1382).** For shells that
+assemble their own surfaces around ui-react, the `@schlessera/brain-ui-react`
+root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
+`buildDiagramShareOptions`, `inlineMermaidDiagrams`), `splitFrontmatter` with
+`FrontmatterSplit`, and the `/stats` command's `runStats`. The project
+website's demo uses exactly these, so it builds from the public entry instead of
+from ui-react's source tree.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.
