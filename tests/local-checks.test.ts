@@ -66,7 +66,11 @@ test("ordinary preflight leaves repeatable environment-heavy proof to CI", () =>
   expect(commands.length).toBeGreaterThan(0);
   const args = commands.map(command => command.argv.join(" ")).join("\n");
   expect(args).not.toContain("run typecheck");
-  expect(args).not.toContain("complete unit");
+  expect(commands.some(command => command.name === "complete unit and integration suite")).toBe(false);
+  const tests = commands.filter(command => command.argv[1] === "run" && command.argv[2] === "test");
+  expect(tests).toHaveLength(1);
+  expect(tests[0]!.argv.slice(3)).toEqual(plan.tests.map(path => `./${path}`));
+  expect(tests[0]!.argv.slice(3).length).toBeGreaterThan(0);
   expect(args).not.toContain("run test:browser");
   expect(args).not.toContain("run test:layout");
   expect(args).not.toContain("run capture:verify");
