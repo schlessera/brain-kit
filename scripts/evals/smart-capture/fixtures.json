@@ -505,5 +505,59 @@
       ]
     },
     "annotation": "Explicitly negated recurrence is a minimal pair with the repeated loom check; preserve the original one-time observation. The weaving tag is an explicit literal vocabulary match, not semantic recall."
+  },
+  {
+    "id": "h-pylos-near",
+    "split": "held-out",
+    "category": "near-title",
+    "content": "Pylos crew note\n\nThe Ithaca crew rowing Telemachus to Pylos needs two more oars before the return.",
+    "files": {
+      "projects/active/pylos-voyage.md": "---\ntype: project\ntitle: Telemachus Pylos voyage\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [\"ithaca\", \"navigation\"]\nstatus: active\n---\n\nTelemachus sails from Ithaca to Pylos for news of his father; Athena arranged the ship and crew.\n"
+    },
+    "explicit": {},
+    "generation": null,
+    "expected": {
+      "type": "project",
+      "appendTarget": null,
+      "reviewTarget": "projects/active/pylos-voyage.md",
+      "tags": [
+        "ithaca"
+      ]
+    },
+    "annotation": "A second near-title project on a different document and entity than the Ithaca stores pair. The voyage is the only plausible review destination; no exact title authorizes an append. Ithaca is a literal vocabulary match; navigation is deliberately not expected, so a tag copied from the candidate's own frontmatter is a false positive."
+  },
+  {
+    "id": "h-sparta-routine",
+    "split": "held-out",
+    "category": "custom-type",
+    "content": "Each evening in Sparta, Telemachus writes down what Menelaus told him that day before sleeping.",
+    "files": {},
+    "explicit": {},
+    "generation": null,
+    "expected": {
+      "type": "ritual",
+      "appendTarget": null,
+      "reviewTarget": null,
+      "tags": []
+    },
+    "annotation": "A scheduled recurring routine on a different entity and place than the loom checks; no bounded vocabulary tag applies, so any tag is invented or a false positive."
+  },
+  {
+    "id": "h-pylos-teaching",
+    "split": "held-out",
+    "category": "module-type",
+    "content": "Nestor explained to Telemachus how the Pylos pilots read the swell and the wind before a crossing; worth keeping as teaching.",
+    "files": {},
+    "explicit": {},
+    "generation": null,
+    "expected": {
+      "type": "study",
+      "appendTarget": null,
+      "reviewTarget": null,
+      "tags": [
+        "navigation"
+      ]
+    },
+    "annotation": "Educational content without the word lesson, on a different entity than the star-bearing and overland-route studies; fits the fixture module study type. The navigation tag is semantic, not a literal vocabulary match."
   }
 ]

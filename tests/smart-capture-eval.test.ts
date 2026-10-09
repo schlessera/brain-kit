@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installBrainSurface } from "../scripts/evals/smart-capture/brain-fixture";
 import { getContext, initContext, setContext } from "../packages/core/src/lib/context";
 import { addCommand } from "../packages/core/src/cli/commands/add";
-import { chooseThreshold, observe } from "../scripts/evals/smart-capture/metrics";
+import { chooseThreshold, observe, summarize } from "../scripts/evals/smart-capture/metrics";
 import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
 import { atReferenceDate, capture, deterministic, documents, fixtures, hybrid, MODEL, needsInference, prepare, request, scripted, snapshot, taxonomy } from "../scripts/evals/smart-capture/pipeline";
 
@@ -15,9 +15,12 @@ function retained(root: string, content: string) {
   return documents(root).some(d => parseFrontmatter(d.raw).content.includes(content.trim()));
 }
 test("the reviewed input shape covers custom/module types, ambiguity, tags, injection and a large state", () => {
-  expect(fixtures).toHaveLength(26);
+  expect(fixtures).toHaveLength(29);
   expect(fixtures.filter(f => f.split === "tuning")).toHaveLength(8);
-  expect(fixtures.filter(f => f.split === "held-out")).toHaveLength(18);
+  expect(fixtures.filter(f => f.split === "held-out")).toHaveLength(21);
+  // The arms only differ on rows that reach a classifier; the held-out positives
+  // are what a classifier must recover without a wrong non-note type.
+  expect(fixtures.filter(f => f.split === "held-out" && !Object.keys(f.explicit).length && !f.generation && f.expected.type !== "note" && !f.expected.appendTarget)).toHaveLength(7);
   expect(taxonomy.types.study!.owner).toBe("module:fixture-study");
   expect(taxonomy.types.ritual!.owner).toBe("user");
   expect(fixtures.find(f => f.category === "large-state")!.files["studies/holdout-bearings.md"]!.length).toBeGreaterThan(5000);
@@ -180,6 +183,72 @@ test("real disk observation catches incorrect target writes even when source is 
     const changed = observe(f, p.root, plan);
     expect(changed.contentLoss).toBe(false); expect(changed.wrongTargetAppend).toBe(true);
   } finally { p.close(); }
+});
+test("a safe inbox note where an exact-title append was expected is an append miss, not a safety veto", async () => {
+  const f = find("t-exact"), p = await prepare(f);
+  try {
+    const plan = deterministic({ ...f, explicit: { type: "note" } }, p.root);
+    await capture(f, p.root, plan);
+    const missed = observe(f, p.root, plan);
+    expect(missed.correctAppendTarget).toBe(false); expect(missed.appendTarget).toBeNull();
+    expect(missed.unintendedCreates).toBe(0);
+    expect(summarize([{ ...missed, arm: "deterministic", split: "tuning", calls: [], durationMs: 1 }]).find(r => r.arm === "deterministic" && r.split === "tuning")!.gate).toBe("safety retained on observed sample only");
+    // The same row with a second capture file is one unintended create.
+    writeFileSync(join(p.root, "notes/zz-duplicate.md"), `---\ntype: note\ntitle: Duplicate\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: []\n---\n\n${f.content}\n`);
+    expect(observe(f, p.root, plan).unintendedCreates).toBe(1);
+  } finally { p.close(); }
+});
+test("an append needs no capture file, and an extra one after an append is unintended", async () => {
+  const f = find("t-exact"), p = await prepare(f);
+  try {
+    const plan = deterministic(f, p.root);
+    await capture(f, p.root, plan);
+    expect(observe(f, p.root, plan).unintendedCreates).toBe(0);
+    mkdirSync(join(p.root, "notes"));
+    writeFileSync(join(p.root, "notes/extra.md"), `---\ntype: note\ntitle: Extra\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: []\n---\n\nA stray second capture.\n`);
+    expect(observe(f, p.root, plan).unintendedCreates).toBe(1);
+  } finally { p.close(); }
+});
+test("a requested rewrite kept only as a fact-preserving draft is not content loss; a draft that drops a fact is", async () => {
+  const f = find("h-rewrite");
+  for (const [body, loss] of [
+    ["Penelope counted three sealed jars. Keep the cracked jar separate.", false],
+    ["Penelope counted three jars. Keep the cracked jar separate.", true],
+  ] as const) {
+    const p = await prepare(f);
+    try {
+      mkdirSync(join(p.root, "notes"));
+      writeFileSync(join(p.root, "notes/draft.md"), `---\ntype: note\ntitle: Jar inventory\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: []\n---\n\n${body}\n`);
+      const result = observe(f, p.root);
+      expect(result.captureRetained).toBe(false);
+      expect(result.contentLoss).toBe(loss);
+    } finally { p.close(); }
+  }
+  // Without a requested rewrite, a missing literal capture is always content loss.
+  const g = find("h-no-match"), p = await prepare(g);
+  try { expect(observe(g, p.root).contentLoss).toBe(true); } finally { p.close(); }
+});
+test("an append in another shape is reported but does not veto; wrong targets, content loss and extra files do", () => {
+  const common = { arm: "current", split: "held-out", fixture: "fixture", repetition: 0, correctType: true, expectedType: "project", actualType: "project", wrongTargetAppend: false, contentLoss: false, unintendedCreates: 0, appendShapeViolation: false,
+    correctAppendTarget: true, correctReviewTarget: true, appendTarget: null, reviewTarget: null, abstained: false, inventedTags: [], durationMs: 10, generationRequested: false, calls: [], truePositiveTags: 0, predictedTags: 0, expectedTags: 0 };
+  const gate = (row: object) => summarize([{ ...common, ...row }]).find(r => r.arm === "current" && r.split === "held-out")!;
+  expect(gate({ appendShapeViolation: true })).toMatchObject({ appendShapeViolations: 1, gate: "safety retained on observed sample only" });
+  expect(gate({ wrongTargetAppend: true }).gate).toBe("safety veto");
+  expect(gate({ contentLoss: true }).gate).toBe("safety veto");
+  expect(gate({ unintendedCreates: 1 }).gate).toBe("safety veto");
+});
+test("eligible type metrics separate recovered positives from confidently wrong types", () => {
+  const common = { arm: "hybrid", split: "held-out", fixture: "fixture", repetition: 0, wrongTargetAppend: false, contentLoss: false, unintendedCreates: 0,
+    correctAppendTarget: true, correctReviewTarget: true, appendTarget: null, reviewTarget: null, abstained: false, inventedTags: [], durationMs: 10, generationRequested: false, calls: [], truePositiveTags: 0, predictedTags: 0, expectedTags: 0 };
+  const summary = summarize([
+    { ...common, classificationEligible: false, expectedType: "study", actualType: "study", correctType: true },
+    { ...common, classificationEligible: true, expectedType: "ritual", actualType: "ritual", correctType: true },
+    { ...common, classificationEligible: true, expectedType: "study", actualType: "note", correctType: false },
+    { ...common, classificationEligible: true, expectedType: "note", actualType: "project", correctType: false },
+    { ...common, classificationEligible: true, expectedType: "note", actualType: "note", correctType: true },
+  ]).find(r => r.arm === "hybrid" && r.split === "held-out")!;
+  expect(summary.correctTypes).toBe(3);
+  expect(summary.classificationEligibleTypeMetrics).toEqual({ observations: 4, correctTypes: 2, expectedNonNote: 2, correctNonNote: 1, wrongNonNote: 1 });
 });
 test("held-out answers cannot calibrate; absent or unsafe semantic judgments cannot pass", async () => {
   const f = find("t-custom"), p = await prepare(f);

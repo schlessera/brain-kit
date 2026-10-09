@@ -8,7 +8,7 @@ import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents
 import { claudeRunner } from "../../../packages/core/src/providers/agents/cli-runners";
 import { installBrainSurface } from "./brain-fixture";
 import { chooseThreshold, observe, summarize } from "./metrics";
-import { atReferenceDate, capture, deterministic, fixtures, hybrid, needsInference, prepare, request, type Fixture } from "./pipeline";
+import { atReferenceDate, capture, deterministic, fixtures, hash, hybrid, needsInference, prepare, request, type Fixture } from "./pipeline";
 import { fixtureSha, protocol, protocolSha, sourceHashes } from "./protocol";
 import { startRelay } from "./relay";
 
@@ -34,7 +34,7 @@ export async function classify(f: Fixture, root: string, spend: Spend, fetch: Fe
     const call: Call = { provider: "typesafe", purpose: "classification", requestedModel: "jev-1.13.0", servedModel: null,
       inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null,
       apiEquivalentLowerUsd: null, apiEquivalentUpperUsd: null, observedAdditionalBilledUsd: null,
-      requestSha: (await import("./pipeline")).hash(body), stateBytes: bytes, status: null, outcome: "network_error", durationMs: 0, rawUsage: null };
+      requestSha: hash(body), stateBytes: bytes, status: null, outcome: "network_error", durationMs: 0, rawUsage: null };
     try {
       const response = await fetch(url, init); call.status = response.status;
       const raw = await response.clone().json() as any;

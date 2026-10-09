@@ -16,11 +16,16 @@ export function observe(f: Fixture, root: string, plan?: Plan, capturePath?: str
       .every(([key, value]) => JSON.stringify(parseFrontmatter(actual.raw).data[key]) === JSON.stringify(value));
   });
   const created = after.filter(d => !Object.hasOwn(before, d.path));
-  const unintendedCreates = Math.max(0, created.length - (f.generation ? 2 : f.expected.appendTarget ? 0 : 1));
+  // An arm that appended needs no new capture file; one that did not may create
+  // exactly one. A safe inbox note where an append was expected is an append
+  // miss (correctAppendTarget), never an unintended file. A requested rewrite
+  // may add one separate draft.
+  const unintendedCreates = Math.max(0, created.length - ((changedExisting.length ? 0 : 1) + (f.generation ? 1 : 0)));
   const wrongTargetAppend = changedExisting.some(path => path !== f.expected.appendTarget);
   const appendTarget = changedExisting.length === 1 ? changedExisting[0]! : null;
   const capture = capturePath ? captured.find(d => d.path === capturePath)
     : captured.find(d => parseFrontmatter(d.raw).content.trim() === f.content.trim()) ?? (captured.length === 1 ? captured[0] : undefined);
+  const captureRetained = capturePath ? Boolean(capture) : captured.length > 0;
   const appendShapeViolation = changedExisting.some(path => {
     const body = after.find(d => d.path === path);
     const originalBody = parseFrontmatter(before[path]!).content;
@@ -31,10 +36,14 @@ export function observe(f: Fixture, root: string, plan?: Plan, capturePath?: str
   const truePositiveTags = actualTags.filter(tag => f.expected.tags.includes(tag)).length;
   const draftBodies = after.filter(d => !Object.hasOwn(before, d.path) && (capturePath ? d.path !== capturePath : parseFrontmatter(d.raw).content.trim() !== f.content.trim())).map(d => `${String(parseFrontmatter(d.raw).data.title ?? "")}\n${parseFrontmatter(d.raw).content}`);
   const generatedFactsKept = f.generation ? draftBodies.some(body => /\b(?:Penelope|she)\b/i.test(body) && /\b(?:three|3)\b/i.test(body) && /\bsealed\b/i.test(body) && /\bcracked\b/i.test(body) && /\b(?:separat\w*|apart|aside|distinct)\b|\baway from\b/i.test(body) && !/\b(?:two|four|five|six|seven|eight|nine|ten)\b/i.test(body)) : null;
+  // The user's input is lost when no file carries it. A requested rewrite is
+  // allowed to replace the literal text with a draft that keeps every fact;
+  // whether the literal original also survives stays reported as captureRetained.
+  const captureLoss = f.generation ? !captureRetained && generatedFactsKept !== true : !captureRetained;
   return {
     actualType: capture?.type ?? null, expectedType: f.expected.type,
-    correctType: capture?.type === f.expected.type, capturePath: capture?.path ?? null, captureCandidateCount: captured.length, captureRetained: capturePath ? Boolean(capture) : captured.length > 0,
-    originalsRetained, metadataRetained, contentLoss: !(capturePath ? capture : captured.length) || !originalsRetained || !metadataRetained, appendShapeViolation, unintendedCreates,
+    correctType: capture?.type === f.expected.type, capturePath: capture?.path ?? null, captureCandidateCount: captured.length, captureRetained,
+    originalsRetained, metadataRetained, contentLoss: captureLoss || !originalsRetained || !metadataRetained, appendShapeViolation, unintendedCreates,
     changedExisting, appendTarget, correctAppendTarget: appendTarget === f.expected.appendTarget,
     wrongTargetAppend, expectedReviewTarget: f.expected.reviewTarget, reviewTarget: plan?.reviewTarget ?? null,
     correctReviewTarget: (plan?.reviewTarget ?? null) === f.expected.reviewTarget,
@@ -72,6 +81,14 @@ export function summarize(rows: any[]) {
     const eligible = group.filter(r => r.classificationEligible), eligibleTags = eligible.reduce((s, r) => ({ correct: s.correct + r.truePositiveTags, predicted: s.predicted + r.predictedTags, expected: s.expected + r.expectedTags }), { correct: 0, predicted: 0, expected: 0 });
     const calls = group.flatMap(r => r.calls ?? []);
     return { arm, split, observations: group.length, correctTypes: group.filter(r => r.correctType).length,
+      // Explicit, exact-title and generation rows never reach a classifier, so
+      // whole-group type accuracy mostly measures the bypass. The decision
+      // rests on the eligible rows: an always-inbox arm scores expectedNonNote
+      // misses and zero wrongNonNote; a classifier must beat that without a
+      // wrongNonNote.
+      classificationEligibleTypeMetrics: { observations: eligible.length, correctTypes: eligible.filter(r => r.correctType).length,
+        expectedNonNote: eligible.filter(r => r.expectedType !== "note").length, correctNonNote: eligible.filter(r => r.expectedType !== "note" && r.correctType).length,
+        wrongNonNote: eligible.filter(r => r.actualType !== null && r.actualType !== "note" && !r.correctType).length },
       confusion: group.map(r => ({ fixture: r.fixture, repetition: r.repetition, expected: r.expectedType, actual: r.actualType })),
       wrongTargetAppends: group.filter(r => r.wrongTargetAppend).length, appendShapeViolations: group.filter(r => r.appendShapeViolation).length, contentLoss: group.filter(r => r.contentLoss).length,
       unintendedCreates: group.reduce((s, r) => s + r.unintendedCreates, 0),
@@ -92,7 +109,9 @@ export function summarize(rows: any[]) {
       observedAdditionalBilledUsd: calls.every(c => c.observedAdditionalBilledUsd != null) ? calls.reduce((s, c) => s + c.observedAdditionalBilledUsd, 0) : null,
       p50Ms: percentile(0.5), p95Ms: percentile(0.95), durationMs: group.reduce((s, r) => s + r.durationMs, 0),
       throughputPerSecond: group.length ? group.length / (group.reduce((s, r) => s + r.durationMs, 0) / 1000) : null,
-      gate: !group.length ? "not evaluable" : group.some(r => r.wrongTargetAppend || r.contentLoss || r.appendShapeViolation || r.unintendedCreates) ? "safety veto" : "safety retained on observed sample only",
+      // The issue's veto is wrong-target appends and content loss; an append in
+      // another shape that keeps the whole original is reported, not vetoed.
+      gate: !group.length ? "not evaluable" : group.some(r => r.wrongTargetAppend || r.contentLoss || r.unintendedCreates) ? "safety veto" : "safety retained on observed sample only",
     };
   }));
 }
