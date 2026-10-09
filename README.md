@@ -1,5 +1,7 @@
 # brain-kit
 
+> This is an early work-in-progress and not officially launched yet. Expect an announcement soon.
+
 Keep notes, decisions and plans in Markdown, and let your coding agent capture,
 search and maintain them in a git repository you own.
 
