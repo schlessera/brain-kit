@@ -165,11 +165,17 @@ export async function retainedCategories(root: string, ledger: unknown, context:
   return accepted;
 }
 
+/** Leave headroom for the aggregate's other outputs below Linux's per-env limit.
+ * Measure the escaped outer JSON envelope, not just the receipt JSON bytes. */
+export function boundedLedger(ledger: Ledger): Ledger {
+  return Buffer.byteLength(JSON.stringify(JSON.stringify(ledger))) <= 90000 ? ledger : { ...ledger, retained: {} };
+}
+
 if (import.meta.main) {
   try {
     const root = resolve(import.meta.dir, "..");
     const plan = await Bun.file(join(root, "tmp/ci-plan.json")).json() as CheckPlan;
-    const ledger: Ledger = { version: 1, checkout: checkout(root), retained: {} };
+    let ledger: Ledger = { version: 1, checkout: checkout(root), retained: {} };
     const selected = proofSelections(plan, process.env.PR_DRAFT === "true");
     const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : {};
     const context = contextFromEvent(event, process.env);
@@ -180,7 +186,7 @@ if (import.meta.main) {
         ledger.retained = await findRetained(root, selected, context, new GitHubProofAPI(context.repository, process.env.GH_TOKEN), await browserInventory(root), runnerIdentity());
       } catch (error) { console.log(`Proof retention unavailable; execute fresh: ${String(error).slice(0, 200)}`); }
     }
-    if (JSON.stringify(ledger).length > 200000) ledger.retained = {};
+    ledger = boundedLedger(ledger);
     await Bun.write(join(root, "tmp/proof-reuse.json"), JSON.stringify(ledger, null, 2));
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
       `reuse=${JSON.stringify(ledger)}\n` + REUSABLE.map(category => `run_${category}=${selected[category] && !ledger.retained[category]}\n`).join(""));

@@ -83,7 +83,7 @@ fresh: their Git-sensitive or broader process inputs do not have an admitted
 independent domain. Main pushes and scheduled/manual runs execute fresh proof.
 There are no chains through previously retained/skipped jobs.
 
-Vitest's installed `list --filesOnly --json` discovers actual project/file
+Vitest's installed `list --filesOnly --json=<path>` discovers actual project/file
 ownership without collecting suites. Shared files remain inputs to both
 domains; `recordings-tray.offline.tsx`, for example, belongs to layout and rail
 projects. The complete two-shard spec inventory/order and measured partition,
@@ -115,6 +115,9 @@ its read-only token, no secrets and nonpersisted checkout credentials. Lookup
 is limited to three runs, 32 API requests with a 45-second API budget, bounded response sizes and
 finite logs; unavailable evidence falls back to fresh execution. The aggregate
 fails closed if previously admitted retention is no longer verifiable.
+The escaped ledger output stays below 90 KB, leaving room for the aggregate's
+other outputs under the native per-environment-string limit; larger receipts
+execute fresh.
 Record actual retained runner time and lookup/aggregate costs on a controlled
 base advancement. This preserves runner consumption without claiming that
 unchanged browser proof removes a remaining long native critical path.

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { browserInventory, checkout, git, normalizeInventory, proofInputs, type Inputs, type Spec } from "../scripts/proof-inputs";
-import { contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
+import { boundedLedger, contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -186,4 +186,18 @@ test("Git-derived, unknown dynamic module selection and exported foreign helpers
   expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
   write(root, visual, "export {};\n"); write(root, layout, "export const helper = 1;\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).excluded).not.toContain(layout);
+});
+
+test("large receipts fall back to fresh proof before crossing the native environment envelope", async () => {
+  const root = fixture(), inputs = proofInputs(root, "browser", inventory, runner), { source } = evidence(root, inputs);
+  const ledger = { version: 1 as const, checkout: checkout(root), retained: { browser: source } };
+  expect(boundedLedger(ledger).retained.browser).toEqual(source);
+  source.inputs = { ...inputs, runner: "\\".repeat(100000) };
+  expect(Buffer.byteLength(JSON.stringify(JSON.stringify(ledger)))).toBeGreaterThan(131072);
+  const bounded = boundedLedger(ledger);
+  const child = Bun.spawn([process.execPath, "-e", 'const needs=JSON.parse(process.env.PROOF_NEEDS);if(Object.keys(JSON.parse(needs.changeset.outputs.reuse).retained).length)process.exit(1);console.log("fresh");'], {
+    cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, PROOF_NEEDS: JSON.stringify({ changeset: { outputs: { reuse: JSON.stringify(bounded) } } }) },
+  });
+  const [out, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  expect(code).toBe(0); expect(out.trim()).toBe("fresh"); expect(bounded.checkout).toEqual(ledger.checkout);
 });
