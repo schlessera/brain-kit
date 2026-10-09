@@ -257,6 +257,23 @@ unresolved until exact complementary review and safe provider admission. No
 provider call, production default or adopted cache/contract follows from these
 controls.
 
+The source bodies describe events and leave the label to the reader. An earlier
+draft had them narrate their own classification ("this is a standing inventory,
+not an account of a voyage or a council vote", "this is an adopted conditional
+decision") and carry harness scaffolding ("only the empty summary is approved for
+enrichment", "the configured inbox is entry"). A held-out set written that way
+rewards phrase matching and cannot separate it from judgment, so those sentences
+were removed on 2026-10-09; `tests/import-enrichment-semantic.test.ts` refuses
+their return. The labels are still the author's and still unreviewed.
+
+`score.ts` turns raw classifier replies into per-split type accuracy, a type
+confusion table, controlled-tag precision/recall/F1, abstentions and false
+completions of `unclear` cases. `run-semantic.ts` emits these for the scripted
+arms, where they are 1.0 by construction and check only the scoring path; the
+unit test proves each metric moves under a wrong type, a dropped or spurious
+tag, a completed unclear case and a refusal. A live run scores through the
+same function.
+
 The native fixture installer preserves the materialized per-case `brain.config.json`
 bytes, mode and clock. The private writer builds its taxonomy from that same file.
 A separate networkless custom-inbox control checks the real CLI effective `entry`
