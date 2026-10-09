@@ -280,6 +280,14 @@ the physical receipt. Diagnostic price intervals are separate from that debit,
 and invoice fields remain null. The supplied remaining allocation includes
 earlier providers and attempts under the unchanged actual-charge caps.
 
+The scored entry takes a separate coordinator policy-map file after its output,
+combined-review, detected-input and verification arguments. It requires exactly
+the eight packet keys and validates their existing paid-policy schema against
+the exact source, runtime, proof and rebuilt prompts before replay. Receipt
+metadata cannot supply this expected authority. Completed policies may have
+expired since issuance: the original validator still checks their literal
+grant and recorded admission time. Loading the map consumes no new grant,
+creates no allocation and supplies no semantic approval or provider dispatch.
 
 The resumed real-command parser controls also preserve an important distinction:
 `[null]` throws inside the shipped suggestion-normalization catch and triggers
@@ -315,6 +323,10 @@ paid rejection, HTTP/native error or unknown usage remains a veto. Missing invoi
 operational limit and does not establish the maintainer's actual charge cap.
 Real detection-day checks apply before dispatch and after drain; the fictional
 writer date and existing benchmark semantics remain unchanged.
+Entry-point wiring controls declare the frozen test clock and restore the real
+clock in teardown. A different-day control preserves the live refusal gate;
+actual keyless/native proof continues to record real UTC, independently of that
+synthetic wiring clock.
 
 Offline byte-format and native transport controls also exercise the explicitly
 recognized SDK/native 293 pair when present in CI. Their receipts identify the
