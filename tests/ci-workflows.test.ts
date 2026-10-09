@@ -21,7 +21,7 @@ const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
 });
 function runs(workflow: Workflow, job: Job, context: Obj): boolean {
   return String(context.event_name) in workflow.on && (job.if === undefined || evaluate(job.if, {
-    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", browser: "true", layout: "true", captures: "true" } }, pack: { result: "success" } },
+    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", browser: "true", layout: "true", captures: "true", run_browser: "true", run_layout: "true" } }, pack: { result: "success" } },
   }) === true);
 }
 function evaluate(expression: string, context: Obj): Json {
@@ -124,7 +124,8 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
     expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "browser", "layout", "captures", "proof"]);
-    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
+    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
+      ...Object.fromEntries(["run_browser", "run_layout", "reuse"].map(name => [name, `\${{ steps.reuse.outputs.${name} }}`])) });
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
@@ -174,7 +175,7 @@ describe("CI concurrency configuration (live scheduler proof remains separate)",
 });
 
 describe("independent hosted proof after cheap gates", () => {
-  const context = (selected = "true", result = "success") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, browser: selected, layout: selected, captures: selected } } } });
+  const context = (selected = "true", result = "success", execute = "true") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, browser: selected, layout: selected, captures: selected, run_browser: execute, run_layout: execute } } } });
   test("all independent categories depend only on metadata", () => {
     for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"]) {
       expect(ci.jobs[name]!.needs).toBe("changeset");
@@ -195,13 +196,17 @@ describe("independent hosted proof after cheap gates", () => {
       for (const name of ["verify", "pack", "unit", "runtime", "browser", "layout", "captures"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
     }
   });
+  test("retention skips only admitted browser categories; other selected proof remains fresh", () => {
+    for (const name of ["browser", "layout"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(false);
+    for (const name of ["unit", "verify", "pack", "runtime", "captures"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(true);
+  });
 });
 
 describe("contributions execute without privileged credentials", () => {
   for (const { file, workflow } of workflows) {
     test(`${file}: no secret, write permission or privileged trigger`, () => {
       expect(read(file)).not.toMatch(/\bsecrets\.|pull_request_target|workflow_run|id-token|: write\b/);
-      expect(workflow.permissions).toEqual({ contents: "read" });
+      expect(workflow.permissions).toEqual(file === "ci.yml" ? { contents: "read", actions: "read" } : { contents: "read" });
       for (const job of Object.values(workflow.jobs)) {
         expect(job.permissions).toBeUndefined(); expect(job["runs-on"]).toBe("ubuntu-24.04");
         const checkouts = job.steps.filter(s => s.uses?.startsWith("actions/checkout@"));

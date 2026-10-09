@@ -5,12 +5,13 @@ import { join, resolve } from "node:path";
 import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
 import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
+import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function receipt(selected = true): { changeset: { result: string; outputs: Record<string, string> } } & Record<string, { result: string; outputs?: Record<string, string> }> {
-  return { changeset: { result: "success", outputs: Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])) },
+  return { changeset: { result: "success", outputs: { ...Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])), reuse: JSON.stringify({ version: 1, checkout: checkout(ROOT), retained: {} }) } },
     ...Object.fromEntries(PROOF_JOBS.map(name => [name, { result: selected ? "success" : "skipped" }])) };
 }
 

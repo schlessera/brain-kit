@@ -74,6 +74,54 @@ require fresh proof. There is no generic passing-result cache. The earlier run
 still names its own tree, not a later combined checkout. Required branch rules
 and actual merge-result parent/tree validation remain binding.
 
+### Retaining complete browser domains
+
+Under #1333, ready-PR metadata can retain both shards of a complete browser or
+layout domain from up to three recent successful automatic runs of that same
+contribution. Unit, types, packaging, native runtime and editorial checks remain
+fresh: their Git-sensitive or broader process inputs do not have an admitted
+independent domain. Main pushes and scheduled/manual runs execute fresh proof.
+There are no chains through previously retained/skipped jobs.
+
+Vitest's installed `list --filesOnly --json` discovers actual project/file
+ownership without collecting suites. Shared files remain inputs to both
+domains; `recordings-tray.offline.tsx`, for example, belongs to layout and rail
+projects. The complete two-shard spec inventory/order and measured partition,
+runner image/version, and every tracked Git blob/path/mode are fingerprinted.
+Only the content of unreferenced, unexported opposite-domain test leaves is
+excluded. Their paths/modes stay hashed. Reference closure includes strings,
+helpers, fixtures and symlink targets; all unknown files, shared fixtures,
+source, dependency manifests/lockfiles, configuration and runtime/image pins
+stay hashed. New discovery and changed ownership expand conservatively.
+The installed TypeScript compiler's expanded build inventory and the explicit
+CSS scan roots must also exclude those foreign leaves; unknown build/scan
+configuration retains fresh execution.
+Unknown dynamic spec imports, Git-dependent spec inputs, alternate runtime
+contexts or unavailable discovery do not qualify for retention.
+
+Each source shard must have an actual successful fresh execution step, a
+matching GitHub Actions check, one post-success receipt, and a checkout log
+for the same PR. Run/attempt/job/check IDs and immutable commit/tree/parents
+are verified against the [read-only GitHub job/check APIs](https://docs.github.com/en/rest/actions/workflow-jobs).
+Both source and current Git
+trees are recomputed; artifact or PR metadata claims alone cannot authorize
+retention. The source workflow must be identical. The current-head aggregate
+independently repeats receipt validation before accepting a selected domain's
+intentional skip, retaining the original evidence's identity in the ledger.
+Missing, failed, cancelled, held, malformed or mismatched evidence cannot pass.
+
+CI adds only `actions: read` for those APIs; ordinary fork execution retains
+its read-only token, no secrets and nonpersisted checkout credentials. Lookup
+is limited to three runs, 32 API requests with a 45-second API budget, bounded response sizes and
+finite logs; unavailable evidence falls back to fresh execution. The aggregate
+fails closed if previously admitted retention is no longer verifiable.
+Record actual retained runner time and lookup/aggregate costs on a controlled
+base advancement. This preserves runner consumption without claiming that
+unchanged browser proof removes a remaining long native critical path.
+Discovery has a 15-second timeout; a missing immutable Git object has an
+eight-second bounded fetch. Runner image context comes from the image's
+[recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
+
 ## Measuring the critical path
 
 Record queue wait, job elapsed times, ready-to-merge duration, cancelled attempt

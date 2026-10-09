@@ -16,6 +16,12 @@ retain complete local commands. Every selected hosted job must pass; missing
 runtimes, failures/cancellations and unexpected skips leave proof unfinished.
 Keep drafts cheap and batch pushes. Assess relevant base changes before redoing
 heavy work; an unrelated merge alone does not justify restarting every suite.
+Under #1333, a selected browser/layout domain may intentionally skip fresh
+execution after complete input equivalence and original successful run/attempt/
+job/check/checkout receipts are validated. Inspect the current retention ledger
+and independently validating aggregate. Preserve original identities; do not
+describe retained jobs as executions on the new SHA. Native/Git-dependent and
+unknown domains, main pushes and scheduled/manual coverage remain fresh.
 
 ## Read the actual head
 

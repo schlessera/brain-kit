@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Cancel obsolete PR heads. Preserve every integrated main commit's evidence.
 concurrency:
@@ -31,6 +32,9 @@ jobs:
       unit: ${{ steps.plan.outputs.unit }}
       verify: ${{ steps.plan.outputs.verify }}
       pack: ${{ steps.plan.outputs.pack }}
+      run_browser: ${{ steps.reuse.outputs.run_browser }}
+      run_layout: ${{ steps.reuse.outputs.run_layout }}
+      reuse: ${{ steps.reuse.outputs.reuse }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -64,6 +68,20 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
             bun scripts/check-changeset.ts "$BEFORE_SHA"
           fi
+      - name: Retain only validated equivalent automatic proof
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: bun scripts/proof-reuse.ts
+      - name: Retention ledger and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proof-reuse-ledger
+          path: tmp/proof-reuse.json
+          if-no-files-found: warn
+          retention-days: 7
 
   verify:
     # Packaging and verification are independent after cheap rejection gates.
@@ -631,7 +649,7 @@ jobs:
 
   browser:
     needs: changeset
-    if: needs.changeset.outputs.browser == 'true'
+    if: needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -674,7 +692,7 @@ jobs:
 
   layout:
     needs: changeset
-    if: needs.changeset.outputs.layout == 'true'
+    if: needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -772,4 +790,5 @@ jobs:
       - name: Require every selected proof category to pass
         env:
           PROOF_NEEDS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
         run: bun scripts/ci-proof.ts aggregate

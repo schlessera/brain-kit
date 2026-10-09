@@ -214,6 +214,9 @@ on, links to or describes them.
   local receipts. Assess base changes before rebasing; unrelated main advancement
   alone does not require repeated long proof. Relevant input/dependency/harness
   changes require fresh checks; never call an old receipt a new combined-tree pass.
+  Under #1333, complete browser/layout domains may retain validated equivalent
+  successful automatic receipts. Read the current retention ledger and aggregate;
+  original run/job/checkout identity remains distinct. Other categories stay fresh.
   Verify actual squash parent/tree and automatic main-push proof. Respect branch
   rules. See [the CI decision](docs/decisions/ci-utility.md).
 
@@ -372,7 +375,8 @@ Independent selected categories run after metadata; the final proof aggregate
 rejects failures, cancellations, missing outputs and unexpected skips. Tests-only
 changes may intentionally skip packaging while complete affected tests run.
 Drafts run cheap gates only. Forks use ordinary `pull_request`, a read-only
-token, no secrets and nonpersisted checkout credentials. A fork run awaiting
+token (`contents: read`, plus `actions: read` for bounded proof lookup), no
+secrets and nonpersisted checkout credentials. A fork run awaiting
 maintainer approval has not passed.
 
 Use `gh` to inspect runs for the PR's actual current head and the live base,
@@ -395,7 +399,10 @@ Check links may identify synthetic-merge runs omitted by a head-SHA filter.
 Record run/job/attempt IDs and the actual failing step/assertion. Missing runs,
 queued work, cancelled jobs, unavailable runtimes and older green attempts
 leave proof unfinished. Conditional skips count only where the planner and
-workflow intentionally exclude that job. A job log can be read through its
+workflow intentionally exclude that job.
+Validated #1333 retention is a selected guarantee's intentional execution skip:
+inspect original receipts and the current aggregate's equivalence validation.
+An older green summary without that validation remains insufficient. A job log can be read through its
 API while other jobs still run. A refused-start job has no execution log;
 inspect its check-run annotations instead.
 
