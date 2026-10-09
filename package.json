@@ -13,6 +13,8 @@
     "lint": "bun scripts/lint.ts",
     "api-report": "bun scripts/api-report.ts",
     "test": "bun scripts/test.ts --timeout 30000",
+    "check:pr": "bun scripts/check-pr.ts",
+    "check:pack": "bun scripts/check-packages.ts",
     "test:browser": "node scripts/visual.mjs",
     "test:layout": "node scripts/visual.mjs --project=ui-react-layout",
     "visual": "node scripts/visual.mjs --project=visual --project=subjects",
@@ -23,13 +25,18 @@
     "release": "bun install && bun run build && bun scripts/publish.ts",
     "captures": "bun scripts/capture.ts",
     "capture:fonts": "bun scripts/capture.ts --prepare-fonts",
-    "capture:verify": "bun scripts/captures/verify.ts"
+    "capture:verify": "bun scripts/captures/verify.ts",
+    "website:build": "bun website/scripts/build.ts",
+    "website:check": "bun website/scripts/build.ts --check",
+    "website:preview": "bun website/scripts/preview.ts",
+    "website:shares": "bun website/scripts/build.ts --refresh-shares"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/bun": "^1.4.2",
     "axe-core": "^4.13.0",
+    "claude-agent-sdk-research-292": "npm:@anthropic-ai/claude-agent-sdk@0.3.292",
     "github-slugger": "^2.0.0",
     "mdast-util-to-string": "^4.0.0",
     "oxlint": "^1.79.0",

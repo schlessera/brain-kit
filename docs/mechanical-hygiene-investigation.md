@@ -166,3 +166,127 @@ baseline, all input/output/cache tokens, retries/fallbacks, billed/effective cos
 model-call reduction and comparative latency remain unmeasured. Access to the
 approved provider/account/model and a total spend ceiling must be recorded on
 #842 before that evaluation, following #838. Ordinary CI remains keyless.
+
+## Comparing complete effects
+
+The unchanged 24 boundary controls are distinct from an authored 18-case
+workload: six Ogygia cases and twelve Ithaca/Pylos/Sparta cases. The latter
+include three positive table repairs and explicit UTC calendar boundaries under
+Honolulu and Kiritimati workers. The row detector identifies a finding by the
+first cell, so supported positive tables keep the explicit link first while
+varying the other columns. Entity separation and different surrounding prose
+provide directional coverage; shared table grammar does not demonstrate
+unseen-template generalization. Every new expected document remains subject
+to complementary review.
+
+The observer retains every filesystem entry, including binary bytes, deleted
+and created files, complete logs, permissions, timestamps and symlink targets,
+without following symlinks. The effect checker requires exact approved bytes
+and permissions for each file; a hygiene directory prefix cannot approve an
+arbitrary write. Unchanged files also retain their timestamps. Complete
+reconciler log candidates are generated with the real detector and reconciler
+for independent review. These source-derived log candidates are explicitly
+provisional, rather than independent goldens or automatic write approval.
+
+The comparison admission state machine retains failed native receipts and
+refuses the next phase after unknown usage, wrong model or route, unadmitted or
+unobserved overage, incomplete closure or an unexpected filesystem effect.
+An undrained writer has no safe final snapshot; its receipt is preserved with
+that snapshot absent. Modeled driver controls establish those stop boundaries only. Separate actual
+native controls now exercise the same complete cycle collector used for the
+prospective comparison, with scripted responses in a network namespace that
+contains only loopback. They establish transport/tool/closure behavior, not
+Claude quality or semantic approval of the authored workload.
+API-price equivalents remain separate from actual subscription billing.
+
+The private protocol defines fresh native sessions for dry-run, apply and
+same-brain repeat phases, three repetitions, and materialized 20/1,000-document
+states. It includes startup and complete runtime work in timing, keeps the
+original file mtimes and pinned document date, and distinguishes native cache
+observations from claims of cold provider cache. These controls neither ship a
+production repair command nor decide unattended adoption.
+
+
+## Protected actual skill experiment
+
+The native baseline executes the unchanged shipped content-hygiene skill through
+SDK 0.3.292 / CLI 2.1.292 with a private fixture hook policy and an isolated home.
+It does not measure the unmodified core runner's implicit auto permissions or
+production classifier overhead. All observed physical and auxiliary requests
+are retained and must serve the pinned Sonnet 5.5 model. Unknown route, model,
+usage, overage or completion evidence stops later admissions. The private
+development alias resolves and executes the actual 292 pair independently of
+the public backend's 293 dependency. Historical 293 offline compatibility
+receipts do not supply proof for the 292 live arm.
+
+Active extra usage requires a matching root-issued source, runtime, proof and
+prompt policy for #842, an atomically consumed one-use grant and the existing
+serialized root window. The original $15 issue and $150 aggregate actual-charge
+allocations and unknown reservations remain authoritative. No new pool is
+created by this instrument. Before releasing USER input, the allocation must
+hold the full supported million-token context and maximum output; before each
+physical request, the relay reserves that context and its exact output cap.
+Wire bytes constrain transport only. Missing usage or incomplete/failed streams
+retain the full unknown hold and stop forwarding. Complete raw usage gives a
+conservative price upper bound, never an invoice or account-wide spend reading.
+
+The isolated native settings disable attribution so the harness cannot append
+an unreviewed USER reminder. Exact frozen USER checks, the original fixture
+tool hooks, real native clocks, deadlines and model/runtime pins remain in
+force. Preserved upstream and native bytes independently reconstruct usage,
+init, quota events and terminal output. Scripted paid controls cannot become
+semantic approval by changing their receipt labels; the original consumed grant
+binds their offline provenance. Every source change invalidates old packets.
+
+Only brain CLI child tools preload the exact July 12 noon UTC fixture clock.
+The native SDK, authentication, subscription entitlement, provider, timers and
+performance clock remain real. Real CLI controls exercise detection, complete
+logs, reference dates and repeated no-op behavior at both document sizes under
+UTC, Honolulu and Kiritimati. The readonly source mount supplies runtime code;
+a real outside-fixture read is denied before its bytes reach model-bound input.
+A mutation that permits that read reveals the controlled sentinel to the model
+transport and fails the named assertion.
+
+The physical relay stores literal request and response bytes before decoding or
+forwarding, including binary HTTP failures and malformed streams. Decoded SSE
+frames are a separate interpretation. It records natural EOF, cancellation,
+owned reader closure, terminal per-request usage and final native reconciliation.
+Known API-price subtotals remain separate from unknown aggregate costs and final
+invoices. A streamed split-codepoint control preserves Unicode and the final
+unterminated frame; real HTTP cancellation and shutdown controls prove upstream
+abort and local closure. An owned process that ignores SIGTERM is forcibly killed
+and its actual close/stdout completion awaited before any post-write snapshot.
+
+The full collector takes a complete input snapshot before each phase and checks
+all source bytes, modes, original mtimes and membership before dispatch. Unexpected
+files or directories, symlinks, stale input, wrong source edits, unapproved log
+bytes or unchanged-file churn veto subsequent phases. Disposable SQLite and two
+exact scratch files have separately checked grammars and retained complete bytes.
+They do not authorize arbitrary files under a directory prefix.
+
+Complete provisional reconciler logs fix paths, identities, membership, counts,
+dates, dispositions and all surrounding bytes. Actual fix descriptions can vary
+only in their explicitly reviewed slots for the exact approved changed paths.
+The collector projects these slots from the actual scratch descriptions and the
+pre-reviewed structure; it never copies an observed log into its own expectation.
+Description quality remains false until a separate source-aware annotation binds
+the full actual description and receipt. Structural agreement alone cannot finish
+the comparison or produce an adoption recommendation.
+
+The deterministic schedule has 108 cycles per arm (18 cases, two sizes, three
+repetitions), each with dry-run, apply and same-brain repeat phases. Both arms
+rotate their order; each native phase uses a fresh protected model session.
+Source/fixture preparation and complete dependency/source admission scans are
+excluded from workflow timing; their separate harness wall duration is retained.
+The freezer binds all workspace source/manifests and the complete installed
+dependency byte/mode/link closure, including native and Bun executables. Every admitted native cell
+requires all exact source/case packets approved and the root's current quota,
+actual-charge allocation and serialized-window intent. The preparation and matrix
+scripts do not change production behavior. The full fresh live comparison and
+independent actual-description annotation remain necessary to assess model work
+and end-to-end savings; the keyless controls supply neither result.
+
+
+The CLI reference clock does not change physical filesystem mtimes. Both fixture arms keep real write dates. Each preparation and all packet approvals bind the actual UTC write day; stale dates and midnight rollover stop write admissions and exclude partial completion. A fresh day requires fresh candidate effects, proof and full complementary reviews. Native work is refused near UTC midnight for its full deadline plus owned-drain margin; admission hooks cannot atomically interrupt an internal write already in progress. Every surviving partial effect and its process drain remains evidence.
+
+Consequently a July document repaired on the actual later write day can produce a new `silent-edit` finding. That literal finding and every full log byte remain in the effects and review inputs as a harness consequence. They are excluded from substantive repair-quality improvement. No timestamp normalization or production writer policy is introduced.

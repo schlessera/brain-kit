@@ -18,7 +18,11 @@ export function capability(root: string, taxonomy: Taxonomy, finding: AuditIssue
     suggestion: finding.suggestion || "Manual review needed.", handlerAvailable: false,
     executionAuthorized: false, handler: null as "registry" | null,
   };
-  const manual = (reason: string) => ({ ...base, reason, plan: null });
+  const manual = (reason: string) => ({ ...base, reason, plan: null,
+    suggestion: finding.category !== "index-stale" ? base.suggestion : reason === "no content change required"
+      ? "No registry content change is required; leave files unchanged."
+      : `Read the index, its children, and the taxonomy; resolve ${reason} before considering registry regeneration.`,
+  });
   if (isAbsolute(finding.path) || finding.path.includes("\\") || finding.path.split("/").some(p => !p || p.startsWith(".")) || !safeResolve(root, finding.path)) return manual("unsafe or aggregate path");
   // Category is a code capability gate, not a natural-language instruction.
   if (finding.category !== "index-stale") return manual("no bounded handler for this finding");
@@ -28,7 +32,8 @@ export function capability(root: string, taxonomy: Taxonomy, finding: AuditIssue
     if (!index) return manual("registry absent or invalid");
     if (index.next === null) return manual("no content change required");
     const prefix = finding.path.slice(0, -"_index.md".length);
-    // #854 tracks the production membership bug. Keep this private control conservative.
+    // #854 was fixed by #976. This private source-validity gate remains conservative:
+    // configured membership alone does not prove every registry child is valid.
     for (const path of getMarkdownFiles(root, taxonomy).filter(p => p.startsWith(prefix))) {
       const full = safeResolve(root, path);
       if (!full) return manual("unsafe source path");

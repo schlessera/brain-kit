@@ -212,7 +212,7 @@ signatures (every public export and the types it is made of)
     export interface BrainUiRootOptions {
         config?: Partial<BrainUiConfig>;
         api?: BrainApi;
-        request?: (url: string, init?: RequestInit) => Promise<Response>;
+        request?: (url: string, init?: ProgressRequestInit) => Promise<Response>;
         storagePrefix?: string;
         storage?: Storage | null;
         localCapture?: LocalCaptureOptions | true | null;
@@ -221,7 +221,7 @@ signatures (every public export and the types it is made of)
     export interface BrainUiServices {
         config: BrainUiConfig;
         api: BrainApi;
-        request: (url: string, init?: RequestInit) => Promise<Response>;
+        request: (url: string, init?: ProgressRequestInit) => Promise<Response>;
         renderers: ToolRendererRegistry;
         asr: AsrClientRegistry;
         apiBase: () => string;
@@ -535,6 +535,10 @@ signatures (every public export and the types it is made of)
         last_seen_at: number | null;
         is_own: boolean;
     }
+  ProgressRequestInit (packages/ui-react/src/lib/upload-request.ts)
+    export type ProgressRequestInit = RequestInit & {
+        onUploadProgress?: (percent: number) => void;
+    };
   QueuedAnswer (packages/ui-react/src/lib/answer-delivery/types.ts)
     export interface QueuedAnswer {
         v: 1;
@@ -562,6 +566,8 @@ signatures (every public export and the types it is made of)
         transcript?: string;
         acceptedDraftRev?: number;
         transcribeRequestId?: string;
+        transcription?: RecordingTranscription;
+        transcriptionMessage?: string;
         chunkCount: number;
     }
   RecordingBudget (packages/ui-react/src/lib/recordings.ts)
@@ -603,6 +609,8 @@ signatures (every public export and the types it is made of)
         saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
         accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
+        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string): Promise<void>;
+        syncTranscriptions(): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;
         onEvent(listener: (event: RecordingEvent) => void): () => void;

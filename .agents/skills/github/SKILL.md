@@ -351,6 +351,17 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
+Before opening or marking ready, run `bun run check:pr --base origin/main`
+for focused local preflight and record actual behavioral/mutation receipts.
+Complete repeatable proof is authoritative in affected hosted jobs under #1326;
+`--full`/`--all` retain local fallback/release commands. Missing tools, failed or
+cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch
+pushes. Independent selected jobs run after metadata, with per-PR cancellation.
+Assess new base commits before refreshing: revalidate affected inputs, preserve
+the actual tested head/base and do not restart long suites for unrelated merges.
+Inspect selected job checkouts and the proof aggregate before matching-head
+merge; verify the actual squash and automatic main push afterward.
+
 The PR normally closes the issue; do not close it by hand before merging. If
 required human verification remains, follow "Handing work to a human" instead:
 use `Refs #N` and close only after the required result is recorded.

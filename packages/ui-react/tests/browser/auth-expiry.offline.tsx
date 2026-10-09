@@ -71,6 +71,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
     restore: createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null })),
     snapshotNow: async () => { snapshot.entered = true; await commit; },
     addTranscript: async () => { throw new Error("This auth fixture has no durable recordings"); },
+    openDeviceVersion: async () => { throw new Error("This auth fixture has no draft versions"); },
     register: () => () => {}, changed() {}, restoring: async () => {}, lock() {}, quiesce: async () => {}, resume: async () => false, dispose() {},
   };
   ctx.onTestFinished(finish);

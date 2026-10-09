@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { Button } from "../primitives/Button.js";
 import { Chip } from "../primitives/Chip.js";
@@ -70,6 +70,14 @@ export interface ApprovalCardProps {
   allowEffect?: string;
   onAllow?: () => void;
   onDeny?: () => void;
+  /** Offered only when the host says this request can create a remembered grant. */
+  onAlwaysAllow?: () => void;
+  /** Real renderer input or other permission details, without demo content. */
+  children?: ReactNode;
+  /** Let full runtime tool names and targets occupy separate header lines. */
+  wrapHeader?: boolean;
+  /** Printed keys are hints; they do not change the decision's accessible name. */
+  shortcuts?: { allow: string; deny: string };
 }
 
 export function ApprovalCard(p: ApprovalCardProps) {
@@ -87,10 +95,11 @@ export function ApprovalCard(p: ApprovalCardProps) {
     gap: 7,
     font: `500 11.5px/1.3 ${font.mono}`,
     color: color.ink,
+    flexWrap: p.wrapHeader ? "wrap" : undefined,
   };
-  const toolStyle: CSSProperties = { flex: "none", fontWeight: 600 };
+  const toolStyle: CSSProperties = { flex: p.wrapHeader ? "0 1 auto" : "none", minWidth: 0, overflowWrap: "anywhere", fontWeight: 600 };
   const targetStyle: CSSProperties = {
-    flex: 1,
+    flex: p.wrapHeader ? "1 1 140px" : 1,
     minWidth: 0,
     color: color.inkMute,
     fontWeight: 400,
@@ -119,7 +128,7 @@ export function ApprovalCard(p: ApprovalCardProps) {
   const risk = p.risk ?? "overwrites a field referenced by 2 other docs";
 
   return (
-    <div style={box}>
+    <div style={box} data-kit-approval-card>
       <div style={head}>
         <Icon icon={p.toolIcon || "edit"} size={14} color={accent.amber.ink} />
         <span style={toolStyle}>{p.tool ?? "Edit"}</span>
@@ -133,15 +142,17 @@ export function ApprovalCard(p: ApprovalCardProps) {
           <DiffBlock text={diff} variant="inset" />
         </div>
       ) : null}
+      {p.children}
       {risk ? (
         <div style={riskRow}>
           <Icon icon="failed" size={12} color={accent.gold.ink} />
           {risk}
         </div>
       ) : null}
-      <div style={actions}>
+      <div style={actions} data-kit-approval-actions>
         <Button
-          label={p.allowLabel || "Allow"}
+          label={`${p.allowLabel || "Allow"}${p.shortcuts ? ` ${p.shortcuts.allow}` : ""}`}
+          ariaLabel={p.shortcuts ? [p.allowLabel || "Allow", p.allowEffect].filter(Boolean).join(", ") : undefined}
           tone="primary"
           size="md"
           center
@@ -149,8 +160,10 @@ export function ApprovalCard(p: ApprovalCardProps) {
           style={allowMount}
           onClick={p.onAllow}
         />
-        <Button label={p.denyLabel || "Deny"} tone="danger" size="md" center style={denyMount} onClick={p.onDeny} />
+        <Button label={`${p.denyLabel || "Deny"}${p.shortcuts ? ` ${p.shortcuts.deny}` : ""}`} ariaLabel={p.shortcuts ? p.denyLabel || "Deny" : undefined} tone="danger" size="md" center style={denyMount} onClick={p.onDeny} />
       </div>
+      {p.onAlwaysAllow ? <Button label="Always allow" effect="write_policy" tone="quiet" size="md" center
+        style={{ marginTop: 8, minHeight: 44 }} onClick={p.onAlwaysAllow} /> : null}
     </div>
   );
 }

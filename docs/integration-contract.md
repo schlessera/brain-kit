@@ -265,6 +265,49 @@ from a null or absent timestamp. `ListRowProps` gains four optional props,
 `finished` and `withdrawn`. A `ListRow` given none of the new props renders
 as before.
 
+## Runtime approval composition (additive, #1141)
+
+`@schlessera/brain-ui-kit` extends `ApprovalCardProps` with optional
+`onAlwaysAllow?: () => void`, `children?: ReactNode`, `wrapHeader?: boolean`
+and `shortcuts?: { allow: string; deny: string }`. `onAlwaysAllow` offers a
+remembered-grant action only when supplied; the host determines its eligibility.
+`children` carries actual tool input or permission details. `wrapHeader` lets
+tool names and full targets wrap in the header. `shortcuts` prints decision
+hints while preserving the decision's accessible name; it installs no key
+handler. Existing props and callbacks remain compatible. These additions ship
+in a minor, with the public declarations recorded in `api-report/`.
+
+## Search result cards (additive, #1138)
+
+`SearchResultCardProps` in `@schlessera/brain-ui-kit` gains optional
+`segments?: readonly {text: string; hit: boolean}[]`, `title?: string`,
+`type?: string` and `active?: boolean`. Supplied segments replace the
+single `before`/`highlight`/`after` snippet and preserve each matched span;
+an empty array clears the snippet. Omitted segments retain the existing
+single-highlight API. `active` draws the surrounding list's current
+keyboard selection. Existing props and their defaults remain compatible.
+
+The Search panel and both backend search-output renderers adopt the card.
+They clear absent scores and snippets instead of using presentation defaults.
+The existing search tool and HTTP result schemas are unchanged; pi's
+formatted output carries no score. Incompatible, ambiguous, clipped and
+failed tool output retains a readable original-text fallback. File opening
+uses the current root's authenticated file viewer; unsafe paths have no
+open action.
+
+## Streaming waiting status (approved pre-1.0 break, #1144)
+
+The maintainer-approved minor removes `StreamingAnswer`'s prototype defaults
+for phase, target, elapsed time, answer text and cost. Callers supply those
+facts explicitly; omitted facts draw no sample values. Only the phase word
+is announced in the polite live region, while elapsed ticks and targets remain
+outside it. `StreamingAnswerProps` gains optional `pulse?: boolean`; false
+selects a static status dot. Hosts retaining the former sample presentation
+must pass its values explicitly. The runtime uses the component for waiting
+status while preserving rich thinking/tool/prose rendering and the composer's
+single Stop; stream and cancellation schemas are unchanged. The minor changeset
+records this approved migration, and `api-report/` records the added prop.
+
 ## Consumers
 
 | Consumer | Surfaces used |
@@ -1286,6 +1329,16 @@ address the link policy refuses, and a `tracker` block with any event whose addr
 The eight bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
+
+**Schema representation (#563):** `show_block` now writes its unchanged
+`tone`, `valueTone` and `icon` inputs once as shared definitions, and omits
+field descriptions already stated by the tool description. The Claude MCP
+listing uses draft-7 `definitions` and local `$ref`; Pi uses draft-2020-12
+`$defs` and local `$ref`. Consumers resolve these references according to the
+advertised schema dialect. Tool names, accepted fields, validation, handler
+results and rendered blocks remain unchanged; this representation update ships
+in a minor without a `schema_version` change. The choice and measured limits
+are recorded in [the design-kit decision](decisions/design-kit.md).
 
 ### Tool component contracts
 
@@ -3458,6 +3511,113 @@ closes. These suites are the conformance floor; an adapter must also cover
 its protocol-specific authentication, capture and failure behavior. The
 [authoring guide](extending/speech.md) supplies complete public server/client
 examples and points to executable harnesses and real route/Chrome integration.
+
+### Saved-audio transcription (additive, #1021)
+
+The existing experimental `SpeechProvider` adds optional
+`transcribeRecording({ audio: Uint8Array, contentType: string, keyterms: string[],
+signal: AbortSignal }): Promise<SavedAudioTranscription>`; its result is
+`{ text: string }`. Implementations may omit it. Implementations that supply it
+must send unmodified audio server → provider using server-held credentials,
+reject failures, and perform no automatic retry. They must not resolve empty
+text or send audio directly from the browser. This adds no provider registry
+or separate seam. `SpeechTranscriptionError(reason, providerStatus?)` records
+an explicit classification; untyped exceptions, lost/unparseable/invalid
+responses and local timeouts become terminal `outcome_unknown`. Definitive
+HTTP error responses are classified from their status: 401/403 authentication,
+429 rate limit, 408/504 provider timeout, other 5xx provider error, and other
+4xx media/parameter/validation rejection. A contradictory reason cannot
+make a nonretryable HTTP response retryable. Providers without an HTTP status
+must supply a truthful definitive reason or use `outcome_unknown`.
+
+`SpeechCapabilities.savedAudio?: boolean` is additive. Absent/false means
+unavailable to clients. The server derives it solely from a callable optional
+method for discovery, session responses and uploads; a declared flag that
+contradicts that method is invalid. `GET /api/voice/capabilities` is protected,
+read-only, `no-store`, returns `{ providerId, capabilities }`, and mints no
+streaming token or provider request. Selection/validation failures retain 500
+`{ error }`. Deepgram is the only built-in saved-audio provider; Web Speech
+omits the method and reports false. Deepgram sends the raw container body to
+`POST /v1/listen` with `model=nova-3`, `smart_format=true`, `mip_opt_out=true`,
+server `Authorization: Token …`, the original media type and no `encoding`.
+Keyterms use a conservative aggregate 500 UTF-8-byte budget including
+separators, below the provider's 500-token ceiling. No live vendor call is
+part of the conformance proof.
+
+`GET`/`PUT`/`DELETE /api/voice/recordings/:recordingId/transcription` are
+supported HTTP operations, specified in [the HTTP reference](http-api.md#saved-audio-transcription).
+All require a usable account principal. Agents/system principals are refused;
+ambient modes use their existing account mapping (proxy users are distinct).
+The host derives ownership from its existing account key; it never trusts a
+client account id. The calling principal is re-resolved inside the claim
+transaction after reading the bounded body. Expired authorization cannot read
+a completed result. A recording id is host-wide unique, with an immutable
+verified hash and owning account, rather than partitioned by login principal.
+Cross-account reads and mutations return 404 without result disclosure or
+provider dispatch. Reauthentication as the same account reuses the receipt.
+
+`RecordingTranscription` is `{ recordingId, sha256: string|null,
+providerId: string|null, status, attemptId, retryCount, failures,
+text?, failure?, disposition? }`. Status is `transcribing | done | failed |
+outcome_unknown | consumed`. Each failure is `{ reason, retryable,
+providerStatus? }`; `reason` is `provider_error | rate_limit | provider_timeout |
+media | parameters | validation | authentication | outcome_unknown`.
+`failures` retains each failed attempt's classification plus its `attemptId`.
+`retryCount` counts explicit retries (0 initially, maximum 3); it and the
+failure history survive consumption. Disposition is `accepted | discarded`.
+Only `done` carries transcript text. Hash/provider can be null on a tombstone
+that precedes the first upload. Recording UUIDs are canonicalized to lowercase
+for every route and receipt, so alternate case spellings share idempotency,
+account ownership and tombstones. `GET` returns the receipt or 404.
+
+Only an immediate transaction inserting a claim may dispatch the provider.
+A repeated same-hash `done` upload returns the same receipt and text. An
+in-progress receipt gives 409 `transcription_in_progress`; a different hash
+gives 409 `recording_hash_mismatch`. A failed plain replay gives 409
+`transcription_failed`. `PUT ?retry=<failed attemptId>` atomically claims a
+new attempt only for a retryable failure: provider 5xx, 429/rate limit or a
+definitive provider timeout including Deepgram 504. Each retry is explicitly
+user initiated. Media, parameter, validation and authentication failures are
+never retried; they give 409 `transcription_not_retryable`. Explicit terminal
+classifications remain terminal even if an adapter attaches a conflicting
+transient HTTP status; transient classifications cannot override definitive
+authentication or validation HTTP evidence. A stale token gives
+409 `transcription_retry_stale`; once three retries are used, a current token
+gives 409 `transcription_retry_limit`. Simultaneous retries can claim only
+one attempt. `outcome_unknown` gives terminal 409
+`transcription_outcome_unknown`, never any retry. A server restart makes any
+leftover `transcribing` receipt unknown. Completion updates only its still
+active attempt, preventing stale replies from overwriting a tombstone.
+Provider rejection is a 200 receipt with `failed`, not a lost HTTP response.
+Errors use `{ error, message, receipt? }`; stored conflict/terminal responses
+include the receipt. Authentication errors retain the existing guard envelope.
+
+Receipts live indefinitely in the UI's operational database, never `brain.db`.
+They outlive login rows and have no TTL or count-based pruning. `DELETE` erases
+text but retains a `consumed` tombstone; delayed PUTs give 410
+`transcription_consumed`. A DELETE before the first claim inserts a hashless
+tombstone. The guarantee lasts for the lifetime of that operational database;
+resetting it is the boundary. Recording ids are random client UUIDs.
+
+The paired UI uploads only after the confirm row's **Upload and transcribe**
+action, and uses a recording-id Web Lock. Reconnect/reload/sign-in never
+uploads audio or sends a chat message. Recovery may read GET status; explicit
+accept/discard may queue a durable DELETE while offline and replay that deletion
+after reconnect. Success is saved to the owning local partition before review
+is ready, and audio remains until explicit acceptance/discard. Unassigned
+recordings require explicit association before upload. A transport loss during
+partial upload retains the original bytes/hash and asks for fresh consent;
+an uploaded request with an unconfirmed reply stays awaiting status. Unknown
+outcomes and exhausted/nonretryable failures keep audio and offer no Retry.
+The root's existing request injection accepts optional `onUploadProgress`
+(callback percentage); its default uses XHR for actual byte-upload progress,
+with the same account epoch and 401 guards as fetch. Injected transports that
+handle this callback must report transferred bytes, never fabricated completion.
+
+`runSpeechProviderContract` adds optional-method probes of unchanged bytes,
+media type, supported keyterms, nonempty results and rejection. A provider
+implementing the method supplies `recording()` transport observations in its
+keyless probe. Existing providers that omit it remain valid.
 
 ### SiteAdapter conformance and migration
 

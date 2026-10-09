@@ -17,7 +17,8 @@
  */
 
 import { constants } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { ensureWorkspaceLease, inheritWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
@@ -106,6 +107,8 @@ export function testArgv(args: readonly string[]): string[] {
 }
 
 if (import.meta.main) {
+  const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), workspaceTestAccess());
+  if (coordinated !== undefined) process.exit(coordinated);
   let args = process.argv.slice(2);
   let argv: string[];
   try {
@@ -143,9 +146,9 @@ if (import.meta.main) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  const proc = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], {
+  const proc = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], inheritWorkspaceLease({
     stdio: ["inherit", "inherit", "inherit"],
-  });
+  }));
   // A cancellation aimed at this process's PID (a CI runner stopping the
   // step, `kill <pid>`) must stop the tests too, not orphan them. Ctrl-C in a
   // terminal already reaches both through the foreground process group.

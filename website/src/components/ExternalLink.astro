@@ -1,0 +1,6 @@
+---
+import { externalIconPath, externalLinkHost } from '../../external-links.mjs';
+const { href, ...attributes } = Astro.props;
+const host = externalLinkHost(href);
+---
+<a href={href} {...attributes} data-external={host} title={`External site: ${host}`}><slot/><svg class="external-icon" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={externalIconPath}/></svg><span class="sr-only"> (external site: {host})</span></a>

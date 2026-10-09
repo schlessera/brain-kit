@@ -63,7 +63,7 @@ function packageNameOf(specifier: string): string {
   return specifier.split("/").slice(0, 2).join("/");
 }
 
-const CI_YML = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
+const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
 
 /** The `for package in \ ... do` loop the pack job drives. */
 function ciPackLoop(): string[] {
@@ -146,7 +146,7 @@ describe("release manifests", () => {
     expect(uiServer.manifest.bin?.["brain-ui-inbox"]).toBe("./dist/bin/brain-ui-inbox.js");
     const source = readFileSync(join(PACKAGES_DIR, uiServer.dir, "src/bin/brain-ui-inbox.ts"), "utf8");
     expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
-    const workflow = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
+    const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(workflow).toContain("bun scripts/check-inbox-package.ts --root");
   });
 
@@ -169,7 +169,7 @@ describe("release manifests", () => {
     const subcommands = [...usage.matchAll(/brain-ui-cron (\w+)/g)].map((m) => m[1]);
     expect(subcommands.length).toBeGreaterThan(1);
 
-    const workflow = readFileSync(join(ROOT, ".depot", "workflows", "ci.yml"), "utf8");
+    const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
     const smokeTest = workflow.slice(workflow.indexOf("CRON_USAGE="));
     expect(smokeTest).not.toBe("");
     for (const sub of subcommands) {
@@ -252,9 +252,11 @@ describe("release manifests", () => {
     expect(offenders).toEqual([]);
     const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Manifest;
     expect(root.scripts?.test).toContain("--timeout 30000");
-    // Arguments may follow (CI shards the suite), but the command is the root
-    // script's, so its `--timeout` still applies.
-    expect(CI_YML).toMatch(/run: bun run test( [^\n]*)?\n/);
+    // CI's concurrent runner must still delegate to the root script so its
+    // timeout and offline preload apply to the selected files.
+    expect(CI_YML).toContain("run: bun scripts/ci-runner.ts");
+    const runner = readFileSync(join(ROOT, "scripts/ci-runner.ts"), "utf8");
+    expect(runner).toContain('"run", "test"');
   });
 
   // Changesets majors any package that peer-depends on something being

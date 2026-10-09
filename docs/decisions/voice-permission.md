@@ -31,8 +31,8 @@ The permission bridge asks the user to approve a tool call before it runs
 (`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-292`).
 In chat the user is
 looking at a card: the transcript copy in
-(`Approval buttons`,
-`packages/ui-react/src/components/chat/tool-call-timeline.tsx:397-439`), the
+(`export function ToolPermissionCard`,
+`packages/ui-react/src/components/chat/tool-permission-card.tsx:12-60`), the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
@@ -42,7 +42,7 @@ that needs no interactive approval, or voice is read-only.
 
 Voice today is tap-to-dictate: the speech contract mints a **dictation** session
 (`SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26`) and
-`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:25`
+`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26-40`
 drives it into the composer.
 There is no voice output and no spoken turn, so nothing in this record describes
 existing behaviour.

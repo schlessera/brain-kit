@@ -92,9 +92,10 @@ The private prototype reuses existing hygiene identity/evidence functions and
 reports handler availability separately from execution authorization. Only a
 valid, nonempty registry plan can be selected. It retains built-in suggestions,
 uses conservative containment and metadata checks, and rejects unsupported
-categories regardless of instructions in their messages. Its own-property type
-guard avoids the already tracked production membership defect in #854 without
-claiming that defect is fixed in production.
+categories regardless of instructions in their messages. The production
+own-property taxonomy membership defect tracked in #854 was fixed by #976.
+The private source-validity gate remains conservative: configured membership
+alone does not establish that every registry child's metadata is valid.
 
 Real execution controls show a generated registry rewrite producing parseable
 bytes, preserving prose/TODO content, clearing `index-stale` after reindex, and
@@ -167,3 +168,156 @@ and broader mechanical hygiene discovery remains #842. Assess public CLI/JSON,
 MCP and frontmatter impact under the [integration contract](integration-contract.md)
 before implementation, with the required contract ruling, documentation and
 changeset. Add no generic repair seam and transfer no D42/sync thresholds here.
+
+## Complete-brain measurement protocol
+
+The expanded private benchmark stages 26 authored brains: six tuning and twenty
+held-out, with disjoint entity sets and unique representation labels. These
+labels do not prove structural independence. Complete independently authored
+preview and effect maps cover nine valid registry premises, including one
+preview-only case whose independent authorization is false. The other cases
+exercise malformed metadata, invalid/prototype types, configured and
+module-owned taxonomy, stale and current generated regions, tag aliases,
+unresolved links, quoted/negated markers, absent sources, failed module checks,
+escaped module configuration and a larger handwritten index. No additional
+domain repair handler is fabricated to improve coverage.
+
+`benchmark.ts` indexes each whole brain and executes the real audit command.
+Its input record separates actual audit detections from validation rules:
+an unparseable child can also make a link unresolved, scalar tags are reported
+as missing required metadata by validation and corpus noise by audit, and the
+current marker scanner includes a TODO inside a fenced example. The candidate
+uses the shipped hygiene identity primitives, including the canonical
+equivalence/evidence policy delivered for #597 by #1024. Its registry handler
+reads the actual plan and validates source premises; it explains why an invalid
+premise needs review instead of repeating an unconditional regeneration claim.
+
+Two repetitions compare unchanged message-only `audit --fix`, actual
+providerless `audit --fix`, and the providerless capability-backed registry
+candidate on separate identical brains. Only the last arm invokes an existing
+writer, and only in independently authorized disposable fixtures. Current
+completion replacement strings are retained as untrusted proposals and are
+never executed. An in-memory full-file projection is a secondary diagnostic,
+not evidence that the current command writes files. Full-content explanation
+is not silently added to the current arm.
+
+Natural suggestion correctness requires source-aware annotations for every
+answer under the frozen category rubric. The analysis verifies complete
+three-arm/repetition coverage, exact output hashes and physical-call accounting;
+it does not infer semantic correctness from matching words. Coverage,
+repairability claims, unsupported auto-fix claims, actual authorized writes,
+preview/effect bytes, parseability, finding post-checks and repeat no-ops remain
+separate measurements. Ordinary audit totals and the suggestion-only public
+command remain unchanged.
+
+The runtime freeze covers the core sources and complete installed transitive
+dependency closure, subscription guard/review helper closure, private runtime
+sources, exact Bun executable and actual native Claude executable verified
+against its installed SDK manifest. The bounded complementary review retains
+native stdout before SDK parsing, raw usage/cache TTLs, overage flags and child
+drain evidence. Actual direct API attempts are recorded before dispatch, use
+canonical `claude-sonnet-5-5` with explicit `standard_only` and `global`
+selectors, and preserve requested/returned rate metadata. Official raw usage
+pricing is independent of SDK dollar totals; unknown consumption stops further
+admissions. Subscription API-price equivalents are separate diagnostics from
+the authorized $15 actual-additional-charge allowance, and no usage estimate
+is presented as a supplied invoice. JEV does not decide whether code exists.
+
+The expanded controls use Bun 1.4.2. The actual audit command reads its real
+clock; the measured detection date is frozen explicitly, while authorized
+fixture writer effects use the fictional `2026-07-12` date. Neither becomes a
+new CLI clock contract. Input review precedes dispatch and the source-aware
+output review precedes any measured recommendation; keyless controls alone
+establish neither live suggestion quality nor production adoption.
+
+
+## Resumed measurement controls
+
+The resumed protocol uses the actual UTC detection day `2026-10-09` and Bun
+1.4.2 while preserving the installed SDK 0.3.283 / native CLI 2.1.283 baseline.
+The fictional writer date remains `2026-07-12`. The earlier whole-input review
+failed at the native context limit; it supplied no semantic approval. Its missing
+final invoice remains unknown.
+
+Eight lossless review packets partition all 26 complete cases and every direct
+behavioral source file: four complete-source subsets and four disjoint complete
+case subsets, each with the complete canonical fictional-world documents, common
+protocol, rubric and verification hashes.
+The 150,000-byte envelope is an operational bound, not proof of native context
+fit. No source file or authored case is truncated. Scored admission rebuilds
+every payload from disk and requires all eight native approvals on the same
+source, detected-input, prompt and verification hashes, complete raw usage,
+inactive reported overage, successful native result and actual child close.
+The private reviewer forcibly terminates an owned child that misses its drain
+window and records that outcome as failure rather than approval.
+
+The effect observer records all recursive source members with binary bytes,
+symlink targets, file types, modes and nanosecond modification times. It excludes
+only regular root SQLite cache files. Each actual arm is checked before execution,
+after execution and after ordinary detection; candidate execution also records
+both sides of its repeated writer. Any unexpected byte, member or metadata
+change stops admission immediately. Failure snapshots remain in the observation
+receipt. The current arm still emits suggestions only and never executes its
+untrusted replacement strings.
+
+A lost physical usage receipt stops subsequent provider attempts. Known raw-usage
+cost subtotals remain separate from a null aggregate and the count of unknown
+attempts; missing token counts also remain null. Token arithmetic is an
+independent standard-price diagnostic, never a subscription invoice. Actual
+additional billed charges and shared reservations remain in the coordinator's
+protected ledger. Fresh complementary semantic approval and the full comparison
+are still required before a measured recommendation.
+
+
+The resumed real-command parser controls also preserve an important distinction:
+`[null]` throws inside the shipped suggestion-normalization catch and triggers
+whole-batch manual fallback; string/number array entries become empty normalized
+objects. Neither makes the shipped command crash. The task-local instrument
+retains the unchanged returned completion text and records a source-backed parser
+diagnostic, including fallback reason and non-object raw entries, beside its
+physical receipt. Invalid model proposals and fallback work remain quality
+observations with their full cost, rather than collector success claims or
+unaccounted attempts. These diagnostics do not validate or repair the shipped
+suggestion parser.
+
+
+The eight-packet review collector binds literal native stdin, stdout and stderr
+and each physical request/SSE/error response in a protected hash manifest.
+Admission independently reparses prompt, initialization, account and effective
+settings, model, terminal counters, cache/rate events, natural EOF and actual
+child/relay close. Metadata-only approvals and scripted offline responses cannot
+approve inputs. This artifact binding is not cryptographic attestation against
+a dishonest artifact owner or an invoice. SDK 0.3.283 / CLI 2.1.283 remain the
+experimental runtime; their Sonnet 5.5 fallback price/context metadata is retained
+and independent token-derived prices stay separate.
+
+The native connectivity HEAD is answered only at the exact local `/api/hello`
+route, retained separately and never forwarded or counted as inference. Actual
+auxiliary Messages requests remain subject to complete accounting. Paid extra
+usage requires the coordinator's explicit policy bound to the literal packet,
+source/input/protocol/runtime and verification proof. Every physical dispatch
+reserves conservative input/output charges first; failed or unknown usage keeps
+the reservation and refuses further dispatch. The native included-limit status may stay `rejected` while its paid overage
+status is `allowed`; that exact active case requires the root policy. A genuine
+paid rejection, HTTP/native error or unknown usage remains a veto. Missing invoices remain null. The diagnostic SDK dollar cutoff is an
+operational limit and does not establish the maintainer's actual charge cap.
+Real detection-day checks apply before dispatch and after drain; the fictional
+writer date and existing benchmark semantics remain unchanged.
+
+Offline byte-format and native transport controls also exercise the explicitly
+recognized SDK/native 293 pair when present in CI. Their receipts identify the
+actual pair and cannot approve the preserved 283 live instrument. Unknown pairs
+are refused rather than skipped or accepted as future-compatible.
+
+The coordinator mints a single-use paid grant for each exact packet from its
+shared remaining balance, including earlier native and Jev activity. The
+collector atomically creates a protected nonce marker before prompt release or
+physical forwarding. Failure leaves that grant consumed; replay compares the
+literal marker, copied bytes, hashes and captured dispatch time. Conservative
+input/output rates cover known Standard tier (including `auto`) and absent,
+global or US-only geography. Unknown modifiers and missing receipts retain
+the reservation and refuse the next request. The observed native response
+`inference_geo: not_available` remains unavailable geography; the same upper
+bound covers documented global/US pricing without claiming global execution.
+No observed usage debit is an
+invoice, and no packet carries an independent $15 allowance.

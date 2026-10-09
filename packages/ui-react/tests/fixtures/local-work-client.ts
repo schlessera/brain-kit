@@ -48,6 +48,7 @@ Object.assign(window, {
       drafts.edit(drafts.idFor(sessionId), sessionId, { text });
       return outcome(root.localWork!.snapshotNow());
     },
+    restoring: () => root.localWork!.restoring(),
     snapshotNow: () => outcome(root.localWork ? root.localWork.snapshotNow() : Promise.resolve()),
     /** The partition module itself, past any UI. */
     read: (accountKey: string, key: string) => outcome(root.partitions!.open(`account:${accountKey}`).get(key)),
