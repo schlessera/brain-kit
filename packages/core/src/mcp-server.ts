@@ -15,7 +15,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, writeFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
 
@@ -33,7 +33,7 @@ import { archiveDocument, relevanceOnArchive } from "./lib/archiver.js";
 import { indexAll } from "./lib/indexer.js";
 import { updateDocument } from "./lib/frontmatter-edit.js";
 import type { FrontmatterValue } from "./lib/frontmatter-edit.js";
-import { safeResolve } from "./lib/safe-path.js";
+import { safeResolve, writeFileSafely } from "./lib/safe-path.js";
 import { resolveEmbeddingProvider } from "./lib/registry.js";
 import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
 import { SEARCH_SORTS, type SearchOptions, type DocumentType } from "./lib/types.js";
@@ -626,7 +626,8 @@ export async function startMcpServer(
         const updated = new Date().toISOString().split("T")[0];
         updates.updated = updated;
         // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
-        writeFileSync(fullPath, updateDocument(raw, updates, params.append_content || undefined), "utf-8");
+        // Staged and renamed over the document, so a failed write leaves it whole (#1355).
+        writeFileSafely(fullPath, updateDocument(raw, updates, params.append_content || undefined));
         await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true });
 
         return {

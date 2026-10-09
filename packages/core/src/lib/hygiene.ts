@@ -15,10 +15,10 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { createHash, randomBytes } from "crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync } from "fs";
+import { createHash } from "crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
 import { parseFrontmatter } from "./frontmatter-parse.js";
-import { basename, dirname, join, posix, resolve } from "path";
+import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -30,7 +30,7 @@ import { generatedRegionSpan } from "./generated-regions.js";
 import { planRegistry, REGISTRY_REGION } from "./index-registry.js";
 import { createWikiLinkResolver, extractWikiLinks, wikiLinkTokens } from "./indexer/links.js";
 import type { LoadedModule } from "./module-types.js";
-import { writeExclusive } from "./safe-path.js";
+import { writeFileSafely } from "./safe-path.js";
 import type { Taxonomy } from "./taxonomy.js";
 import type { AuditIssue } from "./types.js";
 import { validateDetailed, type DetailedValidationIssue, type ValidationDetail, type ValidationRule } from "./validate.js";
@@ -1106,19 +1106,15 @@ export class HygieneRefusal extends Error {
 export function replaceIfUnchanged(path: string, text: string, expected: string | null, afterStage?: () => void): void {
   const entry = lstatSync(path, { throwIfNoEntry: false });
   if (entry && !entry.isFile()) throw new HygieneLogError(`${path} is not a regular file; brain hygiene will not replace it`);
-  const tmp = join(dirname(path), `.${basename(path)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeExclusive(tmp, text, entry);
-  try {
-    afterStage?.();
-    const now = existsSync(path) ? readFileSync(path, "utf-8") : null;
-    if (now !== expected) {
-      throw new HygieneLogError(`${path} changed while brain hygiene reconcile ran; it was not overwritten, run it again`);
-    }
-    renameSync(tmp, path);
-  } catch (error) {
-    rmSync(tmp, { force: true });
-    throw error;
-  }
+  writeFileSafely(path, text, {
+    beforePublish: () => {
+      afterStage?.();
+      const now = existsSync(path) ? readFileSync(path, "utf-8") : null;
+      if (now !== expected) {
+        throw new HygieneLogError(`${path} changed while brain hygiene reconcile ran; it was not overwritten, run it again`);
+      }
+    },
+  });
 }
 
 /**

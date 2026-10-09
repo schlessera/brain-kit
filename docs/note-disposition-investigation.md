@@ -37,7 +37,7 @@ code rather than describing a proposal as a completed move.
 `brain archive` is a separate operation: it sets archived status, demotes
 primary/unset relevance, preserves other bytes, and moves only active projects
 to the archive directory (`archiveDocument`,
-`packages/core/src/lib/archiver.ts:57-142`). It is not deletion and is not an
+`packages/core/src/lib/archiver.ts:57-135`). It is not deletion and is not an
 apply engine for arbitrary process operations. Existing ingestion, archiver,
 taxonomy, indexing and safe-path primitives can be reused; no new generic seam
 is needed. Search found no existing behavioral test of `processCommand` before

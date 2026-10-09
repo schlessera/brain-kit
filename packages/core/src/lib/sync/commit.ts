@@ -7,13 +7,14 @@
  */
 
 import { parseFrontmatter } from "../frontmatter-parse.js";
-import { lstatSync, readFileSync, writeFileSync } from "fs";
+import { lstatSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { z } from "zod";
 
 import { frontmatterLength } from "../document-parts.js";
 import { editFrontmatter } from "../frontmatter-edit.js";
 import { git } from "./git.js";
+import { inCanonicalDir, writeFileSafely } from "../safe-path.js";
 
 /** One `brain sync group` entry. */
 export interface GroupedFile {
@@ -212,7 +213,7 @@ export function bumpUpdated(root: string, files: PlannedFile[], today: string): 
       refused.push(path);
       continue;
     }
-    writeFileSync(resolve(root, path), edited, "utf-8");
+    writeFileSafely(inCanonicalDir(resolve(root, path)), edited);
     bumped.push(path);
   }
   return { bumped, refused };

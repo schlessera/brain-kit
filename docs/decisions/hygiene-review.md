@@ -171,7 +171,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1354`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1350`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -185,7 +185,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1328-1331`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1324-1327`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

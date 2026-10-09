@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { readFileSync, writeFileSync, existsSync, linkSync, unlinkSync, mkdirSync, mkdtempSync, rmSync, statSync } from "fs";
-import { resolve, dirname, join } from "path";
+import { readFileSync, existsSync, unlinkSync, statSync } from "fs";
+import { resolve } from "path";
 import { parseFrontmatter } from "./frontmatter-parse.js";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./models.js";
 import { updateDocument } from "./frontmatter-edit.js";
-import { safeResolve } from "./safe-path.js";
+import { safeResolve, WriteRefusedError, writeFileSafely } from "./safe-path.js";
 
 export interface ArchiveResult {
   path: string;
@@ -99,28 +99,21 @@ export async function archiveDocument(
   // Only these keys change; the rest of the file keeps its bytes (#449).
   const output = updateDocument(raw, updates);
   if (archiveFullPath) {
-    mkdirSync(dirname(archiveFullPath), { recursive: true });
-    // Publish a complete file with an atomic no-clobber link. Unlike rename,
-    // link fails if a concurrent archive claimed the destination after our
-    // preflight. Keep the source untouched until publication succeeds.
-    const staging = mkdtempSync(join(dirname(archiveFullPath), ".brain-archive-"));
+    // Publish a complete file with an atomic no-clobber link, in the source's
+    // mode. Unlike rename, link fails if a concurrent archive claimed the
+    // destination after our preflight. Keep the source untouched until
+    // publication succeeds.
     try {
-      const staged = join(staging, "document");
-      writeFileSync(staged, output, { encoding: "utf-8", mode: statSync(fullPath).mode });
-      try {
-        linkSync(staged, archiveFullPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new Error(`Archive destination already exists: ${finalPath}`);
-        }
-        throw error;
+      writeFileSafely(archiveFullPath, output, { replace: false, mode: statSync(fullPath).mode & 0o7777 });
+    } catch (error) {
+      if (error instanceof WriteRefusedError && error.code === "EEXIST") {
+        throw new Error(`Archive destination already exists: ${finalPath}`);
       }
-      unlinkSync(fullPath);
-    } finally {
-      rmSync(staging, { recursive: true, force: true });
+      throw error;
     }
+    unlinkSync(fullPath);
   } else {
-    writeFileSync(fullPath, output, "utf-8");
+    writeFileSafely(fullPath, output);
   }
 
   // Reindex is injected (indexAll lives in the indexer, another module). The
