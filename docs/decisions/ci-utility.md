@@ -110,7 +110,7 @@ independently repeats receipt validation before accepting a selected domain's
 intentional skip, retaining the original evidence's identity in the ledger.
 Missing, failed, cancelled, held, malformed or mismatched evidence cannot pass.
 
-CI adds only `actions: read` for those APIs; ordinary fork execution retains
+CI adds only `actions: read` and `checks: read` for those APIs; ordinary fork execution retains
 its read-only token, no secrets and nonpersisted checkout credentials. Lookup
 is limited to three runs, 32 API requests with a 45-second API budget, bounded response sizes and
 finite logs; unavailable evidence falls back to fresh execution. The aggregate

@@ -206,7 +206,7 @@ describe("contributions execute without privileged credentials", () => {
   for (const { file, workflow } of workflows) {
     test(`${file}: no secret, write permission or privileged trigger`, () => {
       expect(read(file)).not.toMatch(/\bsecrets\.|pull_request_target|workflow_run|id-token|: write\b/);
-      expect(workflow.permissions).toEqual(file === "ci.yml" ? { contents: "read", actions: "read" } : { contents: "read" });
+      expect(workflow.permissions).toEqual(file === "ci.yml" ? { contents: "read", actions: "read", checks: "read" } : { contents: "read" });
       for (const job of Object.values(workflow.jobs)) {
         expect(job.permissions).toBeUndefined(); expect(job["runs-on"]).toBe("ubuntu-24.04");
         const checkouts = job.steps.filter(s => s.uses?.startsWith("actions/checkout@"));

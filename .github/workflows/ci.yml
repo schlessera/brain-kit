@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
 
 # Cancel obsolete PR heads. Preserve every integrated main commit's evidence.
 concurrency:

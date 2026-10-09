@@ -375,7 +375,7 @@ Independent selected categories run after metadata; the final proof aggregate
 rejects failures, cancellations, missing outputs and unexpected skips. Tests-only
 changes may intentionally skip packaging while complete affected tests run.
 Drafts run cheap gates only. Forks use ordinary `pull_request`, a read-only
-token (`contents: read`, plus `actions: read` for bounded proof lookup), no
+token (`contents: read`, plus `actions: read` / `checks: read` for bounded proof lookup), no
 secrets and nonpersisted checkout credentials. A fork run awaiting
 maintainer approval has not passed.
 

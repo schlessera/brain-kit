@@ -25,7 +25,7 @@ export function workflowProblems(text: string, file: string): string[] {
   if (!workflow || typeof workflow !== "object") return [`${file}: workflow must be a mapping`];
   const fail = (message: string) => problems.push(`${file}: ${message}`);
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("CI must not expose secrets or privileged triggers");
-  const permissions = file === "ci.yml" ? { contents: "read", actions: "read" } : { contents: "read" };
+  const permissions = file === "ci.yml" ? { contents: "read", actions: "read", checks: "read" } : { contents: "read" };
   if (JSON.stringify(workflow.permissions) !== JSON.stringify(permissions)) fail("workflow permissions must be the specified read-only contents/actions scope");
   const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
