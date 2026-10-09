@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, expect, setSystemTime, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cases, detect, prepareBenchmark } from "../scripts/evals/audit-capabilities/benchmark";
+import { cases, detect, DETECTION_DAY, prepareBenchmark } from "../scripts/evals/audit-capabilities/benchmark";
 import { runtimeFreeze, sha } from "../scripts/evals/audit-capabilities/freeze";
 import { main } from "../scripts/evals/audit-capabilities/live";
 import { MODEL } from "../scripts/evals/audit-capabilities/protocol";
@@ -13,7 +13,10 @@ import type { RootPaidPolicy } from "../scripts/evals/audit-capabilities/review-
 const root = mkdtempSync(join(tmpdir(), "audit-scored-wiring-"));
 let frozen: ReturnType<typeof runtimeFreeze>, detectedRaw: string, proofRaw: string;
 let policies: Record<string, RootPaidPolicy>, review: any, sequence = 0;
+const wiringClock = new Date(DETECTION_DAY + "T12:00:00.000Z");
 beforeAll(async () => {
+  // Wiring proof uses a declared test clock; live/keyless proof retains real UTC.
+  setSystemTime(wiringClock);
   const rows = [];
   for (const f of cases) { const p = await prepareBenchmark(f); try { rows.push({ id: f.id, detected: await detect(p) }); } finally { p.close(); } }
   detectedRaw = JSON.stringify(rows); frozen = runtimeFreeze();
@@ -28,7 +31,7 @@ beforeAll(async () => {
   review = { approval: "APPROVED", model: MODEL, freezeSha: frozen.freezeSha, detectedSha: sha(detectedRaw), verificationSha: sha(proofRaw), packetCaseIds: cases.map(f => f.id), nativeReceipts: reviewPlan.map(packet => ({ packet, model: MODEL, approval: "APPROVED", freezeSha: frozen.freezeSha, detectedSha: sha(detectedRaw), verificationSha: sha(proofRaw), reviewPlanSha, promptSha: policies[packet.key]!.promptSha, reviewDriverSha: frozen.sources["scripts/evals/audit-capabilities/review.ts"], apiEquivalent: { lowerUsd: .000012, upperUsd: .000012 }, promptReleased: true, credentials: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" }, result: { subtype: "success", is_error: false, result: "APPROVED synthetic wiring fixture", modelUsage: { [MODEL]: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0 } } }, init: { model: MODEL, apiKeySource: "none", cli: frozen.binaries.claude.cliVersion }, childClosed: { code: 0, signal: null } })) };
   writeFileSync(join(root, "review.json"), JSON.stringify(review)); writeFileSync(join(root, "detected.json"), detectedRaw); writeFileSync(join(root, "proof.json"), proofRaw);
 });
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => { setSystemTime(); rmSync(root, { recursive: true, force: true }); });
 
 async function invoke(raw: string | undefined, stub = true, unreadable = false) {
   const argv = process.argv, env = { live: process.env.BRAIN_LIVE_EVAL, cap: process.env.BRAIN_EVAL_REMAINING_USD };
@@ -113,4 +116,13 @@ test("expired completed-policy envelope reaches original replay without fresheni
   const r = await invoke(JSON.stringify(expired));
   expect(r.seen).toEqual(reviewPlan.map(p => expired[p.key]));
   expect(r.failure).toContain("Invalid actual-charge allowance"); expect(r.forwards).toBe(0);
+});
+
+test("a different detection day refuses before replay or HTTP", async () => {
+  try {
+    setSystemTime(new Date(wiringClock.getTime() + 86_400_000));
+    const r = await invoke(JSON.stringify(policies));
+    expect(r.seen).toHaveLength(0); expect(r.forwards).toBe(0); expect(r.outputCreated).toBe(false);
+    expect(r.failure).toContain("Real audit detection date differs from frozen protocol");
+  } finally { setSystemTime(wiringClock); }
 });

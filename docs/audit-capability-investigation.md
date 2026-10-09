@@ -323,6 +323,10 @@ paid rejection, HTTP/native error or unknown usage remains a veto. Missing invoi
 operational limit and does not establish the maintainer's actual charge cap.
 Real detection-day checks apply before dispatch and after drain; the fictional
 writer date and existing benchmark semantics remain unchanged.
+Entry-point wiring controls declare the frozen test clock and restore the real
+clock in teardown. A different-day control preserves the live refusal gate;
+actual keyless/native proof continues to record real UTC, independently of that
+synthetic wiring clock.
 
 Offline byte-format and native transport controls also exercise the explicitly
 recognized SDK/native 293 pair when present in CI. Their receipts identify the
