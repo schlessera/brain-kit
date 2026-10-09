@@ -478,8 +478,9 @@ whose region changed. Counts and bounds derive from canonical visits with the
 place deduplication rules above; a country's rollup also counts the visits of
 places within it, once per document/visit pair. Unknown dates and coordinates
 render as `unknown`. Any `brain travel validate` error, malformed region
-markers or a registry edited during the run exits `1` with stderr and no
-success envelope, and neither registry is written. Table layout is prose for
+markers, a symlinked registry, trip and place types sharing a directory, or a
+registry changed after it was read (checked before the first write) exits `1`
+with stderr and no success envelope, and neither registry is written. Table layout is prose for
 people, not a parsed contract. No schema version, MCP tool or existing envelope
 changes.
 

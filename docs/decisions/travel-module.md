@@ -244,20 +244,26 @@ Sync reads the whole canonical corpus, renders both regions and writes only
 when every record validates and both regions locate cleanly. A bad trip must
 not leave one registry fresh and the other stale, so planning and writing are
 separate steps and the caller writes nothing while any issue remains
-(`planTravelSync`, `packages/module-travel/src/sync.ts:197-220`). A registry
-edited between planning and writing refuses the whole run
-(`applyTravelSync`, `packages/module-travel/src/sync.ts:223-233`).
+(`planTravelSync`, `packages/module-travel/src/sync.ts:199-232`). Planning
+also refuses a symlinked registry, because the root-containment resolver
+follows a final link and the write would land in whatever file it names, and
+trip and place types configured into one directory, which would plan two
+writes to one file. A registry edited, created or relinked after planning is
+detected before the first write and refuses the whole run
+(`applyTravelSync`, `packages/module-travel/src/sync.ts:239-249`). An edit
+landing between that check and the write is not detected; like every
+path-based writer here, sync does not lock the file.
 
 Place rows reuse `summarizePlaceVisits`. Countries need a rollup that the
 place summary does not define: a country is visited when it or any place
 within it was. The rollup unions the visits of every place whose ancestry
 reaches that country and keys them by document path and visit ID, so a visit
 linked from a spot, its town and the country counts once
-(`renderPlaces`, `packages/module-travel/src/sync.ts:87-164`). Keeping the
+(`renderPlaces`, `packages/module-travel/src/sync.ts:89-166`). Keeping the
 place row as the place's own visits preserves the foundation's documented
 summary; the region says which number is which. Bounds follow the same rule
 for trips, places and countries: one undated visit makes first/last unknown
-(`bounds`, `packages/module-travel/src/sync.ts:30-34`).
+(`bounds`, `packages/module-travel/src/sync.ts:32-36`).
 
 Rows sort by root-relative path in code-unit order, not locale or title, so
 two machines produce identical bytes. A trip's distance and ascent are the
@@ -278,4 +284,7 @@ rollup per place (the exact places region differed), dropping the invalid-record
 refusal (exit `0` instead of `1`), ignoring undated visits in bounds (a known
 date instead of `unknown`), regenerating the scaffold instead of the existing
 file (prose not preserved), writing under `--check` (snapshot changed) and
-writing while one region was malformed (exit `0` instead of `1`).
+writing while one region was malformed (exit `0` instead of `1`). Review
+found the symlink, shared-directory and parenthesis cases; each has a real
+CLI test, and the no-op step also asserts unchanged registry modification
+times, so a same-bytes rewrite would fail it.

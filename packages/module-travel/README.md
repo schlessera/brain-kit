@@ -351,8 +351,11 @@ nothing and reports `files: []`. Sync never writes a stored count, date,
 preference or coordinate back into a record.
 
 Sync reads every journey, trip and place first. Any `brain travel validate`
-error, malformed region markers or a registry edited during the run exits `1`
-with the problems on stderr, and neither registry is written. `--check` writes
+error, malformed region markers, a symlinked registry, or trip and place types
+sharing one directory exit `1` with the problems on stderr, and neither
+registry is written. A registry edited, created or replaced since sync read
+it is detected before the first write and refuses the run the same way; an
+edit landing during the write itself is not detected. `--check` writes
 nothing and exits `1` when a registry is stale. Both registries can share an
 `_index.md` with a `brain registry` table, whose region is named `registry`.
 

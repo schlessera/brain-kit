@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, lstatSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "fs";
 import { dirname, join, posix } from "path";
 import { cleanup, makeTempBrain, runCli } from "../../core/tests/cli-harness.js";
 import { readGeneratedRegion } from "../../core/src/lib/generated-regions.js";
@@ -176,7 +176,11 @@ describe("travel sync", () => {
     // 6. An unchanged brain syncs to zero diff, and --check agrees.
     const settled = snapshot(root);
     expect(settled.size).toBeGreaterThan(10);
+    const mtimes = () => ["trips/_index.md", "places/_index.md"].map((path) => lstatSync(join(root, path)).mtimeMs);
+    const written = mtimes();
+    await Bun.sleep(20);
     expect((await sync(root)).files).toEqual([]);
+    expect(mtimes()).toEqual(written);
     const check = await sync(root, "--check");
     expect(check.code).toBe(0);
     expect(check.files).toEqual([]);
@@ -240,6 +244,38 @@ describe("travel sync", () => {
     expect(snapshot(root)).toEqual(before);
     expect((await sync(root)).code).toBe(0);
     expect(await sync(root, "--check")).toEqual({ code: 0, files: [], stderr: "" });
+  });
+
+  test("a symlinked registry is refused without writing through it", async () => {
+    const root = brain();
+    write(root, "trips/shore.md", doc("type: trip\ntitle: Shore\ntrip_status: proposed"));
+    write(root, "notes/rules.md", "---\ntype: note\ntitle: Rules\n---\nMine.\n");
+    symlinkSync("../notes/rules.md", join(root, "trips/_index.md"));
+    const before = snapshot(root);
+    const result = await runCli(root, ["travel", "sync"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("trips/_index.md: Registry is a symlink; refusing to write through it");
+    expect(read(root, "notes/rules.md")).toBe("---\ntype: note\ntitle: Rules\n---\nMine.\n");
+    expect(existsSync(join(root, "places/_index.md"))).toBe(false);
+    expect(snapshot(root)).toEqual(before);
+  });
+
+  test("trip and place types sharing a directory are refused before any write", async () => {
+    const root = brain();
+    const config = { modules: { [TRAVEL]: {} }, taxonomy: { types: { trip: { dir: "outings", match: ["outings/trips"] }, place: { dir: "outings", match: ["outings/places"] } } } };
+    write(root, "brain.config.json", JSON.stringify(config));
+    write(root, "outings/trips/shore.md", doc("type: trip\ntitle: Shore\ntrip_status: proposed"));
+    const result = await runCli(root, ["travel", "sync"]);
+    expect(result.stderr).toContain("outings/_index.md: Trips and places share one registry directory");
+    expect(result.code).toBe(1);
+    expect(existsSync(join(root, "outings/_index.md"))).toBe(false);
+  });
+
+  test("link destinations survive parentheses and spaces in paths", async () => {
+    const root = brain();
+    write(root, "trips/shore (north).md", doc("type: trip\ntitle: Shore [north]\ntrip_status: proposed"));
+    expect((await sync(root)).code).toBe(0);
+    expect(region(root, "trips/_index.md", "travel-trips")).toContain("| [Shore \\[north\\]](shore%20%28north%29.md) | — | — | — | — |");
   });
 
   test("sync refuses an unknown flag without writing", async () => {

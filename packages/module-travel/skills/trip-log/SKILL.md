@@ -58,7 +58,8 @@ Ask only what the chosen action needs.
 ### Record a visit
 
 1. Reduce the photos into the trip's folder:
-   `brain travel photo <files> --to trips/photos --name "<trip title>" --date <visit date> --json`.
+   `brain travel photo <files> --to trips/photos --name "<trip title>" --date <visit date> --json`,
+   leaving out `--date` when the visit date is unknown.
    Store each reported `output` relative to the trip file. The command reports
    `captured_at` and `location` from the originals; offer them as the visit
    date or a place hint, and let the user confirm.

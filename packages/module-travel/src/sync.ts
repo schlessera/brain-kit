@@ -1,5 +1,5 @@
-import { readFileSync } from "fs";
-import { posix } from "path";
+import { lstatSync, readFileSync } from "fs";
+import { join, posix } from "path";
 import { inertGeneratedText, rewriteGeneratedRegion, safeResolve, writeFileSafely } from "@schlessera/brain/internal";
 import type { Taxonomy } from "@schlessera/brain";
 import type { ValidationIssue } from "@schlessera/brain/internal";
@@ -20,7 +20,9 @@ const text = (value: string): string => inertGeneratedText(value).replace(/([[\]
 
 function link(indexPath: string, target: string, title: string): string {
   const relative = posix.relative(posix.dirname(indexPath), target);
-  return `[${text(title)}](${relative.split("/").map(encodeURIComponent).join("/")})`;
+  // encodeURIComponent leaves parentheses, which would end the destination early.
+  const destination = relative.split("/").map((part) => encodeURIComponent(part).replace(/\(/g, "%28").replace(/\)/g, "%29"));
+  return `[${text(title)}](${destination.join("/")})`;
 }
 
 const show = (value: string | number | null | undefined): string =>
@@ -205,6 +207,16 @@ export function planTravelSync(root: string, taxonomy: Taxonomy, asOf: string): 
   ] as const) {
     const dir = taxonomy.types[type]?.dir ?? kind;
     const path = posix.join(dir, "_index.md");
+    // Two types sharing a directory would plan two writes to one file.
+    if (files.some((file) => file.path === path) || issues.some((issue) => issue.file === path)) {
+      issues.push({ file: path, level: "error", message: "Trips and places share one registry directory; give the trip and place types separate directories" });
+      continue;
+    }
+    // safeResolve follows a final symlink; a registry must be the file itself.
+    if (lstatSync(join(root, path), { throwIfNoEntry: false })?.isSymbolicLink()) {
+      issues.push({ file: path, level: "error", message: "Registry is a symlink; refusing to write through it" });
+      continue;
+    }
     const abs = safeResolve(root, path);
     if (!abs) { issues.push({ file: path, level: "error", message: "Registry path escapes the brain root" }); continue; }
     let raw: string | null = null;
@@ -219,14 +231,18 @@ export function planTravelSync(root: string, taxonomy: Taxonomy, asOf: string): 
   return { issues, files };
 }
 
-/** Write every planned change, refusing a registry edited since it was planned. */
+/**
+ * Write every planned change. A registry edited, created or replaced by a
+ * symlink since planning refuses the run before its first write; an edit that
+ * lands between that check and the write is not detected (path-based writes).
+ */
 export function applyTravelSync(root: string, plan: TravelSyncPlan): string[] {
   const changed = plan.files.filter((file) => file.next !== null);
   for (const file of changed) {
-    const abs = safeResolve(root, file.path)!;
+    const abs = safeResolve(root, file.path);
     let current: string | null = null;
-    try { current = readFileSync(abs, "utf8"); } catch { current = null; }
-    if (current !== file.raw) throw new Error(`${file.path} changed during sync; nothing written. Run the sync again.`);
+    try { current = abs ? readFileSync(abs, "utf8") : null; } catch { current = null; }
+    if (!abs || lstatSync(join(root, file.path), { throwIfNoEntry: false })?.isSymbolicLink() || current !== file.raw) throw new Error(`${file.path} changed during sync; nothing written. Run the sync again.`);
   }
   for (const file of changed) writeFileSafely(safeResolve(root, file.path)!, file.next as string, { replace: !file.created });
   return changed.map((file) => file.path);
