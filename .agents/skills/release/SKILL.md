@@ -96,12 +96,17 @@ verification exercises the actual build script with networking disabled.
 ## `bun run build` exits 133 with a V8 stack trace
 
 A build that dies with `error: script "build" exited with code 133` and a
-`V8_Fatal` / `ReduceStringAt` / `TurboshaftAssemblerOpInterface` stack is node's
-JIT crashing, not this repo. It is not deterministic: **re-run the build**. Seen
-once on node v22.18.0 while preparing 0.35.0, passing on the immediate retry
-with `check-dist-types` clean afterwards. If it repeats on the same package
-twice in a row, that is a different problem — bisect the package rather than
-retrying a third time.
+`V8_Fatal` / `ReduceStringAt` / `TurboshaftAssemblerOpInterface` stack has
+failed compilation. The stack alone does not establish the crashing child,
+an upstream defect or the input/resource trigger. Preserve complete stderr,
+source/configuration/compiler identity, the actual child executable and
+exit/signal, and resource conditions before making a controlled comparison.
+Keep strict compilation and the offline guards enabled. A passing unchanged
+comparison is recovery evidence; it does not erase the failed proof or prove
+a correction. Diagnose repeated native termination instead of retrying until
+green. The earlier Node v22.18.0 occurrence during 0.35.0 passed once on
+retry, with `check-dist-types` clean afterwards; its cause was not established.
+See #756 for the distinct retained native failures and matched-source controls.
 
 ## The version is wrong — usually a surprise major
 
