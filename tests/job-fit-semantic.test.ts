@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJevClient, type JevRequest } from "../packages/core/src/lib/jev";
 import { scoreJob, loadScoringConfig } from "../packages/module-jobs/src/score";
-import { benchmark, benchmarkInput, researchPacket, BENCHMARK_SHA, type BenchmarkCase } from "../scripts/evals/job-fit/benchmark";
+import { benchmark, benchmarkInput, researchPacket, BENCHMARK_SHA, LEAKING_TERMS, type BenchmarkCase } from "../scripts/evals/job-fit/benchmark";
+import { config } from "../scripts/evals/job-fit/fixtures";
 import { assessSemantic, calibrate, EVIDENCE_PRECEDENCE, semanticRanking, semanticRequest } from "../scripts/evals/job-fit/semantic";
 import { observe, prepare, materialize } from "../scripts/evals/job-fit/brain";
 import { grade } from "../scripts/evals/job-fit/metrics";
@@ -32,6 +33,8 @@ test("fresh companies/families/prose split and complete input/request/research i
   expect(tune.filter(c => c.relocation === "met").length).toBeGreaterThanOrEqual(2);
   // Goldens are semantic eligibility, never the literal veto's own output.
   for (const c of benchmark.filter(c => c.literalFalseExclusion)) expect(c.decision, c.id).toBe("candidate");
+  // A posting never narrates its own label or the harness that grades it.
+  for (const c of benchmark) for (const term of LEAKING_TERMS) expect(c.prose.toLowerCase(), `${c.id}: ${term}`).not.toContain(term);
   const levels: Array<BenchmarkCase["autonomy"]> = [0, 1, 2, null];
   expect([...new Set(tune.map(c => c.autonomy))].sort()).toEqual(levels.sort());
   expect(BENCHMARK_SHA).toHaveLength(64);
@@ -90,7 +93,7 @@ test("binding evidence precedence is explicit, not fabricated metadata", () => {
   expect(conflicting.job.location).toBe("Troy"); expect(conflicting.job.remote_type).toBeNull();
   const absent = benchmarkInput(benchmark.find(c => c.id === "held-no-residence")!);
   expect(absent.job.location).toBeNull(); expect(absent.job.remote_type).toBe("fully_remote");
-  expect(absent.posting).toContain("says nothing about permanent");
+  expect(absent.posting.toLowerCase()).not.toContain("residen"); // The posting is silent; only the metadata says remote.
 });
 test("complete tuning-only calibration excludes held-out rows and all-unknown results", () => {
   const rows = benchmark.filter(c => c.split === "tuning").map(c => ({ id: c.id, split: c.split, accepted: c.decision === "candidate", correct: true, probability: 0.95, confidence: 0.95 }));
@@ -114,8 +117,16 @@ test.each(benchmark)("$id: full persisted jobs module inputs stay byte-identical
 });
 test("scripted full-denominator confusion retains unknowns and literal false exclusions without a measured verdict", async () => {
   const rows = await Promise.all(benchmark.map(c => assessSemantic(benchmarkInput(c), client(c), 1)));
-  const report = grade(benchmark, rows, "scripted-control");
+  const report = grade(benchmark, rows, "scripted-control", config);
   expect(report.denominator).toBe(29);
+  // The installed keyword routing is keyless, so its floor is a measurement, not a control:
+  // it queues two relocation dealbreakers and three must-have failures and dismisses one eligible role.
+  expect(report.keywordBaseline).toEqual({ agreement: 20 / 29, precision: 5 / 11, recall: 5 / 8, candidates: [
+    "held-board-vs-contract", "held-instrument-keeper", "held-misleading", "held-old-title", "held-remote-but-domicile", "held-season-quarters",
+    "held-troy-distractor", "tune-advertisement", "tune-ledger", "tune-negated-marker", "tune-unknown-pay",
+  ], criticalDealbreakerMisses: 2, mustHaveMisses: 3, eligibleDismissed: 1 });
+  expect(report.reviewEverythingFloor).toBe(21 / 29);
+  expect(grade(benchmark, rows, "scripted-control").keywordBaseline).toBeNull();
   // Scripted gold answers still lose the two literal false exclusions: the golden is eligibility, not the veto.
   expect(report.membershipAgreement).toBe(27 / 29);
   expect(report.expectedCandidates).toHaveLength(8); expect(report.actualCandidates).toHaveLength(6);

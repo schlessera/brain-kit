@@ -201,6 +201,17 @@ posting. Autonomy annotations include each descriptive level and unknown, but
 the comparison is limited to Choice: these annotations establish no measured
 ordinal preference or Score transport.
 
+Posting prose never names its own label or the harness vocabulary that grades
+it (`LEAKING_TERMS`); the semantic arm sees a posting, not an annotation.
+
+The installed keyword routing is keyless, so its result on this corpus is a
+measurement rather than a control. At the configured queue/dismiss thresholds
+it queues 11 of 29 roles: candidate precision 5/11, recall 5/8, two relocation
+dealbreakers and three must-have failures queued, one eligible role dismissed,
+and membership agreement 20/29 against a review-everything floor of 21/29.
+That is the floor a hybrid has to beat; it is reported by `grade` as
+`keywordBaseline` whenever thresholds are supplied.
+
 Each case's `decision` is its semantic eligibility under the criteria. The two
 postings that negate or quote a configured location marker are eligible; the
 harness's literal veto excludes them anyway, and the grader reports that as a
