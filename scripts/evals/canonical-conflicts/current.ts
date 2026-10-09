@@ -1,6 +1,7 @@
 /** Current Phase 2 output is measured separately from post-output safety gates. */
 import { z } from "zod";
 import { readHygieneLog, reconcile } from "../../../packages/core/src/lib/hygiene";
+import { frontmatterLength } from "../../../packages/core/src/lib/document-parts";
 import type { Taxonomy } from "../../../packages/core/src/lib/taxonomy";
 import { DAY } from "./fixtures";
 import { eligibleSnapshot } from "./prototype";
@@ -15,9 +16,13 @@ export function validateCurrent(text: string, root: string, taxonomy: Taxonomy) 
   const accepted: z.infer<typeof candidate>[] = [], invalid: Array<{ candidate: z.infer<typeof candidate>; reason: string }> = [];
   for (const c of raw) {
     const secondary = eligibleSnapshot(root, taxonomy, c.path, DAY, false);
+    // Evidence must be verbatim canonical body text. Requiring a span of the
+    // private grammar here would zero the current arm's recall on exactly the
+    // prose facts the narrow extractor cannot retrieve, and bias the comparison.
+    const evidence = c.evidence.trim();
     const canonical = Object.keys(taxonomy.canonical).map(key => taxonomy.canonicalPath(key)).filter((p): p is string => !!p)
       .map(path => eligibleSnapshot(root, taxonomy, path, DAY, true))
-      .find(s => s?.spans.some(span => span.text === c.evidence));
+      .find(s => s && evidence.length > 0 && s.raw.slice(frontmatterLength(s.raw)).includes(evidence));
     if (!secondary || !canonical || (Date.parse(canonical.updated) - Date.parse(secondary.updated)) / 86_400_000 < 7) {
       invalid.push({ candidate: c, reason: "Configured authority, eligible source, exact canonical evidence or recency missing" }); continue;
     }

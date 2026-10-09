@@ -8,6 +8,20 @@ import { snapshot, changed, assertInspectionUnchanged } from "../scripts/evals/c
 import { DAY, fixtures, prepare, YES, UNKNOWN } from "../scripts/evals/canonical-conflicts/fixtures";
 import { inspect, pairs } from "../scripts/evals/canonical-conflicts/prototype";
 import { reconcile, readHygieneLog } from "../packages/core/src/lib/hygiene";
+import { deterministicArm } from "../scripts/evals/canonical-conflicts/run";
+import { quality } from "../scripts/evals/canonical-conflicts/metrics";
+
+test("keyless deterministic arm reports exactly the explicit single-valued Count/Date positives and no negative", async () => {
+  const rows = await deterministicArm();
+  expect(rows).toHaveLength(semanticCases.length);
+  expect(rows.filter(r => r.reported).map(r => r.id).sort()).toEqual(["h-date-conflict", "h-numeric-conflict", "t-count-conflict"]);
+  const q = quality(rows);
+  expect(q.semanticPositives).toBe(7); expect(q.retrievedPositives).toBe(6);
+  expect(q.truePositive).toBe(3); expect(q.falsePositive).toBe(0); expect(q.falseNegative).toBe(4);
+  expect(q.byGolden.no.reported).toBe(0); expect(q.byGolden.unknown.reported).toBe(0);
+  expect(q.completeComparison).toBe(true); expect(q.destructiveEffects).toBe(0);
+  expect(quality(rows.filter(r => r.split === "held-out")).recall).toBe(0.4);
+});
 
 test("authored semantic corpus separates entities, documents and grammar families from controls", () => {
   expect(semanticCases).toHaveLength(24);
