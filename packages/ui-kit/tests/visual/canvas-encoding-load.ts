@@ -12,16 +12,18 @@ type LoadWindow = Window & { __canvasEncodingLoad?: EncodingLoad };
 /** Starve native idle encoding while ordinary tasks and the original preview poll still run. */
 export const canvasEncodingLoad: BrowserCommand<[boolean], { frames: number; workMs: number }> = async (ctx, enabled) => {
   if (!enabled) {
-    const result = await ctx.iframe.locator("body").evaluate(() => {
-      const scope = window as LoadWindow;
-      const load = scope.__canvasEncodingLoad;
-      if (!load) return { frames: 0, workMs: 0 };
-      cancelAnimationFrame(load.frame);
-      delete scope.__canvasEncodingLoad;
-      return { frames: load.frames, workMs: load.workMs };
-    });
-    await ctx.page.mouse.up();
-    return result;
+    try {
+      return await ctx.iframe.locator("body").evaluate(() => {
+        const scope = window as LoadWindow;
+        const load = scope.__canvasEncodingLoad;
+        if (!load) return { frames: 0, workMs: 0 };
+        cancelAnimationFrame(load.frame);
+        delete scope.__canvasEncodingLoad;
+        return { frames: load.frames, workMs: load.workMs };
+      });
+    } finally {
+      await ctx.page.mouse.up();
+    }
   }
 
   // A held native input prevents long idle periods. Frame work consumes the
