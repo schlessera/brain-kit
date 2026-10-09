@@ -32,19 +32,21 @@ issue when you are not sure.
   exercised the renderer — the run says so in a banner rather than leaving you
   to notice.
 
-  CI does not get that option. The `test` job resolves Chrome, prints its
-  version into the log, fails if it finds none, and sets
-  `BRAIN_REQUIRE_CHROME=1`, which makes the test file throw instead of skip.
-  This is where the renderer's isolation posture is proven and the only place
-  it is: `renderer.test.ts` covers the allowlist predicate, which missed the
-  WebSocket bypass, and `crash-recovery.test.ts` drives a fake browser.
+  Before opening a PR, `bun run check:pr` requires Chrome and sets
+  `BRAIN_REQUIRE_CHROME=1`; missing Chrome fails instead of silently skipping.
+  The real renderer proves isolation. `renderer.test.ts` covers an allowlist
+  predicate and `crash-recovery.test.ts` drives a fake browser; neither replaces
+  the real-browser proof.
+- Full runtime proof needs a Linux checkout with bubblewrap, `unshare`, `ip`
+  and permitted user/network namespaces. UI/browser proof also needs Docker
+  for the pinned Playwright image. Packed consumer checks use Node 24 or later.
 
 ## Running the code
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback
 fixture model inside a network namespace; no provider credential or external
-network is needed. CI installs bubblewrap and runs these proofs without skips.
+network is needed. The local pre-PR command checks these prerequisites and runs the proofs without accepting skips.
 
 ```sh
 bun install
@@ -89,34 +91,82 @@ with explicit overrides pointing only at test fixtures. Do not append the
 host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 `runCli` and direct children using `keylessEnv`, including `doctor --fix`.
 
-The strict CI compiler keeps the full source/test graph in one process with
-`NODE_OPTIONS=--max-old-space-size=4096` (4 GiB of V8 old space). Its log records
-Node/TypeScript versions, the effective heap limit, host/cgroup memory capacity,
-TypeScript's compiler diagnostics and the process's peak resident memory. These
-measurements distinguish a heap exhaustion from a type error and show the
-headroom available on the actual runner. They do not change compiler options,
-source coverage or product runtime memory budgets.
+## Required checks before creating a PR
 
-On Linux, the matching compiler command is:
+Run from the checkout that will become the PR, using the relevant base:
 
 ```sh
-NODE_OPTIONS=--max-old-space-size=4096 /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+bun run check:pr --base origin/main --plan  # inspect the selection; does not verify it
+bun run check:pr --base origin/main         # required before opening or marking ready
+bun run check:pr --all                      # full release/tooling validation
 ```
 
-CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
-(then `2/3` and `3/3`), each in one Bun process. This option uses the default
-`packages`/`tests` roots and cannot combine with paths, `--cwd` or native
-`--shard`. `scripts/test-shards.ts` discovers test files at runtime and places
-the slowest first into the lightest shard, using the measured seconds in
-`scripts/test-shard-costs.json`. The table supplies weights for slow files,
-not suite membership: new tests are included automatically with a small default
-weight. Refresh the weights when suite changes make the actual CI timings
-uneven; #629 records the profiling commands, timings and coverage evidence.
-The browser/visual job keeps its separate two-shard layout.
+The command includes committed, staged, unstaged and untracked changes. It uses
+reverse workspace dependencies, including peers, optional and development
+dependencies, to identify affected work. A missing diff base fails visibly.
+It always runs lint/leakage, environment documentation and changeset checks.
+Code and tooling changes require the complete `bun run test` suite: every
+existing unit/integration/runtime test remains discoverable there. Strict
+source/test typechecking runs alongside it with a 4 GiB V8 old-space allowance.
+Affected UI work additionally runs all pinned browser/visual/accessibility/
+pointer projects, all layout/offline/endurance tests, and editorial capture
+verification. Relevant runtime work includes the loopback-only Claude probes,
+native delegation/capability/Haiku probes and measurement isolation,
+the real Chrome launch/render and the shared-process cleanup regression. Shipped
+package changes run the complete packed consumer/pin/type/export probes using
+`bun run check:pack`, which reads the authoritative pack job from CI.
+
+Record the tested head/base, commands and results in the PR's Proof section.
+Planning alone, missing tools, a skipped runtime, or a failed check does not
+fulfil this requirement. Revalidate affected checks after code, dependency,
+harness or relevant base changes. Inspect missing main commits before refreshing:
+rebase and rerun affected proof only when those commits affect this work or its
+checks. For unrelated advancement, retain the actual tested head/base and record
+the relevance assessment; do not restart suites solely because main moved.
+Existing branch/merge-queue rules still apply. Keep work in draft until required local proof passes;
+batch intermediate pushes. A fast green CI run cannot substitute for local proof.
+
+Automatic CI spends minutes only on lint/metadata, explicitly selected fast
+contract/integrity/permission tests, conditional strict typechecking and one
+conditional packaging job. Drafts run the cheap gates only. Documentation and
+changeset entries do not launch compiler/packaging/runtime jobs unless their
+changed inputs need them. The fast-test inventory is `scripts/ci-plan.ts`;
+new tests are local-only until their measured cost and distinct guarantee justify
+adding them. Real-time waits, browser launch matrices, visual permutations and
+editorial generation are local requirements, not automatic CI work.
+
+After the cheap planning/lint/metadata gates, conditional packaging completes
+before the shorter verification job starts. When packaging is not selected,
+verification proceeds directly; packaging failures/cancellations prevent it.
+This delays shorter work to avoid its cost when a head is superseded during
+packaging. It adds feedback latency to completed runs without an idle wait step.
+
+Independent fast test batches and typechecking share a queue with at most two
+active processes on one runner. Each selected test runs exactly once; another batch
+starts when a slot becomes free. Ordinary Bun processes retain their module
+registry and preload. Native `--parallel --no-isolate` is a possible alternative
+once current-version runtime/guard behavior and total consumption are measured;
+older comments about isolation are not a permanent compatibility ruling.
+The policy and its tradeoffs are in [the CI decision](docs/decisions/ci-utility.md).
+
+When tuning execution, record file durations during a required local run:
+`bun run test --timings=tmp/bun-test-timings.json --update-timings`. Compare
+serial, bounded ordinary-process batches and Bun's native file workers on the
+same runtime/resources, with the test preload intact. Measure total consumption,
+peak memory, failures and cancellation cleanup as well as elapsed time. More
+workers can repeat imports or overload the browser/server; blanket
+`--concurrent` also changes shared-mock and lifecycle assumptions. The decision
+links Bun and Depot's upstream guidance and explains size-weighted billing.
+
+For optional local distribution, `bun run test --balanced-shard=1/3` (then `2/3`
+and `3/3`) retains complete discovered-test coverage. `scripts/test-shards.ts`
+uses measured file weights, not an allowlist; newly added tests remain included.
+This layout is no longer automatic CI. Browser shard arguments also remain
+available, with the pinned image and diagnostics unchanged.
 
 `bun run test:browser` runs every configured browser project in the pinned
 Playwright image. The shared `scripts/visual.mjs` runner defaults to
-`--browser.fileParallelism=false`, including CI's `--inside` path: one file
+`--browser.fileParallelism=false`, including the `--inside` path: one file
 per project can run at a time, while separate projects still run concurrently.
 The project, update and shard arguments retain their existing meaning. To
 compare the CPU-based browser pool defaults during diagnosis, use
@@ -135,8 +185,8 @@ faster total runs, or establish the cause of [#559](https://github.com/schlesser
 
 `bun run test:layout` runs the real ui-react chat overlay measurements after
 `bun run build`. It uses the existing Vitest browser runner and the same pinned
-Playwright image as the visual suite, with Docker networking disabled. CI runs
-this project separately on every PR. It reads `ui-react/dist/styles.css`, uses
+Playwright image as the visual suite, with Docker networking disabled. The local pre-PR command runs
+this project for affected UI work. It reads `ui-react/dist/styles.css`, uses
 an isolated root with seeded messages and fixture transports, and checks pixels
 without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
 unit-test discovery does not claim them.

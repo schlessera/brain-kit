@@ -137,8 +137,11 @@ on, links to or describes them.
   `evals/expected-ranks.json`, asserted by
   `packages/core/tests/eval-corpus.test.ts`) make any ranking change a
   reviewed diff. Never add a test that needs an API key or the network.
-- Contract tests assert the `--json` envelopes. CI runs typecheck, tests, the
-  keyless Tier-0 e2e funnel, a packaging smoke test, and the leakage gate.
+- Contract tests assert the `--json` envelopes. Automatic CI runs affected
+  fast contract/integrity tests, conditional
+  strict typechecking and packaging, and the lint/leakage/metadata gates.
+  Complete unit/integration/runtime, keyless funnel and affected pinned browser
+  proof must run locally before PR creation; see the rules below.
 - Predicate-only unit tests are not proof for anything with a runtime: the
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
@@ -179,6 +182,39 @@ on, links to or describes them.
   Intentional measurement scripts launched outside tests retain normal
   transports. Guard regression probes use controlled native sentinels so
   failing-first and mutation runs cannot send external requests or start curl.
+
+### Required local proof before a PR
+
+- Run `bun run check:pr --base origin/main` before creating a PR or marking a
+  draft ready. Check new base commits for relevance before refreshing. `--plan` is inspection only;
+  `--all` requires every category for releases or broad tooling changes.
+- The command checks committed and working-tree changes and reverse workspace
+  dependencies. Complete unit/integration/runtime tests run for code/tooling;
+  affected UI work also runs all pinned visual/accessibility/pointer projects,
+  layout/offline/endurance tests and editorial reproducibility. Relevant real
+  Claude permission probes, real Chrome enforcement and shared-process cleanup
+  remain required. Packaging uses the same complete probes as the CI pack job.
+- No existing test may be deleted to save CI minutes. Retain complete default
+  local discovery, existing runtime harnesses, the pinned offline browser image
+  and diagnostic artifacts. Missing tools, runtime skips or failing checks leave
+  proof unfinished; never claim that fast CI covered the omitted categories.
+- Record tested head/base, commands and outcomes in the PR. Revalidate affected
+  proof after code, dependency, harness or relevant base changes. Batch intermediate
+  pushes and keep drafts on cheap CI until ready.
+  Refresh against newer main only when missing commits affect this work or its
+  checks. Record unrelated base advancement without rebasing or restarting proof.
+  Keep the actual tested head/base and satisfy existing branch rules.
+- Automatic CI admits only fast tests with a demonstrated important guarantee
+  and measured cost. No real-time waiting/endurance tests or mostly idle browser
+  jobs. New tests remain local-only until explicitly admitted in
+  `scripts/ci-plan.ts`. Select by actual changed inputs and transitive workspace
+  dependencies; unknown/global tooling changes expand checks conservatively.
+  Run independent fast tests and strict types concurrently within one runner;
+  extra shards or CPUs are useful only if they reduce total runner consumption.
+  Delay shorter automatic jobs behind longer selected work to reduce cancellation
+  waste; keep cheap rejection/selection gates first. Dependent checks must still
+  run after an intentional prerequisite skip, and never after failure/cancellation.
+  See [the CI decision](docs/decisions/ci-utility.md).
 
 ### Tests that cannot fail
 
@@ -324,8 +360,11 @@ different commit from the one you mean:
 
 CI and contract checks run from `.depot/workflows/`. Edit those files as the
 source of truth; do not restore a stale GitHub workflow or maintain a second
-copy. Preserve all gates, shard matrices, action versions, the pinned browser
-image and diagnostic artifacts when changing workflows. Project sync remains
+copy. Preserve every guarantee through the automatic fast gates or required
+local checks. Automatic CI has metadata/lint, conditional concurrent verification
+and conditional packaging; full suites and browser/endurance work run locally.
+Preserve action versions, the pinned offline browser image and diagnostic
+artifacts. The local pack command reads this workflow rather than duplicating it. Project sync remains
 in `.github/workflows/project-sync.yml`: Depot CI does not support `issues`
 events, and Depot's GitHub Actions runners require an organization-owned repo.
 
@@ -335,8 +374,9 @@ from `.github/workflows/fork-ci.yml` and `fork-contract.yml`. Those files are
 generated from the Depot workflows by `scripts/fork-ci-adapters.ts`, so never
 edit them by hand: change the Depot source and run
 `bun scripts/fork-ci-adapters.ts --write`. Every Depot job carries the same
-`if:` route that keeps it off fork PRs, and every adapter job carries the
-inverse, named `fork / <job>`. `bun run lint` and
+`if:` provider route that keeps it off fork PRs, optionally combined with
+affected-check conditions; every adapter preserves those conditions with the
+inverse provider route, named `fork / <job>`. `bun run lint` and
 `tests/fork-ci-adapters.test.ts` fail when the two drift. For a fork PR, read
 the `fork / …` GitHub Actions checks (`gh run`), not Depot. For a
 same-repository PR, those rows are skipped by design and prove nothing: read
@@ -373,13 +413,16 @@ the attempt is missing.
 
 For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
 uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
-The CLI's `api` event has no PR/push changeset base, so select runtime jobs
-instead of the `changeset` gate. With CLI 2.102.12, injected local patches
-also require `jq` in the job container before checkout; the pinned Playwright
-image lacks it. Push browser changes and inspect the automatic PR run.
+When limiting jobs, include their complete prerequisite chain: verification
+needs both `changeset` and `pack`, including the planner's intentional pack skip.
+The CLI's `api` event has no PR/push changeset base; the planner conservatively
+selects all fast gates and the contribution-diff gate is omitted for that event.
+This is fast CI verification, not a replacement for `bun run check:pr`.
 A local API run does not establish PR-event or main-push behavior. Before
 merging, verify automatic PR runs for the current head and live base, including
-the checkout SHA in test/browser logs. After merging, verify the squash commit
+the checkout SHA in the selected verification/pack logs, plus required local
+proof for the same combined state. Conditional skips are valid only when the
+planner and workflow intentionally exclude that job. After merging, verify the squash commit
 is on main and inspect Depot's push run for that SHA. Missing runs, cancelled
 jobs and older green attempts leave verification unfinished. Use GitHub checks
 to discover check links, then Depot for CI logs; `gh run` applies to the

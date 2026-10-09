@@ -351,6 +351,15 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
+Before opening a PR or marking a draft ready, run `bun run check:pr --base
+origin/main` against the relevant base and record tested head/base, commands and
+results in Proof. `--plan`, skipped runtimes and green fast CI are not substitutes
+for required full local proof. Revalidate affected checks after implementation,
+harness, dependency or relevant base changes. Inspect missing main commits first;
+refresh only if they affect this work or its checks. Record unrelated advancement
+without rebasing or restarting suites; retain actual tested head/base and satisfy
+existing branch rules. Keep drafts on cheap gates and batch pushes.
+
 The PR normally closes the issue; do not close it by hand before merging. If
 required human verification remains, follow "Handing work to a human" instead:
 use `Refs #N` and close only after the required result is recorded.

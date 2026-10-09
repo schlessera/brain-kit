@@ -4,152 +4,88 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 
 permissions:
   contents: read
 
-# Superseded PR heads share a ref and cancel obsolete work. Main commits get
-# separate groups: cancel-in-progress:false protects running work, but does
-# not stop a new pending run from replacing an old one in a shared group.
+# Cancel obsolete PR heads. Preserve every integrated main commit's evidence.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Every job carries the same `if:`: Depot runs pushes and same-repository
-# pull requests, and a fork PR runs on GitHub Actions instead, from the
-# adapter scripts/fork-ci-adapters.ts generates out of this file. Change a
-# gate here, then run `bun scripts/fork-ci-adapters.ts --write`.
+# Only fast, important checks belong here. Complete runtime/browser/visual
+# proof is mandatory locally before a PR: bun run check:pr. See CONTRIBUTING.md.
 jobs:
-  typecheck:
-    # Split out of `test` so the 30s typecheck runs beside the test shards
-    # rather than ahead of them.
+  changeset:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: depot-ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      verify: ${{ steps.plan.outputs.verify }}
+      pack: ${{ steps.plan.outputs.pack }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
-      - name: Typecheck (strict)
-        run: |
-          node <<'JS'
-          const os = require("node:os");
-          const fs = require("node:fs");
-          const v8 = require("node:v8");
-          const cgroupLimits = Object.fromEntries([
-            "/sys/fs/cgroup/memory.max",
-            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-          ].map((path) => {
-            try { return [path, fs.readFileSync(path, "utf8").trim()]; }
-            catch { return [path, null]; }
-          }));
-          const capacity = Math.min(os.totalmem(), ...Object.values(cgroupLimits)
-            .filter((value) => /^\d+$/.test(value ?? "")).map(Number));
-          console.log(JSON.stringify({
-            node: process.version,
-            typescript: require("typescript/package.json").version,
-            nodeOptions: process.env.NODE_OPTIONS,
-            v8HeapLimitBytes: v8.getHeapStatistics().heap_size_limit,
-            totalMemoryBytes: os.totalmem(), freeMemoryBytes: os.freemem(),
-            cgroupLimits, effectiveMemoryCapacityBytes: capacity,
-          }, null, 2));
-          JS
-          /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+      - name: Plan affected fast and local checks
+        id: plan
         env:
-          # The historical runner exhausted its default heap (#752). Keep the
-          # full strict check in one process with measured headroom.
-          NODE_OPTIONS: --max-old-space-size=4096
-      - name: Invisible-character gate
-        # A raw NUL byte makes grep/ripgrep treat a source file as binary, so it
-        # drops out of every search silently. Caught that way once already
-        # (indexer.ts, chunkContextKey). Escapes, not raw bytes.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: bun scripts/ci-plan.ts
+      - name: Lint, leakage and generated fork parity
         run: bun run lint
-      - name: Env docs are in sync with the chokepoint descriptors
+      - name: Env documentation matches its descriptors
         run: bun scripts/env-docs.ts --check
+      - name: Validate all pending changeset package names
+        run: bun scripts/check-changeset-packages.ts
+      - name: Require a changeset for shipped package changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            bun scripts/check-changeset.ts "$BASE_SHA"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            bun scripts/check-changeset.ts "$BEFORE_SHA"
+          fi
 
-  test:
-    # Three shards in one process apiece, balanced using measured file costs.
-    # Discover current tests before assigning them: the cost table is never
-    # an allowlist. New files receive a small default weight.
-    # Bun's --parallel workers imply --isolate; the existing suite does not
-    # survive that mode, so keep one process per shard.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+  verify:
+    # Delay shorter verification until the longer pack job succeeds. A tests-only
+    # diff deliberately skips pack; override implicit success() without starting
+    # new work on a cancelled run or treating an unexpected pack skip as proof.
+    needs: [changeset, pack]
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !cancelled() && needs.changeset.result == 'success' && needs.changeset.outputs.verify == 'true' && (needs.pack.result == 'success' || (needs.changeset.outputs.pack == 'false' && needs.pack.result == 'skipped'))
     runs-on: depot-ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
-      - name: Network namespace for installed backend runtime tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-          knob=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
-          if [ -e "$knob" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-          bwrap --version
-          bwrap --unshare-net --ro-bind / / --proc /proc --dev /dev /usr/bin/true
-      - name: Chrome for the renderer runtime tests
-        # The renderer's isolation holes were found by launching real Chrome,
-        # not by testing its allowlist function, so this job MUST cover it —
-        # and until now whether it did was a property of the runner image
-        # rather than a decision anyone made. `describe.skipIf` would have
-        # skipped the whole file the day the image stopped shipping Chrome,
-        # and the job would still have been green.
-        #
-        # So: resolve it here, print the version into the log as the evidence
-        # that it ran, and fail the job if it is missing. `BRAIN_REQUIRE_CHROME`
-        # below makes the test file refuse to skip, which covers the case where
-        # the binary exists but this step's export is lost.
-        run: |
-          set -euo pipefail
-          CHROME=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)
-          if [ -z "$CHROME" ]; then
-            echo "::error::No Chrome/Chromium on this runner. The renderer runtime tests cannot run, and this job does not pass without them."
-            exit 1
-          fi
-          "$CHROME" --version
-          echo "PUPPETEER_EXECUTABLE_PATH=$CHROME" >> "$GITHUB_ENV"
-      - name: Measure the first Chrome launch and render on this runner
-        # A real first launch per shard, before the test process warms Chrome.
-        # Record the phases separately; the sample is evidence, not a bound.
-        timeout-minutes: 5
-        run: bun packages/ui-render-puppeteer/tests/cold-start.ts "$PUPPETEER_EXECUTABLE_PATH"
-      - name: Unit + integration tests (keyless, deterministic)
-        # The root script, not a copy of its command: the script carries
-        # `--timeout 30000` (the CLI contract and onboarding suites spawn a
-        # `brain` subprocess per assertion, which tips over bun's 5s default
-        # under full-suite parallelism), and a duplicated command here would
-        # drift from what developers actually run.
-        run: bun run test --balanced-shard=${{ matrix.shard }}/3
+      - name: Recompute the same affected selection
         env:
-          # Belt and braces: tests must never reach for real providers.
-          GEMINI_API_KEY: ""
-          ANTHROPIC_API_KEY: ""
-          # A missing Chrome is a failed test file here, never a silent skip.
-          BRAIN_REQUIRE_CHROME: "1"
-
-      - name: Shared-process Chrome then child cleanup on the pinned Bun
-        if: matrix.shard == 1
-        # Native --shard=1/1 sorts the explicit files before keeping both.
-        # This forces chat-focus's in-process Chrome before external-speech's
-        # child, independently of the balanced shard's cost table (#1059).
-        run: >-
-          bun run test --shard=1/1
-          packages/ui-react/tests/chat-focus-runtime.test.ts
-          packages/ui-react/tests/external-speech-runtime.test.ts
-        env:
-          GEMINI_API_KEY: ""
-          ANTHROPIC_API_KEY: ""
-          BRAIN_REQUIRE_CHROME: "1"
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Strict types and curated fast tests concurrently on this runner
+        run: bun scripts/ci-runner.ts
 
   pack:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changeset
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changeset.outputs.pack == 'true'
+    timeout-minutes: 5
     runs-on: depot-ubuntu-24.04
     env:
       GEMINI_API_KEY: ""
@@ -597,239 +533,3 @@ jobs:
             }
           '
           "$REPO_DIR/node_modules/.bin/tsc" -p tsconfig.json --pretty false
-
-  claude-runtime-probe:
-    # The Claude backend's permission design rests on behaviours of the CLI it
-    # drives (docs/decisions/claude-code-runtime.md, "Re-checking a measured
-    # behaviour when the version moves"). `measured-runtime.test.ts` fails when
-    # the SDK version moves; this fails when a behaviour moves under an
-    # unchanged one, e.g. a lockfile resolution that swaps the platform binary
-    # (#284). It runs the real CLI the lockfile installs against a scripted
-    # loopback Messages API with bogus credentials, so it needs no secret.
-    #
-    # It runs in a network namespace that holds nothing but loopback, so no
-    # request can leave the runner: every case passing there is the proof
-    # that the probe needs no network. Ubuntu's AppArmor blocks unprivileged
-    # user namespaces by default; the sysctl lifts that for this job only,
-    # where the knob exists.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    # A CLI that stalls inside the namespace must not hold the runner for
-    # hours; the probe takes about a minute.
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Allow an unprivileged network namespace
-        # Only where AppArmor restricts them (GitHub's Ubuntu images); Depot's
-        # runners do not have the knob at all.
-        run: |
-          knob=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
-          if [ -e "$knob" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - name: Probe the Claude runtime, with no network but loopback
-        # A failed or inconclusive case exits non-zero and fails the job.
-        timeout-minutes: 10
-        run: >-
-          unshare --user --map-root-user --net
-          sh -c 'ip link set lo up && bun scripts/measure-claude-runtime.ts --out probe.json'
-      - name: The probe's report
-        if: always()
-        run: cat probe.json 2>/dev/null || echo "The probe wrote no report."
-      - name: Probe production Claude enforcement with loopback only
-        timeout-minutes: 5
-        run: >-
-          unshare --user --map-root-user --net
-          sh -c 'ip link set lo up && bun scripts/measure-claude-enforcement.ts --out enforcement-probe.json'
-      - name: The production enforcement report
-        if: always()
-        run: cat enforcement-probe.json 2>/dev/null || echo "The enforcement probe wrote no report."
-
-      - name: Probe native delegation, capabilities and measurement isolation
-        timeout-minutes: 5
-        run: >-
-          unshare --user --map-current-user --keep-caps --net
-          sh -c 'ip link set lo up && bun scripts/measure-claude-delegation.ts --out delegation-probe.json && bun scripts/measure-claude-capability.ts > capability-probe.json && bun scripts/measure-claude-haiku.ts > haiku-probe.json && bun run test tests/measurement-isolation.test.ts'
-      - name: Delegation and capability reports
-        if: always()
-        run: |
-          cat delegation-probe.json 2>/dev/null || echo "The delegation probe wrote no report."
-          cat capability-probe.json 2>/dev/null || echo "The capability probe wrote no report."
-          cat haiku-probe.json 2>/dev/null || echo "The Haiku probe wrote no report."
-
-  changeset:
-    # A user-visible change without a changeset publishes with no version entry
-    # and no changelog line. CONTRIBUTING.md has said so since the repo opened;
-    # prose does not fail a build, and a review caught exactly this omission on
-    # the commit that made ui-server's exports breaking. Runs on push to main
-    # too: a direct push used to bypass the gate entirely.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Validate all pending changeset package names
-        run: bun scripts/check-changeset-packages.ts
-      - name: Require a changeset for shipped package changes
-        # What "shipped" means is derived from each package's own `files` field
-        # rather than hardcoded here, so skills/, migrations/, templates/ and
-        # docs/ count the moment a manifest says they ship.
-        #
-        # On a PR the base is the target branch; on a push to main it is the
-        # previous tip (`github.event.before`), so the gate judges exactly the
-        # commits that push landed — a merged PR brings its changeset along and
-        # passes, a release commit is recognized by the gate's release
-        # detection, and a direct push touching packages/ without a changeset
-        # fails. After a force-push `before` may be unreachable, in which case
-        # the gate exits loudly rather than reporting a diff it cannot see.
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            bun scripts/check-changeset.ts "origin/${{ github.base_ref }}"
-          else
-            bun scripts/check-changeset.ts "${{ github.event.before }}"
-          fi
-
-  feature-captures:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Prepare pinned public fonts and original notices
-        run: bun run capture:fonts
-      - name: Real editorial sources twice, in the shared offline browser image
-        run: bun run capture:verify
-        env:
-          GEMINI_API_KEY: ""
-          ANTHROPIC_API_KEY: ""
-          TYPESAFE_API_KEY: ""
-      - name: Reviewable captures, provenance and reproducibility receipt
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: feature-captures
-          path: tmp/feature-capture-verification/
-          if-no-files-found: error
-          include-hidden-files: true
-
-  ui-react-layout:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    timeout-minutes: 15
-    # The real ten-minute capture bound plus cold-launch coverage exceed one
-    # job's budget. Keep the deadline and run every file in two offline shards.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Build the consumer exports and Tailwind stylesheet
-        run: bun run build
-      - name: Chat overlay geometry in the pinned offline Chromium image
-        # The shared runner starts Docker with --network=none for this project.
-        # Only the in-container Vite server is reachable; no keys are forwarded.
-        run: bun run test:layout --shard=${{ matrix.shard }}/2
-
-  ui-kit-browser:
-    # The 500-odd Storybook stories and the visual baselines, in the ONE image
-    # they are allowed to run in.
-    #
-    # Two things land here at once, and the first is the bigger one: until wave
-    # 7 these tests ran nowhere but a developer's machine. The accessibility
-    # gate that wave 1b went to the trouble of proving -- the same seeded
-    # violation giving 503 pass / 0 fail at `'todo'` and 497 / 6 at `'error'` --
-    # was enforced by nobody once the commit landed.
-    #
-    # The image is pinned and matched in full because browser rendering is not
-    # reproducible across environments: a baseline generated anywhere else does
-    # not merely differ, it makes the matcher retry until the test times out, so
-    # the failure does not even look like a visual diff. `scripts/visual.mjs` is
-    # what a developer runs locally through `docker run`, and it is what runs
-    # here inside the same image, precisely so the two cannot drift.
-    #
-    # Two shards, each running all ten kit projects in one vitest call: one call
-    # spreads the files over both cores, which a project at a time did not
-    # (72s against 99s for the whole suite at 2 CPUs). A third shard saves
-    # about 20s more, but `pack` finishes later than that anyway.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
-      # Chromium's default 64MB /dev/shm makes it die on a large page in ways
-      # that read as a flaky test.
-      options: --ipc=host
-    steps:
-      - uses: actions/checkout@v7
-      - name: unzip, which setup-bun needs and this image does not have
-        # `setup-bun` downloads a .zip and shells out to `unzip` to extract it.
-        # The playwright image ships neither, so the action failed with
-        # "Unable to locate executable file: unzip" BEFORE bun was installed —
-        # which meant this whole job, and with it the accessibility gate and
-        # every visual baseline, ran nowhere at all. The job's own comment
-        # below explains why that matters; it happened again anyway.
-        run: apt-get update && apt-get install -y --no-install-recommends unzip
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-      - name: Build workspace exports used by the browser integration tests
-        run: bun run build
-      - name: Prepare pinned preview fonts for ranking layout verification
-        run: bun run capture:fonts
-      - name: Stories on dark and on paper (D32), and the visual baselines
-        run: node scripts/visual.mjs --inside --shard=${{ matrix.shard }}/2
-      - name: Dictation phone and desktop review captures
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: dictation-captures-${{ matrix.shard }}
-          path: packages/ui-kit/.vitest-attachments/dictation/
-          if-no-files-found: ignore
-          include-hidden-files: true
-      - name: The actual and diff images, when a baseline moved
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: visual-diffs-${{ matrix.shard }}
-          path: packages/ui-kit/.vitest-attachments/
-          if-no-files-found: ignore
-          # The diagnostics directory itself is hidden.
-          include-hidden-files: true
-
-  leakage:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - name: Personal-string leakage gate
-        # Covers the WHOLE tree. The only exemption is LICENSE, which must name
-        # the copyright holder. Do not add directory exemptions: the ones that
-        # used to exist (plan/, research/, PROGRESS.md) were dropped at the
-        # public cut precisely so this gate has nowhere to look away.
-        # The patterns and policy live in the script (paired with
-        # tests/leakage-gate.test.ts, run locally by `bun run lint`); it needs
-        # no `bun install` — the gate must not depend on dependencies to fire.
-        run: bun scripts/check-leakage.ts

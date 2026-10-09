@@ -29,13 +29,12 @@ Closes #
      testing its allowlist function. -->
 
 ```sh
-bun run test
-bun run typecheck
-bun run lint
+bun run check:pr --base origin/main
 ```
 
 ## Checklist
 
+- [ ] Required local pre-PR checks passed for the recorded head/base; commands/results are in Proof.
 - [ ] Acceptance criteria from the issue are all met, or the gap is named below.
 - [ ] A changeset is included, or this changes nothing a consumer can see.
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.

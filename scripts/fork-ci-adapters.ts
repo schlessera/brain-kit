@@ -20,7 +20,7 @@
  *   `persist-credentials: false`, so the read-only token is not left in the
  *   checkout's git config for the fork's code to read.
  *
- * Each Depot job must carry `if: <DEPOT_ROUTE>`, the complement of
+ * Each Depot job must start its condition with `DEPOT_ROUTE`, the complement of
  * `FORK_ROUTE`: whatever a provider is given, exactly one of them runs a job.
  * The transform is textual, so the source's comments and layout survive into
  * the adapter. Any shape it does not recognise is refused rather than guessed.
@@ -44,6 +44,16 @@ export const DEPOT_ROUTE =
 /** GitHub Actions runs a job only for a pull request from another repository. */
 export const FORK_ROUTE =
   "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository";
+
+/** Preserve affected-check conditions while replacing only provider routing. */
+export function forkCondition(condition: string): string {
+  if (condition === DEPOT_ROUTE) return FORK_ROUTE;
+  const prefix = `(${DEPOT_ROUTE}) && `;
+  if (!condition.startsWith(prefix) || !condition.slice(prefix.length).trim()) {
+    throw new Error(`job must start its condition with ${DEPOT_ROUTE}`);
+  }
+  return `(${FORK_ROUTE}) && ${condition.slice(prefix.length)}`;
+}
 
 /** Depot runner label to the GitHub-hosted label with the same OS image. */
 export const RUNNER_MAP: Readonly<Record<string, string>> = {
@@ -211,10 +221,10 @@ function adaptJob(id: string, block: string[], spec: AdapterSpec): string[] {
     if (jobKey?.[1] === "name") refuse(spec, `job ${id} sets its own name; add a naming rule first`);
     if (jobKey?.[1] === "permissions") refuse(spec, `job ${id} sets job permissions; add a rule first`);
     if (jobKey?.[1] === "if") {
-      if (jobKey[2]!.trim() !== DEPOT_ROUTE) {
-        refuse(spec, `job ${id} must be routed with \`if: ${DEPOT_ROUTE}\``);
-      }
-      out.push(`    name: ${forkJobName(id)}`, `    if: ${FORK_ROUTE}`);
+      let condition: string;
+      try { condition = forkCondition(jobKey[2]!.trim()); }
+      catch { refuse(spec, `job ${id} must be routed with \`if: ${DEPOT_ROUTE}\` or its parenthesized conditional form`); }
+      out.push(`    name: ${forkJobName(id)}`, `    if: ${condition!}`);
       route++;
       continue;
     }

@@ -83,8 +83,8 @@ video and capture/search evidence bytes. Approval evidence retains the app's
 randomly generated principal ID; verification permits only that field to vary,
 requires one correlated nonempty principal for both decisions in each run, and
 compares the remaining evidence exactly. Each run keeps its actual build and
-source provenance. Use `--all` to verify the entire catalogue. CI runs the same
-command; font preparation is an explicit dependency step outside the keyless
+source provenance. Use `--all` to verify the entire catalogue. The local pre-PR check runs this
+command for affected UI/capture sources; font preparation is an explicit dependency step outside the keyless
 test suite. Missing sources, unready stories, fonts, clipped required text,
 blank pixels and observed executor/store mismatches fail with the recipe ID.
 
