@@ -5471,6 +5471,38 @@ question-answer rules are independent.
 > primitive) and `lib/local-work.ts` (the snapshot, and `snapshotNow`, which
 > resolves only once its transaction has committed).
 
+**Device-local conflicts — maintainer ruling, 2026-10-07 (#1208).**
+Two tabs of the same account/root share device storage. Their expected
+per-record revision is checked inside the native IndexedDB write transaction.
+A divergent stale write keeps the already-committed draft under its original
+draft/session identity and atomically stores the incoming text and image bytes
+as a new unbound Draft entry. The stale writer keeps its visible text,
+selection and navigation, and subsequent edits follow its branch. A local
+view association can show that branch while the original session remains
+selected; it never binds the branch to that session. Each tab keeps its own
+reload context, while draft records remain shared and account-partitioned.
+
+Only after transaction commit does the stale writer show
+`Another tab changed this draft · Both versions kept`, with `Open other version`.
+Both versions remain reachable through the draft/session surfaces after a
+reload, including a fresh third tab. A failed write leaves editable content
+in memory and uses the existing storage-failure copy; it makes no retention
+claim. Stale emptying, deletion and send consumption cannot erase another
+tab's committed version. Empty revision tombstones fence stale resurrection;
+immutable send snapshots remain separate from editable draft identities.
+Pending sends retain their branch target even when the reader opens the
+original, and Edit follows that target. A live tab claims its context identity
+with a browser lock so a duplicated tab with copied session storage receives
+a distinct identity while an ordinary reload resumes its own context.
+Recording acceptance commits its retained branch and receipt before deleting
+its audio. Host conflicts still use the explicit Compare policy above.
+
+Rejected: last writer wins loses committed work; refusing the stale write
+alone leaves its incoming version undurable; keeping the incoming version
+under the original identity silently changes the original session's owner;
+automatic/model merging is unauthorized. Repeated branches for one divergence
+are avoided by retargeting the stale writer after the first committed fork.
+
 ### 6. Host contracts the implementations add
 
 These are the technical outputs Recovery A and storage C asked #943 to fix.
@@ -6173,7 +6205,7 @@ transcript-ready audio. Playback and review remain local. Transcribe requires
 its explicit upload confirmation and the server capability. Add to draft
 persists the chosen draft and its receipt before accepted metadata/deletion;
 failure keeps the recording. It never sends a message or answers an approval
-(`async accept`, `packages/ui-react/src/lib/recordings.ts:650-674`).
+(`async accept`, `packages/ui-react/src/lib/recordings.ts:651-679`).
 The [tray runtime proof](https://github.com/schlessera/brain-kit/pull/1241)
 measures focus, reading-anchor preservation, playback, failed writes and native
 transaction ordering. Surviving transcript text remains reviewable even if its
@@ -6183,9 +6215,9 @@ The [retention ruling](https://github.com/schlessera/brain-kit/issues/578#issuec
 sets **10 minutes per recording** and **100 MiB aggregate retained audio per
 origin/device, across account and unassigned partitions**, with no age expiry
 and no eviction to admit a new recording (`RECORDING_MAX_MS`,
-`packages/ui-react/src/lib/recordings.ts:8-11`). The lower browser capacity
+`packages/ui-react/src/lib/recordings.ts:9-12`). The lower browser capacity
 wins. Estimates are advisory; write success determines what exists
-(`async function budget`, `packages/ui-react/src/lib/recordings.ts:190-200`).
+(`async function budget`, `packages/ui-react/src/lib/recordings.ts:191-201`).
 Limits stop capture and keep a contiguous playable prefix, rather than cutting
 an encoded chunk or deleting older work. Both quota and blob I/O errors stop
 writes. The [store runtime proof](https://github.com/schlessera/brain-kit/pull/1230)
@@ -6194,7 +6226,7 @@ chunks and crash recovery.
 
 **Saved up to** is the last chunk end whose chunk/index transaction completed,
 not elapsed UI time or the requested MediaRecorder interval
-(`const next =`, `packages/ui-react/src/lib/recordings.ts:290-306`). Requested
+(`const next =`, `packages/ui-react/src/lib/recordings.ts:291-307`). Requested
 intervals and warning/minimum-budget defaults are tuning, never promises.
 [#1250's measured fixture correction](https://github.com/schlessera/brain-kit/pull/1253)
 further demonstrates why a visible recording sheet or a timeslice deadline is
@@ -6341,7 +6373,7 @@ can do with surviving data; they do not measure when a real browser evicts it:
 | Neither index nor chunks (and no other surviving record) | Nothing can be listed or reported; no loss notice can be promised |
 
 Recovery uses the surviving index and ordered chunks
-(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:515-579`).
+(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:516-580`).
 The store tests force missing-chunk states, including a full origin that cannot
 repair metadata. Requesting `navigator.storage.persist()` is best effort; no
 copy calls it a guarantee. No unload callback can save data after a crash, and

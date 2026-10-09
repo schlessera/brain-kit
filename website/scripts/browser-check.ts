@@ -118,9 +118,9 @@ try {
     }
     await verifyDocumentation(page, origin, manifest.base, captures, !process.argv.includes('--no-capture'));
     await page.goto(`${origin}${manifest.base}docs/quickstart/`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Quickstart', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Create your first brain', exact: true }).waitFor();
     const source = await page.getByRole('link', { name: 'View Markdown source' }).getAttribute('href');
-    assert(source?.includes(`/blob/${manifest.sourceSha}/docs/quickstart.md`));
+    assert(source?.includes(`/blob/${manifest.sourceSha}/docs/handbook/quickstart.md`));
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 }); await settled();
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Docs overflow at ${width}`);

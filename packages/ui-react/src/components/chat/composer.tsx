@@ -201,7 +201,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // from the same new chat could start a second conversation beside it.
   const waiting = useRootStore("drafts", (s) => Object.values(s.sends).some((x) => x.sessionId === sessionId
     && (x.state === "pending" || (sessionId === null && x.state === "unconfirmed"))
-    && (sessionId !== null || x.draftId === draftId)));
+    && (sessionId !== null || s.sendDraftId(x.requestId) === draftId)));
   useEffect(() => {
     // Naming our accepted new conversation is not a conversation switch.
     // Carry a newer choice to its identity; consume only the sent choice.
@@ -347,7 +347,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    */
   async function addFiles(files: FileList | File[]) {
     // The draft that asked: decoding is async, and the view may move on.
-    const target = draftId;
+    let target = draftId;
     const owner = sessionId;
     const incoming = Array.from(files);
     const list = incoming.filter(file => file.type.startsWith("image/"));
@@ -356,40 +356,45 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const authEpoch = root.authLock.epoch();
-    const results = await Promise.all(list.map((f) => fileToAttachment(f)));
-    if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
-      for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
-      return;
-    }
-    const fresh: PendingAttachment[] = [];
-    const errors: string[] = [...trackErrors];
-    results.forEach((r, i) => {
-      if ("error" in r) {
-        errors.push(r.error);
-      } else {
-        fresh.push({ ...r, name: list[i].name });
+    // Keep the operation's ownership when opening the other version removes
+    // a navigation redirect. The subscription sees each committed fork first.
+    const unwatch = root.stores.drafts.subscribe(state => { target = state.resolveId(target); });
+    try {
+      const results = await Promise.all(list.map((f) => fileToAttachment(f)));
+      if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") {
+        for (const result of results) if (!("error" in result)) URL.revokeObjectURL(result.previewUrl);
+        return;
       }
-    });
+      const fresh: PendingAttachment[] = [];
+      const errors: string[] = [...trackErrors];
+      results.forEach((r, i) => {
+        if ("error" in r) {
+          errors.push(r.error);
+        } else {
+          fresh.push({ ...r, name: list[i].name });
+        }
+      });
 
-    const current = attachmentsOf(target);
-    const { accepted: imageAccepted } = validateAttachments([
-      ...current,
-      ...fresh,
-    ]);
-    let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
-    const accepted = imageAccepted.filter((image, index) => {
-      combinedBytes += image.bytes;
-      return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
-    });
-    // Revoke URLs of freshly-decoded images that didn't make the cut.
-    for (const f of fresh) {
-      if (!accepted.includes(f)) {
-        URL.revokeObjectURL(f.previewUrl);
-        errors.push(`${f.name}: not added (message limit reached)`);
+      const current = attachmentsOf(target);
+      const { accepted: imageAccepted } = validateAttachments([
+        ...current,
+        ...fresh,
+      ]);
+      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
+      const accepted = imageAccepted.filter((image, index) => {
+        combinedBytes += image.bytes;
+        return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
+      });
+      // Revoke URLs of freshly-decoded images that didn't make the cut.
+      for (const f of fresh) {
+        if (!accepted.includes(f)) {
+          URL.revokeObjectURL(f.previewUrl);
+          errors.push(`${f.name}: not added (message limit reached)`);
+        }
       }
-    }
-    setAttachmentsOf(target, owner, accepted);
-    if (target === draftIdRef.current) setAttachErrors(errors);
+      setAttachmentsOf(target, owner, accepted);
+      if (target === draftIdRef.current) setAttachErrors(errors);
+    } finally { unwatch(); }
   }
 
   /** One chip removes only that image, in the draft's next revision (D52 §5). */

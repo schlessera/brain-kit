@@ -3,12 +3,13 @@ import Header from '../components/Header.astro';
 import ExternalLink from '../components/ExternalLink.astro';
 import { href, site } from '../../model.mjs';
 import '../styles/site.css';
-const { title = 'brain-kit — A second brain that goes with you.', description = 'A file-first second brain you can operate with an agent. Explore structured decisions, rich answers, inspectable work and capture on the go.' } = Astro.props;
+const { title = 'brain-kit — A second brain that goes with you.', description = 'A file-first second brain you can operate with an agent. Explore structured decisions, rich answers, inspectable work and capture on the go.', noIndex = false } = Astro.props;
 ---
 <!doctype html>
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content={description}/>
+    {noIndex && <meta name="robots" content="noindex, follow"/>}
     <title>{title}</title><link rel="canonical" href={`${site}${Astro.url.pathname}`}/><link rel="icon" type="image/svg+xml" href={href('favicon.svg')}/>
     <link rel="stylesheet" href={href('assets/fonts.css')}/><meta name="color-scheme" content="dark light"/>
     <script is:inline>try{document.documentElement.dataset.theme=localStorage.getItem('brain-kit-site-theme')==='light'?'light':'dark'}catch{}</script>

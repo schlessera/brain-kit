@@ -45,39 +45,46 @@ assume an older Markdown pipeline. The project owns the actual link transform,
 semantic navigation, keyboard/focus behavior and browser accessibility checks;
 framework choice does not satisfy them.
 
-## Stable routes without a second docs tree
+## A curated handbook, separate from the engineering archive
 
-Maintain an explicit publication manifest from intentionally selected sources
-to stable public routes. For example, `docs/README.md` maps to `/docs/`,
-`docs/quickstart.md` to `/docs/quickstart/`, and a selected package README may
-map to `/docs/modules/<module>/`. These paths are relative to the configured
-base. Source file renames preserve their published routes. Deliberate route
-changes require a static redirect page and updated navigation, links and
-canonical metadata. Do not publish every repository Markdown file by default.
+The maintainer's corrected 2026-10-09 instruction selects a handbook designed
+for human consumption. It supersedes recursive publication of Markdown linked
+from the repository documentation index. Linked engineering records are not a
+reading curriculum, and publishing them all overwhelms a reader.
 
-Derive documentation navigation from the canonical [docs index](../README.md).
-Resolve authored links against the original source location, including
-`README.md`, reference definitions, query strings and fragments.
+Keep the canonical handbook chapters in `docs/handbook/` and select them with
+an explicit source-to-route manifest. Its own index groups the reading path
+into Start here, Everyday use, Make it yours and Build integrations. Explain
+concepts before commands, lead readers through their first capture and search,
+and introduce optional capabilities when they solve a concrete problem.
+Previous/next links provide a continuous learning path. The repository's
+`docs/README.md` remains the engineering index on GitHub; it does not own the
+website navigation. There is one canonical source for each handbook chapter,
+not a generated copy of the engineering documentation.
 
-The maintainer's 2026-10-09 documentation update selects every Markdown source
-reachable from this index and the established published guides, including
-linked package references, contributor guides, plans and decision records.
-Following a documentation link stays on the site, including directory links
-with a README. This is the index's linked reading set, not blanket publication
-of every Markdown file in the repository. Preserve the seven established routes
-and derive stable routes for the newly selected sources.
+Technical command and API references, package READMEs, contributor guides,
+plans, investigations, measurement reports and decision records stay as
+Markdown in GitHub. Deliberate handbook links to those sources have a visible
+external-link icon and accessible destination annotation. Only selected
+handbook targets become base-prefixed site links. Repository links never
+expand the publication list. Static checks enforce the selected source
+boundary, reading routes and sitemap; real browser proof follows the learning
+path and checks external reference marking.
 
-Selected targets become base-prefixed site links. Source code, repository
-directories without a documentation index, historical revision citations and
-other external destinations retain their URLs with a visible external-link
-icon and an accessible destination annotation. Explicit source/edit links keep
-their GitHub destinations and use the same marking. Filename-only documentation
-labels become page headings on the website; canonical Markdown stays unchanged.
-Derive grouped sidebar navigation from the docs index's headings and links.
-Missing targets fail the build. Preserve
-external URLs and GitHub-compatible heading IDs. Validate fragments, raw HTML
-links, encoded paths, route collisions and approved image destinations in the
-production build, beyond the experiment's deliberately narrow cases.
+Preserve established useful routes such as `/docs/concepts/` and
+`/docs/quickstart/` while changing their source to the authored handbook.
+Previously published engineering URLs show a brief static handoff with a
+marked link to the reference at the last published revision. They do not
+render the engineering Markdown or appear in navigation or the sitemap.
+Source renames preserve routes; any deliberate route change needs an explicit
+recovery path and updated navigation, links and canonical metadata.
+
+Resolve authored links against their original source location, including
+reference definitions, query strings and fragments. Explicit source/edit
+links retain GitHub destinations with the same external marking. Missing
+files or fragments fail the build. Preserve GitHub-compatible heading IDs,
+validate raw HTML links, encoded paths and route collisions, and require
+approved image destinations in production.
 
 Published source links identify the file at the built commit. An edit link may
 point to `main`. The experiment uses `main` source links as a feasibility check;
