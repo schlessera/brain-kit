@@ -20,12 +20,24 @@ async function setup() {
   return { ...env, found, value, review };
 }
 
-test("the fresh 21-case corpus has both splits, synonyms and conservative sparse unknowns", () => {
-  expect(fixtures).toHaveLength(21);
-  expect(fixtures.filter(f => f.split === "tuning")).toHaveLength(8);
+test("the 23-case corpus has both splits, every hard category in each, and conservative sparse unknowns", () => {
+  expect(fixtures).toHaveLength(23);
+  expect(new Set(fixtures.map(f => f.id)).size).toBe(23);
+  expect(fixtures.filter(f => f.split === "tuning")).toHaveLength(10);
   expect(fixtures.filter(f => f.split === "held-out")).toHaveLength(13);
-  expect(fixtures.some(f => f.split === "held-out" && f.same === true)).toBe(true);
-  expect(fixtures.some(f => f.same === null)).toBe(true);
+  for (const split of ["tuning", "held-out"] as const) {
+    const categories = new Set(fixtures.filter(f => f.split === split).map(f => f.category));
+    for (const category of ["spelling", "synonym", "acronym", "hierarchy", "related", "homonym", "sparse"]) expect(categories, `${split} lacks ${category}`).toContain(category);
+    expect(fixtures.filter(f => f.split === split && f.same === true).length).toBeGreaterThanOrEqual(4);
+    expect(fixtures.filter(f => f.split === split && f.same === false).length).toBeGreaterThanOrEqual(5);
+    expect(fixtures.some(f => f.split === split && f.same === null)).toBe(true);
+  }
+});
+
+test("no positive pair can be labelled by comparing its two contexts for equality", () => {
+  const identical = fixtures.filter(f => f.leftContext.trim().toLowerCase() === f.rightContext.trim().toLowerCase());
+  expect(identical.map(f => f.id), "identical bodies let a judge recover the label without semantics").toEqual([]);
+  expect(fixtures.filter(f => f.same === true).length).toBeGreaterThan(0);
 });
 
 test("actual candidates retain nonempty complete question context; missing calibration admits nothing", async () => {
@@ -202,6 +214,20 @@ test("same-byte nanosecond touches cannot disappear in millisecond rounding", ()
     expect(after["sentinel.bin"].mtimeNs, "nanosecond-only touch must be visible in actual metadata").not.toBe(before["sentinel.bin"].mtimeNs);
     expect(after["sentinel.bin"].mtime).toBe(before["sentinel.bin"].mtime);
     expect(after["sentinel.bin"].bytes).toBe(before["sentinel.bin"].bytes);
+  } finally { env.close(); }
+});
+
+test("the pair bound keeps the best-evidenced pair rather than the alphabetically first one", async () => {
+  const env = prepare(fixtures.find(f => f.id === "pylos-synonym")!);
+  try {
+    const left = env.fixture.left, shared = env.fixture.leftContext;
+    const doc = (tags: string, body: string) => `---\ntype: context\ntitle: 'Extra'\nstatus: active\ncreated: 2026-07-10\nupdated: 2026-07-12\ntags: [${tags}]\n---\n\n${body}\n`;
+    writeFileSync(join(env.root, "context/pylos/overlap.md"), doc("aaa-first", shared));
+    writeFileSync(join(env.root, "context/pylos/cooccur.md"), doc(`${left}, zzz-last`, "Nestor keeps an unrelated tally of oxen."));
+    const found = await candidates(env.root, 1);
+    expect(found.omitted).toBeGreaterThan(0);
+    expect(found.pairs.map(p => [p.left, p.right])).toEqual([[left, "zzz-last"]]);
+    expect(found.pairs[0]).toMatchObject({ lexical: false, cooccurs: true });
   } finally { env.close(); }
 });
 

@@ -31,7 +31,11 @@ export function snapshot(root: string) {
 }
 
 export interface Usage { path: string; contentHash: string; body: string }
-export interface Candidate { id: string; left: string; right: string; lexical: boolean; contexts: Record<string, Usage[]>; snapshotSha: string; configSha: string }
+export interface Candidate {
+  id: string; left: string; right: string; lexical: boolean; cooccurs: boolean;
+  /** Jaccard overlap of the two tags' non-stopword body vocabularies; 0 when only lexical or co-occurrence admitted the pair. */
+  overlap: number; contexts: Record<string, Usage[]>; snapshotSha: string; configSha: string;
+}
 const stop = new Set("a an the this that these those and or of for to in on at as by with is are was were not only same records record recorded keeps keep notes lists uses discusses text odysseus penelope eumaeus nestor menelaus telemachus".split(" "));
 const words = (body: string) => new Set((body.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter(w => !stop.has(w)));
 export async function candidates(root: string, maxPairs = 128) {
@@ -49,19 +53,25 @@ export async function candidates(root: string, maxPairs = 128) {
   const id = (left: string, right: string) => JSON.stringify([left, right].sort());
   for (const group of findVariantGroups(counts, brain.taxonomy.tags))
     for (const a of group.members) for (const b of group.members) if (a.tag < b.tag) lexical.add(id(a.tag, b.tag));
-  const tags = [...counts.keys()].sort(), before = snapshot(root), configRaw = readFileSync(join(root, "brain.config.json"));
-  const snapshotSha = hash(JSON.stringify(before)), configSha = hash(configRaw);
+  // The loaded config source covers brain.config.json and brain.config.ts alike;
+  // applyReviewed re-hashes the JSON file, which is the same bytes.
+  const tags = [...counts.keys()].sort(), before = snapshot(root);
+  const snapshotSha = hash(JSON.stringify(before)), configSha = hash(brain.configSource ?? "");
   const all: Candidate[] = [];
   for (let i = 0; i < tags.length; i++) for (const right of tags.slice(i + 1)) {
     const left = tags[i], leftWords = words(usage.get(left)!.map(u => u.body).join("\n")), rightWords = words(usage.get(right)!.map(u => u.body).join("\n"));
     const isLexical = lexical.has(id(left, right));
     const cooccurs = docs.some(d => d.tags.includes(left) && d.tags.includes(right));
-    if (!isLexical && !cooccurs && ![...leftWords].some(w => rightWords.has(w))) continue;
-    all.push({ id: id(left, right), left, right, lexical: isLexical,
+    const shared = [...leftWords].filter(w => rightWords.has(w)).length;
+    if (!isLexical && !cooccurs && shared === 0) continue;
+    all.push({ id: id(left, right), left, right, lexical: isLexical, cooccurs,
+      overlap: shared ? shared / new Set([...leftWords, ...rightWords]).size : 0,
       contexts: { [left]: usage.get(left)!.slice(0, 3), [right]: usage.get(right)!.slice(0, 3) },
       snapshotSha, configSha });
   }
-  all.sort((a, b) => Number(b.lexical) - Number(a.lexical) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // The output bound keeps the best-evidenced pairs, not the alphabetically
+  // first ones: lexical variants, then co-occurring tags, then by overlap.
+  all.sort((a, b) => Number(b.lexical) - Number(a.lexical) || Number(b.cooccurs) - Number(a.cooccurs) || b.overlap - a.overlap || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return { brain, pairs: all.slice(0, maxPairs), omitted: all.length - Math.min(all.length, maxPairs), snapshot: before };
 }
 

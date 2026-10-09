@@ -12,12 +12,14 @@ export interface PhysicalCall {
   outcome: string; durationMs: number; responseEof: boolean; responseClosed: boolean; failure: string | null;
 }
 const count = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
-export function observedClient(fetch: FetchLike, save: (calls: PhysicalCall[]) => void = () => {}) {
+/** A full run is pairs × 2 orientations × repetitions; the default bound covers the 128-pair cap. */
+export const DEFAULT_CALL_BOUND = 128 * 2 * 3;
+export function observedClient(fetch: FetchLike, save: (calls: PhysicalCall[]) => void = () => {}, maxCalls = DEFAULT_CALL_BOUND) {
   const calls: PhysicalCall[] = [];
   let stopped = false;
   const client = createJevClient({ apiKey: "offline-sentinel", endpoint: "http://127.0.0.1/jev-control", timeoutMs: 1000,
     retryDelayMs: 0, async fetch(url, init) {
-      if (stopped || calls.length >= 24) throw Error("Unknown receipt or exhausted physical control bound");
+      if (stopped || calls.length >= maxCalls) throw Error("Unknown receipt or exhausted physical control bound");
       const start = performance.now(), body = String(init.body);
       const call: PhysicalCall = { requestBytes: body, responseBytes: null, requestSha: hash(body), responseSha: null,
         requestedModel: "jev-1.13.0", servedModel: null, status: null, inputTokens: null, outputTokens: null,

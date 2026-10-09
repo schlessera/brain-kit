@@ -2,8 +2,9 @@ import { test, expect } from "bun:test";
 import { observedClient } from "../scripts/evals/tag-aliases/jev";
 import { candidates } from "../scripts/evals/tag-aliases/prototype";
 import { fixtures, prepare } from "../scripts/evals/tag-aliases/fixtures";
-import { calibrate, metrics, type Row } from "../scripts/evals/tag-aliases/metrics";
+import { calibrate, metrics, perCase, type Row } from "../scripts/evals/tag-aliases/metrics";
 import { keyless } from "../scripts/evals/tag-aliases/keyless";
+import { DEFAULT_CALL_BOUND } from "../scripts/evals/tag-aliases/jev";
 
 test("real core Choice transport receives populated question and retains physical raw usage", async () => {
   const env = prepare(fixtures[1]);
@@ -77,15 +78,42 @@ test("calibration excludes held-out data and incomplete tuning denominators", ()
   expect(calibrate([row, { ...row, id: "b", same: false, proposed: false }], ["a", "b"])).toBe(.7);
 });
 
-test("scripted full-corpus report retains candidate misses and lexical false merges", async () => {
+test("repetitions of one pair vote per case instead of multiplying the denominators", () => {
+  const row: Row = { id: "pylos-synonym", split: "held-out", same: true, arm: "hybrid", repetition: 0, retrieved: true,
+    proposed: true, abstained: false, failure: null, durationMs: 1, modelQuality: false };
+  const rows = [row, { ...row, repetition: 1 }, { ...row, repetition: 2, proposed: false, abstained: true },
+    { ...row, id: "pylos-related", same: false, proposed: false, abstained: true }, { ...row, id: "pylos-related", same: false, repetition: 1, proposed: false, abstained: true }];
+  const summary = metrics(rows);
+  expect(summary.positives, "one positive pair, not three repetitions of it").toBe(1);
+  expect(summary.observations).toBe(5);
+  expect(summary.trueProposals).toBe(1);
+  expect(summary.unstableCases).toEqual(["pylos-synonym"]);
+  expect(summary.abstention).toBe(.5);
+  expect(perCase(rows).find(c => c.id === "pylos-synonym")).toMatchObject({ proposed: true, unstable: true, abstained: false });
+});
+
+test("keyless report measures the lexical baseline and the candidate stage, never a model arm", async () => {
   const result = await keyless();
-  expect(result.rows).toHaveLength(126);
-  const lexical = metrics(result.rows.filter(r => r.split === "held-out" && r.arm === "lexical"));
-  expect(lexical.falseMerges, "related spelling is not semantic synonymy").toBe(3);
-  const scripted = metrics(result.rows.filter(r => r.split === "held-out" && r.arm === "hybrid"));
-  expect(scripted.candidateRecall).toBe(.8);
-  expect(scripted.recall).toBe(.8);
-  expect(scripted.measuredModelQuality).toBe(false);
+  expect([...new Set(result.rows.map(r => r.arm))], "a keyless report cannot carry a model arm").toEqual(["lexical"]);
+  expect(result.rows).toHaveLength(23);
+  const held = result.summary["held-out/lexical"]!;
+  expect(held.falseMergeIds, "related spelling is not semantic synonymy").toEqual(["sparta-lexical-trap"]);
+  expect(held.trueProposals).toBe(1);
+  expect(held.recall).toBe(.2);
+  expect(held.candidateRecall).toBe(.8);
+  expect(held.missedPositives, "the disjoint-context synonym is the known candidate miss").toEqual(["ithaca-disjoint-context"]);
+  expect(result.summary["tuning/lexical"]!.falseMergeIds).toEqual(["ogygia-lexical-trap"]);
+  expect(result.byCategory.synonym).toMatchObject({ cases: 4, retrieved: 4, lexicalProposals: 0 });
+  const floor = result.floors["held-out"]!;
+  expect(floor.proposeAllCandidates.recall, "accepting every candidate recovers every retrieved positive").toBe(.8);
+  expect(floor.proposeAllCandidates.falseMerges, "and merges every retrieved negative").toBeGreaterThanOrEqual(5);
+  expect(floor.proposeNothing).toMatchObject({ trueProposals: 0, falseMerges: 0, recall: 0, precision: null });
+  expect(result.corpus.pairs).toBeGreaterThan(0);
+  expect(result.corpus.pairs).toBeLessThanOrEqual(128);
+  expect(result.corpus.pairs + result.corpus.omitted).toBeGreaterThan(result.corpus.pairs);
+  expect(result.corpus.byRule.lexical + result.corpus.byRule.cooccurring + result.corpus.byRule.overlapOnly).toBe(result.corpus.pairs);
+  expect(result.corpus.jevCallsPerRun).toBe(result.corpus.pairs * 2 * result.protocol.repetitions);
+  expect(result.corpus.jevCallsPerRun).toBeLessThanOrEqual(DEFAULT_CALL_BOUND);
 });
 
 

@@ -5,18 +5,33 @@ export interface Row {
   failure: string | null; durationMs: number; modelQuality: boolean;
 }
 const ratio = (a: number, b: number) => b ? a / b : null;
+interface Case { id: string; same: boolean | null; retrieved: boolean; proposed: boolean; unstable: boolean; abstained: boolean | null; failed: boolean }
+/** One record per pair: repetitions vote, and disagreement is reported rather than counted three times. */
+export function perCase(rows: Row[]): Case[] {
+  const groups = new Map<string, Row[]>();
+  for (const row of rows) groups.set(row.id, [...(groups.get(row.id) ?? []), row]);
+  return [...groups.entries()].map(([id, group]) => {
+    const complete = group.filter(r => !r.failure), proposals = complete.filter(r => r.proposed).length;
+    const abstentions = complete.filter(r => r.abstained !== null);
+    return { id, same: group[0].same, retrieved: complete.some(r => r.retrieved), proposed: proposals * 2 > complete.length,
+      unstable: proposals > 0 && proposals < complete.length, failed: complete.length === 0,
+      abstained: abstentions.length ? abstentions.filter(r => r.abstained).length * 2 > abstentions.length : null };
+  });
+}
 export function metrics(rows: Row[]) {
-  const complete = rows.filter(r => !r.failure), positives = complete.filter(r => r.same === true);
-  const tp = positives.filter(r => r.proposed).length, fp = complete.filter(r => r.same !== true && r.proposed).length;
-  return { observations: rows.length, complete: complete.length, failures: rows.length - complete.length,
-    positives: positives.length, retrievedPositives: positives.filter(r => r.retrieved).length,
-    candidateRecall: ratio(positives.filter(r => r.retrieved).length, positives.length),
-    trueProposals: tp, falseMerges: fp, precision: ratio(tp, tp + fp), recall: ratio(tp, positives.length),
-    retrievedCases: complete.filter(r => r.retrieved).length, omittedCases: complete.filter(r => !r.retrieved).length,
-    abstention: ratio(complete.filter(r => r.abstained === true).length, complete.filter(r => r.abstained !== null).length),
-    explicitAbstentionUnknown: complete.filter(r => r.abstained === null).length,
+  const cases = perCase(rows), complete = cases.filter(c => !c.failed), positives = complete.filter(c => c.same === true);
+  const tp = positives.filter(c => c.proposed), fp = complete.filter(c => c.same !== true && c.proposed);
+  return { observations: rows.length, cases: cases.length, complete: complete.length, failedCases: cases.length - complete.length,
+    positives: positives.length, retrievedPositives: positives.filter(c => c.retrieved).length,
+    candidateRecall: ratio(positives.filter(c => c.retrieved).length, positives.length),
+    missedPositives: positives.filter(c => !c.retrieved).map(c => c.id),
+    trueProposals: tp.length, falseMerges: fp.length, falseMergeIds: fp.map(c => c.id),
+    precision: ratio(tp.length, tp.length + fp.length), recall: ratio(tp.length, positives.length),
+    unstableCases: complete.filter(c => c.unstable).map(c => c.id),
+    abstention: ratio(complete.filter(c => c.abstained === true).length, complete.filter(c => c.abstained !== null).length),
+    explicitAbstentionUnknown: complete.filter(c => c.abstained === null).length,
     measuredModelQuality: rows.length > 0 && rows.every(r => r.modelQuality),
-    limitation: "Failures and retrieval misses remain distinct. Author labels are unreviewed; correlated repetitions supply no population guarantee." };
+    limitation: "Failures and retrieval misses remain distinct. Author labels are unreviewed; repetitions of one pair are correlated, so a majority vote is not a population estimate." };
 }
 export function calibrate(rows: Array<Row & { threshold: number }>, expectedIds: string[]) {
   if (rows.some(r => r.split !== "tuning")) throw Error("Held-out labels cannot tune thresholds");
