@@ -5,7 +5,7 @@ import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from
 import type { StartedFollowUp } from "./stores/follow-up-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
-import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";
+import { REFUSAL_ATTEMPTS } from "./lib/connection-issue.js";
 import { createAnswerDelivery } from "./lib/answer-delivery/manager.js";
 import { createTrackerClient } from "./lib/tracker-client.js";
 import { createDraftClient } from "./lib/draft-client.js";

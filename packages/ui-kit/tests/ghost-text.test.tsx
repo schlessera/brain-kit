@@ -212,23 +212,29 @@ describe("Placeholder loading", () => {
 
 /* ── The handoff, rendered for real ─────────────────────────────────────── */
 
-const saved: Record<string, unknown> = {};
+const saved = new Map<string, PropertyDescriptor | undefined>();
 const GLOBALS = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 
 beforeAll(() => {
   const win = new Window();
-  for (const key of GLOBALS) saved[key] = (globalThis as Record<string, unknown>)[key];
-  Object.assign(globalThis, {
+  for (const key of GLOBALS) saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+  const values = {
     window: win,
     document: win.document,
     navigator: win.navigator,
     HTMLElement: win.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-  });
+  };
+  for (const [key, value] of Object.entries(values)) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  }
 });
 
 afterAll(() => {
-  for (const key of GLOBALS) (globalThis as Record<string, unknown>)[key] = saved[key];
+  for (const [key, descriptor] of saved) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
+  }
 });
 
 /** Mounts `render(flag)` under StrictMode — double renders and double effects

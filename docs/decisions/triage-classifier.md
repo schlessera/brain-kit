@@ -126,5 +126,8 @@ both problems. A rewritten question set would need its own measurement.
   held-out split is independent in family and wording, not in concept.
 - The paid runs did not pass through the per-request budget admission described
   on #848. Total spend for all #848 runs was under $3 at list prices, against a
-  $15 cap.
+  $15 cap. That admission layer (#1334: paid policy, grants, panel budget,
+  review relay and observer, closure and native evidence) existed only to gate
+  this experiment. It no longer matched the measured corpus and panel, and it
+  was removed with this record.
 - The panel report records token counts but no list price.

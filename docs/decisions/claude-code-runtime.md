@@ -312,8 +312,11 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.depot/workflows/ci.yml:88`), so bumping the SDK in this repo fails CI until
-  somebody re-measures. It needs no key and no network, so it is allowed
+  `.github/workflows/ci.yml:47`), so the guard compares the lockfile-installed pair.
+  This fast version guard remains an affected automatic check under
+  [the current CI policy](ci-utility.md); changing the SDK requires fresh local
+  runtime measurements before updating the constant. It needs no key and no
+  network, so it is allowed
   (`keyless, deterministic`, `AGENTS.md:135-136`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
@@ -725,13 +728,14 @@ What that changes and what it does not:
   Tool search is one — the probe turns it on explicitly for its cases — and the
   auto-mode classifier's headers are another. None of the measured cases uses
   auto mode.
-- **CI runs it (#284).** The `claude-runtime-probe` job in
-  `.depot/workflows/ci.yml` (mirrored in `.github/workflows/ci.yml`) runs the probe on every PR and on `main`, inside
+- **Runtime execution (#284; hosted again under #1326).** Selected hosted
+  proof and optional `bun run check:pr --full` run the real probe under
+  [the current CI policy](ci-utility.md), inside
   a network namespace that holds nothing but loopback: nothing but loopback is
   reachable, so every case passing there shows the probe needs no network. It
   does not audit connection attempts, so a background request that fails
   quietly would not fail a case. A failed or inconclusive case fails
-  the job, and the job prints the JSON report.
+  the selected proof; its JSON report remains available for review.
 
 ## 2026-09-30 — CI returns to GitHub Actions (#618)
 
@@ -795,6 +799,18 @@ pushes to main, and project sync keeps its separate exception above.
 Retiring the fallback needs verified native Depot fork behaviour and a new
 entry here. A provider roadmap claim alone does not change the routing.
 
+## 2026-10-09 — GitHub Actions is the sole provider (#1320)
+
+The maintainer requested moving the current Depot definitions back to GitHub
+Actions after making the repository public. The [provider decision](github-actions-ci.md)
+supersedes the #983 and #988 routing/location rules above. The current metadata,
+affected fast verification, complete packaging probes and contract checks live
+in `.github/workflows/`; the separate fork adapters and active Depot definitions
+are removed. Fork execution retains its read-only token, nonpersisted checkout
+credentials and environment-only handling of hostile metadata. The unchanged
+keyless runtime probes and complete browser/endurance proof remain required
+locally under [the CI utility policy](ci-utility.md).
+
 ## 2026-09-30 — What a sync ran is observed per run, not probed (#290)
 
 "The server knows the version" left open whether the per-run record reaches a
@@ -806,7 +822,7 @@ installations.
 - **Observed from the session that ran.** The core Claude runner reads the
   Claude Code session's `system`/`init` event and passes `claude_code_version`
   to the runner's `onRuntime` callback the moment it arrives
-  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:188-195`).
+  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:190-197`).
   A run that fails after `init` has already reported it. A refused run never
   reaches `init` and reports nothing. The other built-in runners do not
   report, and neither does anything else: no boot probe, no lockfile, no
@@ -1034,3 +1050,30 @@ unknown. The fallback's five levels and medium default follow the
 No default chat profile or core completion model changes. No live inference,
 new billing policy, authentication fallback or usage-provenance contract is
 part of this upgrade.
+
+
+## 2026-10-08 — Explicit default permissions in the core runner (#1275)
+
+The [separate core permission ruling](https://github.com/schlessera/brain-kit/issues/1275#issuecomment-6066625612)
+selects explicit `default` mode, with actual-native compatibility required before
+merge. Core now passes `--permission-mode default` in the shared arguments for
+`run()` and `runStreaming()` (`CLAUDE_BASE_ARGS`,
+`packages/core/src/providers/agents/cli-runners.ts:38-44`). Its existing
+`Bash,Edit,Write,Read,Glob,Grep` allowlist and pre-prompt subscription/settings
+checks keep their authority. The backend/probe ruling remains separate.
+
+An omitted mode initialized the supported native 2.1.293 fixture in `auto`.
+That mode could attempt a Sonnet 5 permission classifier even when the main
+model aliases selected Sonnet 5.5. The explicit mode removes that implicit
+classifier choice; it does not authorize an auxiliary model or a broader tool
+grant. A measurement still refuses an unexpected model or unobserved route and
+retains failed attempts and unknown usage. Historical experiment runtimes and
+attempts keep their original evidence; evaluations of the changed core source
+require a refreshed freeze and independent review.
+
+The keyless native control runs the real core factory and installed CLI with
+fictional credentials, an empty home and only a scripted loopback transport in
+a network namespace. It observes actual Read, allowlisted Bash and Write, and
+an operator-denied Write. Scripted responses establish runtime permission
+behavior; they are not provider results, subscription eligibility, model
+quality, billing evidence or a benchmark adoption decision.

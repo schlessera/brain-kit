@@ -1,8 +1,8 @@
-import { useState } from "react";
 import preview from "#.storybook/preview";
-import { expect, fn, waitFor } from "storybook/test";
+import { expect, fn } from "storybook/test";
 
 import { StreamingAnswer } from "../../src/conversation/StreamingAnswer.js";
+import { StreamingHandoff, playStreamingHandoff } from "../_streaming-handoff.js";
 import { CONTROL_RING, ring, stage, wide } from "../_stage.js";
 
 const meta = preview.meta({
@@ -108,8 +108,6 @@ export const StopWithoutAHandler = meta.story({
   },
 });
 
-const TOKENS = ["Circe named", " them in order,", " on the morning", " we sailed from Aeaea."];
-
 /**
  * Loading → ready (#1116), for a stream. The ghost sits BEHIND the text: the
  * first token lands where the ghost was and the ghost fades out under it, gone
@@ -117,52 +115,6 @@ const TOKENS = ["Circe named", " them in order,", " on the morning", " we sailed
  * all the way there within 250ms of the last token.
  */
 export const LoadingToReady = meta.story({
-  render: () => {
-    function Stream() {
-      const [count, setCount] = useState(0);
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-          <button type="button" onClick={() => setCount((n) => Math.min(TOKENS.length, n + 1))}>
-            Token
-          </button>
-          <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" text={TOKENS.slice(0, count).join("")} />
-        </div>
-      );
-    }
-    return <Stream />;
-  },
-  play: async ({ canvas, canvasElement, userEvent }) => {
-    const prose = () => canvasElement.querySelector<HTMLElement>('[aria-busy="true"]');
-    await expect(canvasElement.querySelectorAll(".bk-ghost")).toHaveLength(3);
-    await expect(prose()).not.toBeNull();
-    const ghostTop = canvasElement.querySelector(".bk-ghost")!.getBoundingClientRect().top;
-    const stopTop = (await canvas.findByText("~$0.03 so far")).getBoundingClientRect().top;
-
-    const token = await canvas.findByRole("button", { name: "Token" });
-    const first = performance.now();
-    await userEvent.click(token);
-    // The first token is shorter than the ghost; nothing below it moves.
-    await expect((await canvas.findByText("~$0.03 so far")).getBoundingClientRect().top).toBeCloseTo(stopTop, 0);
-    // Behind, not below: the first line of text starts where the ghost did.
-    const firstChar = canvasElement.querySelector(".bk-ghost-tail")!.getBoundingClientRect();
-    await expect(Math.abs(firstChar.top - ghostTop)).toBeLessThanOrEqual(6);
-    await expect(prose()).toBeNull();
-    await waitFor(() => expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), {
-      timeout: 1000,
-      interval: 20,
-    });
-    await expect(performance.now() - first).toBeLessThan(700);
-
-    for (let i = 1; i < TOKENS.length; i++) await userEvent.click(token);
-    const tail = [...canvasElement.querySelectorAll<HTMLElement>(".bk-ghost-tail")];
-    await expect(tail).toHaveLength(9);
-    // Just landed: the newest character is still settling.
-    await expect(Number(getComputedStyle(tail[tail.length - 1]!).opacity)).toBeLessThan(1);
-    await expect(tail.map((t) => t.textContent).join("")).toBe(TOKENS.join("").slice(-9));
-    // A timer can run before Chromium paints the animation's final frame.
-    // Wait for the rendered result, while still rejecting a tail that stalls.
-    await waitFor(async () => {
-      for (const t of tail) await expect(getComputedStyle(t).opacity).toBe("1");
-    }, { timeout: 1000, interval: 20 });
-  },
+  render: () => <StreamingHandoff />,
+  play: playStreamingHandoff,
 });

@@ -56,6 +56,9 @@ export interface ComposerViewProps {
    * microphone, or a browser that cannot record on the device (#1012).
    */
   captureNotice?: string;
+  dictationNotice?: string;
+  onDismissDictationNotice?: () => void;
+  onDismissCaptureNotice?: () => void;
   /** The mic's accessible name when it does not dictate. */
   micLabel?: string;
   /** Off: no mic is drawn, because there is no capture to offer. */
@@ -130,9 +133,22 @@ export function ComposerView(p: ComposerViewProps) {
   return (
     <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste}>
       {p.dictation}
-      {p.captureNotice && (
-        <div className="mb-2" role="status" data-capture-notice="">
-          <Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} />
+      {p.dictationNotice && (
+        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="dictation" onPointerDown={(event) => {
+          const button = (event.target as HTMLElement).closest('[role="button"]');
+          if (button && button !== document.activeElement) event.preventDefault();
+        }}>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
+          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissDictationNotice} />
+        </div>
+      )}
+      {p.captureNotice && p.captureNotice !== p.dictationNotice && (
+        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="local" onPointerDown={(event) => {
+          const button = (event.target as HTMLElement).closest('[role="button"]');
+          if (button && button !== document.activeElement) event.preventDefault();
+        }}>
+          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.captureNotice} /></div>
+          {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={p.onDismissCaptureNotice} />}
         </div>
       )}
       {p.attachErrors.length > 0 && (

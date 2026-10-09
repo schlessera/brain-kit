@@ -1,21 +1,19 @@
 /// <reference types="@vitest/browser-playwright" />
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import "../../src/styles.css";
 import { CodeBlock } from "../../src/blocks/CodeBlock.js";
 import { SuggestionChips } from "../../src/conversation/SuggestionChips.js";
 
-let root: Root | undefined, host: HTMLDivElement | undefined, fonts: HTMLStyleElement;
+let root: Root | undefined, host: HTMLDivElement | undefined;
 beforeAll(async () => {
   await page.viewport(1440, 1000);
-  fonts = document.createElement("style"); fonts.textContent = await commands.rankFooterFonts(); document.head.append(fonts);
   await Promise.all(['400 11px "JetBrains Mono"', '500 11.5px "Plus Jakarta Sans"'].map(f => document.fonts.load(f)));
   await document.fonts.ready;
 });
 afterEach(() => { if (root) flushSync(() => root!.unmount()); host?.remove(); root = undefined; host = undefined; });
-afterAll(() => { fonts.remove(); });
 const code = 'brain reindex --path voyage/ --force --json --include ' + 'omens/'.repeat(24) + ' --final-argument';
 function mount(width: number, theme: string, content: React.ReactNode) {
   host = document.createElement("div"); host.style.width = `${width}px`; host.dataset.theme = theme; document.body.append(host);

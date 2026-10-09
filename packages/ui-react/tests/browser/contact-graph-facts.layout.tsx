@@ -15,7 +15,7 @@ let viewport: { width: number; height: number };
 
 beforeAll(async () => {
   styles = document.createElement("style");
-  styles.textContent = `${await commands.formConsumerStyles()}\n${await commands.rankFooterFonts()}`;
+  styles.textContent = await commands.formConsumerStyles();
   document.head.append(styles);
   await document.fonts.load('500 10.5px "JetBrains Mono"');
   await document.fonts.ready;

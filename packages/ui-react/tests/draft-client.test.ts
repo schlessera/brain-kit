@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
+import { tracksFor, trackKey, stagedTrackViews } from "../src/lib/draft-tracks.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // The draft client (#951, D52 §5) against a small in-memory host that keeps
@@ -561,6 +562,22 @@ describe("sends", () => {
     expect(sent[0].requestId).not.toBe("req-1");
   });
 
+  test("acceptance moves the retained new-chat branch's later staged tracks to its own conversation", () => {
+    const { ui, socket, drafts } = boot(fakeHost(), { chatRequestAck: true });
+    const id = drafts().fresh;
+    drafts().edit(id, null, { text: "Ask about the harbour." });
+    drafts().beginSend({ requestId: "req-tracks", draftId: id, sessionId: null, text: "Ask about the harbour.", attachments: [],
+      message: { type: "chat_message", requestId: "req-tracks", text: "Ask about the harbour." } }, "Ask about the harbour.");
+    drafts().edit(id, null, { text: "Also compare the route." });
+    const queue = tracksFor(ui, trackKey(null, drafts().originOf(id))).uploads;
+    queue.setOnline(false);
+    expect(queue.add([new File(['{"type":"LineString","coordinates":[[20.71,38.31],[20.72,38.31]]}'], "ithaca.gpx", { type: "application/octet-stream" })])).toEqual([]);
+    drafts().keepDeviceBranch(id, "odysseus-branch", { draftId: id, sessionId: null, text: "Penelope keeps the original.", attachments: [], editedAt: 1, host: null }, null);
+    socket.deliver({ type: "status", status: "queued", sessionId: ITHACA, requestId: "req-tracks" });
+    expect(stagedTrackViews(ui), "acceptance moves the branch's nonempty staged queue using the send's editable target").toMatchObject([{ key: `session:${ITHACA}`, count: 1 }]);
+    expect(tracksFor(ui, trackKey(null, drafts().originOf(id))).uploads.files).toHaveLength(0);
+  });
+
   test("a first message answered after New chat becomes its own session without taking the view", async () => {
     const host = fakeHost();
     const { ui, socket, drafts } = boot(host);
@@ -679,4 +696,106 @@ describe("sends", () => {
     expect(drafts().drafts[b]?.text).toBe("Lash the beams");
     expect(ui.stores.chat.getState().activeSessionId).toBe("odysseus-raft");
   });
+});
+
+
+test("a late host save cannot acknowledge the retained original after a device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  const release = host.hold();
+  drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet" });
+  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  drafts().setSupport(false);
+  drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
+  release();
+  await until(() => host.rows.has(original));
+  await wait(20);
+  expect(drafts().drafts[original]!.host, "the old save cannot acknowledge another tab's replacement text").toBeNull();
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts).some((d) => d.text === "Penelope keeps the newer weave"), "host consumption cannot discard the retained original").toBe(true);
+});
+
+
+test("a late host delete cannot rotate the retained original after a device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet" });
+  await until(() => drafts().drafts[original]?.host?.revision === 1);
+  const release = host.holdDeletes();
+  drafts().edit(original, ITHACA, { text: "" });
+  await until(() => host.calls.includes(`DELETE /drafts/${original}`));
+  drafts().setSupport(false);
+  drafts().edit(original, ITHACA, { text: "Telemachus checks the harbour" });
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: ITHACA, text: "Penelope keeps the newer weave", attachments: [], editedAt: 2, host: null }, ITHACA);
+  release();
+  await until(() => host.rows.get(original)?.deleted === true);
+  await wait(20);
+  expect(drafts().drafts[original]?.text, "an old host delete preserves the retained original identity").toBe("Penelope keeps the newer weave");
+});
+
+
+test("a delayed host save is fenced even when its predecessor rotated before the device fork", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().fresh;
+  host.rows.set(original, { draftId: original, sessionId: null, revision: 1, text: "Inspect the fleet.", attachments: [], updatedAt: 1 });
+  drafts().restoreLocal([{ draftId: original, sessionId: null, text: "Inspect the fleet.", attachments: [], editedAt: 1,
+    host: { revision: 1, sessionId: null, updatedAt: 1, clean: true } }]);
+  const release = host.hold();
+  drafts().edit(original, null, { text: "Telemachus checks the harbour." });
+  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  drafts().beginSend({ requestId: "voyage-rotated", draftId: original, sessionId: null, text: "Telemachus checks the harbour.", attachments: [],
+    message: { type: "chat_message", requestId: "voyage-rotated", text: "Telemachus checks the harbour." } }, "Telemachus checks the harbour.");
+  drafts().edit(original, null, { text: "Bring the oars." });
+  drafts().accepted("voyage-rotated", "pylos");
+  expect(drafts().drafts[original], "the predecessor is retired before fork completion").toBeUndefined();
+  drafts().setSupport(false);
+  drafts().keepDeviceBranch(original, "voyage-branch", { draftId: original, sessionId: null, text: "Penelope keeps the newer weave.", attachments: [], editedAt: 2,
+    host: { revision: 1, sessionId: null, updatedAt: 1, clean: false } }, null);
+  drafts().openDeviceVersion(original);
+  const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "blob:fixture/shroud", bytes: 8, name: "shroud.png" };
+  drafts().edit(original, null, { text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] });
+  release();
+  await until(() => host.rows.get(original)?.revision === 2);
+  await wait(20);
+  expect(drafts().drafts[original]?.host?.edit, "the retired predecessor's reply cannot acknowledge the restored original's different text and images").not.toBe(drafts().drafts[original]!.edit);
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts), "a missing-host refresh preserves the newer restored original's editable content").toContainEqual(expect.objectContaining({ text: "Penelope keeps the newer weave. Inspect the shroud.", attachments: [image] }));
+});
+
+
+test("a late host save cannot acknowledge an adopted additional device owner", async () => {
+  const host = fakeHost();
+  const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  const release = host.hold();
+  drafts().edit(original, ITHACA, { text: "Odysseus surveys the fleet." });
+  await until(() => host.calls.includes(`PUT /drafts/${original}`));
+  drafts().setSupport(false);
+  const image: PendingAttachment = { attachment: { data: "iVBORw0KGgo=", mediaType: "image/png" }, previewUrl: "blob:fixture/shroud", bytes: 8, name: "shroud.png" };
+  drafts().adoptDeviceRecord({draftId:original,sessionId:ITHACA,text:"Penelope keeps the additional committed chart.",attachments:[image],editedAt:2,host:null});
+  release(); await until(() => host.rows.has(original)); await wait(20);
+  expect(drafts().drafts[original]?.host,"an old reply cannot acknowledge an additional owner's newly adopted text and images").toBeNull();
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts)).toContainEqual(expect.objectContaining({text:"Penelope keeps the additional committed chart.",attachments:[image]}));
+});
+
+
+test("a late host save cannot acknowledge an explicitly opened newer device version", async () => {
+  const host = fakeHost(); const { drafts } = boot(host);
+  const original = drafts().idFor(ITHACA);
+  drafts().edit(original, ITHACA, {text:"Odysseus checks the fleet."});
+  drafts().keepDeviceBranch(original,"voyage-branch",{draftId:original,sessionId:ITHACA,text:"Penelope keeps the loom order.",attachments:[],editedAt:1,host:null},ITHACA);
+  const release = host.hold();
+  await until(()=>host.calls.includes(`PUT /drafts/${original}`));
+  drafts().setSupport(false);
+  const image: PendingAttachment = {attachment:{data:"iVBORw0KGgo=",mediaType:"image/png"},previewUrl:"blob:fixture/shroud",bytes:8,name:"shroud.png"};
+  drafts().openDeviceVersion(original,{draftId:original,sessionId:ITHACA,text:"Telemachus updates the device chart.",attachments:[image],editedAt:2,host:null});
+  release(); await until(()=>host.rows.has(original)); await wait(20);
+  expect(drafts().drafts[original]?.host,"an old reply cannot acknowledge an explicitly adopted version's different text and images").toBeNull();
+  drafts().hostGone(original);
+  expect(Object.values(drafts().drafts),"missing-host refresh preserves explicitly adopted work").toContainEqual(expect.objectContaining({text:"Telemachus updates the device chart.",attachments:[image]}));
 });

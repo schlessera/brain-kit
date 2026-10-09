@@ -20,6 +20,7 @@ export "." (./src/index.ts)
   type ChatShellState
   ConnectionGate
   type FileShellState
+  type FrontmatterSplit
   type GraphMode
   GraphPage
   LOCAL_CAPTURE_MIME_TYPES
@@ -55,13 +56,19 @@ export "." (./src/index.ts)
   activeChat
   anyStreaming
   apiBase
+  buildDiagramShareOptions
   configureBrainUi
   createBrainApi
   createBrainUiRoot
   detectLocalCaptureSupport
   hasPendingShare
   hasUnsentText
+  inlineMermaidDiagrams
   registerUpdateHold
+  renderBlockHtml
+  runStats
+  shareMarkdown
+  splitFrontmatter
   startLocalCapture
   useBrainApi
   useBrainConfig
@@ -297,6 +304,8 @@ signatures (every public export and the types it is made of)
         toleranceM: number;
         attribution: string;
     }
+  ColorScheme (packages/ui-react/src/lib/light-dark.ts)
+    export type ColorScheme = "light" | "dark";
   ConnectionGate (packages/ui-react/src/components/connectivity/connection-gate.tsx)
     export function ConnectionGate({ children }: {
         children: ReactNode;
@@ -390,7 +399,7 @@ signatures (every public export and the types it is made of)
     }
   DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
-  Fetched (packages/ui-react/src/components/chat/stats/compose-stats.ts)
+  Fetched (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type Fetched<T> = {
         ok: true;
         value: T;
@@ -402,6 +411,17 @@ signatures (every public export and the types it is made of)
     export interface FileShellState {
         openFile(path: string): Promise<void>;
         openDir(path: string): Promise<void>;
+    }
+  FrontmatterField (packages/ui-react/src/lib/frontmatter.ts)
+    export interface FrontmatterField {
+        key: string;
+        value: string;
+        list?: string[];
+    }
+  FrontmatterSplit (packages/ui-react/src/lib/frontmatter.ts)
+    export interface FrontmatterSplit {
+        fields: FrontmatterField[];
+        body: string;
     }
   GraphMode (packages/ui-react/src/stores/graph-state.ts)
     export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
@@ -482,6 +502,8 @@ signatures (every public export and the types it is made of)
         instruction?: string;
         turnId?: string;
     }
+  MermaidTheme (packages/ui-react/src/lib/mermaid-theme.ts)
+    export type MermaidTheme = ColorScheme;
   MessageAttachment (packages/ui-react/src/stores/chat-state.ts)
     export interface MessageAttachment {
         previewUrl: string;
@@ -630,10 +652,22 @@ signatures (every public export and the types it is made of)
         askUser: AskUserExchange | null;
         lastTouched: number;
     }
+  ShareDeps (packages/ui-react/src/components/chat/share-document.tsx)
+    export interface ShareDeps {
+        renderBlock: (block: Block) => Promise<string>;
+        inlineMermaid: (markdown: string) => Promise<string>;
+    }
   ShareHarness (packages/ui-react/src/components/dev/share-harness.tsx)
     export function ShareHarness({ path = DEFAULT_SHARE_TARGET_PATH, }: {
         path?: string;
     }): import("react").JSX.Element;
+  ShareOption (packages/ui-react/src/components/share/share-menu.tsx)
+    export interface ShareOption {
+        id: string;
+        label: string;
+        hint?: string;
+        run: () => Promise<boolean>;
+    }
   ShareShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface ShareShellState {
         readonly queue: readonly StoredShare[];
@@ -665,12 +699,12 @@ signatures (every public export and the types it is made of)
         reason?: string;
         files?: number;
     }
-  SoftwareIdentity (packages/ui-react/src/components/chat/stats/software.ts)
+  SoftwareIdentity (packages/ui-react/src/lib/stats/software.ts)
     export interface SoftwareIdentity {
         release: string | null;
         sourceCommit: string | null;
     }
-  SoftwareInput (packages/ui-react/src/components/chat/stats/software.ts)
+  SoftwareInput (packages/ui-react/src/lib/stats/software.ts)
     export interface SoftwareInput {
         client: SoftwareIdentity;
         server: Fetched<SoftwareIdentity>;
@@ -682,7 +716,7 @@ signatures (every public export and the types it is made of)
         onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
-  StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
+  StatsSection (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type StatsSection = {
         kind: "software";
         details: ReturnType<typeof softwareDetails>;
@@ -764,6 +798,11 @@ signatures (every public export and the types it is made of)
         startedAt?: number;
         endedAt?: number;
     }
+  TrackDisplay (packages/ui-react/src/lib/track-display.ts)
+    export interface TrackDisplay {
+        view: TrackFileView;
+        props: TrackMapProps;
+    }
   UIShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface UIShellState {
         readonly activeView: ActiveView;
@@ -815,6 +854,10 @@ signatures (every public export and the types it is made of)
     export function anyStreaming(state: ChatShellState): boolean;
   apiBase (packages/ui-react/src/lib/backend.ts)
     export function apiBase(): string;
+  buildDiagramShareOptions (packages/ui-react/src/components/chat/mermaid-share.ts)
+    export function buildDiagramShareOptions(root: BrainUiRoot, source: string, opts?: {
+        filename?: string;
+    }): ShareOption[];
   cancel (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function cancel(requestId: string): Promise<void>;
   checkRetryDelivery (packages/ui-react/src/connection.ts)
@@ -1148,6 +1191,8 @@ signatures (every public export and the types it is made of)
     export function hasPendingShare(state: ShareShellState): boolean;
   hasUnsentText (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function hasUnsentText(): boolean;
+  inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
+    export function inlineMermaidDiagrams(md: string, theme?: MermaidTheme): Promise<string>;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
@@ -1156,13 +1201,19 @@ signatures (every public export and the types it is made of)
     function reconnectWebSocketNow(): void;
   registerUpdateHold (packages/ui-react/src/lib/update-holds.ts)
     export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void;
+  renderBlockHtml (packages/ui-react/src/components/chat/share-document.tsx)
+    export function renderBlockHtml(block: Block, trackDisplay?: TrackDisplay): Promise<string>;
   retry (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function retry(requestId: string): Promise<void>;
   retryTurn (packages/ui-react/src/connection.ts)
     function retryTurn(failedTurnId: string): "sent" | "pending" | "refused";
+  runStats (packages/ui-react/src/components/chat/use-chat-commands.ts)
+    export function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void>;
   sendClientMessage (packages/ui-react/src/connection.ts)
     function sendClientMessage(msg: ClientMessage): boolean;
-  softwareDetails (packages/ui-react/src/components/chat/stats/software.ts)
+  shareMarkdown (packages/ui-react/src/components/chat/share-document.tsx)
+    export function shareMarkdown(message: Pick<ChatMessage, "content" | "parts" | "toolCalls" | "blocks">, deps: ShareDeps): Promise<string>;
+  softwareDetails (packages/ui-react/src/lib/stats/software.ts)
     export function softwareDetails({ client, server }: SoftwareInput): {
         client: {
             release: null | string;
@@ -1176,6 +1227,8 @@ signatures (every public export and the types it is made of)
         state: string;
         tone: "gold" | "neutral" | "teal";
     };
+  splitFrontmatter (packages/ui-react/src/lib/frontmatter.ts)
+    export function splitFrontmatter(md: string): FrontmatterSplit;
   start (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function start(): Promise<void>;
   startLocalCapture (packages/ui-react/src/voice/local-capture.ts)

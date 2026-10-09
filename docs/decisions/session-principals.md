@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:2012-2026`;
-  `Activity stream`, `:2259-2273`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract.md:2063-2077`;
+  `Activity stream`, `:2310-2324`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -339,8 +339,8 @@ only aggregate locked audio size; these are application access rules, not
 cryptographic isolation. Unassigned recordings are device-local and playable
 by anyone using the same browser profile. The actual partition read checks
 recheck access after asynchronous database operations
-(`async get(key)`, `packages/ui-react/src/lib/local-partitions.ts:273-280`;
-`async list(prefix)`, `packages/ui-react/src/lib/local-partitions.ts:281-289`).
+(`async get(key)`, `packages/ui-react/src/lib/local-partitions.ts:305-312`;
+`async list(prefix)`, `packages/ui-react/src/lib/local-partitions.ts:313-321`).
 
 Transport failure leaves the mounted app and local account context intact;
 auth expiry/revocation follows a different sequence. Capture stops immediately,

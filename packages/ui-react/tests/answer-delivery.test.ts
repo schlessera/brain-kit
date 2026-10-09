@@ -42,7 +42,7 @@ const WIRE_PAYLOADS = {
 };
 const KINDS = Object.keys(PAYLOADS) as AnswerPayload["kind"][];
 
-async function harness(options: { storage?: AnswerStorage | null; tabs?: ReturnType<ReturnType<typeof createTabHub>["tab"]> | null; now?: { t: number } } = {}) {
+async function harness(options: { storage?: AnswerStorage | null; tabs?: ReturnType<ReturnType<typeof createTabHub>["tab"]> | null; now?: { t: number }; start?: boolean } = {}) {
   const root = createBrainUiRoot({ storage: null });
   const clock = options.now ?? { t: T0 };
   const timers: Array<{ at: number; fn: () => void; cleared: boolean }> = [];
@@ -110,11 +110,63 @@ async function harness(options: { storage?: AnswerStorage | null; tabs?: ReturnT
   ], "turn-1");
   const submit = (kind: AnswerPayload["kind"] = "ask_user", extra: Partial<SubmitAnswer> = {}) =>
     queue.submit({ requestId: "req-1", sessionId: "s1", turnId: "turn-1", payload: PAYLOADS[kind], ...extra });
-  await queue.start();
+  if (options.start !== false) await queue.start();
   return { root, queue, sent, net, storage, clock, advance, connect, disconnect, receipt, delivery, answers, statuses, submit, timers };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe("a host hello overtakes the stored principal read", () => {
+  test("logout during the principal read cannot restore an offline admission key", async () => {
+    const storage = createMemoryAnswerStorage();
+    let finishRead!: (key: string | null) => void;
+    const read = new Promise<string | null>((resolve) => { finishRead = resolve; });
+    const h = await harness({ storage: { ...storage, getPrincipalKey: () => read }, start: false });
+    try {
+      const started = h.queue.start();
+      h.connect();
+      await h.queue.logout();
+      finishRead("principal-penelope");
+      await started;
+      h.disconnect();
+      expect(await h.submit()).toBe("refused");
+      expect(h.delivery()?.state).toBe("notSaved");
+      expect(storage.records.size).toBe(0);
+      expect(h.sent).toEqual([]);
+    } finally {
+      h.queue.dispose();
+      h.root.dispose();
+    }
+  });
+
+  for (const kind of KINDS) {
+    for (const oldPrincipal of [null, "principal-penelope"]) {
+      test(`${kind}: a late ${oldPrincipal ?? "empty"} read cannot replace the connected principal for offline Submit`, async () => {
+        const storage = createMemoryAnswerStorage();
+        let finishRead!: (key: string | null) => void;
+        const read = new Promise<string | null>((resolve) => { finishRead = resolve; });
+        const h = await harness({ storage: { ...storage, getPrincipalKey: () => read }, start: false });
+        try {
+          const started = h.queue.start();
+          h.connect();
+          finishRead(oldPrincipal);
+          await started;
+          h.disconnect();
+          expect(await h.submit(kind)).toBe("admitted");
+          expect(h.delivery()?.state).toBe("queued");
+          expect(storage.records.size).toBe(1);
+          expect([...storage.records.values()][0]).toMatchObject({
+            principalKey: "principal-odysseus", requestId: "req-1", sessionId: "s1", payload: PAYLOADS[kind], sent: false,
+          });
+          expect(h.sent).toEqual([]);
+        } finally {
+          h.queue.dispose();
+          h.root.dispose();
+        }
+      });
+    }
+  }
+});
 
 describe("submitting online", () => {
   for (const kind of KINDS) {

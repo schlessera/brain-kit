@@ -23,14 +23,12 @@ interface FakeSocket {
   onclose: (() => void) | null;
 }
 
-const originals = {
-  WebSocket: globalThis.WebSocket,
-  MediaRecorder: (globalThis as any).MediaRecorder,
-  navigator: Object.getOwnPropertyDescriptor(globalThis, "navigator"),
-};
+const GLOBALS = ["WebSocket", "MediaRecorder", "navigator"] as const;
+let originals: Array<readonly [string, PropertyDescriptor | undefined]> = [];
 
 /** Install just enough of the browser to get `start()` to the socket. */
 function stubBrowser(): { sockets: FakeSocket[] } {
+  originals = GLOBALS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const sockets: FakeSocket[] = [];
 
   class FakeWebSocket implements FakeSocket {
@@ -50,7 +48,7 @@ function stubBrowser(): { sockets: FakeSocket[] } {
     send() {}
     close() {}
   }
-  (globalThis as any).WebSocket = FakeWebSocket;
+  Object.defineProperty(globalThis, "WebSocket", { configurable: true, writable: true, value: FakeWebSocket });
 
   class FakeMediaRecorder {
     static isTypeSupported() {
@@ -61,10 +59,11 @@ function stubBrowser(): { sockets: FakeSocket[] } {
     stop() {}
     state = "recording";
   }
-  (globalThis as any).MediaRecorder = FakeMediaRecorder;
+  Object.defineProperty(globalThis, "MediaRecorder", { configurable: true, writable: true, value: FakeMediaRecorder });
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
+    writable: true,
     value: {
       mediaDevices: {
         getUserMedia: async () => ({ getTracks: () => [] }),
@@ -76,11 +75,11 @@ function stubBrowser(): { sockets: FakeSocket[] } {
 }
 
 afterEach(() => {
-  (globalThis as any).WebSocket = originals.WebSocket;
-  (globalThis as any).MediaRecorder = originals.MediaRecorder;
-  if (originals.navigator) {
-    Object.defineProperty(globalThis, "navigator", originals.navigator);
+  for (const [key, descriptor] of originals) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
   }
+  originals = [];
 });
 
 describe("DeepgramClient handshake", () => {

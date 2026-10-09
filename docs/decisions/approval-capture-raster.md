@@ -2,7 +2,8 @@
 
 Measured on 2026-10-08 for [#1263](https://github.com/schlessera/brain-kit/issues/1263).
 This investigation preserves a real native mismatch and a bounded
-non-reproduction result. No rendering cause or source repair is established.
+non-reproduction result. That investigation established no rendering cause or source repair.
+The later #1284 capture preparation is recorded separately below.
 
 ## The original images differ
 
@@ -94,8 +95,8 @@ raster trigger remains unknown; neither clearing a cache nor changing a
 rounding policy is justified by these data.
 
 The exact comparison remains enabled
-(`compareCaptures`, `scripts/captures/verify.ts:18-38`). Three identical local
-frames remain required (`captureRuntime`, `scripts/captures/runtime.ts:14-115`).
+(`compareCaptures`, `scripts/captures/verify.ts:17-38`). Three identical local
+frames remain required (`captureRuntime`, `scripts/captures/runtime.ts:15-137`).
 No tolerance, pixel baseline, recipe, output or approval assertion changed.
 An unchanged-checkout verification attempt can show that a particular run
 passes; it must not be described as repairing this mismatch.
@@ -106,3 +107,96 @@ from the failing execution. Then bound one variable at a time while retaining
 the original comparison and execution/history assertions. The evidence here
 justifies that investigation method, not an inferred common cause with other
 browser or font-cache findings.
+
+## 2026-10-08 — Controlled paint-history reproduction and editorial preparation
+
+[#1284](https://github.com/schlessera/brain-kit/issues/1284) reproduced both
+original image hashes in the actual mounted approval fixture on source
+`af372a97`. After an initial native screenshot, change the path link's display
+from inline to inline-block, allow two animation frames, restore its original
+style attribute, and allow two more frames. The next screenshot has the other
+archived hash. Independent decoding again finds exactly 144 differing pixels
+at x=63..205, y=251..253, rows 251 and 253: `(27,27,27)` versus `(26,27,27)`.
+This is a controlled reproduction of the original image pair, rather than an
+inferred font substitution or a newly synthesized diagnostic image.
+
+Post-image native observations retain the same link rectangle
+`[61,238.234375,148,14]`, computed font `10.45px / 15.675px JetBrains Mono`,
+colour `rgb(91,181,162)` and dotted decoration
+`color(srgb 0.356863 0.709804 0.635294 / 0.4)`. CDP reports the actual custom
+JetBrainsMono-Regular face with 24 glyphs. Recorded ancestor geometry, opacity,
+transforms and styles also agree. Changing and restoring only display is enough
+to retain the alternate raster; toggling decoration or transform afterward does
+not restore the initial raster. Thus identical final style, geometry and three
+consecutive identical screenshots can still reflect different prior paints.
+
+The controlled native rendering boundary selects an editorial preparation:
+materialize an initial surface screenshot, rebuild the link's inline fragment
+through the same display cycle, and restore the original style attribute before
+checking visibility or accepting screenshots. The helper rejects changed final
+text, geometry, font, colour, decoration, display, transform or opacity
+(`refreshRuntimeLinkPaint`, `scripts/captures/runtime-paint.ts:4-44`). An initial
+headless rAF alone does not reliably materialize the first surface, so the
+unaccepted priming screenshot is necessary. No final CSS, browser flag, product
+behaviour, tolerance, pixel baseline or comparison assertion changes. This is
+capture preparation, not a claimed Chromium engine repair or identification of
+the natural trigger in every historical failed CI execution.
+
+The native regression runs the same actual approval fixture with fresh browsers
+and two paint histories: ordinary and primed/display-cycled. It retains original
+PNGs and post-image style/font observations, runs allow/deny execution and
+persisted reload assertions, then uses the original checksum and byte comparator.
+Replacing the preparation with a loaded no-op reproduces the original
+`approval-allow-before-dark.png differs between unchanged runs` assertion and
+image hashes. The restored preparation passes all six PNG comparisons and
+correlated principal/effect/history evidence. Viewport resizing and disabling
+Skia runtime CPU optimizations did not resolve the controlled mismatch; those
+alternatives are not selected.
+
+`capture:verify` retains its original full recipe order and thirteen exact-file
+comparison, then requires this additional controlled native regression. The
+`paint-history/` directory preserves its screenshots, measurements and receipt
+alongside the original two-run artifacts, including on failure. Current-head
+and exact-squash main CI are recorded on #1284 and its PR, rather than as a
+mutable verification status here. The prior #1263 non-reproduction report and
+all original failed attempts remain historical evidence.
+
+
+## 2026-10-09 — Exact-main recurrence and temporary surface paint
+
+PR #1300's fully passing combined PR tree merged as `eb41d022`, with the same
+verified parent/tree. Its first automatic main capture attempt `fsx3r1zccs`
+(run `ps_gdm7zzrqqd`) nevertheless fails the original full-order comparator.
+The retained artifact `01a11d89-aedc-7efb-984c-35079a070d0d` contains the exact
+historical `f2022c98` / `2e348d62` pair, independently decoded again to 144 RGB
+differences on rows 251 and 253. The additional native regression was not
+reached. The previous section's passing controlled pair does not establish
+that the first preparation handles this natural recurrence.
+
+A bounded repeated actual-runtime diagnostic also diverges with that merged
+preparation enabled. Post-image target geometry, native font, ancestor opacity
+and transforms agree; the surviving animation is the separate infinite pulse.
+The previous display cycle awaited headless animation frames but never captured
+the temporary fragment state. Those frames supply no receipt of that state's
+actual raster. The correction materializes the temporary surface as well as
+the initial surface, then restores exact original style attributes in a finally
+block, checks final state and disposes the retained element handles. Both
+preparation images are unaccepted; the original visibility, three-identical-frame
+and byte/checksum comparisons still decide the final captures.
+
+With this preparation, ten fresh-browser ordinary/primed-history pairs pass all
+six original approval PNG comparisons and unchanged execution/history evidence.
+Removing only the temporary screenshot from the loaded helper fails the sixth
+pair's original `approval-deny-before-dark.png differs between unchanged runs`
+assertion. Restoration passes ten pairs again after the original full capture
+sequence. This is native behavioral evidence for the preparation boundary, not
+a predicate test or module-load failure. It establishes no Chromium engine
+cause or universal diagnosis of the historical natural trigger.
+
+The additional regression now retains ten separate paired directories under
+`paint-history/`, with each manifest, original PNG, target/ancestor style, native
+font observation and comparison receipt. Sixty exact-file comparisons preserve
+the original comparator and correlated principal nonce rule. The full gate still
+compares its original thirteen files first. No tolerance, baseline, browser flag,
+product CSS, finite-animation deadline or approval assertion changes. Failed
+main evidence remains preserved even when a later candidate passes.

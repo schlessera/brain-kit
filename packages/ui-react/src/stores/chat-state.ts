@@ -16,7 +16,7 @@ import type {
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
-import type { StatsSection } from "../components/chat/stats/compose-stats.js";
+import type { StatsSection } from "../lib/stats/compose-stats.js";
 import type { ProviderState } from "./provider-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 import type { ChatShellState } from "./shell-stores.js";

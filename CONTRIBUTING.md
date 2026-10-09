@@ -32,19 +32,47 @@ issue when you are not sure.
   exercised the renderer — the run says so in a banner rather than leaving you
   to notice.
 
-  CI does not get that option. The `test` job resolves Chrome, prints its
-  version into the log, fails if it finds none, and sets
-  `BRAIN_REQUIRE_CHROME=1`, which makes the test file throw instead of skip.
-  This is where the renderer's isolation posture is proven and the only place
-  it is: `renderer.test.ts` covers the allowlist predicate, which missed the
-  WebSocket bypass, and `crash-recovery.test.ts` drives a fake browser.
+  Hosted unit/runtime proof and optional `bun run check:pr --full` require Chrome and set
+  `BRAIN_REQUIRE_CHROME=1`; missing Chrome fails instead of silently skipping.
+  The real renderer proves isolation. `renderer.test.ts` covers an allowlist
+  predicate and `crash-recovery.test.ts` drives a fake browser; neither replaces
+  the real-browser proof.
+- Coordinated build/test commands require `flock` from util-linux. The pinned
+  Playwright image includes it. Full runtime proof needs a Linux checkout with bubblewrap, `unshare`, `ip`
+  and permitted user/network namespaces. UI/browser proof also needs Docker
+  for the pinned Playwright image. Packed consumer checks use Node 24 or later.
 
 ## Running the code
+
+`bun run build`, `bun run clean`, `bun run test`, Linux `bun test` through the
+repository preload, and the repository browser
+wrapper wait automatically for other commands using the same checkout's build
+output. Runtime tests hold exclusive access because their fixtures rebuild the
+packages. Browser ownership is acquired inside the pinned container against the
+same bind-mounted lock file. Nested builds reuse an inherited descriptor, or
+verify its live owning ancestor on Linux when Bun's internal shell closes it;
+replaced child environments and existing extra stdio channels keep that ownership.
+Independent fast CI batches hold shared read-only access and still overlap;
+attempting a rebuild from one fails before removing output. Strict typechecking
+and commands in different worktrees remain independent.
+
+The lock file is `tmp/workspace-operation/output.lock`. Ownership lasts as long
+as the operating system holds its descriptor; a leftover file is not a stale
+lock and must not be removed to bypass an active command. Failure/cancellation
+stops the command's process group. Signal forwarding is installed before each
+child is created, including lock waiters. An outer wrapper's death closes a lifetime
+pipe which stops its owner before admitting a waiting command. The lifetime
+watcher also removes a cancelled waiter before the active owner finishes. This is command
+coordination, not protection against arbitrary filesystem edits.
+
+Direct Vitest diagnostics do not acquire whole-command ownership.
+Editorial captures retain their existing separate capture guard. Use the
+coordinated entry points or separate worktrees when overlapping those runs.
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback
 fixture model inside a network namespace; no provider credential or external
-network is needed. CI installs bubblewrap and runs these proofs without skips.
+network is needed. The local pre-PR command checks these prerequisites and runs the proofs without accepting skips.
 
 ```sh
 bun install
@@ -89,34 +117,83 @@ with explicit overrides pointing only at test fixtures. Do not append the
 host PATH to a doctor fixture. The hostile-sentinel tests exercise both
 `runCli` and direct children using `keylessEnv`, including `doctor --fix`.
 
-The strict CI compiler keeps the full source/test graph in one process with
-`NODE_OPTIONS=--max-old-space-size=4096` (4 GiB of V8 old space). Its log records
-Node/TypeScript versions, the effective heap limit, host/cgroup memory capacity,
-TypeScript's compiler diagnostics and the process's peak resident memory. These
-measurements distinguish a heap exhaustion from a type error and show the
-headroom available on the actual runner. They do not change compiler options,
-source coverage or product runtime memory budgets.
+## Local feedback and hosted proof
 
-On Linux, the matching compiler command is:
+Run from the contribution checkout using the relevant base:
 
 ```sh
-NODE_OPTIONS=--max-old-space-size=4096 /usr/bin/time -v bunx tsc --noEmit --extendedDiagnostics
+bun run check:pr --base origin/main --plan  # inspect selection only
+bun run check:pr --base origin/main         # local preflight and affected fast tests
+bun run check:pr --base origin/main --full  # optional complete affected local fallback
+bun run check:pr --all                      # complete local release/diagnostic inventory
 ```
 
-CI runs three unit/integration shards with `bun run test --balanced-shard=1/3`
-(then `2/3` and `3/3`), each in one Bun process. This option uses the default
-`packages`/`tests` roots and cannot combine with paths, `--cwd` or native
-`--shard`. `scripts/test-shards.ts` discovers test files at runtime and places
-the slowest first into the lightest shard, using the measured seconds in
-`scripts/test-shard-costs.json`. The table supplies weights for slow files,
-not suite membership: new tests are included automatically with a small default
-weight. Refresh the weights when suite changes make the actual CI timings
-uneven; #629 records the profiling commands, timings and coverage evidence.
-The browser/visual job keeps its separate two-shard layout.
+Preflight includes committed, staged, unstaged and untracked changes. It runs
+lint/leakage, environment documentation, changeset checks and affected fast
+invariants. Ordinary contributions do not need Docker, Chrome or namespaces
+for preflight or repeated local type/pack/browser proof. Keep focused debugging,
+behavioral failing-first/restored mutations and visual review local.
+
+Ready PR CI supplies authoritative strict types, complete tests for affected
+packages and reverse dependencies plus root tests, conditional complete packed
+consumer probes, and selected pinned visual/accessibility/pointer,
+layout/offline/endurance, editorial and native runtime categories. Global or
+unknown tooling/dependency changes expand to complete discovery. New tests are
+discovered automatically. Relevant Claude probes use loopback-only fixtures;
+real Chrome and required namespaces may not silently skip. The final `proof`
+check requires every selected category to pass. Scheduled/manual exhaustive
+runs supplement affected PR proof; they do not replace it.
+
+Drafts stay on cheap gates. Batch intermediate pushes, then mark ready for
+hosted proof. Independent packaging, types, unit and browser/runtime jobs start
+together after cheap rejection gates. Complete unit proof includes the curated
+subset once. Each PR cancels only its own obsolete heads; main SHA groups remain
+independent. The browser image, per-project concurrency bounds and failure
+artifacts remain pinned. Measure queue delay, elapsed time and cancellations
+before adding shards or changing timeouts.
+
+Record actual head/base, job/attempt IDs, checkout logs and focused local
+receipts in the PR. Missing tools, failed/cancelled jobs and unexpected skips
+leave proof incomplete. Assess new main commits before refreshing; unrelated
+advancement alone does not require rebasing or repeating long suites. Preserve
+the earlier tested tree rather than attributing it to a new base. Relevant
+input/dependency/harness changes require fresh proof; unknown changes expand
+conservatively. There is no generic cache of passing tests. Respect branch rules
+and verify the actual squash parent/tree and automatic main-push result.
+
+Independent fast test batches and typechecking share a queue with at most two
+active processes on one runner. Each selected test runs exactly once; another batch
+starts when a slot becomes free. Ordinary Bun processes retain their module
+registry and preload. Native `--parallel --no-isolate` is a possible alternative
+once current-version runtime/guard behavior and total consumption are measured;
+older comments about isolation are not a permanent compatibility ruling.
+The policy and its tradeoffs are in [the CI decision](docs/decisions/ci-utility.md).
+
+When tuning execution, record file durations during a required local run:
+`bun run test --timings=tmp/bun-test-timings.json --update-timings`. Compare
+serial, bounded ordinary-process batches and Bun's native file workers on the
+same runtime/resources, with the test preload intact. Measure total consumption,
+peak memory, failures and cancellation cleanup as well as elapsed time. More
+workers can repeat imports or overload the browser/server; blanket
+`--concurrent` also changes shared-mock and lifecycle assumptions. The decision
+links Bun and Depot's upstream guidance and explains size-weighted billing.
+
+For optional local distribution, `bun run test --balanced-shard=1/3` (then `2/3`
+and `3/3`) retains complete discovered-test coverage. `scripts/test-shards.ts`
+uses measured file weights, not an allowlist; newly added tests remain included.
+This layout is no longer automatic CI. Browser shard arguments also remain
+available, with the pinned image and diagnostics unchanged.
+
+Browser shards use a committed per-project/file timing table, not live CI
+artifacts or a fixed allowlist. Unknown specs get a positive one-second weight;
+invalid tables fail visibly. Refresh explicitly from two successful browser jobs:
+`bun scripts/refresh-browser-costs.ts <run-id> <attempt>`. Review the source
+head/checkout/tree, job IDs and seconds/median metadata alongside the table.
+Unsharded discovery is unchanged and existing browser file concurrency is kept.
 
 `bun run test:browser` runs every configured browser project in the pinned
 Playwright image. The shared `scripts/visual.mjs` runner defaults to
-`--browser.fileParallelism=false`, including CI's `--inside` path: one file
+`--browser.fileParallelism=false`, including the `--inside` path: one file
 per project can run at a time, while separate projects still run concurrently.
 The project, update and shard arguments retain their existing meaning. To
 compare the CPU-based browser pool defaults during diagnosis, use
@@ -135,8 +212,8 @@ faster total runs, or establish the cause of [#559](https://github.com/schlesser
 
 `bun run test:layout` runs the real ui-react chat overlay measurements after
 `bun run build`. It uses the existing Vitest browser runner and the same pinned
-Playwright image as the visual suite, with Docker networking disabled. CI runs
-this project separately on every PR. It reads `ui-react/dist/styles.css`, uses
+Playwright image as the visual suite, with Docker networking disabled. The local pre-PR command runs
+this project for affected UI work. It reads `ui-react/dist/styles.css`, uses
 an isolated root with seeded messages and fixture transports, and checks pixels
 without screenshot baselines. Browser layout files use `.layout.tsx` so Bun's
 unit-test discovery does not claim them.
@@ -265,24 +342,22 @@ before `bun install` stays dependency-free.
 
 ## Contract checks
 
-CI runs on Depot CI from `.depot/workflows/`, including the contract gate
-below. These are the authoritative workflows; update them directly when
-adding or changing a check. See [AGENTS.md](AGENTS.md#depot-ci) for commands
-to find a PR's runs, diagnose failures, export logs and download artifacts.
-Project-board sync stays on GitHub Actions to retain issue-event triggers.
+CI runs on GitHub Actions from `.github/workflows/ci.yml`, including the
+separate contract gate below. These are the authoritative workflows for
+main pushes and all pull requests. Update them directly when changing a check;
+local packed-consumer proof reads the same pack job. See [AGENTS.md](AGENTS.md#github-actions-ci)
+for exact-head runs, failed-step logs and checkout receipts. Depot CI and the
+former generated fork fallback copies are retired.
 
-A pull request from a fork runs the same gates on GitHub Actions instead,
-because Depot CI does not receive fork pull requests. Open it as usual; its
-checks are named `fork / <job>`. GitHub may hold a first-time contributor's
-run until a maintainer approves it. Until then the checks have not run, and
-the PR has not passed. The fork workflows in `.github/workflows/` are
-generated from `.depot/workflows/`: change the Depot file, then run
-`bun scripts/fork-ci-adapters.ts --write` and commit both. `bun run lint`
-fails while they disagree.
+Fork pull requests use the same read-only CI and contract workflows. No secrets
+or persisted checkout credentials are exposed. GitHub may hold a first-time
+contributor's run until a maintainer approves it; until its jobs run, it has
+not passed. The provider migration preserves the current automatic fast gates
+and every mandatory local runtime/browser/layout/endurance/capture check.
 
 Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 
-**The contract gate** (`.depot/workflows/contract.yml`, rule in
+**The contract gate** (`.github/workflows/contract.yml`, rule in
 `scripts/check-contract-pr.ts`) runs on every pull request and again whenever
 its title or labels change. A PR whose diff touches
 `docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`

@@ -249,7 +249,9 @@ sit in the Ready view as traps.
 5. **In review.** Open the PR with `Closes #<n>` in the body when merging meets
    every acceptance criterion and verification step. If a required human step
    will remain, use `Refs #<n>` instead and name the step under "Anything left
-   open". The PR template's checklist is the merge bar.
+   open". The PR template's checklist is the merge bar. Focused local preflight and
+   behavioral receipts accompany complete selected hosted proof under #1326;
+   drafts remain cheap, and failed/cancelled/missing selected jobs cannot merge.
 6. **Human handoff, when needed.** Once independent agent work is complete,
    update the body with the remaining action and its completion evidence,
    replace `agent-ready` with `needs: human`, and leave the issue open. Keep
@@ -294,9 +296,9 @@ This repo is operated by coding agents, so this is a contract and not advice.
 
 A contributor without write access opens their pull request from a fork, and
 it stays the PR of record: nobody re-opens it from a branch here to get CI.
-Depot CI does not receive fork pull requests, so GitHub Actions runs the same
-CI and contract gates for them as `fork / <job>` checks (CONTRIBUTING.md,
-"Contract checks"). GitHub may hold a first-time contributor's run until a
+GitHub Actions runs the same CI and contract workflows for forks,
+same-repository pull requests and main pushes (CONTRIBUTING.md, "Contract checks").
+Forks retain read-only permissions, no secrets and nonpersisted checkout credentials. GitHub may hold a first-time contributor's run until a
 maintainer approves it, and a held run is not a passing check. The rest of the
 review and merge process is unchanged.
 

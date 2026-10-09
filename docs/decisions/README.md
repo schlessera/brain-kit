@@ -11,11 +11,14 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
+| [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D53, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, the navigation, session-tracker and per-session draft design, ghost-text loading, and offline continuity with committed recording boundaries and measured browser limits. |
-| [public-website.md](public-website.md) | Why the product site uses static Astro, canonical Markdown with stable routes and separately authorized repository-controlled GitHub Pages publication. |
+| [public-website.md](public-website.md) | Why the product site uses static Astro, canonical Markdown with stable routes and verified automatic repository-controlled GitHub Pages updates. |
 | [public-visitor-paths.md](public-visitor-paths.md) | Why outbound visitor paths coexist with optional Buttondown release signup, and how the selected form, confirmation, cleanup and manual sending remain separate from launch authorization. |
 | [subject-baseline-isolation.md](subject-baseline-isolation.md) | Why incumbent composed-story pixels use a separate browser after failure captures were measured to change the actual mono fallback. |
+| [visual-fonts.md](visual-fonts.md) | Why every native browser project loads and verifies checksum-pinned design faces before baseline comparisons. |
 | [contact-card-facts.md](contact-card-facts.md) | Why complete ContactCard fact keys share a capped growing column, how supplied minimum widths behave, and why glyph measurements and fitting captures govern the layout. |
 | [approval-capture-raster.md](approval-capture-raster.md) | The original one-channel underline mismatch, bounded native non-reproduction controls and why strict equality and causal limits remain. |
 | [feature-captures.md](feature-captures.md) | Why public feature assets use curated real sources, explicit crops and font/build provenance, with separate runtime evidence for behavior claims. |

@@ -12,7 +12,7 @@ import {
   judgedPair,
   usd,
   type StatsSection,
-} from "../src/components/chat/stats/compose-stats.js";
+} from "../src/lib/stats/compose-stats.js";
 import { actionableTrends, corpusStats, emptyRuntime, runtimeStats, statsHistory } from "./stats-fixtures.js";
 
 const ok = <T>(value: T) => ({ ok: true as const, value });

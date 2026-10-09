@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 export const moduleSettingsScreenshot: BrowserCommand<[string], void> = async (ctx, name) => {
   if (!/^[a-z-]+$/.test(name)) throw new Error("Invalid screenshot name");
-  const directory = resolve("../../.impeccable/review");
+  const directory = resolve("../../.vitest-attachments/module-settings");
   await mkdir(directory, { recursive: true });
   const frame = await ctx.frame();
   const element = await frame.frameElement();

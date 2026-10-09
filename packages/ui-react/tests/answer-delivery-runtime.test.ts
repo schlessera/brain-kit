@@ -170,6 +170,8 @@ interface Net {
   frames: Array<{ dir: "up" | "down"; type: string; at: number }>;
 }
 
+const networks = new WeakMap<BrowserContext, Net>();
+
 async function newContext(): Promise<{ context: BrowserContext; net: Net }> {
   const context = await browser!.newContext({ viewport: { width: 390, height: 900 }, reducedMotion: "reduce" });
   await context.route("**/*", (route) => (new URL(route.request().url()).origin === origin ? route.continue() : route.abort()));
@@ -221,12 +223,13 @@ async function newContext(): Promise<{ context: BrowserContext; net: Net }> {
     });
     route.onClose(() => net.live.delete(entry));
   });
+  networks.set(context, net);
   return { context, net };
 }
 
-async function openPage(context: BrowserContext): Promise<Page> {
+async function openPage(context: BrowserContext, holdPrincipalRead = false): Promise<Page> {
   const page = await context.newPage();
-  await page.goto(origin);
+  await page.goto(holdPrincipalRead ? `${origin}/?holdPrincipalRead` : origin);
   await page.waitForFunction("window.__answers?.connected()");
   return page;
 }
@@ -256,17 +259,57 @@ async function answer(page: Page, kind: Kind): Promise<void> {
 }
 
 async function waitForState(page: Page, requestId: string, wanted: string, timeout = 20_000) {
-  await page.waitForFunction(
-    ([id, s]) => (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id!]?.state === s,
-    [requestId, wanted],
-    { timeout }
-  );
+  try {
+    await page.waitForFunction(
+      ([id, s]) => (window as unknown as { __answers: { deliveries(): Record<string, { state: string }> } }).__answers.deliveries()[id!]?.state === s,
+      [requestId, wanted],
+      { timeout }
+    );
+  } catch (error) {
+    const pages = page.context().pages();
+    const tabs = await Promise.all(pages.map(async (tab, index) => ({
+      tab: index,
+      snapshot: await tab.evaluate(() =>
+        (window as unknown as { __answers: { snapshot(): Promise<unknown> } }).__answers.snapshot()
+      ).catch((e: Error) => ({ snapshotError: e.message })),
+    })));
+    const net = networks.get(page.context());
+    console.error("[answer-state-timeout]", JSON.stringify({ requestId, wanted, requestedTab: pages.indexOf(page), tabs,
+      settlements: settlements.get(requestId)?.length, network: net && {
+        mode: net.mode, frames: net.frames, live: net.live.size, connections: net.connections,
+      } }));
+    throw error;
+  }
 }
 
 const online = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event("online")));
 
 describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
   for (const kind of KINDS) {
+    test(`${kind}: a stored principal read completed after hello still permits the first offline queue`, async () => {
+      const { context, net } = await newContext();
+      try {
+        const page = await openPage(context, true);
+        await page.waitForFunction("window.__answers.principalReadWaiting()");
+        expect(await page.evaluate("window.__answers.storedPrincipal()")).toBeNull();
+        const requestId = await ask(page, kind);
+        await page.evaluate("window.__answers.finishPrincipalRead()");
+        net.mode = "refuse";
+        net.cut();
+        await page.waitForFunction("!window.__answers.connected()");
+        await answer(page, kind);
+        await waitForState(page, requestId, "queued");
+        expect(settlements.get(requestId)).toEqual([]);
+        net.mode = "pass";
+        await online(page);
+        await waitForState(page, requestId, "answered");
+        expect(settlements.get(requestId)).toHaveLength(1);
+        expect(settlements.get(requestId)![0]).toMatchObject(EXPECTED_RESULTS[kind]);
+      } finally {
+        await context.close();
+      }
+    });
+
     test(`${kind}: online, the card says Answered only after the host's receipt, and the backend gets it once`, async () => {
       const { context } = await newContext();
       try {

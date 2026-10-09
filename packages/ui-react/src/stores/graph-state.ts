@@ -5,7 +5,7 @@ import type {
   GraphMaintenanceResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
-import { buildQuery, mergeSubgraphs } from "../components/graph/lib/graph-helpers.js";
+import { buildQuery, mergeSubgraphs } from "../lib/graph-helpers.js";
 
 export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
 

@@ -84,6 +84,14 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive: ui-react share and stats exports (#1382).** For shells that
+assemble their own surfaces around ui-react, the `@schlessera/brain-ui-react`
+root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
+`buildDiagramShareOptions`, `inlineMermaidDiagrams`), `splitFrontmatter` with
+`FrontmatterSplit`, and the `/stats` command's `runStats`. The project
+website's demo uses exactly these, so it builds from the public entry instead of
+from ui-react's source tree.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.
@@ -264,6 +272,49 @@ from a null or absent timestamp. `ListRowProps` gains four optional props,
 `attention`, `stopped`, `unheard`, `working`, `unproven`, `unreachable`,
 `finished` and `withdrawn`. A `ListRow` given none of the new props renders
 as before.
+
+## Runtime approval composition (additive, #1141)
+
+`@schlessera/brain-ui-kit` extends `ApprovalCardProps` with optional
+`onAlwaysAllow?: () => void`, `children?: ReactNode`, `wrapHeader?: boolean`
+and `shortcuts?: { allow: string; deny: string }`. `onAlwaysAllow` offers a
+remembered-grant action only when supplied; the host determines its eligibility.
+`children` carries actual tool input or permission details. `wrapHeader` lets
+tool names and full targets wrap in the header. `shortcuts` prints decision
+hints while preserving the decision's accessible name; it installs no key
+handler. Existing props and callbacks remain compatible. These additions ship
+in a minor, with the public declarations recorded in `api-report/`.
+
+## Search result cards (additive, #1138)
+
+`SearchResultCardProps` in `@schlessera/brain-ui-kit` gains optional
+`segments?: readonly {text: string; hit: boolean}[]`, `title?: string`,
+`type?: string` and `active?: boolean`. Supplied segments replace the
+single `before`/`highlight`/`after` snippet and preserve each matched span;
+an empty array clears the snippet. Omitted segments retain the existing
+single-highlight API. `active` draws the surrounding list's current
+keyboard selection. Existing props and their defaults remain compatible.
+
+The Search panel and both backend search-output renderers adopt the card.
+They clear absent scores and snippets instead of using presentation defaults.
+The existing search tool and HTTP result schemas are unchanged; pi's
+formatted output carries no score. Incompatible, ambiguous, clipped and
+failed tool output retains a readable original-text fallback. File opening
+uses the current root's authenticated file viewer; unsafe paths have no
+open action.
+
+## Streaming waiting status (approved pre-1.0 break, #1144)
+
+The maintainer-approved minor removes `StreamingAnswer`'s prototype defaults
+for phase, target, elapsed time, answer text and cost. Callers supply those
+facts explicitly; omitted facts draw no sample values. Only the phase word
+is announced in the polite live region, while elapsed ticks and targets remain
+outside it. `StreamingAnswerProps` gains optional `pulse?: boolean`; false
+selects a static status dot. Hosts retaining the former sample presentation
+must pass its values explicitly. The runtime uses the component for waiting
+status while preserving rich thinking/tool/prose rendering and the composer's
+single Stop; stream and cancellation schemas are unchanged. The minor changeset
+records this approved migration, and `api-report/` records the added prop.
 
 ## Consumers
 
