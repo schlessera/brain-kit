@@ -6944,6 +6944,40 @@ function permissionMirror(root: ReturnType<typeof createBrainUiRoot>) {
   root.stores.activity.setState({spans:{[span.runId]:{[span.spanId]:span,[child.spanId]:child}},spanRun:{[span.spanId]:span.runId,[child.spanId]:child.runId}});
   return span;
 }
+for (const location of ["main", "subagent"] as const) {
+  test(`${location} refused tool permission keeps its original control for a later explicit decision`, () => {
+    const root = createBrainUiRoot({ storage: null });
+    const accepted: PermissionReply[] = [];
+    let connected = false;
+    root.stores.chat.getState().requestToolApproval(null, permissionTool.id, permissionTool.name, permissionTool.input, undefined, "tool");
+    const span = permissionMirror(root);
+    const decide = (id: string, approved: boolean, always?: boolean) => replyToToolApproval(root, null, message => {
+      if (!connected) return false;
+      accepted.push(message);
+      return true;
+    }, id, approved, always);
+    function Pending() {
+      const calls = useChatStore(s => activeChat(s).messages.at(-1)?.toolCalls ?? []);
+      return <>{location === "main" ? <ToolCallTimeline live toolCalls={calls} onApproval={decide} /> : <PermissionSubagentView spanId={span.spanId} onApproval={decide} />}<textarea data-composer aria-label="continue after permission" /></>;
+    }
+    try {
+      const view = render(<BrainUiProvider root={root}><Pending /></BrainUiProvider>);
+      const allow = view.getByRole("button", { name: /^Allow(?:$| )/ });
+      allow.focus();
+      fireEvent.click(allow);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status, "a refused send leaves the original request pending").toBe("pending_approval");
+      expect(accepted).toEqual([]);
+      expect(view.getByRole("button", { name: /^Allow(?:$| )/ }), "the same explicit control remains usable").toBe(allow);
+      expect(document.activeElement, "a refused decision retains focus").toBe(allow);
+      connected = true;
+      fireEvent.click(allow);
+      expect(accepted, "one later explicit decision is accepted").toEqual([{ type: "tool_approval", toolUseId: permissionTool.id, channel: "card" }]);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status).toBe("approved");
+      expect(view.container.querySelectorAll("[data-kit-approval-card]")).toHaveLength(0);
+      expect(document.activeElement).toBe(view.getByLabelText("continue after permission"));
+    } finally { root.dispose(); }
+  });
+}
 test("duplicate main and subagent controls send the original request once and share its resolved state",()=>{
   const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
   root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);

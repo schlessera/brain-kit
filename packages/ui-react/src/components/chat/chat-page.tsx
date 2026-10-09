@@ -363,7 +363,7 @@ export function ChatPage() {
 
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {
-      replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
+      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
     },
     [send, sessionId, root]
   );

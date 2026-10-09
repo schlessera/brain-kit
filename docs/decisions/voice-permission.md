@@ -32,7 +32,7 @@ The permission bridge asks the user to approve a tool call before it runs
 In chat the user is
 looking at a card: the transcript copy in
 (`export function ToolPermissionCard`,
-`packages/ui-react/src/components/chat/tool-permission-card.tsx:12-56`), the
+`packages/ui-react/src/components/chat/tool-permission-card.tsx:12-60`), the
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
