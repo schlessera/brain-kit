@@ -179,6 +179,8 @@ jobs:
             fi
             if [ "$package" = module-travel ]; then
               grep -q "^package/skills/plan-travel/SKILL\.md$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/skills/trip-log/SKILL\.md$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/skills/places/SKILL\.md$" <<< "$TARBALL_CONTENTS"
             fi
             if [ "$package" = ui-server ]; then
               grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
