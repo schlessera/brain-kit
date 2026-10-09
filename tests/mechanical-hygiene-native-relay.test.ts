@@ -1,5 +1,20 @@
 import { test, expect } from "bun:test";
 import { startRelay, MODEL, physicalPriceDiagnostics } from "../scripts/evals/mechanical-hygiene/native-relay";
+for(const [method,path] of [["GET","/v1/messages"],["POST","/v1/messages/count_tokens"],["POST","/v1/messages?unreviewed=1"]])test(`unsupported native ${method} ${path} preserves the literal attempt and stops subsequent forwarding`,async()=>{
+  let forwarded=0;const refusals:string[]=[],token="offline-endpoint-not-a-credential";
+  const relay=startRelay({oauthToken:token,save:()=>{},onRefusal:reason=>refusals.push(reason),fetch:async()=>{forwarded++;return sse(true);}});
+  const bytes=method==="GET"?Buffer.alloc(0):path.includes("?")?Buffer.from(JSON.stringify({model:MODEL,messages:[]})):Buffer.from([0,255,13,10]);
+  try{
+    const first=await fetch(`${relay.url}${path}`,{method,headers:{authorization:`Bearer ${token}`},...(method==="GET"?{}:{body:bytes})});
+    expect(relay.calls,"Every blocked auxiliary attempt must be recorded before routing").toHaveLength(1);
+    expect(first.status).toBe(403);const row=relay.calls[0];
+    expect(row.requestMethod).toBe(method);expect(row.requestPath).toBe(path);
+    expect(Buffer.from(row.requestBytesBase64,"base64")).toEqual(bytes);expect(row.upstreamDispatched).toBe(false);
+    expect(row.outcome).toBe("unsupported_native_endpoint");expect(refusals).toEqual(["unsupported_native_endpoint"]);
+    const next=await fetch(`${relay.url}/v1/messages`,{method:"POST",headers:{authorization:`Bearer ${token}`},body:JSON.stringify({model:MODEL,messages:[]})});
+    expect(next.status).toBe(409);expect(relay.calls).toHaveLength(2);expect(forwarded).toBe(0);expect(relay.complete()).toBeFalsy();
+  }finally{await relay.stop();}
+});
 function sse(finalOutput:boolean){
   const frames=[{type:"message_start",message:{model:MODEL,usage:{input_tokens:10,output_tokens:0,cache_read_input_tokens:0,cache_creation_input_tokens:0}}},
     {type:"message_delta",usage:finalOutput?{output_tokens:9,input_tokens:null,cache_read_input_tokens:null}:{}},{type:"message_stop"}];

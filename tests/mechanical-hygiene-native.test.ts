@@ -1,16 +1,25 @@
 /** Runtime proof runs in its own loopback-only namespace, with fake credentials. */
 import { beforeAll,expect,test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync, readdirSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 const source = new URL("../", import.meta.url).pathname;
 import {offlineSource} from "./mechanical-hygiene-offline-source";
 beforeAll(()=>{offlineSource(source);},30000);
-async function probe(script: string, args: string[],stopAfterMs=25000) {
+async function probe(script: string, args: string[],stopAfterMs=25000, failureDirectory?:string) {
   const command = ["unshare","--user","--map-current-user","--keep-caps","--net","sh","-c",
     'ip link set lo up && exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all "$@"',"hygiene-offline",process.execPath,script,...args];
   const child = Bun.spawn(command,{cwd:offlineSource(source),env:{PATH:`${process.execPath.slice(0,process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,BRAIN_HYGIENE_OFFLINE:"1",TZ:"UTC"},stdout:"pipe",stderr:"pipe"});
   let watchdog=false;const timer=setTimeout(()=>{watchdog=true;child.kill("SIGKILL");},stopAfterMs);
   const [out,err,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);clearTimeout(timer);
+  if((watchdog||code!==0)&&failureDirectory){
+    const files:Record<string,string>={};
+    function capture(directory:string,prefix="") {for(const name of readdirSync(directory)){const path=join(directory,name),stat=lstatSync(path);if(stat.isSymbolicLink())continue;
+      if(stat.isDirectory())capture(path,`${prefix}${name}/`);else if(stat.isFile())files[`${prefix}${name}`]=readFileSync(path).toString("base64");}}
+    capture(failureDirectory);mkdirSync("tmp",{recursive:true});
+    const diagnosticError=err.replaceAll(offlineSource(source),"<owned-source>");
+    writeFileSync("tmp/mechanical-hygiene-deadline-probe.json",JSON.stringify({watchdog,code,stdout:out,stderr:diagnosticError,files},null,2),{mode:0o600});
+    console.error(err);
+  }
   expect(watchdog,"Native proof watchdog fired instead of owned deadline/drain").toBe(false);
   expect(code,`${out}\n${err}`).toBe(0); return out;
 }
@@ -62,7 +71,7 @@ test("actual complete native collector stops before repeat on an unexpected file
 
 test("actual native deadline aborts an active SDK query and closes its incomplete physical stream",async()=>{
   const parent=mkdtempSync("/tmp/hygiene-native-deadline-");
-  try{const text=await probe("scripts/evals/mechanical-hygiene/offline-deadline.ts",[parent],6000);expect(text).toContain('"unknownCostsPreserved":true');expect(text).toContain('"physical":1');}
+  try{const text=await probe("scripts/evals/mechanical-hygiene/offline-deadline.ts",[parent],6000,parent);expect(text).toContain('"unknownCostsPreserved":true');expect(text).toContain('"physical":1');}
   finally{rmSync(parent,{recursive:true,force:true});}
 },10000);
 

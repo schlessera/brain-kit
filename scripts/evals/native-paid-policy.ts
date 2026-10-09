@@ -1,7 +1,7 @@
 /** Private native experiment reservations. Root owns allocations; these are never invoices. */
 import { createHash } from "node:crypto";
-import { assertGrantPath,validGrantTime,type GrantPolicy } from "../../packages/ui-server/evals/triage/experiment/grant";
-import { rejectPriceModifiers,rejectResponseModifiers,usageUpper,type RawTokens,type ReviewBinding } from "../../packages/ui-server/evals/triage/experiment/paid-policy";
+import { assertGrantPath,validGrantTime,type GrantPolicy } from "./native-grant";
+import { rejectPriceModifiers,rejectResponseModifiers,usageUpper,type RawTokens,type ReviewBinding } from "./native-pricing";
 
 export type NativeIssue=842|843|844|845|846|847|849|850;
 export const PAID_AUTHORIZATION="https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737";

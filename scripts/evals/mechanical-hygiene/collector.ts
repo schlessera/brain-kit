@@ -2,7 +2,7 @@
 import { observeTree, type TreeEvidence } from "./observer";
 import { assessEffects, type EffectApproval } from "./effects";
 import { literalNativeUsage,reparseNativeBudget } from "../native-paid-policy";
-import { validGrantEvidence } from "../../../packages/ui-server/evals/triage/experiment/grant";
+import { validGrantEvidence } from "../native-grant";
 import { type HygienePaidEvidence } from "./paid";
 
 export const phases = ["dry-run", "apply", "repeat"] as const;
