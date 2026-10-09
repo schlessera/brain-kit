@@ -30,7 +30,9 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) 
 } });
 const origin = `http://127.0.0.1:${server.port}`;
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
-const renderer = createRenderer({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', maxConcurrent: 2 });
+// GitHub's Ubuntu runner restricts user namespaces. This offline build renders
+// only our checked-in fictional fixtures; scripts and network remain disabled.
+const renderer = createRenderer({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', maxConcurrent: 2, noSandbox: true });
 const index: ExportCatalogue = { schemaVersion: 1, recipeHash, exports: {}, files: {} };
 const provenance: Record<string, { key: string; format: string; title?: string; sha256: string; bytes: number }> = {};
 
