@@ -14,6 +14,16 @@ export function completePrompt(root: string) {
 const label = z.enum(["met", "not_met", "unclear"]), strings = z.array(z.string().min(1)).max(128);
 const schema = z.object({ passage: label, relocation: label, recommendation: z.enum(["pursue", "skip", "needs-more-information"]),
   explanation: z.string().min(1), alignment: strings, gaps: strings, companyKnown: strings, companyUnknown: strings, evidencePaths: strings }).strict();
+/**
+ * Cited evidence must be real supplied inputs and must include the posting and the
+ * criteria. An assessment that cites a subset of the other inputs is still a valid
+ * observation; one that invents a path, repeats one, or skips the posting is not.
+ */
+export function admissibleEvidencePaths(paths: string[]) {
+  const required: string[] = ["career/opportunities/voyage-role/posting.md", "career/criteria.md"];
+  return paths.length > 0 && new Set(paths).size === paths.length &&
+    paths.every(path => inputPaths.includes(path as typeof inputPaths[number])) && required.every(path => paths.includes(path));
+}
 export async function collectCurrent(root: string, output: string, token: string, options: Parameters<typeof runNative>[4] = {}) {
   const before = observe(root), prompt = completePrompt(root), native = await runNative(root, output, token, prompt, options), inspected = observe(root);
   if (JSON.stringify(inspected) !== JSON.stringify(before)) throw Error("Report-only native assessment changed whole fixture state");
@@ -21,8 +31,8 @@ export async function collectCurrent(root: string, output: string, token: string
   let parsed: unknown = null, accepted: z.infer<typeof schema> | null = null, invalid: string | null = null;
   try {
     parsed = JSON.parse(raw); const candidate = schema.parse(parsed);
-    if (!inputPaths.every(path => candidate.evidencePaths.includes(path)) || candidate.evidencePaths.some(path => !inputPaths.includes(path as typeof inputPaths[number])) || new Set(candidate.evidencePaths).size !== candidate.evidencePaths.length)
-      throw Error("Native assessment must cite actual complete supplied inputs, without invented or excluded paths");
+    if (!admissibleEvidencePaths(candidate.evidencePaths))
+      throw Error("Native assessment must cite the supplied posting and criteria, without invented or repeated paths");
     accepted = candidate;
   } catch (error) { invalid = String(error); }
   const after = observe(root);

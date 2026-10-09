@@ -54,7 +54,9 @@ export async function runNative(root: string, output: string, token: string, pro
   writeFileSync(join(output, "execution.json"), JSON.stringify(execution, null, 2), { mode: 0o600 });
   const receiptPath = join(output, "native.json"), physicalPath = join(output, "physical.json");
   const home = options.home ?? join(output, "home"); mkdirSync(home, { recursive: true });
-  const relay = startRelay({ oauthToken: token, fetch: options.fetch ?? globalThis.fetch,
+  // The observer caps the assessment at 20 turns; each turn is at least one physical
+  // request, and the SDK adds auxiliary ones. A one-turn review keeps the small bound.
+  const relay = startRelay({ oauthToken: token, fetch: options.fetch ?? globalThis.fetch, requestBound: options.readOnlyReview ? 24 : 64,
     save: calls => writeFileSync(physicalPath, JSON.stringify(calls, null, 2), { mode: 0o600 }) });
   const savedEnv = { ...process.env };
   for (const key of Object.keys(process.env)) delete process.env[key];

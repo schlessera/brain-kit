@@ -1,7 +1,12 @@
 /** Injected transport controls around the actual core client. No live entry point. */
 import { createJevClient, type FetchLike } from "../../../packages/core/src/lib/jev";
+import { benchmark } from "./benchmark";
+import { protocol } from "./protocol";
 import { hash, semanticRequest } from "./semantic";
 import type { Input } from "./prototype";
+
+/** Every case at every repetition, with the core client's one retry per call. */
+export const PHYSICAL_CALL_BOUND = 2 * benchmark.length * protocol.repetitions;
 
 // Verified primary sources on 2026-10-08: https://docs.typesafe.ai/api and
 // https://docs.typesafe.ai/models. Input.042/M, outputfree; cache undocumented.
@@ -13,12 +18,12 @@ export interface PhysicalCall {
   outcome: string; durationMs: number; responseEof: boolean; responseClosed: boolean; failure: string | null;
 }
 const count = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
-export function observedClient(fetch: FetchLike, save: (calls: PhysicalCall[]) => void = () => {}) {
+export function observedClient(fetch: FetchLike, save: (calls: PhysicalCall[]) => void = () => {}, bound = PHYSICAL_CALL_BOUND) {
   const calls: PhysicalCall[] = [];
   let stopped = false;
   const client = createJevClient({ apiKey: "offline-sentinel", endpoint: "http://127.0.0.1/jev-control", timeoutMs: 1000,
     retryDelayMs: 0, async fetch(url, init) {
-      if (stopped || calls.length >= 24) throw Error("Unknown receipt or exhausted physical control bound");
+      if (stopped || calls.length >= bound) throw Error("Unknown receipt or exhausted physical control bound");
       const start = performance.now(), body = String(init.body);
       const call: PhysicalCall = { requestBytes: body, responseBytes: null, requestSha: hash(body), responseSha: null,
         requestedModel: "jev-1.13.0", servedModel: null, status: null, inputTokens: null, outputTokens: null,

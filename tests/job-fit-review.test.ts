@@ -7,6 +7,7 @@ import { saveEvidenceBundle, type RuntimeIdentity } from "../scripts/evals/job-f
 import { sha } from "../scripts/evals/job-fit/freeze";
 import { CLEARED_API_CREDENTIALS } from "../packages/core/src/providers/agents/claude-subscription";
 import { runNative } from "../scripts/evals/job-fit/native";
+import { admissibleEvidencePaths, inputPaths } from "../scripts/evals/job-fit/current";
 
 const model = "claude-sonnet-5-5";
 const runtime: RuntimeIdentity = { sdk: "0.3.293", nativeSha: "fixture-native-byte-hash", nativeMode: 0o755, bunSha: "fixture-bun-byte-hash", bunVersion: "1.4.2", bunMode: 0o755 };
@@ -94,6 +95,17 @@ test("review admission independently reparses literal prompt/auth/model/usage/er
     expect(readFileSync(join(f.directory, "native.json.stderr.bin"), "utf8")).not.toBe("");
     expect(admitExactPackets([f.expected], [f.receipt])).toBe(false);
   } finally { f.close(); }
+});
+
+test("current-arm evidence must cite real posting and criteria inputs, not every input or an invented one", () => {
+  const posting = "career/opportunities/voyage-role/posting.md", criteria = "career/criteria.md";
+  expect(admissibleEvidencePaths([...inputPaths])).toBe(true);
+  expect(admissibleEvidencePaths([posting, criteria])).toBe(true); // A subset of real inputs is a valid observation.
+  expect(admissibleEvidencePaths([posting, criteria, "notes/identity.md"])).toBe(true);
+  expect(admissibleEvidencePaths([...inputPaths, "tablets/sentinel.md"])).toBe(false); // Invented path.
+  expect(admissibleEvidencePaths([posting, criteria, posting])).toBe(false); // Repeated.
+  expect(admissibleEvidencePaths([criteria, "notes/identity.md"])).toBe(false); // Posting not cited.
+  expect(admissibleEvidencePaths([])).toBe(false);
 });
 
 test("live readonly review refuses injected fetch before any physical or native dispatch", async () => {

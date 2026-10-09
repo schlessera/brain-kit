@@ -16,8 +16,11 @@ export interface NativeCall {
 export function startRelay(options: {
   oauthToken: string; fetch: (url: string, init: RequestInit) => Promise<Response>;
   save: (calls: NativeCall[]) => void; upstream?: string;
+  /** Physical requests one native run may make; a tool-using run needs more than a one-turn review. */
+  requestBound?: number;
 }) {
   const calls: NativeCall[] = [];
+  const requestBound = options.requestBound ?? 24;
   let stopped = false;
   const active = new Map<NativeCall, { abort: AbortController; reader: ReadableStreamDefaultReader<Uint8Array> | null; done: Promise<void> }>();
   const upstream = new URL(options.upstream ?? "https://api.anthropic.com");
@@ -25,7 +28,7 @@ export function startRelay(options: {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (request.method !== "POST" || url.pathname !== "/v1/messages") return new Response("Measurement permits only the native Messages endpoint", { status: 403 });
-    if (stopped || calls.length >= 24 || calls.some(c => c.finished && c.outcome !== "completed")) return new Response("Prior failed physical request or turn request bound", { status: 409 });
+    if (stopped || calls.length >= requestBound || calls.some(c => c.finished && c.outcome !== "completed")) return new Response("Prior failed physical request or turn request bound", { status: 409 });
     if (request.headers.get("authorization") !== `Bearer ${options.oauthToken}` || request.headers.get("x-api-key")) {
       stopped = true; return new Response("Subscription OAuth required", { status: 403 });
     }
