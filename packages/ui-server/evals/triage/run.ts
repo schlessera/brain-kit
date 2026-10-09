@@ -64,7 +64,9 @@ const onlyEffort = arg("effort");
 
 const SYSTEM = await Bun.file(new URL("./prompt.txt", HERE)).text();
 
-const scored = ITEMS;
+// EVAL_ITEMS=experiment scores #848's corpus instead, so the generative
+// baseline is measured on exactly the inputs the Jev arms see.
+const scored: HardItem[] = process.env.EVAL_ITEMS === "experiment" ? (await import("./experiment/corpus.js")).CORPUS : ITEMS;
 const batches: HardItem[][] = [];
 for (let i = 0; i < scored.length; i += BATCH_SIZE) batches.push(scored.slice(i, i + BATCH_SIZE));
 

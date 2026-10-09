@@ -1,4 +1,10 @@
-/** Private blind label-panel preparation. No entry point, credential discovery or live admission. */
+/**
+ * The three-family label panel over the experiment corpus, on the donor's
+ * raw provider routes with its rubric, batching and judge logic. What it adds
+ * is a receipt per physical attempt: exact request and response bytes, served
+ * model and native usage, so a panel result can be audited. `panel.ts` is the
+ * opt-in entry; nothing here reads a credential or changes a label.
+ */
 import { callModel, type ModelSpec } from "../providers";
 import { parseRows, type Row } from "../score";
 import { recordVotes, judgeItem, type Votes } from "../judge";
@@ -62,6 +68,8 @@ function nativeFields(judge: Judge, j: any, r: PanelPhysical) {
       thinking: thoughts, cacheRead: optionalCount(u.cachedContentTokenCount), cacheWrite: null };
     r.terminal = j.candidates?.length === 1 && j.candidates[0]?.finishReason === "STOP" && !j.promptFeedback?.blockReason &&
       !j.candidates[0]?.content?.parts?.some((p: any) => p.thought && p.text);
+    if (count(u.totalTokenCount) && r.tokens.input !== null && r.tokens.output !== null &&
+      u.totalTokenCount !== r.tokens.input + r.tokens.output) r.error = "inconsistent native token total";
   }
   r.usageComplete = r.tokens.input !== null && r.tokens.output !== null &&
     Object.values(r.tokens).every(v => v === null || count(v)) &&
@@ -72,22 +80,22 @@ function nativeFields(judge: Judge, j: any, r: PanelPhysical) {
     ? [u.prompt_tokens_details?.cached_tokens,u.prompt_tokens_details?.cache_write_tokens,u.completion_tokens_details?.reasoning_tokens,u.total_tokens]
     : [u.cachedContentTokenCount,u.totalTokenCount];
   if(optional.some(v=>v !== undefined && !count(v))) r.usageComplete=false;
-  const total=judge.provider === "gemini"?u.totalTokenCount:judge.provider === "openai"?u.total_tokens:undefined;
-  if(count(total) && r.tokens.input !== null && r.tokens.output !== null &&
-    total !== r.tokens.input+r.tokens.output) {r.error="inconsistent native token total";r.usageComplete=false;}
+  if(judge.provider === "openai" && count(u.total_tokens) && r.tokens.input !== null && r.tokens.output !== null &&
+    u.total_tokens !== r.tokens.input+r.tokens.output) {r.error="inconsistent native token total";r.usageComplete=false;}
 }
 /** This guard runs before the donor's deliberately permissive parser/tally can accept a batch. */
+/** The panel votes on `route` only: an over-long `summary` is the prompt's style limit, not a label error, so it is admitted. */
 export function admittedRows(text: string, items: HardItem[]): Row[] | null {
   const rows = parseRows(text);
   if (!rows || rows.length !== items.length || new Set(rows.map(r => r?.id)).size !== items.length ||
     !rows.every((r, i) => object(r) && items[i]?.id === r.id && ROUTES.includes(r.route as any) &&
-      count(r.stakes) && r.stakes >= 1 && r.stakes <= 3 && typeof r.summary === "string" && r.summary.length <= 140)) return null;
+      count(r.stakes) && r.stakes >= 1 && r.stakes <= 3 && typeof r.summary === "string")) return null;
   return rows;
 }
 let observerOwned = false;
-/** Serialized lowest-fetch wrapper, restored on all paths. Caller supplies admitted transport; panel-run.ts owns live entry admission. */
+/** Serialized lowest-fetch wrapper, restored on all paths. Caller supplies an admitted transport; no executable live entry exists. */
 export async function collectLabelPanel(items: HardItem[], rubric: string, transport: typeof fetch,
-  options: { onPhysical?: (receipt: PanelPhysical) => void; retryDelay?: () => Promise<void>; beforePhysical?: (receipt: PanelPhysical, headers: Headers) => Promise<void> | void; afterPhysical?: (receipt: PanelPhysical) => void } = {}) {
+  options: { onPhysical?: (receipt: PanelPhysical) => void; retryDelay?: () => Promise<void> } = {}) {
   const requests = labelRequests(items);
   if (!rubric.trim()) throw Error("Require populated unchanged rubric");
   if (observerOwned) throw Error("Label observer already owned; parallel global-fetch use forbidden");
@@ -119,9 +127,8 @@ export async function collectLabelPanel(items: HardItem[], rubric: string, trans
     const start = performance.now(), controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LABEL_PANEL.responseDeadlineMs), chunks: Buffer[] = [];
     try {
-      await options.beforePhysical?.(structuredClone(r), headers);
       r.transportDispatched=true;
-      const response = await transport(url, { ...init, headers, signal: controller.signal, redirect:"manual" });
+      const response = await transport(url, { ...init, headers, signal: controller.signal });
       r.status = response.status;
       r.headers = Object.fromEntries([...response.headers].filter(([key, value]) =>
         /^(?:request-id|x-request-id|retry-after|anthropic-ratelimit-|x-ratelimit-|service-tier|x-goog-)/i.test(key) &&
@@ -161,7 +168,7 @@ export async function collectLabelPanel(items: HardItem[], rubric: string, trans
           const spec: ModelSpec = { ...judge, inPerMTok: Number.NaN, outPerMTok: Number.NaN, efforts: ["high"] };
           text = (await callModel(spec, "high", rubric, requests[batch]!)).text;
         } catch { r.error ??= "donor call rejected"; }
-        finally { active = null; options.onPhysical?.(structuredClone(r)); options.afterPhysical?.(structuredClone(r)); }
+        finally { active = null; options.onPhysical?.(structuredClone(r)); }
         if (!r.responseComplete || !r.usageComplete || r.servedModel !== judge.id || r.error === "inconsistent native token total") {
           stopReason = "unknown or mismatched required physical receipt"; break outer;
         }
