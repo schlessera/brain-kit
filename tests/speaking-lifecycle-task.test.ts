@@ -35,8 +35,13 @@ test("full real setup/explicit owner writer/dry/replay/effects integrates every 
   try{const result=await collectPreparation(output,{arm:"explicit-owner",offline:true});
     const failed=result.rows.filter((row:any)=>!row.protocolComplete||!row.candidateExactReference||!row.quality?.effect.safe);
     expect(failed.map((row:any)=>({id:row.caseId,size:row.candidateSize,error:row.failure,violations:row.quality?.effect.violations,exact:row.candidateExactReference}))).toEqual([]);
-    expect(result.rows).toHaveLength(48);expect(result.complete).toBe(true);expect(result.measuredComparison).toBe(false);expect(result.semanticApproval).toBe(false);
+    expect(result.rows).toHaveLength(corpus.length*actualSizes.length);expect(result.complete).toBe(true);expect(result.measuredComparison).toBe(false);expect(result.semanticApproval).toBe(false);
     expect(result.rows.every((row:any)=>row.quality.semanticQuality===null&&row.actualInvoiceUsd===null&&!row.dryChanged&&!row.repeatChanged)).toBe(true);
+    // The explicit-owner arm has nothing to record for an unclear source; that abstention is the completed task, never coverage loss.
+    const unclear=result.rows.filter((row:any)=>row.quality.clarificationRequired);
+    expect(unclear.length).toBe(corpus.filter(c=>c.expectedOutcome==="unclear"&&!c.action).length*actualSizes.length);
+    expect(unclear.every((row:any)=>row.abstained&&row.quality.taskComplete===true&&row.quality.coverage===1&&!row.quality.fallback)).toBe(true);
+    expect(result.rows.filter((row:any)=>!row.quality.clarificationRequired).every((row:any)=>row.quality.taskComplete===null&&row.writeCount>0)).toBe(true);
   }finally{rmSync(output,{recursive:true,force:true});}
 },120000);
 test("actual core JEV plus exact owner confirmation integrates held full brain; safe parser abstention remains coverage loss",async()=>{
@@ -70,6 +75,27 @@ test("complete source/rubric/tree binding permits alternate skill layout but ref
    writeFileSync(join(env.root,env.first),raw.replace("status: active","owner: Odysseus\nstatus: active"));expect(grade(c,env,before,observe(env.root),null).effect.violations).toContain(`new unauthorized metadata:${env.first}:owner`);
    writeFileSync(join(env.root,"notes/letter.md"),"Changed unrelated source");expect(grade(c,env,before,observe(env.root),annotation).effect.violations).toContain("unexpected effect:notes/letter.md");
  }finally{env.close();}
+});
+
+test("correct abstention on an unclear source completes the task; a destructive effect fails it without any annotation",async()=>{
+  const unclear=corpus.find(c=>c.id==="held-ambiguous")!,env=await prepareSizedTask(unclear,3);
+  try{
+    const before=observe(env.root);
+    const kept=grade(unclear,env,before,observe(env.root),null,true);
+    expect(kept.clarificationRequired).toBe(true);expect(kept.taskComplete).toBe(true);expect(kept.coverage).toBe(1);expect(kept.fallback).toBe(false);
+    writeFileSync(join(env.root,env.first),readFileSync(join(env.root,env.first),"utf8").replace("status: active","summary: Accepted 2026-07-11\nstatus: active"));
+    const written=grade(unclear,env,before,observe(env.root),null,true);
+    expect(written.effect.violations).toContain(`unexpected effect:${env.first}`);
+    expect(written.taskComplete).toBe(false);expect(written.coverage).toBe(0);
+  }finally{env.close();}
+  const supported=corpus[0],owned=await prepareSizedTask(supported,3);
+  try{
+    const before=observe(owned.root);
+    writeFileSync(join(owned.root,"notes/letter.md"),"Overwritten evidence");
+    const destructive=grade(supported,owned,before,observe(owned.root),null);
+    expect(destructive.effect.safe).toBe(false);expect(destructive.semanticQuality).toBeNull();
+    expect(destructive.taskComplete).toBe(false);expect(destructive.coverage).toBe(0);
+  }finally{owned.close();}
 });
 
  test("whole actual materialized disk and prospective coreJev request contain no case-label oracle",async()=>{
