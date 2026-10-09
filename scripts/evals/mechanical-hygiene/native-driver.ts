@@ -24,6 +24,7 @@ export interface NativeOptions {
   physicalFetch?: (url: string, init: RequestInit) => Promise<Response>;
   deadlineMs?: number;
   offlineDeadlineAfterDispatchMs?:number;
+  offlineStage?: (stage:string)=>void;
   prompt?: string;
   purpose?: "offline-skill" | "complementary-review" | "scored-skill";
   reviewArtifacts?: ReviewArtifacts;
@@ -73,6 +74,7 @@ export function reconcilePhysicalUsage(result: any, calls: NativeCall[]) {
 export async function runNativePhase(options: NativeOptions): Promise<ActualNativeReceipt> {
   let admissionEvidence:unknown=null;
   if(options.offlineWriteDayMismatchAfterDispatch && !options.offline) throw Error("Write-day mismatch probe is explicitly offline only");
+  if(options.offlineStage&&!options.offline)throw Error("Stage diagnostics require the explicitly offline control");
   if(options.offlineDeadlineAfterDispatchMs!==undefined&&(!options.offline||options.offlineDeadlineAfterDispatchMs!==200))throw Error("Only the fixed explicitly offline active-deadline control is permitted");
   if(options.offline){
     if(process.env.BRAIN_HYGIENE_OFFLINE!=="1")throw Error("Explicit offline native proof required");
@@ -96,6 +98,7 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
   if(writeDayUTC !== null) assertNativeWriteWindowUTC(writeDayUTC,options.deadlineMs??300000);
   const root = realpathSync(options.root), source = realpathSync(options.source);
   const actualPair=actualNativeRuntime(source,options.offline);
+  options.offlineStage?.("runtime-verified");
   mkdirSync(options.destination, { mode: 0o700 });
   const home = join(options.destination, "native-home"); mkdirSync(home, { mode: 0o700 });
   const raw = join(options.destination, "native-stdout.jsonl"); writeFileSync(raw, "", { mode: 0o600 });
@@ -110,10 +113,11 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
   const paid=openHygienePaid({offline:options.offline,reviewing,prompt:payload,destination:options.destination,
     proofSha:options.reviewBinding?.proofSha??(admissionEvidence as any)?.proofSha,planSha:options.reviewBinding?.planSha??(admissionEvidence as any)?.planSha,
     policy:options.offlinePaidPolicy,save:e=>{receipt.paid=e;receipt.native.paid=e;save();}});
+  options.offlineStage?.("paid-source-frozen");
   const controller = new AbortController(), started = performance.now();
   if(options.offline&&!options.physicalFetch)throw Error("Scripted offline physical transport required");
   let armActiveDeadline:(()=>void)|undefined;
-  const physicalFetch=options.offline?async(url:string,init:RequestInit)=>{if(writeDayUTC !== null)assertWriteDayUTC(writeDayUTC);armActiveDeadline?.();if(options.offlineWriteDayMismatchAfterDispatch)writeDayUTC=previousWriteDayUTC();return options.physicalFetch!(url,init);}:(url:string,init:RequestInit)=>{
+  const physicalFetch=options.offline?async(url:string,init:RequestInit)=>{if(writeDayUTC !== null)assertWriteDayUTC(writeDayUTC);options.offlineStage?.("physical-dispatch");armActiveDeadline?.();if(options.offlineWriteDayMismatchAfterDispatch)writeDayUTC=previousWriteDayUTC();return options.physicalFetch!(url,init);}:(url:string,init:RequestInit)=>{
     if(writeDayUTC !== null)assertWriteDayUTC(writeDayUTC);
     if(new URL(url).origin!=="https://api.anthropic.com")throw Error("Unexpected first-party inference origin");
     return fetch(url,{...init,redirect:"error"});
@@ -123,6 +127,12 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     onRefusal:reason=>{receipt.native.failure??=`Physical native admission failed: ${reason}`;save();controller.abort();},
     save: calls => { receipt.physicalCalls = calls; receipt.diagnostics=physicalPriceDiagnostics(calls); save(); } });
   let child: ChildProcess | undefined, childClosed: Promise<void> | undefined, cli: any;
+  // An admission/deadline veto stops this owned process immediately. The SDK
+  // otherwise waits its two-second shutdown grace before sending SIGTERM.
+  // Keep its streams attached and await actual close below; this is not a
+  // timeout-success shortcut or a replacement for the forced-kill drain bound.
+  const stopOwned=()=>{if(child&&child.exitCode===null&&child.signalCode===null)child.kill("SIGTERM");};
+  controller.signal.addEventListener("abort",stopOwned,{once:true});
   let resolveHandle!: (value: any) => void;
   const handle = new Promise(resolve => resolveHandle = resolve);
   const abortDeadline=()=>{receipt.native.failure="Native deadline exceeded";save();controller.abort();};
@@ -137,7 +147,7 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     ANTHROPIC_DEFAULT_OPUS_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL: MODEL,
     CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1", TZ: process.env.TZ ?? "UTC" };
   try {
-    cli = query({ prompt: protectedPrompt(handle,payload, receipt, save, controller,()=>{paid.beforeRelease();if(!options.offline)verifyHygieneAuthority((admissionEvidence as any)?.admission??admissionEvidence);}), options: {
+    cli = query({ prompt: protectedPrompt(handle,payload, receipt, save, controller,()=>{paid.beforeRelease();if(!options.offline)verifyHygieneAuthority((admissionEvidence as any)?.admission??admissionEvidence);options.offlineStage?.("user-admitted");}), options: {
       cwd: root, settingSources: [], settings: { ...NEUTRALISED_SETTINGS, autoMemoryEnabled: false, attribution: false },
       persistSession: false, model: MODEL, env, abortController:controller, maxTurns: reviewing?1:24, effort: "low",
       ...(reviewing?{maxBudgetUsd:3}:{}),
@@ -162,6 +172,8 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
           "--ro-bind", source, source, "--ro-bind", process.execPath, process.execPath,
           "--bind", root, root, "--bind", home, home, "--chdir", root, "--", spawned.command, ...spawned.args);
         child = spawn("bwrap", args, { env: spawned.env, stdio: ["pipe", "pipe", "pipe"] });
+        options.offlineStage?.("native-spawned");
+        if(controller.signal.aborted)stopOwned();
         const capture = captureNative(raw, line => {
           const frame = JSON.parse(line);
           if (frame.type === "system" && frame.subtype === "init") {
@@ -193,6 +205,7 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     clearTimeout(deadline); try { cli?.close(); } catch (error) { receipt.native.failure ??= String(error); }
     if (child && childClosed) { const drain = await drainOwned(child, childClosed); receipt.forcedKill = drain.forcedKill;
       receipt.native.ownedChildDrained = true; if (drain.forcedKill) receipt.native.failure ??= "Owned child required forced kill"; }
+    controller.signal.removeEventListener("abort",stopOwned);
     receipt.native.naturalStdoutEof = receipt.stdoutComplete && !receipt.forcedKill;
     receipt.native.overage = receipt.rateLimits.some(r => r.isUsingOverage === true || r.overageInUse === true) ? "active" : receipt.rateLimits.length && receipt.rateLimits.every(r => r.isUsingOverage === false || r.overageInUse === false) ? "reported inactive" : "unknown";
     receipt.native.calls = relay.calls.map(call => ({ literal:call,requestedModel: call.requestedModel,
@@ -208,6 +221,7 @@ export async function runNativePhase(options: NativeOptions): Promise<ActualNati
     } catch (error) { receipt.apiEquivalent = null; receipt.native.failure ??= String(error); }
     if (!receipt.init || !receipt.result || !relay.complete() || !receipt.stderrComplete) receipt.native.failure ??= "Missing complete native/physical/stream evidence";
     await relay.stop();
+    options.offlineStage?.("native-and-relay-drained");
     const stdout=readFileSync(raw),stderr=readFileSync(rawError);receipt.rawNative={stdoutBase64:stdout.toString("base64"),stdoutSha:digest(stdout),stderrBase64:stderr.toString("base64"),stderrSha:digest(stderr)};
     receipt.physicalWriteDayUTC=actualWriteDayUTC(); if(writeDayUTC !== null)try { assertWriteDayUTC(writeDayUTC); } catch(error) { receipt.writeDayRefused=true; receipt.native.failure ??= String(error); } receipt.durationMs = performance.now() - started; save();
   }

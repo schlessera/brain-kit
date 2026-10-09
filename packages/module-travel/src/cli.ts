@@ -14,6 +14,7 @@ const HELP = `brain travel — journey, day-trip and place foundations
   travel route <url|file> --to <dir> [--trim-start-m N] [--trim-end-m N]
               [--name <label>] [--date YYYY-MM-DD]
                                Normalize GPX/Komoot geometry, report metrics, trim distance
+  travel sync [--check]        Regenerate the trip and place registries (--check writes nothing)
 
 Flags: --json  emit the documented envelope; --human  display photo paths and dimensions`;
 
@@ -43,8 +44,31 @@ async function migrate(root: string, dryRun: boolean): Promise<{ path: string; c
   return { path: name, changed: plan.changed, dry_run: dryRun };
 }
 
+async function runSync(args: string[], ctx: CommandContext<TravelConfig>): Promise<number> {
+  if (args.some((arg) => arg !== "--json" && arg !== "--human" && arg !== "--check")) {
+    console.error(`Unknown travel argument.\n${HELP}`); return 1;
+  }
+  const check = args.includes("--check");
+  const { planTravelSync, applyTravelSync } = await import("./sync.js");
+  const plan = planTravelSync(ctx.root, ctx.taxonomy, new Date().toISOString().slice(0, 10));
+  if (plan.issues.length) {
+    for (const issue of plan.issues) console.error(`${issue.file}: ${issue.message}`);
+    console.error("Travel registries not synced; nothing written. Fix the records above, then run brain travel sync again.");
+    return 1;
+  }
+  let files: string[];
+  if (check) files = plan.files.filter((file) => file.next !== null).map((file) => file.path);
+  else {
+    try { files = applyTravelSync(ctx.root, plan); } catch (error) { console.error((error as Error).message); return 1; }
+  }
+  if (ctx.json) console.log(JSON.stringify({ sync: { check, files } }, null, 2));
+  else if (!files.length) console.log("Travel registries are current.");
+  else for (const file of files) console.log(`  ${check ? "stale" : "wrote"}  ${file}`);
+  return check && files.length ? 1 : 0;
+}
+
 const command: CommandModule<TravelConfig> = {
-  summary: "Validate travel content, migrate travel configuration, prepare photo copies and import routes",
+  summary: "Validate travel content, migrate travel configuration, prepare photo copies, import routes and sync registries",
   helpBlock: HELP,
   async run(args: string[], ctx: CommandContext<TravelConfig>): Promise<number> {
     const sub = args[0];
@@ -83,6 +107,7 @@ const command: CommandModule<TravelConfig> = {
       } catch (error) { console.error((error as Error).message); return 1; }
     }
     if (sub === "route") return (await import("./route.js")).runRoute(args.slice(1), ctx.root, ctx.json);
+    if (sub === "sync") return runSync(args.slice(1), ctx);
     if (sub !== "validate" && sub !== "migrate") { console.error(HELP); return 1; }
     if (args.slice(1).some((arg) => arg !== "--json" && arg !== "--human" && !(sub === "migrate" && arg === "--dry-run"))) {
       console.error(`Unknown travel argument.\n${HELP}`); return 1;

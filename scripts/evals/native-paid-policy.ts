@@ -1,7 +1,7 @@
 /** Private native experiment reservations. Root owns allocations; these are never invoices. */
 import { createHash } from "node:crypto";
-import { assertGrantPath,validGrantTime,type GrantPolicy } from "../../packages/ui-server/evals/triage/experiment/grant";
-import { rejectPriceModifiers,rejectResponseModifiers,usageUpper,type RawTokens,type ReviewBinding } from "../../packages/ui-server/evals/triage/experiment/paid-policy";
+import { assertGrantPath,validGrantTime,type GrantPolicy } from "./native-grant";
+import { rejectPriceModifiers,rejectResponseModifiers,usageUpper,type RawTokens,type ReviewBinding } from "./native-pricing";
 
 export type NativeIssue=842|843|844|845|846|847|849|850;
 export const PAID_AUTHORIZATION="https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737";
@@ -46,6 +46,7 @@ export function observedNativeModifiers(headers:Record<string,string>){
 }
 /** Reparse preserved upstream bytes rather than trusting a supplied usage summary. */
 export function literalNativeUsage(call:any):RawTokens{
+  if(call.requestMethod!=="POST"||!["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath))throw Error("Literal native endpoint differs");
   if(call.status!==200||!call.upstreamDispatched||!call.subscriptionHeaderAccepted||!call.finished||!call.responseNaturalEof||call.consumerCancelled||!call.streamClosed||!call.upstreamReaderClosed||call.outcome!=="completed")throw Error("Incomplete physical native receipt");
   const request=Buffer.from(call.requestBytesBase64,"base64");
   rejectPriceModifiers(JSON.parse(call.requestBody),new Headers(call.requestPricingHeaders));

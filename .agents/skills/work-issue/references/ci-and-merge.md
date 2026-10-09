@@ -3,7 +3,15 @@
 Read this when the implementation has a PR. Commands were checked against
 installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
-monitoring.
+monitoring. Prefix commands with `rtk proxy` as the session's RTK instructions
+require. The CI policy these commands check is
+[docs/process/testing.md](../../../../docs/process/testing.md#required-proof-for-a-pr).
+
+Green is a claim about a SHA, not about `main`. A commit pushed to a branch
+after its PR merged never reaches `main`: CI never runs on it, and `gh pr
+checks` keeps reporting the old green run. After a rebase, a green summary can
+belong to the pre-rebase commit. Read the checks for the current head; no rows
+means CI has not started on that commit, which is not the same as green.
 
 ## Required evidence
 
@@ -45,6 +53,8 @@ rtk proxy gh api 'repos/schlessera/brain-kit/commits/<head-sha>/status' \
   --jq '{state,statuses:[.statuses[] | {context,state,target_url}]}'
 rtk proxy gh pr checks <pr> --repo schlessera/brain-kit \
   --json name,state,bucket,link,workflow
+rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
+  --json headRefOid,statusCheckRollup
 ```
 
 Record `headRefOid` for this inspection and re-read it before deciding. After
@@ -57,8 +67,11 @@ Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
 `project-sync.yml`, plus the merge requirements, for expected checks. GitHub
 Actions is the sole CI provider for main, same-repository PRs and forks under
 #1320. The former Depot definitions and fork fallback copies are retired.
-Forks use the ordinary read-only PR context and nonpersisted checkout
-credentials; an approval-held run has not passed. Read actual GitHub checks
+Forks use ordinary `pull_request` with a read-only token (`contents: read`,
+plus `actions: read` / `checks: read` for bounded proof lookup), no secrets
+and nonpersisted checkout credentials; an approval-held run has not passed.
+Drafts run cheap gates only, and tests-only changes may intentionally skip
+packaging while complete affected tests run. Read actual GitHub checks
 and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
@@ -95,6 +108,9 @@ a file rather than printing the escaped response in a terminal:
 rtk proxy gh api --allow-escape-sequences \
   'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs' > /tmp/ci-job.log
 ```
+
+A refused-start job has no execution log; inspect its check-run annotations
+instead.
 
 Read the checkout SHA from the actual selected jobs' logs (including verification/pack
 jobs); a workflow's `headSha` or PR metadata alone does not establish the tree
@@ -160,6 +176,15 @@ Never bypass required reviewers or use `--admin`.
 
 ## Merge and verify
 
+Before every merge, assign the PR and each completed/advanced issue a release
+milestone using the GitHub skill's "Labels and milestones" procedure. Confirm
+the upcoming release for unreleased changes; late verification of already
+shipped behavior retains its original delivery milestone. Include docs/test/CI
+and partial `Refs` deliveries. Read back `gh pr view --json milestone,closingIssuesReferences`
+and `gh issue view --json milestone,state` for every delivered issue. Missing
+or stale assignments need correction before merging. Leave unscheduled parent
+epics alone unless this PR delivers their initial outcome.
+
 Immediately re-read head/state/reviews/checks and query live main again.
 Keep the verified head/base/tree from the passing combined-state inspection:
 
@@ -215,5 +240,6 @@ the merged branch. Main may advance afterward: ancestry establishes presence,
 while the squash's immutable parent/tree establishes what actually landed.
 
 Confirm `MERGED`, the reported merge commit on remote main and actual issue
-state. Missing merge evidence is unfinished verification, not completion.
+state, and read back the PR and delivered issues' milestone assignments.
+Missing merge evidence is unfinished verification, not completion.
 Return to the skill's **Finish or hand off** for labels and assignment cleanup.

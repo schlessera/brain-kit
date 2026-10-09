@@ -36,6 +36,7 @@ bun run check:pr --base origin/main
 
 - [ ] Focused local preflight/behavioral receipts and complete selected hosted proof passed; actual head/base/job checkout evidence is in Proof.
 - [ ] Acceptance criteria from the issue are all met, or the gap is named below.
+- [ ] The PR and completed/advanced issues have verified release milestones under docs/process/github.md.
 - [ ] A changeset is included, or this changes nothing a consumer can see.
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
 - [ ] `docs/integration-contract.md` is updated in this same commit, or nothing in the machine surface moved.

@@ -1,8 +1,9 @@
 /** Root-issued single-use grant. Failures never remove a consumed marker. */
 import { openSync, writeFileSync, readFileSync, closeSync, fsyncSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute } from "node:path";
-import { sha } from "./adapter";
-import { type ReviewBinding } from "./paid-policy";
+import { createHash } from "node:crypto";
+const sha=(value:string|Uint8Array)=>createHash("sha256").update(value).digest("hex");
+import { type ReviewBinding } from "./native-pricing";
 export interface GrantPolicy { grantNonce:string;consumedMarkerPath:string;issuedAt:string;expiresAt:string }
 export interface GrantMarker { version:1;grantNonce:string;policySha:string;bindingSha:string;claimedAtUtc:string;invoiceUsd:null }
 export interface GrantClaim { marker:GrantMarker;sha:string }

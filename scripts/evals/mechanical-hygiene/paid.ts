@@ -2,8 +2,8 @@
 import { readFileSync,lstatSync,writeFileSync } from "node:fs";
 import { dirname,join } from "node:path";
 import { NativeBudget,PAID_AUTHORIZATION,digest,validateNativePaidPolicy,type NativePaidPolicy,type NativeReservation } from "../native-paid-policy";
-import { consumeGrant,validGrantEvidence,type GrantClaim } from "../../../packages/ui-server/evals/triage/experiment/grant";
-import { type ReviewBinding } from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import { consumeGrant,validGrantEvidence,type GrantClaim } from "../native-grant";
+import { type ReviewBinding } from "../native-pricing";
 import { sourceFreeze } from "./freeze";
 import { protocolSha } from "./protocol";
 

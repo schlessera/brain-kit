@@ -94,3 +94,19 @@ test("physical network failure retains request and explicitly unknown response w
     expect(call.status).toBeNull(); expect(call.responseEof).toBe(false); expect(call.responseClosed).toBe(true); expect(call.apiEquivalent).toBeNull(); expect(call.finished).toBe(true);
   } finally { await relay.stop(); }
 });
+
+for(const [method,path] of [["GET","/v1/messages"],["POST","/v1/messages/count_tokens"],["POST","/v1/messages?unreviewed=1"]])test(`unsupported native ${method} ${path} preserves the literal attempt and stops subsequent forwarding`,async()=>{
+  let forwarded=0;const refusals:string[]=[],token="offline-endpoint-not-a-credential";
+  const relay=startRelay({oauthToken:token,save:()=>{},onRefusal:reason=>refusals.push(reason),fetch:async()=>{forwarded++;return new Response(sse());}});
+  const bytes=method==="GET"?Buffer.alloc(0):path.includes("?")?Buffer.from(JSON.stringify({model:MODEL,messages:[]})):Buffer.from([0,255,13,10]);
+  try{
+    const first=await fetch(`${relay.url}${path}`,{method,headers:{authorization:`Bearer ${token}`},...(method==="GET"?{}:{body:bytes})});
+    expect(relay.calls,"Every blocked auxiliary attempt must be recorded before routing").toHaveLength(1);
+    expect(first.status).toBe(403);const row=relay.calls[0];
+    expect(row.requestMethod).toBe(method);expect(row.requestPath).toBe(path);
+    expect(Buffer.from(row.rawRequestBase64,"base64")).toEqual(bytes);expect(row.upstreamDispatched).toBe(false);
+    expect(row.outcome).toBe("unsupported_native_endpoint");expect(refusals).toEqual(["unsupported_native_endpoint"]);
+    const next=await fetch(`${relay.url}/v1/messages`,{method:"POST",headers:{authorization:`Bearer ${token}`},body:JSON.stringify({model:MODEL,messages:[]})});
+    expect(next.status).toBe(409);expect(relay.calls).toHaveLength(2);expect(forwarded).toBe(0);expect(relay.complete()).toBeFalsy();
+  }finally{await relay.stop();}
+});

@@ -2,9 +2,10 @@
 import { createHash } from "node:crypto";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 import { observedNativeModifiers,type NativeBudget } from "../native-paid-policy";
-import { rejectResponseModifiers } from "../../../packages/ui-server/evals/triage/experiment/paid-policy";
+import { rejectResponseModifiers } from "../native-pricing";
 export const MODEL="claude-sonnet-5-5";
 export interface NativeCall {
+  requestMethod:string;requestPath:string;
   requestPricingHeaders:Record<string,string>;responseHeaders:Record<string,string>;
   requestBody:string;requestBytesBase64:string;requestSha:string;stateBytes:number;
   responseFrames:string[];responseBytesBase64Chunks:string[];
@@ -23,17 +24,20 @@ export function startRelay(options:{oauthToken:string;fetch:(url:string,init:Req
   const save=()=>options.save(calls);
   const server=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
     const url=new URL(request.url);
-    if(request.method!=="POST"||url.pathname!=="/v1/messages")return new Response("Only the native Messages endpoint is permitted",{status:403});
     // Capture native bytes before decoding, including invalid requests and
     // blocked retries. No Authorization/header values are retained.
     const requestBytes=new Uint8Array(await request.arrayBuffer()),started=performance.now();
     const call:NativeCall={requestPricingHeaders:Object.fromEntries([...request.headers].filter(([name])=>name==="anthropic-beta")),responseHeaders:{},requestBody:"",requestBytesBase64:Buffer.from(requestBytes).toString("base64"),requestSha:createHash("sha256").update(requestBytes).digest("hex"),stateBytes:requestBytes.byteLength,
+      requestMethod:request.method,requestPath:`${url.pathname}${url.search}`,
       responseFrames:[],responseBytesBase64Chunks:[],requestedModel:"unknown",servedModel:null,status:null,
       subscriptionHeaderAccepted:request.headers.get("authorization")===`Bearer ${options.oauthToken}`&&!request.headers.get("x-api-key"),upstreamDispatched:false,
       usage:null,rawUsageEvents:[],finished:false,outcome:"received",durationMs:0,responseNaturalEof:false,consumerCancelled:false,streamClosed:false,upstreamReaderClosed:false,apiEquivalent:null};
     calls.push(call);save();
     const reject=(status:number,outcome:string)=>{call.status=status;call.outcome=outcome;call.finished=true;call.streamClosed=true;call.durationMs=performance.now()-started;save();options.onRefusal?.(call.failure??outcome);return new Response(outcome,{status});};
     if(stopped||calls.length>24||calls.slice(0,-1).some(row=>row.finished&&row.outcome!=="completed"))return reject(409,"admission_stopped");
+    // The pinned native runtime uses this exact beta flag. Preserve it in the
+    // literal receipt; an arbitrary query or auxiliary route is not admitted.
+    if(request.method!=="POST"||!["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath)){stopped=true;return reject(403,"unsupported_native_endpoint");}
     if(!call.subscriptionHeaderAccepted){stopped=true;return reject(403,"subscription_header_refused");}
     try{call.requestBody=new TextDecoder("utf-8",{fatal:true}).decode(requestBytes);const parsed=JSON.parse(call.requestBody);call.requestedModel=parsed.model??"unknown";}
     catch{stopped=true;return reject(400,"invalid_native_request");}
