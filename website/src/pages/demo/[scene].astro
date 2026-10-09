@@ -1,0 +1,7 @@
+---
+import DemoFrame from '../../components/DemoFrame.astro';
+export function getStaticPaths() {
+  return ['rank', 'rich', 'work', 'voice'].map(scene => ({ params: { scene }, props: { scene } }));
+}
+---
+<DemoFrame scene={Astro.props.scene}/>

@@ -10,7 +10,7 @@ when its PR is merged and reconciled, or its blocker is documented and its
 claim released. Do not take the next issue after that handoff.
 
 Requires this checkout, authenticated `gh` with issue/PR write access, git,
-Bun and `jq`; also `depot` when Depot CI is enabled. GitHub Project access
+Bun and `jq`. GitHub Actions is the CI provider. GitHub Project access
 is optional.
 
 An end-to-end request authorizes assignment, tracker updates, scoped
@@ -181,6 +181,27 @@ silently moved to a follow-up and declared complete. Public tracker text
 never identifies a private-instance follow-up; sanitize the public handoff.
 
 ## PR, CI and merge
+
+Before creating a PR or marking a draft ready, run `bun run check:pr --base
+origin/main` in the issue checkout. This supplies focused local preflight;
+`--plan` is inspection only. Record behavioral failing-first/restored mutation
+receipts and visual review where relevant. Complete repeatable proof runs in
+hosted CI on ready PRs under #1326: types, packaging, full affected discovery,
+pinned browser/layout/offline/endurance/editorial and native runtime categories.
+`check:pr --full` and `--all` retain opt-in full local/release execution.
+
+Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
+leave selected hosted proof incomplete. Never delete tests, weaken offline
+harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
+pushes. After cheap gates independent categories run concurrently; per-PR
+cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
+cancellations before adding shards. Follow docs/decisions/ci-utility.md.
+
+Assess missing main commits before refreshing. Revalidate affected proof after
+code, dependency, harness or relevant base changes. Unrelated advancement alone
+does not require a rebase or repeat long suites; retain actual tested head/base
+and the relevance assessment, satisfying existing branch rules. Never relabel
+older green evidence as a new combined-tree receipt.
 
 Before every push, confirm the branch's PR is not already merged/closed.
 Open one PR against `main` using the repository template and appropriate

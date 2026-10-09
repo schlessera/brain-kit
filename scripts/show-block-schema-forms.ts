@@ -10,7 +10,7 @@
  * the same variants, the same parser, written three ways. The arms are
  * cumulative, so each reduction reads against the arm before it:
  *
- * - `flat` — what ships (D47's baseline).
+ * - `flat` — the historical D47/#336 baseline.
  * - `shared` — reduction 1: `tone`, `valueTone` and `icon` under `definitions`.
  * - `shared-trimmed` — reduction 1 plus reduction 2, the descriptions that
  *   restate `SHOW_BLOCK_DESCRIPTION` dropped.
@@ -32,7 +32,7 @@ import {
 import type { Json } from "./attribute-show-block-schema.ts";
 
 export const SCHEMA_ARMS = {
-  flat: SHIPPED_SHOW_BLOCK_SCHEMA_FORM,
+  flat: { sharedDefinitions: false, restatedProse: true },
   shared: { sharedDefinitions: true, restatedProse: true },
   "shared-trimmed": { sharedDefinitions: true, restatedProse: false },
 } as const satisfies Record<string, ShowBlockSchemaForm>;
@@ -53,7 +53,7 @@ const sdk = (await import(SDK_ENTRY)) as typeof import("@anthropic-ai/claude-age
  * `show_block` in one arm's form: the backend factory's description and
  * handler, over that form's schema. The `flat` arm is built here too, not
  * taken from `createShowBlockTool`, so all three arms come from one code path;
- * `listedShowBlock` checks the `flat` arm lists byte for byte what the
+ * `listedShowBlock` checks the selected shipped arm lists byte for byte what the
  * production factory lists.
  */
 export function showBlockToolIn(arm: SchemaArm) {
@@ -96,17 +96,17 @@ export async function listedTool(tool: SdkTool): Promise<{ description?: string;
 }
 
 /**
- * `show_block` as one arm lists it. Listing `flat` also lists the production
- * factory's tool and throws if the two differ, so the baseline arm cannot
- * drift from what ships without the run refusing to start.
+ * `show_block` as one arm lists it. Listing the shipped arm also lists the production
+ * factory's tool and throws if the selected shipped arm differs. Historical
+ * baseline options stay fixed when the shipped default changes.
  */
 export async function listedShowBlock(arm: SchemaArm): Promise<{ description?: string; inputSchema: Json }> {
   const listed = await listedTool(showBlockToolIn(arm));
-  if (arm === "flat") {
+  if (JSON.stringify(SCHEMA_ARMS[arm]) === JSON.stringify(SHIPPED_SHOW_BLOCK_SCHEMA_FORM)) {
     const { createShowBlockTool } = await import("../packages/ui-backend-claude/src/show-block-tool.js");
     const shipped = await listedTool(createShowBlockTool());
     if (JSON.stringify(shipped) !== JSON.stringify(listed)) {
-      throw new Error("the flat arm no longer lists what createShowBlockTool lists: the baseline drifted");
+      throw new Error("the selected shipped arm no longer lists what createShowBlockTool lists");
     }
   }
   return listed;

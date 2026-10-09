@@ -1,3 +1,4 @@
+import type { DictationNotice } from "./dictation-failure.js";
 import { createStore } from "zustand/vanilla";
 import type { VoiceMode } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -11,6 +12,9 @@ export interface VoiceState {
   reviewText: string;       // text waiting in the review card (post-stop)
   providerId: string | null; // active speech provider (from the session response)
   error: string | null;
+  /** Capture-scoped explanation, independent of an open-sheet error. */
+  dictationNotice: DictationNotice | null;
+  dismissDictationNotice: () => void;
   /** A recording on the device (#1012), separate from streaming dictation. */
   local: LocalCapturePhase;
   /** Why the last tap could not record: the microphone was refused. */
@@ -45,6 +49,8 @@ export function createVoiceStore() {
     reviewText: "",
     providerId: null,
     error: null,
+    dictationNotice: null,
+    dismissDictationNotice: () => set({ dictationNotice: null }),
     local: "idle",
     localNotice: null,
 
@@ -59,11 +65,11 @@ export function createVoiceStore() {
       })),
     setAudioLevel: (audioLevel) => set({ audioLevel }),
     setReviewText: (reviewText) => set({ reviewText }),
-    clearReview: () => set({ reviewText: "" }),
+    clearReview: () => set({ reviewText: "", dictationNotice: null }),
     setProviderId: (providerId) => set({ providerId }),
     setError: (error) => set({ error }),
     resetCapture: () =>
-      set({ partial: "", finalText: "", audioLevel: 0, error: null }),
+      set({ partial: "", finalText: "", audioLevel: 0, error: null, dictationNotice: null }),
     setLocal: (local) => set({ local }),
     setLocalNotice: (localNotice) => set({ localNotice }),
   }));

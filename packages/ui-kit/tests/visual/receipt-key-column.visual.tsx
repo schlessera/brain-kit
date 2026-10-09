@@ -12,16 +12,15 @@
  * still longer than 90px wraps inside the column and is never cut. The value
  * column's left edge is therefore identical on every row.
  *
- * The font is the budget test's stand-in, Liberation Mono named as
- * `JetBrains Mono`, so the mono advance is the shipped face's 0.6em (7px on
- * whole pixels at 11px): "capability" is 70px, over the default 56.
+ * The shared browser setup loads checksum-pinned JetBrains Mono before
+ * this fixture measures glyphs; no system-font alias is installed.
  *
  * It lives in the visual project because that is the runner with a layout
  * engine; it takes no screenshot.
  */
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 
 import "../../src/styles.css";
 import { Receipt, type ReceiptRow } from "../../src/evidence/Receipt.js";
@@ -35,11 +34,6 @@ const PHONE = 288;
 const DESKTOP = 640;
 
 let host: HTMLDivElement | null = null;
-
-beforeAll(async () => {
-  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
-  document.fonts.add(await face.load());
-});
 
 afterEach(() => {
   host?.remove();

@@ -17,7 +17,7 @@ the same boundary. Native nonblocking functions and application delegation
 are different mechanisms; adapters must preserve those differences.
 
 The existing dictation interfaces mint an input session and collect text
-(`export interface SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26-35`;
+(`export interface SpeechProvider`, `packages/ui-sdk/src/server/speech.ts:26-44`;
 `export interface AsrClient`, `packages/ui-sdk/src/client/asr.ts:21-28`). Keep
 phase-1 dictation intact. A conversation owns bidirectional audio, lifecycle,
 work correlation and output scheduling. Appending a TTS method to dictation

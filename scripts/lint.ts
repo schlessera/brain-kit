@@ -20,7 +20,7 @@ const LINTS = [
   "check-kit-purity.ts", // ui-kit stays prop-driven: no store, no I/O, no ambient globals
   "check-root-stores.ts", // internal imperative store access must use an explicit root
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
-  "fork-ci-adapters.ts", // GitHub fork CI adapters regenerate byte-for-byte from the Depot workflows (#988)
+  "check-ci-workflows.ts", // Single GitHub provider, safe fork execution and no active Depot definitions (#1320)
 ];
 
 let failed = false;

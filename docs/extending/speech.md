@@ -45,7 +45,7 @@ never select browser speech. A mismatch or provider failure returns 500
 trying another service. Validation occurs on that request, before calling an
 invalid provider or publishing an invalid session.
 
-All capabilities are boolean. `streaming` describes streaming recognition,
+The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected. `streaming` describes streaming recognition,
 `interimResults` controls partial display, `keyterms` controls domain-term
 building, and `endpointing` distinguishes automatic utterance-end evidence from
 manual Done. Capabilities do not confer permissions or confidence/provenance
@@ -212,3 +212,18 @@ uses the example client, real capture/recording and an offline local socket.
 Run with `bun run test` and Chrome available; CI requires Chrome rather than
 claiming a skipped runtime test as proof. These checks establish lifecycle and
 integration, not live speech quality or readiness of a conversation engine.
+
+## Optional saved recordings
+
+A server provider may add `transcribeRecording` on this existing seam. Omit it
+when the service cannot transcribe saved audio. Its input is the unmodified
+`Uint8Array`, original container media type, supported domain keyterms and
+abort signal; return `{ text }` with nonempty text. Use only the server-held
+credential and the provider's server-side endpoint. Never retry automatically.
+Throw `SpeechTranscriptionError` with a definitive reason/status, or let an
+ambiguous error become terminal unknown. [The contract](../integration-contract.md#saved-audio-transcription-additive-1021)
+defines classification, retry limits and the durable receipt boundary.
+The public conformance probe's optional `recording()` observes actual forwarded
+bytes, content type, keyterms and returned text; it is required when this method
+is implemented. The [saved-audio tests](../../packages/ui-server/tests/saved-transcription.test.ts)
+exercise a fake provider through the real mounted routes without service keys.

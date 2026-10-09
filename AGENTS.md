@@ -137,8 +137,10 @@ on, links to or describes them.
   `evals/expected-ranks.json`, asserted by
   `packages/core/tests/eval-corpus.test.ts`) make any ranking change a
   reviewed diff. Never add a test that needs an API key or the network.
-- Contract tests assert the `--json` envelopes. CI runs typecheck, tests, the
-  keyless Tier-0 e2e funnel, a packaging smoke test, and the leakage gate.
+- Contract tests assert the `--json` envelopes. Automatic CI runs cheap metadata gates and complete affected hosted
+  unit/integration/runtime, keyless funnel, pinned browser proof, strict types
+  and packaging on ready PRs. Agents keep focused local behavioral proof; see
+  the rules below.
 - Predicate-only unit tests are not proof for anything with a runtime: the
   renderer's isolation holes were found by launching real Chrome, not by
   testing its allowlist function.
@@ -149,6 +151,12 @@ on, links to or describes them.
   Keep the test preload and offline browser guards enabled; run the targeted
   tests outside the restrictive execution sandbox rather than skipping them
   or disabling sandbox restrictions globally.
+- Tests replacing browser globals must save and restore complete own-property
+  descriptors, including originally absent properties. Install configurable
+  writable test values; restore accessors/flags/value identity with
+  `Object.defineProperty`, and delete only when the original was absent.
+  Saving values or unconditionally deleting `navigator` leaks state between
+  suites (#1158). Keep ordered native/absent/readonly restoration controls.
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
@@ -179,6 +187,38 @@ on, links to or describes them.
   Intentional measurement scripts launched outside tests retain normal
   transports. Guard regression probes use controlled native sentinels so
   failing-first and mutation runs cannot send external requests or start curl.
+
+### Required proof for a PR
+
+- Run `bun run check:pr --base origin/main` before opening or marking ready.
+  This is local preflight and affected fast feedback, including working-tree
+  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  receipts and visual judgment; ordinary PRs do not duplicate complete types,
+  packaging or browser/runtime suites locally.
+- Ready PR CI supplies complete repeatable proof for affected workspaces and
+  reverse dependencies plus root tests. Global/unknown changes expand to full
+  discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
+  endurance, editorial, real Claude/Chrome and cleanup categories remain intact.
+  The `proof` aggregate requires every selected job to succeed; missing tools,
+  unavailable runtimes, failures, cancellations and unexpected skips are not green.
+- Retain every test, default discovery, pinned offline image and failure artifact.
+  Optional `check:pr --full` runs complete affected local proof; `--all` retains
+  every local release/diagnostic category. Scheduled exhaustive CI is additional
+  coverage, not a replacement for selected pre-merge proof.
+- Keep drafts cheap and batch intermediate pushes. After cheap gates, run
+  independent proof categories concurrently. Preserve per-browser file bounds;
+  measure queue/elapsed time and cancellation/repeated work before adding shards.
+  Different PRs never share cancellation groups. Metadata edits do not launch
+  heavy proof, and every main SHA retains independent evidence.
+- Record actual tested head/base, selected jobs/attempts/checkout logs and focused
+  local receipts. Assess base changes before rebasing; unrelated main advancement
+  alone does not require repeated long proof. Relevant input/dependency/harness
+  changes require fresh checks; never call an old receipt a new combined-tree pass.
+  Under #1333, complete browser/layout domains may retain validated equivalent
+  successful automatic receipts. Read the current retention ledger and aggregate;
+  original run/job/checkout identity remains distinct. Other categories stay fresh.
+  Verify actual squash parent/tree and automatic main-push proof. Respect branch
+  rules. See [the CI decision](docs/decisions/ci-utility.md).
 
 ### Tests that cannot fail
 
@@ -320,70 +360,59 @@ different commit from the one you mean:
     --jq '.check_runs[] | "\(.name) \(.status) \(.conclusion)"'
   ```
 
-### Depot CI
+### GitHub Actions CI
 
-CI and contract checks run from `.depot/workflows/`. Edit those files as the
-source of truth; do not restore a stale GitHub workflow or maintain a second
-copy. Preserve all gates, shard matrices, action versions, the pinned browser
-image and diagnostic artifacts when changing workflows. Project sync remains
-in `.github/workflows/project-sync.yml`: Depot CI does not support `issues`
-events, and Depot's GitHub Actions runners require an organization-owned repo.
+CI and contract checks run from `.github/workflows/ci.yml` and `contract.yml`.
+These are the source of truth for all main pushes and pull requests, including
+forks. Project-board sync remains in `project-sync.yml`. Depot CI definitions
+and generated fork fallback workflows are retired under #1320; do not restore
+a second provider or duplicate workflow copies. The local pack command reads
+the authoritative GitHub pack job rather than copying its probes.
 
-Pull requests from forks are the one other exception. Depot CI does not
-receive them, so GitHub Actions runs the same CI and contract gates for them
-from `.github/workflows/fork-ci.yml` and `fork-contract.yml`. Those files are
-generated from the Depot workflows by `scripts/fork-ci-adapters.ts`, so never
-edit them by hand: change the Depot source and run
-`bun scripts/fork-ci-adapters.ts --write`. Every Depot job carries the same
-`if:` route that keeps it off fork PRs, and every adapter job carries the
-inverse, named `fork / <job>`. `bun run lint` and
-`tests/fork-ci-adapters.test.ts` fail when the two drift. For a fork PR, read
-the `fork / …` GitHub Actions checks (`gh run`), not Depot. For a
-same-repository PR, those rows are skipped by design and prove nothing: read
-Depot. A fork run that is waiting for maintainer approval has not passed.
+Preserve cheap gates, complete affected hosted proof, focused local receipts,
+action/runtime versions, pinned offline browser image and diagnostic artifacts.
+Independent selected categories run after metadata; the final proof aggregate
+rejects failures, cancellations, missing outputs and unexpected skips. Tests-only
+changes may intentionally skip packaging while complete affected tests run.
+Drafts run cheap gates only. Forks use ordinary `pull_request`, a read-only
+token (`contents: read`, plus `actions: read` / `checks: read` for bounded proof lookup), no
+secrets and nonpersisted checkout credentials. A fork run awaiting
+maintainer approval has not passed.
 
-Use the installed `depot` CLI to monitor CI and investigate failed checks.
-Check `depot ci <command> --help` before assuming flags. Prefix commands with
-`rtk proxy` as required by the session's RTK instructions. For a PR, get its
-current head SHA with `gh pr view`, then query that PR and SHA explicitly:
+Use `gh` to inspect runs for the PR's actual current head and the live base,
+including the actual checkout SHA in every selected verification/pack log.
+Prefix commands with `rtk proxy` as required by the session's RTK instructions:
 
 ```sh
-rtk proxy depot ci workflow list --repo schlessera/brain-kit \
-  --pr <pr-number> --sha <head-sha> --output json -n 200
-rtk proxy depot ci status <run-id> --output json
-rtk proxy depot ci diagnose --run <run-id> --output json
-rtk proxy depot ci logs <attempt-id> --timestamps --output-file /tmp/ci-attempt.log
-rtk proxy depot ci artifacts list <run-id> --output json
-rtk proxy depot ci artifacts download <artifact-id> --output-file /tmp/ci-artifact.zip
+rtk proxy gh pr view <pr-number> --repo schlessera/brain-kit \
+  --json headRefOid,statusCheckRollup
+rtk proxy gh run list --repo schlessera/brain-kit --commit <head-sha> \
+  --limit 100 --json databaseId,headSha,status,conclusion,event,url
+rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
+  --json headSha,status,conclusion,jobs,url,attempt
+rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
+  --attempt <attempt-number> --log-failed
+rtk proxy gh api repos/schlessera/brain-kit/actions/jobs/<job-id>/logs
 ```
 
-`depot ci run list` defaults to queued/running runs. Pass `--status failed`
-to find failures or `--status finished` for completed runs, with `--repo`,
-`--pr` and `--sha` as appropriate. Workflow listings include completed runs
-without a status filter. Read each expected job and its current attempt;
-`finished` alone is not proof that every required job passed. Record the
-run/job/attempt IDs and inspect the actual failing step and assertion. Prefer
-an attempt ID for logs: a job/run shortcut resolves the latest attempt and
-can select different evidence after a retry. Use `logs --follow` only for a
-bounded live inspection; finite exports keep monitoring responsive.
-Limit concurrent log exports to four. If Depot reports `resource_exhausted:
-Too many active log streams for this token`, let exports finish and retry
-sequentially; the preceding `Not found` fallback messages do not prove that
-the attempt is missing.
+Check links may identify synthetic-merge runs omitted by a head-SHA filter.
+Record run/job/attempt IDs and the actual failing step/assertion. Missing runs,
+queued work, cancelled jobs, unavailable runtimes and older green attempts
+leave proof unfinished. Conditional skips count only where the planner and
+workflow intentionally exclude that job.
+Validated #1333 retention is a selected guarantee's intentional execution skip:
+inspect original receipts and the current aggregate's equivalence validation.
+An older green summary without that validation remains insufficient. A job log can be read through its
+API while other jobs still run. A refused-start job has no execution log;
+inspect its check-run annotations instead.
 
-For local verification, `depot ci run --workflow .depot/workflows/ci.yml`
-uploads unpushed changes automatically; `--job <job-key>` limits the jobs.
-The CLI's `api` event has no PR/push changeset base, so select runtime jobs
-instead of the `changeset` gate. With CLI 2.102.12, injected local patches
-also require `jq` in the job container before checkout; the pinned Playwright
-image lacks it. Push browser changes and inspect the automatic PR run.
-A local API run does not establish PR-event or main-push behavior. Before
-merging, verify automatic PR runs for the current head and live base, including
-the checkout SHA in test/browser logs. After merging, verify the squash commit
-is on main and inspect Depot's push run for that SHA. Missing runs, cancelled
-jobs and older green attempts leave verification unfinished. Use GitHub checks
-to discover check links, then Depot for CI logs; `gh run` applies to the
-project-sync exception.
+Before merging, retain focused `bun run check:pr --base origin/main` receipts
+and complete selected hosted proof for the inspected state. Inspect new base commits before refreshing;
+refresh and revalidate affected categories only when those commits affect
+this work or its checks. Record unrelated advancement without substituting a
+new base for the old tested one. After merging, prove the squash is on main,
+verify its immutable parent/tree and inspect the GitHub push run for that SHA.
+A missing, cancelled or failed push run remains unfinished verification.
 
 ## Repo-local skills
 

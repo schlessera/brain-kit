@@ -1,0 +1,795 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+# Cancel obsolete PR heads. Preserve every integrated main commit's evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Drafts run cheap gates. Ready PRs run affected complete hosted proof.
+# Independent jobs start together; each PR owns its cancellation group (#1326).
+jobs:
+  changeset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      runtime: ${{ steps.plan.outputs.runtime }}
+      captures: ${{ steps.plan.outputs.captures }}
+      layout: ${{ steps.plan.outputs.layout }}
+      browser: ${{ steps.plan.outputs.browser }}
+      unit: ${{ steps.plan.outputs.unit }}
+      verify: ${{ steps.plan.outputs.verify }}
+      pack: ${{ steps.plan.outputs.pack }}
+      run_browser: ${{ steps.reuse.outputs.run_browser }}
+      run_layout: ${{ steps.reuse.outputs.run_layout }}
+      reuse: ${{ steps.reuse.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Plan affected fast and local checks
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: bun scripts/ci-plan.ts
+      - name: Lint, leakage and contribution workflow guards
+        run: bun run lint
+      - name: Env documentation matches its descriptors
+        run: bun scripts/env-docs.ts --check
+      - name: Validate all pending changeset package names
+        run: bun scripts/check-changeset-packages.ts
+      - name: Require a changeset for shipped package changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            bun scripts/check-changeset.ts "$BASE_SHA"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            bun scripts/check-changeset.ts "$BEFORE_SHA"
+          fi
+      - name: Retain only validated equivalent automatic proof
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: bun scripts/proof-reuse.ts
+      - name: Retention ledger and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proof-reuse-ledger
+          path: tmp/proof-reuse.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  verify:
+    # Packaging and verification are independent after cheap rejection gates.
+    needs: changeset
+    if: needs.changeset.outputs.verify == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute the same affected selection
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Strict types and curated fast tests concurrently on this runner
+        run: bun scripts/ci-runner.ts
+
+  pack:
+    needs: changeset
+    if: needs.changeset.outputs.pack == 'true'
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    env:
+      GEMINI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Workspace pins match the packed manifests
+        # The release-time probe, run on every PR: packs each package and
+        # asserts every internal dep pin equals the current workspace version.
+        # Must run BEFORE the smoke-test consumer below — its file: overrides
+        # resolve every internal dep to a local tarball, which would mask a
+        # wrong pin completely. Needs no registry access.
+        run: bun scripts/check-publish-pins.ts
+      - name: Pack all workspaces
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          mkdir -p "$TARBALL_DIR"
+          for package in \
+            geo \
+            core \
+            ui-sdk \
+            ui-backend-claude \
+            ui-backend-pi \
+            ui-render-puppeteer \
+            scrape \
+            render-template \
+            ui-server \
+            ui-kit \
+            ui-react \
+            module-finance \
+            module-images \
+            module-video \
+            module-jobs \
+            module-speaking \
+            module-travel
+          do
+            (cd "packages/$package" && \
+              bun pm pack --filename "$TARBALL_DIR/$package.tgz")
+            TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
+            grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = geo ]; then
+              grep -q "^package/assets/IBMPlexSans-Regular\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/IBMPlexSans-Medium\.ttf$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/assets/OFL\.txt$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = core ]; then
+              grep -q "^package/dist/cli/brain.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/hooks/" <<< "$TARBALL_CONTENTS"
+              # Codex reads a skill's manual-only policy from beside its SKILL.md.
+              grep -q "^package/skills/sync/agents/openai\.yaml$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = module-speaking ]; then
+              grep -q "^package/skills/new-submission/agents/openai\.yaml$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = module-travel ]; then
+              grep -q "^package/skills/plan-travel/SKILL\.md$" <<< "$TARBALL_CONTENTS"
+            fi
+            if [ "$package" = ui-server ]; then
+              grep -q "^package/dist/bin/brain-ui-cron.js" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/bin/brain-ui-inbox.js" <<< "$TARBALL_CONTENTS"
+            fi
+          done
+      - name: Install and smoke-test packed packages
+        run: |
+          set -euo pipefail
+          TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
+          mkdir -p "$CONSUMER_DIR"
+          cd "$CONSUMER_DIR"
+          bun -e '
+            const tarballs = "../brainkit-tarballs";
+            await Bun.write("package.json", JSON.stringify({
+              name: "brainkit-pack-smoke",
+              private: true,
+              type: "module",
+              overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
+                "@schlessera/brain": `file:${tarballs}/core.tgz`,
+                "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@schlessera/brain-backend-claude": `file:${tarballs}/ui-backend-claude.tgz`,
+                "@schlessera/brain-backend-pi": `file:${tarballs}/ui-backend-pi.tgz`,
+                "@schlessera/brain-render-puppeteer": `file:${tarballs}/ui-render-puppeteer.tgz`,
+                "@schlessera/brain-scrape": `file:${tarballs}/scrape.tgz`,
+                "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
+                "@schlessera/brain-ui-server": `file:${tarballs}/ui-server.tgz`,
+                "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
+                "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
+                "@schlessera/brain-module-finance": `file:${tarballs}/module-finance.tgz`,
+                "@schlessera/brain-module-images": `file:${tarballs}/module-images.tgz`,
+                "@schlessera/brain-module-video": `file:${tarballs}/module-video.tgz`,
+                "@schlessera/brain-module-jobs": `file:${tarballs}/module-jobs.tgz`,
+                "@schlessera/brain-module-speaking": `file:${tarballs}/module-speaking.tgz`,
+                "@schlessera/brain-module-travel": `file:${tarballs}/module-travel.tgz`,
+              },
+            }, null, 2) + "\n");
+          '
+          bun add "$TARBALL_DIR"/*.tgz react react-dom
+          bun -e '
+            const names = [
+              "@schlessera/brain-geo",
+              "@schlessera/brain",
+              "@schlessera/brain-ui-sdk",
+              "@schlessera/brain-backend-claude",
+              "@schlessera/brain-backend-pi",
+              "@schlessera/brain-render-puppeteer",
+              "@schlessera/brain-render-template",
+              "@schlessera/brain-scrape",
+              "@schlessera/brain-ui-server",
+              "@schlessera/brain-ui-kit",
+              "@schlessera/brain-ui-react",
+              "@schlessera/brain-module-finance",
+              "@schlessera/brain-module-images",
+              "@schlessera/brain-module-video",
+              "@schlessera/brain-module-jobs",
+              "@schlessera/brain-module-speaking",
+              "@schlessera/brain-module-travel",
+            ];
+            for (const name of names) {
+              const loaded = await import(name);
+              if (!loaded || typeof loaded !== "object") {
+                throw new Error(`Failed to import ${name}`);
+              }
+            }
+            const geo = await import("@schlessera/brain-geo/server");
+            if (typeof geo.GeoClient !== "function") throw new Error("Packed geo server client is missing");
+            const map = await new geo.GeoClient().staticMap({
+              pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+            });
+            if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+              throw new Error(`Packed Bun static map failed: ${map.reason}`);
+            }
+            const claude = await import("@schlessera/brain-backend-claude");
+            if (typeof claude.createClaudeBackend !== "function") {
+              throw new Error("createClaudeBackend export is missing");
+            }
+            const coreTesting = await import("@schlessera/brain/testing");
+            for (const suite of [
+              "runEmbeddingProviderContract",
+              "runCompletionProviderContract",
+              "runAgentRunnerContract",
+              "runSkillEmitterContract",
+            ]) {
+              if (typeof coreTesting[suite] !== "function") {
+                throw new Error(`@schlessera/brain/testing is missing ${suite}`);
+              }
+            }
+          '
+          bun -e '
+            const { mkdirSync, symlinkSync } = await import("node:fs");
+            const { resolve, join } = await import("node:path");
+            const root = resolve("travel-fixture");
+            mkdirSync(root, { recursive: true });
+            symlinkSync(resolve("node_modules"), join(root, "node_modules"));
+            const speaking = "@schlessera/brain-module-speaking";
+            const travel = "@schlessera/brain-module-travel";
+            const party = [{ name: "Odysseus", requirementsDoc: "people/odysseus.md" }];
+            await Bun.write(join(root, "brain.config.json"), JSON.stringify({ modules: {
+              [speaking]: { travelParty: party }, [travel]: {},
+            } }));
+            const source = "---\ntype: trip\ntitle: Ithaca headland\ntrip_status: done\nvisits: [{id: homecoming, date: null}]\n---\n";
+            await Bun.write(join(root, "trips/headland.md"), source);
+            const bin = resolve("node_modules/.bin/brain");
+            async function run(args) {
+              const child = Bun.spawn([bin, ...args, "--json"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+              const [out, err, code] = await Promise.all([
+                new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+              ]);
+              if (code !== 0) throw new Error(`Packed travel CLI failed: ${args.join(" ")}: ${err}`);
+              return JSON.parse(out);
+            }
+            const listed = await run(["module", "list"]);
+            if (listed.enabled.find((m) => m.name === "travel")?.types.join(",") !== "travel,trip,place") {
+              throw new Error("Packed travel module did not load its taxonomy");
+            }
+            if ((await run(["module", "lint", "travel"])).errors !== 0) throw new Error("Packed travel skills failed lint");
+            if (!(await run(["travel", "validate"])).validation.valid) throw new Error("Packed travel format rejected its fixture");
+            if (!(await run(["travel", "migrate"])).migration.changed) throw new Error("Packed migration made no edit");
+            const config = await Bun.file(join(root, "brain.config.json")).json();
+            if (JSON.stringify(config.modules[travel].travelParty) !== JSON.stringify(party)) throw new Error("Packed migration lost party data");
+            if ((await run(["travel", "migrate"])).migration.changed) throw new Error("Packed migration was not idempotent");
+            if (await Bun.file(join(root, "trips/headland.md")).text() !== source) throw new Error("Packed migration rewrote content");
+            const input = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAABgAAAAMCAIAAAD3UuoiAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAGElEQVQokWP4TyXAMGoQQTAaRoTBMA4jANNsXM4dShcqAAAAAElFTkSuQmCC", "base64");
+            await Bun.write(join(root, "inputs/odysseus.png"), input);
+            const photo = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
+            const copy = photo.files[0];
+            if (photo.files.length !== 1 || photo.errors.length !== 0 || copy.output !== "photos/odysseus.jpg"
+              || copy.width !== 24 || copy.height !== 12 || copy.captured_at !== null || copy.location !== null) {
+              throw new Error("Packed photo command returned an incorrect report");
+            }
+            const jpeg = Buffer.from(await Bun.file(join(root, copy.output)).arrayBuffer());
+            if (jpeg.length !== copy.bytes || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error("Packed photo command did not encode a JPEG");
+            if (!Buffer.from(await Bun.file(join(root, "inputs/odysseus.png")).arrayBuffer()).equals(input)) throw new Error("Packed photo command changed its source");
+            const repeated = (await run(["travel", "photo", "inputs/odysseus.png", "--to", "photos"])).photo;
+            if (repeated.files[0]?.output !== "photos/odysseus-2.jpg") throw new Error("Packed photo command overwrote its first copy");
+            const recording = `<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>`;
+            await Bun.write(join(root, "recordings/odysseus.gpx"), recording);
+            const imported = (await run(["travel", "route", "recordings/odysseus.gpx", "--to", "routes"])).route;
+            if (imported.source_kind !== "local_gpx" || imported.points !== 2 || imported.distance_km !== 0.111195 || imported.ascent_m !== null) {
+              throw new Error("Packed route CLI did not parse the nonempty GPX with honest unknown elevations");
+            }
+            if (!(await Bun.file(join(root, imported.gpx)).text()).includes("<trkpt")) throw new Error("Packed route CLI wrote no geometry");
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed route CLI changed its source");
+            const summary = await run(["geo", "track", "recordings/odysseus.gpx"]);
+            if (summary.operation !== "track" || summary.geometry[0]?.length !== 2 || summary.counts.retained !== 2 || summary.measurements.distance.value <= 0) {
+              throw new Error("Packed geo track CLI lost its nonempty source/measurement contract");
+            }
+            const map = await run(["geo", "map", "recordings/odysseus.gpx", "--no-background", "--width", "320", "--out", "walk.png"]);
+            const png = Buffer.from(await Bun.file(join(root, "walk.png")).arrayBuffer());
+            if (map.operation !== "map" || map.kind !== "track_only" || map.artifact?.bytes !== png.length || png[0] !== 137 || png.length < 1000 || map.png !== undefined || map.svg !== undefined) {
+              throw new Error("Packed geo map CLI did not write a qualified local PNG");
+            }
+            if (await Bun.file(join(root, "recordings/odysseus.gpx")).text() !== recording) throw new Error("Packed geo CLI changed its source");
+          '
+          node --input-type=module <<'NODE'
+          const nodePackages = [
+            "@schlessera/brain-geo",
+            "@schlessera/brain-geo/server",
+            "@schlessera/brain-ui-sdk",
+            "@schlessera/brain-ui-sdk/protocol",
+            "@schlessera/brain-ui-sdk/schemas",
+            "@schlessera/brain-ui-sdk/server",
+            "@schlessera/brain-ui-sdk/testing",
+            "@schlessera/brain-ui-sdk/client",
+            "@schlessera/brain-backend-claude",
+            "@schlessera/brain-render-puppeteer",
+            "@schlessera/brain-render-template",
+            "@schlessera/brain-scrape",
+            "@schlessera/brain-ui-kit",
+            "@schlessera/brain-ui-react",
+          ];
+          for (const name of nodePackages) {
+            const loaded = await import(name);
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error(`Node failed to import ${name}`);
+            }
+          }
+
+          const { GeoClient } = await import("@schlessera/brain-geo/server");
+          const map = await new GeoClient().staticMap({
+            pins: [{ lat: 0, lon: 0, label: "Packed stop" }], background: "none", widthPx: 320,
+          });
+          if (!map.png || map.png.byteLength < 1000 || map.png[0] !== 137 || !map.text.includes("Stop 1: Packed stop")) {
+            throw new Error(`Packed Node static map failed: ${map.reason}`);
+          }
+
+          const bunApiPackages = [
+            "@schlessera/brain",
+            "@schlessera/brain-module-finance",
+            "@schlessera/brain-module-images",
+            "@schlessera/brain-module-video",
+            "@schlessera/brain-module-jobs",
+            "@schlessera/brain-module-speaking",
+            "@schlessera/brain-module-travel",
+            "@schlessera/brain-backend-pi",
+            "@schlessera/brain-ui-server",
+          ];
+          for (const name of bunApiPackages) {
+            try {
+              await import(name);
+            } catch (error) {
+              const message = `${error?.code ?? ""}: ${error?.message ?? error}`;
+              if (!message.includes("bun:")) {
+                throw new Error(
+                  `${name} failed for a reason other than its documented bun: dependency:\n${message}`
+                );
+              }
+            }
+          }
+
+          // Core's seam contract suites import no bun: module, so unlike core
+          // itself they load under Node, which resolves them to the built dist/.
+          const coreTesting = await import("@schlessera/brain/testing");
+          if (typeof coreTesting.runEmbeddingProviderContract !== "function") {
+            throw new Error("Node failed to import the @schlessera/brain/testing suites from dist/");
+          }
+          NODE
+          ./node_modules/.bin/brain --version
+          set +e
+          CRON_USAGE=$(./node_modules/.bin/brain-ui-cron 2>&1)
+          CRON_STATUS=$?
+          set -e
+          test "$CRON_STATUS" -eq 2
+          # One line per subcommand, so adding a subcommand does not silently
+          # stop this from asserting anything. The `run` line is the one the
+          # container crontab is written against, so it is matched in full.
+          #
+          # Matching in full means this has to move when the line does, and it
+          # did not: `--subprocess-env-extra` was added to `run` by the 0.33.1
+          # per-audience allowlist and this string was left behind, so the job
+          # failed from then until the lockfile break started masking it.
+          # The emitter's own byte-exact goldens are in
+          # packages/ui-server/tests/cron-emit.test.ts; this assertion is about
+          # the packed bin's advertised interface.
+          grep -qF \
+            'usage: brain-ui-cron run [--subprocess-env-extra <names>] <job-name> -- <command...>' \
+            <<< "$CRON_USAGE"
+          for sub in digest crontab environment; do
+            grep -qE "^ *brain-ui-cron $sub( |$)" <<< "$CRON_USAGE"
+          done
+      - name: Check packed query source and default JavaScript imports
+        run: bun scripts/check-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed pi graph and listing tool runtime
+        run: bun scripts/check-pi-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed ui-server graph and keyterms through the optional core peer
+        run: bun scripts/check-ui-server-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed jobs hygiene through the packed core loader and queries
+        run: bun scripts/check-module-query-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Check packed operational backup and restore commands
+        run: bun scripts/check-inbox-package.ts --root "$RUNNER_TEMP/brainkit-consumer"
+      - name: Typecheck the published type surface (dist .d.ts, consumer conditions)
+        # The repo's own typecheck resolves cross-package imports to src via
+        # customConditions ["bun"], so the emitted .d.ts consumers get is
+        # otherwise never typechecked — and the workspace's hoisted
+        # node_modules would let an UNDECLARED dependency of a .d.ts resolve
+        # anyway. Running the probes against the tarball-consumer install
+        # (which holds only declared dependencies) closes both holes. The
+        # @types packages are the consumer-side typing setup our optional
+        # peers and React peer deps document. See scripts/check-dist-types.ts.
+        run: |
+          set -euo pipefail
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-consumer"
+          (cd "$CONSUMER_DIR" && bun add -d @types/bun @types/react @types/react-dom)
+          bun scripts/check-dist-types.ts --root "$CONSUMER_DIR"
+      - name: Smoke-test brain-ui-react against React 18
+        # The primary consumer above follows the current React release. This
+        # narrow second consumer keeps the package's >=18 peer claim honest
+        # without reinstalling or rechecking the complete package matrix.
+        run: |
+          set -euo pipefail
+          export REPO_DIR="$PWD"
+          export TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
+          CONSUMER_DIR="$RUNNER_TEMP/brainkit-react18-consumer"
+          mkdir -p "$CONSUMER_DIR"
+          cd "$CONSUMER_DIR"
+          # The packed brain-ui-react pins its internal dependencies to the
+          # workspace version, which npm does not have between versioning and
+          # publishing. The same file: overrides as the consumer above make
+          # every internal package resolve to its packed tarball, so this step
+          # tests what was packed rather than the last published release.
+          bun -e '
+            const tarballs = "../brainkit-tarballs";
+            await Bun.write("package.json", JSON.stringify({
+              name: "brainkit-react18-smoke",
+              private: true,
+              type: "module",
+              overrides: {
+                "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
+                "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
+                "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
+                "@schlessera/brain-ui-kit": `file:${tarballs}/ui-kit.tgz`,
+                "@schlessera/brain-ui-react": `file:${tarballs}/ui-react.tgz`,
+              },
+            }, null, 2) + "\n");
+          '
+          bun add \
+            "$TARBALL_DIR/geo.tgz" \
+            "$TARBALL_DIR/render-template.tgz" \
+            "$TARBALL_DIR/ui-sdk.tgz" \
+            "$TARBALL_DIR/ui-kit.tgz" \
+            "$TARBALL_DIR/ui-react.tgz" \
+            'react@^18' \
+            'react-dom@^18'
+          bun add -d \
+            '@types/react@^18' \
+            '@types/react-dom@^18'
+          bun -e '
+            // Each internal package must be the packed one. Neither a version
+            // nor a manifest can tell a tarball from the same release on npm,
+            // which is byte-identical when nothing changed since publishing.
+            // The lockfile can: it records where each package resolved from.
+            const version = (await Bun.file(`${process.env.REPO_DIR}/packages/ui-react/package.json`).json()).version;
+            const lock = await Bun.file("bun.lock").text();
+            // Every resolution of an internal package, nested copies included,
+            // must be a tarball: a nested npm copy would be the one a
+            // dependant actually loads.
+            const resolutions = [...lock.matchAll(/\["(@schlessera\/[^@"]+)@([^"]*)"/g)];
+            for (const [, name, from] of resolutions) {
+              if (!from.startsWith("../brainkit-tarballs/")) {
+                throw new Error(`${name} resolved from ${from || "the registry"}, not a packed tarball`);
+              }
+            }
+            for (const [name, tarball] of [
+              ["@schlessera/brain-geo", "geo"],
+              ["@schlessera/brain-render-template", "render-template"],
+              ["@schlessera/brain-ui-sdk", "ui-sdk"],
+              ["@schlessera/brain-ui-kit", "ui-kit"],
+              ["@schlessera/brain-ui-react", "ui-react"],
+            ]) {
+              const entry = `"${name}": ["${name}@../brainkit-tarballs/${tarball}.tgz"`;
+              if (!lock.includes(entry)) {
+                throw new Error(`${name} did not resolve to ${tarball}.tgz`);
+              }
+              const installed = (await Bun.file(`node_modules/${name}/package.json`).json()).version;
+              if (installed !== version) {
+                throw new Error(`${name} is ${installed}, expected the workspace version ${version}`);
+              }
+            }
+            for (const name of [
+              "react",
+              "react-dom",
+              "@types/react",
+              "@types/react-dom",
+            ]) {
+              const manifest = await Bun.file(`node_modules/${name}/package.json`).json();
+              if (!manifest.version.startsWith("18.")) {
+                throw new Error(`Expected ${name} 18.x, got ${manifest.version}`);
+              }
+            }
+            const loaded = await import("@schlessera/brain-ui-react");
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error("Bun failed to import @schlessera/brain-ui-react on React 18");
+            }
+            await Bun.write("index.ts", `
+              import * as ui from "@schlessera/brain-ui-react";
+              ui;
+            `);
+            await Bun.write("tsconfig.json", JSON.stringify({
+              compilerOptions: {
+                target: "ESNext",
+                module: "ESNext",
+                moduleResolution: "bundler",
+                strict: true,
+                skipLibCheck: false,
+                noEmit: true,
+                lib: ["ESNext", "DOM", "DOM.Iterable"],
+                jsx: "react-jsx",
+                types: [],
+              },
+              include: ["index.ts"],
+            }, null, 2) + "\n");
+          '
+          node --input-type=module -e '
+            const loaded = await import("@schlessera/brain-ui-react");
+            if (!loaded || typeof loaded !== "object") {
+              throw new Error("Node failed to import @schlessera/brain-ui-react on React 18");
+            }
+          '
+          "$REPO_DIR/node_modules/.bin/tsc" -p tsconfig.json --pretty false
+
+  unit:
+    needs: changeset
+    if: needs.changeset.outputs.unit == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Real Chrome and offline Linux namespace prerequisites
+        run: bash scripts/ci-runtime-setup.sh
+      - name: Complete unit proof
+        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/4
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-proof-${{ matrix.shard }}
+          path: |
+            tmp/proof-checkout.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  runtime:
+    needs: changeset
+    if: needs.changeset.outputs.runtime == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Real Chrome and offline Linux namespace prerequisites
+        run: bash scripts/ci-runtime-setup.sh
+      - name: Complete runtime proof
+        run: bun scripts/ci-proof.ts runtime
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-proof
+          path: |
+            tmp/proof-checkout.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  browser:
+    needs: changeset
+    if: needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Complete browser proof
+        run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/2
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-proof-${{ matrix.shard }}
+          path: |
+            tmp/proof-checkout.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  layout:
+    needs: changeset
+    if: needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Complete layout proof
+        run: bun scripts/ci-proof.ts layout --shard=${{ matrix.shard }}/2
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: layout-proof-${{ matrix.shard }}
+          path: |
+            tmp/proof-checkout.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  captures:
+    needs: changeset
+    if: needs.changeset.outputs.captures == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bun scripts/ci-plan.ts
+      - name: Complete captures proof
+        run: bun scripts/ci-proof.ts captures
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: captures-proof
+          path: |
+            tmp/proof-checkout.json
+            tmp/unit-report.xml
+            tmp/unit-timings.json
+            tmp/measure-claude-*.json
+            tmp/*-probe.json
+            tmp/feature-capture-verification/
+            packages/ui-kit/.vitest-attachments/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  proof:
+    # Evaluate even after failures or skips; never interpret missing selected proof as green.
+    needs: [changeset, verify, pack, unit, runtime, browser, layout, captures]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Require every selected proof category to pass
+        env:
+          PROOF_NEEDS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/ci-proof.ts aggregate

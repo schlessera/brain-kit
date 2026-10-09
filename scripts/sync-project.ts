@@ -60,13 +60,13 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   // Getting the thing into somebody else's hands: the two templates, and the
   // public documentation and website that introduce it to new users.
   Distribution: [
-    { epics: [26, 70, 608], also: [69], repo: "schlessera/brain-kit" },
+    { epics: [26, 70, 608, 1348], also: [69], repo: "schlessera/brain-kit" },
     { epics: [], also: [1, 2, 3], repo: "schlessera/brain-template" },
   ],
-  Hardening: [{ epics: [], also: [38, 152, 251, 282], repo: "schlessera/brain-kit" }],
+  Hardening: [{ epics: [1343], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902],
-    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347],
+    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598, 1392],
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
@@ -75,10 +75,10 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     repo: "schlessera/brain-kit",
   }],
   "Answer quality": [{ epics: [363, 364, 365, 838], also: [50], repo: "schlessera/brain-kit" }],
-  Modules: [{ epics: [32, 524, 731, 732, 733, 1100], also: [59, 60], repo: "schlessera/brain-kit" }],
+  Modules: [{ epics: [32, 524, 731, 732, 733, 1100], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
   Voice: [{ epics: [54], also: [91], repo: "schlessera/brain-kit" }],
-  "Contract and 1.0": [{ epics: [56], also: [57, 62], repo: "schlessera/brain-kit" }],
+  "Contract and 1.0": [{ epics: [56, 1341, 1345], also: [57, 62], repo: "schlessera/brain-kit" }],
 };
 
 const SIZES = ["XS", "S", "M", "L"];
