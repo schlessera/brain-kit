@@ -83,8 +83,10 @@ model identity, EOF and child closure for every physical call; `relay.ts` is
 the loopback tee for the native arm; `freeze.ts` binds source, runtime and
 fixture identity. `review-packet.ts` and `review-evidence.ts` implement the
 cross-family review admission. Live dispatch refuses until the native
-auxiliary accounting prerequisite ([#1275](https://github.com/schlessera/brain-kit/issues/1275))
-is verified and `BRAIN_TAG_ALIAS_DISPATCH` is set explicitly.
+auxiliary transport/accounting and original effect qualifications are verified
+and `BRAIN_TAG_ALIAS_DISPATCH` is set explicitly. The core permission baseline
+is the settled explicit default under #1301; no evaluation-specific override
+is introduced.
 
 Reproduce the keyless native transport controls in a networkless namespace:
 
@@ -97,3 +99,19 @@ python3 scripts/evals/tag-aliases/launch.py review /tmp/tag-alias-controls/revie
 
 These prove the transport and the report-only tool policy; they prove nothing
 about model quality.
+
+
+The private paid entry under #1298 requires the existing #844 root allocation,
+a protected source/input/protocol/runtime/proof/prompt policy and a consumed
+one-use grant before USER release. The exact unchanged fixture instruction
+block is bound separately. Each physical attempt reserves the full supported
+million-token context plus its exact output maximum before forwarding; wire
+size is only a transport bound. The serialized root window, current source and
+original grant are rechecked, and missing or contradictory usage/pricing,
+in-flight requests and incomplete streams stop admission with unknown holds.
+Explicit paid overage requires consistent native quota evidence. Native and
+physical literal bytes, all observed pricing fields, natural EOF, reader close
+and actual owned child drain support review admission; offline provenance
+cannot acquire semantic approval by relabelling. Actual invoices remain
+unknown without separate evidence. This preparation supplies no new allocation,
+paid result, gate ratification, alias authority or adoption decision.

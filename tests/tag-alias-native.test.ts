@@ -1,7 +1,19 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync,existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+
+for(const newline of [true,false])test(`actual observer refuses an ungranted USER before native input, including EOF framing: ${newline}`,async()=>{
+  const root=mkdtempSync(join(tmpdir(),"tag-alias-user-boundary-")),receiptPath=join(root,"receipt.json"),observed=join(root,"received-user"),sentinel=join(root,"sentinel.ts"),source=resolve(".");
+  writeFileSync(sentinel,`import {writeFileSync} from "node:fs";for await(const chunk of Bun.stdin.stream()){if(new TextDecoder().decode(chunk).includes('"type":"user"'))writeFileSync(${JSON.stringify(observed)},"USER arrived");}process.exit(3);`);
+  const child=Bun.spawn([process.execPath,join(source,"scripts/evals/tag-aliases/native-observer.ts"),"--settings","{}"],{cwd:source,env:{PATH:process.env.PATH,BRAIN_TAG_ALIAS_OFFLINE:"1",BRAIN_TAG_ALIAS_SOURCE:source,BRAIN_ROOT:root,BRAIN_TAG_ALIAS_RECEIPT:receiptPath,CLAUDE_CODE_OAUTH_TOKEN:"offline-fixture",BRAIN_TAG_ALIAS_NATIVE_COMMAND:JSON.stringify([process.execPath,sentinel])},stdin:"pipe",stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(5000)});
+  child.stdin.write(JSON.stringify({type:"user",message:{role:"user",content:"Odysseus fixture"}})+(newline?"\n":""));child.stdin.end();
+  try{
+    const [code]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+    expect(existsSync(observed)).toBe(false);
+    const receipt=JSON.parse(readFileSync(receiptPath,"utf8"));expect(receipt.inputFailure).toContain("USER release requires a consumed root native grant");expect(code).toBe(1);expect(receipt.promptReleased).toBe(false);expect(receipt.drained).toBe(true);expect(()=>process.kill(receipt.nativePid,0)).toThrow();
+  }finally{child.kill();await child.exited;rmSync(root,{recursive:true,force:true});}
+});
 
 test("bounded observer deadline force-closes an unresponsive owned native sentinel with unknown usage", async () => {
   const root = mkdtempSync(join(tmpdir(), "brain-tag-alias-deadline-")), receiptPath = join(root, "receipt.json"), sentinel = join(root, "sentinel.ts");

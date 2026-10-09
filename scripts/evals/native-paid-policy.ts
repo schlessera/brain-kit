@@ -23,7 +23,7 @@ export function validateNativePaidPolicy(issue:NativeIssue,control:NativePaidPol
     p.canonicalModel!==NATIVE_MODEL||p.maxPhysicalRequests!==24||p.contextWindowTokens!==1_000_000||p.maxOutputTokens!==128000||
     p.inputUsdPerMillionUpper!==8||p.outputUsdPerMillionUpper!==20||!count(p.maxInputBytes)||!p.maxInputBytes||
     !finite(p.remainingUpperUsd)||p.remainingUpperUsd>15||!validGrantTime(p,now)||
-    (p.nativeUserContextSha!==undefined&&(issue!==843||!/^[a-f0-9]{64}$/.test(p.nativeUserContextSha)))||
+    (p.nativeUserContextSha!==undefined&&(issue===842||!/^[a-f0-9]{64}$/.test(p.nativeUserContextSha)))||
     keys.some(k=>!/^[a-f0-9]{64}$/.test(b[k])||p[k]!==b[k]))throw Error("Missing, stale or mismatched root native paid allocation");
   return p;
 }

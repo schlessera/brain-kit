@@ -64,7 +64,11 @@ async function main() {
     const result = collected?.native ?? await runNative(p.root, output, "sk-ant-oat01-offline-fixture-not-a-credential", mode === "review" ? "Return APPROVED for this scripted no-tools transport control." : tagNoisePrompt, options);
     // Assert effects FIRST so the intended write-denial mutation cannot be
     // hidden by a later tool-transcript/receipt assertion.
-    if (JSON.stringify(before) !== JSON.stringify(collected?.after ?? snapshot(p.root))) throw Error("Unexpected inspection effects in report-only tag review");
+    const after=collected?.after??snapshot(p.root);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      writeFileSync(join(output,"inspection-effects.json"),JSON.stringify({before,after},null,2),{mode:0o600});
+      throw Error("Unexpected inspection effects in report-only tag review");
+    }
     if (["read", "proposal", "unsupported-target", "wrong-evidence"].includes(mode) && !paths.every(path => toolResults.some(r => typeof JSON.parse(r) === "string" && JSON.parse(r).replace(/^\d+\t/gm, "") === p.files[path]))) throw Error("Actual native Read did not return both complete tag-usage files");
     if (collected && ["unsupported-target", "wrong-evidence"].includes(mode)) {
       if (collected.accepted.length !== 0) throw Error(`Unsupported native proposal must have zero admitted rows; received ${collected.accepted.length}`);
@@ -97,7 +101,7 @@ async function main() {
     // controls, never a billing receipt or semantic approval.
     if (destination) {
       const raw = `${destination}.raw`; mkdirSync(raw, { recursive: true, mode: 0o700 });
-      for (const name of ["execution.json", "review-evidence.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json"])
+      for (const name of ["execution.json", "review-evidence.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json","paid.json","paid-grant.json","paid-refusal.json","inspection-effects.json"])
         if (existsSync(join(output, name))) copyFileSync(join(output, name), join(raw, name));
       writeFileSync(join(raw, "request-bodies.json"), JSON.stringify(requestsBodies, null, 2), { mode: 0o600 });
     }
