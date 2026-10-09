@@ -51,7 +51,9 @@ export function checkCIWorkflows(root: string): string[] {
   const problems: string[] = [];
   const directory = join(root, ".github/workflows");
   const files = existsSync(directory) ? readdirSync(directory).sort() : [];
-  if (JSON.stringify(files) !== JSON.stringify(["ci.yml", "contract.yml", "project-sync.yml"])) problems.push("GitHub must contain only the authoritative CI, contract and project-sync workflows");
+  const expected = ["ci.yml", "contract.yml", "project-sync.yml"];
+  if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected)) problems.push("GitHub must contain only the authoritative CI, contract, project-sync and optional Pages publication workflows");
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
@@ -59,7 +61,36 @@ export function checkCIWorkflows(root: string): string[] {
     if (!existsSync(path)) problems.push(`${file}: missing authoritative GitHub workflow`);
     else problems.push(...workflowProblems(readFileSync(path, "utf8"), file));
   }
+  const pages = join(directory, "publish-pages.yml");
+  if (existsSync(pages)) problems.push(...publicationWorkflowProblems(readFileSync(pages, "utf8")));
   return problems;
+}
+
+/** Publication has its own narrowly scoped deploy token; contribution CI stays read-only. */
+export function publicationWorkflowProblems(text: string): string[] {
+  const errors: string[] = [];
+  const fail = (message: string) => errors.push(`publish-pages.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["publish-pages.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["publish-pages.yml: workflow must be a mapping"];
+  if (/\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("publication must not run privileged contribution events or read secrets");
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read" })) fail("build token must be contents: read only");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {}).sort()) !== JSON.stringify(["artifact", "deploy"])) fail("publication must separate artifact and deploy jobs");
+  const artifact = workflow.jobs?.artifact;
+  const deploy = workflow.jobs?.deploy as (NonNullable<Workflow["jobs"]>[string] & { needs?: unknown }) | undefined;
+  if (artifact?.permissions !== undefined) fail("artifact job must inherit read-only permissions");
+  if (JSON.stringify(deploy?.permissions) !== JSON.stringify({ pages: "write", "id-token": "write" })) fail("only deploy may receive the Pages/OIDC token");
+  if (deploy?.needs !== "artifact" || deploy.if !== "needs.artifact.outputs.publish == 'true'") fail("deploy must depend on successful, selected artifact verification");
+  const steps = artifact?.steps ?? [];
+  const checkouts = steps.filter(step => step.uses?.startsWith("actions/checkout@"));
+  if (!checkouts.length || checkouts.some(step => step.with?.["persist-credentials"] !== false)) fail("checkout credentials must not persist");
+  const upload = steps.findIndex(step => step.uses === "actions/upload-pages-artifact@v4");
+  for (const command of ["bun website/scripts/check.ts", "bun website/scripts/verify-publication.ts"]) {
+    const check = steps.findIndex(step => step.run === command);
+    if (check < 0 || upload < 0 || check >= upload) fail("browser and identity checks must precede Pages artifact upload");
+  }
+  return errors;
 }
 
 if (import.meta.main) {

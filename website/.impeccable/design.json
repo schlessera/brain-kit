@@ -1,0 +1,433 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-09T05:21:36Z",
+  "title": "Design System: brain-kit public website",
+  "extensions": {
+    "colorMeta": {
+      "dark": {
+        "role": "neutral",
+        "displayName": "Dark",
+        "tonalRamp": [
+          "oklch(15.00% 0.01351 223.03)",
+          "oklch(26.43% 0.01351 223.03)",
+          "oklch(37.86% 0.01351 223.03)",
+          "oklch(49.29% 0.01351 223.03)",
+          "oklch(60.71% 0.01351 223.03)",
+          "oklch(72.14% 0.01351 223.03)",
+          "oklch(83.57% 0.01351 223.03)",
+          "oklch(95.00% 0.01351 223.03)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "oklch(15.00% 0.01622 95.23)",
+          "oklch(26.43% 0.01622 95.23)",
+          "oklch(37.86% 0.01622 95.23)",
+          "oklch(49.29% 0.01622 95.23)",
+          "oklch(60.71% 0.01622 95.23)",
+          "oklch(72.14% 0.01622 95.23)",
+          "oklch(83.57% 0.01622 95.23)",
+          "oklch(95.00% 0.01622 95.23)"
+        ]
+      },
+      "amber": {
+        "role": "primary",
+        "displayName": "Amber",
+        "tonalRamp": [
+          "oklch(15.00% 0.14695 74.63)",
+          "oklch(26.43% 0.14695 74.63)",
+          "oklch(37.86% 0.14695 74.63)",
+          "oklch(49.29% 0.14695 74.63)",
+          "oklch(60.71% 0.14695 74.63)",
+          "oklch(72.14% 0.14695 74.63)",
+          "oklch(83.57% 0.14695 74.63)",
+          "oklch(95.00% 0.14695 74.63)"
+        ]
+      },
+      "amber-hover": {
+        "role": "primary",
+        "displayName": "Amber Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.13770 78.53)",
+          "oklch(26.43% 0.13770 78.53)",
+          "oklch(37.86% 0.13770 78.53)",
+          "oklch(49.29% 0.13770 78.53)",
+          "oklch(60.71% 0.13770 78.53)",
+          "oklch(72.14% 0.13770 78.53)",
+          "oklch(83.57% 0.13770 78.53)",
+          "oklch(95.00% 0.13770 78.53)"
+        ]
+      },
+      "teal": {
+        "role": "secondary",
+        "displayName": "Teal",
+        "tonalRamp": [
+          "oklch(15.00% 0.09152 177.96)",
+          "oklch(26.43% 0.09152 177.96)",
+          "oklch(37.86% 0.09152 177.96)",
+          "oklch(49.29% 0.09152 177.96)",
+          "oklch(60.71% 0.09152 177.96)",
+          "oklch(72.14% 0.09152 177.96)",
+          "oklch(83.57% 0.09152 177.96)",
+          "oklch(95.00% 0.09152 177.96)"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Dark Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.00981 87.47)",
+          "oklch(26.43% 0.00981 87.47)",
+          "oklch(37.86% 0.00981 87.47)",
+          "oklch(49.29% 0.00981 87.47)",
+          "oklch(60.71% 0.00981 87.47)",
+          "oklch(72.14% 0.00981 87.47)",
+          "oklch(83.57% 0.00981 87.47)",
+          "oklch(95.00% 0.00981 87.47)"
+        ]
+      },
+      "ink-paper": {
+        "role": "neutral",
+        "displayName": "Paper Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.01087 229.58)",
+          "oklch(26.43% 0.01087 229.58)",
+          "oklch(37.86% 0.01087 229.58)",
+          "oklch(49.29% 0.01087 229.58)",
+          "oklch(60.71% 0.01087 229.58)",
+          "oklch(72.14% 0.01087 229.58)",
+          "oklch(83.57% 0.01087 229.58)",
+          "oklch(95.00% 0.01087 229.58)"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Dark Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.01046 238.54)",
+          "oklch(26.43% 0.01046 238.54)",
+          "oklch(37.86% 0.01046 238.54)",
+          "oklch(49.29% 0.01046 238.54)",
+          "oklch(60.71% 0.01046 238.54)",
+          "oklch(72.14% 0.01046 238.54)",
+          "oklch(83.57% 0.01046 238.54)",
+          "oklch(95.00% 0.01046 238.54)"
+        ]
+      },
+      "muted-paper": {
+        "role": "neutral",
+        "displayName": "Paper Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.01533 244.51)",
+          "oklch(26.43% 0.01533 244.51)",
+          "oklch(37.86% 0.01533 244.51)",
+          "oklch(49.29% 0.01533 244.51)",
+          "oklch(60.71% 0.01533 244.51)",
+          "oklch(72.14% 0.01533 244.51)",
+          "oklch(83.57% 0.01533 244.51)",
+          "oklch(95.00% 0.01533 244.51)"
+        ]
+      },
+      "action-ink": {
+        "role": "neutral",
+        "displayName": "Action Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.01326 222.84)",
+          "oklch(26.43% 0.01326 222.84)",
+          "oklch(37.86% 0.01326 222.84)",
+          "oklch(49.29% 0.01326 222.84)",
+          "oklch(60.71% 0.01326 222.84)",
+          "oklch(72.14% 0.01326 222.84)",
+          "oklch(83.57% 0.01326 222.84)",
+          "oklch(95.00% 0.01326 222.84)"
+        ]
+      },
+      "selected-ink": {
+        "role": "neutral",
+        "displayName": "Selected Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.01330 222.87)",
+          "oklch(26.43% 0.01330 222.87)",
+          "oklch(37.86% 0.01330 222.87)",
+          "oklch(49.29% 0.01330 222.87)",
+          "oklch(60.71% 0.01330 222.87)",
+          "oklch(72.14% 0.01330 222.87)",
+          "oklch(83.57% 0.01330 222.87)",
+          "oklch(95.00% 0.01330 222.87)"
+        ]
+      },
+      "passage-ink": {
+        "role": "neutral",
+        "displayName": "Passage Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.01229 226.00)",
+          "oklch(26.43% 0.01229 226.00)",
+          "oklch(37.86% 0.01229 226.00)",
+          "oklch(49.29% 0.01229 226.00)",
+          "oklch(60.71% 0.01229 226.00)",
+          "oklch(72.14% 0.01229 226.00)",
+          "oklch(83.57% 0.01229 226.00)",
+          "oklch(95.00% 0.01229 226.00)"
+        ]
+      },
+      "passage-muted": {
+        "role": "neutral",
+        "displayName": "Passage Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.00941 176.95)",
+          "oklch(26.43% 0.00941 176.95)",
+          "oklch(37.86% 0.00941 176.95)",
+          "oklch(49.29% 0.00941 176.95)",
+          "oklch(60.71% 0.00941 176.95)",
+          "oklch(72.14% 0.00941 176.95)",
+          "oklch(83.57% 0.00941 176.95)",
+          "oklch(95.00% 0.00941 176.95)"
+        ]
+      },
+      "stage-paper": {
+        "role": "neutral",
+        "displayName": "Stage Paper",
+        "tonalRamp": [
+          "oklch(15.00% 0.01566 86.43)",
+          "oklch(26.43% 0.01566 86.43)",
+          "oklch(37.86% 0.01566 86.43)",
+          "oklch(49.29% 0.01566 86.43)",
+          "oklch(60.71% 0.01566 86.43)",
+          "oklch(72.14% 0.01566 86.43)",
+          "oklch(83.57% 0.01566 86.43)",
+          "oklch(95.00% 0.01566 86.43)"
+        ]
+      },
+      "phone-shell": {
+        "role": "neutral",
+        "displayName": "Phone Shell",
+        "tonalRamp": [
+          "oklch(15.00% 0.00718 229.21)",
+          "oklch(26.43% 0.00718 229.21)",
+          "oklch(37.86% 0.00718 229.21)",
+          "oklch(49.29% 0.00718 229.21)",
+          "oklch(60.71% 0.00718 229.21)",
+          "oklch(72.14% 0.00718 229.21)",
+          "oklch(83.57% 0.00718 229.21)",
+          "oklch(95.00% 0.00718 229.21)"
+        ]
+      },
+      "phone-border": {
+        "role": "neutral",
+        "displayName": "Phone Border",
+        "tonalRamp": [
+          "oklch(15.00% 0.01081 212.53)",
+          "oklch(26.43% 0.01081 212.53)",
+          "oklch(37.86% 0.01081 212.53)",
+          "oklch(49.29% 0.01081 212.53)",
+          "oklch(60.71% 0.01081 212.53)",
+          "oklch(72.14% 0.01081 212.53)",
+          "oklch(83.57% 0.01081 212.53)",
+          "oklch(95.00% 0.01081 212.53)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Opening headline; responsive sizing lives in DESIGN.md Layout."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Later major section headings."
+      },
+      "desktop-headline": {
+        "displayName": "Desktop Headline",
+        "purpose": "First paper passage heading."
+      },
+      "brand": {
+        "displayName": "Brand",
+        "purpose": "Website name in the header and footer."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "Opening supporting copy."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default reading and inherited control text."
+      },
+      "action": {
+        "displayName": "Action",
+        "purpose": "Amber primary action labels."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Demo disclosure and compact context."
+      },
+      "mono": {
+        "displayName": "Monospace",
+        "purpose": "The homepage's actual Markdown example."
+      }
+    },
+    "shadows": [
+      {
+        "name": "phone-stage",
+        "value": "0 16px 36px #0005",
+        "purpose": "Lift the exterior portrait frame. Source: website/src/styles/site.css."
+      },
+      {
+        "name": "desktop-stage",
+        "value": "0 14px 34px #3630212a",
+        "purpose": "Separate the desktop product stage from the paper passage. Source: website/src/styles/site.css."
+      },
+      {
+        "name": "capture-stage",
+        "value": "0 16px 40px #29211921",
+        "purpose": "Lift the dictation review stage from paper. Source: website/src/styles/site.css."
+      }
+    ],
+    "motion": [
+      {
+        "name": "primary-background",
+        "value": "background .18s",
+        "purpose": "Amber primary-action hover; CSS disables it for reduced motion. Source: website/src/styles/site.css."
+      },
+      {
+        "name": "scenario-change",
+        "value": "220ms cubic-bezier(.16,1,.3,1)",
+        "purpose": "Fade from .75 opacity, translateY(5px), blur(1px) to the settled phone stages; the script omits this moment for reduced motion. Source: website/src/pages/index.astro."
+      },
+      {
+        "name": "page-scroll",
+        "value": "smooth",
+        "purpose": "Normal anchor navigation; reduced motion uses auto. Scenario jumps use auto; device expansion uses a 380ms transform and a 300ms return, disabled for reduced motion. Source: website/src/styles/site.css and website/src/pages/index.astro."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide-min",
+        "value": "1400px"
+      },
+      {
+        "name": "middle-max",
+        "value": "1399px"
+      },
+      {
+        "name": "middle-min",
+        "value": "901px"
+      },
+      {
+        "name": "stack-max",
+        "value": "900px"
+      },
+      {
+        "name": "native-phone-max",
+        "value": "480px"
+      },
+      {
+        "name": "edge-to-edge-max",
+        "value": "360px"
+      },
+      {
+        "name": "dictation-toolbar-max-in-iframe",
+        "value": "340px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Amber primary action with the shared drawn arrow. Source: website/src/styles/site.css and website/src/components/Arrow.astro.",
+      "html": "<a class=\"ds-primary\" href=\"#demo\">Explore the demo <svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 12h16m-6-6 6 6-6 6\"/></svg></a>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:18px;min-height:54px;padding:12px 26px;border-radius:12px;background:var(--amber,#eca634);color:#11191c;text-decoration:none;font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-weight:600;font-size:18px;line-height:1.6;transition:background .18s}.ds-primary svg{flex-shrink:0}.ds-primary:hover{background:#f9bd55}.ds-primary:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}.ds-primary:disabled{opacity:.55;cursor:default}@media(max-width:900px){.ds-primary{font-size:16px;padding:12px 20px}}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Directional Text Link",
+      "kind": "button",
+      "refersTo": "text-link",
+      "description": "Underlined secondary destination, inheriting the surrounding surface ink. Source: website/src/styles/site.css and website/src/components/Arrow.astro.",
+      "html": "<a class=\"ds-link\" href=\"/brain-kit/docs/quickstart/\">Get started <svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 12h16m-6-6 6 6-6 6\"/></svg></a>",
+      "css": ".ds-link{display:inline-flex;align-items:center;gap:10px;min-height:44px;color:var(--ink,#f8f5ee);font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:18px;line-height:1.6;letter-spacing:-.03em;text-decoration:underline;text-underline-offset:.25em}.ds-link svg{flex-shrink:0}.ds-link:hover{text-decoration-color:var(--amber,#eca634)}.ds-link:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}@media(max-width:900px){.ds-link{font-size:16px}}"
+    },
+    {
+      "name": "Selected Scenario",
+      "kind": "chip",
+      "refersTo": "scenario-selected",
+      "description": "A pressed scenario button in exterior showcase navigation. Source: website/src/styles/site.css and website/src/pages/index.astro.",
+      "html": "<button class=\"ds-scenario\" type=\"button\" aria-pressed=\"true\">Decide</button>",
+      "css": ".ds-scenario{color:#10181b;background:var(--amber,#eca634);border:0;min-height:44px;padding:8px 22px;border-radius:24px;white-space:nowrap;font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:16px;line-height:1.6;cursor:pointer}.ds-scenario:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}@media(max-width:900px){.ds-scenario{font-size:14px;padding:8px 17px}}"
+    },
+    {
+      "name": "Unselected Scenario",
+      "kind": "chip",
+      "refersTo": "scenario",
+      "description": "A plain exterior scenario button; selection is conveyed by aria-pressed and amber fill. Source: website/src/styles/site.css and website/src/pages/index.astro.",
+      "html": "<button class=\"ds-scenario\" type=\"button\" aria-pressed=\"false\">Follow the work</button>",
+      "css": ".ds-scenario{color:var(--ink,#f8f5ee);background:none;border:0;min-height:44px;padding:8px 15px;border-radius:24px;white-space:nowrap;font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:16px;line-height:1.6;cursor:pointer}.ds-scenario:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}@media(max-width:900px){.ds-scenario{font-size:14px;padding:8px 12px}}"
+    },
+    {
+      "name": "Theme Control",
+      "kind": "button",
+      "refersTo": "theme-toggle",
+      "description": "Square SVG theme control with a name that states the next theme. This visual snippet does not implement persistence. Source: website/src/components/Header.astro and website/src/layouts/Page.astro.",
+      "html": "<button class=\"ds-theme\" type=\"button\" aria-label=\"Switch to paper theme\" title=\"Switch theme\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5\"/></svg></button>",
+      "css": ".ds-theme{width:44px;height:44px;display:grid;place-items:center;background:none;border:0;border-radius:12px;color:var(--ink,#f8f5ee);cursor:pointer}.ds-theme:hover{background:color-mix(in srgb,var(--ink,#f8f5ee) 8%,transparent)}.ds-theme:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}"
+    },
+    {
+      "name": "Main Navigation",
+      "kind": "nav",
+      "description": "Four plain desktop links, reduced to Docs/GitHub at mobile widths and Docs at the narrowest width. Source: website/src/components/Header.astro and website/src/styles/site.css.",
+      "html": "<nav class=\"ds-main-nav\" aria-label=\"Main navigation\"><a href=\"#demo\">Explore</a><a href=\"#how-it-works\">How it works</a><a href=\"/brain-kit/docs/\">Docs</a><a href=\"https://github.com/schlessera/brain-kit\">GitHub</a></nav>",
+      "css": ".ds-main-nav{display:flex;align-items:center;gap:36px;color:var(--ink,#f8f5ee);font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:16px;line-height:1.6}.ds-main-nav a{display:flex;align-items:center;min-height:44px;color:inherit;text-decoration:none}.ds-main-nav a:hover{text-decoration-color:var(--amber,#eca634)}.ds-main-nav a:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}@media(max-width:900px){.ds-main-nav{gap:20px;font-size:14px}.ds-main-nav a:first-child,.ds-main-nav a:nth-child(2){display:none}}@media(max-width:480px){.ds-main-nav{gap:14px}}@media(max-width:360px){.ds-main-nav a:last-child{display:none}}"
+    },
+    {
+      "name": "Current Docs Destination",
+      "kind": "nav",
+      "refersTo": "docs-nav-current",
+      "description": "Amber current-page item from the desktop sidebar/mobile wrapped docs navigation. Source: website/src/styles/site.css.",
+      "html": "<nav class=\"ds-docs-nav\" aria-label=\"Documentation\"><a href=\"/brain-kit/docs/quickstart/\" aria-current=\"page\">Quickstart</a></nav>",
+      "css": ".ds-docs-nav{display:flex;flex-direction:column;gap:4px;font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:14px;line-height:1.6}.ds-docs-nav a{display:flex;align-items:center;min-height:44px;padding:10px 14px;border-radius:12px;overflow-wrap:anywhere;text-decoration:none;background:var(--amber,#eca634);color:#10181b}.ds-docs-nav a:hover{text-decoration-color:var(--amber,#eca634)}.ds-docs-nav a:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}"
+    },
+    {
+      "name": "Ruled Markdown Example",
+      "kind": "card",
+      "description": "Flat, open-sided file example with wrapping monospace text; it is not a shadowed card. Source: website/src/styles/site.css and website/src/pages/index.astro.",
+      "html": "<div class=\"ds-file-example\"><p>Fictional example \u00b7 Odysseus</p><pre><code># Leaving Ogygia\n\nThe raft is ready to launch.\n\nDeparture: 2026-07-12\nPlanned passage: 17 days\nPlanned landfall: Scheria\n\nPrepare water and provisions.\nReview Calypso\u2019s sailing directions.</code></pre><p>Readable files. Versioned with git. Yours to keep.</p></div>",
+      "css": ".ds-file-example{border-top:1px solid var(--muted,#bec5ca);border-bottom:1px solid var(--muted,#bec5ca);padding:24px 0;font-family:var(--body,'Plus Jakarta Sans',sans-serif);line-height:1.6}.ds-file-example p{font-size:13px;color:var(--muted,#bec5ca);margin:0}.ds-file-example pre{font:16px/1.8 'JetBrains Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:25px 0;color:var(--ink,#f8f5ee)}@media(max-width:900px){.ds-file-example pre{font-size:14px}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A second brain that goes with you",
+    "overview": "The website applies the established Brain UI identity: expressive serif headings, clear sans-serif reading, dark and paper fields, amber actions and teal focus. Spacious editorial surfaces give dense, actual application views room to be understood. The product keeps its own typography, navigation and controls inside the demonstration stages.\n\nThis document governs the website's visual application of that identity. Published UI package tokens remain authoritative for the embedded product. Homepage composition and visitor journey belong in the [surface contract](.impeccable/surfaces/src-pages-index-astro.md), while product claims and fictional-data constraints belong in [PRODUCT.md](PRODUCT.md). The values above record the implemented styles; they do not introduce a new package token API or a uniform spacing scale.",
+    "keyCharacteristics": [
+      "Serif headlines with generous surrounding space.",
+      "Dark and paper surfaces sharing amber actions and teal focus.",
+      "Actual product components presented in clearly labelled stages.",
+      "Readable document flow across desktop and phone widths.",
+      "Restrained shadows, drawn SVG controls and short, optional motion."
+    ],
+    "rules": [
+      {
+        "name": "The Surface Ownership Rule",
+        "body": "Website theme colors govern the surrounding page. Embedded product surfaces retain their native themes and tokens.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** preserve DM Serif Text, Plus Jakarta Sans and the established dark/paper identity.",
+      "**Do** keep website controls outside the actual application stage.",
+      "**Do** use amber for primary actions and selected navigation, and teal for visible focus.",
+      "**Do** preserve native product layout and readable controls as stages change width.",
+      "**Do** use drawn SVG arrows and accessible names for icon-only controls.",
+      "**Do** retain staged-data disclosures, reduced-motion handling and nearby capability limits."
+    ],
+    "donts": [
+      "**Don't** replace published product tokens with the website's extracted values.",
+      "**Don't** invent application destinations, a central notebook or generic context-file attachment.",
+      "**Don't** present fictional responses or preview captures as evidence of live agent execution.",
+      "**Don't** crop dictation actions or shrink native phone controls to preserve desktop composition.",
+      "**Don't** use Unicode directional glyphs in place of the shared SVG controls.",
+      "**Don't** force every editorial section into a shadowed card or a uniform spacing scale."
+    ]
+  }
+}

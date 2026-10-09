@@ -159,6 +159,12 @@ git push origin main --follow-tags
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
+  GitHub omits tag-push events when more than three tags are pushed together
+  ([event limit](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)).
+  The public website's Actions workflow also reconciles the latest canonical
+  release every 15 minutes; its direct trigger alone cannot observe a bulk
+  `--follow-tags` push. Check the website run/provenance after a release, or
+  manually dispatch the same workflow to rebuild immediately.
 - **The template repository goes out as the last step of `bun run release`**,
   after the registry has confirmed every package. It has to be last: a clone of
   `schlessera/brain-template` runs `bun install` against the pin in

@@ -1,0 +1,31 @@
+---
+import Header from '../components/Header.astro';
+import { href, site } from '../../model.mjs';
+import '../styles/site.css';
+const { title = 'brain-kit — A second brain that goes with you.', description = 'A file-first second brain you can operate with an agent. Explore structured decisions, rich answers, inspectable work and capture on the go.' } = Astro.props;
+---
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content={description}/>
+    <title>{title}</title><link rel="canonical" href={`${site}${Astro.url.pathname}`}/><link rel="icon" type="image/svg+xml" href={href('favicon.svg')}/>
+    <link rel="stylesheet" href={href('assets/fonts.css')}/><meta name="color-scheme" content="dark light"/>
+    <script is:inline>try{document.documentElement.dataset.theme=localStorage.getItem('brain-kit-site-theme')==='light'?'light':'dark'}catch{}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a><Header/><slot/>
+    <footer class="site-footer"><a class="brand" href={href()}>brain-kit</a><p>Your files. Your tools. Your second brain.</p><nav aria-label="Community"><a href="https://github.com/schlessera/brain-kit/discussions">Questions</a><a href="https://github.com/schlessera/brain-kit/issues/new/choose">Report a bug</a><a href="https://github.com/schlessera/brain-kit/releases">Releases</a><a href="https://github.com/schlessera/brain-kit/security/policy">Security</a></nav></footer>
+    <script>
+      const toggle = document.querySelector<HTMLButtonElement>('.theme-toggle');
+      function labelTheme() { toggle?.setAttribute('aria-label', `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'paper' : 'dark'} theme`); }
+      labelTheme();
+      toggle?.addEventListener('click', () => {
+        const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+        try { localStorage.setItem('brain-kit-site-theme', theme); } catch {}
+        labelTheme();
+        document.querySelectorAll<HTMLIFrameElement>('iframe[data-demo]').forEach(frame => frame.contentWindow?.postMessage({ type: 'brain-demo-theme', theme }, location.origin));
+      });
+    </script>
+  </body>
+</html>

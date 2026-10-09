@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { CI_WORKFLOWS, checkCIWorkflows, workflowProblems } from "../scripts/check-ci-workflows.ts";
+import { CI_WORKFLOWS, checkCIWorkflows, publicationWorkflowProblems, workflowProblems } from "../scripts/check-ci-workflows.ts";
 const ROOT = resolve(import.meta.dir, "..");
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Obj = { [key: string]: Json };
@@ -102,6 +102,19 @@ describe("GitHub is the sole provider for every contribution", () => {
     });
   }
   test("no duplicate provider definitions or fallback workflows remain", () => { expect(checkCIWorkflows(ROOT)).toEqual([]); });
+  test("Pages publication preserves read-only builds and checked artifact ordering", () => {
+    const pages = read("publish-pages.yml");
+    expect(publicationWorkflowProblems(pages)).toEqual([]);
+    const elevated = Bun.YAML.parse(pages) as Workflow;
+    elevated.jobs.artifact!.permissions = { pages: "write" };
+    expect(publicationWorkflowProblems(Bun.YAML.stringify(elevated))).toContain("publish-pages.yml: artifact job must inherit read-only permissions");
+    const premature = Bun.YAML.parse(pages) as Workflow;
+    const steps = premature.jobs.artifact!.steps;
+    const upload = steps.findIndex(step => step.uses === "actions/upload-pages-artifact@v4");
+    expect(upload).toBeGreaterThan(0);
+    steps.unshift(...steps.splice(upload, 1));
+    expect(publicationWorkflowProblems(Bun.YAML.stringify(premature))).toContain("publish-pages.yml: browser and identity checks must precede Pages artifact upload");
+  });
   test("the evaluator refuses unsupported routing rather than defaulting", () => { expect(() => evaluate("github.x ~ 'y'", {})).toThrow(); });
 });
 

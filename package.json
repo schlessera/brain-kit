@@ -25,7 +25,11 @@
     "release": "bun install && bun run build && bun scripts/publish.ts",
     "captures": "bun scripts/capture.ts",
     "capture:fonts": "bun scripts/capture.ts --prepare-fonts",
-    "capture:verify": "bun scripts/captures/verify.ts"
+    "capture:verify": "bun scripts/captures/verify.ts",
+    "website:build": "bun website/scripts/build.ts",
+    "website:check": "bun website/scripts/build.ts --check",
+    "website:preview": "bun website/scripts/preview.ts",
+    "website:shares": "bun website/scripts/build.ts --refresh-shares"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

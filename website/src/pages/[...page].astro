@@ -1,0 +1,19 @@
+---
+import { getCollection, render } from 'astro:content';
+import Page from '../layouts/Page.astro';
+import { publications } from '../../publication.mjs';
+import { href, sourceUrl, docNavigation } from '../../model.mjs';
+export async function getStaticPaths() {
+  const entries = await getCollection('docs');
+  return entries.map(entry => ({ params: { page: publications[entry.id] }, props: { entry } }));
+}
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const title = entry.body.match(/^#\s+(.+)$/m)?.[1] || entry.id;
+---
+<Page title={`${title} — brain-kit`} description={`Canonical brain-kit documentation: ${title}.`}>
+  <main id="main" class="docs-layout">
+    <nav class="docs-nav" aria-label="Documentation"><a href={href('docs/')} class="docs-home">Documentation</a>{docNavigation.map(item => <a href={href(`${item.route}/`)} aria-current={item.source === entry.id ? 'page' : undefined}>{item.title}</a>)}</nav>
+    <article class="prose"><Content/><footer class="source-links"><a href={sourceUrl(entry.id)}>View Markdown source</a><a href={sourceUrl(entry.id, 'blob', 'main')}>Edit on GitHub</a></footer></article>
+  </main>
+</Page>

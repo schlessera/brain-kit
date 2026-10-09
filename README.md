@@ -5,6 +5,10 @@
 Keep notes, decisions and plans in Markdown, and let your coding agent capture,
 search and maintain them in a git repository you own.
 
+[Explore the website and interactive demo](https://schlessera.github.io/brain-kit/)
+to try structured decisions, agent work, file browsing and voice review using
+the actual UI with fictional Odyssey data.
+
 The `brain` CLI works locally without API keys: capture a thought, find it again,
 and check for broken links or stale notes. A coding agent adds conversational
 capture and review. Your files remain readable in any editor; `brain.db` is a
@@ -18,6 +22,7 @@ disposable search index that `brain index --force` rebuilds from those files.
 
 | What you want to do | Where to start |
 | --- | --- |
+| Explore the product before setting it up | [Website and interactive demo](https://schlessera.github.io/brain-kit/). |
 | Use a brain from the CLI or a coding agent | [Quickstart](docs/quickstart.md): create a private copy of the [brain template](https://github.com/schlessera/brain-template), capture a note and search it. |
 | Back up your brain or self-host the chat UI | [Hosting overview](docs/hosting/README.md): private git backup works today; the hosting starter is not published yet. |
 | Build with the packages or contribute | [Development](CONTRIBUTING.md) for setup and checks; [extension guide](docs/extending/README.md) for the supported provider interfaces. |
