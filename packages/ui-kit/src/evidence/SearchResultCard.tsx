@@ -8,8 +8,8 @@ import { accent, color, font, token } from "../tokens.js";
 import type { ViewState } from "../types.js";
 
 /**
- * A hybrid-search hit. The score is shown because the user is entitled to know
- * how confident the retrieval was; the highlight is the matched term, amber.
+ * A hybrid-search hit. The score is a retrieval metric, not a calibrated
+ * confidence probability; the highlight is the matched term, amber.
  *
  * The snippet arrives pre-split as `before` / `highlight` / `after` rather than
  * as a string with markup in it. That is the design's shape and it is the right
