@@ -160,6 +160,15 @@ Never bypass required reviewers or use `--admin`.
 
 ## Merge and verify
 
+Before every merge, assign the PR and each completed/advanced issue a release
+milestone using the GitHub skill's "Labels and milestones" procedure. Confirm
+the upcoming release for unreleased changes; late verification of already
+shipped behavior retains its original delivery milestone. Include docs/test/CI
+and partial `Refs` deliveries. Read back `gh pr view --json milestone,closingIssuesReferences`
+and `gh issue view --json milestone,state` for every delivered issue. Missing
+or stale assignments need correction before merging. Leave unscheduled parent
+epics alone unless this PR delivers their initial outcome.
+
 Immediately re-read head/state/reviews/checks and query live main again.
 Keep the verified head/base/tree from the passing combined-state inspection:
 
@@ -215,5 +224,6 @@ the merged branch. Main may advance afterward: ancestry establishes presence,
 while the squash's immutable parent/tree establishes what actually landed.
 
 Confirm `MERGED`, the reported merge commit on remote main and actual issue
-state. Missing merge evidence is unfinished verification, not completion.
+state, and read back the PR and delivered issues' milestone assignments.
+Missing merge evidence is unfinished verification, not completion.
 Return to the skill's **Finish or hand off** for labels and assignment cleanup.
