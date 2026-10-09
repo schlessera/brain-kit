@@ -128,6 +128,9 @@ type Work = {
   prepareUnassignedClear():void; staleUnassignedClear():Promise<string>; clearUnassigned():Promise<void>; unassignedClosed():Promise<boolean>;
   stageAdmission():Promise<void>; finishStaleAdmission():Promise<string>;
   holdRecordingLock():Promise<void>; lockHeld():boolean; releaseRecordingLock():void;
+  holdInventoryRecovery():Promise<void>; releaseInventoryRecovery():Promise<void>;
+  recoveryEvents():Array<{root:string;partition:string;state:string;error?:string}>;
+  transcriptFailure():{name:string;message:string;stack:string;locks:{held:Array<{name:string}>}}|null;
   captureUnassigned():Promise<void>; captureActive():{id:string;partition:string}|null; stopCapture():Promise<void>;
   failUnassignedClear():void; holdUnassignedWriter():Promise<void>; staleUnassignedWrite():Promise<string>;
   recoveryAction(action:"associate"|"discard"|"transcript",id:string):Promise<string>;
@@ -569,7 +572,37 @@ runtimeTest("cold transcript staging reports native lock refusal before its read
     });
     expect(result.mutation,"the native write actually refused the occupied lock").toBe("Error");
     expect(result.staging,"staging must reject when its read hook can no longer run").toBe("Cold transcript settled before staging its read: Error");
+    const failure=await work(other,w=>w.transcriptFailure());
+    expect(failure?.message,"the original native lock refusal survives the diagnostic transport").toBe("Recording in another Brain tab");
+    expect(failure?.stack).toContain("Recording in another Brain tab");
+    expect(failure?.locks.held.some(lock=>lock.name==="brain-ui:recording"),"the diagnostic observes the actual occupied native lock").toBe(true);
   }finally{await work(page,w=>w.releaseRecordingLock());await context.close();}
+},30_000);
+
+runtimeTest("cold reader mounting waits for native inventory recovery before transcript staging",async()=>{
+  const {page,context}=await boot();
+  let other:Page|undefined;
+  try {
+    await signIn(page);await work(page,w=>w.seed("unassigned","sirens"));
+    other=await context.newPage();await other.goto(origin);
+    await other.waitForFunction(()=>!!window.__work?.key());await work(other,w=>w.ready());
+    await work(other,w=>w.holdInventoryRecovery());
+    const mount=await other.evaluateHandle(()=>{
+      const state={done:false,error:null as string|null};
+      void window.__work.mountColdReader().then(()=>{state.done=true;},error=>{state.error=String(error);});
+      return state;
+    });
+    await other.locator("[data-cold-reader]").getByText(/^On this device ·/).waitFor();
+    const events=await work(other,w=>w.recoveryEvents());
+    expect(events.some(event=>event.root==="primary"&&event.partition==="unassigned"&&event.state==="pending"),"a real primary recovery still owns the recording lock").toBe(true);
+    expect(events.some(event=>event.root==="cold"&&event.state==="rejected"&&event.error==="Error: Recording in another Brain tab"),"the visible cold inventory is a fallback after actual native recovery contention").toBe(true);
+    expect(await mount.evaluate(state=>state.done),"mount completion must wait for the actual native inventory recovery, even when rows are visible").toBe(false);
+    await work(other,w=>w.releaseInventoryRecovery());
+    await other.waitForFunction(state=>state.done||state.error!==null,mount);
+    expect(await mount.evaluate(state=>state.error)).toBeNull();
+    await work(other,w=>w.stageColdTranscript());
+    expect(await work(other,w=>w.releaseColdTranscript()),"the original transcript really stages after the native recovery releases its lock").toBe("ok");
+  }finally{if(other)await work(other,w=>w.releaseInventoryRecovery()).catch(()=>{});await context.close();}
 },30_000);
 
 for (const delayStorage of [false,true]) runtimeTest(`recovering unassigned survivors never readmits an earlier transcript request in the same store (${delayStorage ? "delayed" : "ordinary"} storage events)`,async()=>{
