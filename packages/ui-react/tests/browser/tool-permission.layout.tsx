@@ -57,6 +57,8 @@ for(const width of [320,1280])for(const theme of ["dark","light"])for(const loca
     const scopes=[...host.querySelectorAll<HTMLElement>('[data-approval-card]')];expect(scopes).toHaveLength(2);
     scopes[0]!.focus();await userEvent.keyboard("a");
     await expect.poll(()=>replies.length).toBe(1);expect(replies[0]).toEqual({type:"tool_approval",toolUseId:"edit-original",channel:"card"});
+    const acceptedEdit=activeChat(root.stores.chat.getState()).messages.flatMap(message=>message.toolCalls).find(tool=>tool.id==="edit-original");
+    expect(acceptedEdit?.status,"accepted edit settles in shared request state").toBe("approved");
     await expect.poll(()=>document.activeElement).toBe(scopes[1]);await userEvent.keyboard("d");
     await expect.poll(()=>replies.length).toBe(2);expect(replies[1]).toEqual({type:"tool_denial",toolUseId:"command-original",message:"Denied by user",channel:"card"});
     await expect.poll(()=>document.activeElement).toBe(host!.querySelector("textarea"));expect(host.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
