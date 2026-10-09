@@ -42,7 +42,7 @@ next to it.
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
   `packages/ui-server/src/config/env.ts:411-416`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:932`). The whole `agent` block is copied into the backend's module
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:943`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:495`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -61,8 +61,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:108-160`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:276`).
+  `packages/ui-server/src/brain/client.ts:109-161`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:282`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:497-501`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -207,7 +207,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:256-261`).
+  `packages/ui-server/src/app.ts:262-267`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -238,7 +238,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:108`). The SDK's
+  `packages/ui-server/src/brain/client.ts:109`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands

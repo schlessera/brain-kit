@@ -4,7 +4,8 @@
 import { statSync } from "fs";
 import { join } from "path";
 
-import { execConfig, resolveCronConfig } from "../config/env.js";
+import { resolveCronConfig } from "../config/env.js";
+import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import { runDigest } from "../cron/digest.js";
 import {
@@ -93,12 +94,12 @@ function runOptions(args: string[]): {
 
 async function readModuleList(
   brainPath: string,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  exec: ExecWrapperConfig
 ): Promise<BrainModuleListPayload | null> {
   try {
     // The CLI imports the repository's config, so this read goes through the
     // wrapper like every other CLI launch.
-    const exec = execConfig();
     const proc = Bun.spawn(wrapCommand(["brain", "module", "list", "--json"], exec.wrapper), {
       cwd: brainPath,
       env,
@@ -137,6 +138,7 @@ if (subcommand === "run") {
       command,
       dbPath: config.dbPath,
       childEnv: config.childEnv,
+      exec: config.exec,
     })
   );
 }
@@ -151,7 +153,8 @@ if (subcommand === "crontab") {
   const options = crontabOptions(args);
   const modules = await readModuleList(
     config.brainPath,
-    config.moduleDiscoveryEnv
+    config.moduleDiscoveryEnv,
+    config.exec
   );
   process.stdout.write(
     emitCrontab({

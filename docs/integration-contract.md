@@ -322,6 +322,20 @@ status while preserving rich thinking/tool/prose rendering and the composer's
 single Stop; stream and cancellation schemas are unchanged. The minor changeset
 records this approved migration, and `api-report/` records the added prop.
 
+## Exec wrapper in app configuration (additive, #1363)
+
+`ServerConfig` in `@schlessera/brain-ui-server` gains optional
+`exec?: ExecWrapperConfig` (`{ wrapper?: string; killer?: string }`), and
+`createBrainClient`'s options gain optional `exec`. `resolveServerConfig(env)`
+always sets `exec` from that record's `BRAIN_UI_EXEC_WRAPPER` and
+`BRAIN_UI_EXEC_KILLER`. Every brain CLI and repository-script spawn of an app
+goes through its configuration's wrapper, never the process environment's, so
+two apps in one process keep separate wrappers. A configuration without
+`exec` keeps the process environment's wrapper, resolved once by
+`createApp()`; a client built without `exec` resolves it once at construction.
+Neither ever spawns unwrapped because the field is absent. A relative wrapper
+path now refuses at `resolveServerConfig()` instead of failing each spawn.
+
 ## Consumers
 
 | Consumer | Surfaces used |

@@ -50,6 +50,7 @@ describe("published sync helper through actual routes", () => {
       brainPath: root,
       brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath: root } as KeytermSettings,
+      exec: {},
     });
     const records: string[] = [];
     const client = createBrainApi(() => "/api", async (url, init) => {
@@ -80,7 +81,7 @@ describe("published sync helper through actual routes", () => {
       process.exit(1);`);
     const app = createBrainRoutes({ brainPath: root,
       brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
-      keyterms: { brainPath: root } as KeytermSettings });
+      keyterms: { brainPath: root } as KeytermSettings, exec: {} });
     let calls = 0;
     const client = createBrainApi(() => "/api", async (url, init) => {
       calls++;
