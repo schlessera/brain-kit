@@ -25,6 +25,7 @@ import { isInternalRepoPath } from "../../stores/file-store.js";
 import { GET_LOCATION_TOOL_NAME, normalizeToolName } from "../../lib/tool-names.js";
 import { computeDiffRows, diffText } from "../../lib/diff.js";
 import { formatRelativeTime } from "../../lib/format-time.js";
+import { formatDuration } from "../../lib/duration.js";
 
 // Re-exported so existing imports of the diff engine from this module keep working.
 export { computeDiffRows, diffText };
@@ -69,16 +70,6 @@ function fileLabel(path: string): ReactNode {
   const rel = toRepoRelative(path);
   if (rel) return <FileLink path={rel}>{rel}</FileLink>;
   return <span title={path}>{path}</span>;
-}
-
-export function formatDuration(ms: number): string {
-  // Server and browser clocks can skew; a negative duration is just 0.
-  ms = Math.max(0, ms);
-  if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  const s = Math.round((ms % 60_000) / 1000);
-  return `${m}m ${s}s`;
 }
 
 /** Compact token count: 1234 → "1k", 2_345_678 → "2.3M". */

@@ -15,6 +15,12 @@ that hits something new is not finished until that lands here or in a test — s
 All seventeen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
+The full sequence: changeset → `bun run version` → **read the version it
+produced** → `bun run build && bun run typecheck && bun run test` → commit
+`chore: version packages to X.Y.Z` → push → `bun run release`. The sections
+below are each step's checks; [Before you version](#before-you-version) adds
+the complete `check:pr --all` proof before the release PR.
+
 ## Before you version
 
 1. **Changesets exist for everything user-visible.** `.changeset/*.md`, one per

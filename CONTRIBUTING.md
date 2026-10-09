@@ -99,7 +99,7 @@ preload and restore saved originals or spies in teardown. Bun child processes
 started through the guarded spawn functions receive the runtime guard too;
 assert their exit codes. Direct `bun test` commands from the repository or a
 package root load that directory's `bunfig.toml`; Bun does not inherit a
-parent config. See [AGENTS.md](AGENTS.md#testing-expectations)
+parent config. See [the testing process](docs/process/testing.md#the-offline-test-harness)
 for child-process coverage, safe probe harnesses and uninstrumented transports.
 Measurement scripts started outside tests keep their ordinary transports.
 
@@ -325,6 +325,13 @@ with a standard XML parser and inspect its testcase names and counts.
    the changeset itself short — what was added / changed / removed, in one line
    each. The commit it links to carries the reasoning.
 
+Before every merge, the PR and each issue it completes or advances must have
+a release milestone, including documentation, tests, CI and partial deliveries.
+Use the confirmed upcoming release for new work; delayed verification retains
+the first release of unchanged shipped behavior. Read back these assignments
+before merge and after closure. See [Milestones](docs/process/github.md#milestones)
+for historical attribution and epic follow-ups.
+
 Frontmatter is parsed only through `parseFrontmatter`, whose canonical copy is
 `packages/core/src/lib/frontmatter-parse.ts`. A package that needs to parse
 frontmatter copies that file in verbatim, the same way the `env-core.ts` files
@@ -345,7 +352,7 @@ before `bun install` stays dependency-free.
 CI runs on GitHub Actions from `.github/workflows/ci.yml`, including the
 separate contract gate below. These are the authoritative workflows for
 main pushes and all pull requests. Update them directly when changing a check;
-local packed-consumer proof reads the same pack job. See [AGENTS.md](AGENTS.md#github-actions-ci)
+local packed-consumer proof reads the same pack job. See [CI and merge](.agents/skills/work-issue/references/ci-and-merge.md)
 for exact-head runs, failed-step logs and checkout receipts. Depot CI and the
 former generated fork fallback copies are retired.
 

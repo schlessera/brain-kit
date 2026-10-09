@@ -6,13 +6,16 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
 import { GENERIC_RENDERER, registerBuiltinRenderers } from "./renderers/index.js";
+import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { effectOf, getToolLabel } from "./tool-views.js";
 import { riskHints } from "./risk-hints.js";
 
-export function ToolPermissionCard({ toolCall, onApproval, backendId }: {
+export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: forced }: {
   toolCall: ToolCall;
   onApproval?: (id: string, approved: boolean, always?: boolean) => boolean | void;
   backendId?: string;
+  /** Skip resolution: the timeline row's boundary caught this tool's renderer throwing. */
+  renderer?: ToolRenderer;
 }) {
   const root = useBrainUiRoot();
   const activeBackend = useChatStore(s => (s.activeSessionId ? s.backendIds[s.activeSessionId] : undefined) ?? "claude");
@@ -22,7 +25,7 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId }: {
   const decision = useRef({ id: toolCall.id, sent: false });
   if (decision.current.id !== toolCall.id) decision.current = { id: toolCall.id, sent: false };
   registerBuiltinRenderers(root.renderers);
-  const renderer = root.renderers.resolve(toolCall, backendId ?? activeBackend) ?? GENERIC_RENDERER;
+  const renderer = forced ?? root.renderers.resolve(toolCall, backendId ?? activeBackend) ?? GENERIC_RENDERER;
   if (!awaitsDecision(toolCall)) return null;
   const label = typeof renderer.label === "function" ? renderer.label(toolCall) : renderer.label ?? getToolLabel(toolCall.name);
   const Input = renderer.Input;

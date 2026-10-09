@@ -131,12 +131,36 @@ actually ships. All `@schlessera/brain-*` packages version in lockstep, so one
 milestone covers all of them.
 
 - An issue in the current milestone is a commitment for that release.
-- An issue with no milestone is not scheduled. That is most of them.
+- An open backlog issue with no milestone is not scheduled.
 - `1.0.0` is the stability bar, not a date: the extension interfaces lose
   `@experimental` and the integration contract stops moving under a minor.
 
 Milestones are not themes. A theme is an epic; an epic can span three
 milestones, and its sub-issues carry the milestones individually.
+
+**Every merge needs a release milestone.** Before merging, assign the appropriate
+milestone to the PR and each issue it completes or advances, including docs, tests, CI and
+partial deliveries using `Refs`. Confirm the upcoming release from the live
+milestones and publication history; an old open milestone or `1.0.0` is not
+automatically next. Read back the PR and issue assignments before merge and
+verify them again when reconciling the squash and issue closure.
+
+For already shipped work, use the first release containing its implementation,
+proved by merged-commit ancestry against published tags and changelogs. A late
+verification or closure date does not move unchanged shipped behavior into a
+later release. Unreleased work belongs to the confirmed upcoming milestone.
+Record attribution evidence when correcting history. A duplicate, rejected
+proposal or written-no decision records its resolution's release context;
+its milestone does not claim that the rejected feature shipped.
+Assign that context before a manual closure too. A new verification-only PR
+can belong to the upcoming release while the verified issue retains its
+original shipped milestone; record the distinction.
+
+An epic records its initial delivered outcome. Later extensions, fixes and
+verification keep their own child milestones. Do not schedule an unfinished
+epic merely because one child merges, or replace its original delivery with
+the release of its newest follow-up. Unresolved backlog work stays unscheduled
+until there is an actual release commitment.
 
 ## The project board
 
@@ -252,6 +276,8 @@ sit in the Ready view as traps.
    open". The PR template's checklist is the merge bar. Focused local preflight and
    behavioral receipts accompany complete selected hosted proof under #1326;
    drafts remain cheap, and failed/cancelled/missing selected jobs cannot merge.
+   Assign and read back the PR and delivered issues' release milestones before
+   merging; follow [Milestones](#milestones) for release attribution.
 6. **Human handoff, when needed.** Once independent agent work is complete,
    update the body with the remaining action and its completion evidence,
    replace `agent-ready` with `needs: human`, and leave the issue open. Keep

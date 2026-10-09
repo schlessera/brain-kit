@@ -457,11 +457,15 @@ for canonical formats and the complete upgrade path.
   brings no conference types or slide-deck exclusions.
 - **Config:** `travelParty`, an array of `{name, role?, requirementsDoc?}`;
   default `[]`. Existing paths and values move losslessly from speaking.
-- **Skill:** `plan-travel`, for conference-linked and personal journeys.
+- **Skills:** `plan-travel`, for conference-linked and personal journeys;
+  `trip-log`, for proposing, recording and dismissing day trips with their
+  routes, photos and choosing rules; `places`, for visited places.
 - **CLI word:** `brain travel validate`, `brain travel migrate [--dry-run]`,
-  `brain travel photo <files> --to <dir>` and
-  `brain travel route <url|file> --to <dir>`; all have documented `--json`
-  envelopes. Route import supports local/direct GPX and public Komoot pages,
+  `brain travel photo <files> --to <dir>`,
+  `brain travel route <url|file> --to <dir>` and
+  `brain travel sync [--check]`; all have documented `--json`
+  envelopes. Sync regenerates `trips/_index.md` and `places/_index.md`
+  from canonical records, preserving prose outside their generated regions. Route import supports local/direct GPX and public Komoot pages,
   with optional distance trimming. Outdooractive routes are imported from a
   GPX the user exports while signed in.
 - **Migration:** install/enable travel; preview/apply the source-only command

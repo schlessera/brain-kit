@@ -180,8 +180,34 @@ waiting on human verification may retain its release commitment. Rule first,
 then schedule:
 
 ```sh
-gh issue edit 42 --repo schlessera/brain-kit --milestone "0.37.0"
+gh issue edit 42 --repo schlessera/brain-kit --milestone "$release_milestone"
 ```
+
+Before **every merge**, assign the release milestone to the PR and each issue
+it completes or advances, including `Refs` slices and docs/test/CI work. Follow
+[the milestone agreement](../../../docs/process/github.md#milestones): confirm
+the upcoming version from live milestones and publication evidence; preserve
+the first delivery of already shipped work despite later verification. Do not
+take the first open milestone or copy a version from this skill. Read back the
+assignments before merging and during post-merge reconciliation. An unfinished
+parent epic does not inherit a child's release commitment.
+
+Historical milestones may be closed. List all states and assign their numeric
+identity through REST if the CLI's name lookup omits closed milestones:
+
+```sh
+gh api --paginate "repos/$repo/milestones?state=all&per_page=100"
+gh api --method PATCH "repos/$repo/issues/$issue_number" \
+  -F "milestone=$milestone_number"
+gh pr edit "$pr_number" --repo "$repo" --milestone "$release_milestone"
+gh pr view "$pr_number" --repo "$repo" --json milestone,closingIssuesReferences
+gh issue view "$issue_number" --repo "$repo" --json milestone,state
+```
+
+PRs also use the issues REST endpoint for numeric historical assignments.
+Retain attribution evidence for historical corrections. Duplicate/rejected
+resolutions receive release context without claiming implementation; later
+epic children keep their own milestones rather than retargeting the epic.
 
 ## Issues that need design
 
@@ -361,6 +387,9 @@ Assess new base commits before refreshing: revalidate affected inputs, preserve
 the actual tested head/base and do not restart long suites for unrelated merges.
 Inspect selected job checkouts and the proof aggregate before matching-head
 merge; verify the actual squash and automatic main push afterward.
+
+Assign and verify the PR and delivered issues' release milestones before the
+merge, following "Labels and milestones"; re-check them after closure.
 
 The PR normally closes the issue; do not close it by hand before merging. If
 required human verification remains, follow "Handing work to a human" instead:
