@@ -31,7 +31,8 @@ function fixture(ctx: TestContext) {
   const net = installFaultNetwork({ routes: url => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : Response.json({}) });
   const root = createBrainUiRoot({ storage: null, request: net.request });
   root.stores.connection.getState().setVpnStatus("connected", "odysseus");
-  const partitions = createLocalPartitions({ name: `odysseus-tray-${crypto.randomUUID()}`, heldAccountKey: () => root.stores.connection.getState().accountKey });
+  const storageName = `odysseus-tray-${crypto.randomUUID()}`;
+  const partitions = createLocalPartitions({ name: storageName, heldAccountKey: () => root.stores.connection.getState().accountKey });
   root.partitions = partitions;
   root.localWork = createLocalWork({ stores: root.stores, partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
   root.recordings = createRecordingStore({ root, partitions, heldAccountKey: () => root.stores.connection.getState().accountKey });
@@ -75,7 +76,7 @@ function fixture(ctx: TestContext) {
     });
     ctx.onTestFinished(off);
   });
-  return { root, partitions, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
+  return { root, partitions, storageName, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
 }
 async function tap(el: Element) {
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -586,12 +587,45 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
     const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]) === `recording:index:${row.id}` && (typeof value === "object" && value !== null && ["saved", "interrupted"].includes((value as { state: string }).state)));
     ctx.onTestFinished(() => hold.restore());
+    // Hold only completion delivery after the real durable discard. Storage
+    // absence alone cannot establish that the async UI handler has announced it.
+    const discard = c.root.recordings!.discard.bind(c.root.recordings);
+    let releaseNotice!: () => void;
+    const noticeGate = new Promise<void>(resolve => { releaseNotice = resolve; });
+    let deletionFinished!: () => void;
+    const deleted = new Promise<void>(resolve => { deletionFinished = resolve; });
+    vi.spyOn(c.root.recordings!, "discard").mockImplementation(async (partition, id) => {
+      await discard(partition, id);
+      deletionFinished();
+      await noticeGate;
+    });
+    ctx.onTestFinished(() => releaseNotice());
     const automatic = c.root.recordings!.stop(reason);
     await hold.started;
     await tap(button(c.host, "Discard recording"));
     hold.release(); await automatic;
     await expect.poll(async () => c.root.recordings!.get(row.partition, row.id), { message: "confirmed discard deletes the same recording after automatic termination" }).toBeUndefined();
-    expect(c.host.textContent).toContain("Recording discarded from this device.");
+    await deleted;
+    expect(c.host.textContent, "durable deletion precedes the held UI completion").not.toContain("Recording discarded from this device.");
+    let sampled = false;
+    await expect.poll(() => {
+      const text = c.host.textContent;
+      // The first real DOM sample observes the pending notice; release the
+      // delivery and require the subsequent painted completion, without a sleep.
+      if (!sampled) { sampled = true; releaseNotice(); }
+      return text;
+    }, { message: "confirmed discard announces its rendered completion" }).toContain("Recording discarded from this device.");
+    await expect.poll(() => c.host.querySelector(`[data-recording-focus="${row.id}"]`), { message: "the discarded recording has no visible row" }).toBeNull();
+    expect((await c.root.recordings!.list(row.partition)).map(saved => saved.id), "the deleted recording stays absent from inventory").not.toContain(row.id);
+    await expect(c.root.recordings!.playback(row.partition, row.id), "discarded audio cannot be played").rejects.toThrow("Recording not found");
+    // Recreate the store over a newly opened device database, as a reload does.
+    const reopened = createLocalPartitions({ name: c.storageName, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
+    const reloaded = createRecordingStore({ root: c.root, partitions: reopened, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
+    try {
+      expect(await reopened.open(row.partition).get(`recording:index:${row.id}`), "the original recording index is absent after reopening storage").toBeUndefined();
+      expect((await reloaded.list(row.partition)).map(saved => saved.id), "recreated inventory cannot resurrect the discarded recording").not.toContain(row.id);
+      await expect(reloaded.playback(row.partition, row.id), "recreated playback cannot recover discarded audio").rejects.toThrow("Recording not found");
+    } finally { reloaded.dispose(); }
   });
 }
 
