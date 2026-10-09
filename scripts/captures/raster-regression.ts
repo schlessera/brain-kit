@@ -6,6 +6,7 @@ import { readCatalogue } from "./catalogue.ts";
 import { captureRuntime } from "./runtime.ts";
 import { compareCaptures } from "./verify.ts";
 import { sha256 } from "./provenance.ts";
+import { checkFaultEvidence } from "./fault-evidence.ts";
 
 // This runs in the same pinned, network-denied container as editorial captures.
 // Exercise the actual mounted app and approval executor, not a copied link demo.
@@ -97,6 +98,7 @@ for (let index=0; index<20; index++) {
     console.log(`Native paint-history pair ${pair + 1}/10 agrees`, comparison);
   }
 }
-const result = { pairs: comparisons.length, exact_files: comparisons.reduce((total, result) => total + result.exact_files, 0), comparisons };
+const faultEvidence = await checkFaultEvidence(root, cache, catalogue, output);
+const result = { fault_evidence: faultEvidence, pairs: comparisons.length, exact_files: comparisons.reduce((total, result) => total + result.exact_files, 0), comparisons };
 await writeFile(resolve(output, "paint-reproducibility.json"), JSON.stringify(result, null, 2) + "\n");
 console.log("Runtime captures agree across controlled native fragment paint histories", result);

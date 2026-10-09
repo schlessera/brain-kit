@@ -152,6 +152,12 @@ on, links to or describes them.
   Keep the test preload and offline browser guards enabled; run the targeted
   tests outside the restrictive execution sandbox rather than skipping them
   or disabling sandbox restrictions globally.
+- Tests replacing browser globals must save and restore complete own-property
+  descriptors, including originally absent properties. Install configurable
+  writable test values; restore accessors/flags/value identity with
+  `Object.defineProperty`, and delete only when the original was absent.
+  Saving values or unconditionally deleting `navigator` leaks state between
+  suites (#1158). Keep ordered native/absent/readonly restoration controls.
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
