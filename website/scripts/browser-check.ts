@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import axe from 'axe-core';
 import { verifyDeviceGeometry, verifyRichDemo } from './rich-demo-check.ts';
 import { smokeEmbeddedApps } from './smoke-check.ts';
+import { verifyDocumentation } from './docs-browser-check.ts';
 
 const website = resolve(import.meta.dir, '..');
 const directory = resolve(website, 'dist');
@@ -115,6 +116,7 @@ try {
         if (!process.argv.includes('--no-capture')) await page.screenshot({ path: resolve(captures, name), fullPage: true });
       }
     }
+    await verifyDocumentation(page, origin, manifest.base, captures, !process.argv.includes('--no-capture'));
     await page.goto(`${origin}${manifest.base}docs/quickstart/`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Quickstart', exact: true }).waitFor();
     const source = await page.getByRole('link', { name: 'View Markdown source' }).getAttribute('href');

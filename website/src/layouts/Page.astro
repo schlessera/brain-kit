@@ -1,5 +1,6 @@
 ---
 import Header from '../components/Header.astro';
+import ExternalLink from '../components/ExternalLink.astro';
 import { href, site } from '../../model.mjs';
 import '../styles/site.css';
 const { title = 'brain-kit — A second brain that goes with you.', description = 'A file-first second brain you can operate with an agent. Explore structured decisions, rich answers, inspectable work and capture on the go.' } = Astro.props;
@@ -14,7 +15,7 @@ const { title = 'brain-kit — A second brain that goes with you.', description 
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a><Header/><slot/>
-    <footer class="site-footer"><a class="brand" href={href()}>brain-kit</a><p>Your files. Your tools. Your second brain.</p><nav aria-label="Community"><a href="https://github.com/schlessera/brain-kit/discussions">Questions</a><a href="https://github.com/schlessera/brain-kit/issues/new/choose">Report a bug</a><a href="https://github.com/schlessera/brain-kit/releases">Releases</a><a href="https://github.com/schlessera/brain-kit/security/policy">Security</a></nav></footer>
+    <footer class="site-footer"><a class="brand" href={href()}>brain-kit</a><p>Your files. Your tools. Your second brain.</p><nav aria-label="Community"><ExternalLink href="https://github.com/schlessera/brain-kit/discussions">Questions</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/issues/new/choose">Report a bug</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/releases">Releases</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/security/policy">Security</ExternalLink></nav></footer>
     <script>
       const toggle = document.querySelector<HTMLButtonElement>('.theme-toggle');
       function labelTheme() { toggle?.setAttribute('aria-label', `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'paper' : 'dark'} theme`); }

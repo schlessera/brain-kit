@@ -57,9 +57,24 @@ canonical metadata. Do not publish every repository Markdown file by default.
 
 Derive documentation navigation from the canonical [docs index](../README.md).
 Resolve authored links against the original source location, including
-`README.md`, reference definitions, query strings and fragments. Selected
-targets become base-prefixed site links. Valid unselected repository targets
-use public source/tree fallback; missing targets fail the build. Preserve
+`README.md`, reference definitions, query strings and fragments.
+
+The maintainer's 2026-10-09 documentation update selects every Markdown source
+reachable from this index and the established published guides, including
+linked package references, contributor guides, plans and decision records.
+Following a documentation link stays on the site, including directory links
+with a README. This is the index's linked reading set, not blanket publication
+of every Markdown file in the repository. Preserve the seven established routes
+and derive stable routes for the newly selected sources.
+
+Selected targets become base-prefixed site links. Source code, repository
+directories without a documentation index, historical revision citations and
+other external destinations retain their URLs with a visible external-link
+icon and an accessible destination annotation. Explicit source/edit links keep
+their GitHub destinations and use the same marking. Filename-only documentation
+labels become page headings on the website; canonical Markdown stays unchanged.
+Derive grouped sidebar navigation from the docs index's headings and links.
+Missing targets fail the build. Preserve
 external URLs and GitHub-compatible heading IDs. Validate fragments, raw HTML
 links, encoded paths, route collisions and approved image destinations in the
 production build, beyond the experiment's deliberately narrow cases.

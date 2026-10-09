@@ -31,10 +31,18 @@ Expanding a device animates the same mounted iframe over a dimmed page; closing
 restores its place, focus and app state. Phone previews use native widths on
 small screens, where the expansion control is unnecessary.
 
-Astro generates static HTML under `website/dist/`, including seven deliberately
-selected canonical documentation sources. `publication.mjs` controls their
-stable routes. The Markdown remains in `docs/`; selected links are rewritten
-for the site, and other valid repository links point to the built source SHA.
+Astro generates static HTML under `website/dist/`, including the documentation
+index's complete linked reading set. `publication.mjs` preserves the original
+seven routes and discovers linked Markdown guides, package references and
+project records recursively. Directory links with a README open their site
+index. The canonical Markdown stays in its original repository location;
+filename-only link labels become page headings in the rendered site. Sidebar
+sections and reading order come from `docs/README.md`.
+
+Source-code links, historical revision citations and external references keep
+their destinations. Every external web link has an SVG marker, destination
+tooltip and screen-reader annotation, including the explicit GitHub source/edit
+actions. Links stay in the current tab unless the reader chooses otherwise.
 An unmapped image, missing file or fragment fails the build rather than
 silently linking somewhere else. No analytics or newsletter form is included.
 

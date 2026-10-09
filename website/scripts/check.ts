@@ -8,6 +8,7 @@ const manifest = await Bun.file(resolve(directory, 'build-manifest.json')).json(
 const documents = new Map<string, any>();
 const errors: string[] = [];
 function walk(node: any, fn: (node: any) => void) { fn(node); for (const child of node.childNodes || []) walk(child, fn); }
+function textContent(node: any): string { return node.value || (node.childNodes || []).map(textContent).join(''); }
 for (const [path, hash] of Object.entries(manifest.files)) {
   const file = Bun.file(resolve(directory, path));
   if (createHash('sha256').update(new Uint8Array(await file.arrayBuffer())).digest('hex') !== hash) errors.push(`Artifact digest changed: ${path}`);
@@ -21,6 +22,18 @@ for (const [path, tree] of documents) {
     for (const attr of node.attrs || []) {
       if (!['href', 'src'].includes(attr.name) || /^(?:mailto:|tel:|data:)/.test(attr.value)) continue;
       const url = new URL(attr.value, current);
+      if (node.nodeName === 'a' && attr.name === 'href') {
+        const property = (name: string) => node.attrs.find((attribute: any) => attribute.name === name)?.value;
+        const isExternal = ['http:', 'https:'].includes(url.protocol) && url.origin !== 'https://schlessera.github.io';
+        if (isExternal) {
+          const icon = node.childNodes?.some((child: any) => child.nodeName === 'svg' && child.attrs?.some((attribute: any) => attribute.name === 'class' && attribute.value.includes('external-icon')));
+          const accessibleLabel = node.childNodes?.some((child: any) => child.nodeName === 'span' && textContent(child).includes(`external site: ${url.host}`));
+          if (property('data-external') !== url.host || !icon || !accessibleLabel) errors.push(`Unmarked external link: ${path} -> ${attr.value}`);
+          const ownMarkdown = url.hostname === 'github.com' && url.pathname.startsWith('/schlessera/brain-kit/blob/') && /\.md$/i.test(url.pathname);
+          const currentSource = url.pathname.startsWith(`/schlessera/brain-kit/blob/${manifest.sourceSha}/`) || url.pathname.startsWith('/schlessera/brain-kit/blob/main/');
+          if (ownMarkdown && currentSource && property('data-source-link') === undefined) errors.push(`Documentation escaped to GitHub: ${path} -> ${attr.value}`);
+        } else if (property('data-external') !== undefined) errors.push(`Internal link marked external: ${path} -> ${attr.value}`);
+      }
       if (url.origin !== 'https://schlessera.github.io') continue;
       if (!url.pathname.startsWith(manifest.base)) { errors.push(`Missing base: ${path} -> ${attr.value}`); continue; }
       const target = decodeURIComponent(url.pathname.slice(manifest.base.length)) || 'index.html';

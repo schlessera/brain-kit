@@ -1,10 +1,11 @@
 ---
 import { href } from '../../model.mjs';
+import ExternalLink from './ExternalLink.astro';
 ---
 <header class="site-header">
   <a class="brand" href={href()}><img src={href('favicon.svg')} width="29" height="29" alt="" />brain-kit</a>
   <nav aria-label="Main navigation">
-    <a href={href('#demo')}>Explore</a><a href={href('#how-it-works')}>How it works</a><a href={href('docs/')}>Docs</a><a href="https://github.com/schlessera/brain-kit">GitHub</a>
+    <a href={href('#demo')}>Explore</a><a href={href('#how-it-works')}>How it works</a><a href={href('docs/')}>Docs</a><ExternalLink href="https://github.com/schlessera/brain-kit">GitHub</ExternalLink>
   </nav>
   <button class="theme-toggle" type="button" aria-label="Switch to paper theme" title="Switch theme">
     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
