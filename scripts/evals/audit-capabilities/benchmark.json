@@ -292,7 +292,7 @@
     "template": "authorization-card",
     "files": {
       "rituals/gate.md": "---\ntype: ritual\ntitle: \"Gate inspection\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe latch is intact.\n",
-      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor requests a preview only; the independent fixture execution flag is false.\n\n[[rituals/gate]]\n",
+      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor asks to see the gate table before anyone writes it into the record.\n\n[[rituals/gate]]\n",
       "_index.md": "---\ntype: index\ntitle: \"Nestor directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Nestor.\n\n[[rituals/_index]]\n"
     },
     "moduleMode": null,
@@ -303,12 +303,12 @@
     ],
     "expectedPreviewFiles": {
       "rituals/gate.md": "---\ntype: ritual\ntitle: \"Gate inspection\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe latch is intact.\n",
-      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor requests a preview only; the independent fixture execution flag is false.\n\n[[rituals/gate]]\n\n<!-- brain:generated:registry -->\n\n| title | status |\n| --- | --- |\n| Gate inspection | active |\n\n<!-- /brain:generated:registry -->\n",
+      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor asks to see the gate table before anyone writes it into the record.\n\n[[rituals/gate]]\n\n<!-- brain:generated:registry -->\n\n| title | status |\n| --- | --- |\n| Gate inspection | active |\n\n<!-- /brain:generated:registry -->\n",
       "_index.md": "---\ntype: index\ntitle: \"Nestor directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Nestor.\n\n[[rituals/_index]]\n"
     },
     "expectedEffectFiles": {
       "rituals/gate.md": "---\ntype: ritual\ntitle: \"Gate inspection\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe latch is intact.\n",
-      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor requests a preview only; the independent fixture execution flag is false.\n\n[[rituals/gate]]\n",
+      "rituals/_index.md": "---\ntype: index\ntitle: \"Nestor records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status] }\n---\nNestor asks to see the gate table before anyone writes it into the record.\n\n[[rituals/gate]]\n",
       "_index.md": "---\ntype: index\ntitle: \"Nestor directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Nestor.\n\n[[rituals/_index]]\n"
     },
     "validationRules": [],
@@ -581,7 +581,7 @@
     "entity": "Teiresias",
     "template": "boundary-config",
     "files": {
-      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias retains the record; the configured path is outside this fixture.\n",
+      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias keeps the record; the configured path lies beyond the archive he may read.\n",
       "_index.md": "---\ntype: index\ntitle: \"Teiresias directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Teiresias.\n\n[[notes/entry]]\n"
     },
     "moduleMode": "boundary",
@@ -589,11 +589,11 @@
     "authorization": true,
     "expectedAvailablePaths": [],
     "expectedPreviewFiles": {
-      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias retains the record; the configured path is outside this fixture.\n",
+      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias keeps the record; the configured path lies beyond the archive he may read.\n",
       "_index.md": "---\ntype: index\ntitle: \"Teiresias directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Teiresias.\n\n[[notes/entry]]\n"
     },
     "expectedEffectFiles": {
-      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias retains the record; the configured path is outside this fixture.\n",
+      "notes/entry.md": "---\ntype: note\ntitle: \"Boundary record\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTeiresias keeps the record; the configured path lies beyond the archive he may read.\n",
       "_index.md": "---\ntype: index\ntitle: \"Teiresias directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Teiresias.\n\n[[notes/entry]]\n"
     },
     "validationRules": [],
