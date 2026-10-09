@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { geometryPaths, spanFor, viewBox } from "../src/components/chat/tool-cards/location-card.js";
+import { spanFor, viewBox } from "../src/components/chat/tool-cards/location-card.js";
+import { geometryPaths } from "../src/lib/geometry-paths.js";
 
 // The card's pure half: the span a fix earns, the box the map will draw and
 // the geometry's weights. Rendering is covered in tests/render/render-smoke.test.tsx.

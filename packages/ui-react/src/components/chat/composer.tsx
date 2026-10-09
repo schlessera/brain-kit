@@ -5,7 +5,7 @@ import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
-import { deriveConnectionIssue } from "../connectivity/connection-state.js";
+import { deriveConnectionIssue } from "../../lib/connection-issue.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import {
   fileToAttachment,

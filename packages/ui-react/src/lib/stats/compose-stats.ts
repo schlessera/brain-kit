@@ -1,7 +1,7 @@
 import { softwareDetails, type SoftwareInput } from "./software.js";
 import type { BarListRow, ReceiptRow, StatTile, Tone } from "@schlessera/brain-ui-kit";
 import type { ActivityRuntimeStats } from "@schlessera/brain-ui-sdk/protocol";
-import type { CorpusStats, CorpusStatsHistory, CorpusStatsTrend, CorpusStatsTrends } from "../../../lib/api-client.js";
+import type { CorpusStats, CorpusStatsHistory, CorpusStatsTrend, CorpusStatsTrends } from "../api-client.js";
 
 /**
  * The /stats answer as data (#97): the two channels in, the kit blocks out,

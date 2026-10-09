@@ -15,7 +15,8 @@ import { useBrainApi, useBrainUiRoot, useRootStore } from "../../root-context.js
 import { RunOrbit, openRecordedAgent, useOrbitAgents } from "./run-orbit.js";
 import { cn } from "../../lib/utils.js";
 import { CopyButton } from "../chat/copy-button.js";
-import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
+import { formatRelativeTime } from "../chat/tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import {
   SpanEventBlock,
   SpanPayload,

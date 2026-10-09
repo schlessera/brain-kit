@@ -1,4 +1,4 @@
-import type { VpnStatus } from "../../stores/connection-store.js";
+import type { VpnStatus } from "../stores/connection-store.js";
 
 // Three failed handshakes classify after the existing 1s + 2s backoffs: soon
 // enough to diagnose a refusal, without flashing on one ordinary reconnect.

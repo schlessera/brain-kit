@@ -3,7 +3,7 @@ import { AgentOrbit, type OrbitAgent } from "@schlessera/brain-ui-kit";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { awaitsDecision } from "../../stores/chat-store.js";
-import { formatDuration } from "../chat/tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 
 /** Map recorded dispositions; a radius carries no completion estimate. */
 export function orbitAgent(span: ActivitySpan, waiting: boolean): OrbitAgent {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveConnectionIssue } from "../src/components/connectivity/connection-state.js";
+import { deriveConnectionIssue } from "../src/lib/connection-issue.js";
 import type { VpnStatus } from "../src/stores/connection-store.js";
 
 describe("connection issue derivation", () => {
