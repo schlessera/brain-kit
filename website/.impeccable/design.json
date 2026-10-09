@@ -385,7 +385,7 @@
       "kind": "nav",
       "refersTo": "docs-nav-current",
       "description": "Subtle amber-tinted current-page item with inherited ink, semibold label and a position marker. Desktop sections reveal the current page; mobile navigation is a native disclosure. Source: website/src/styles/docs.css.",
-      "html": "<nav class=\"ds-docs-nav\" aria-label=\"Documentation\"><a href=\"/brain-kit/docs/quickstart/\" aria-current=\"page\">Quickstart</a></nav>",
+      "html": "<nav class=\"ds-docs-nav\" aria-label=\"Documentation\"><a href=\"/brain-kit/docs/quickstart/\" aria-current=\"page\">Create your first brain</a></nav>",
       "css": ".ds-docs-nav{display:flex;flex-direction:column;gap:4px;font-family:var(--body,'Plus Jakarta Sans',sans-serif);font-size:14px;line-height:1.5;color:var(--ink,#f8f5ee)}.ds-docs-nav a{position:relative;display:block;min-height:44px;padding:10px 14px 10px 26px;border-radius:12px;overflow-wrap:anywhere;text-decoration:none;color:inherit;font-weight:600;background:color-mix(in srgb,var(--amber,#eca634) 10%,transparent)}.ds-docs-nav a::before{content:'';position:absolute;left:11px;top:50%;width:5px;height:5px;border-radius:50%;background:color-mix(in srgb,var(--amber,#eca634) 60%,currentColor);transform:translateY(-50%)}.ds-docs-nav a:focus-visible{outline:3px solid var(--teal,#5bb5a2);outline-offset:5px}"
     },
     {

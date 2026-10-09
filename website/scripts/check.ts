@@ -5,6 +5,18 @@ import { parse } from 'parse5';
 
 const directory = resolve(import.meta.dir, '../dist');
 const manifest = await Bun.file(resolve(directory, 'build-manifest.json')).json();
+const handbook = await Bun.file(resolve(directory, 'handbook.json')).json();
+if (handbook.schemaVersion !== 1 || !handbook.publications) throw new Error('Missing handbook publication boundary');
+const selectedSources = new Set<string>(Object.keys(handbook.publications));
+for (const source of selectedSources) {
+  if (!/^docs\/handbook\/[a-z-]+\.md$/.test(source) && source !== 'docs/handbook/README.md') throw new Error(`Non-handbook source published: ${source}`);
+}
+const expectedRoutes = ['docs', 'docs/concepts', 'docs/quickstart', 'docs/daily-workflow', 'docs/organizing', 'docs/agents', 'docs/interface', 'docs/search', 'docs/configuration', 'docs/modules', 'docs/hosting', 'docs/extending'];
+if (JSON.stringify(Object.values(handbook.publications).sort()) !== JSON.stringify(expectedRoutes.sort())) throw new Error('Handbook learning path changed; review its publication boundary');
+const sitemap = await Bun.file(resolve(directory, 'sitemap.xml')).text();
+const sitemapUrls = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map(match => match[1]).sort();
+const expectedUrls = [`https://schlessera.github.io${manifest.base}`, ...expectedRoutes.map(route => `https://schlessera.github.io${manifest.base}${route}/`)].sort();
+if (JSON.stringify(sitemapUrls) !== JSON.stringify(expectedUrls)) throw new Error('Sitemap includes material outside the curated handbook');
 const documents = new Map<string, any>();
 const errors: string[] = [];
 function walk(node: any, fn: (node: any) => void) { fn(node); for (const child of node.childNodes || []) walk(child, fn); }
@@ -31,7 +43,8 @@ for (const [path, tree] of documents) {
           if (property('data-external') !== url.host || !icon || !accessibleLabel) errors.push(`Unmarked external link: ${path} -> ${attr.value}`);
           const ownMarkdown = url.hostname === 'github.com' && url.pathname.startsWith('/schlessera/brain-kit/blob/') && /\.md$/i.test(url.pathname);
           const currentSource = url.pathname.startsWith(`/schlessera/brain-kit/blob/${manifest.sourceSha}/`) || url.pathname.startsWith('/schlessera/brain-kit/blob/main/');
-          if (ownMarkdown && currentSource && property('data-source-link') === undefined) errors.push(`Documentation escaped to GitHub: ${path} -> ${attr.value}`);
+          const repositoryPath = decodeURIComponent(url.pathname.split('/').slice(5).join('/'));
+          if (ownMarkdown && currentSource && selectedSources.has(repositoryPath) && property('data-source-link') === undefined) errors.push(`Handbook chapter escaped to GitHub: ${path} -> ${attr.value}`);
         } else if (property('data-external') !== undefined) errors.push(`Internal link marked external: ${path} -> ${attr.value}`);
       }
       if (url.origin !== 'https://schlessera.github.io') continue;

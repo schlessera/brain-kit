@@ -29,7 +29,12 @@
 .prose blockquote>:last-child{margin-bottom:0}
 .prose details{margin:24px 0}
 .prose summary{cursor:pointer;min-height:44px}
-.source-links{display:flex;gap:24px;flex-wrap:wrap;margin-top:60px;font-size:14px}
+.chapter-navigation{display:flex;justify-content:space-between;gap:24px;border-top:1px solid color-mix(in srgb,var(--ink) 20%,transparent);margin-top:48px;padding-top:24px}
+.chapter-navigation a{max-width:48%;min-height:44px;font-weight:600;text-decoration:none}
+.chapter-navigation a:hover{text-decoration:underline}
+.chapter-navigation span{display:block;color:var(--muted);font-size:13px;font-weight:400;margin-bottom:4px}
+.chapter-navigation .next-chapter{margin-left:auto;text-align:right}
+.source-links{display:flex;gap:24px;flex-wrap:wrap;margin-top:28px;font-size:14px}
 .source-links a{min-height:44px;display:flex;align-items:center}
 @media(max-width:1399px) and (min-width:901px){.docs-layout{max-width:calc(100% - 80px);gap:50px}}
 @media(max-width:900px){

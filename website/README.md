@@ -31,13 +31,20 @@ Expanding a device animates the same mounted iframe over a dimmed page; closing
 restores its place, focus and app state. Phone previews use native widths on
 small screens, where the expansion control is unnecessary.
 
-Astro generates static HTML under `website/dist/`, including the documentation
-index's complete linked reading set. `publication.mjs` preserves the original
-seven routes and discovers linked Markdown guides, package references and
-project records recursively. Directory links with a README open their site
-index. The canonical Markdown stays in its original repository location;
-filename-only link labels become page headings in the rendered site. Sidebar
-sections and reading order come from `docs/README.md`.
+Astro generates static HTML under `website/dist/`. The public handbook is an
+explicitly selected set of short, reader-facing chapters in `docs/handbook/`.
+`publication.mjs` maps those sources to stable routes and derives sections and
+reading order from `docs/handbook/README.md`. Chapters explain the concepts,
+first setup, daily use and optional capabilities, with previous/next links.
+Repository links never add pages to the publication list.
+
+Engineering references, package READMEs, plans, investigations and decision
+records stay on GitHub. The handbook links to them deliberately when a reader
+needs exact technical details. Previously published archive routes have brief
+handoff pages with marked GitHub links; their Markdown is not rendered and
+those routes are excluded from the handbook navigation and sitemap.
+`handbook.json` records the selected source/route map. Static checks enforce
+the handbook source boundary, expected reading path and sitemap scope.
 
 Source-code links, historical revision citations and external references keep
 their destinations. Every external web link has an SVG marker, destination

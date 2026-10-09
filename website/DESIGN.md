@@ -199,6 +199,15 @@ The initial opening pairs a paper decision screen with a dark plan screen.
 The website theme toggle subsequently sends the selected theme to the loaded
 product frames; it does not recolor their interiors with website CSS.
 
+## Handbook reading experience
+
+The handbook is a short, authored learning path rather than an engineering
+catalog. Its four sections move from first principles and setup to everyday
+use, optional configuration and integration work. Technical references remain
+visibly marked links to GitHub. Each chapter ends with understated, ruled
+previous/next links before the source actions. Keep paragraphs short and
+introduce a capability's purpose before its flags or settings.
+
 ## Typography
 
 **Display Font:** DM Serif Text, with Georgia and serif fallbacks.
