@@ -24,8 +24,7 @@ export interface PhysicalCall {
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 // Sonnet5.5's documented supported context, not a byte/token estimate:
 // https://platform.claude.com/docs/en/models/sonnet-5-5/overview
-// These
-// conservative rates cover this frozen Standard/global, text-only baseline.
+// These conservative rates cover this frozen Standard/global, text-only baseline.
 const INPUT_TOKEN_UPPER = 1_000_000;
 const INPUT_USD_PER_MILLION_UPPER = 8;
 const OUTPUT_USD_PER_MILLION_UPPER = 20;

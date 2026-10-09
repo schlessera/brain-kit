@@ -268,6 +268,18 @@ additional billed charges and shared reservations remain in the coordinator's
 protected ledger. Fresh complementary semantic approval and the full comparison
 are still required before a measured recommendation.
 
+The actual-current API instrument reserves the full supported 1M input context
+and its unchanged 2,000-token output ceiling before each physical attempt,
+including shipped retries. At the coordinator's conservative $8/$20 per million
+upper rates, that holds $8.04 independently of serialized request bytes. Only one
+request may be in flight. Complete canonical input/cache counters within 1M and
+output within the actual limit settle a conservative debit; missing,
+contradictory, over-bound or failed receipts retain the hold and stop the next
+transport. Raw requests, responses, usage and reservation/debit fields remain in
+the physical receipt. Diagnostic price intervals are separate from that debit,
+and invoice fields remain null. The supplied remaining allocation includes
+earlier providers and attempts under the unchanged actual-charge caps.
+
 
 The resumed real-command parser controls also preserve an important distinction:
 `[null]` throws inside the shipped suggestion-normalization catch and triggers
