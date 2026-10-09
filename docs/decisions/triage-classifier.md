@@ -36,13 +36,23 @@ route was something else.
 The three-family [label panel](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-panel.json)
 (Sonnet 5.5, gpt-6.1-sol, Gemini 3.8 Flash, three repetitions each) endorses 39
 of 40 labels unanimously, including all twenty new ones. Donor item `h1b` is
-contested 2–1. The majority keeps its stored label, `needs_user`, and no label
-changed.
+contested 2–1: Sonnet 5.5 and gpt-6.1-sol vote `needs_user`, its stored label,
+and Gemini votes `drop`. The registered protocol said to fix or exclude any
+label the panel did not endorse unanimously. This record deviates from that:
+`h1b` keeps its majority label and stays in every run, because it predates this
+experiment and the donor panel had already validated it. Excluding it changes
+no verdict. Jev answers `h1b` at confidence 0.28 or lower, so at 0.4 it always
+falls back to `needs_user`, which is its gold route. Removing it drops one
+correct escalation from each Jev repetition. The baseline still loses at least
+four rows in repetition 2, so it still fails. The baseline report does not
+record which rows were lost.
 
 ## Results
 
 [Jev runs](../../packages/ui-server/evals/triage/experiment/results/2026-10-09.json),
-three repetitions per configuration:
+three repetitions per configuration. The [raw answers and per-call
+measurements](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json)
+behind them are kept separately:
 
 | arm | floor | gate | missed esc. | false esc. | fallbacks | $/1k items | p95 call |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -73,6 +83,9 @@ Against the criteria registered before measurement
 
 ## Why the floor is 0.4, and how it was chosen
 
+`experiment/calibrate.ts` recomputes everything in this section from the raw
+answers, with no network.
+
 Before any floor applies, Choice answers 38–39 of 40 items correctly in every
 repetition. Its only errors are donor items `h1b` and `h3b`, routed to `rule`
 or `needs_agent` instead of `needs_user`. Every one of those answers had
@@ -81,21 +94,23 @@ sent 9–12 correct answers to the fallback, and those false escalations failed
 the accuracy floors.
 
 The protocol called for calibrating on the tuning split alone. That was not
-possible: the tuning split had no wrong answers at any floor from 0 to 0.6, so
-it gave no lower bound. The floor was set from the reference split instead:
-0.4 is the first value on the 0.1 grid above every observed error. The held-out
-split was error-free at every floor up to 0.6, so it did not drive the choice,
-but it was visible during calibration. A fresh held-out set, scored blind at
+possible: the tuning split had no raw errors at all, so it gave no lower bound.
+The floor was set from the reference split instead: 0.4 is the first value on
+the 0.1 grid above every observed error. The held-out split had no raw errors
+either. Up to 0.4 it scores 10 of 10 in every repetition; from 0.5, one correct
+answer falls back in some repetitions. It did not drive the choice, but it was
+visible during calibration. A fresh held-out set, scored blind at
 0.4, would make the result stronger. The floor is then frozen in
 `protocol.ts`, and a separate run produced the 0.4 rows above.
 
 ## Why Noul is rejected
 
-The decomposed arm fails on its questions, not its floors. Its "agent can
-start" question scores 0.48–0.79 on plain filing items. Every expected `rule`
-item therefore lands between the floors and falls back. Its "human blocker
-now" question scores only 0.25–0.46 on several real escalations (`h1b`, `h3b`,
-`h9`), so it is safe only because of the fallback. No pair of floors repairs
+The decomposed arm fails on its questions, not its floors. On items whose
+gold route is `rule`, its "agent can start" question ranges 0.23–0.81, mostly
+between the 0.2 and 0.8 floors, so nearly every filing item abstains and falls
+back. On real escalations its "human blocker now" question ranges 0.25–0.94.
+Several escalations score below 0.8, including `h1b`, `h3b` and `h9`, so the
+arm is safe only because of the fallback. No pair of floors repairs
 both problems. A rewritten question set would need its own measurement.
 
 ## What #680 should take from this
