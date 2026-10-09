@@ -13,7 +13,20 @@ import { failIndexedDbWrites, holdIndexedDbWrite } from "../browser/offline/inde
 import { updateHeld } from "../../src/lib/update-holds.js";
 import { tracksFor, trackKey } from "../../src/lib/draft-tracks.js";
 
+const recoveryEvents: Array<{ root: string; partition: PartitionId; state: string; error?: string }> = [];
+const nativeLocks = navigator.locks.query.bind(navigator.locks);
+let transcriptFailure: unknown = null;
+function observeRecovery(observedRoot: ReturnType<typeof createBrainUiRoot>, name: string) {
+  const recover = observedRoot.recordings!.recover.bind(observedRoot.recordings);
+  observedRoot.recordings!.recover = async partition => {
+    const event = { root: name, partition, state: "pending" } as (typeof recoveryEvents)[number];
+    recoveryEvents.push(event);
+    try { const result = await recover(partition); event.state = "complete"; return result; }
+    catch (error) { event.state = "rejected"; event.error = String(error); throw error; }
+  };
+}
 const root = createBrainUiRoot({ storagePrefix: "odysseus-association-signout", localCapture: true, config: { appName: "Odysseus’s notebook" } });
+observeRecovery(root, "primary");
 let compose = () => {};
 let replaceRoot = async () => {};
 let shownRoot = root;
@@ -111,6 +124,7 @@ Object.assign(window, { __work: {
     // events. Other roots keep their real listeners and the DB stays native.
     if (delayStorage) window.addEventListener("storage", deferStorage, true);
     coldReader = createBrainUiRoot({ storagePrefix: "odysseus-cold-reader", localCapture: true });
+    observeRecovery(coldReader, "cold");
     const list = coldReader.recordings!.list;
     coldReader.recordings!.list = async partition => { const rows = await list(partition); if (partition === "unassigned") coldRefreshes++; return rows; };
     const el = document.createElement("div"); el.dataset.coldReader = ""; document.body.append(el);
@@ -147,9 +161,15 @@ Object.assign(window, { __work: {
       const handle = open(partition);
       return { ...handle, async get(key) { const value = await handle.get(key); if (key === "recording:index:sirens") { started(); await held; } return value; } };
     };
-    pendingMutation = outcome(coldReader!.recordings!.saveTranscript("unassigned", "sirens", "This old transcript must never commit.")).then(result => { console.error("STAGED TRANSCRIPT SETTLED",result); return result; });
+    pendingMutation = coldReader!.recordings!.saveTranscript("unassigned", "sirens", "This old transcript must never commit.").then(() => "ok", async (error: Error) => {
+      transcriptFailure = { name: error.name, message: error.message, stack: error.stack,
+        recoveries: structuredClone(recoveryEvents), locks: await nativeLocks() };
+      console.error("STAGED TRANSCRIPT FAILURE", JSON.stringify(transcriptFailure));
+      return error.name;
+    }).then(result => { console.error("STAGED TRANSCRIPT SETTLED",result); return result; });
     await Promise.race([ready, pendingMutation.then(result => { throw new Error(`Cold transcript settled before staging its read: ${result}`); })]);
   },
+  transcriptFailure: () => transcriptFailure,
   coldRecovery: () => outcome(coldReader!.recordings!.saveTranscript("unassigned", "aeolus", "Aeolus closes the bag.")),
   releaseColdTranscript: () => { releaseMutation(); return pendingMutation!; },
   stageUnassignedClear: () => {
