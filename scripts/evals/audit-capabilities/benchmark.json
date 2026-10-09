@@ -64,7 +64,7 @@
     "template": "correspondence-filter",
     "files": {
       "rituals/first.md": "---\ntype: ritual\ntitle: \"First message\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe first message still needs a reply.\n",
-      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: draft\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
+      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: archived\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
       "rituals/_index.md": "---\ntype: index\ntitle: \"Telemachus records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status], where: { status: [active] } }\n---\nTelemachus retains both correspondence records; only active rows belong in the table.\n\n[[rituals/first]]\n[[rituals/second]]\n",
       "_index.md": "---\ntype: index\ntitle: \"Telemachus directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Telemachus.\n\n[[rituals/_index]]\n"
     },
@@ -76,13 +76,13 @@
     ],
     "expectedPreviewFiles": {
       "rituals/first.md": "---\ntype: ritual\ntitle: \"First message\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe first message still needs a reply.\n",
-      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: draft\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
+      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: archived\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
       "rituals/_index.md": "---\ntype: index\ntitle: \"Telemachus records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status], where: { status: [active] } }\n---\nTelemachus retains both correspondence records; only active rows belong in the table.\n\n[[rituals/first]]\n[[rituals/second]]\n\n<!-- brain:generated:registry -->\n\n| title | status |\n| --- | --- |\n| First message | active |\n\n<!-- /brain:generated:registry -->\n",
       "_index.md": "---\ntype: index\ntitle: \"Telemachus directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Telemachus.\n\n[[rituals/_index]]\n"
     },
     "expectedEffectFiles": {
       "rituals/first.md": "---\ntype: ritual\ntitle: \"First message\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe first message still needs a reply.\n",
-      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: draft\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
+      "rituals/second.md": "---\ntype: ritual\ntitle: \"Second message\"\nstatus: archived\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nThe second message is filed.\n",
       "rituals/_index.md": "---\ntype: index\ntitle: \"Telemachus records\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\nregistry: { columns: [title, status], where: { status: [active] } }\n---\nTelemachus retains both correspondence records; only active rows belong in the table.\n\n[[rituals/first]]\n[[rituals/second]]\n\n<!-- brain:generated:registry -->\n\n| title | status |\n| --- | --- |\n| First message | active |\n\n<!-- /brain:generated:registry -->\n",
       "_index.md": "---\ntype: index\ntitle: \"Telemachus directory overview\"\nstatus: active\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nRecords about Telemachus.\n\n[[rituals/_index]]\n"
     },
