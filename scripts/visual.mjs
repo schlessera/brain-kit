@@ -43,6 +43,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
@@ -75,6 +76,11 @@ function run(command, args, options = {}) {
 }
 
 if (inside) {
+  // Lock inside the container: its mount shares the host lock inode, while a
+  // Docker process cannot inherit a host descriptor. Separate worktrees keep
+  // separate locks. Exclusive access also preserves project scheduling/captures.
+  const coordinated = await ensureWorkspaceLease(REPO, "write");
+  if (coordinated !== undefined) process.exit(coordinated);
   // Already in the image. Vitest is invoked through its own entry rather than
   // through a package script, because a package script would need bun.
   //
