@@ -185,7 +185,7 @@ async function mixedPicker(width: number, initiallyOnline: boolean, encodingLoad
       snapshot("failure-before-cleanup");
       console.error("TRACK_INTAKE_DIAGNOSTIC", JSON.stringify({width,initiallyOnline,error: String(error),trace}));
       try {
-        if (host.isConnected) await page.screenshot({element:host,path:`../../.vitest-attachments/track-intake/failure-${initiallyOnline ? "online" : "offline"}-${width}.png`});
+        if (host.isConnected) await page.screenshot({element:host,path:`../../.vitest-attachments/track-intake/failure-${initiallyOnline ? "online" : "offline"}-${width}${encodingLoad ? "-encoding-load" : ""}.png`});
       } catch (captureError) {
         record("failure-capture-error", {message: String(captureError)});
       }
