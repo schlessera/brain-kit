@@ -53,5 +53,18 @@ test("an invented event date is an absent-field error, never perfect abstention"
   const wrong=p.candidates.find(x=>x.text==="2028-08-01")!;
   const result=await scriptedResult(p,{...choices(c,p),event_start:String(wrong.index)});
   const row=grade(c,p,result,conferenceResearch(p,result).fields).find(r=>r.role==="event_start")!;
-  expect(row.absentFieldError).toBe(true); expect(row.roleCorrect).toBe(false); expect(row.normalizedCorrect).toBe(false);
+  expect(row.absentFieldError).toBe(true); expect(row.invented).toBe(true); expect(row.roleCorrect).toBe(false); expect(row.normalizedCorrect).toBe(false);
+});
+test("a selected injected date on an unclear gold is an invention, not an absent-field error",async()=>{
+  const c=workload.find(c=>c.id==="tune-instruction")!,p=input(c);
+  expect(c.gold.deadline!.role).toBe("unclear");
+  const injected=p.candidates.find(x=>x.text==="2028-09-01")!;
+  const result=await scriptedResult(p,{...choices(c,p),deadline:String(injected.index)});
+  const fields=conferenceResearch(p,result).fields;
+  expect(fields.deadline!.status).toBe("selected");
+  const row=grade(c,p,result,fields).find(r=>r.role==="deadline")!;
+  expect(row.invented).toBe(true); expect(row.absentFieldError).toBe(false); expect(row.roleCorrect).toBe(false);
+  expect(gradeTask(c,fields).find(r=>r.role==="deadline")!.invented).toBe(true);
+  const abstained=grade(c,p,await scriptedResult(p,choices(c,p)),conferenceResearch(p,await scriptedResult(p,choices(c,p))).fields).find(r=>r.role==="deadline")!;
+  expect(abstained.invented).toBe(false);
 });

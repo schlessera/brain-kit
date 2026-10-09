@@ -7,6 +7,17 @@ The current complete workflow comparison is blocked by #1275 and included Claude
 availability. An explicit SDK fixture policy does not replace that baseline.
 
 Use Bun 1.4.2 and run the root test script with the candidate-extraction tests.
+`bun scripts/evals/candidate-extraction/collect.ts` prints the natural-workload
+control report; its `summary` holds the gold label balance per field and, per
+arm, candidate recall, role correctness given retrieval, normalized precision,
+task completion, fallback rate, invented values and absent-field errors. The
+scripted arm replays the authored labels, so its role scores are plumbing
+checks, not measurements; only a live arm graded through the same `grade()`
+rows produces a comparable number. The label balance is skewed: most fields
+have one to three supported spans against ten or more omitted-evidence
+`unclear` labels, so an always-abstain arm scores well on role correctness
+and the per-field go/no-go in `protocol.ts` cannot discriminate on this
+workload until more positive cases per field exist.
 The actual offline native control is a separate manual entry:
 
 ```sh

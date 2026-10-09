@@ -25,9 +25,12 @@ export function grade(c: Case, p: Prepared, result: JevResult, report: Report) {
       (g.role !== "span" || g.candidate === false || field?.provenance?.start === start && field?.provenance?.text === g.text);
     // Correct parser abstention is not completion of a semantically present field.
     const taskComplete = normalizedCorrect && (g.role === "none" || g.role === "span" && g.status === "selected");
+    // Any selected value where the gold is none or unclear is an invention: the critical error class
+    // (injection text, quoted old notices, unrelated dates). absentFieldError is its explicit-none subset.
+    const invented = g.role !== "span" && field?.status === "selected";
     return { id: c.id, role, retrieved, roleCorrect, conditionalRoleDenominator: retrieved !== false,
       parserSupported: g.role === "span" ? g.status === "selected" : null, normalizedCorrect, taskComplete,
-      needsFallback: !taskComplete,
+      needsFallback: !taskComplete, invented,
       absentFieldError: g.role === "none" && field?.status === "selected", sourceHash: p.sourceHash,
       observedOccurrence: chosen ? { start: chosen.start, end: chosen.end, text: chosen.text } : null };
   });
@@ -40,6 +43,6 @@ export function gradeTask(c:Case, fields: Partial<Record<Role,{status:string;val
     const occurrenceCorrect=g.role!=="span"||actual?.provenance?.start===expectedStart(c.source,g)&&actual?.provenance?.text===g.text;
     const correct=actual?.status===target.status&&JSON.stringify(actual?.value)===JSON.stringify(target.value)&&occurrenceCorrect;
     return{role,correct,occurrenceCorrect,expectedStatus:target.status,clarificationRequired:target.status==="unresolved",
-      completed:correct&&target.status!=="unresolved",absentFieldError:g.role==="none"&&actual?.status==="selected"};
+      completed:correct&&target.status!=="unresolved",invented:g.role!=="span"&&actual?.status==="selected",absentFieldError:g.role==="none"&&actual?.status==="selected"};
   });
 }

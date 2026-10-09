@@ -233,6 +233,18 @@ decodes its entity while retaining the raw source occurrence. Correct helper
 abstention does not complete these broader tasks. Missing timezone, currency or
 counting-unit evidence still requires clarification rather than invention.
 
+A selected value whose gold is `none` or `unclear` is counted as an invention,
+the critical error class for injection text, quoted old notices and unrelated
+dates; absent-field errors are its explicit-none subset. The keyless collector
+summarises these counts per field and arm next to the gold label balance. That
+balance is skewed towards omitted-evidence `unclear` labels: deadline has eight
+supported spans, salary five, and every other field one to three, against ten
+or more `unclear` labels. Role correctness therefore mostly rewards abstention,
+and the per-field precision-1/recall-0.95 gate cannot be decided for most
+fields on 24 cases. The lexical comparator already shows the failure mode the
+classifier arm must beat: it selects the guest-comment date in
+`tune-instruction` and the footer support address in `held-footer`.
+
 Calibration requires complete unique tuning field observations. Each field
 requires both finite confidence and selected probability above its own frozen
 floor. No accepted positive or explicit-none tuning outcome produces a null
