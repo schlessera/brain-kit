@@ -18,6 +18,7 @@ import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
+import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
 import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
@@ -151,8 +152,10 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace },
-              provider: playwright({}),
+              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad },
+              // Chromium's own web-test mode retains native encoding without
+              // waiting for idle periods that can exceed a functional poll (#940).
+              provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },

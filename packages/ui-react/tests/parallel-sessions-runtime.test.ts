@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Request as BrowserRequest } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
@@ -395,6 +395,51 @@ const composer = (page: Page) => page.locator("textarea[data-composer]");
 /** No modal of the app's own asks anything either. */
 const confirmations = (page: Page) => page.locator('[role="alertdialog"]').count();
 
+/** The host upload control owns connectivity only until its original ready-chip wait finishes. */
+async function withTrackOnline(page: Page, run: () => Promise<void>) {
+  let uploadRequests = 0;
+  const recordUpload = (request: BrowserRequest) => {
+    if (new URL(request.url()).pathname.endsWith("/track-upload")) uploadRequests++;
+  };
+  const original = await page.evaluate(() => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    const online = navigator.onLine;
+    Object.assign(window, { __restoreTrackOnline: () => {
+      if (previous) Object.defineProperty(navigator, "onLine", previous);
+      else Reflect.deleteProperty(navigator, "onLine");
+      window.dispatchEvent(new Event(online ? "online" : "offline"));
+      const restored = Object.getOwnPropertyDescriptor(navigator, "onLine");
+      const same = previous
+        ? restored !== undefined && Object.keys(restored).length === Object.keys(previous).length &&
+          Object.entries(previous).every(([key, value]) => restored[key as keyof PropertyDescriptor] === value)
+        : restored === undefined;
+      Reflect.deleteProperty(window, "__restoreTrackOnline");
+      return { same, online: navigator.onLine };
+    } });
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+    window.dispatchEvent(new Event("online"));
+    return online;
+  });
+  page.on("request", recordUpload);
+  try {
+    await run();
+  } catch (error) {
+    console.error("STAGED_TRACK_UPLOAD", JSON.stringify({
+      uploadRequests,
+      ...await page.evaluate(() => ({
+        online: navigator.onLine,
+        chips: [...document.querySelectorAll("[data-track-chip]")].map(chip => chip.getAttribute("aria-label")),
+      })),
+    }));
+    throw error;
+  } finally {
+    page.off("request", recordUpload);
+    const restored = await page.evaluate(() => (window as unknown as { __restoreTrackOnline(): { same: boolean; online: boolean } }).__restoreTrackOnline());
+    expect(restored.same, "the complete connectivity descriptor is restored").toBe(true);
+    expect(restored.online, "the following connectivity sentinel inherits the browser").toBe(original);
+  }
+}
+
 /** New chat from where the width draws it: the overlay disc below 1280, the pane's New conversation from 1280. */
 async function newChat(run: Run, page: Page) {
   await press(run, button(page, wide(run) ? "New conversation" : "New chat"));
@@ -479,6 +524,21 @@ async function neverDone(run: Run, page: Page, sessionIds: string[]) {
 }
 
 describe.skipIf(!executablePath)("mounted parallel sessions", () => {
+  test("a failing staged-track upload restores the preceding offline descriptor", async () => {
+    const a = await device(runs[0]!);
+    const failure = new Error("the fixture deliberately stops before upload");
+    try {
+      await a.page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false }));
+      await expect(withTrackOnline(a.page, async () => {
+        expect(await a.page.evaluate(() => navigator.onLine)).toBe(true);
+        throw failure;
+      })).rejects.toBe(failure);
+      expect(await a.page.evaluate(() => navigator.onLine), "the following offline sentinel").toBe(false);
+    } finally {
+      await a.context.close();
+      await clearHostDrafts();
+    }
+  }, 120_000);
   for (const run of runs) {
     test(`${run.name}: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen`, async () => {
       const tag = `(${run.name})`;
@@ -1125,7 +1185,15 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       /** The staged track is in this composer, read by the real host. */
       const chipReady = async () => {
         await remove().waitFor();
-        await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+        try {
+          await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+        } catch (error) {
+          console.error("STAGED_TRACK_CONNECTIVITY", JSON.stringify({
+            bytes: route.length,
+            ...await a.page.evaluate((n) => ({ online: navigator.onLine, chip: document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") }), name),
+          }));
+          throw error;
+        }
       };
       const openEntry = async () => {
         if (!wide(run)) await press(run, tab(a.page, "Sessions"));
@@ -1141,8 +1209,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, "p.activeSessionId() !== null");
         await a.page.getByText("Noted: Route to Pylos").first().waitFor();
         await newChat(run, a.page);
-        await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
-        await chipReady();
+        expect(route.length, "the native picked track is nonempty").toBeGreaterThan(0);
+        await withTrackOnline(a.page, async () => {
+          await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+          await chipReady();
+        });
         const before = started.length;
 
         // New chat by the palette from 480 up, and by Sessions' New conversation at every width.
@@ -1214,9 +1285,12 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
     await until(a.page, "p.activeSessionId() !== null");
     await a.page.getByText("Noted: Route to Pylos").first().waitFor();
     const id = (await probe(a.page, (p) => p.activeSessionId()))!;
-    await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
-    await remove(a.page).waitFor();
-    await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+    expect(route.length, "the native picked track is nonempty").toBeGreaterThan(0);
+    await withTrackOnline(a.page, async () => {
+      await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+      await remove(a.page).waitFor();
+      await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+    });
     await newChat(run, a.page);
     expect(await remove(a.page).count(), "A is not in view").toBe(0);
     expect(await probe(a.page, (p) => p.staged()), "A holds the track").toBe(true);

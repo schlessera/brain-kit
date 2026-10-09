@@ -62,6 +62,14 @@ picker FileList, so offline input evidence remains available after processing.
 Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
 
+The staged-track controls in `session-drafts.pointer.tsx` and
+`parallel-sessions-runtime.test.ts` likewise own an online descriptor only
+around their native file selection and original ready-chip wait. They restore
+every previous property attribute and the ambient connectivity event before
+the existing navigation, removal, send, leave and update checks. A following
+connectivity sentinel and deliberately failing upload control verify cleanup;
+the network-disabled image and browser egress guards remain in use.
+
 Mixed-picker traces record nonempty file metadata, native bitmap/fallback decoding,
 JPEG encoding, FileReader completion, object URL lifecycle, authentication state,
 draft ownership and each original preview poll. Observers delegate to native
@@ -69,6 +77,24 @@ methods and restore them before cleanup. On failure, the trace and original
 assertion are printed before capturing the still-mounted Composer; a capture
 error is recorded without replacing the original assertion. These observations
 help distinguish pending conversion from an absent or rejected draft preview.
+
+The `visual` project's Chromium uses `NoIdleEncodingForWebTests`. Native image
+decoding, JPEG encoding, FileReader and object URLs still execute. This is the
+engine's own web-test mode: it runs encoding on a background thread instead of
+waiting for an idle period. The pinned Chromium's default main-thread PNG/JPEG
+path can wait 1,000ms before forcing a not-started encoder, longer than the
+unchanged preview poll once decoding and callback delivery are included. See
+[the pinned implementation](https://chromium.googlesource.com/chromium/src/+/153.0.8010.12/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc).
+
+The mixed-picker workload control holds native input and consumes short frame
+idle periods with bounded 18ms frame work. It uses the same nonempty picker,
+preview matcher and complete offline/held-send/multipart flow. Removing only
+the encoding feature fails that preview assertion while native encoding waits;
+Chromium's renderer histogram records the forced-encoding fallback. The workload
+stops before subsequent interaction and on every exit. Its captures have a
+separate `-encoding-load` suffix. Other browser projects keep their own launch
+settings; this test-mode selection does not change the product's image policy
+or establish a production image-processing latency guarantee.
 
 The dictation height-cap checks wait for the phone entrance animation to finish
 and require an identity transform before comparing the exact rendered height.
