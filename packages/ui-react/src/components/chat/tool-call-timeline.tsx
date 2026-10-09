@@ -12,7 +12,8 @@ import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-s
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
+import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
 import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { useShallow } from "zustand/react/shallow";

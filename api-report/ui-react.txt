@@ -390,7 +390,7 @@ signatures (every public export and the types it is made of)
     }
   DeliveryState (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type DeliveryState = "saving" | "queued" | "awaiting" | "answered" | "closed" | "expired" | "cancelled" | "update" | "full" | "notSaved" | "signedOut";
-  Fetched (packages/ui-react/src/components/chat/stats/compose-stats.ts)
+  Fetched (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type Fetched<T> = {
         ok: true;
         value: T;
@@ -665,12 +665,12 @@ signatures (every public export and the types it is made of)
         reason?: string;
         files?: number;
     }
-  SoftwareIdentity (packages/ui-react/src/components/chat/stats/software.ts)
+  SoftwareIdentity (packages/ui-react/src/lib/stats/software.ts)
     export interface SoftwareIdentity {
         release: string | null;
         sourceCommit: string | null;
     }
-  SoftwareInput (packages/ui-react/src/components/chat/stats/software.ts)
+  SoftwareInput (packages/ui-react/src/lib/stats/software.ts)
     export interface SoftwareInput {
         client: SoftwareIdentity;
         server: Fetched<SoftwareIdentity>;
@@ -682,7 +682,7 @@ signatures (every public export and the types it is made of)
         onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
-  StatsSection (packages/ui-react/src/components/chat/stats/compose-stats.ts)
+  StatsSection (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type StatsSection = {
         kind: "software";
         details: ReturnType<typeof softwareDetails>;
@@ -1162,7 +1162,7 @@ signatures (every public export and the types it is made of)
     function retryTurn(failedTurnId: string): "sent" | "pending" | "refused";
   sendClientMessage (packages/ui-react/src/connection.ts)
     function sendClientMessage(msg: ClientMessage): boolean;
-  softwareDetails (packages/ui-react/src/components/chat/stats/software.ts)
+  softwareDetails (packages/ui-react/src/lib/stats/software.ts)
     export function softwareDetails({ client, server }: SoftwareInput): {
         client: {
             release: null | string;

@@ -12,7 +12,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { isAskUserFormTool, isAskUserListTool, isAskUserRankTool, isAskUserTool } from "../../lib/tool-names.js";
-import { replayedStatsSections } from "../../components/chat/stats/context-text.js";
+import { replayedStatsSections } from "../../lib/stats/context-text.js";
 import type { ServerMessageHandlerMap } from "./types.js";
 
 type ChatFrame =

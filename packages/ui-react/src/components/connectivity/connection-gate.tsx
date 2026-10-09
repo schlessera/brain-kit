@@ -13,7 +13,7 @@ import { useVpnStatus } from "../../hooks/use-vpn-status.js";
 import {
   deriveConnectionIssue,
   type ConnectionIssue,
-} from "./connection-state.js";
+} from "../../lib/connection-issue.js";
 import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js";
 import { useNotificationZoneRefresh } from "../../hooks/use-notification-zone.js";
 

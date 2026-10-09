@@ -9,7 +9,7 @@ import { useActivityStore, childSpans, eventsFor, spanForTool } from "../../stor
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat, awaitsDecision } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
-import { formatDuration } from "./tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { ToolPermissionCard } from "./tool-permission-card.js";
 import { ToolRendererBoundary } from "./tool-renderer-boundary.js";
 import { GENERIC_RENDERER } from "./renderers/index.js";

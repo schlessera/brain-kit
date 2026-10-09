@@ -3,7 +3,7 @@ import type { TokenName } from "@schlessera/brain-ui-kit/internal";
 
 import { useColorScheme } from "../../hooks/use-color-scheme.js";
 import { readToken, type ColorScheme } from "../../lib/light-dark.js";
-import type { CanvasPalette } from "./lib/graph-helpers.js";
+import type { CanvasPalette } from "../../lib/graph-helpers.js";
 
 export interface GraphTheme {
   background: string;

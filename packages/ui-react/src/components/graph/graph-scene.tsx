@@ -33,7 +33,7 @@ import {
   matchScene,
   topLevelDir,
   type CanvasPalette,
-} from "./lib/graph-helpers.js";
+} from "../../lib/graph-helpers.js";
 import { useGraphTheme, type EntityColors } from "./use-graph-theme.js";
 import { cn } from "../../lib/utils.js";
 
