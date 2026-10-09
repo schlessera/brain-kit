@@ -46,8 +46,18 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout/endurance shards and captures start independently.
-There are two measured-cost unit partitions and two browser/layout partitions,
+There are four measured-cost unit partitions and two browser/layout partitions,
 with full coverage assertions and original per-browser file concurrency bounds.
+The first two-unit-partition hosted run reached its 20-minute budgets while
+still making progress. Completed-file observations in
+`scripts/unit-shard-observation.json` update underestimated weights; unfinished
+files are not passing proof. Four partitions retain the deadlines and reduce
+that measured critical path. Browser sharding uses the committed per-project/
+file table under #1082, rather than grouping every pointer variant of a costly
+file in one hash/count bucket. Unknown specs retain positive defaults, every
+spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
+with `bun scripts/refresh-browser-costs.ts <run-id> <attempt>`; reviewed CI
+reports are measurement inputs, never runtime dependencies.
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate examines every selected job: success is required; missing output,

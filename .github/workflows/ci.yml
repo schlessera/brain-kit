@@ -551,7 +551,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -570,7 +570,7 @@ jobs:
       - name: Real Chrome and offline Linux namespace prerequisites
         run: bash scripts/ci-runtime-setup.sh
       - name: Complete unit proof
-        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/2
+        run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/4
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7

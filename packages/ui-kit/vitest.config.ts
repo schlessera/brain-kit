@@ -1,5 +1,6 @@
 import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
+import { MeasuredBrowserSequencer } from "../../scripts/browser-sequencer.ts";
 import { fileURLToPath } from "node:url";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
@@ -105,6 +106,7 @@ export default mergeConfig(
       },
     }],
     test: {
+      sequence: { sequencer: MeasuredBrowserSequencer },
       setupFiles: ["./tests/visual/design-font-setup.ts"],
       browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
