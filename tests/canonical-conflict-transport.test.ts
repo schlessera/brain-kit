@@ -5,19 +5,23 @@ import { pairs } from "../scripts/evals/canonical-conflicts/prototype";
 import { decoded, jevJudge, jevTransport, JevBook, request } from "../scripts/evals/canonical-conflicts/jev";
 import { validateCurrent } from "../scripts/evals/canonical-conflicts/current";
 import { reconcile, readHygieneLog } from "../packages/core/src/lib/hygiene";
+import { semanticCases, prepareSemantic } from "../scripts/evals/canonical-conflicts/workload";
 
 const answer = (noul: number, usage: unknown = { input_tokens: 100, output_tokens: 8 }, model = "jev-1.13.0") => Response.json({ model, usage,
   answers: { sameSubject: { type: "noul", noul }, contradiction: { type: "noul", noul } } });
 
 test("actual core Jev transport observes both complete source orders and persists a finding", async () => {
-  const p = prepare(fixtures[0]!); const bodies: any[] = [], book = new JevBook(15);
+  const c = semanticCases.find(c => c.id === "t-exclusive-role")!, p = prepareSemantic(c); const bodies: any[] = [], book = new JevBook(15);
   try {
     const client = jevTransport(book, async (_url, init) => { bodies.push(JSON.parse(String(init.body))); return answer(0.98); }, "fictional-key");
     const result = await collect(p.root, p.taxonomy, jevJudge(client, book, 0.9));
     expect(result.entries).toHaveLength(1); expect(result.entries[0]!.state).toBe("open"); expect(bodies).toHaveLength(2);
     expect(Object.keys(bodies[0].questions)).toEqual(["sameSubject", "contradiction"]);
-    expect(bodies[0].state.first.document).toBe(p.files["me/anchor.md"]); expect(bodies[1].state.first.document).toBe(p.files["profiles/record.md"]);
-    expect(bodies[0].state.first.span.text).toBe(fixtures[0]!.anchor); expect(JSON.stringify(bodies)).not.toContain("golden");
+    expect(bodies[0].state.first.document).toBe(p.files["me/raft-watch.md"]); expect(bodies[1].state.first.document).toBe(p.files["profiles/raft-watch.md"]);
+    expect(bodies[0].state.first.span.text).toBe(c.input.anchor);
+    // Label leakage: the authored golden and case identity must never reach the wire.
+    const wire = JSON.stringify(bodies); expect(c.golden.reason.length).toBeGreaterThan(20);
+    expect(wire).not.toContain(c.golden.reason); expect(wire).not.toContain(c.id); expect(wire).not.toContain("golden");
     expect(book.calls).toHaveLength(2); expect(book.calls[0]!.inputTokens).toBe(100); expect(book.calls[0]!.outputTokens).toBe(8);
     expect(book.calls[0]!.cacheReadTokens).toBeNull(); expect(book.calls[0]!.cacheWriteTokens).toBeNull(); expect(book.calls[0]!.actualInvoiceUsd).toBeNull();
     expect(book.usd).toBeCloseTo(0.0000084, 10); expect(book.unknown).toBe(false);
@@ -72,6 +76,17 @@ test("current candidate output preserves raw misses separately from code authori
     const unconfigured = validateCurrent(JSON.stringify([raw[0]]), p.root, p.taxonomy);
     reconcile(p.root, [], new Map(), { now: new Date(DAY), extra: unconfigured.accepted, failedChecks: ["canonical-conflicts"] });
     expect(unconfigured.accepted).toEqual([]); expect(readHygieneLog(p.root)[0]!.state).toBe("open");
+  } finally { p.close(); }
+});
+
+test("current candidate evidence is verified verbatim against the canonical body, not against the private grammar", () => {
+  const c = semanticCases.find(c => c.id === "h-prose-miss")!, p = prepareSemantic(c);
+  try {
+    const candidate = (evidence: string) => JSON.stringify([{ category: "conflict", path: "profiles/sparta-prose.md", evidence, message: "Prose meeting dates disagree." }]);
+    expect(c.golden.retrieval).toBe(false); // The grammar cannot retrieve this prose fact; the current arm must still get credit for it.
+    expect(validateCurrent(candidate(c.input.anchor), p.root, p.taxonomy).accepted).toHaveLength(1);
+    expect(validateCurrent(candidate("title: Telemachus identity"), p.root, p.taxonomy).accepted).toEqual([]); // Frontmatter is not fact evidence.
+    expect(validateCurrent(candidate("The only council meeting date for Telemachus's Sparta visit is 2026-07-12."), p.root, p.taxonomy).accepted).toEqual([]);
   } finally { p.close(); }
 });
 

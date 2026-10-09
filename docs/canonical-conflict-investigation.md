@@ -99,11 +99,12 @@ bun run test tests/canonical-conflict-eval.test.ts
 bun scripts/evals/canonical-conflicts/run.ts
 ```
 
-Twenty-one draft Odysseus pair cases cover paraphrase, different subjects,
+Twenty-three draft Odysseus pair cases cover paraphrase, different subjects,
 changed roles/status, historical metadata and text, negation, numeric equivalence
 and differences, dates, unset/keyed anchors, small/reversed recency gaps,
-unknowns, malicious evidence/output, order disagreement, inbox and fenced text.
-Three tuning cases use a pipe grammar; eighteen held-out cases use other groups
+unknowns, malicious evidence/output, order disagreement, inbox, fenced text,
+coexisting roles and unspecified role scope.
+Three tuning cases use a pipe grammar; twenty held-out cases use other groups
 and the colon grammar or deliberately unsupported prose. Both splits share
 Odysseus and the configured schema; they are not independently reviewed or a
 complete held-out semantic benchmark. Live preparation must expand and freeze
@@ -115,6 +116,17 @@ coverage ceiling, not a measured production retrieval recall. Control expectatio
 matches and scripted-call counts say nothing about live precision, coverage,
 subgroup errors, calibration or total inference savings. Those metrics remain
 null; adoption is unmeasured and replacement is not proposed.
+
+The deterministic arm is the one arm that runs without a key, and `run.ts`
+scores it on the twenty-four authored semantic cases through the same collector
+and reconciliation path the paid arms will use. It reports three true positives
+(`t-count-conflict`, `h-numeric-conflict`, `h-date-conflict`), no false
+positive, and misses four: every Role/Status positive and the prose case.
+Precision is 1.0 on this corpus; recall is 3/7 overall and 2/5 held-out. That
+is the floor a paid arm has to beat, and it exposes how thin the discriminating
+set is: the hybrid can only gain on three retrievable Role/Status positives, two
+of them held-out, against eleven retrievable negatives. A live pass on that
+set is not evidence of generalisation; widen it before reading one as such.
 
 Real tests carry emitted candidates into existing Markdown reconciliation,
 read the persisted log, verify original content byte-for-byte and repeat without
