@@ -2,8 +2,8 @@
 /// <reference types="@vitest/browser/matchers" />
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
-import { commands, page } from "vitest/browser";
+import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
+import { page } from "vitest/browser";
 
 import "../../src/styles.css";
 import { ContactCard, type ContactFact } from "../../src/blocks/ContactCard.js";
@@ -17,15 +17,10 @@ const facts: ContactFact[] = [
 ];
 let host: HTMLDivElement | undefined;
 let renderer: Root | undefined;
-let fontStyle: HTMLStyleElement;
 let viewport: { width: number; height: number };
 
 beforeAll(async () => {
-  // Public preview faces from the checksum-verified cache; no browser download
-  // or installed-font estimate. Reuse the existing preview-font command.
-  fontStyle = document.createElement("style");
-  fontStyle.textContent = await commands.rankFooterFonts();
-  document.head.append(fontStyle);
+  // The shared setup has already installed and verified the pinned faces.
   await document.fonts.load('500 10.5px "JetBrains Mono"');
   await document.fonts.ready;
   expect(document.fonts.check('500 10.5px "JetBrains Mono"')).toBe(true);
@@ -35,7 +30,6 @@ beforeEach(async () => {
   viewport = { width: window.innerWidth, height: window.innerHeight };
   await page.viewport(800, 900);
 });
-afterAll(() => fontStyle?.remove());
 
 afterEach(async () => {
   if (renderer) flushSync(() => renderer!.unmount());

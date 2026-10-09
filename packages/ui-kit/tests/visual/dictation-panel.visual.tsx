@@ -416,7 +416,8 @@ test("dictation desktop error: existing error replaces disclosure and controls s
     ui!.stores.voice.getState().setProviderId("webspeech");
     client.options.onError(new Error("Fixture speech error"));
   });
-  expect(panel().textContent).toContain("Fixture speech error");
+  expect(panel().textContent).toContain("A dictation problem occurred.");
+  expect(panel().textContent).not.toContain("Fixture speech error");
   expect(panel().textContent).not.toContain("audio goes to Google");
   await userEvent.click(done()); expect(client.drained).toBe(1);
   client.finish();

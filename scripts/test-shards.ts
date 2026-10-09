@@ -12,6 +12,11 @@
  * Answer delivery's browser suite (#910) is a local measurement until CI
  * re-measures it: 87.54s, including its 35s Liveness B blackhole case.
  * Parallel sessions' real-host proof (#953) is local too: 140.66s.
+ * Completed file groups from hosted run 37914350451 (cancelled at the job
+ * budget) update underestimated weights; scripts/unit-shard-observation.json
+ * records the partial evidence. No unfinished file is counted as passing.
+ * Run 37917910073 adds completed elapsed-file measurements from its artifacts;
+ * its sole failed container-prerequisite file is excluded from those weights.
  * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
  * New/renamed tests are discovered on every run and receive the small-file cost.
  */

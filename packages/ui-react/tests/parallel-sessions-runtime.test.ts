@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Request as BrowserRequest } from "playwright";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
@@ -146,9 +146,17 @@ function scriptedBackend(): AgentBackend {
         bridge.emit({ type: "result", sessionId, outcome: how === "fail" ? "error" : "success", durationMs: 0, numTurns: 1, isError: how === "fail" });
         return;
       }
-      if (kind === "Approve") {
+      if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
         const toolUseId = `wax-${sequence}`;
-        const decision = await bridge.requestPermission({ toolUseId, toolName: "Bash", input: { command: "seal --ears crew" }, kind: "command", description: "Seal the crew's ears with wax." });
+        if (kind === "Subapprove") {
+          const agentId = `wax-agent-${sequence}`;
+          bridge.emit({ type: "tool_use_start", sessionId, toolUseId: agentId, toolName: "Agent" });
+          bridge.activity?.({ kind: "subagent_started", toolUseId: agentId, subagentType: "general-purpose", description: "Prepare the wax" });
+          bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: agentId, toolName: "Agent", input: { description: "Prepare the wax", subagent_type: "general-purpose", prompt: "Seal the crew's ears" } });
+          bridge.emit({ type: "tool_use_start", sessionId, toolUseId, toolName: "Bash", parentToolUseId: agentId });
+          bridge.emit({ type: "tool_use_complete", sessionId, toolUseId, toolName: "Bash", parentToolUseId: agentId, input: { command: "seal --ears crew" } });
+        }
+        const decision = await bridge.requestPermission({ toolUseId, toolName: kind === "Remember" ? "Read" : "Bash", input: kind === "Remember" ? { file_path: "crew/wax.md" } : { command: "seal --ears crew" }, kind: kind === "Remember" ? "tool" : "command", description: "Seal the crew's ears with wax." });
         answers.set(prompt, decision.behavior);
         bridge.emit({ type: "tool_result", sessionId, toolUseId, output: decision.behavior === "allow" ? "Ears sealed." : "Denied by user", isError: decision.behavior !== "allow" });
         finish(`Sealed: ${title}.`, "success");
@@ -195,7 +203,7 @@ async function dropConnections() {
 
 /** A normal host restart: the process's turns end, its database stays. */
 async function restartHost() {
-  server!.stop(true);
+  server?.stop(true);
   app!.cancelActiveTurns();
   await app!.close();
   for (const release of gates.values()) release("ok");
@@ -344,7 +352,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
     const socket = sockets.push(ws.url()) - 1;
     const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
       const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
-      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
     };
     ws.on("framesent", ({ payload }) => record("framesent", payload));
     ws.on("framereceived", ({ payload }) => record("framereceived", payload));
@@ -358,8 +366,8 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
     Object.assign(window, { __approvalTouches: events });
     for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"]) document.addEventListener(type, (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-approval-card]")) {
-        const control = target.closest("button") ?? target;
+      if (target && (target.closest("[data-approval-card]") || /^(Allow|Deny|Always allow)$/.test(target.closest('button, [role="button"]')?.textContent?.trim() ?? ""))) {
+        const control = target.closest('button, [role="button"]') ?? target;
         if (!nodes.has(control)) nodes.set(control, ++sequence);
         events.push({ type, target: control.textContent, at: Date.now(), node: nodes.get(control)!,
           connected: control.isConnected, y: control.getBoundingClientRect().y });
@@ -386,6 +394,51 @@ const button = (page: Page, name: string) => page.getByRole("button", { name, ex
 const composer = (page: Page) => page.locator("textarea[data-composer]");
 /** No modal of the app's own asks anything either. */
 const confirmations = (page: Page) => page.locator('[role="alertdialog"]').count();
+
+/** The host upload control owns connectivity only until its original ready-chip wait finishes. */
+async function withTrackOnline(page: Page, run: () => Promise<void>) {
+  let uploadRequests = 0;
+  const recordUpload = (request: BrowserRequest) => {
+    if (new URL(request.url()).pathname.endsWith("/track-upload")) uploadRequests++;
+  };
+  const original = await page.evaluate(() => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    const online = navigator.onLine;
+    Object.assign(window, { __restoreTrackOnline: () => {
+      if (previous) Object.defineProperty(navigator, "onLine", previous);
+      else Reflect.deleteProperty(navigator, "onLine");
+      window.dispatchEvent(new Event(online ? "online" : "offline"));
+      const restored = Object.getOwnPropertyDescriptor(navigator, "onLine");
+      const same = previous
+        ? restored !== undefined && Object.keys(restored).length === Object.keys(previous).length &&
+          Object.entries(previous).every(([key, value]) => restored[key as keyof PropertyDescriptor] === value)
+        : restored === undefined;
+      Reflect.deleteProperty(window, "__restoreTrackOnline");
+      return { same, online: navigator.onLine };
+    } });
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+    window.dispatchEvent(new Event("online"));
+    return online;
+  });
+  page.on("request", recordUpload);
+  try {
+    await run();
+  } catch (error) {
+    console.error("STAGED_TRACK_UPLOAD", JSON.stringify({
+      uploadRequests,
+      ...await page.evaluate(() => ({
+        online: navigator.onLine,
+        chips: [...document.querySelectorAll("[data-track-chip]")].map(chip => chip.getAttribute("aria-label")),
+      })),
+    }));
+    throw error;
+  } finally {
+    page.off("request", recordUpload);
+    const restored = await page.evaluate(() => (window as unknown as { __restoreTrackOnline(): { same: boolean; online: boolean } }).__restoreTrackOnline());
+    expect(restored.same, "the complete connectivity descriptor is restored").toBe(true);
+    expect(restored.online, "the following connectivity sentinel inherits the browser").toBe(original);
+  }
+}
 
 /** New chat from where the width draws it: the overlay disc below 1280, the pane's New conversation from 1280. */
 async function newChat(run: Run, page: Page) {
@@ -471,6 +524,21 @@ async function neverDone(run: Run, page: Page, sessionIds: string[]) {
 }
 
 describe.skipIf(!executablePath)("mounted parallel sessions", () => {
+  test("a failing staged-track upload restores the preceding offline descriptor", async () => {
+    const a = await device(runs[0]!);
+    const failure = new Error("the fixture deliberately stops before upload");
+    try {
+      await a.page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false }));
+      await expect(withTrackOnline(a.page, async () => {
+        expect(await a.page.evaluate(() => navigator.onLine)).toBe(true);
+        throw failure;
+      })).rejects.toBe(failure);
+      expect(await a.page.evaluate(() => navigator.onLine), "the following offline sentinel").toBe(false);
+    } finally {
+      await a.context.close();
+      await clearHostDrafts();
+    }
+  }, 120_000);
   for (const run of runs) {
     test(`${run.name}: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen`, async () => {
       const tag = `(${run.name})`;
@@ -624,10 +692,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     }, 180_000);
 
     for (const touch of run.options.hasTouch
-      ? [undefined, { holdMs: 0, motion: "reduce" as const }, { holdMs: 150, motion: "reduce" as const }, { holdMs: 0, motion: "no-preference" as const }]
+      ? [undefined, { holdMs: 0, motion: "reduce" as const }, { holdMs: 150, motion: "reduce" as const }, { holdMs: 0, motion: "no-preference" as const }, { holdMs: 0, motion: "reduce" as const, refused: true }]
       : [undefined]) {
       const approvalRun: Run = touch ? { ...run, options: { ...run.options, reducedMotion: touch.motion } } : run;
-      const activation = touch ? ` [native touch, ${touch.holdMs}ms, motion=${touch.motion}]` : "";
+      const refused = touch && "refused" in touch;
+      const activation = refused ? " [refused send recovery]" : touch ? ` [native touch, ${touch.holdMs}ms, motion=${touch.motion}]` : "";
       test(`${run.name}${activation}: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done`, async () => {
         const tag = `(${run.name}${activation})`;
         const a = await device(approvalRun);
@@ -728,14 +797,29 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
           const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && frame.type === "tool_approval" && frame.toolUseId === original.toolUseId);
           expect(replies(), "opening and restoring never sends an approval").toHaveLength(0);
           try {
+            if (refused) {
+              server!.stop(true);
+              server = undefined;
+              await until(a.page, "!p.connected()");
+              await press(run, card.getByRole("button", { name: "Allow", exact: true }));
+              expect(replies(), "a disconnected click sends no approval").toHaveLength(0);
+              expect(answers.has(approve), "a disconnected click settles no host decision").toBe(false);
+              const tools = await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => Array<{id: string; status: string}> } }).__parallel.approvalTools(id), ids[approve]!);
+              expect(tools.find((tool) => tool.id === original.toolUseId)?.status, "a refused send keeps the original tool pending locally").toBe("pending_approval");
+              expect(await card.getByRole("button", { name: "Allow", exact: true }).count(), "a refused send keeps the original control available").toBe(1);
+              server = Bun.serve({ hostname: "127.0.0.1", port, fetch: app!.fetch, websocket: app!.websocket });
+              await until(a.page, "p.connected()", 30_000);
+              await card.getByRole("button", { name: "Allow", exact: true }).waitFor();
+              expect(replies(), "reconnect does not send the unsent decision automatically").toHaveLength(0);
+            }
             const allow = card.getByRole("button", { name: "Allow", exact: true });
-            if (touch) {
+            if (touch && !refused) {
               // A reader can touch a visible card before its entrance settles.
               // No stable-element wait, second tap or synthetic DOM click (#1217).
               await allow.scrollIntoViewIfNeeded();
               const box = (await allow.boundingBox())!;
               const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent, point),
+              expect(await a.page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('button, [role="button"]')?.textContent, point),
                 "the native gesture targets the visible Allow control").toContain("Allow");
               const cdp = await a.context.newCDPSession(a.page);
               try {
@@ -751,7 +835,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             const replyDeadline = Date.now() + 5_000;
             while (replies().length === 0 && Date.now() < replyDeadline) await Bun.sleep(10);
             expect(replies(), "Allow emits exactly one reply for the original approval").toHaveLength(1);
-            if (touch) {
+            if (touch && !refused) {
               const inputs = await a.page.evaluate(() => (window as unknown as { __approvalTouches: ApprovalInput[] }).__approvalTouches);
               const down = inputs.find((event) => event.type === "pointerdown" && event.target?.trim() === "Allow");
               const up = inputs.find((event) => event.type === "pointerup" && event.target?.trim() === "Allow");
@@ -791,7 +875,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             ]);
             console.error("Restored approval diagnostic", JSON.stringify({
               run: `${run.name}${activation}`, runtime: Bun.version, browser: browser!.version(), original, frames: a.approvals, answer: answers.get(approve) ?? null,
-              touches, views, records, recovery,
+              touches, views, records, recovery, tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), ids[approve]!),
             }));
             throw error;
           }
@@ -819,6 +903,107 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
           await clearHostDrafts();
         }
       }, 240_000);
+    }
+
+    for (const surface of ["Chat", "Actions", "Subagent"] as const) {
+      for (const decision of surface === "Actions" ? ["Allow", "Deny", "Always allow"] as const : ["Allow", "Deny"] as const) {
+        test(`${run.name}: ${surface} ${decision} refuses a disconnected approval send and recovers for one explicit decision`, async () => {
+          const a = await device(run);
+          const approve = `${surface === "Subagent" ? "Subapprove" : decision === "Always allow" ? "Remember" : "Approve"}: Seal the crew's ears (${run.name}, ${surface}, ${decision})`;
+          const question = `Ask user: Choose the harbour (${run.name}, ${surface}, ${decision})`;
+          let sessionId = "";
+          try {
+            // Another pending session is never settled by this decision.
+            await send(run, a.page, question);
+            await a.page.locator("[data-ask-waiting]").first().waitFor();
+            const otherId = (await probe(a.page, (p) => p.activeSessionId()))!;
+            await newChat(run, a.page);
+            await send(run, a.page, approve);
+            await a.page.locator("[data-approval-card]").waitFor();
+            sessionId = (await probe(a.page, (p) => p.activeSessionId()))!;
+            const original = a.approvals.map(({ frame }) => frame).find((frame) => frame.type === "tool_approval_request" && frame.sessionId === sessionId);
+            if (original?.type !== "tool_approval_request") throw new Error("Missing original permission request");
+            expect(original.turnId, "the original request is turn-bound").toBeTruthy();
+            if (surface === "Subagent") {
+              // Leave/open through the real tracker so recovery is observed
+              // for this run too; a never-left active turn has no tracker.
+              await newChat(run, a.page);
+              await openTracker(run, a.page, sessionId);
+              await press(run, a.page.getByRole("button", { name: /^Prepare the wax/ }));
+              await a.page.getByRole("button", { name: "Back", exact: true }).locator("../..").locator(`[data-approval-card][data-tool-use-id="${original.toolUseId}"]`).waitFor();
+            } else {
+              await a.page.reload();
+              await until(a.page, "p?.connected()");
+              await a.page.locator("[data-restored-approval]").waitFor();
+              if (surface === "Actions") {
+                await press(run, a.page.getByRole("tab", { name: /^Actions/ }).locator("visible=true").first());
+                await until(a.page, "p.view() === 'activity'");
+              }
+            }
+            const controls = surface === "Subagent"
+              ? a.page.getByRole("button", { name: "Back", exact: true }).locator("../..").locator(`[data-approval-card][data-tool-use-id="${original.toolUseId}"]`)
+              : a.page;
+            const target = controls.getByRole("button", { name: decision === "Always allow" ? /^Always allow\b/ : decision, exact: true });
+            await target.waitFor();
+            const replies = () => a.approvals.filter(({ event, frame }) => event === "framesent" && ["tool_approval", "tool_denial"].includes(frame.type));
+            const tools = () => a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => Array<{id: string; status: string; readOnly?: string}> } }).__parallel.approvalTools(id), sessionId);
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval"), "the original pending tool is populated before the fault").toHaveLength(1);
+            await until(a.page, "p.connected()");
+            const readPolicy = async () => {
+              const response = await fetch(`${origin}/api/tool-permissions`);
+              expect(response.status, "the host supplies the remembered policy").toBe(200);
+              const policy = await response.json() as { tools: string[] };
+              expect(Array.isArray(policy.tools), "the policy response is populated with its tools field").toBe(true);
+              return policy;
+            };
+            const policy = await readPolicy();
+            server!.stop(true);
+            server = undefined;
+            await until(a.page, "!p.connected()");
+            await press(run, target);
+            expect(replies(), "a disconnected decision sends no permission frame").toHaveLength(0);
+            expect(answers.has(approve), "the host did not accept an offline decision").toBe(false);
+            if (surface === "Actions") {
+              expect(await a.page.locator('[aria-live="polite"]').filter({ hasText: /^(Allowed|Denied|Always allowed)/ }).count(), "a refused send prints no accepted or policy-write receipt").toBe(0);
+            }
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval"), "a refused send leaves the original tool pending").toHaveLength(1);
+            expect(await target.count(), "a refused send retains the explicit decision control").toBe(1);
+            const clicks = await a.page.evaluate(() => (window as unknown as { __approvalTouches: ApprovalInput[] }).__approvalTouches);
+            expect(clicks.filter((event) => event.type === "click" && event.target?.trim().startsWith(decision)), "the real offline activation reached its handler").toHaveLength(1);
+            server = Bun.serve({ hostname: "127.0.0.1", port, fetch: app!.fetch, websocket: app!.websocket });
+            await until(a.page, "p.connected()", 30_000);
+            await target.waitFor();
+            // Wait for the actual host resume/recovery, not only socket-open.
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(sessionId)} && v.settled && v.state === "needs_you")`);
+            const response = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
+            expect(await response.json()).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "running" }, pending: [{ kind: "approval", requestId: original.toolUseId, turnId: original.turnId }] });
+            expect(replies(), "reconnect never replays the refused decision").toHaveLength(0);
+            expect(await readPolicy(), "a refused send wrote no remembered policy").toEqual(policy);
+            expect((await tools()).filter((tool) => tool.id === original.toolUseId && tool.status === "pending_approval" && !tool.readOnly), "the recovered original request remains answerable").toHaveLength(1);
+            await press(run, target);
+            const deadline = Date.now() + 5_000;
+            while (!answers.has(approve) && Date.now() < deadline) await Bun.sleep(10);
+            expect(replies(), "one explicit online decision sends only one permission frame").toHaveLength(1);
+            expect(replies()[0]!.frame).toMatchObject({ type: decision === "Deny" ? "tool_denial" : "tool_approval", toolUseId: original.toolUseId, turnId: original.turnId, channel: "card", ...(decision === "Always allow" ? { always: true } : {}) });
+            expect(answers.get(approve), "the backend settled the original decision").toBe(decision === "Deny" ? "deny" : "allow");
+            await until(a.page, `p.views().some((v) => v.sessionId === ${JSON.stringify(sessionId)} && v.state === "done")`);
+            const terminal = await fetch(`${origin}/api/sessions/${sessionId}/recovery`);
+            expect(await terminal.json()).toMatchObject({ sessionId, latest: { turnId: original.turnId, state: "terminal", outcome: "success" }, pending: [] });
+            expect(answers.has(question), "the other question remains unanswered").toBe(false);
+            expect((await probe(a.page, (p) => p.views())).find((v) => v.sessionId === otherId)).toMatchObject({ state: "needs_you", pendingKind: "question", cleared: false });
+            expect(replies(), "completion sends no duplicate decision").toHaveLength(1);
+            if (decision === "Always allow") expect(await readPolicy(), "only the explicit online decision wrote policy").toMatchObject({ tools: expect.arrayContaining(["Read"]) });
+          } catch (error) {
+            console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId) }));
+            throw error;
+          } finally {
+            await a.context.close();
+            await restartHost();
+            if (decision === "Always allow") await fetch(`${origin}/api/tool-permissions/Read`, { method: "DELETE", headers: { origin } });
+            await clearHostDrafts();
+          }
+        }, 120_000);
+      }
     }
 
     test(`${run.name}: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words`, async () => {
@@ -1000,7 +1185,15 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       /** The staged track is in this composer, read by the real host. */
       const chipReady = async () => {
         await remove().waitFor();
-        await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+        try {
+          await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+        } catch (error) {
+          console.error("STAGED_TRACK_CONNECTIVITY", JSON.stringify({
+            bytes: route.length,
+            ...await a.page.evaluate((n) => ({ online: navigator.onLine, chip: document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") }), name),
+          }));
+          throw error;
+        }
       };
       const openEntry = async () => {
         if (!wide(run)) await press(run, tab(a.page, "Sessions"));
@@ -1016,8 +1209,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, "p.activeSessionId() !== null");
         await a.page.getByText("Noted: Route to Pylos").first().waitFor();
         await newChat(run, a.page);
-        await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
-        await chipReady();
+        expect(route.length, "the native picked track is nonempty").toBeGreaterThan(0);
+        await withTrackOnline(a.page, async () => {
+          await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+          await chipReady();
+        });
         const before = started.length;
 
         // New chat by the palette from 480 up, and by Sessions' New conversation at every width.
@@ -1089,9 +1285,12 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
     await until(a.page, "p.activeSessionId() !== null");
     await a.page.getByText("Noted: Route to Pylos").first().waitFor();
     const id = (await probe(a.page, (p) => p.activeSessionId()))!;
-    await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
-    await remove(a.page).waitFor();
-    await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+    expect(route.length, "the native picked track is nonempty").toBeGreaterThan(0);
+    await withTrackOnline(a.page, async () => {
+      await a.page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name, mimeType: "application/geo+json", buffer: route });
+      await remove(a.page).waitFor();
+      await a.page.waitForFunction((n) => /km/.test(document.querySelector(`[data-track-chip][aria-label^="${n}"]`)?.getAttribute("aria-label") ?? ""), name);
+    });
     await newChat(run, a.page);
     expect(await remove(a.page).count(), "A is not in view").toBe(0);
     expect(await probe(a.page, (p) => p.staged()), "A holds the track").toBe(true);

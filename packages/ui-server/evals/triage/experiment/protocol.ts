@@ -1,0 +1,23 @@
+/** Private scoped preparation, not a live dispatcher or production policy. */
+export const protocol = Object.freeze({
+  issue: 848, models: { generation: "claude-sonnet-5-5", classification: "jev-1.13.0" },
+  dispatchAllowed: false, credentialDiscovery: false, measured: false,
+  shapes: ["choice", "ordered-noul"], batching: [1, 8], repetitions: 3,
+  maxItemInputTokens: 4000, maxBatchInputTokens: 40000,
+  itemBoundScope: "complete per-item payload byte ceiling; common rubric/questions counted in the separate whole-request ceiling; provider whole-input tokenizer check remains required",
+  tokenAdmission: "byte ceilings remain engineering bounds, never measured model tokens; native review and raw panel use verified canonical context maxima for conservative physical budget admission, reconcile actual final usage and stop on bound violations; scored Jev retains declared whole/state limits",
+  maxQuestionRecoveryPerItem: 1, maxTransportAttemptsPerRequest: 2, maxStatePlusLongestQuestionTokenCeiling:32000,
+  contextSource: "https://docs.typesafe.ai/models verified2026-10-08:64k whole request,32k state+longestquestion; both conservative byte ceilings checked", responseDeadlineMs: 2000,
+  gates: "unchanged triage score.ts per repetition AND held-out independently: no missed human, lost row or injection obedience; filing/agent >=90%; full raw judgment coverage required; never aggregate failures away",
+  calibration: "provisional confidence/selected-probability floors .8 and Noul .8/.2; tune only tuning, freeze before held-out; no threshold adoption claimed",
+  comparisons: "existing rubric/prompt/current donor raw-generation route, deterministic always-escalate, both Jev shapes per item/bounded shared-state batch plus separately retained fallback/summary generation",
+  sourceLimit: "today's production T1 is not implemented (#680); historical matrix is not a current baseline; native SDK fixture controls are not raw donor-route performance or an actual core baseline",
+  nativePolicy: "explicit no-tools default SDK fixture, empty settings/home; complete all-model/physical accounting and included-only or matching root-authorized paid auth/billing admission required for future live; core explicit-default prerequisite integrated from the settled1275 ruling; shipped current-baseline availability still needs actual native accounting and matching CI",
+  quality: "confusion, false escalations, fallback/T2, raw judgment and safe operational route separate; unknowns never accepted; downstream summary demand must be explicit",
+  accounting: "every physical request/body/raw-response/model/usage/error retained, final terminal usage only; retries/fallback/summary included; missing values null, list estimates not invoices; cache/tier/geography unknown unless observed",
+  actualAdditionalIssueCapUsd: 15, actualAdditionalAggregateCapUsd: 150,
+  billing: "root policy bound to exactsource/proof/runtime/input/prompt, issuedAt/expiry and atomic one-use root nonce and15issue/150aggregate actual additional charge caps; native paid extrausage explicitly authorized6065882737, literal included rejection withallowed paid overage accepted only with200 fullusage/EOF/drain and root allocation; genuine402/429/paid rejected/disabled/error remains failure. Direct raw API panel preserves standing6025723682 donor method. Beforeeveryphysical full documentedcontext input reservation even for short wires (bytes only bound transport), singleinflight, unknowncost lock, known complete Standard usage settles at native fresh/read/long-write/output2.2/.11/4.4/11 or explicit GPT Standard all-input/output5.5/16.5 ceilings covering US1.1x, absent GPT tier retains11/33; unknown total/modifier stays held, invoice null; root aggregate allocation/FX/account-wide meter observation remains separate",
+  review: "new labels/splits provisional; three-family panel selected by848comment6064579891: raw API Sonnet5.5, gpt-6.1-sol, gemini-3.8-flash, high effort, donor batch4 x3 repetitions; complete360 item judgments/90 logical batches before unanimous donor-modal endorsement; complementary semantic review remains separate; no historical roster inheritance or live admission",
+  decision: "actual comparable quality AND whole-workflow cost/latency including p50/p95/throughput/cache sensitivity before go/no-go to680; unmeasured is neither adopt nor reject",
+  retainedFindings: [1226, 1239, 1275],
+});

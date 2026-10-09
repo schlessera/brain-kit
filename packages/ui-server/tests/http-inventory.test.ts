@@ -53,7 +53,7 @@ test("configured CORS preflight runs before authentication and refuses unapprove
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-origin")).toBe("https://client.example");
     expect(response.headers.get("access-control-allow-methods")?.split(",").sort()).toEqual(["DELETE", "GET", "POST", "PUT"]);
-    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key");
+    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key,Content-SHA256");
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
     expect(await response.text()).toBe("");
     expect((await t.fetch("/api/status", { method: "OPTIONS", headers: { origin: "https://attacker.example" } })).status).toBe(403);

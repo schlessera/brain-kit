@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Bot, Check, ChevronRight, X } from "lucide-react";
+import { ArrowLeft, Bot, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
@@ -9,7 +9,8 @@ import { useActivityStore, childSpans, eventsFor, spanForTool } from "../../stor
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat, awaitsDecision } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
-import { getToolLabel, formatDuration } from "./tool-views.js";
+import { formatDuration } from "./tool-views.js";
+import { ToolPermissionCard } from "./tool-permission-card.js";
 import { SpanPayload, SpanStatusDot, spanToolLabel } from "../activity/span-bits.js";
 
 /**
@@ -30,7 +31,7 @@ export function SubagentView({
   onApproval,
 }: {
   spanId: string;
-  onApproval?: (toolUseId: string, approved: boolean) => void;
+  onApproval?: (toolUseId: string, approved: boolean, always?: boolean) => void;
 }) {
   const popSubagentView = useUIStore((s) => s.popSubagentView);
   const pushSubagentView = useUIStore((s) => s.pushSubagentView);
@@ -93,32 +94,7 @@ export function SubagentView({
       </div>
 
       <div className="flex-1 space-y-1.5 overflow-y-auto p-4">
-        {approvalsHere.map((tool) => (
-          <div
-            key={tool.id}
-            className="rounded-lg border-2 border-primary/40 bg-primary-fill/5 p-3 text-xs"
-          >
-            <div className="mb-2 font-medium">
-              Approval needed: {getToolLabel(tool.name)}
-            </div>
-            {onApproval && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onApproval(tool.id, true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary-fill px-4 py-1.5 text-xs font-medium text-primary-foreground hover:brightness-110"
-                >
-                  <Check className="h-3 w-3" /> Allow
-                </button>
-                <button
-                  onClick={() => onApproval(tool.id, false)}
-                  className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive hover:bg-destructive-fill/10"
-                >
-                  <X className="h-3 w-3" /> Deny
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+        {approvalsHere.map(tool => <ToolPermissionCard key={tool.id} toolCall={tool} onApproval={onApproval} />)}
 
         {timelineItems.length === 0 && (
           <p className="text-xs text-muted-foreground">

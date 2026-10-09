@@ -42,6 +42,15 @@ sweep. The owning frame shares one sweep across all of its text slots. See
 D53 in `docs/decisions/design-kit.md` and the `States/GhostSweep` Storybook
 review gallery.
 
+## Search results
+
+`SearchResultCard` accepts `segments` for all matched and unmatched snippet
+parts, overriding `before` / `highlight` / `after`. Optional `title`, `type`
+and controlled `active` preserve result identity and keyboard selection in a
+search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
+metric rather than a calibrated probability. Opening remains the caller's
+`onClick`, and long snippet tokens wrap within the card.
+
 ## Grouped questions
 
 `AskUserGroupCard` presents two to four questions as one exchange, with one
@@ -97,6 +106,14 @@ an explicit finite `seconds` value. Sample values belong in stories.
 For a static sent-file record, pass `actionIcon=""` and omit `onClick`.
 The row then has no role or tab stop. The chat consumer uses this form for
 validated tracks; its image thumbnails and zoom controls remain separate.
+
+## Streaming status
+
+`StreamingAnswer` draws only supplied phase, target, elapsed, answer and cost
+facts; prototype samples belong in stories. `pulse={false}` makes its status
+dot static. Only the phase word is announced; targets wrap and elapsed ticks
+stay outside the live region. For a waiting status without another answer or
+Stop, omit `text` and set `stoppable={false}`. `bars={false}` omits ghosts.
 
 ## Imported tracks
 
@@ -323,3 +340,9 @@ Interrupted rows name the committed boundary and say the end may be missing.
 Its optional playback/discard callbacks and children let a root-scoped view
 provide local actions and transcript editing. The row does not transcribe or
 send anything; dark and light stories cover every recording state.
+
+For real pending tool permissions, ApprovalCard accepts `children` for the
+existing renderer's full input/diff, `wrapHeader` for long tool names and
+targets, and `onAlwaysAllow` only when a remembered grant is eligible.
+Pass empty `diff`/`risk` when no such data exists to clear demo defaults.
+The optional Always allow control names its `write_policy` effect.

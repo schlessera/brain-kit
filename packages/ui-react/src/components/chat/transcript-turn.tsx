@@ -1,7 +1,5 @@
 import { Chip, Disclosure, Icon, MessageBubble, StatusDot } from "@schlessera/brain-ui-kit";
 import type { ReactNode } from "react";
-import { describeRetry } from "@schlessera/brain-ui-sdk/internal/client";
-import type { TurnRetry } from "@schlessera/brain-ui-sdk/protocol";
 import { cn } from "../../lib/utils.js";
 
 /**
@@ -101,28 +99,5 @@ export function ThinkingBlock(p: ThinkingBlockProps) {
         {p.content}
       </div>
     </Disclosure>
-  );
-}
-
-/**
- * A failed model call the runtime is about to retry (#575): the same dot,
- * saying why the turn is waiting, so a backoff never reads as a hang.
- */
-export function RetryIndicator({ retry }: { retry: TurnRetry }) {
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-      <StatusDot tone="amber" pulse size={6} />
-      {describeRetry(retry)}
-    </div>
-  );
-}
-
-/** Nothing has arrived yet: the one breathing dot the design allows. */
-export function ThinkingIndicator() {
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-      <StatusDot tone="amber" pulse size={6} />
-      Thinking...
-    </div>
   );
 }

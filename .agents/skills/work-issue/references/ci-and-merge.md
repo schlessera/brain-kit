@@ -1,9 +1,21 @@
 # CI and merge for the claimed issue
 
 Read this when the implementation has a PR. Commands were checked against
-installed `gh`/`depot` help; use their help again if an interface changes.
+installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
 monitoring.
+
+## Required evidence
+
+Before opening/marking ready, execute `bun run check:pr --base origin/main`
+for focused preflight. Record actual behavioral failing-first/restored mutation
+receipts and visual judgment. Complete repeatable proof runs in selected hosted
+jobs under #1326, including full affected discovery, pinned browser/layout/
+endurance/editorial and native runtime categories. Optional `--full` and `--all`
+retain complete local commands. Every selected hosted job must pass; missing
+runtimes, failures/cancellations and unexpected skips leave proof unfinished.
+Keep drafts cheap and batch pushes. Assess relevant base changes before redoing
+heavy work; an unrelated merge alone does not justify restarting every suite.
 
 ## Read the actual head
 
@@ -35,18 +47,13 @@ tests a synthetic merge commit, verify its relationship to this recorded head
 and independently queried live base using the actual job checkout evidence
 below. A head-only gate proves its own head checks, not the combined tree.
 
-Read the checked-out `.depot/workflows/`, `.github/workflows/project-sync.yml`
-and merge requirements for expected checks. CI and contract checks use Depot
-CI; project-sync uses GitHub Actions because Depot does not support issue
-events and its Actions runners require an organization-owned repository.
-A PR whose head repository is a fork is the exception: Depot does not
-receive it, and the generated `.github/workflows/fork-ci.yml` and
-`fork-contract.yml` run the same gates on GitHub Actions as `fork / <job>`
-checks. Choose the provider by the PR's `headRepository`, never by which
-rows happen to be green. On a same-repository PR the `fork / …` rows are
-skipped by their route and are not evidence; on a fork PR, Depot rows are
-absent and the `fork / …` runs are the gates. A fork run awaiting maintainer
-approval has not run.
+Read the checked-out `.github/workflows/ci.yml`, `contract.yml` and
+`project-sync.yml`, plus the merge requirements, for expected checks. GitHub
+Actions is the sole CI provider for main, same-repository PRs and forks under
+#1320. The former Depot definitions and fork fallback copies are retired.
+Forks use the ordinary read-only PR context and nonpersisted checkout
+credentials; an approval-held run has not passed. Read actual GitHub checks
+and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
 Skipped/neutral checks count only where actual workflow/branch rules
@@ -73,13 +80,17 @@ ruleset or synthetic-merge runs omitted by the head-SHA filter.
 
 While a workflow is still running, `gh run view --log` and `--log-failed`
 refuse logs even for a completed job. Read that job's log directly instead
-(`databaseId` in the run's jobs), then inspect its failing step:
+(`databaseId` in the run's jobs), then inspect its failing step. The installed
+GitHub CLI refuses raw logs containing terminal escape sequences unless they
+are explicitly allowed, even when stdout is redirected. Export those logs to
+a file rather than printing the escaped response in a terminal:
 
 ```sh
-rtk proxy gh api 'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs'
+rtk proxy gh api --allow-escape-sequences \
+  'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs' > /tmp/ci-job.log
 ```
 
-Read the checkout SHA from the actual jobs' logs (including the test/browser
+Read the checkout SHA from the actual selected jobs' logs (including verification/pack
 jobs); a workflow's `headSha` or PR metadata alone does not establish the tree
 those jobs ran. Record the run, attempt, job IDs and checkout SHA. For GitHub's
 two-parent PR merge checkout, verify immutable parents and retain its tree:
@@ -97,11 +108,13 @@ verified_tree=$(rtk proxy git rev-parse "$ci_checkout^{tree}")
 
 The local object must agree with the immutable API receipt. Reconcile all
 required jobs' checkouts with this proof; investigate different trees rather
-than applying one job's receipt to the others. If main advanced or the head
-changed, the earlier combined-tree equivalence no longer holds. Refresh the
-PR against live main and obtain/revalidate the required combined-state checks
-under existing branch rules before merging. Do not merely rerun the old
-checkout or overwrite the recorded base to make a comparison pass. Missing
+than applying one job's receipt to the others. A changed head requires fresh
+inspection. If main advanced, inspect the missing commits before refreshing:
+only commits relevant to this work or its checks require a rebase and affected
+revalidation. Record unrelated advancement without rebasing or restarting suites.
+The earlier run still describes its recorded tree, not the newer combined tree;
+retain its actual head/base, the relevance assessment and existing branch rules.
+Do not overwrite the recorded base to make a comparison pass. Missing
 objects/logs leave verification unfinished.
 
 Observed example: [PR #868's CI](https://github.com/schlessera/brain-kit/actions/runs/36944640962)
@@ -118,51 +131,12 @@ therefore did not prove the final combined tree. The [outcome](https://github.co
 records the separate post-merge reconstruction and scoped checks without
 calling them the older full CI run.
 
-A local `depot ci run` is evidence for local changes only when its patch was
-actually applied. Inspect dispatch warnings and the job's checkout/patch
-logs: repository or default-branch detection can fail in a worktree and the
-CLI can continue with `skipping patch`. Explicit `--repo` and `--forge`
-selection may resolve repository detection without resolving patch creation.
-Treat an unpatched run as a control of its actual checkout, or push the
-scoped diagnostic commit and pin checkout to it, then verify that SHA in the
-logs. Do not attribute the control's result to unuploaded changes.
-
-When Depot is enabled, use its results and logs directly:
-
-```sh
-rtk proxy depot ci workflow list --repo schlessera/brain-kit \
-  --pr <pr> --sha <head-sha> --output json -n 200
-rtk proxy depot ci status <run-id> --output json
-rtk proxy depot ci diagnose --run <run-id> --output json
-rtk proxy depot ci logs <attempt-id> --timestamps
-```
-
-Inspect repo, PR/trigger, SHA, workflow, expected jobs and current attempts.
-Use at most four simultaneous finite log exports. Depot limits active log
-streams per token; `resource_exhausted` means to finish exports and retry
-sequentially, even if preceding CLI fallback errors say `Not found`.
-A `finished` workflow requires examination of job results. Prefer the known
-attempt ID for failure logs; run/job shortcuts can select another attempt.
-If no matching run is found, use check links/help to identify the exact run;
-do not substitute latest-main CI. Missing Depot access/dispatch is a handoff
-prerequisite when it prevents verification of enabled Depot checks.
-
-CI groups main pushes by commit SHA and PR executions by their merge ref.
-`cancel-in-progress: false` protects running work; it does not preserve an
-older pending workflow in a shared group. A cancelled main workflow is still
-unfinished verification. Inspect its execution history before recovery:
-
-```sh
-rtk proxy depot ci workflow show <workflow-id> --output json
-rtk proxy depot ci retry <run-id> --failed --workflow <workflow-id> --output json
-```
-
-A concurrency cancellation with no started execution or job attempts can be
-recovered by retrying its cancelled jobs. Verify every current attempt and
-actual checkout against the original squash SHA afterward. Record recovery
-separately from proof of a scheduling correction; retries and local API runs
-do not prove that future automatic main pushes retain independent records.
-Keep real test failures in the diagnosis loop below.
+Optional local full verification uses `bun run check:pr --base origin/main --full`; its
+packaging command reads the authoritative GitHub workflow. Local runs and
+manual workflow dispatch do not establish automatic PR or main-push behavior.
+For a cancelled GitHub run, inspect its original event, SHA and attempts before
+retrying; record any recovery separately from evidence that automatic scheduling
+preserves future commits. Never rerun a real test failure without diagnosis.
 
 Identify each failing step/assertion and distinguish an issue regression
 from an unrelated base failure or infrastructure problem. Fix related
@@ -191,11 +165,13 @@ current_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
 rtk proxy git fetch origin main
 rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$current_base"
 rtk proxy test "$current_head" = "$verified_head"
-rtk proxy test "$current_base" = "$verified_base"
+rtk proxy git diff --name-only "$verified_base" "$current_base"
 ```
 
-A mismatch requires refresh/revalidation of the new combined state and a new
-inspection, not a head-only merge or a weaker check. Merge only the inspected,
+A head mismatch requires new inspection. A base mismatch requires assessment of
+the missing commits: refresh/revalidate only if they affect this work or its
+checks. Record unrelated advancement and retain the original tested base/tree;
+never report the earlier run as testing a different combined tree. Merge only the inspected,
 passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 

@@ -301,8 +301,9 @@ test("a refused microphone shows the denial, keeps focus on the mic and leaves t
   await expect.poll(() => mic(s), { message: "the composer has a mic" }).not.toBe(null);
   const button = mic(s)!;
   await userEvent.click(button);
-  await expect.poll(() => notice(s)?.textContent, { message: "the denial copy" })
+  await expect.poll(() => notice(s)?.querySelector("[data-capture-message]")?.textContent, { message: "the denial copy" })
     .toBe("Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again.");
+  expect(notice(s)?.querySelector('[aria-label="Dismiss capture notice"]')?.textContent).toBe("Dismiss");
   expect(s.gum.calls, "one request, no retry loop").toBe(1);
   expect(document.activeElement, "focus stays on the mic").toBe(button);
   expect(phase(s)).toBe("idle");
@@ -317,8 +318,9 @@ test("a refused microphone shows the denial, keeps focus on the mic and leaves t
 test("a browser that cannot record on the device says so, with no mic claiming to", async (ctx) => {
   vi.spyOn(MediaRecorder, "isTypeSupported").mockReturnValue(false);
   const s = await mount(ctx);
-  await expect.poll(() => notice(s)?.textContent, { message: "the unsupported copy" })
+  await expect.poll(() => notice(s)?.querySelector("[data-capture-message]")?.textContent, { message: "the unsupported copy" })
     .toBe("This browser can't save recordings on the device. You can type a note and send it when you're back online.");
+  expect(notice(s)?.querySelector('[aria-label="Dismiss capture notice"]')?.textContent).toBe("Dismiss");
   expect(mic(s), "no mic control").toBe(null);
   expect(s.host.querySelector('[data-composer] [aria-label="Record on this device"]')).toBe(null);
   expect(s.gum.calls).toBe(0);

@@ -56,6 +56,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const uploadKeys = new WeakMap<PendingAttachment, Map<string, string>>();
   /** Bumped whenever a draft's host copy changes, so a list read before it cannot judge it. */
   const hostSeq = new Map<string, number>();
+  /** A device fork replaces an entry with another writer's retained version. */
+  const deviceSeq = new Map<string, number>();
   let listing = false;
 
   const key = () => crypto.randomUUID();
@@ -83,7 +85,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   function held(draftId: string): boolean {
-    return Object.values(drafts.getState().sends).some((s) => s.draftId === draftId && (s.state === "pending" || s.state === "unconfirmed"));
+    return Object.values(drafts.getState().sends).some((s) => (s.draftId === draftId || drafts.getState().sendDraftId(s.requestId) === draftId) && (s.state === "pending" || s.state === "unconfirmed"));
   }
 
   function bumpHost(draftId: string) { hostSeq.set(draftId, (hostSeq.get(draftId) ?? 0) + 1); }
@@ -142,8 +144,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
   async function step(d: ComposerDraft): Promise<void> {
     const store = drafts.getState();
+    const deviceGeneration = deviceSeq.get(d.draftId) ?? 0;
+    const current = () => !disposed && deviceGeneration === (deviceSeq.get(d.draftId) ?? 0);
     if (d.bind && d.host) {
       const result = await api.bind(d.draftId, d.bind);
+      if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); drafts.getState().bound(d.draftId, result.value.revision); return; }
       if (result.status === 409 && result.body.error === "DRAFT_NOT_ACCEPTED") { drafts.getState().bindFailed(d.draftId); return; }
       failed(d.draftId, result);
@@ -153,6 +158,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       // Emptied after a save that got no answer: ask what the host holds,
       // and delete what it stored, rather than let a refresh bring it back.
       const read = await api.get(d.draftId);
+      if (!current()) return;
       // The lost save created revision 1. A later one is another device's
       // edit since: never deleted unseen, it is a conflict on the empty draft.
       if (read.ok && read.value.revision > 1) {
@@ -162,6 +168,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       }
       if (read.ok) {
         const result = await api.remove(d.draftId, read.value.revision);
+        if (!current()) return;
         if (!result.ok && result.status !== 404 && result.status !== 410) { failed(d.draftId, result); return; }
       } else if (read.status !== 404 && read.status !== 410) { failed(d.draftId, read); return; }
       bumpHost(d.draftId);
@@ -171,6 +178,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (!hasContent(d)) {
       if (!d.host) return;
       const result = await api.remove(d.draftId, d.host.revision);
+      if (!current()) return;
       if (result.ok) { bumpHost(d.draftId); failures.delete(d.draftId); drafts.getState().removed(d.draftId); retryFull(); return; }
       if (result.status === 410 || result.status === 404) { bumpHost(d.draftId); drafts.getState().removed(d.draftId); return; }
       failed(d.draftId, result);
@@ -186,7 +194,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       let k = keys.get(d.draftId);
       if (!k) { k = key(); keys.set(d.draftId, k); }
       const result = await api.upload(d.draftId, k, { mime: attachment.attachment.mediaType, base64: attachment.attachment.data, name: attachment.name || null });
-      if (disposed) return;
+      if (!current()) return;
       if (!result.ok) { failed(d.draftId, result, d.edit); return; }
       uploads.set(attachment, result.value.attachmentId);
       drafts.getState().uploaded(d.draftId, attachment, result.value.attachmentId);
@@ -203,7 +211,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const idempotencyKey = previous?.body === fingerprint ? previous.key : key();
     saveKeys.set(d.draftId, { body: fingerprint, key: idempotencyKey });
     const result = await api.save(d.draftId, ifMatch, idempotencyKey, body);
-    if (disposed) return;
+    if (!current()) return;
     if (result.ok) {
       saveKeys.delete(d.draftId);
       failures.delete(d.draftId);
@@ -327,7 +335,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   function acceptedTracks(send: DraftSend, sessionId: string | undefined) {
     if (send.tracks) removeTracks(root, send.tracks.key, send.tracks.ids);
     if (send.sessionId === null && sessionId) {
-      const origin = drafts.getState().originOf(send.draftId);
+      const origin = drafts.getState().originOf(drafts.getState().sendDraftId(send.requestId) ?? send.draftId);
       moveTracks(root, trackKey(null, origin), trackKey(sessionId, origin));
     }
   }
@@ -348,9 +356,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    */
   function openOwnNewChat(send: DraftSend) {
     const c = chat.getState();
-    if (c.activeSessionId !== null || drafts.getState().fresh !== send.draftId || c.pendingDraftId !== null) {
+    const draftId = drafts.getState().sendDraftId(send.requestId) ?? send.draftId;
+    if (c.activeSessionId !== null || drafts.getState().fresh !== draftId || c.pendingDraftId !== null) {
       c.clearMessages();
-      drafts.setState({ fresh: send.draftId });
+      drafts.setState({ fresh: draftId });
     }
   }
 
@@ -368,6 +377,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
 
   // Changes to a draft's content schedule its save.
   const unsubscribeDrafts = drafts.subscribe((state, prev) => {
+    for (const [id, d] of Object.entries(state.drafts)) if (d.deviceEpoch !== undefined && d.deviceEpoch !== prev.drafts[id]?.deviceEpoch) {
+      deviceSeq.set(id, (deviceSeq.get(id) ?? 0) + 1);
+      bumpHost(id);
+    }
+    for (const [id, d] of Object.entries(state.drafts)) if (!prev.drafts[id] && d.deviceConflict) {
+      // The other identity can be a predecessor retired by a send while
+      // the native fork was pending. Its outstanding calls still need a fence.
+      const sources = new Set([...Object.keys(prev.drafts), d.deviceConflict.otherId]);
+      for (const source of sources) if (state.resolveId(source) === id || source === d.deviceConflict.otherId) {
+        deviceSeq.set(source, (deviceSeq.get(source) ?? 0) + 1);
+        bumpHost(source);
+      }
+    }
     if (!live()) return;
     for (const [id, d] of Object.entries(state.drafts)) {
       const before = prev.drafts[id];

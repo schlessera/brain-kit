@@ -39,7 +39,9 @@ export function singleKey(event: {
  * card leaves the DOM, so the neighbours are still where they were.
  */
 export function focusAfterDecision(current: Element, cardSelector: string, fallbackSelector: string): void {
-  const cards = [...document.querySelectorAll<HTMLElement>(cardSelector)];
+  const identity = (current as HTMLElement).dataset.toolUseId;
+  const cards = [...document.querySelectorAll<HTMLElement>(cardSelector)].filter(card =>
+    card === current || !identity || card.dataset.toolUseId !== identity);
   const here = cards.indexOf(current as HTMLElement);
   const next = cards[here + 1] ?? cards[here - 1];
   const target = next ?? document.querySelector<HTMLElement>(fallbackSelector);

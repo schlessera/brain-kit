@@ -706,7 +706,14 @@ export function createAnswerDelivery(options: AnswerDeliveryOptions) {
     const readIn = epoch;
     let raws: unknown[];
     try {
-      principal = principal ?? (await storage.getPrincipalKey());
+      if (principal === null) {
+        const storedPrincipal = await storage.getPrincipalKey();
+        if (disposed || epoch !== readIn) return;
+        // A hello may have established a newer principal while storage was
+        // reading. Recheck after the await; its older snapshot cannot replace
+        // that principal, including with an empty first-visit value.
+        principal ??= storedPrincipal;
+      }
       raws = await storage.load();
     } catch {
       // Unreadable for now. Nothing is restored, a Submit still tries the

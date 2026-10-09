@@ -1,0 +1,191 @@
+{
+  "command": "bun scripts/measure-claude-runtime.ts --out runtime.json",
+  "date": "2026-10-08T09:50:13.424Z",
+  "agentSdk": "0.3.293",
+  "claudeCode": "2.1.293",
+  "constant": {
+    "claudeCode": "2.1.292",
+    "agentSdk": "0.3.292",
+    "measuredOn": "2026-10-07"
+  },
+  "cases": [
+    {
+      "name": "classifier-bypass",
+      "claim": "The safe-command classifier runs `echo hi` under an EMPTY allowlist without consulting canUseTool; an `ask` forces the callback.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts",
+        "packages/ui-backend-claude/tests/no-grant-surface.test.ts",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "classifier-not-a-bypass",
+      "claim": "`touch <path>` under the same empty allowlist goes to canUseTool; the command's shape decides.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "toolsearch-bypass",
+      "claim": "A built-in tool (`ToolSearch`) runs with an empty allowlist and no callback; an `ask` forces the callback.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts",
+        "packages/ui-backend-claude/tests/no-grant-surface.test.ts",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "settings-hook-allow-bypass",
+      "claim": "A project-settings PreToolUse hook returning `allow` admits a call without canUseTool; an in-process `ask` beats it.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts",
+        "packages/ui-backend-claude/tests/no-grant-surface.test.ts",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "permissions-allow-not-a-bypass",
+      "claim": "A project-settings `permissions.allow` rule does not skip canUseTool.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "bypass-mode-not-a-bypass",
+      "claim": "A project-settings `defaultMode: \"bypassPermissions\"` does not skip canUseTool.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "docs/extending/agent-backends.md"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "rewrite-without-decision",
+      "claim": "A PreToolUse hook's `updatedInput` applies with NO decision, and canUseTool then sees the rewritten input.",
+      "sites": [
+        "packages/ui-backend-claude/src/input-rewrite-hooks.ts",
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "ask-keeps-rewrite",
+      "claim": "An `ask` leaves another hook's `updatedInput` intact: the callback sees, and the call executes, the rewrite.",
+      "sites": [
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)",
+        "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "parallel-rewrites-last-wins",
+      "claim": "Matching PreToolUse hooks run in parallel, each sees the ORIGINAL input, and the last to FINISH decides what runs \u2014 whatever the registration order.",
+      "sites": [
+        "packages/ui-backend-claude/src/input-rewrite-hooks.ts",
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "inprocess-deny-beats-settings-allow",
+      "claim": "An in-process PreToolUse `deny` beats a project-settings hook's `allow`: the tool does not run.",
+      "sites": [
+        "docs/decisions/voice-permission.md (an in-process deny beats a settings allow)",
+        "packages/ui-backend-claude/src/permission-hooks.ts (DO NOT WEAKEN THIS INTO A FALLTHROUGH)"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "pretooluse-awaited-when-allowlisted",
+      "claim": "An in-process PreToolUse hook fires, and is AWAITED, for a tool on `allowedTools`, which runs without canUseTool \u2014 so a lock taken in that hook engages where the callback never would. An `ask` still forces the callback.",
+      "sites": [
+        "packages/ui-backend-claude/README.md (write lock)"
+      ],
+      "verdict": "pass"
+    },
+    {
+      "name": "d44-always-load-reaches-the-model",
+      "claim": "An MCP tool stamped `alwaysLoad` reaches the model undeferred; without the stamp it is deferred behind tool search. The server config itself carries no `alwaysLoad`, so the in-process server never joins the startup wait set.",
+      "sites": [
+        "docs/decisions/design-kit.md (D44)",
+        "packages/ui-backend-claude/src/ask-user-tool.ts"
+      ],
+      "verdict": "pass"
+    }
+  ],
+  "credentials": [
+    {
+      "row": "OAuth only",
+      "apiKeySource": "none",
+      "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN",
+      "ending": "error_max_turns",
+      "headers": [
+        {
+          "xApiKey": null,
+          "authorization": "Bearer sk-ant-oat01-\u2026"
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "row": "API key only",
+      "apiKeySource": "ANTHROPIC_API_KEY",
+      "tokenSource": "none",
+      "ending": "error_max_turns",
+      "headers": [
+        {
+          "xApiKey": "sk-ant-api03-k\u2026",
+          "authorization": null
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "row": "both (raw CLI)",
+      "apiKeySource": "ANTHROPIC_API_KEY",
+      "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN",
+      "ending": "error_max_turns",
+      "headers": [
+        {
+          "xApiKey": "sk-ant-api03-k\u2026",
+          "authorization": null
+        }
+      ],
+      "verdict": "pass"
+    },
+    {
+      "row": "neither",
+      "apiKeySource": "none",
+      "tokenSource": "none",
+      "ending": "Not logged in \u00b7 Please run /login",
+      "headers": [],
+      "verdict": "pass"
+    },
+    {
+      "row": "both (production backend)",
+      "ending": "",
+      "headers": [
+        {
+          "xApiKey": null,
+          "authorization": "Bearer sk-ant-oat01-\u2026"
+        },
+        {
+          "xApiKey": null,
+          "authorization": "Bearer sk-ant-oat01-\u2026"
+        }
+      ],
+      "verdict": "pass"
+    }
+  ]
+}

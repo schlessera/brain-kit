@@ -1,3 +1,4 @@
+import { browserRequest, type ProgressRequestInit } from "./lib/upload-request.js";
 import { createToolRendererRegistry } from "@schlessera/brain-ui-sdk/internal/client";
 import { createAsrClientRegistry, type AsrClientRegistry, type ToolRendererRegistry } from "@schlessera/brain-ui-sdk/client";
 import { createBrainUiConfig, type BrainUiConfig } from "./config.js";
@@ -33,7 +34,7 @@ export interface LocalCaptureOptions {
 export interface BrainUiRootOptions {
   config?: Partial<BrainUiConfig>;
   api?: BrainApi;
-  request?: (url: string, init?: RequestInit) => Promise<Response>;
+  request?: (url: string, init?: ProgressRequestInit) => Promise<Response>;
   /** Stable, distinct prefix per embedder. Omit for an ephemeral isolated root. */
   storagePrefix?: string;
   /** null disables persistence (SSR, stories, tests). */
@@ -58,7 +59,7 @@ export interface BrainUiRootOptions {
 export interface BrainUiServices {
   config: BrainUiConfig;
   api: BrainApi;
-  request: (url: string, init?: RequestInit) => Promise<Response>;
+  request: (url: string, init?: ProgressRequestInit) => Promise<Response>;
   /** @internal The full store state; shells use the exported store hooks (#1053). */
   stores: BrainStores;
   renderers: ToolRendererRegistry;
@@ -111,9 +112,9 @@ export function createRoot(
   renderers = createToolRendererRegistry(),
   asr = createAsrClientRegistry(),
 ): BrainUiRoot {
-  const transport = options.request ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  const transport = options.request ?? browserRequest;
   let authLock: ReturnType<typeof createAuthLock> | undefined;
-  const request = async (url: string, init?: RequestInit): Promise<Response> => {
+  const request = async (url: string, init?: ProgressRequestInit): Promise<Response> => {
     const path = new URL(url, "http://localhost").pathname;
     const authRoute = /\/api\/auth\/(?:login|logout|methods|passkey\/login-(?:options|verify))$/.test(path);
     const epoch = authLock?.epoch();
@@ -232,6 +233,7 @@ export function createRoot(
     services.localWork = createLocalWork({
       stores, partitions,
       scope: `root:${prefix}`,
+      onSessionRestore: (sessionId) => root.connection.send({ type: "session_resume", sessionId }),
       tracks: (sessionId, origin) => trackRefs(services, trackKey(sessionId, origin)),
       watchTracks: (fn) => subscribeAllTracks(services, fn),
       restoreTracks: (sessionId, origin, refs) => tracksFor(services, trackKey(sessionId, origin)).uploads.restore(refs),

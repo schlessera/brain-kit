@@ -4,7 +4,10 @@ Decision of 2026-10-01 under [#611](https://github.com/schlessera/brain-kit/issu
 and the [launch epic](https://github.com/schlessera/brain-kit/issues/608).
 The maintainer selected [framework/content option A](https://github.com/schlessera/brain-kit/issues/611#issuecomment-5938291170)
 and [publishing option A](https://github.com/schlessera/brain-kit/issues/611#issuecomment-5938985608).
-These rulings bind the site implementation; they do not authorize publication.
+These rulings bind the site implementation. The maintainer’s subsequent
+2026-10-09 instruction authorizes automatic website updates on relevant main
+pushes and stable brain-kit release tags, superseding the separate per-artifact
+publication step below. Account/visibility changes remain separate.
 
 ## Why Astro
 
@@ -42,24 +45,46 @@ assume an older Markdown pipeline. The project owns the actual link transform,
 semantic navigation, keyboard/focus behavior and browser accessibility checks;
 framework choice does not satisfy them.
 
-## Stable routes without a second docs tree
+## A curated handbook, separate from the engineering archive
 
-Maintain an explicit publication manifest from intentionally selected sources
-to stable public routes. For example, `docs/README.md` maps to `/docs/`,
-`docs/quickstart.md` to `/docs/quickstart/`, and a selected package README may
-map to `/docs/modules/<module>/`. These paths are relative to the configured
-base. Source file renames preserve their published routes. Deliberate route
-changes require a static redirect page and updated navigation, links and
-canonical metadata. Do not publish every repository Markdown file by default.
+The maintainer's corrected 2026-10-09 instruction selects a handbook designed
+for human consumption. It supersedes recursive publication of Markdown linked
+from the repository documentation index. Linked engineering records are not a
+reading curriculum, and publishing them all overwhelms a reader.
 
-Derive documentation navigation from the canonical [docs index](../README.md).
-Resolve authored links against the original source location, including
-`README.md`, reference definitions, query strings and fragments. Selected
-targets become base-prefixed site links. Valid unselected repository targets
-use public source/tree fallback; missing targets fail the build. Preserve
-external URLs and GitHub-compatible heading IDs. Validate fragments, raw HTML
-links, encoded paths, route collisions and approved image destinations in the
-production build, beyond the experiment's deliberately narrow cases.
+Keep the canonical handbook chapters in `docs/handbook/` and select them with
+an explicit source-to-route manifest. Its own index groups the reading path
+into Start here, Everyday use, Make it yours and Build integrations. Explain
+concepts before commands, lead readers through their first capture and search,
+and introduce optional capabilities when they solve a concrete problem.
+Previous/next links provide a continuous learning path. The repository's
+`docs/README.md` remains the engineering index on GitHub; it does not own the
+website navigation. There is one canonical source for each handbook chapter,
+not a generated copy of the engineering documentation.
+
+Technical command and API references, package READMEs, contributor guides,
+plans, investigations, measurement reports and decision records stay as
+Markdown in GitHub. Deliberate handbook links to those sources have a visible
+external-link icon and accessible destination annotation. Only selected
+handbook targets become base-prefixed site links. Repository links never
+expand the publication list. Static checks enforce the selected source
+boundary, reading routes and sitemap; real browser proof follows the learning
+path and checks external reference marking.
+
+Preserve established useful routes such as `/docs/concepts/` and
+`/docs/quickstart/` while changing their source to the authored handbook.
+Previously published engineering URLs show a brief static handoff with a
+marked link to the reference at the last published revision. They do not
+render the engineering Markdown or appear in navigation or the sitemap.
+Source renames preserve routes; any deliberate route change needs an explicit
+recovery path and updated navigation, links and canonical metadata.
+
+Resolve authored links against their original source location, including
+reference definitions, query strings and fragments. Explicit source/edit
+links retain GitHub destinations with the same external marking. Missing
+files or fragments fail the build. Preserve GitHub-compatible heading IDs,
+validate raw HTML links, encoded paths and route collisions, and require
+approved image destinations in production.
 
 Published source links identify the file at the built commit. An edit link may
 point to `main`. The experiment uses `main` source links as a feasibility check;
@@ -104,32 +129,38 @@ final asset integration and launch checks belong to #615. Visitor policy
 remains a separate ruling under #616; this decision approves no collection
 form, tracking or hosted brain service.
 
-The update procedure deliberately separates a green build from publication:
+The maintainer's 2026-10-09 update selects automatic publication through
+GitHub Actions after source changes merge into main and after stable canonical
+brain-kit release tags. Package verification CI uses the separate ci.yml and contract.yml workflows. Website source
+updates and release updates combine current website/editorial sources with the
+latest stable tagged product tree and its dependency lock in an isolated
+workspace. Record both commits and the exact released version, and verify npm
+publication before calling it a release build. A scheduled check every 15
+minutes reconciles bulk tag pushes that GitHub does not emit as tag events,
+skipping builds when the deployed product/version already match. Published GitHub
+Releases also trigger the update. Local development can preview workspace UI.
 
-1. Edit canonical Markdown or approved site sources/assets in a PR. Build
-   locally at both bases and inspect affected pages.
-2. CI validates the exact PR source commit: routes, fragments, source mappings,
-   asset freshness/provenance, leakage and designed-page browser accessibility
-   and responsive checks. Make the built HTML available for local review with
-   a manifest containing source SHA, lock hash, runtime/tool versions, base and
-   asset/recipe provenance.
-3. Merge the reviewed change. Build and validate the exact selected main
-   commit and review that artifact's manifest and pages.
-4. Obtain separate publication authorization for that commit/artifact. A
-   repository-controlled dispatch validates their identity and deploys the
-   reviewed static artifact through a separate job. Build jobs need repository
-   read access; deployment uses `pages: write`, `id-token: write` and the
-   `github-pages` environment, following GitHub's
-   [custom workflow requirements](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
-   Merging alone does not publish.
-5. Verify the reported deployed commit and public homepage, nested deep link,
-   image and source link. Record the sanitized receipt on the publishing issue.
-   Rollback uses the same validation and separate authorization for a previous
-   known-good commit/artifact.
+Regenerate product components and demo export assets before checking the built
+site. Typechecks, static route/fragment/digest checks, real-browser smoke and
+end-to-end checks of the embedded apps, responsive/accessibility checks and
+source/provenance identity verification must succeed before artifact upload and
+deployment. Preserve the working public artifact when any check fails and retain
+browser traces/screenshots for diagnosis. Changes to application contracts may
+require a reviewed demo adapter update; automation detects this rather than
+silently substituting another UI or editing source.
 
-These are production implementation requirements, not a claim that the local
-experiment supplies a publishing workflow. A downloaded artifact served
-locally is sufficient for review; a public preview service is unnecessary.
+Only the separate deploy job receives `pages: write` and `id-token: write`
+through `github-pages`. Serialize publications. A main-only manual dispatch
+allows rebuilding an earlier main commit with an optional released product tag
+through the same checks. Deployment receipts identify the website source,
+product source/version and final manifest hash. No per-build approval digest is
+required after this authorization. Repository Pages enablement and anonymous
+source access remain launch prerequisites, not actions of the build itself.
+
+The implementation and exact trigger/input coverage are documented in
+[website/README.md](../../website/README.md). GitHub's
+[custom workflow requirements](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+govern the artifact and deployment jobs.
 
 ## Measurements that constrain the implementation
 

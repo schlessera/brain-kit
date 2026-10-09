@@ -25,9 +25,9 @@ chat transcript remains the record. Voice attaches to one selected chat session;
 background sessions have visual notifications, not competing voices.
 
 The current input seam mints a dictation session (`SpeechProvider`,
-`packages/ui-sdk/src/server/speech.ts:26-35`). The phase-1 driver guards against
+`packages/ui-sdk/src/server/speech.ts:26-44`). The phase-1 driver guards against
 late starts after cancellation
-(`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:25-39`). That path
+(`useDictation`, `packages/ui-react/src/voice/use-dictation.ts:26-40`). That path
 continues to mean capture, review, send. Conversation is a separate explicit
 choice beside Dictate; it does not change Dictate's default or settle #91's
 desktop-sheet sizing.
@@ -186,7 +186,7 @@ existing pronunciation overrides only as disclosed text correction, retaining
 the distinction between recognized words and submitted text. The present
 `AsrEvent` carries partial/final text and `endsTurn`, not confidence, overlap
 evidence or an output transcript (`AsrEvent`,
-`packages/ui-sdk/src/protocol.ts:1614`). #317 must resolve those gaps rather
+`packages/ui-sdk/src/protocol.ts:1646`). #317 must resolve those gaps rather
 than pretending that dictation supplies them.
 
 Assistant text remains the generated answer; playback progress is a separate

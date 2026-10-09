@@ -13,7 +13,7 @@
  * with the component's own key column, the default 56px. The chat's message
  * list pads its scroller `px-4` below `md` and centres a `max-w-3xl` reading
  * column inside it (`scrollRef`,
- * `packages/ui-react/src/components/chat/chat-page.tsx:672-678`); below
+ * `packages/ui-react/src/components/chat/chat-page.tsx:667-673`); below
  * `tablet` the side rail is hidden and the tab bar is fixed to the bottom,
  * so neither takes width. Between that column and the receipt sit the
  * message's `py-4`, the answer's `space-y-3` and `BlockCard`'s bare `div`
@@ -24,32 +24,17 @@
  *
  * ## The font
  *
- * The kit bundles no fonts (`docs/decisions/design-kit.md`) and this project
- * loads none, so `'JetBrains Mono'` falls through the stack to the image's
- * `monospace`: WenQuanYi Zen Hei Mono, a CJK face whose Latin advance is
- * 0.5em, which measured budgets a fifth too generous for the face a reader
- * gets. A monospace font's line breaks depend on one number, its advance,
- * so the test names Liberation Mono (in the image, 1229/2048 em) as
- * `JetBrains Mono` (600/1000 em). No network, no new dependency.
- *
- * Chromium in the pinned image lays that advance out on whole pixels: 6.6px
- * at 11px becomes 7. A renderer with subpixel positioning keeps 6.6 and fits
- * one or two characters more, so the figures measured here are the lower
- * ones and hold on both. The first assertion pins the 7px advance, so a
- * stand-in or a renderer that moves it says so before the budgets do.
- *
- * What this does not guard: the 288px box is copied from ui-react, which
- * ui-kit cannot render, and the font is a stand-in. A change to the chat's
- * gutters or to the shipped mono face leaves this test green while the real
- * budget moves, so either change re-measures here. The figures are
- * conservative fit budgets, not the exact wrap threshold on every renderer.
+ * The shared browser setup loads the checksum-pinned JetBrains Mono faces.
+ * The first assertion measures their advance in the pinned Chromium image.
+ * Budgets remain conservative fit guarantees for the chat's 288px box;
+ * changing chat gutters or the locked mono face requires remeasurement.
  *
  * It lives in the visual project because that is the runner with a layout
  * engine; it takes no screenshot.
  */
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 
 import "../../src/styles.css";
 import { Receipt, type ReceiptRow } from "../../src/evidence/Receipt.js";
@@ -61,11 +46,6 @@ const UNTONED_BUDGET = 28;
 const TONED_BUDGET = 25;
 
 let host: HTMLDivElement | null = null;
-
-beforeAll(async () => {
-  const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
-  document.fonts.add(await face.load());
-});
 
 afterEach(() => {
   host?.remove();

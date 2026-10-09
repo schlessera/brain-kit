@@ -2,7 +2,6 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { outputDirectory, sha256 } from "./provenance.ts";
 
-const root=resolve(import.meta.dir,"../..");
 const representative=["screens-chat-answer--chat-answer","evidence-searchresultcard--result-set","rank-five-reorder","capture-search-keyless","approval-roundtrip"];
 type Artifact={id:string;files:Array<{file:string;sha256:string}>;readiness:Record<string,unknown>};
 
@@ -39,6 +38,7 @@ export async function compareCaptures(first:string,second:string):Promise<{recip
 }
 
 async function run():Promise<void> {
+  const root=resolve(import.meta.dir,"../..");
   const argv=process.argv.slice(2),forwarded:string[]=[];
   let out="tmp/feature-capture-verification",all=false;
   for(let at=0;at<argv.length;at++) {
@@ -54,6 +54,8 @@ async function run():Promise<void> {
     if(await child.exited!==0)throw new Error("Reproducibility capture failed; no successful report was written");
   }
   const result=await compareCaptures(...destinations as [string,string]);
+  const paintCheck=Bun.spawn([process.execPath,resolve(root,"scripts/captures/check-runtime-raster.ts"),resolve(directory,"paint-history"),...(forwarded.length?[forwarded[1]]:[])],{cwd:root,stdout:"inherit",stderr:"inherit",stdin:"ignore"});
+  if(await paintCheck.exited!==0)throw new Error("Runtime paint-history verification failed");
   await writeFile(resolve(directory,"reproducibility.json"),JSON.stringify(result,null,2)+"\n");
   console.log(JSON.stringify(result));
 }

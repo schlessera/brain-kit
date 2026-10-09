@@ -37,6 +37,30 @@ bun run captures --id approval-roundtrip --theme light --viewport 600x1000
 bun run capture:verify
 ```
 
+Runtime screenshots materialize both the initial and temporary file-link fragment
+surfaces before restoring
+their final styles and rejecting changed content or geometry before the existing
+visibility and three-identical-frame checks. This editorial preparation handles
+the controlled [native paint-history difference](../decisions/approval-capture-raster.md).
+`capture:verify` additionally compares actual approval effects, history and exact
+PNGs across ten fresh-browser pairs of both controlled paint histories; each
+`paint-history/pair-N/` directory retains its manifests and original PNGs, and
+the surrounding `paint-history/` artifacts retain
+the native measurements and original screenshots.
+
+Browser-stage runtime failures retain the original failure PNG and a
+`*-failure.json` containing the detection phase, browser and console error
+cause/stack chains, visible DOM state and the fixture host's execution/history
+observations. The fault gate still rejects recovered rendering errors; a visible
+result or a passing isolated control does not repair an earlier failed run.
+Two additional native controls inject nested errors through window and console
+reporting, require the fault gate to reject them, and verify retained original
+causes, stacks, populated approval state, host observations and failure PNGs.
+Their artifacts live under `paint-history/fault-evidence/`; they follow all ten
+original paint-history pairs.
+Run captures in a checkout whose build outputs are idle: the complete test suite
+also rebuilds those outputs, so simultaneous tests need a separate checkout.
+
 `--out` selects a dedicated empty or previously managed output directory.
 `--font-cache` selects the same prepared cache for preparation, generation and
 verification. A theme override changes the filename; a viewport override adds
@@ -72,8 +96,8 @@ video and capture/search evidence bytes. Approval evidence retains the app's
 randomly generated principal ID; verification permits only that field to vary,
 requires one correlated nonempty principal for both decisions in each run, and
 compares the remaining evidence exactly. Each run keeps its actual build and
-source provenance. Use `--all` to verify the entire catalogue. CI runs the same
-command; font preparation is an explicit dependency step outside the keyless
+source provenance. Use `--all` to verify the entire catalogue. The local pre-PR check runs this
+command for affected UI/capture sources; font preparation is an explicit dependency step outside the keyless
 test suite. Missing sources, unready stories, fonts, clipped required text,
 blank pixels and observed executor/store mismatches fail with the recipe ID.
 

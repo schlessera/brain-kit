@@ -81,11 +81,12 @@
  * That pair of numbers is what the keep-or-retire decision rests on.
  */
 
-import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { MeasurementResults, knownCounter, knownPrice, priceCoverage } from "./measurement-results.ts";
 import {
   BRIDGE_TOOL_CONTRACTS,
   buildSystemPromptAppend,
@@ -142,7 +143,10 @@ const MODEL = "claude-sonnet-5-5";
  * reader's deployment does.
  */
 function stageBrain(): string {
-  const dir = join(mkdtempSync(join(tmpdir(), "show-block-brain-")), "brain");
+  const scratch = mkdtempSync(join(tmpdir(), "show-block-brain-"));
+  const dir = join(scratch, "brain");
+  // This cached module shares its cwd across turns and test files (#1330).
+  process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
   cpSync(
     new URL("../packages/core/fixtures/corpus/", import.meta.url).pathname,
     dir,
@@ -291,7 +295,7 @@ function inputSchemaFor(arm: ArmName) {
   return isSchemaArm(arm) ? showBlockInputSchema(SCHEMA_ARMS[arm]) : SHOW_BLOCK_INPUT_SCHEMA;
 }
 
-interface TurnResult {
+export interface TurnResult {
   prompt: string;
   invites: string;
   classifiable: boolean;
@@ -322,10 +326,13 @@ interface TurnResult {
   kvRuns: KvRunColumns;
   answerChars: number;
   durationMs: number;
-  /** What this turn cost, as the SDK priced it. Summed into the report. */
-  costUsd: number;
+  /** SDK price estimate, separately from actual billing; absent receipts are unknown. */
+  costUsd: number | null;
+  resultReceipts: Record<string, any>[];
+  receiptSource: "native" | "sdk" | "none";
+  nativeProcesses: MeasurementResults["processes"];
   /**
-   * What the turn actually billed on the input side, split the way the API
+   * Main-loop input-token counters returned by the native result, split like the API
    * splits it. #148 turns on "does putting the schemas in the prompt cost more
    * than fetching them when wanted", and the tools block sits at the very
    * front of the cache prefix, so the fresh/created/read split is the
@@ -333,11 +340,11 @@ interface TurnResult {
    * `modelTurns` is the divisor: a turn is several model round-trips, and the
    * prompt is re-sent on each one.
    */
-  inputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
-  modelTurns: number;
+  inputTokens: number | null;
+  cacheCreationTokens: number | null;
+  cacheReadTokens: number | null;
+  outputTokens: number | null;
+  modelTurns: number | null;
   /**
    * Wall time from `query()` to the first assistant frame. The SDK warns that
    * `alwaysLoad` "blocks startup until the server is connected (capped at the
@@ -498,25 +505,23 @@ export async function runTurn(
   // collector numbers parts — joining them first would let two structures on
   // either side of a tool call merge into a candidate neither one is.
   const textParts: string[] = [];
-  let costUsd = 0;
+  const native = new MeasurementResults();
+  let yieldedResult: SDKResultMessage | undefined;
   let error: string | undefined;
   // Input-token accounting and first-frame latency, the two axes #148 adds to
   // the call rate. Both are read off the run rather than modelled.
-  let inputTokens = 0;
-  let cacheCreationTokens = 0;
-  let cacheReadTokens = 0;
-  let outputTokens = 0;
-  let modelTurns = 0;
   let firstFrameMs = 0;
   let ttftMs: number | undefined;
   let claudeCode: string | undefined;
   let apiKeySource: string | undefined;
   const inputSchema = inputSchemaFor(arm);
+  let stream: ReturnType<typeof query> | undefined;
   try {
-    for await (const message of queryFn({
+    stream = queryFn({
       prompt: prompt.text,
-      options: optionsFor(arm, abortController, alwaysLoad, isolation),
-    })) {
+      options: { ...optionsFor(arm, abortController, alwaysLoad, isolation), spawnClaudeCodeProcess: native.spawn },
+    });
+    for await (const message of stream) {
       if (message.type === "system" && message.subtype === "init") {
         claudeCode = message.claude_code_version;
         apiKeySource = message.apiKeySource;
@@ -547,16 +552,11 @@ export async function runTurn(
       }
       if (message.type === "result") {
         succeeded = message.subtype === "success";
-        costUsd = message.total_cost_usd;
+        yieldedResult = message;
         // `usage` is the main agent loop only — subagent and auxiliary calls
         // are excluded — which is the right scope here: the bridge server's
         // tools are offered to the main loop, and subagent frames are not
         // counted anywhere else in this harness either.
-        inputTokens = message.usage.input_tokens;
-        cacheCreationTokens = message.usage.cache_creation_input_tokens ?? 0;
-        cacheReadTokens = message.usage.cache_read_input_tokens ?? 0;
-        outputTokens = message.usage.output_tokens;
-        modelTurns = message.num_turns;
         if (message.subtype === "success") ttftMs = message.ttft_ms;
         if (message.subtype !== "success") error = message.subtype;
       }
@@ -564,8 +564,17 @@ export async function runTurn(
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   } finally {
+    try { stream?.close?.(); } catch (err) { error ??= String(err); }
+    if (!await native.drain()) error ??= "native_receipt_not_drained";
     clearTimeout(deadline);
   }
+  const receipt = native.results.at(-1) ?? yieldedResult;
+  const costUsd = knownPrice(receipt?.total_cost_usd);
+  const inputTokens = knownCounter(receipt?.usage?.input_tokens);
+  const cacheCreationTokens = knownCounter(receipt?.usage?.cache_creation_input_tokens);
+  const cacheReadTokens = knownCounter(receipt?.usage?.cache_read_input_tokens);
+  const outputTokens = knownCounter(receipt?.usage?.output_tokens);
+  const modelTurns = knownCounter(receipt?.num_turns);
   // An aborted turn produced no answer a reader could have received, whatever
   // it emitted on the way, so it is excluded rather than scored.
   if (abortController.signal.aborted) error = "turn_budget_exceeded";
@@ -586,6 +595,9 @@ export async function runTurn(
     answerChars: textParts.join("").length,
     durationMs: Date.now() - started,
     costUsd,
+    resultReceipts: native.results.length ? native.results : yieldedResult ? [yieldedResult] : [],
+    receiptSource: native.results.length ? "native" : yieldedResult ? "sdk" : "none",
+    nativeProcesses: native.processes,
     inputTokens,
     cacheCreationTokens,
     cacheReadTokens,
@@ -903,27 +915,30 @@ function mean(runs: readonly TurnResult[], pick: (run: TurnResult) => number): n
 }
 
 /**
- * What a turn billed on the input side and how long it took to say anything.
+ * The native main-loop input counters and time to the first answer frame.
  * The prompt is re-sent on every model round-trip, so the per-round-trip
  * column is the one that compares against a per-turn schema cost; the
  * fresh/cached split matters because the tools block sits at the front of the
  * cache prefix, where a re-read is a tenth of the price of a fresh read.
  */
-function costRows(runs: readonly TurnResult[]): string[] {
+export function costRows(runs: readonly TurnResult[]): string[] {
   const rows = [
     "| arm | turns | model round-trips | fresh input | cache writes | cache reads | input per round-trip | first frame | ttft | $ / turn |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const arm of ARMS) {
     const mine = completed(runs).filter((run) => run.arm === arm);
-    const perTrip = mean(mine, (run) =>
-      run.modelTurns > 0
-        ? (run.inputTokens + run.cacheCreationTokens + run.cacheReadTokens) / run.modelTurns
-        : 0
-    );
+    const averaged = (pick: (r: TurnResult) => number | null) => {
+      const values = mine.map(pick);
+      return values.length && values.every(v => v !== null) ? String(Math.round(values.reduce((sum, value) => sum + value!, 0) / values.length)) : "—";
+    };
+    const perTrip = averaged(run => run.modelTurns !== null && run.modelTurns > 0 && run.inputTokens !== null && run.cacheCreationTokens !== null && run.cacheReadTokens !== null
+      ? (run.inputTokens + run.cacheCreationTokens + run.cacheReadTokens) / run.modelTurns : null);
     const withTtft = mine.filter((run) => run.ttftMs !== undefined);
+    const coverage = priceCoverage(mine);
+    const averageCost = mine.length && coverage.totalUsd !== null ? `$${(coverage.totalUsd / mine.length).toFixed(3)}` : "unknown/not measured";
     rows.push(
-      `| ${arm} | ${mine.length} | ${mean(mine, (r) => r.modelTurns)} | ${mean(mine, (r) => r.inputTokens)} | ${mean(mine, (r) => r.cacheCreationTokens)} | ${mean(mine, (r) => r.cacheReadTokens)} | ${perTrip} | ${mean(mine, (r) => r.firstFrameMs)} ms | ${withTtft.length ? `${mean(withTtft, (r) => r.ttftMs ?? 0)} ms` : "—"} | $${(mine.reduce((sum, run) => sum + run.costUsd, 0) / Math.max(mine.length, 1)).toFixed(3)} |`
+      `| ${arm} | ${mine.length} | ${averaged(r => r.modelTurns)} | ${averaged(r => r.inputTokens)} | ${averaged(r => r.cacheCreationTokens)} | ${averaged(r => r.cacheReadTokens)} | ${perTrip} | ${mean(mine, (r) => r.firstFrameMs)} ms | ${withTtft.length ? `${mean(withTtft, (r) => r.ttftMs ?? 0)} ms` : "—"} | ${averageCost} |`
     );
   }
   return rows;
@@ -953,7 +968,7 @@ function installedSdkVersion(): string {
   return (JSON.parse(readFileSync(join(dirname(SDK_ENTRY), "package.json"), "utf8")) as { version: string }).version;
 }
 
-function report(
+export function report(
   runs: readonly TurnResult[],
   cost: { lines: number; chars: number; tokens: number } | null,
   reps: number,
@@ -961,11 +976,12 @@ function report(
   forms: readonly { arm: SchemaArm; chars: number }[]
 ): string {
   const errors = runs.filter((run) => run.error);
+  const coverage = priceCoverage(runs);
   return [
     SCHEMA_FORMS ? "# `show_block` rate by schema form (#336)" : "# `show_block` rate with the classification pass on",
     "",
-    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} live turns, $${runs.reduce((sum, run) => sum + run.costUsd, 0).toFixed(2)} at API prices as the SDK reports them.`,
-    `Credential: \`${credential.source}\`${credential.source === "CLAUDE_CODE_OAUTH_TOKEN" ? " (subscription; the dollar figure is what the turns would have cost, not what was billed)" : ""}. \`apiKeySource\` in each turn's \`init\`: ${[...new Set(runs.map((run) => run.apiKeySource ?? "unreported"))].join(", ")}.`,
+    `Model \`${MODEL}\`, ${new Set(runs.map((run) => run.prompt)).size} prompts x ${ARMS.length} arms x ${new Set(runs.map((run) => run.alwaysLoad)).size} load mode(s) x ${reps} reps = ${runs.length} attempted turns. SDK-reported price receipts: ${coverage.known}/${runs.length}; known subtotal $${coverage.knownSubtotalUsd.toFixed(2)}; total ${coverage.totalUsd === null ? "unknown" : `$${coverage.totalUsd.toFixed(2)}`}. These are SDK estimates with SDK price provenance, not invoices or independently verified API-price equivalents. Error attempts remain in accounting and excluded from answer rates.`,
+    `Credential: \`${credential.source}\`${credential.source === "CLAUDE_CODE_OAUTH_TOKEN" ? " (subscription; SDK dollar estimates do not establish additional billed charges)" : ""}. \`apiKeySource\` in each turn's \`init\`: ${[...new Set(runs.map((run) => run.apiKeySource ?? "unreported"))].join(", ")}.`,
     ...(SCHEMA_FORMS
       ? [
           "",

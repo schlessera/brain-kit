@@ -26,6 +26,7 @@ if (!executablePath) console.warn("SKIPPING local work runtime proof: no Chrome;
 const repo = resolve(import.meta.dir, "../../..");
 const PASSWORD = "the bow only Odysseus can string";
 const SESSION = "odysseus-ithaca";
+const SECOND_SESSION = "odysseus-pylos";
 const DRAFT = "Penelope weaves the shroud by day and unpicks it by night";
 let browser: Browser | undefined;
 let scratch: string | undefined;
@@ -79,7 +80,7 @@ async function startHost(db: string): Promise<Host> {
   const backend: AgentBackend = {
     id: "local-scripted", capabilities: { resume: true, permissions: false, thinking: false, attachments: true, askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
     listProfiles: () => [{ id: "local-scripted", label: "Local fixture" }],
-    listSessions: async () => [{ id: SESSION, title: "Winds of Aeolus", createdAt: 1, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 12 }],
+    listSessions: async () => [SESSION, SECOND_SESSION].map(id => ({ id, title: id === SESSION ? "Winds of Aeolus" : "The harbour at Pylos", createdAt: 1, lastActiveAt: Date.now(), totalCostUsd: 0, numTurns: 12 })),
     getHistory: async () => structuredClone(transcript),
     async startTurn({ bridge, sessionId }) {
       bridge.emit({ type: "session_info", sessionId: sessionId ?? SESSION, isNew: false });
@@ -149,6 +150,7 @@ type Fixture = {
   reviewText(): string;
   review(text: string): void;
   resume(sessionId: string): void;
+  restoring(): Promise<void>;
   snapshotNow(): Promise<Outcome>;
   editAndSnapshot(text: string): Promise<Outcome>;
   read(accountKey: string, key: string): Promise<Outcome>;
@@ -181,6 +183,8 @@ async function ready(page: Page) {
 
 /** Everything changed so far has been written, and committed. */
 async function committed(page: Page) {
+  // An idle write queue can precede the initial asynchronous account binding (#1324).
+  await fixture(page, f => f.restoring());
   await until(page, "f.status() && !f.status().pending");
   const result = await fixture(page, (f) => f.snapshotNow());
   expect(result).toEqual({ ok: true, value: undefined });
@@ -189,6 +193,66 @@ async function committed(page: Page) {
 const field = (page: Page) => page.locator("textarea[data-composer]");
 
 describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
+  test("a cold tab's own context resumes history after another tab's initial replay finished", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    await context.routeWebSocket(/\/ws$/, (route) => {
+      const upstream = route.connectToServer();
+      route.onMessage(message => upstream.send(message));
+      upstream.onMessage(message => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "server_hello" && frame.capabilities) delete frame.capabilities.sessionDrafts;
+        route.send(JSON.stringify(frame));
+      });
+    });
+    const a = await context.newPage();
+    try {
+      await signIn(a);
+      await a.goto(origin);
+      await until(a, "f.connected() && f.accountKey() !== null");
+      await fixture(a, f => f.resume("odysseus-ithaca"));
+      await ready(a);
+      await field(a).fill(DRAFT);
+      await committed(a);
+      const b = await context.newPage();
+      await b.goto(origin);
+      await until(b, "f.connected() && f.accountKey() !== null");
+      await fixture(b, f => f.resume("odysseus-pylos"));
+      await until(b, 'f.activeSessionId() === "odysseus-pylos" && f.messages() === 24');
+      await committed(b);
+      await a.addInitScript(() => {
+        const original = IDBObjectStore.prototype.getAll;
+        let gated = false;
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        Object.assign(window, { __restoreHeld: false, __releaseRestore: () => release() });
+        IDBObjectStore.prototype.getAll = function (...args: Parameters<IDBObjectStore["getAll"]>) {
+          const req = original.apply(this, args);
+          const range = args[0];
+          if (!gated && this.transaction.mode === "readonly" && range instanceof IDBKeyRange &&
+            Array.isArray(range.lower) && range.lower[1] === "root:odysseus-local/") {
+            gated = true;
+            Object.defineProperty(req, "onsuccess", { configurable: true, set(fn) {
+              req.addEventListener("success", async event => {
+                Object.assign(window, { __restoreHeld: true });
+                await gate;
+                fn.call(req, event);
+              }, { once: true });
+            } });
+          }
+          return req;
+        };
+      });
+      await a.reload();
+      await a.waitForFunction(() => (window as unknown as { __restoreHeld: boolean }).__restoreHeld);
+      await until(a, 'f.connected() && f.activeSessionId() === "odysseus-pylos" && f.messages() === 24');
+      await a.evaluate(() => (window as unknown as { __releaseRestore(): void }).__releaseRestore());
+      await until(a, 'f.activeSessionId() === "odysseus-ithaca"');
+      await until(a, 'f.messages() === 24', 3000).catch(() => {});
+      expect(await fixture(a, f => f.messages()), "the restored tab's conversation history resumes after its own context changes selection").toBe(24);
+      expect(await field(a).inputValue()).toBe(DRAFT);
+    } finally { await context.close(); }
+  }, 120_000);
+
   test("a draft with a selection, an image and review text survives a reload; the transcript returns to its place", async () => {
     const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
     const page = await context.newPage();
@@ -358,6 +422,63 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
   }
   const snap = (page: Page) => page.evaluate(() => (window as unknown as { __snap: { done: boolean; result?: Outcome } }).__snap);
 
+  test("two authenticated tabs retain divergent local versions under a racing native commit", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    // Exercise the device fallback through the real password login/account probe.
+    await context.routeWebSocket(/\/ws$/, (route) => {
+      const upstream = route.connectToServer();
+      route.onMessage((message) => upstream.send(message));
+      upstream.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === "server_hello" && frame.capabilities) delete frame.capabilities.sessionDrafts;
+        route.send(JSON.stringify(frame));
+      });
+    });
+    const a = await context.newPage();
+    const b = await context.newPage();
+    try {
+      await signIn(a);
+      await a.goto(origin);
+      await until(a, "f.connected() && f.accountKey() !== null");
+      await fixture(a, (f) => f.resume("odysseus-ithaca"));
+      await ready(a);
+      expect(await fixture(a, (f) => f.editAndSnapshot("Penelope's first weave"))).toEqual({ ok: true, value: undefined });
+      const key = (await fixture(a, (f) => f.accountKey()))!;
+      const baseline = await fixture(a, (f) => f.list(f.accountKey()!));
+      if (!baseline.ok) throw new Error(baseline.error);
+      const original = baseline.value.find(r => (r.value as { text?: string }).text === "Penelope's first weave")!;
+      expect(original).toBeDefined();
+      await b.goto(origin);
+      await ready(b);
+      expect(await fixture(b, (f) => f.accountKey()), "both tabs hold the authenticated account key").toBe(key);
+      expect(await field(b).inputValue()).toBe("Penelope's first weave");
+
+      await armHold(a, "release");
+      await startSnapshot(a, "Penelope keeps the committed weave");
+      await a.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0);
+      await startSnapshot(b, "Telemachus keeps his own voyage");
+      expect((await snap(b)).done).toBe(false);
+      await a.evaluate(() => (window as unknown as { __hold: { finish(): void } }).__hold.finish());
+      for (const page of [a, b]) await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done);
+      expect((await snap(a)).result).toEqual({ ok: true, value: undefined });
+      expect((await snap(b)).result).toEqual({ ok: true, value: undefined });
+      const after = await fixture(b, (f) => f.list(f.accountKey()!));
+      if (!after.ok) throw new Error(after.error);
+      expect((after.value.find(r => r.key === original.key)!.value as { text: string }).text,
+        "the authenticated original survives the atomic stale write").toBe("Penelope keeps the committed weave");
+      const branch = after.value.find(r => (r.value as { text?: string }).text === "Telemachus keeps his own voyage");
+      expect(branch, "the authenticated incoming branch is durable").toBeDefined();
+      expect((branch!.value as { sessionId: string | null }).sessionId).toBeNull();
+      expect(await field(b).inputValue()).toBe("Telemachus keeps his own voyage");
+      await b.reload();
+      await ready(b);
+      expect(await field(b).inputValue(), "the authenticated tab resumes its own branch").toBe("Telemachus keeps his own voyage");
+      expect(await b.locator("[data-device-conflict]").innerText()).toContain("Both versions kept");
+    } finally {
+      await context.close();
+    }
+  }, 120_000);
+
   test("snapshotNow resolves only once its transaction has committed, and rejects when it aborts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
@@ -442,4 +563,65 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await context.close();
     }
   }, 120_000);
+
+  test("commit measurement waits for native account restoration", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    let completion: Promise<void> | undefined;
+    let result: "ok" | "error" | undefined;
+    try {
+      await signIn(page);
+      await page.addInitScript(() => {
+        const original = IDBObjectStore.prototype.getAll;
+        const held = { started: false, reserved: false, restoreEntered: 0, snapshotCalls: 0, release: () => {} };
+        Object.assign(window, { __accountRestoreHold: held });
+        IDBObjectStore.prototype.getAll = function (...args: Parameters<typeof original>) {
+          const request = Reflect.apply(original, this, args) as IDBRequest;
+          const query = args[0];
+          const lower = query instanceof IDBKeyRange ? query.lower : query;
+          if (!held.reserved && this.name === "records" && Array.isArray(lower) &&
+              String(lower[0]).startsWith("account:") && String(lower[1]).includes("odysseus-local")) {
+            held.reserved = true;
+            request.addEventListener("success", event => {
+              event.stopImmediatePropagation();
+              held.started = true;
+              let released = false;
+              held.release = () => {
+                IDBObjectStore.prototype.getAll = original;
+                if (!released) { released = true; request.onsuccess?.call(request, event); }
+              };
+            }, { once: true });
+          }
+          return request;
+        };
+      });
+      await page.goto(origin);
+      await until(page, "f.connected() && f.accountKey() !== null");
+      await page.waitForFunction(() => (window as unknown as { __accountRestoreHold: { started: boolean } }).__accountRestoreHold.started);
+      await page.evaluate(() => {
+        const hold = (window as unknown as { __accountRestoreHold: { restoreEntered: number; snapshotCalls: number } }).__accountRestoreHold;
+        const f = (window as unknown as { __local: Fixture }).__local;
+        const restoring = f.restoring; const snapshot = f.snapshotNow;
+        f.restoring = () => { hold.restoreEntered++; return restoring(); };
+        f.snapshotNow = () => { hold.snapshotCalls++; return snapshot(); };
+      });
+      expect(await fixture(page, f => f.snapshotNow()), "the real snapshot still refuses before the account is bound")
+        .toEqual({ ok: false, error: "PartitionRefusedError" });
+      completion = committed(page).then(() => { result = "ok"; }, () => { result = "error"; });
+      await page.waitForFunction(() => {
+        const h = (window as unknown as { __accountRestoreHold: { restoreEntered: number; snapshotCalls: number } }).__accountRestoreHold;
+        return h.restoreEntered > 0 || h.snapshotCalls > 1;
+      });
+      const calls = await page.evaluate(() => (window as unknown as { __accountRestoreHold: { snapshotCalls: number } }).__accountRestoreHold.snapshotCalls);
+      expect(calls, "commit measurement must not dispatch a snapshot before native account restoration").toBe(1);
+      expect(result, "measurement remains pending while the actual restoration read is held").toBeUndefined();
+      await page.evaluate(() => (window as unknown as { __accountRestoreHold: { release(): void } }).__accountRestoreHold.release());
+      await completion;
+      expect(result, "restoration release permits the original committed snapshot").toBe("ok");
+    } finally {
+      await page.evaluate(() => (window as unknown as { __accountRestoreHold?: { release(): void } }).__accountRestoreHold?.release()).catch(() => {});
+      await completion;
+      await context.close();
+    }
+  }, 30_000);
 });

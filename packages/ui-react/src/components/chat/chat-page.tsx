@@ -1,3 +1,4 @@
+import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
@@ -362,13 +363,7 @@ export function ChatPage() {
 
   const handleToolApproval = useCallback(
     (toolUseId: string, approved: boolean, always?: boolean) => {
-      root.stores.chat.getState().resolveToolApproval(sessionId, toolUseId, approved);
-      // The transcript's approval card is the only caller: channel "card" (#113).
-      if (approved) {
-        send({ type: "tool_approval", toolUseId, ...(always ? { always: true } : {}), channel: "card" });
-      } else {
-        send({ type: "tool_denial", toolUseId, message: "Denied by user", channel: "card" });
-      }
+      return replyToToolApproval(root, sessionId, send, toolUseId, approved, always);
     },
     [send, sessionId, root]
   );
@@ -484,7 +479,7 @@ export function ChatPage() {
       ? [...(area?.querySelectorAll<HTMLElement>("[data-turn-failure]") ?? [])].at(-1)
       : undefined;
     if (focusFirst([
-      waiting?.querySelector<HTMLElement>(FIRST_CONTROL),
+      (waiting?.querySelector<HTMLElement>("[data-kit-approval-actions]") ?? waiting)?.querySelector<HTMLElement>(FIRST_CONTROL),
       failed?.querySelector<HTMLElement>(".bk-turn-error-actions [data-bk-button]"),
     ], keyboard)) return true;
     if (phone || openModal()) return false;

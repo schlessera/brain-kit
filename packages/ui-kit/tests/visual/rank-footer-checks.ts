@@ -1,16 +1,10 @@
-import { afterEach, expect } from "vitest";
-import { commands } from "vitest/browser";
+import { expect } from "vitest";
 import { rankingJourneys } from "../../fixtures/ranking.js";
 
-let fontStyle: HTMLStyleElement | undefined;
-afterEach(() => { fontStyle?.remove(); fontStyle = undefined; });
 export const initial = rankingJourneys.slice(0, 5).map((item) => item.id);
 export const order = () => [...document.querySelectorAll<HTMLElement>("[data-rank-row]")].map((row) => row.dataset.rankRow);
 
 export async function previewFonts() {
-  fontStyle = document.createElement("style");
-  fontStyle.textContent = await commands.rankFooterFonts();
-  document.head.append(fontStyle);
   const faces = ["400 12px 'DM Serif Text'", "italic 400 12px 'DM Serif Text'",
     ...[400, 500, 600].map((weight) => `${weight} 11px 'JetBrains Mono'`),
     ...[400, 500, 600, 700].map((weight) => `${weight} 13px 'Plus Jakarta Sans'`)];
