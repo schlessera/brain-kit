@@ -122,7 +122,8 @@ From the repository root:
 
 ```sh
 bun scripts/evals/job-fit/run.ts
-bun run test tests/job-fit-eval.test.ts
+bun run test tests/job-fit-eval.test.ts tests/job-fit-semantic.test.ts \
+  tests/job-fit-accounting.test.ts tests/job-fit-review.test.ts
 ```
 
 The draft set contains 18 fictional Odysseus-world postings: three tuning cases
@@ -190,13 +191,21 @@ on the strength of the scripted controls.
 
 ## Whole-source Choice comparison
 
-`benchmark.ts` specifies a separate 21-case author-provisional corpus with nine
-tuning and twelve held-out postings. Companies, job families and complete prose
+`benchmark.ts` specifies a separate 29-case author-provisional corpus with ten
+tuning and nineteen held-out postings. Companies, job families and complete prose
 are disjoint; the fictional world, criteria, identity and document representation
 remain shared. Every Choice criterion has supported, negative and unclear tuning
-examples. Autonomy annotations include each descriptive level and unknown, but
+examples, and the held-out split carries at least four relocation dealbreakers
+and four must-have failures, so a critical-miss count is not a count over one
+posting. Autonomy annotations include each descriptive level and unknown, but
 the comparison is limited to Choice: these annotations establish no measured
 ordinal preference or Score transport.
+
+Each case's `decision` is its semantic eligibility under the criteria. The two
+postings that negate or quote a configured location marker are eligible; the
+harness's literal veto excludes them anyway, and the grader reports that as a
+literal false exclusion and as lost candidate recall rather than folding the
+veto's own output into the golden.
 
 `semantic.ts` submits complete raw posting text and metadata. It uses an explicit
 precedence rule: user criteria define the question; current binding responsibility
@@ -241,11 +250,15 @@ complementary review, label/ranking rubric approval and threshold calibration
 remain prerequisites; protocol text provides none of those receipts.
 
 `metrics.ts` requires complete unique denominators and reports per-criterion
-confusion, critical dealbreaker misses, unknown salary candidates, uncertainty
-and literal false exclusions. Candidate membership agreement is distinct from
-pairwise preference ordering. The latter, reviewer effort, actual cost, latency,
-throughput and go/no-go remain null until corresponding measurements exist.
-An origin annotation never establishes label approval.
+confusion both as admitted under the floor and raw over every answer the exact
+model returned, critical dealbreaker and must-have misses, unknown salary
+candidates, uncertainty and literal false exclusions. A floor that admits
+nothing therefore still leaves a measured confusion. Candidate membership
+agreement is reported with candidate precision and recall, because membership
+agreement alone rewards excluding everything on a mostly ineligible set, and is
+distinct from pairwise preference ordering. The latter, reviewer effort, actual
+cost, latency, throughput and go/no-go remain null until corresponding
+measurements exist. An origin annotation never establishes label approval.
 
 Keyless assertions observe actual private ranking and unchanged complete brains.
 Removing relocation protection requires deleting both the exclusion and the

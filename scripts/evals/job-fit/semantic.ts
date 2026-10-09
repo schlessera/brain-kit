@@ -26,11 +26,15 @@ export async function assessSemantic(source: Input, client: JevClient, floor: nu
   const input = structuredClone(source), baseline = scoreJob(input.job, input.config), req = semanticRequest(input);
   const titleExcluded = input.config.excludeTitles.some(marker => input.job.title.toLowerCase().includes(marker.toLowerCase()));
   const literalLocationMatches = excludedLocation(input), salaryStatus = salary(input);
-  let outcome = "uncalibrated", judgments: { passage: JevChoiceAnswer; relocation: JevChoiceAnswer } | null = null;
+  type Answers = { passage: JevChoiceAnswer; relocation: JevChoiceAnswer };
+  // Raw answers are retained whenever the exact model answered, so a floor that
+  // admits nothing still leaves a measurable per-criterion confusion.
+  let outcome = "uncalibrated", rawAnswers: Answers | null = null, judgments: Answers | null = null;
   if (floor !== null && Number.isFinite(floor) && floor >= 0 && floor <= 1) {
     const result = await client.ask(req); outcome = result.outcome;
     const passage = result.answers?.passage, relocation = result.answers?.relocation;
-    if (result.outcome === "answered" && result.model === "jev-1.13.0" && passage?.type === "choice" && relocation?.type === "choice" && admitted(passage, floor) && admitted(relocation, floor)) judgments = { passage, relocation };
+    if (result.outcome === "answered" && result.model === "jev-1.13.0" && passage?.type === "choice" && relocation?.type === "choice") rawAnswers = { passage, relocation };
+    if (rawAnswers && admitted(rawAnswers.passage, floor) && admitted(rawAnswers.relocation, floor)) judgments = rawAnswers;
   }
   const passage = judgments?.passage.choice ?? "unclear", relocation = judgments?.relocation.choice ?? "unclear";
   const hybrid = { ...baseline }, passageWeight = input.config.groups.find(g => g.name === "passage")?.weight;
@@ -40,7 +44,7 @@ export async function assessSemantic(source: Input, client: JevClient, floor: nu
   const decision = titleExcluded || literalLocationMatches.length > 0 || passage === "not_met" || semanticDealbreaker || salaryStatus === "below"
     ? "excluded" : passage === "met" && relocation === "not_met" && salaryStatus === "meets" ? "candidate" : "review";
   return { id: input.id, baseline, hybrid, salary: salaryStatus, titleExcluded, literalLocationMatches, semanticDealbreaker,
-    judgments, passage, relocation, outcome, decision, evidence: { posting: input.posting, metadata: input.job, criteria: input.criteria, identity: input.identity },
+    rawAnswers, judgments, passage, relocation, outcome, decision, evidence: { posting: input.posting, metadata: input.job, criteria: input.criteria, identity: input.identity },
     snapshotSha: hash(JSON.stringify(input)), requestSha: hash(JSON.stringify(req)), effect: null, ordinalPreferenceMeasured: false };
 }
 export type SemanticAssessment = Awaited<ReturnType<typeof assessSemantic>>;
