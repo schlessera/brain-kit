@@ -28,7 +28,7 @@ export function runtimeFreeze() {
   const sources: Record<string, string> = {};
   for (const dir of ["packages/core/src", "packages/core/skills", "packages/ui-backend-claude/src", "scripts/evals/audit-capabilities", "scripts/evals/note-disposition"])
     for (const path of files(join(repo, dir))) sources[relative(repo, path)] = sha(readFileSync(path));
-  for (const path of ["package.json", "bun.lock", "bunfig.toml", "packages/core/package.json", "packages/ui-backend-claude/package.json", "scripts/measure-sonnet55-cost.ts", "tests/audit-capability-eval.test.ts", "tests/audit-capability-benchmark.test.ts", "tests/audit-capability-live.test.ts", "tests/audit-capability-controls.test.ts", "tests/audit-capability-review-packets.test.ts", "tests/audit-review-artifacts.test.ts", "scripts/test.ts", "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md"]) sources[path] = sha(readFileSync(join(repo, path)));
+  for (const path of ["package.json", "bun.lock", "bunfig.toml", "packages/core/package.json", "packages/ui-backend-claude/package.json", "scripts/measure-sonnet55-cost.ts", "tests/audit-capability-eval.test.ts", "tests/audit-capability-benchmark.test.ts", "tests/audit-capability-live.test.ts", "tests/audit-api-reservation.test.ts", "tests/audit-capability-controls.test.ts", "tests/audit-capability-review-packets.test.ts", "tests/audit-review-artifacts.test.ts", "scripts/test.ts", "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md"]) sources[path] = sha(readFileSync(join(repo, path)));
   const packages: Record<string, { name: string; version: string; filesSha: string; files: number }> = {};
   const seen = new Set<string>();
   function visit(root: string) {
@@ -50,9 +50,9 @@ export function runtimeFreeze() {
   visit(join(repo, "packages/core"));
   visit(packageRoot("@anthropic-ai/claude-agent-sdk", repo));
   const platform = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
-  const nativePath = join(packageRoot(platform, repo), "claude");
-  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size, mode: statSync(nativePath).mode };
   const sdkRoot = packageRoot("@anthropic-ai/claude-agent-sdk", repo);
+  const nativePath = join(packageRoot(platform, sdkRoot), "claude");
+  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size, mode: statSync(nativePath).mode };
   const manifest = JSON.parse(readFileSync(join(sdkRoot, "manifest.json"), "utf8"));
   // Native bytes are checked against both freeze and installed vendor manifest before spawn.
   const entry = manifest.platforms?.[`${process.platform}-${process.arch}`];
