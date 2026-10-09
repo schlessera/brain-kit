@@ -8,18 +8,30 @@ import { calibrate, confirm, digest, proposal, request, sourcedFields } from "..
 import type { JevChoiceAnswer } from "../packages/core/src/lib/jev";
 
 test("fresh split uses distinct assembly/submission/talk identities and complete brains", () => {
-  expect(corpus).toHaveLength(16);
+  expect(corpus).toHaveLength(19);
   expect(corpus.filter(c => c.split === "tuning")).toHaveLength(3);
   for (const field of ["assembly", "submission", "otherSubmission", "talk", "source"] as const)
     expect(new Set(corpus.map(c => c[field])).size, field).toBe(corpus.length);
   expect(CORPUS_SHA).toHaveLength(64);
+  // Held-out must contain every primary outcome the classifier can choose, not only acceptance.
+  const held = corpus.filter(c => c.split === "held-out" && !c.action);
+  for (const outcome of ["accepted", "rejected", "waitlisted", "backup", "unclear"] as const)
+    expect(held.filter(c => c.expectedOutcome === outcome).length, outcome).toBeGreaterThan(0);
   for (const c of corpus) {
     const built = materializeCase(c);
     expect(Object.keys(built.initial)).toHaveLength(13);
     expect(Object.keys(built.expected).sort()).toEqual(Object.keys(built.initial).sort());
     expect(built.initial["notes/letter.md"]).toContain(c.source);
     expect(candidates(c)).toHaveLength(3);
+    // Expected state never depends on which arm reads it: a supported decision always has a changed target.
+    expect(built.refused, c.id).toBe(c.expectedOutcome === "unclear" && !c.action);
+    expect(built.expected[built.first] !== built.initial[built.first], c.id).toBe(!built.refused);
   }
+  const titled = corpus.find(c => c.title)!;
+  const target = candidates(titled).find(v => v.submission === titled.submission)!;
+  expect(target.title).toBe(titled.title!);
+  expect(titled.source).toContain(titled.title!);
+  expect(titled.source).not.toContain(titled.submission);
 });
 
 test.each(corpus)("$id: actual persisted module and complete source-authored final effects", async c => {
@@ -80,7 +92,9 @@ test("selected probability and exact payload confirmation prevent actual target 
 test("condition/date authority is literal and mixed unsupported facts cause abstention", () => {
   const conditional = corpus.find(c => c.condition)!;
   expect(sourcedFields(conditional.source)).toEqual({ date: "2026-07-11", conditions: conditional.condition, confirmation: "2026-07-13", slides: "2026-07-14" });
-  expect(sourcedFields(corpus.at(-1)!.source)).toBeNull();
+  expect(sourcedFields(corpus.find(c => c.id === "held-mixed-date")!.source)).toBeNull();
+  for (const id of ["held-title-reject", "held-negation-accept", "held-plain-reject"])
+    expect(sourcedFields(corpus.find(c => c.id === id)!.source), id).toEqual({ date: "2026-07-11" });
   for (const suffix of ["Return on 2026-07-13", "Return on 13 Jul", "Return on 13 July", "An extra deadline is soon", "Shorten it again", "Decision date: 2026-07-11"])
     expect(sourcedFields(`${corpus[0].source}\n${suffix}`), suffix).toBeNull();
   expect(sourcedFields("Selection recorded\nDecision date: 2026-02-30")).toBeNull();
