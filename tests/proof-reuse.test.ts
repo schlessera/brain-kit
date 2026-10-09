@@ -1,8 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkout, git, normalizeInventory, proofInputs, type Inputs, type Spec } from "../scripts/proof-inputs";
+import { browserInventory, checkout, git, normalizeInventory, proofInputs, type Inputs, type Spec } from "../scripts/proof-inputs";
 import { contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
 const roots: string[] = [];
@@ -161,6 +161,18 @@ test("the actual compiler input inventory includes test leaves used by a build",
   const root = fixture();
   write(root, "packages/ui-react/tsconfig.build.json", JSON.stringify({ compilerOptions: { jsx: "react-jsx" }, include: ["tests/browser/**/*.tsx"] })); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).excluded).not.toContain(layout);
+});
+test("native discovery consumes the JSON file, preserving colored console diagnostics as diagnostics", async () => {
+  const root = fixture();
+  write(root, "scripts/visual.mjs", 'const projects = projectArgs.length ? [] : ["visual", "rail-fine"];\n');
+  const original = Bun.spawn;
+  const spawn = spyOn(Bun, "spawn").mockImplementationOnce(((argv: string[], options: Parameters<typeof Bun.spawn>[1]) => {
+    const output = argv.find((arg: string) => arg.startsWith("--json="))?.slice("--json=".length);
+    if (output) writeFileSync(output, JSON.stringify(inventory.map(s => ({ file: join(root, s.file), projectName: `${s.project} (chromium)` }))));
+    return original([process.execPath, "-e", 'console.log("\\u001b[31mconsole diagnostic\\u001b[0m");'], options);
+  }) as typeof Bun.spawn);
+  try { expect(await browserInventory(root)).toEqual(inventory); }
+  finally { spawn.mockRestore(); }
 });
 test("Git-derived, unknown dynamic module selection and exported foreign helpers refuse retention", () => {
   const root = fixture();

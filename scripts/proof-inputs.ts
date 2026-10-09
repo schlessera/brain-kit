@@ -1,6 +1,6 @@
 /** Conservative complete-process browser inputs. Native/Git-derived proof stays fresh. */
 import { createHash } from "node:crypto";
-import { readFileSync, readlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import ts from "typescript";
 import { balanceBrowserSpecs, readBrowserCosts } from "./browser-shards";
@@ -121,14 +121,19 @@ export function proofInputs(root: string, category: Reusable, inventory: Spec[],
 
 /** --filesOnly reaches Vitest's glob API without importing/collecting test suites. */
 export async function browserInventory(root: string): Promise<Spec[]> {
-  const p = Bun.spawn(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", "--json"], {
+  const output = join(root, "tmp", `proof-browser-inventory-${process.pid}.json`);
+  mkdirSync(dirname(output), { recursive: true });
+  rmSync(output, { force: true });
+  const p = Bun.spawn(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
     cwd: join(root, "packages/ui-kit"), stdout: "pipe", stderr: "pipe", env: { ...process.env, CI: "true" },
   });
   const timer = setTimeout(() => p.kill("SIGKILL"), 15000);
   try {
-    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    const [, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     if (code) throw new Error(`Vitest file discovery failed: ${err.slice(-1000)}`);
-    const inventory = normalizeInventory(JSON.parse(out), root);
+    // Vitest's file channel is JSON.stringify + writeFileSync. Console output
+    // may contain colored diagnostics; it is not the machine envelope.
+    const inventory = normalizeInventory(await Bun.file(output).json(), root);
     const declaration = /const projects = projectArgs\.length \?[^\n]+ : (\[[^\n]+\]);/.exec(readFileSync(join(root, "scripts/visual.mjs"), "utf8"));
     if (!declaration) throw new Error("Unknown browser project selection requires fresh proof");
     const defaults = JSON.parse(declaration[1]!) as string[];
@@ -136,7 +141,7 @@ export async function browserInventory(root: string): Promise<Spec[]> {
     const actual = [...new Set(inventory.map(spec => spec.project))].sort();
     if (!defaults.length || new Set(expected).size !== expected.length || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Unknown or missing browser project discovery requires fresh proof");
     return inventory;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); rmSync(output, { force: true }); }
 }
 export function runnerIdentity(env: NodeJS.ProcessEnv = process.env): string {
   // No externally hosted Storybook or alternate runtime context can be retained.

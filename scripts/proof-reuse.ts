@@ -51,7 +51,11 @@ export class GitHubProofAPI implements API {
     }
     return new TextDecoder().decode(Buffer.concat(chunks));
   }
-  async json(path: string): Promise<any> { return JSON.parse(await this.read(path)); }
+  async json(path: string): Promise<any> {
+    const text = await this.read(path);
+    try { return JSON.parse(text); }
+    catch { throw new Error(`Invalid GitHub proof JSON: ${path}`); }
+  }
   async log(job: number): Promise<string> { return this.read(`actions/jobs/${job}/logs`, true); }
 }
 async function ensureCommit(root: string, sha: string): Promise<void> {
