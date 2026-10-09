@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 import { CORPUS, NEW_ITEMS, REFERENCE_ITEMS, corpusSha, type Probe } from "../evals/triage/experiment/corpus";
 import { ITEMS } from "../evals/triage/dataset";
 import { classify, decisionFrom, requestFor, type BatchSize, type Shape } from "../evals/triage/experiment/adapter";
-import { configurationVerdict, evaluateRepetition } from "../evals/triage/experiment/evaluate";
+import { configurationVerdict, evaluateRepetition, runOutcome } from "../evals/triage/experiment/evaluate";
 import { classificationAccounting, costPer1kItems, latencySummary } from "../evals/triage/experiment/accounting";
 import { protocol } from "../evals/triage/experiment/protocol";
 
@@ -144,6 +144,36 @@ describe("Jev arms through the shipped transport", () => {
     expect(decisionFrom("ordered-noul", item, answers(0.1, 0.1, 0.9) as any)).toEqual({ route: "rule", accepted: true, reason: "accepted" });
     expect(decisionFrom("ordered-noul", item, answers(0.1, 0.1, 0.1) as any)).toEqual({ route: "drop", accepted: true, reason: "accepted" });
     expect(decisionFrom("ordered-noul", item, answers(0.5, 0.9, 0.9) as any)).toEqual({ route: "needs_user", accepted: false, reason: "low-probability" });
+  });
+  test("the runner reports an observed gate failure as failed even when coverage is incomplete", async () => {
+    // Every answer missing: the gate runs on the malformed rows and fails, while coverage stays incomplete.
+    const empty = await serve("choice", () => jev({}));
+    const gold = await serve("choice");
+    try {
+      const lost = evaluateRepetition(CORPUS, await run(CORPUS, "choice", 8, empty.fetch));
+      expect(lost.gates.some((g) => g.gate !== null && !g.gate.pass)).toBe(true);
+      expect(lost.judgmentCoverageComplete).toBe(false);
+      const perfect = evaluateRepetition(CORPUS, await run(CORPUS, "choice", 8, gold.fetch));
+      expect(perfect.pass).toBe(true);
+      const configuration = (reps: ReturnType<typeof evaluateRepetition>[], expected: number) =>
+        ({ shape: "choice", batchSize: 8, ...configurationVerdict(reps, expected) });
+      expect(runOutcome([configuration([lost], 1)])).toEqual({ failed: ["choice/8"], unjudged: [] });
+      // A passing repetition short of the expected count is not judged, never success.
+      expect(runOutcome([configuration([perfect], 2)])).toEqual({ failed: [], unjudged: ["choice/8"] });
+      expect(runOutcome([configuration([perfect], 1)])).toEqual({ failed: [], unjudged: [] });
+    } finally { empty.close(); gold.close(); }
+  });
+  test("a Choice is accepted from the frozen 0.4 floor, on confidence and chosen probability separately", () => {
+    // Independent of protocol.ts: these are the values the 2026-10-09 calibration froze.
+    const item = CORPUS[0]!;
+    const choice = (confidence: number, p: number) => ({ [`${item.id}.route`]: { type: "choice", choice: "rule", confidence,
+      probabilities: Object.fromEntries(ROUTES.map((r) => [r, r === "rule" ? p : (1 - p) / 3])) } });
+    const accepted = { route: "rule", accepted: true, reason: "accepted" } as const;
+    const below = { route: "needs_user", accepted: false, reason: "low-probability" } as const;
+    expect(decisionFrom("choice", item, choice(0.4, 0.4) as any)).toEqual(accepted);
+    expect(decisionFrom("choice", item, choice(0.55, 0.6) as any)).toEqual(accepted);
+    expect(decisionFrom("choice", item, choice(0.39, 0.9) as any)).toEqual(below);
+    expect(decisionFrom("choice", item, choice(0.9, 0.39) as any)).toEqual(below);
   });
   test("a missing answer is asked again for exactly that item, never for its siblings", async () => {
     const endpoint = await serve("choice", (q, n) => { const a = goldAnswers(q, "choice"); if (n === 1) delete a[`${CORPUS[2]!.id}.route`]; return jev(a); });

@@ -21,7 +21,7 @@
 import { resolve } from "node:path";
 import { CORPUS, corpusSha } from "./corpus";
 import { classify, type BatchSize, type Shape } from "./adapter";
-import { configurationVerdict, evaluateRepetition } from "./evaluate";
+import { configurationVerdict, evaluateRepetition, runOutcome } from "./evaluate";
 import { classificationAccounting, costPer1kItems, latencySummary } from "./accounting";
 import { protocol } from "./protocol";
 
@@ -41,7 +41,7 @@ if (!out) { console.error("Refusing to run: --out <report.json> is required."); 
 const shapes = (arg("shape") ? [arg("shape")] : [...protocol.shapes]) as Shape[];
 const batching = (arg("batch") ? [Number(arg("batch"))] : [...protocol.batching]) as BatchSize[];
 const reps = Number(arg("reps") ?? protocol.repetitions);
-if (shapes.some((s) => !protocol.shapes.includes(s)) || batching.some((b) => !protocol.batching.includes(b)) || !(reps >= 1)) {
+if (shapes.some((s) => !protocol.shapes.includes(s)) || batching.some((b) => !protocol.batching.includes(b)) || !Number.isSafeInteger(reps) || reps < 1) {
   console.error(`Refusing to run: shape must be one of ${protocol.shapes.join("/")}, batch one of ${protocol.batching.join("/")}, reps >= 1.`);
   process.exit(2);
 }
@@ -79,7 +79,6 @@ const report = { issue: protocol.issue, started, finished: new Date().toISOStrin
 await Bun.write(resolve(out), JSON.stringify(report, null, 2));
 console.error(`Written to ${resolve(out)}`);
 
-const failed = configurations.filter((c) => c.repetitions.some((r) => r.judgmentCoverageComplete && !r.pass));
-const unjudged = configurations.filter((c) => !c.pass && c.repetitions.some((r) => !r.judgmentCoverageComplete));
-if (failed.length) { console.error(`Gate failed: ${failed.map((c) => `${c.shape}/${c.batchSize}`).join(", ")}`); process.exit(1); }
-if (unjudged.length) { console.error(`Gate not judged: ${unjudged.map((c) => `${c.shape}/${c.batchSize}`).join(", ")}`); process.exit(3); }
+const outcome = runOutcome(configurations);
+if (outcome.failed.length) { console.error(`Gate failed: ${outcome.failed.join(", ")}`); process.exit(1); }
+if (outcome.unjudged.length) { console.error(`Gate not judged: ${outcome.unjudged.join(", ")}`); process.exit(3); }
