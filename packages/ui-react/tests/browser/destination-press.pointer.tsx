@@ -285,9 +285,9 @@ const SPECS: Record<Start, Spec> = {
   "chat-approval": {
     index: 0,
     root: (s) => s.host.querySelector<HTMLElement>("[data-reading-column]")?.parentElement ?? null,
-    ready: (s) => s.host.querySelector("[data-approval-card] button") !== null,
+    ready: (s) => s.host.querySelector('[data-approval-card] [data-kit-approval-actions] [role="button"]') !== null,
     // A waiting card wins at every width, the phone included.
-    target: (s) => s.host.querySelector<HTMLElement>("[data-approval-card] button"),
+    target: (s) => s.host.querySelector<HTMLElement>('[data-approval-card] [data-kit-approval-actions] [role="button"]'),
   },
   sessions: {
     index: 1,
@@ -466,6 +466,7 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
 
       const target = spec.target(s, isPhone(s), isWide(s));
       expect(target, `${start}: the adopted target is drawn`).not.toBeNull();
+      if (start === "chat-approval") expect(target?.getAttribute("aria-label") ?? target?.textContent, "reselect selects the Allow decision").toMatch(/^Allow(?:$| )/);
       await expect.poll(() => document.activeElement, { message: `${start}: focus is on the adopted target` }).toBe(target);
       // After focus: revealing a wrong target scrolls its list, which would
       // otherwise fail here first and hide which target was taken.

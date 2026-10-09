@@ -477,6 +477,13 @@ each block's span and renders the kit block between the markdown pieces. A
 message without blocks renders exactly as before, and a span that does not
 fit the text is ignored.
 
+Search uses the kit's `SearchResultCard`, including every highlighted snippet
+segment and the retrieval score when the result supplies one. Agent
+`brain_search` results use the same cards: core MCP JSON on Claude and the
+existing formatted list on pi. Pi does not supply scores. Invalid, ambiguous
+or clipped tool output keeps its readable text fallback. Opening a result
+uses the current UI root's file viewer; unsafe paths have no open action.
+
 ## Versioning
 
 Versions in lockstep with all `@schlessera/brain-*` packages.
@@ -541,3 +548,10 @@ rings; no progress is estimated. Phone containers draw marks and keep named
 subagent view over chat, selecting the recorded session when one is present;
 overflow scrolls to the complete list. Unavailable, pruned, empty and single-agent
 runs draw no overview or sample content.
+
+Pending tool permissions in the main timeline and subagent drill-in use the
+same kit ApprovalCard adapter. Original request identities, inputs, risks and
+command effects are preserved. Remembered grants remain eligibility-gated;
+restored closed requests remain read-only. Decisions use the current shared
+request state, so a duplicate view cannot send another reply, and keyboard
+focus moves to a different pending request or the composer.
