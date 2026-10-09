@@ -162,10 +162,16 @@ sequence before decoding, including HTTP failures and malformed payloads. It
 records complete EOF separately from partial cancellation, response failure and
 owned shutdown. Missing aggregate cache counters prevent a known-price claim;
 missing cache TTL detail yields a price interval rather than invented hits.
-An inactive reported overage flag remains route evidence only: invoice amounts
-stay unknown. Core auto-mode policy and auxiliary accounting are tracked in
-[#1275](https://github.com/schlessera/brain-kit/issues/1275); that follow-up does
-not complete this investigation's whole-task accounting criterion.
+Inactive and explicitly authorized active overage remain route evidence only;
+invoice amounts stay unknown. The private native entry requires the original
+#843 root allocation, a consumed one-use grant and current source/input/protocol/
+runtime/proof/prompt bindings. It binds the exact original fixture instruction
+block separately, reserves the full supported million-token context plus exact
+maximum output before every physical forward, and stops on unknown or in-flight
+usage. Literal native and upstream bytes, all observed pricing fields, the
+original grant, natural EOF and actual reader/child close support admission.
+Offline control provenance cannot become semantic approval by relabelling.
+This correction under #1298 does not complete whole-task empirical accounting.
 
 ## Required comparison and decision
 
@@ -200,18 +206,15 @@ not a measurement of the complete production hygiene sweep. A no-candidate
 answer does not expose the current agent's abstention decision; that rate remains
 unknown rather than being inferred from an empty array.
 
-Fresh native 2.1.293 initialization with the core runner's omitted permission
-mode selects `auto` in the clean offline control. This is an observed fixture
-result, not a claim about every account. The installed SDK declares that omission
-inherits settings or native defaults. Read, rejected-Write and report-to-log
-controls run through the actual native transport, but a Bash config-check
-control reaches an unavailable auto safety classifier. Complete auxiliary
-transport/accounting has not been established. The private live scoring path
-therefore refuses admission until that evidence exists; no explicit manual
-mode or Bash grant is substituted to make the baseline pass. No-tools semantic
-review is a distinct scoped task. Neither the repair of observer failure
-closure nor a successful Read establishes successful CLI execution or a
-completed measured comparison.
+Current core explicitly selects default permissions under #1301. Actual native
+2.1.293 Read, rejected-Write, finding and no-tools review controls retain the
+unchanged fixture hooks and core subscription authentication. The supplemental
+Bash CLI now executes, but its SQLite WAL/SHM files fail the original all-file
+inspection check. That scoring hold remains; complete auxiliary transport and
+accounting have not been established. The private live scoring path continues
+to refuse admission. No-tools semantic review is a distinct scoped task.
+Successful transport, guarded paid admission and clean child drain establish
+neither judgment quality nor a completed measured comparison.
 
 Before any live request, record authorized providers/accounts/exact models,
 credential availability and total spend ceiling on #843. Independently review

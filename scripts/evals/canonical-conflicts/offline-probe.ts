@@ -87,7 +87,7 @@ async function main() {
     // controls, never a billing receipt or semantic approval.
     if (destination) {
       const raw = `${destination}.raw`; mkdirSync(raw, { recursive: true, mode: 0o700 });
-      for (const name of ["execution.json", "review-evidence.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json"])
+      for (const name of ["execution.json", "review-evidence.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json", "paid.json", "paid-grant.json", "paid-refusal.json"])
         if (existsSync(join(output, name))) copyFileSync(join(output, name), join(raw, name));
       writeFileSync(join(raw, "request-bodies.json"), JSON.stringify(requestsBodies, null, 2), { mode: 0o600 });
     }
