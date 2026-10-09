@@ -85,7 +85,7 @@ export function admittedRows(text: string, items: HardItem[]): Row[] | null {
   return rows;
 }
 let observerOwned = false;
-/** Serialized lowest-fetch wrapper, restored on all paths. Caller supplies an admitted transport; no executable live entry exists. */
+/** Serialized lowest-fetch wrapper, restored on all paths. Caller supplies admitted transport; panel-run.ts owns live entry admission. */
 export async function collectLabelPanel(items: HardItem[], rubric: string, transport: typeof fetch,
   options: { onPhysical?: (receipt: PanelPhysical) => void; retryDelay?: () => Promise<void>; beforePhysical?: (receipt: PanelPhysical, headers: Headers) => Promise<void> | void; afterPhysical?: (receipt: PanelPhysical) => void } = {}) {
   const requests = labelRequests(items);

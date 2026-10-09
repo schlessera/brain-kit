@@ -2,7 +2,9 @@
 
 This is private evaluation preparation for #848 and its decision to #680. The
 existing scorer, rubric, donor dataset and benchmark matrix remain unchanged.
-No production caller, dependency, public export or permission rule changes.
+The evaluation adds no production triage caller, dependency or public export.
+Its separately ruled #1275 core prerequisite explicitly selects default
+permissions while retaining the existing tool allowlist and credential gates.
 
 The 40 prospective inputs are newly authored Odysseus counterfactuals: twenty
 reference controls, ten tuning cases and ten held-out cases. Their labels are
@@ -128,7 +130,7 @@ policy in separate user/network/PID namespaces. Source/dependencies/runtime are
 read-only. All loopback HTTP paths are recorded; the fixture rejects unexpected
 paths/models. Raw stdout, stderr, terminal usage, parsed rows and actual process
 closure are retained even after decoder/reader failures. This is SDK fixture
-policy evidence, not the donor raw-API route or current-core implicit-auto
+policy evidence, not the donor raw-API route or an actual core baseline
 performance. #1275 remains relevant if a future comparison uses the core route.
 
 Example keyless entries (from repository root with verified Bun1.4.2):
