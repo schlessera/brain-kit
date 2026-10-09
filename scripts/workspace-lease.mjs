@@ -116,14 +116,37 @@ export async function ensureWorkspaceLease(root, mode, entry = "script") {
   console.error(`Acquiring ${mode === "write" ? "exclusive" : "shared"} workspace output access; overlapping commands wait.`);
   // Import subprocess APIs only when a command needs a new coordinator.
   const { spawn } = await import("node:child_process");
-  const child = spawn("flock", [mode === "write" ? "--exclusive" : "--shared", "--no-fork", path,
-    process.execPath, script, "--enter", root, mode, "3", ...originalCommand(entry)],
+  const child = spawn(process.execPath, [script, "--wait", root, mode, "3", ...originalCommand(entry)],
   { stdio: ["inherit", "inherit", "inherit", "pipe"] });
+  return await waitForChild(child, signal => child.kill(signal));
+}
+
+async function waitForLease(root, mode, lifetimeFd, executable, args) {
+  const { spawn } = await import("node:child_process");
+  const { Socket } = await import("node:net");
+  const child = spawn("flock", [mode === "write" ? "--exclusive" : "--shared", "--no-fork", lockPath(root),
+    process.execPath, script, "--enter", root, mode, "3", executable, ...args],
+  { stdio: [0, 1, 2, "pipe"] });
+  let force;
+  const stop = signal => {
+    child.kill(signal);
+    // An acquired owner has its own one-second process-group cleanup.
+    if (!force) force = setTimeout(() => child.kill("SIGKILL"), 2_000);
+  };
+  // Watch the outer lifetime before flock acquires access. A killed waiter
+  // must disappear even while another command continues holding the lock.
+  const lifetime = new Socket({ fd: lifetimeFd, readable: true, writable: false });
+  lifetime.on("end", () => stop("SIGTERM"));
+  lifetime.on("error", () => stop("SIGTERM"));
+  lifetime.resume();
   try {
-    return await waitForChild(child, signal => child.kill(signal));
+    return await waitForChild(child, stop);
   } catch (error) {
     if (error.code === "ENOENT") throw new Error("Workspace coordination requires the flock executable (util-linux).");
     throw error;
+  } finally {
+    lifetime.destroy();
+    clearTimeout(force);
   }
 }
 
@@ -178,7 +201,7 @@ async function enter(root, mode, lifetimeFd, executable, args) {
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   try {
     const [flag, root, mode, lifetime, executable, ...args] = process.argv.slice(2);
-    if (flag !== "--enter" || !root || !["read", "write"].includes(mode) || lifetime !== "3" || !executable) throw new Error("Invalid workspace lock entry");
-    process.exit(await enter(root, mode, Number(lifetime), executable, args));
+    if (!["--wait", "--enter"].includes(flag) || !root || !["read", "write"].includes(mode) || lifetime !== "3" || !executable) throw new Error("Invalid workspace lock entry");
+    process.exit(await (flag === "--wait" ? waitForLease : enter)(root, mode, Number(lifetime), executable, args));
   } catch (error) { console.error(error); process.exit(1); }
 }

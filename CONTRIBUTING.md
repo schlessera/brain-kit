@@ -60,7 +60,8 @@ The lock file is `tmp/workspace-operation/output.lock`. Ownership lasts as long
 as the operating system holds its descriptor; a leftover file is not a stale
 lock and must not be removed to bypass an active command. Failure/cancellation
 stops the command's process group, and an outer wrapper's death closes a lifetime
-pipe which stops its owner before admitting a waiting command. This is command
+pipe which stops its owner before admitting a waiting command. The lifetime
+watcher also removes a cancelled waiter before the active owner finishes. This is command
 coordination, not protection against arbitrary filesystem edits.
 
 Direct Vitest diagnostics do not acquire whole-command ownership.

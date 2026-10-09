@@ -117,6 +117,41 @@ for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} of the out
   expect(() => process.kill(ownedPid, 0)).toThrow();
 });
 
+for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} while waiting removes the waiter before the current owner releases access`, async () => {
+  const root = fixture(), holder = start(root, "write", "hold", "holder");
+  await entered(root, "holder");
+  const waiter = start(root, "write", "reader", "cancelled");
+  const descendants = (pid: number): number[] => {
+    try {
+      const direct = readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(" ").filter(Boolean).map(Number);
+      return direct.flatMap(child => [child, ...descendants(child)]);
+    } catch { return []; }
+  };
+  const alive = (pid: number) => {
+    try { const stat = readFileSync(`/proc/${pid}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(")") + 2)[0] !== "Z"; }
+    catch { return false; }
+  };
+  let owned: number[] = [];
+  try {
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      owned = descendants(waiter.child.pid);
+      if (owned.some(pid => { try { return readFileSync(`/proc/${pid}/comm`, "utf8").trim() === "flock"; } catch { return false; } })) break;
+      await Bun.sleep(5);
+    }
+    expect(owned.length).toBeGreaterThan(0);
+    waiter.child.kill(signal);
+    expect(await waiter.child.exited).not.toBe(0);
+    const stoppedBy = Date.now() + 2_000;
+    while (owned.some(alive) && Date.now() < stoppedBy) await Bun.sleep(5);
+    expect(owned.filter(alive)).toEqual([]);
+    expect(existsSync(join(root, "cancelled-entered"))).toBe(false);
+  } finally {
+    for (const pid of owned.filter(alive)) { try { process.kill(pid, "SIGTERM"); } catch { /* Already stopped. */ } }
+    release(root, "holder"); await holder.child.exited;
+  }
+});
+
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
   const root = fixture();
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
