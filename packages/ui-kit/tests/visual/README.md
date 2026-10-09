@@ -62,6 +62,14 @@ picker FileList, so offline input evidence remains available after processing.
 Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
 
+The staged-track controls in `session-drafts.pointer.tsx` and
+`parallel-sessions-runtime.test.ts` likewise own an online descriptor only
+around their native file selection and original ready-chip wait. They restore
+every previous property attribute and the ambient connectivity event before
+the existing navigation, removal, send, leave and update checks. A following
+connectivity sentinel and deliberately failing upload control verify cleanup;
+the network-disabled image and browser egress guards remain in use.
+
 Mixed-picker traces record nonempty file metadata, native bitmap/fallback decoding,
 JPEG encoding, FileReader completion, object URL lifecycle, authentication state,
 draft ownership and each original preview poll. Observers delegate to native
