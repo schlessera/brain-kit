@@ -463,6 +463,26 @@ output-directory refusal before processing, with stderr and no success envelope.
 The [photo guide](../packages/module-travel/README.md#photo-copies) documents runtime
 requirements. No schema version, MCP tool or existing envelope changes.
 
+## Travel registries
+
+**Additive CLI contract (#569):** `brain travel sync [--check] --json` returns
+`{sync: {check: boolean, files: string[]}}`. It regenerates the
+`travel-trips` region of `<trip dir>/_index.md` and the `travel-places` region
+of `<place dir>/_index.md`, creating a missing index with core `type: index`
+frontmatter. `files` lists the root-relative registries written, or with
+`--check` those that would be written; `--check` writes nothing and exits `1`
+when any is listed. A current brain writes nothing and reports `[]`.
+
+Bytes outside the regions are preserved, and `updated` changes only in a file
+whose region changed. Counts and bounds derive from canonical visits with the
+place deduplication rules above; a country's rollup also counts the visits of
+places within it, once per document/visit pair. Unknown dates and coordinates
+render as `unknown`. Any `brain travel validate` error, malformed region
+markers or a registry edited during the run exits `1` with stderr and no
+success envelope, and neither registry is written. Table layout is prose for
+people, not a parsed contract. No schema version, MCP tool or existing envelope
+changes.
+
 ## Asynchronous UI startup
 
 **Approved pre-1.0 breaking API change (#286):**
@@ -614,6 +634,7 @@ policy. The rationale and measurements are in
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
 | `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null, "date_source": "exif" \| "flag" \| "none" }], "errors": [{ "source", "message" }] } }` — [photo and naming contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
 | `brain travel route <url\|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "date_source": "flag" \| "none", "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — With `--name`, the stem is `[<date>-]<slug(label)>`; dates come only from a valid flag, never GPX timestamps. `date_source` is `flag` only when that date is applied to a requested name, otherwise `none`. Without `--name`, legacy names stay unchanged. Naming validation follows the [photo rules](#travel-photo-copies). `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
+| `brain travel sync [--check] --json` | `{ "sync": { "check": boolean, "files": string[] } }` — regenerates the trip and place registry regions; `files` are the root-relative registries written (or stale, with `--check`). Exit `0` when written or current, `1` for `--check` with stale registries, and `1` with stderr and no envelope when a canonical record is invalid or a region is malformed; nothing is written then. [Registry contract](#travel-registries) |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 The nullable tag declaration correction (#702) is an approved pre-1.0
