@@ -25,8 +25,8 @@ const net = installFaultNetwork({
             {
               id: "ithaca",
               title: "The loom",
-              createdAt: 1,
-              lastActiveAt: 1,
+              createdAt: Date.parse("2026-07-12T12:00:00Z"),
+              lastActiveAt: Date.parse("2026-07-12T12:00:00Z"),
               numTurns: 1,
               totalCostUsd: 0,
             },
@@ -72,14 +72,15 @@ let pauseSnapshot = false;
 let snapshotWaiting = false;
 let releaseSnapshot = () => {};
 let snapshotGate = Promise.resolve();
+const nativeLockDescriptor = Object.getOwnPropertyDescriptor(navigator.locks, "request");
 const nativeLockRequest = navigator.locks.request.bind(navigator.locks);
-navigator.locks.request = (async (...args: unknown[]) => {
+Object.defineProperty(navigator.locks, "request", { configurable: true, writable: true, value: async (...args: unknown[]) => {
   if (pauseSnapshot && String(args[0]).startsWith("brain-ui:work:")) {
     snapshotWaiting = true;
     await snapshotGate;
   }
   return (nativeLockRequest as Function)(...args);
-}) as typeof navigator.locks.request;
+} });
 const nativeOpen = partitions.open.bind(partitions);
 partitions.open = (id) => {
   const handle = nativeOpen(id);
@@ -719,4 +720,8 @@ defineScene({
     root.stores.connection.getState().setVpnStatus("connected", account);
   },
 });
-window.addEventListener("pagehide", () => root.dispose(), { once: true });
+window.addEventListener("pagehide", () => {
+  root.dispose();
+  if (nativeLockDescriptor) Object.defineProperty(navigator.locks, "request", nativeLockDescriptor);
+  else delete (navigator.locks as unknown as Record<string, unknown>).request;
+}, { once: true });
