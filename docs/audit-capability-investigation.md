@@ -233,7 +233,7 @@ establish neither live suggestion quality nor production adoption.
 
 ## Resumed measurement controls
 
-The resumed protocol uses the actual UTC detection day `2026-10-08` and Bun
+The resumed protocol uses the actual UTC detection day `2026-10-09` and Bun
 1.4.2 while preserving the installed SDK 0.3.283 / native CLI 2.1.283 baseline.
 The fictional writer date remains `2026-07-12`. The earlier whole-input review
 failed at the native context limit; it supplied no semantic approval. Its missing

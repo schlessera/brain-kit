@@ -17,7 +17,7 @@ import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import { sourceSnapshot, sourceTextMap, assertSourceEffect } from "./effects";
 
 export const WRITE_DAY = "2026-07-12";
-export const DETECTION_DAY = "2026-10-08";
+export const DETECTION_DAY = "2026-10-09";
 export interface BenchmarkCase {
   id: string; split: "tuning" | "held-out"; entity: string; template: string;
   files: Record<string, string>; authorization: boolean;
