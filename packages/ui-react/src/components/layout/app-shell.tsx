@@ -6,6 +6,7 @@ import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { cn } from "../../lib/utils.js";
 import { OneTimeAgentCredentialDialog } from "../settings/one-time-agent-credential.js";
 import { useApplyTheme } from "./theme.js";
+import { PageBoundary } from "./page-boundary.js";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isStreaming = useChatStore((s) => activeChat(s).isStreaming);
@@ -20,7 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           className={cn("filament", isStreaming && "filament--active")}
         />
         <main className="flex flex-1 flex-col overflow-hidden pb-16 tablet:pb-0">
-          {children}
+          <PageBoundary>{children}</PageBoundary>
         </main>
       </div>
       <MobileTabBar />

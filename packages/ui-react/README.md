@@ -221,6 +221,7 @@ entry point, and typechecks the emitted `.d.ts` against React 18's types.
 ```tsx
 import {
   configureBrainUi,
+  AppErrorBoundary,
   ConnectionGate,
   AppShell,
   ChatPage,
@@ -237,23 +238,45 @@ export function App() {
   const activeView = useUIStore((state) => state.activeView);
 
   return (
-    <ConnectionGate>
-      <AppShell>
-        {/* Keep chat mounted so an in-flight turn survives a view switch.
-            `display: contents` rather than a plain wrapper: ChatPage is a
-            flex child of AppShell and its `flex-1` needs to reach the shell's
-            flex container, or the chat loses its viewport-filling layout and
-            bounded scrolling. */}
-        <div style={{ display: activeView === "chat" ? "contents" : "none" }}>
-          <ChatPage />
-        </div>
-        {activeView === "graph" && <GraphPage />}
-        {activeView === "activity" && <ActivityPage />}
-      </AppShell>
-    </ConnectionGate>
+    <AppErrorBoundary>
+      <ConnectionGate>
+        <AppShell>
+          {/* Keep chat mounted so an in-flight turn survives a view switch.
+              `display: contents` rather than a plain wrapper: ChatPage is a
+              flex child of AppShell and its `flex-1` needs to reach the shell's
+              flex container, or the chat loses its viewport-filling layout and
+              bounded scrolling. */}
+          <div style={{ display: activeView === "chat" ? "contents" : "none" }}>
+            <ChatPage />
+          </div>
+          {activeView === "graph" && <GraphPage />}
+          {activeView === "activity" && <ActivityPage />}
+        </AppShell>
+      </ConnectionGate>
+    </AppErrorBoundary>
   );
 }
 ```
+
+## Error boundaries
+
+A render error never blanks the whole app.
+
+- `AppShell` puts a boundary inside its `<main>`. A page that throws is
+  replaced by a screen offering Try again, Go to Chat and Copy details, while
+  the rail, the tab bar and dialogs keep working. A second failure after a
+  retry offers Reload app instead.
+- A lazy chunk that a redeploy has replaced is told apart from an ordinary
+  error. The app reloads by itself when that is safe: it is online, nothing
+  unsent is held (the same guard as the service-worker update), and it has not
+  reloaded for this reason in the last two minutes. Otherwise the screen waits
+  for a tap.
+- `AppErrorBoundary` is the outermost layer, and the shell supplies it. Wrap
+  everything in it, providers included. Its screen reads no context and uses
+  no kit component, so it still renders when a provider or the kit stylesheet
+  is what failed.
+- Tool-call rows have their own boundaries: a renderer that throws falls back
+  to the generic view for that call only.
 
 ## Shell hooks
 
