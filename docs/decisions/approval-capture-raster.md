@@ -96,7 +96,7 @@ rounding policy is justified by these data.
 
 The exact comparison remains enabled
 (`compareCaptures`, `scripts/captures/verify.ts:17-38`). Three identical local
-frames remain required (`captureRuntime`, `scripts/captures/runtime.ts:15-120`).
+frames remain required (`captureRuntime`, `scripts/captures/runtime.ts:15-137`).
 No tolerance, pixel baseline, recipe, output or approval assertion changed.
 An unchanged-checkout verification attempt can show that a particular run
 passes; it must not be described as repairing this mismatch.

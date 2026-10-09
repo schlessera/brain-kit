@@ -35,7 +35,8 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
     });
     const observed: Record<string,unknown> = {};
     for (const decision of recipe.id === "approval-roundtrip" ? ["allow","deny"] : ["search"]) {
-      const { context,page,faults } = await capturePage(browser,root,cache,catalogue,[origin],viewport,theme);
+      const { context,page,faults,consoleErrors } = await capturePage(browser,root,cache,catalogue,[origin],viewport,theme);
+      let phase = "load";
       try {
         await page.goto(origin,{waitUntil:"load"});
         await page.evaluate((theme)=>{document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle("dark",theme==="dark");},theme);
@@ -81,7 +82,9 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           });
           const sequence=decision==="allow"?1:2;
           const path=`notes/raft-supplies-${sequence}.md`;
+          phase = "before-decision capture";
           await save(`approval-${decision}-before-dark.png`,[path,APPROVAL_CONTENT,"Allow","Deny"]);
+          phase = "decision and executor effect";
           await card.getByRole("button",{name:decision==="allow"?"Allow":"Deny",exact:true}).click();
           const message=decision==="allow"?`Written ${path}: ${APPROVAL_CONTENT}`:`Refused ${path}; no file written.`;
           await page.getByText(message,{exact:true}).first().waitFor({timeout:15_000});
@@ -92,16 +95,30 @@ export async function captureRuntime(browser: Browser, root: string, cache: stri
           const file=evidence.files.find((file)=>file.path===path);
           if(!file || (decision==="allow"?file.content!==APPROVAL_CONTENT:file.content!==null))throw new Error(`Executor ${decision} effect differs from the actual decision`);
           if(!evidence.history[`odysseus-approval-${sequence}`]?.length)throw new Error("Persisted backend transcript is empty");
+          phase = "after-decision capture";
           await save(`approval-${decision}-after-dark.png`,[message]);
+          phase = "reload";
           await page.reload({waitUntil:"load"});
           await page.evaluate((theme)=>{document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle("dark",theme==="dark");},theme);
           await awaitFonts(page,catalogue);
           await page.waitForFunction(()=> (window as unknown as {__captureFixture?:{connected():boolean}}).__captureFixture?.connected());
           await page.getByText(message,{exact:true}).first().waitFor({timeout:15_000});
+          phase = "reload capture";
           await save(`approval-${decision}-reload-dark.png`,[message]);
           observed[decision]={tool_use_id:`raft-write-${sequence}`,path,fonts,decision:payload,effect:file,history:evidence.history[`odysseus-approval-${sequence}`]};
         }
       } catch (error) {
+        const browserState = await page.evaluate(() => ({
+          errors: (window as unknown as { __captureBrowserErrors?: unknown[] }).__captureBrowserErrors ?? [],
+          text: document.body?.innerText,
+          approvals: [...document.querySelectorAll("[data-approval-card]")].map(card => card.outerHTML),
+        })).catch(error => ({ unavailable: String(error) }));
+        const hostEvidence = await fetch(`${origin}/capture-evidence`).then(response => response.json())
+          .catch(error => ({ unavailable: String(error) }));
+        await writeFile(resolve(output, `${recipe.id}-failure.json`), JSON.stringify({
+          decision, detected_at: phase, message: (error as Error).message, stack: (error as Error).stack,
+          faults, browserState, hostEvidence, consoleErrors: await Promise.all(consoleErrors),
+        }, null, 2) + "\n");
         await page.screenshot({path:resolve(output,`${recipe.id}-failure.png`),fullPage:true,animations:"disabled"});
         throw new Error(`${(error as Error).message}; browser faults: ${faults.join("; ")}`);
       } finally { await context.close(); }
