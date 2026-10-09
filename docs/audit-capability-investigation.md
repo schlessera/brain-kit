@@ -280,6 +280,14 @@ the physical receipt. Diagnostic price intervals are separate from that debit,
 and invoice fields remain null. The supplied remaining allocation includes
 earlier providers and attempts under the unchanged actual-charge caps.
 
+The scored entry takes a separate coordinator policy-map file after its output,
+combined-review, detected-input and verification arguments. It requires exactly
+the eight packet keys and validates their existing paid-policy schema against
+the exact source, runtime, proof and rebuilt prompts before replay. Receipt
+metadata cannot supply this expected authority. Completed policies may have
+expired since issuance: the original validator still checks their literal
+grant and recorded admission time. Loading the map consumes no new grant,
+creates no allocation and supplies no semantic approval or provider dispatch.
 
 The resumed real-command parser controls also preserve an important distinction:
 `[null]` throws inside the shipped suggestion-normalization catch and triggers

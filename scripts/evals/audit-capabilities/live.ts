@@ -6,7 +6,8 @@ import { cases, commandOutput, detect, capabilityArm, prepareBenchmark, DETECTIO
 import { MODEL, protocol } from "./protocol";
 import { runtimeFreeze, sha } from "./freeze";
 import { parserDiagnostic } from "./parser-diagnostics";
-import { combinedReview } from "./review-packets";
+import { buildReviewPacket, combinedReview, reviewPlan } from "./review-packets";
+import { validPaidPolicy, type RootPaidPolicy } from "./review-policy";
 import { assertSourceEffect, sourceSnapshot } from "./effects";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import { anthropicCompletions } from "../../../packages/core/src/providers/completions/anthropic";
@@ -168,16 +169,25 @@ export async function observeArm(p: Awaited<ReturnType<typeof prepareBenchmark>>
     throw Object.assign(error instanceof Error ? error : Error(String(error)), { sourceEffects: { before, afterFailure: sourceSnapshot(p.root) } });
   }
 }
-async function main() {
+export async function main() {
   if (process.env.BRAIN_LIVE_EVAL !== "841") throw Error("Only explicitly authorized #841 dispatch");
   if (new Date().toISOString().slice(0, 10) !== DETECTION_DAY) throw Error("Real audit detection date differs from frozen protocol");
-  const out = process.argv[2], reviewPath = process.argv[3], expectedPath = process.argv[4], proofPath = process.argv[5];
-  if (!out || existsSync(out) || !reviewPath || !expectedPath || !proofPath) throw Error("Fresh protected output, exact review and detected inputs required");
+  const out = process.argv[2], reviewPath = process.argv[3], expectedPath = process.argv[4], proofPath = process.argv[5], policiesPath = process.argv[6];
+  if (!out || existsSync(out) || !reviewPath || !expectedPath || !proofPath || !policiesPath) throw Error("Fresh protected output, exact review/detected/proof inputs and independent policy map required");
+  const policies: Record<string, RootPaidPolicy> = JSON.parse(readFileSync(policiesPath, "utf8"));
+  if (!policies || typeof policies !== "object" || Array.isArray(policies) || Object.keys(policies).length !== reviewPlan.length) throw Error("Independent packet paid policy map must name all eight packets");
   const frozen = runtimeFreeze(); const review = JSON.parse(readFileSync(reviewPath, "utf8"));
   if (review.freezeSha !== frozen.freezeSha || review.approval !== "APPROVED" || review.model !== MODEL || review.packetCaseIds?.length !== cases.length) throw Error("No complete exact-frozen complementary semantic approval");
   const expectedRaw = readFileSync(expectedPath, "utf8"), expected = JSON.parse(expectedRaw);
   const proofRaw = readFileSync(proofPath, "utf8");
-  combinedReview(review.nativeReceipts ?? [], frozen, expectedRaw, proofRaw);
+  const runtime = { sdk: frozen.binaries.claude.sdkVersion, nativeSha: frozen.binaries.claude.sha256, nativeMode: frozen.binaries.claude.mode, bunSha: frozen.binaries.bun.sha256, bunVersion: frozen.binaries.bun.version, bunMode: frozen.binaries.bun.mode };
+  for (const packet of reviewPlan) {
+    const p = Object.hasOwn(policies, packet.key) ? policies[packet.key] : undefined;
+    // Validate shape/bindings at issuance; completed policies may be expired now.
+    // The original raw replay still verifies the literal recorded admission time.
+    if (!p || typeof p.issuedAt !== "string" || typeof p.expiresAt !== "string" || !validPaidPolicy(p, { freezeSha: frozen.freezeSha, promptSha: buildReviewPacket(frozen, expectedRaw, proofRaw, packet.key).promptSha, runtime, proofSha: sha(proofRaw), detectedSha: sha(expectedRaw), protocolSha: sha(JSON.stringify(frozen.protocol)), dispatchedAt: p.issuedAt })) throw Error(`Independent packet paid policy differs from exact bindings: ${packet.key}`);
+  }
+  combinedReview(review.nativeReceipts ?? [], frozen, expectedRaw, proofRaw, policies);
   if (review.verificationSha !== sha(proofRaw)) throw Error("Verification receipt differs from exact approval");
   if (review.detectedSha !== sha(expectedRaw)) throw Error("Detected inputs are not independently reviewed");
   const cap = Number(process.env.BRAIN_EVAL_REMAINING_USD);
