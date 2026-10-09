@@ -17,7 +17,7 @@ test("capture keeps partial success and retry runs only index through the actual
       else if (process.argv[2] === "index") { await Bun.sleep(30); console.log("{}"); }
     `);
     chmodSync(bin, 0o755);
-    const app = createBrainRoutes({ brain: createBrainClient({ brainPath: root }), brainPath: root, keyterms: {} as any });
+    const app = createBrainRoutes({ brain: createBrainClient({ brainPath: root }), brainPath: root, keyterms: {} as any, exec: {} });
     const saved = await app.request("/brain/add", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Topic" }) });
     expect(saved.status).toBe(200);
     expect(await saved.json()).toMatchObject({ success: true, path: "notes/topic.md", indexed: false, indexError: "database is locked" });

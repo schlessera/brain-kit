@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { join } from "path";
-import { resolveServerConfig, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, resolveServerConfig, type ServerConfig } from "./config/env.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { createBrainRoutes } from "./routes/brain.js";
@@ -81,7 +81,7 @@ import {
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
-import type { BackendVersionRequirements, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
@@ -223,8 +223,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Checked against undefined, not truthiness: SQLite treats "" as a valid
   // anonymous temporary database, and an explicit empty override must not
   // silently fall back to the resolved path.
-  const config: ServerConfig =
-    options.dbPath !== undefined ? { ...resolved, dbPath: options.dbPath } : resolved;
+  // The exec wrapper is a privilege boundary, so a configuration built before
+  // `ServerConfig.exec` existed keeps the ambient one instead of spawning
+  // unwrapped. Resolved here, once; every spawn below uses `config.exec`.
+  const config: ServerConfig & { exec: ExecWrapperConfig } = {
+    ...resolved,
+    ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
+    exec: resolved.exec ?? ambientExecConfig(),
+  };
   // First thing built, because everything below may want to report — including
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
@@ -273,7 +279,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
   // two apps with different configuration coexist in one process.
-  await probeBrainCliVersion(config.brainPath, observability.logger("brain"), { minimumVersion: brainCliMinimum });
+  await probeBrainCliVersion(config.brainPath, observability.logger("brain"), { exec: config.exec, minimumVersion: brainCliMinimum });
   // Provision the independently authorized runtime file before opening handles.
   const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
@@ -297,7 +303,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
-  const brain = createBrainClient({ brainPath: config.brainPath, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
+  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
@@ -583,7 +589,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route(
     "/api",
-    createBrainRoutes({ brain, brainPath: config.brainPath, keyterms, brainCliMinimum, log: observability.logger("brain") })
+    createBrainRoutes({ brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: observability.logger("brain") })
   );
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null }));
   // Only where server_hello advertises it: elsewhere the route is absent,

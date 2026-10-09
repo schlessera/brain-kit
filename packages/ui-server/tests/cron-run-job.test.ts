@@ -1,7 +1,7 @@
 import { mkdtempSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   OUTPUT_TAIL_CHARS,
@@ -57,7 +57,7 @@ describe("cron runJob", () => {
             jobName: "maintain",
             command: ["job"],
             dbPath,
-            childEnv: {},
+            childEnv: {}, exec: {},
             stdout: textSink().sink,
             stderr: textSink().sink,
           },
@@ -102,7 +102,7 @@ describe("cron runJob", () => {
         jobName: "untracked",
         command: ["job"],
         dbPath: `/tmp/brain-ui-cron-missing-${process.pid}-${Date.now()}/brain-ui.db`,
-        childEnv: {},
+        childEnv: {}, exec: {},
         stdout: stdout.sink,
         stderr: stderr.sink,
       },
@@ -134,7 +134,7 @@ describe("cron runJob", () => {
         jobName: "tee",
         command: ["first", "two words"],
         dbPath: ":memory:",
-        childEnv: { PRESERVED: "yes" },
+        childEnv: { PRESERVED: "yes" }, exec: {},
         stdout: stdout.sink,
         stderr: stderr.sink,
       },
@@ -186,7 +186,7 @@ describe("cron runJob", () => {
         jobName: "tails",
         command: ["job"],
         dbPath: ":memory:",
-        childEnv: {},
+        childEnv: {}, exec: {},
         stdout: textSink().sink,
         stderr: textSink().sink,
       },
@@ -228,7 +228,7 @@ describe("cron runJob", () => {
         jobName: "stdout-tail",
         command: ["job"],
         dbPath: ":memory:",
-        childEnv: {},
+        childEnv: {}, exec: {},
         stdout: textSink().sink,
         stderr: textSink().sink,
       },
@@ -270,7 +270,7 @@ describe("cron runJob", () => {
         jobName: "mixed",
         command: ["job"],
         dbPath: ":memory:",
-        childEnv: {},
+        childEnv: {}, exec: {},
         stdout: textSink().sink,
         stderr: textSink().sink,
       },
@@ -310,6 +310,29 @@ describe("cron runJob", () => {
       recorded!.output.indexOf("then-err")
     );
   });
+
+  test("spawns through the wrapper it is given, not the process environment's (#1363)", async () => {
+    const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = "/ambient/wrapper";
+    let spawned: string[] = [];
+    try {
+      await runJob(
+        { jobName: "fixture", command: ["/bin/job"], dbPath: ":memory:", childEnv: {}, exec: { wrapper: "/configured/wrapper" }, stdout: textSink().sink, stderr: textSink().sink },
+        {
+          startRecord: async () => null,
+          spawn: (command) => {
+            spawned = command;
+            return { stdout: stream(), stderr: stream(), exited: Promise.resolve(0), signalCode: null };
+          },
+          removeSink() {},
+        }
+      );
+    } finally {
+      if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
+      else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
+    }
+    expect(spawned).toEqual(["/configured/wrapper", "/bin/job"]);
+  });
 });
 
 
@@ -321,7 +344,7 @@ describe("cron lifecycle recovery", () => {
     let recorded: { finished: boolean; code: number; error?: string; output: string } | undefined;
     try {
       const code = await runJob({
-        jobName: "fixture", dbPath: ":memory:", childEnv: {},
+        jobName: "fixture", dbPath: ":memory:", childEnv: {}, exec: {},
         command: [process.execPath, "-e", `console.log('start'); await Bun.sleep(50); await Bun.write(${JSON.stringify(marker)}, 'done'); console.log('end'); process.exit(7);`],
         stdout: { write() { throw new Error("disconnected"); } }, stderr: textSink().sink,
       }, {
@@ -345,7 +368,7 @@ describe("cron lifecycle recovery", () => {
   test("stream and recorder errors preserve the exit code and still clean up", async () => {
     let closed = false;
     let removed = false;
-    const code = await runJob({ jobName: "fixture", command: ["job"], dbPath: ":memory:", childEnv: {}, stderr: textSink().sink }, {
+    const code = await runJob({ jobName: "fixture", command: ["job"], dbPath: ":memory:", childEnv: {}, exec: {}, stderr: textSink().sink }, {
       startRecord: async () => ({ finish() { throw new Error("DB failure"); }, close() { closed = true; } }),
       spawn: () => ({ stdout: new ReadableStream({ start(c) { c.error(new Error("read failed")); } }), stderr: stream(), exited: Promise.resolve(9), signalCode: null }),
       removeSink() { removed = true; },
@@ -363,13 +386,10 @@ describe("cron lifecycle recovery", () => {
  * the rest of the work had just closed.
  */
 describe("cron runs jobs through the exec wrapper", () => {
-  let previous: string | undefined;
+  // The wrapper the cron bin resolved at its edge (`CronConfig.exec`).
+  let wrapper: string | undefined;
   beforeEach(() => {
-    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
-  });
-  afterEach(() => {
-    if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
-    else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
+    wrapper = undefined;
   });
 
   async function commandSeenBySpawn(
@@ -384,7 +404,7 @@ describe("cron runs jobs through the exec wrapper", () => {
           jobName,
           command,
           dbPath: join(dir, "brain-ui.db"),
-          childEnv: {},
+          childEnv: {}, exec: { wrapper },
           stdout: textSink().sink,
           stderr: textSink().sink,
         },
@@ -408,7 +428,7 @@ describe("cron runs jobs through the exec wrapper", () => {
   }
 
   test("prepends the wrapper and makes the command absolute", async () => {
-    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    wrapper = "/opt/run-as-agent";
     expect(await commandSeenBySpawn(["/bin/echo", "hello"])).toEqual([
       "/opt/run-as-agent",
       "/bin/echo",
@@ -417,12 +437,12 @@ describe("cron runs jobs through the exec wrapper", () => {
   });
 
   test("leaves the command untouched when no wrapper is configured", async () => {
-    delete process.env.BRAIN_UI_EXEC_WRAPPER;
+    wrapper = undefined;
     expect(await commandSeenBySpawn(["job", "--flag"])).toEqual(["job", "--flag"]);
   });
 
   test("the hygiene job reaches spawn behind the configured exec wrapper", async () => {
-    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    wrapper = "/opt/run-as-agent";
     expect(await commandSeenBySpawn(["/bin/echo", "hi"], "hygiene")).toEqual([
       "/opt/run-as-agent", "/bin/echo", "hi",
     ]);
@@ -432,7 +452,7 @@ describe("cron runs jobs through the exec wrapper", () => {
     // Wrapping is about repository code. The digest IS the server: a wrapper
     // that drops to a user without access to the UI database would break it,
     // and the retention marker would quietly stop advancing.
-    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    wrapper = "/opt/run-as-agent";
     expect(await commandSeenBySpawn(["/bin/echo", "hi"], "digest")).toEqual([
       "/bin/echo",
       "hi",
@@ -474,7 +494,7 @@ describe("cron runs jobs through the exec wrapper", () => {
     // Start from what a repository controls: its module list. Whatever names
     // the emitter gives its jobs, none may be one the runner trusts, and every
     // one must reach spawn behind the wrapper.
-    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    wrapper = "/opt/run-as-agent";
     const crontab = digestNamedModules();
     const jobs = moduleJobNames(crontab);
     expect(jobs).toEqual(["digest-daily", "notes-digest"]);
@@ -503,7 +523,7 @@ describe("cron runs jobs through the exec wrapper", () => {
     // the runner must treat the name as trusted — proving both read this set,
     // not a copy of it.
     const trusted = TRUSTED_JOB_NAMES as Set<string>;
-    process.env.BRAIN_UI_EXEC_WRAPPER = "/opt/run-as-agent";
+    wrapper = "/opt/run-as-agent";
     trusted.add("notes-digest");
     try {
       expect(moduleJobNames(digestNamedModules())).toEqual(["digest-daily"]);
