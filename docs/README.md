@@ -62,6 +62,7 @@ the published template rather than a source checkout.
 | Doc | What's in it |
 | --- | --- |
 | [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
+| [process/testing.md](process/testing.md) | Testing and proof: the offline test harness, tests that cannot fail, failing-first receipts, required PR proof and the GitHub Actions CI policy. |
 | [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [visitor-feedback-investigation.md](visitor-feedback-investigation.md) | Dated visitor-path and mailing-service comparison behind the public website's release-signup policy. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
