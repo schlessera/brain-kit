@@ -167,7 +167,7 @@ squash is on `main`; never push to a merged branch. Commands and receipts:
 
 ## Releasing
 
-**Load the `release` skill (`.agents/skills/release/`) before versioning,
+**Load the [`release` skill](.agents/skills/release/SKILL.md) before versioning,
 publishing or changing what a release ships.** It is the checklist, kept next
 to the guards in `tests/release-manifest.test.ts`. The invariants:
 
@@ -185,7 +185,7 @@ to the guards in `tests/release-manifest.test.ts`. The invariants:
 
 ## Working through GitHub
 
-**Load the `github` skill (`.agents/skills/github/`) before filing, triaging,
+**Load the [`github` skill](.agents/skills/github/SKILL.md) before filing, triaging,
 picking up or closing work.** It implements
 [docs/process/github.md](docs/process/github.md): labels, milestones, the
 board, the lifecycle and issue routing.
