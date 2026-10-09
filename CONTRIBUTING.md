@@ -37,11 +37,35 @@ issue when you are not sure.
   The real renderer proves isolation. `renderer.test.ts` covers an allowlist
   predicate and `crash-recovery.test.ts` drives a fake browser; neither replaces
   the real-browser proof.
-- Full runtime proof needs a Linux checkout with bubblewrap, `unshare`, `ip`
+- Coordinated build/test commands require `flock` from util-linux. The pinned
+  Playwright image includes it. Full runtime proof needs a Linux checkout with bubblewrap, `unshare`, `ip`
   and permitted user/network namespaces. UI/browser proof also needs Docker
   for the pinned Playwright image. Packed consumer checks use Node 24 or later.
 
 ## Running the code
+
+`bun run build`, `bun run clean`, `bun run test`, Linux `bun test` through the
+repository preload, and the repository browser
+wrapper wait automatically for other commands using the same checkout's build
+output. Runtime tests hold exclusive access because their fixtures rebuild the
+packages. Browser ownership is acquired inside the pinned container against the
+same bind-mounted lock file. Nested builds reuse an inherited descriptor, or
+verify its live owning ancestor on Linux when Bun's internal shell closes it;
+replaced child environments and existing extra stdio channels keep that ownership.
+Independent fast CI batches hold shared read-only access and still overlap;
+attempting a rebuild from one fails before removing output. Strict typechecking
+and commands in different worktrees remain independent.
+
+The lock file is `tmp/workspace-operation/output.lock`. Ownership lasts as long
+as the operating system holds its descriptor; a leftover file is not a stale
+lock and must not be removed to bypass an active command. Failure/cancellation
+stops the command's process group, and an outer wrapper's death closes a lifetime
+pipe which stops its owner before admitting a waiting command. This is command
+coordination, not protection against arbitrary filesystem edits.
+
+Direct Vitest diagnostics do not acquire whole-command ownership.
+Editorial captures retain their existing separate capture guard. Use the
+coordinated entry points or separate worktrees when overlapping those runs.
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback

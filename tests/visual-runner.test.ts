@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -20,6 +20,10 @@ async function invoke(args: string[], exit = 0) {
     await mkdir(resolve(root, path), { recursive: true });
   }
   await copyFile(resolve(import.meta.dir, "../scripts/visual.mjs"), resolve(root, "scripts/visual.mjs"));
+  await copyFile(resolve(import.meta.dir, "../scripts/workspace-lease.mjs"), resolve(root, "scripts/workspace-lease.mjs"));
+  const flock = Bun.which("flock");
+  if (!flock) throw new Error("visual runner tests require flock");
+  await symlink(flock, resolve(root, "commands/flock"));
   await writeFile(resolve(root, "scripts/captures/font-lock.json"), "{}\n");
   const log = resolve(root, "calls.jsonl");
   const record = `import { appendFileSync } from "node:fs";

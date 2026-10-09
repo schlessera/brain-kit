@@ -39,6 +39,7 @@ export function localChecks(plan: CheckPlan): Command[] {
 
 export function requireRuntimeTools(plan: CheckPlan): string | undefined {
   if (!Bun.semver.satisfies(Bun.version, ">=1.4.0")) throw new Error("Local checks require Bun >=1.4.0 (CI pins 1.4.2)");
+  if (!Bun.which("flock")) throw new Error("Local checks require flock for workspace output coordination");
   if (plan.local.browser || plan.local.layout || plan.local.captures) {
     if (!Bun.which("docker")) throw new Error("Pinned local browser checks require Docker");
   }
