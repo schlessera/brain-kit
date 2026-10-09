@@ -11,8 +11,9 @@ import { indexAll } from "../../../packages/core/src/lib/indexer";
 import { openDatabase } from "../../../packages/core/src/lib/db";
 import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
+import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
 export const MODELS = { current: "claude-sonnet-5-5", classifier: "jev-1.13.0" } as const;
-export const PRICES = { claudeInput: 2 / 1e6, claudeOutput: 10 / 1e6, cacheRead: 0.2 / 1e6, cacheWrite: 2.5 / 1e6, cacheWriteHour: 4 / 1e6, jevInput: 0.042 / 1e6 };
+export const PRICES = { claudeInput: RATE.input / 1e6, claudeOutput: RATE.output / 1e6, cacheRead: RATE.cacheRead / 1e6, cacheWrite: RATE.cacheWrite5m / 1e6, cacheWriteHour: RATE.cacheWrite1h / 1e6, jevInput: 0.042 / 1e6 };
 export const protocol = {
     version: "840-multi-target-v1", models: MODELS, maxOutputTokens: 4096, repetitions: 2,
     caching: "No explicit prompt caching; all reported cache tokens retained. Repeated requests are marked repeat, not assumed warm.",

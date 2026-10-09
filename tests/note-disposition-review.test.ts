@@ -7,10 +7,11 @@ import { priceReview, overageState, captureReviewStdout, reviewEnvironment, unre
 import { MODELS } from "../scripts/evals/note-disposition/live";
 const raw = { type: "result", subtype: "error_max_budget_usd", is_error: true, total_cost_usd: 999, usage: { cache_creation_input_tokens: 400, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 300 } }, modelUsage: { [MODELS.current]: { inputTokens: 100, outputTokens: 200, cacheReadInputTokens: 300, cacheCreationInputTokens: 400, webSearchRequests: 0, costUSD: 999 } } };
 test("official reviewer charge is derived from nonzero raw token/cache usage independently of SDK dollar fallback", () => {
-    expect(priceReview(raw)!.lowerUsd).toBeCloseTo(0.00371, 12);
-    expect(priceReview(raw)!.upperUsd).toBeCloseTo(0.00371, 12);
-    expect(priceReview({ ...raw, usage: {} })!.lowerUsd).toBeCloseTo(0.00326, 12);
-    expect(priceReview({ ...raw, usage: {} })!.upperUsd).toBeCloseTo(0.00386, 12);
+    // 100 input at $2/M, 200 output at $10/M, 300 reads at $0.10/M, 100 5m writes at $2.50/M, 300 1h writes at $4/M.
+    expect(priceReview(raw)!.lowerUsd).toBeCloseTo(0.00368, 12);
+    expect(priceReview(raw)!.upperUsd).toBeCloseTo(0.00368, 12);
+    expect(priceReview({ ...raw, usage: {} })!.lowerUsd).toBeCloseTo(0.00323, 12);
+    expect(priceReview({ ...raw, usage: {} })!.upperUsd).toBeCloseTo(0.00383, 12);
     expect(priceReview(null)).toBeNull();
     expect(priceReview({ ...raw, modelUsage: { other: raw.modelUsage[MODELS.current] } })).toBeNull();
     expect(priceReview({ ...raw, modelUsage: { [MODELS.current]: { ...raw.modelUsage[MODELS.current], outputTokens: undefined } } })).toBeNull();
@@ -46,7 +47,7 @@ test("native stdout tee retains an error-result and partial Unicode frame before
         expect(frames).toHaveLength(2);
         expect(frames[1].result).toBe("NOT_APPROVED: Ὀδυσσεύς");
         expect(frames[1].subtype).toBe("error_max_budget_usd");
-        expect(priceReview(frames[1])!.upperUsd).toBeCloseTo(0.00371, 12);
+        expect(priceReview(frames[1])!.upperUsd).toBeCloseTo(0.00368, 12);
         expect(readFileSync(path, "utf8")).toBe(text);
         expect(passthrough).toBe(text);
     }
