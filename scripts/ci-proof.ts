@@ -4,6 +4,7 @@ import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
+import { resolveBrowserPin } from "./captures/provenance";
 
 export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime"] as const;
 export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime";
@@ -77,6 +78,14 @@ if (import.meta.main) {
         argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
       const commands = categoryCommands(category, plan, root, shard).map(command => ({ ...command,
         env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
+      // The host/container lease regression deliberately uses --pull=never
+      // under the offline test harness. Prepare its actual pinned image once,
+      // only on the partition that discovers that test, before entering tests.
+      if (category === "unit" && unitFiles(plan, root, shard).includes("tests/workspace-lease.test.ts")) {
+        if (!Bun.which("docker")) throw new Error("The native workspace lease test requires Docker");
+        const { image } = await resolveBrowserPin(root);
+        commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
+      }
       await runCommands(commands, root, 1);
     }
   } catch (error) { console.error(error); process.exit(1); }
