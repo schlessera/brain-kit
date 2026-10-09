@@ -11,6 +11,13 @@ test("source/entity/prose-format holdout and substantive explicit definitions re
   for (const c of benchmark) { expect(c.body.length).toBeGreaterThan(140); expect(c.facts.length).toBeGreaterThan(1); expect(c.prohibited.length).toBeGreaterThan(1); expect(c.summary.length).toBeLessThanOrEqual(240); }
   expect(Object.values(definitions.types).every(d => d.length > 70)).toBe(true); expect(Object.keys(definitions.tags)).toHaveLength(3); expect(BENCHMARK_SHA).toHaveLength(64);
 });
+test("source bodies neither narrate their own label nor carry harness scaffolding", () => {
+  // A body that says "this is not a council vote" or "only the summary is approved" hands the
+  // classifier its answer; a held-out set written that way cannot separate judgment from phrase matching.
+  const selfLabel = /\b(not an? (?:account of a voyage|council vote|travel record|completed voyage|adopted ruling|log))\b|needs clarification|adopted conditional decision|hostile example|records no actual/i;
+  const scaffolding = /approved (?:for enrichment|path)|configured inbox|duplicate export|owner's existing|stays padded|type and tags/i;
+  for (const c of benchmark) { expect(c.body, c.id).not.toMatch(selfLabel); expect(c.body, c.id).not.toMatch(scaffolding); }
+});
 for (const mode of ["combined", "classification", "hybrid"] as const) test.each(benchmark)(`${mode}/$id: complete real writes/metadata/body/mtime/member effects and unchanged resume`, async c => {
   const env = prepare(c, mode);
   try {
@@ -23,10 +30,11 @@ for (const mode of ["combined", "classification", "hybrid"] as const) test.each(
     for (const request of env.requests.filter(r => r.kind !== "summary")) {
       const input = request.input as any; expect(input.untrusted_note.length).toBeGreaterThan(200); expect(input.typeDefinitions).toEqual(env.settings.typeDefinitions); expect(input.tagDefinitions).toEqual(definitions.tags);
       if (c.id === "held-escort") {
-        expect(input.untrusted_note).toContain("Recovered complete archival letter, written before the Thrinacia loss.");
-        expect(input.untrusted_note).toContain("not a delivery on 2026-07-12");
+        // Archival framing is content a real export would carry; the label rationale is not.
+        expect(input.untrusted_note).toContain("Archive copy. The original letter is undated");
+        expect(input.untrusted_note).toContain("before the Thrinacia loss");
         expect(input.untrusted_note).not.toContain("this morning");
-        expect(readFileSync(join(env.root, env.path), "utf8")).toContain("date is unknown");
+        expect(input.untrusted_note).not.toMatch(/alive today|not a delivery/);
       }
       expect(JSON.stringify(input)).not.toContain(c.id); expect(JSON.stringify(input)).not.toContain('"split"');
     }

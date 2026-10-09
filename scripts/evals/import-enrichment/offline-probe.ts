@@ -1,4 +1,4 @@
-/** Actual native293 and writer transport controls in a networkless namespace, not semantic quality. */
+/** Actual native 2.1.293 and writer transport controls in a networkless namespace, not semantic quality. */
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
