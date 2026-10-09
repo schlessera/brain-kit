@@ -312,7 +312,7 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:42`), so the guard compares the lockfile-installed pair.
+  `.github/workflows/ci.yml:47`), so the guard compares the lockfile-installed pair.
   This fast version guard remains an affected automatic check under
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no

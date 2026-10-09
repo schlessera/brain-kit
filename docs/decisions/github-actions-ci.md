@@ -26,7 +26,8 @@ existing unit/runtime/browser/layout/endurance/editorial category remains
 covered by affected hosted proof under #1326. Focused local behavioral receipts
 remain required; missing runtimes and unrelated failures cannot be called green.
 
-Forks use `pull_request` with `contents: read`, no secrets, no job-level
+Forks use `pull_request` with `contents: read` and CI's `actions: read` / `checks: read` for
+bounded immutable proof lookup under #1333, no secrets, no job-level
 permission escalation and no persisted token. Titles and labels reach the
 contract script as environment data. A first-time contributor's approval-held
 run has not passed. Project sync keeps its separate trusted token and event

@@ -25,7 +25,8 @@ export function workflowProblems(text: string, file: string): string[] {
   if (!workflow || typeof workflow !== "object") return [`${file}: workflow must be a mapping`];
   const fail = (message: string) => problems.push(`${file}: ${message}`);
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("CI must not expose secrets or privileged triggers");
-  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read" })) fail("workflow permissions must be contents: read only");
+  const permissions = file === "ci.yml" ? { contents: "read", actions: "read", checks: "read" } : { contents: "read" };
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify(permissions)) fail("workflow permissions must be the specified read-only contents/actions scope");
   const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
   const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "layout", "pack", "proof", "runtime", "unit", "verify"] : ["contract"];
@@ -49,7 +50,8 @@ export function workflowProblems(text: string, file: string): string[] {
     for (const name of names) {
       const job = workflow.jobs?.[name];
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
-      if (job?.if !== `needs.changeset.outputs.${name} == 'true'`) fail(`${name}: proof must use its explicit planner selection`);
+      const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
+      if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
     const proof = workflow.jobs?.proof;
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
@@ -58,6 +60,7 @@ export function workflowProblems(text: string, file: string): string[] {
       if (!workflow.jobs?.[category]?.steps?.some(step => step.run?.startsWith(`bun scripts/ci-proof.ts ${category}`))) fail(`${category}: complete proof command is missing`);
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
+    if (!workflow.jobs?.changeset?.steps?.some(step => step.run === "bun scripts/proof-reuse.ts")) fail("metadata: immutable retention validation is missing");
   }
   return problems;
 }
