@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, realpathSync, lstatSync, readlinkSync } from
 import { dirname, join, relative } from "node:path";
 import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents/claude-binary";
 import { hash, protocol, protocolSha } from "./protocol";
+import { researchSdkEntry } from "./native-runtime";
 export const source = realpathSync(new URL("../../../", import.meta.url).pathname);
 /** Whole owned dependency/workspace identity; no symlink escapes or local paths. */
 export function closureTree(root:string,independent=false){
@@ -40,9 +41,9 @@ export function sourceFreeze() {
   tree("packages/core/src");tree("packages/core/skills/content-hygiene");tree("scripts/evals/mechanical-hygiene");
   for(const path of ["bun.lock","package.json","packages/core/package.json","packages/ui-backend-claude/package.json","packages/ui-backend-claude/src/subscription.ts","scripts/measure-sonnet55-cost.ts","docs/decisions/example-corpus.md","packages/ui-kit/fixtures/README.md","docs/decisions/hygiene-review.md","docs/mechanical-hygiene-investigation.md"])add(path);
   for(const path of readdirSync(join(source,"tests")).filter(p=>p.startsWith("mechanical-hygiene")&&p.endsWith(".test.ts")))add(`tests/${path}`);
-  const sdk=Bun.resolveSync("@anthropic-ai/claude-agent-sdk",join(source,"packages/ui-backend-claude/src"));
+  const sdk=researchSdkEntry(source);
   const packageRaw=readFileSync(join(dirname(sdk),"package.json"));const version=JSON.parse(packageRaw.toString()).version;
-  const native=bundledClaudeBinary();if(!native)throw Error("Installed native runtime absent");
+  const native=bundledClaudeBinary(sdk);if(!native)throw Error("Installed native runtime absent");
   if(version!==protocol.nativeRuntime.sdk||Bun.version!==protocol.nativeRuntime.bun)throw Error("Installed runtime differs from exact research protocol");
   const dependencies=closureTree(join(source,"node_modules"),true);
   const workspaceTrees=Object.fromEntries(readdirSync(join(source,"packages")).sort().map(name=>{

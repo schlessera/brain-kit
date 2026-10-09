@@ -36,6 +36,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/bun": "^1.4.2",
     "axe-core": "^4.13.0",
+    "claude-agent-sdk-research-292": "npm:@anthropic-ai/claude-agent-sdk@0.3.292",
     "github-slugger": "^2.0.0",
     "mdast-util-to-string": "^4.0.0",
     "oxlint": "^1.79.0",

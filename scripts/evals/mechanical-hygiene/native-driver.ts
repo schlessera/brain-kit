@@ -2,7 +2,7 @@
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "claude-agent-sdk-research-292";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS, subscriptionVerdict, settingsRefusal } from "../../../packages/ui-backend-claude/src/subscription";
 import { actualNativeRuntime } from "./native-runtime";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
