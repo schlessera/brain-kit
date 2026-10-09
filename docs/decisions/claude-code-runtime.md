@@ -821,7 +821,7 @@ installations.
 - **Observed from the session that ran.** The core Claude runner reads the
   Claude Code session's `system`/`init` event and passes `claude_code_version`
   to the runner's `onRuntime` callback the moment it arrives
-  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:188-195`).
+  (`if (!sawInit`, `packages/core/src/providers/agents/cli-runners.ts:190-197`).
   A run that fails after `init` has already reported it. A refused run never
   reaches `init` and reports nothing. The other built-in runners do not
   report, and neither does anything else: no boot probe, no lockfile, no
@@ -1049,3 +1049,30 @@ unknown. The fallback's five levels and medium default follow the
 No default chat profile or core completion model changes. No live inference,
 new billing policy, authentication fallback or usage-provenance contract is
 part of this upgrade.
+
+
+## 2026-10-08 — Explicit default permissions in the core runner (#1275)
+
+The [separate core permission ruling](https://github.com/schlessera/brain-kit/issues/1275#issuecomment-6066625612)
+selects explicit `default` mode, with actual-native compatibility required before
+merge. Core now passes `--permission-mode default` in the shared arguments for
+`run()` and `runStreaming()` (`CLAUDE_BASE_ARGS`,
+`packages/core/src/providers/agents/cli-runners.ts:38-44`). Its existing
+`Bash,Edit,Write,Read,Glob,Grep` allowlist and pre-prompt subscription/settings
+checks keep their authority. The backend/probe ruling remains separate.
+
+An omitted mode initialized the supported native 2.1.293 fixture in `auto`.
+That mode could attempt a Sonnet 5 permission classifier even when the main
+model aliases selected Sonnet 5.5. The explicit mode removes that implicit
+classifier choice; it does not authorize an auxiliary model or a broader tool
+grant. A measurement still refuses an unexpected model or unobserved route and
+retains failed attempts and unknown usage. Historical experiment runtimes and
+attempts keep their original evidence; evaluations of the changed core source
+require a refreshed freeze and independent review.
+
+The keyless native control runs the real core factory and installed CLI with
+fictional credentials, an empty home and only a scripted loopback transport in
+a network namespace. It observes actual Read, allowlisted Bash and Write, and
+an operator-denied Write. Scripted responses establish runtime permission
+behavior; they are not provider results, subscription eligibility, model
+quality, billing evidence or a benchmark adoption decision.
