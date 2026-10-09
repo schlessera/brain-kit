@@ -17,6 +17,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
     "tests/ci-plan.test.ts", "tests/ci-runner.test.ts",
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
+    "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
     "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
