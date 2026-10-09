@@ -25,6 +25,7 @@ function commit(root: string): string {
 }
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "proof-reuse-")); roots.push(root); git(root, "init", "-q");
+  git(root, "config", "commit.gpgsign", "false");
   for (const file of [layout, secondLayout, visual, secondVisual, shared]) write(root, file, "export {};\n");
   write(root, "scripts/browser-shard-costs.json", JSON.stringify({ seconds: { [`visual::${visual}`]: 1 } }));
   write(root, "scripts/ci-proof.ts", "// unchanged proof harness\n");
@@ -163,8 +164,10 @@ test("the actual compiler input inventory includes test leaves used by a build",
 });
 test("Git-derived, unknown dynamic module selection and exported foreign helpers refuse retention", () => {
   const root = fixture();
-  write(root, visual, "const input = process.env.GITHUB_SHA;\n"); commit(root);
-  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+  for (const name of ["GITHUB_SHA", "GITHUB_RUN_ID"]) {
+    write(root, visual, `const input = process.env.${name};\n`); commit(root);
+    expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+  }
   write(root, visual, "const input = await import(modulePath);\n"); commit(root);
   expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
   write(root, visual, 'const input = Bun.spawn(["git", "rev-parse", "HEAD"]);\n'); commit(root);

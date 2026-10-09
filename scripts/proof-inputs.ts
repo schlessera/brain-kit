@@ -100,7 +100,7 @@ export function proofInputs(root: string, category: Reusable, inventory: Spec[],
     // not repository Git identity. Unknown dynamic module selection cannot
     // establish a closed domain; it keeps complete fresh execution.
     const text = readFileSync(join(root, file), "utf8");
-    if (/\bGITHUB_(?:SHA|REF|EVENT_PATH)\b|\bgit\s+(?:rev-parse|log|show|diff)\b|['"]git['"]\s*,|\b(?:import|require)\s*\(\s*[^\s'"]/.test(text)) throw new Error("Git-dependent or unknown browser inputs require fresh execution");
+    if (/\bGITHUB_[A-Z_]+\b|\bgit\s+(?:rev-parse|log|show|diff)\b|['"]git['"]\s*,|\b(?:import|require)\s*\(\s*[^\s'"]/.test(text)) throw new Error("Git-dependent or unknown browser inputs require fresh execution");
   }
   const owned = new Set(selected.map(s => s.file));
   const files = treeEntries(root, ref);
