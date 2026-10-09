@@ -33,7 +33,7 @@ export const protocol = {
     pricingSources: ["https://docs.typesafe.ai/models", "https://platform.claude.com/docs/en/about-claude/pricing"],
     budget: "Reserve conservative serialized UTF-8 byte input bounds and maximum output charge before each physical call; unknown billed usage stops further calls.",
 };
-export const sourceHashes = Object.fromEntries(["./live.ts", "./benchmark.ts", "./guard.ts", "../../../packages/core/src/cli/commands/process.ts"].map(path => [path, createHash("sha256").update(readFileSync(new URL(path, import.meta.url))).digest("hex")]));
+export const sourceHashes = Object.fromEntries(["./live.ts", "./benchmark.ts", "./guard.ts", "../../measure-sonnet55-cost.ts", "../../../packages/core/src/cli/commands/process.ts"].map(path => [path, createHash("sha256").update(readFileSync(new URL(path, import.meta.url))).digest("hex")]));
 export const protocolSha = createHash("sha256").update(JSON.stringify({ protocol, sourceHashes })).digest("hex");
 export interface PhysicalCall {
     provider: "anthropic-api" | "typesafe";

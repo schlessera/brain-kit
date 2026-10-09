@@ -9,6 +9,8 @@ import { benchmarkSha } from "./benchmark";
 import { MODELS, protocol, protocolSha, sourceHashes } from "./live";
 import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS, subscriptionVerdict, settingsRefusal, credentialFields } from "../../../packages/ui-backend-claude/src/subscription";
+/** Every file the reviewer sees in full, including the rates the spend accounting uses. */
+export const REVIEW_PATHS = ["docs/decisions/example-corpus.md", "packages/ui-kit/fixtures/README.md", "scripts/evals/note-disposition/benchmark.json", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts", "scripts/evals/note-disposition/live.ts", "scripts/measure-sonnet55-cost.ts", "packages/core/src/cli/commands/process.ts"];
 /** Sonnet 5.5 list rates (`SONNET55_USD_PER_MTOK`); missing cache TTL is an interval, never zero or an invented exact charge. */
 export function priceReview(result: any): {
     lowerUsd: number;
@@ -88,7 +90,7 @@ async function main() {
     if (typeof token !== "string" || !token.trim())
         throw Error("No protected subscription token available");
     const root = new URL("../../../", import.meta.url).pathname;
-    const paths = ["docs/decisions/example-corpus.md", "packages/ui-kit/fixtures/README.md", "scripts/evals/note-disposition/benchmark.json", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts", "scripts/evals/note-disposition/live.ts", "packages/core/src/cli/commands/process.ts"];
+    const paths = REVIEW_PATHS;
     const proofPath = process.argv[3];
     if (!proofPath) throw Error("Require actual current keyless verification receipt before review");
     const proofRaw = readFileSync(proofPath, "utf8");
