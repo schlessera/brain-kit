@@ -295,6 +295,19 @@ failed tool output retains a readable original-text fallback. File opening
 uses the current root's authenticated file viewer; unsafe paths have no
 open action.
 
+## Streaming waiting status (approved pre-1.0 break, #1144)
+
+The maintainer-approved minor removes `StreamingAnswer`'s prototype defaults
+for phase, target, elapsed time, answer text and cost. Callers supply those
+facts explicitly; omitted facts draw no sample values. Only the phase word
+is announced in the polite live region, while elapsed ticks and targets remain
+outside it. `StreamingAnswerProps` gains optional `pulse?: boolean`; false
+selects a static status dot. Hosts retaining the former sample presentation
+must pass its values explicitly. The runtime uses the component for waiting
+status while preserving rich thinking/tool/prose rendering and the composer's
+single Stop; stream and cancellation schemas are unchanged. The minor changeset
+records this approved migration, and `api-report/` records the added prop.
+
 ## Consumers
 
 | Consumer | Surfaces used |

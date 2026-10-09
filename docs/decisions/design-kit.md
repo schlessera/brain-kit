@@ -6346,3 +6346,26 @@ The store tests force missing-chunk states, including a full origin that cannot
 repair metadata. Requesting `navigator.storage.persist()` is best effort; no
 copy calls it a guarantee. No unload callback can save data after a crash, and
 no local UI can report a recording after all evidence of it has disappeared.
+
+## 2026-10-07 — StreamingAnswer is the turn's waiting status (#1144)
+
+The [approved waiting composition](https://github.com/schlessera/brain-kit/issues/1144#issuecomment-6030764508)
+and [maintainer ruling](https://github.com/schlessera/brain-kit/issues/1144#issuecomment-6031007929)
+retain the existing rich thinking/tool/prose renderer and the composer's one
+Stop control. Before any group arrives, the waiting row shows `thinking` and
+two ghost lines; arrival unmounts it immediately. A pending approval in the
+last tool group shows one static `waiting for approval` row under the controls.
+Retry shows the existing protocol helper's wording. A restored pending
+approval keeps its waiting row until the host closes it, even though replay
+has no text stream. Terminal turns draw no waiting row. Status belongs to the message in its root/session/turn.
+
+Elapsed time uses a matching host turn start when supplied; otherwise a turn
+started on this page uses its timestamp. A recovered shell without host timing
+shows none. Only the phase word is a polite live region, so elapsed ticks and
+target changes do not announce. No answer text, cost or progress is passed.
+
+The approved pre-1.0 minor removes the kit's prototype phase, target, elapsed,
+answer and cost defaults. Callers supply facts explicitly; `pulse` selects a
+working pulse or static decision-wait dot. Existing ghost-band and streamed
+text animations retain their implementations. This is an approved exception
+to D30's parity defaults, and no stream/cancellation contract changes.

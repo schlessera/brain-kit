@@ -107,6 +107,14 @@ For a static sent-file record, pass `actionIcon=""` and omit `onClick`.
 The row then has no role or tab stop. The chat consumer uses this form for
 validated tracks; its image thumbnails and zoom controls remain separate.
 
+## Streaming status
+
+`StreamingAnswer` draws only supplied phase, target, elapsed, answer and cost
+facts; prototype samples belong in stories. `pulse={false}` makes its status
+dot static. Only the phase word is announced; targets wrap and elapsed ticks
+stay outside the live region. For a waiting status without another answer or
+Stop, omit `text` and set `stoppable={false}`. `bars={false}` omits ghosts.
+
 ## Imported tracks
 
 `TrackMap` draws file-provided lines with start/end shapes, a scale and a full

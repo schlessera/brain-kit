@@ -40,6 +40,15 @@ gate owns the connectivity probe. Recordings in this browser are not encrypted
 against device access. Browser eviction, unavailable storage and cleared site
 data can prevent recovery; durable-storage requests are never guarantees.
 
+## Live turn status
+
+The transcript uses StreamingAnswer while waiting for first content, a tool
+approval or a retry. Initial status has two ghost lines which disappear when
+any rich group arrives. Approval status names the pending tool with a static
+dot; retry retains the runtime's wording. Elapsed ticks use this page's turn
+start or matching host timing, and recovered shells without timing show none.
+Only the phase changes announce. The existing composer owns the single Stop.
+
 ## Dictation
 
 At widths of 900px and above, dictation opens a panel immediately above the
