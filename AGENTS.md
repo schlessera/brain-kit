@@ -324,6 +324,14 @@ The procedure, with the commands, is the repo-local `github` skill
 the project board, the lifecycle, which of the two repositories an issue belongs
 in — is [docs/process/github.md](docs/process/github.md).
 
+Before every merge, assign a release milestone to the PR and each issue it
+completes or advances, including docs/test/CI work and partial `Refs` deliveries.
+Use the confirmed upcoming release for unreleased changes and the original
+delivery release for unchanged shipped behavior verified later. Read back
+assignments before merge and after squash/closure. Follow
+[the milestone agreement](docs/process/github.md#milestones); an unfinished
+parent epic does not inherit a child's milestone.
+
 Two things that are easy to get wrong:
 
 - **This repository is public, and it is one of five** (see "The five

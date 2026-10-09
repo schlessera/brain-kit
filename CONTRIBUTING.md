@@ -325,6 +325,13 @@ with a standard XML parser and inspect its testcase names and counts.
    the changeset itself short — what was added / changed / removed, in one line
    each. The commit it links to carries the reasoning.
 
+Before every merge, the PR and each issue it completes or advances must have
+a release milestone, including documentation, tests, CI and partial deliveries.
+Use the confirmed upcoming release for new work; delayed verification retains
+the first release of unchanged shipped behavior. Read back these assignments
+before merge and after closure. See [Milestones](docs/process/github.md#milestones)
+for historical attribution and epic follow-ups.
+
 Frontmatter is parsed only through `parseFrontmatter`, whose canonical copy is
 `packages/core/src/lib/frontmatter-parse.ts`. A package that needs to parse
 frontmatter copies that file in verbatim, the same way the `env-core.ts` files

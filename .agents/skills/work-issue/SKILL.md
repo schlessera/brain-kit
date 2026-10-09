@@ -221,6 +221,10 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   handoff. Diagnose repeated failures; do not rerun indefinitely, weaken a
   gate, dismiss a review or bypass protection to obtain green.
 - Once current-head checks pass and actual merge requirements are met,
+  assign and read back the PR and completed/advanced issues' release milestones
+  under the GitHub skill. This applies to every merge, including docs/test/CI
+  work and `Refs` slices; choose the confirmed upcoming release for unreleased
+  work and preserve the initial release of unchanged shipped behavior. Then
   merge using `--match-head-commit` and squash. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
@@ -228,7 +232,8 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
 ## Finish or hand off
 
 Reconcile fresh GitHub state. After merge, fetch main and prove the reported
-merge commit is an ancestor of `origin/main`. Check actual issue closure;
+merge commit is an ancestor of `origin/main`. Check actual issue closure and
+verify the PR and delivered issues retain the intended release milestones;
 never push another fix to a merged branch. Post-merge fixes need a new branch
 and issue where appropriate.
 
