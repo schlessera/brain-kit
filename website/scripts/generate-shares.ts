@@ -2,11 +2,11 @@ import { resolve, sep } from 'node:path';
 import { mkdir, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
-import { createRenderer } from '../../packages/ui-render-puppeteer/src/index.ts';
-import { buildHtmlDocument } from '../../packages/render-template/src/index.ts';
+import { createRenderer } from '@schlessera/brain-render-puppeteer';
+import { buildHtmlDocument } from '@schlessera/brain-render-template';
 import { binaryDocuments } from '../src/demo/odyssey.ts';
 import { canonicalExport, exportKey, type ExportCatalogue } from '../src/demo/export-key.ts';
-import type { RenderRequest } from '../../packages/ui-sdk/src/protocol.ts';
+import type { RenderRequest } from '@schlessera/brain-ui-sdk/protocol';
 import { exportRecipeHash, repository } from './export-recipe.ts';
 import { pngMetadata } from './png-metadata.ts';
 
