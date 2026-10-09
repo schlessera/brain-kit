@@ -105,7 +105,7 @@ export async function validateSource(root: string, category: Reusable, source: S
     if (String(check.id) !== checkId || check.app?.slug !== "github-actions" || check.head_sha !== run.head_sha ||
         check.status !== "completed" || check.conclusion !== "success") throw new Error("Source check does not establish successful execution");
     const log = await api.log(job.id);
-    if (!log.includes(`refs/pull/${context.pr}/merge`)) throw new Error("Job checkout does not belong to the source pull request");
+    if (!log.includes(`refs/remotes/pull/${context.pr}/merge`) && !log.includes(`refs/pull/${context.pr}/merge`)) throw new Error("Job checkout does not belong to the source pull request");
     const receipt = receiptFromLog(log, category, shard);
     if (JSON.stringify(receipt.checkout) !== JSON.stringify(source.checkout) || JSON.stringify(receipt.inputs) !== JSON.stringify(inputs)) throw new Error("Job receipt has no complete input equivalence");
     found.push(receipt);

@@ -46,7 +46,7 @@ function evidence(root: string, inputs: Inputs) {
     head_sha: identity.parents[1], head_branch: context.branch, path: ".github/workflows/ci.yml", head_repository: { full_name: context.headRepository }, repository: { full_name: context.repository }, created_at: new Date().toISOString() };
   const jobs = [101, 102].map((id, i) => ({ id, run_id: 90, head_sha: identity.parents[1], name: `browser (${i + 1})`, status: "completed", conclusion: "success", check_run_url: `https://api.github.com/repos/${context.repository}/check-runs/${id}`,
     steps: [{ name: "Complete browser proof", status: "completed", conclusion: "success" }] }));
-  const logs = receipts.map(r => `2026-07-12T00:00:00Z ${identity.sha}\n2026-07-12T00:00:01Z refs/pull/42/merge\n2026-07-12T00:00:02Z BRAIN_PROOF_RECEIPT ${JSON.stringify(r)}\n`);
+  const logs = receipts.map(r => `2026-07-12T00:00:00Z ${identity.sha}\n2026-07-12T00:00:01Z refs/remotes/pull/42/merge\n2026-07-12T00:00:02Z BRAIN_PROOF_RECEIPT ${JSON.stringify(r)}\n`);
   const api: API = {
     async json(path) {
       calls.push(path);
@@ -96,6 +96,9 @@ test("successful immutable source receipts validate against APIs", async () => {
   const valid = evidence(root, inputs);
   await validateSource(root, "browser", valid.source, inputs, context, valid.api);
   expect(valid.calls.length).toBeGreaterThan(0);
+  // Retain the older checkout spelling alongside v7's actual remote ref.
+  valid.logs[0] = valid.logs[0]!.replace("refs/remotes/pull/42/merge", "refs/pull/42/merge");
+  await validateSource(root, "browser", valid.source, inputs, context, valid.api);
 });
 test("cancelled, missing, foreign and mismatched evidence is rejected", async () => {
   const root = fixture(), inputs = proofInputs(root, "browser", inventory, runner);
@@ -109,7 +112,7 @@ test("cancelled, missing, foreign and mismatched evidence is rejected", async ()
   await expect(validateSource(root, "browser", missing.source, inputs, context, missing.api)).rejects.toThrow("fresh successful job");
   const foreign = evidence(root, inputs); foreign.run.head_repository.full_name = "odysseus/other";
   await expect(validateSource(root, "browser", foreign.source, inputs, context, foreign.api)).rejects.toThrow("successful automatic");
-  const forged = evidence(root, inputs); forged.logs[0] = forged.logs[0]!.replace("refs/pull/42/merge", "refs/pull/43/merge");
+  const forged = evidence(root, inputs); forged.logs[0] = forged.logs[0]!.replace("refs/remotes/pull/42/merge", "refs/remotes/pull/43/merge");
   await expect(validateSource(root, "browser", forged.source, inputs, context, forged.api)).rejects.toThrow("source pull request");
 });
 test("changed source blobs cannot use a forged matching fingerprint or an old receipt", async () => {
