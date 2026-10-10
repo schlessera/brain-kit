@@ -7,9 +7,9 @@ import { AppShell } from '../../../packages/ui-react/src/components/layout/app-s
 import { ChatPage } from '../../../packages/ui-react/src/components/chat/chat-page.tsx';
 import { geo } from '../../../packages/ui-kit/fixtures/geo/index.ts';
 import type { ActivitySpan } from '../../../packages/ui-sdk/src/protocol.ts';
-import { binaryDocuments, corpusBlocks, demoDocuments, departureDiagram, directories, documentByPath, referenceNow, supportingFilesBlock, treeEntries, wikilinks } from './odyssey.ts';
+import { binaryDocuments, corpusBlocks, departureDiagram, referenceNow, supportingFilesBlock } from './odyssey.ts';
 import { exportKey, type ExportCatalogue } from './export-key.ts';
-import { knowledgeResponse } from './knowledge.ts';
+import { sceneIndex, type SceneId } from './scene-index.ts';
 
 const ActivityPage = lazy(() => import('../../../packages/ui-react/src/components/activity/activity-page.tsx').then(m => ({ default: m.ActivityPage })));
 const GraphPage = lazy(() => import('../../../packages/ui-react/src/components/graph/graph-page.tsx').then(m => ({ default: m.GraphPage })));
@@ -29,6 +29,7 @@ const sessions = [
     ['decision', 'Scylla or Charybdis'], ['crew', 'The twelve-ship ledger'],
     ['household', 'News from Ithaca'], ['forecast', 'The forecast and the oath'],
     ['library', 'Records for the crossing'], ['diagram', 'The planned passage'],
+    ...Object.entries(sceneIndex).map(([id, scene]) => [id, scene.title]),
   ].map(([id, title], index) => ({ id, title, backendId: 'pi', lastActiveAt: referenceNow - (index + 2) * 3600000, createdAt: referenceNow - (index + 2) * 3600000, totalCostUsd: 0, numTurns: 2 })),
 ];
 const nativeFetch = window.fetch.bind(window);
@@ -57,13 +58,14 @@ function announce(message: string) { window.parent.postMessage({ type: 'brain-de
 async function request(input: string | URL | Request, init?: RequestInit) {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.origin);
   const path = url.pathname;
-  const knowledge = knowledgeResponse(url);
-  if (knowledge) return knowledge;
+  // The library, search and graph load on first use, outside the first chunk.
+  if (/\/brain\/search$|\/graph\//.test(path)) { const knowledge = (await import('./knowledge.ts')).knowledgeResponse(url); if (knowledge) return knowledge; }
+  const { directories, documentByPath, treeEntries, wikilinks } = /\/files\//.test(path) ? await import('./corpus.ts') : { directories: new Set<string>(), documentByPath: {} as Record<string, never>, treeEntries: () => [], wikilinks: {} };
   if (path.endsWith('/render')) {
     const payload = JSON.parse(String(init?.body || '{}'));
     const key = await exportKey(payload);
     const asset = (await exportsIndex()).exports[key]?.[payload.format as 'png' | 'pdf'];
-    if (!asset) return Response.json({ error: 'demo_export_missing', detail: 'This exact response has no prepared export. Try a prepared Odyssey scenario.' }, { status: 422 });
+    if (!asset) return Response.json({ error: 'demo_export_missing', detail: 'Image and PDF exports are prepared for the featured records and the prepared Odyssey responses. Share this one as Markdown or text instead.' }, { status: 422 });
     return nativeFetch(`${siteBase}assets/shares/${asset}?v=${__DEMO_VERSION__}`);
   }
   if (path.endsWith('/sessions')) return Response.json({ sessions });
@@ -147,8 +149,11 @@ class FixtureSocket {
         if (generation !== epoch) return;
         const turnId = `fixture-turn-${++turn}`;
         this.emit({ type: 'status', status: 'thinking', sessionId: key, turnId, requestId: frame.requestId });
-        respond(frame.text, key, turnId);
-        if (!ui.stores.chat.getState().buffers[key]?.isStreaming) this.emit({ type: 'result', sessionId: key, turnId, outcome: 'success', durationMs: 0, numTurns: 1, isError: false });
+        // A library scene answers after its records load; the turn ends then.
+        void Promise.resolve(respond(frame.text, key, turnId)).then(() => {
+          if (generation !== epoch) return;
+          if (!ui.stores.chat.getState().buffers[key]?.isStreaming) this.emit({ type: 'result', sessionId: key, turnId, outcome: 'success', durationMs: 0, numTurns: 1, isError: false });
+        });
       }, 280);
     }
   }
@@ -200,11 +205,12 @@ function comparison(key = 'ogygia') {
 const scenarioPrompts: Record<string, string> = {
   crew: 'Show the crew ledger.', decision: 'Compare Scylla and Charybdis.', household: 'What is happening in Ithaca?',
   forecast: 'Recall the forecast and the oath.', library: 'Find the records for the crossing.', diagram: 'Show the departure diagram.',
+  ...Object.fromEntries(Object.entries(sceneIndex).map(([id, scene]) => [id, scene.prompt])),
 };
 function archive(key = 'ogygia') {
   ui.stores.chat.getState().requestToolApproval(key, 'archive-checklist', 'brain_archive', { slug: 'raft-supply-checklist' }, 'Archive the completed raft supply checklist. This is a fictional, staged permission request.', 'tool', false);
 }
-function seed(next: string, key = 'ogygia') {
+function seed(next: string, key = 'ogygia'): Promise<void> | void {
   scene = next; generation++;
   // The exterior Reset starts fresh demonstration state, outside product navigation.
   const trackers = (ui.stores as unknown as { trackers?: { setState(state: object): void } }).trackers;
@@ -228,8 +234,7 @@ function seed(next: string, key = 'ogygia') {
   location.hash = '';
   if (scenarioPrompts[next]) {
     chat.addUserMessage(key, scenarioPrompts[next], 'typed');
-    respond(scenarioPrompts[next], key, `fixture-turn-${++turn}`);
-    return;
+    return respond(scenarioPrompts[next], key, `fixture-turn-${++turn}`);
   }
   const text = next === 'rank' ? 'Help me prioritise the final preparations.' : next === 'rich' ? 'Show me the departure plan.' : next === 'approval' ? 'Archive the completed raft supply checklist.' : 'What should I prepare before leaving Ogygia?';
   chat.addUserMessage(key, text, 'typed'); chat.startAssistantMessage(key, `fixture-turn-${++turn}`);
@@ -240,9 +245,24 @@ function seed(next: string, key = 'ogygia') {
   if (next === 'voice') ui.stores.voice.setState({ reviewText: 'Check the water and provisions before launching the raft.', mode: 'idle' });
   if (next === 'files') { ui.stores.ui.getState().setFilePanelOpen(true); void ui.stores.file.getState().openFile('voyage/ogygia/departure-plan.md'); }
 }
-function respond(text: string, key: string, turnId: string) {
+// The answer's records load with the library. It lands only while its own
+// turn is still the open one, so a reset drops it and a session switch lets it
+// finish in the background.
+function answerScene(scene: SceneId, key: string, turnId: string) {
+  return import('./scenes.ts').then(({ scenes }) => {
+    const chat = ui.stores.chat.getState(); const open = chat.buffers[key];
+    if (!open?.isStreaming || open.messages.at(-1)?.turnId !== turnId) return;
+    chat.appendText(key, scenes[scene].text); for (const value of scenes[scene].blocks) block(value, key); chat.finishAssistantMessage(key);
+  });
+}
+function respond(text: string, key: string, turnId: string): Promise<void> | void {
   const chat = ui.stores.chat.getState();
   chat.startAssistantMessage(key, turnId);
+  // A scene's own prompt routes to it first; otherwise the staged branches
+  // keep their keywords, and scene keywords only answer what nothing else does.
+  const prompt = text.trim().toLowerCase();
+  const exact = (Object.keys(sceneIndex) as SceneId[]).find(id => sceneIndex[id].prompt.toLowerCase() === prompt);
+  if (exact) return answerScene(exact, key, turnId);
   if (/scylla|charybdis/i.test(text)) { chat.appendText(key, 'The recorded choice was Scylla. Six men were lost; those losses are included in the closed crew ledger. Read [[decisions/scylla-or-charybdis]] for the reasoning and the unresolved questions.'); block(corpusBlocks.decision, key); chat.finishAssistantMessage(key); }
   else if (/crew|ledger|manifest/i.test(text)) { chat.appendText(key, 'Six hundred crew embarked in twelve ships. None survived; Odysseus is the sole survivor. This is the historical ledger, not a crew for the new crossing. Read [[crew/manifest-0012]].'); block(corpusBlocks.crew, key); chat.finishAssistantMessage(key); }
   else if (/ithaca|penelope|telemachus|household/i.test(text)) { chat.appendText(key, '[[people/penelope]] holds the household in Ithaca. [[people/telemachus]] is seeking news in Sparta. Return remains the goal: [[goals/return-to-ithaca]]. These are fictional records, not live messages.'); chat.finishAssistantMessage(key); }
@@ -254,7 +274,10 @@ function respond(text: string, key: string, turnId: string) {
   else if (/archiv/i.test(text)) { chat.appendText(key, 'This staged archive needs your permission.'); archive(key); }
   else if (/plan|map|voyage|course/i.test(text)) { chat.appendText(key, "Here's the staged departure plan."); rich(key); chat.finishAssistantMessage(key); }
   else if (/water|provision|raft|prepare/i.test(text)) { chat.appendText(key, 'Water, provisions and the launch preparations belong together. Here is the fictional preparation comparison.'); comparison(key); chat.finishAssistantMessage(key); }
-  else { chat.appendText(key, 'This demo has prepared Odyssey responses. Try “show the plan”, “crew ledger”, “Scylla”, “files”, “departure diagram”, “prioritise preparations”, or “archive the checklist”. Your text stays in this page; no model is running.'); chat.finishAssistantMessage(key); }
+  else {
+    const scene = (Object.keys(sceneIndex) as SceneId[]).find(id => sceneIndex[id].match.test(text));
+    if (scene) return answerScene(scene, key, turnId);
+    chat.appendText(key, 'This demo has prepared Odyssey responses. Try “show the plan”, “crew ledger”, “Scylla”, “the twelve ships”, “the voyage so far”, “the suitors”, “what the dead said”, “this week’s journal”, “steer to Scheria”, “files”, “departure diagram”, “prioritise preparations”, or “archive the checklist”. Your text stays in this page; no model is running.'); chat.finishAssistantMessage(key); }
 }
 function Surface() {
   const view = useRootStore('ui', state => state.activeView);
@@ -294,7 +317,7 @@ if (params.get('catalogue') === '1') Object.assign(window, { __brainDemoCatalogu
   }
   const orders = [['supplies', 'raft', 'course'], ['supplies', 'course', 'raft'], ['raft', 'supplies', 'course'], ['raft', 'course', 'supplies'], ['course', 'supplies', 'raft'], ['course', 'raft', 'supplies']];
   const socket = new FixtureSocket();
-  for (const next of ['rank', 'approval', 'rich', 'comparison', 'voice', ...Object.keys(scenarioPrompts)]) { seed(next); await messages(); }
+  for (const next of ['rank', 'approval', 'rich', 'comparison', 'voice', ...Object.keys(scenarioPrompts)]) { await seed(next); await messages(); }
   for (const prefix of ['initial', 'prompt']) {
     for (const order of orders) {
       seed('rank');
@@ -310,12 +333,13 @@ if (params.get('catalogue') === '1') Object.assign(window, { __brainDemoCatalogu
       await messages();
     }
   }
-  for (const prompt of ['show the plan', 'water and provisions', 'checklist', 'not a prepared prompt', ...Object.values(scenarioPrompts)]) { seed('comparison'); respond(prompt, 'ogygia', `fixture-turn-${++turn}`); await messages(); }
+  for (const prompt of ['show the plan', 'water and provisions', 'checklist', 'not a prepared prompt', ...Object.values(scenarioPrompts)]) { seed('comparison'); await respond(prompt, 'ogygia', `fixture-turn-${++turn}`); await messages(); }
   seed('comparison');
   const { runStats } = await import('../../../packages/ui-react/src/components/chat/use-chat-commands.ts');
   await runStats(ui, 'ogygia'); await messages();
-  for (const record of demoDocuments) {
-    if (record.kind === 'text') continue;
+  for (const record of (await import('./corpus.ts')).demoDocuments) {
+    // Library records share as text formats; only featured records carry PNG/PDF.
+    if (record.kind === 'text' || !record.featured) continue;
     requests.push({ content: record.kind === 'markdown' ? await inlineMermaidDiagrams(splitFrontmatter(record.content).body) : record.content, contentType: record.kind, format: 'png', title: record.path.split('/').at(-1) });
   }
   // Capture the standalone diagram's PNG and PDF requests independently:

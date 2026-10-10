@@ -88,7 +88,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "packages/geo/dist"), { recursive: true });
   writeFileSync(join(root, "packages/geo/dist/retained"), "retained\n");
-  for (const name of ["build.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["build.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "bin/bunx"), "#!/bin/sh\nexit 77\n", { mode: 0o755 });
   const first = start(root, "read", "hold", "first"), second = start(root, "read", "hold", "second");
   await Promise.all([entered(root, "first"), entered(root, "second")]);

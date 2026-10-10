@@ -1,4 +1,5 @@
-import { demoDocuments, referenceNow } from './odyssey.ts';
+import { demoDocuments } from './corpus.ts';
+import { referenceNow } from './odyssey.ts';
 import type { GraphNodePayload } from '../../../packages/ui-sdk/src/protocol.ts';
 
 const records = demoDocuments.filter(record => record.kind === 'markdown');
@@ -7,8 +8,21 @@ const nodes: GraphNodePayload[] = records.map((record, index) => ({
   id: index + 1, path: record.path, title: record.title, type: record.content.match(/^type: "([^"]+)"/m)?.[1] || 'note',
   inDegree: records.filter(other => other.links.includes(record.path)).length, outDegree: record.links.filter(path => records.some(other => other.path === path)).length,
   community: folders.indexOf(record.path.split('/')[0]),
-  x: Math.cos(index * Math.PI * 2 / records.length) * 260, y: Math.sin(index * Math.PI * 2 / records.length) * 260,
+  x: 0, y: 0,
 }));
+// One sunflower disc per folder, discs spaced around a ring: at library size a
+// single ring of every record is unreadable, and a folder is what a reader
+// means by "where this lives". Deterministic, so captures stay stable.
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+const ring = Math.max(260, folders.length * 70);
+for (const community of folders.keys()) {
+  const members = nodes.filter(node => node.community === community);
+  const angle = community * Math.PI * 2 / folders.length;
+  members.forEach((node, i) => {
+    node.x = Math.cos(angle) * ring + Math.cos(i * GOLDEN) * 22 * Math.sqrt(i);
+    node.y = Math.sin(angle) * ring + Math.sin(i * GOLDEN) * 22 * Math.sqrt(i);
+  });
+}
 const edges = records.flatMap(record => record.links.flatMap(path => {
   const source = nodes.find(node => node.path === record.path); const target = nodes.find(node => node.path === path);
   return source && target ? [{ source: source.id, target: target.id }] : [];
@@ -22,8 +36,15 @@ export function knowledgeResponse(url: URL): Response | null {
   if (path.endsWith('/brain/search')) {
     const query = (url.searchParams.get('q') || '').trim().toLowerCase();
     const terms = query.split(/\s+/).filter(Boolean);
-    const matches = query ? records.filter(record => terms.every(term => `${record.title} ${record.content}`.toLowerCase().includes(term))) : [];
-    return Response.json({ results: matches.slice(0, Number(url.searchParams.get('limit')) || 20).map(record => ({ path: record.path, title: record.title, type: nodes.find(node => node.path === record.path)!.type, relevance: 'Demo keyword match', score: 1, snippet: record.content.split('---\n\n')[1]?.replace(/^#.*\n/, '').trim().slice(0, 220) || record.title })), warnings: ['Demo keyword search over fictional records; no retrieval backend is running.'] });
+    // Every term must appear; a title hit outranks body hits, then the most
+    // mentions win. Ties keep path order, so results are stable.
+    const scored = query ? records.flatMap(record => {
+      const title = record.title.toLowerCase(); const text = record.content.toLowerCase();
+      if (!terms.every(term => title.includes(term) || text.includes(term))) return [];
+      const score = terms.reduce((sum, term) => sum + (title.includes(term) ? 10 : 0) + text.split(term).length - 1, 0);
+      return [{ record, score }];
+    }).sort((a, b) => b.score - a.score) : [];
+    return Response.json({ results: scored.slice(0, Number(url.searchParams.get('limit')) || 20).map(({ record, score }) => ({ path: record.path, title: record.title, type: nodes.find(node => node.path === record.path)!.type, relevance: 'Demo keyword match', score, snippet: record.content.split('---\n\n')[1]?.replace(/^#.*\n/, '').trim().slice(0, 220) || record.title })), warnings: ['Demo keyword search over fictional records; no retrieval backend is running.'] });
   }
   if (path.endsWith('/graph/meta')) return Response.json({ available: true, schemaVersion: 8, computedAt, stale: false, nodeCount: nodes.length, edgeCount: edges.length, communities: folders.map((label, community) => ({ community, label, size: nodes.filter(node => node.community === community).length, topTerms: [label] })), defaultRoot: { path: 'goals/return-to-ithaca.md', virtual: false } });
   if (path.endsWith('/graph/maintenance')) {

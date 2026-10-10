@@ -51,11 +51,26 @@ export async function verifyRichDemo(page: Page, origin: string, base: string, c
     const reveal = demo.getByRole('button', { name: 'Reveal in tree', exact: true });
     if (await reveal.isVisible()) await reveal.click();
     const parts = path.split('/');
-    for (const part of parts.slice(0, -1)) {
-      const row = demo.getByRole('treeitem', { name: part, exact: true });
-      if (await row.getAttribute('aria-expanded') === 'false') await row.click();
+    // Rows are flat, and a name can recur at another depth (the library's
+    // `ogygia/` beside `voyage/ogygia/`): take the first match after the
+    // parent row, waiting for a just-expanded folder's children to load.
+    async function rowAfter(name: string, after: number) {
+      for (let attempt = 0; attempt < 70; attempt++) {
+        for (const row of await demo.getByRole('treeitem', { name, exact: true }).all()) {
+          const index = await row.evaluate(element => [...document.querySelectorAll('[role="treeitem"]')].indexOf(element));
+          if (index > after) return { row, index };
+        }
+        await demo.waitForTimeout(100);
+      }
+      throw Error(`No tree row named ${name} below row ${after}`);
     }
-    await demo.getByRole('treeitem', { name: parts.at(-1), exact: true }).click();
+    let after = -1;
+    for (const part of parts.slice(0, -1)) {
+      const { row, index } = await rowAfter(part, after);
+      if (await row.getAttribute('aria-expanded') === 'false') await row.click();
+      after = index;
+    }
+    await (await rowAfter(parts.at(-1)!, after)).row.click();
     await demo.locator('[title]').filter({ hasText: parts.at(-1)! }).first().waitFor();
   }
   async function download(trigger: string, option: string, extension: string) {
@@ -87,6 +102,14 @@ export async function verifyRichDemo(page: Page, origin: string, base: string, c
   await demo.getByText('people/calypso', { exact: false }).last().click();
   await demo.getByRole('heading', { name: 'Calypso', exact: true }).waitFor();
   assert.equal(await demo.getByRole('button', { name: /^frontmatter/ }).getAttribute('aria-expanded'), 'false');
+  // A library record is browsable and shares as text; its image option says
+  // why no PNG is prepared instead of substituting another record's export.
+  await openFile('ithaca/suitors/roster.md');
+  await demo.getByRole('heading', { name: 'The suitors, by island', exact: true }).waitFor();
+  assert(new TextDecoder().decode(await download('Share', 'Share as .md file', '.md')).includes('title: "The suitors, by island"'));
+  await demo.getByRole('button', { name: 'Share', exact: true }).last().click();
+  await demo.getByRole('menuitem', { name: /^Share as image/ }).click();
+  await demo.waitForFunction(() => [...document.querySelectorAll('button[title]')].some(button => (button as HTMLButtonElement).title.includes('Share this one as Markdown or text')));
 
   await openFile('voyage/ogygia/departure-plan.png');
   const image = demo.locator('img[alt="voyage/ogygia/departure-plan.png"]');
