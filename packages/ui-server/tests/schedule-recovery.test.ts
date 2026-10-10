@@ -30,7 +30,11 @@ test("restore keeps every schedule relation but pauses enabled tasks until verif
   // An outstanding occurrence whose worker is lost with the old installation.
   fixture.db.query(`INSERT INTO schedule_occurrences (id, task_id, due_at, expires_at, state, operations_used, max_operations, created_at, updated_at)
     VALUES ('occ_lost', ?, ?, ?, 'running', 1, 3, ?, ?)`).run(active.id, 1, 1 + 86_400_000, 1, 1);
-  const at = Date.now();
+  // Pinned, not the wall clock: due() looks back one day, and a week after a
+  // weekend or pre-07:00 instant no weekday slot of the cron is that recent.
+  // The fixture's Sunday plus three days is Wednesday 09:00 in Athens, so a
+  // week later the 07:00 slot is two hours old and due.
+  const at = fixture.clock.now + 3 * 86_400_000;
   const snapshot = await exportInboxSnapshot(fixture.db, fixture.root, at);
   const target = mkdtempSync(join(tmpdir(), "brain-schedule-restore-"));
   temporary.push(target);
