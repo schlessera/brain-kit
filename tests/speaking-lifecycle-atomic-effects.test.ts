@@ -57,3 +57,16 @@ test("archive guard rejects source loss, wrong targets, directory kind drift, li
   if(variant==="cache-lookalike")expect(violations).toContain("unexpected effect:brain.db-leftover");
  }finally{env.close();}}
 });
+
+test("native archive cache compatibility permits only existing regular cache bytes and timestamps",async()=>{
+ for(const variant of ["bytes","mode","link"]){const env=await fixture();try{
+  for(const path of ["brain.db","brain.db-wal","brain.db-shm"])writeFileSync(join(env.root,path),"Odysseus initial disposable cache",{mode:0o600});
+  const before=observe(env.root);for(const path of ["brain.db","brain.db-wal","brain.db-shm"])expect(before[path]?.kind).toBe("file");
+  if(variant==="bytes")for(const path of ["brain.db","brain.db-wal","brain.db-shm"])writeFileSync(join(env.root,path),"Odysseus disposable cache control");
+  if(variant==="mode")chmodSync(join(env.root,"brain.db"),0o700);
+  if(variant==="link"){rmSync(join(env.root,"brain.db"));symlinkSync("assets/guard.bin",join(env.root,"brain.db"));}
+  const after=observe(env.root),violations=archiveEffects(before,after,{},true);
+  if(variant==="bytes"){expect(violations).toEqual([]);expect(archiveEffects(before,after,{},false)).toHaveLength(3);expect(safety(closedCase,env,before,after).safe).toBe(true);}
+  else{expect(violations).toContain("unexpected effect:brain.db");expect(safety(closedCase,env,before,after).safe).toBe(false);}
+ }finally{env.close();}}
+});

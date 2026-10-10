@@ -381,3 +381,10 @@ semantic review, source-supported task facts, layouts, disposable-cache bounds
 and accounting criteria remain binding. The additional actual native archive
 control is required in both keyless packet preparation and paid proof admission.
 This compatibility rule supplies no inference, semantic approval or adoption.
+
+
+The same ruling explicitly qualifies the newly required native archive cache
+control: only the existing regular `brain.db`, `brain.db-wal` and `brain.db-shm`
+files may change disposable bytes and timestamps. Kind, mode and membership
+remain invariant. Direct/full/native guards use this exact bounded rule; cache
+changes never license directory metadata. Other native modes remain unchanged.

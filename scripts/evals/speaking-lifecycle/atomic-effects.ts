@@ -36,6 +36,12 @@ export function expectedArchives(before: Tree, paths: string[]): ExpectedReplace
     return [path, { bytes: Buffer.from(expected).toString("base64"), mode: entry.mode }];
   }));
 }
+/** Existing disposable cache bytes/mtime only; no added members, links or mode drift. */
+export function disposableCacheBytesOnly(path: string, before: Tree, after: Tree) {
+  const prior = before[path], next = after[path];
+  return /^brain\.db(?:-wal|-shm)?$/.test(path) && prior?.kind === "file" &&
+    next?.kind === "file" && prior.mode === next.mode;
+}
 /** Full union detects added members too; disposable CLI cache paths remain explicit. */
 export function archiveEffects(before: Tree, after: Tree, expected: ExpectedReplacements, cache = false) {
   const parents = verifiedAtomicParents(before, after, expected), violations: string[] = [];
@@ -44,7 +50,7 @@ export function archiveEffects(before: Tree, after: Tree, expected: ExpectedRepl
     if (replacement) {
       if (next?.kind !== "file" || next.bytes !== replacement.bytes || next.mode !== replacement.mode)
         violations.push(`source bytes/mode:${path}`);
-    } else if (!same(prior, next) && !(cache && /^brain\.db(?:-wal|-shm)?$/.test(path)) &&
+    } else if (!same(prior, next) && !(cache && disposableCacheBytesOnly(path, before, after)) &&
       !parentTimestampOnly(path, before, after, parents)) violations.push(`unexpected effect:${path}`);
   }
   return violations;
