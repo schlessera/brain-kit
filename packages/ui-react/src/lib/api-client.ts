@@ -1,7 +1,7 @@
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { SessionRecoveryResult } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, InboxActionItem, SessionRecoveryResult } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -336,6 +336,10 @@ export function createBrainApi(
   }
 
   return {
+    hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
+    hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
+    hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),
+
     health: () =>
       fetchJson<{ status: string; uptime: number; timestamp: string }>("/health"),
 

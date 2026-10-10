@@ -109,6 +109,11 @@ if (fontStatus !== 0) process.exit(fontStatus);
 const fontHash = createHash("sha256").update(readFileSync(resolve(REPO, "scripts/captures/font-lock.json"))).digest("hex");
 const fontCache = resolve(tmpdir(), "brain-kit-feature-capture-fonts", fontHash);
 
+// C5 layout proof drives the real Bun server inside the offline container.
+// Mount the already installed executable; the pinned Chromium image stays unchanged.
+const bunExecutable = spawnSync("which", ["bun"], { encoding: "utf8" });
+if (bunExecutable.status !== 0) throw new Error("Bun is required for offline server fixtures");
+const scratch = tmpdir();
 const status = run("docker", [
   "run",
   "--rm",
@@ -121,6 +126,12 @@ const status = run("docker", [
   `${REPO}:/repo`,
   "-v",
   `${fontCache}:/tmp/brain-kit-feature-capture-fonts/${fontHash}:ro`,
+  "-v",
+  `${bunExecutable.stdout.trim()}:/usr/local/bin/bun:ro`,
+  "-v",
+  `${scratch}:${scratch}`,
+  "-e",
+  `TMPDIR=${scratch}`,
   "-w",
   "/repo",
   "-e",

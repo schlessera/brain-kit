@@ -404,6 +404,23 @@ policy-write receipt for a refused send. Reconnect restores the host's pending
 request after history; it never replays the refused decision. Review the card
 and choose again explicitly once connected.
 
+## Hygiene review in Actions
+
+The `needs you` lens and the palette's Run group offer **Start hygiene review**.
+The server chooses one durable finding at a time; Pause, Resume, reload and
+reconnect preserve its identity and review position. Desktop uses a compact
+list card and a full detail pane. Broken links offer the server's repair choices;
+required fields use typed inputs with server-validated previews. Other findings
+open the file for a manual edit and an honest recheck.
+
+Apply displays the exact change before submitting its stored option. Stale,
+refused and failed post-check outcomes retain the card. Refresh finding invokes
+the server's `refresh` operation; Undo requires a separately confirmed inverse
+preview. Later and Dismiss confirm durable dispositions without claiming a
+repair. Confirmed dispositions hand focus to the next title or Review complete;
+typing and failed outcomes leave focus where it is. The existing inbox mirror
+and stream own badges, receipts and decisions in flight.
+
 ## Store hooks
 
 The exported store hooks are what a shell reads and calls, typed against a

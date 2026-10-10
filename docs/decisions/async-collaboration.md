@@ -175,7 +175,7 @@ D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
 for durable decisions, and make Queue a secondary view with links to existing run
 detail. Do not add a second Actions/Activity destination. The current page's
 notification acknowledgement is not resolution (`ActionsLens`,
-`packages/ui-react/src/components/activity/activity-page.tsx:65-66`). Exact effects,
+`packages/ui-react/src/components/activity/activity-page.tsx:67-68`). Exact effects,
 reconnect convergence, accessible focus and visible failure are required; new
 cards need an interaction design that fits the current kit.
 

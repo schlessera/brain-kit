@@ -117,6 +117,7 @@ export function DesktopPalette() {
   const runGroup: PaletteItem[] = [
     { icon: "repeat", label: "Sync the brain", tone: "amber", effect: "sync", why: routes.why, onClick: run(routes.sync) },
     { icon: "sunrise", label: "Daily briefing", tone: "gold", why: routes.why, onClick: run(routes.briefing) },
+    { icon: "confirm", label: "Start hygiene review", tone: "teal", why: routes.why, onClick: run(() => { root.stores.ui.getState().setActiveView("activity"); root.stores.ui.getState().requestHygieneReview(); }) },
     { icon: "add", label: "Add a note", tone: "teal", onClick: run(routes.add) },
     // A chat with a selected session can continue on another backend (#61).
     // Opening its review drafts a summary with a model, so it spends.

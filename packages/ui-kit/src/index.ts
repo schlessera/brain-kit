@@ -101,6 +101,7 @@ export { SearchResultCard, type SearchResultCardProps } from "./evidence/SearchR
 export { TraceSteps, type TraceStep, type TraceStepsProps } from "./evidence/TraceSteps.js";
 
 /* Decision surfaces. */
+export { HygieneCard, HygieneEnd, HygieneBlocker, type HygieneCardProps } from "./decisions/HygieneCard.js";
 export { ActionCard, type ActionCardProps } from "./decisions/ActionCard.js";
 export { EffectPreview, effectLineCount, type EffectPreviewProps } from "./decisions/EffectPreview.js";
 export { DispositionBar, type DispositionBarProps, type DispositionControl } from "./decisions/DispositionBar.js";

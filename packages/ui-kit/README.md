@@ -398,3 +398,12 @@ existing renderer's full input/diff, `wrapHeader` for long tool names and
 targets, and `onAlwaysAllow` only when a remembered grant is eligible.
 Pass empty `diff`/`risk` when no such data exists to clear demo defaults.
 The optional Always allow control names its `write_policy` effect.
+
+### Hygiene review presentation
+
+`HygieneCard` composes `ActionCard`, `PathRef`, `EffectPreview`, `Callout` and
+`DispositionBar` for finding evidence, repair controls and recovery states.
+The caller supplies the server projection and callbacks. `HygieneEnd` presents
+review counts and deferred findings; `HygieneBlocker` presents configuration
+recovery. Their Odysseus stories and visual baselines cover dark and paper at
+320px and 1280px. The kit performs no selection, validation or effect dispatch.
