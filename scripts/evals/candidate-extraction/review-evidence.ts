@@ -1,21 +1,27 @@
 /** Private collected artifacts, independently reparsed before semantic admission. */
 import { readFileSync, writeFileSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import {createHash} from "node:crypto";
+const sha=(bytes:string|Buffer)=>createHash("sha256").update(bytes).digest("hex");
 import { settingsRefusal, subscriptionRefusal, CLEARED_API_CREDENTIALS } from "../../../packages/core/src/providers/agents/claude-subscription";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
-const sha = (v: string | Buffer) => createHash("sha256").update(v).digest("hex");
+import {type ReviewBinding} from "../native-pricing";
 
+import {admittedNativeRate,literalNativeUsage,reparseNativeBudget} from "../native-paid-policy";
+import {type NativePaidEvidence} from "../native-paid-entry";
+import {validateExtractionPaidArtifacts} from "./paid-evidence";
+import {validGrantEvidence} from "../native-grant";
 const MODEL = "claude-sonnet-5-5";
 export interface RuntimeIdentity { sdk: string; nativeSha: string; nativeMode: number; bunSha: string; bunVersion: string; bunMode: number }
 export interface ExecutionEvidence {
+  paidBinding?:ReviewBinding;paidPolicySha?:string;
   kind: "offline-native-scripted" | "subscription-native-direct";
   transport: "injected-offline-fetch" | "global-fetch"; upstream: string;
   freezeSha: string | null; promptSha: string; readOnlyReview: boolean; runtime: RuntimeIdentity;
   relayClosed: boolean; runnerFailure: string | null; additionalBilledUsd: null;
 }
 export interface EvidenceReference { directory: string; manifestSha: string }
-const members = ["execution.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json"] as const;
+const members = ["execution.json", "native.json", "native.json.stdin.jsonl", "native.json.stdout.jsonl", "native.json.stderr.bin", "physical.json","paid.json","paid-grant.json"] as const;
 export function saveEvidenceBundle(directory: string): EvidenceReference {
   const hashes = Object.fromEntries(members.map(name => [name, sha(readFileSync(join(directory, name)))]));
   const bytes = JSON.stringify({ version: 1, hashes }, null, 2);
@@ -34,8 +40,17 @@ function sse(bytes: Buffer): any[] {
   });
 }
 /** This checks collected artifacts, not an invoice or cryptographic proof against a dishonest artifact owner. */
-export function validateReviewEvidence(expected: { freezeSha: string; promptSha: string; runtime: RuntimeIdentity }, ref: EvidenceReference | undefined): boolean {
+export function validateReviewEvidence(expected: { freezeSha: string; promptSha: string; runtime: RuntimeIdentity;binding?:ReviewBinding;overage?:string }, ref: EvidenceReference | undefined): boolean {
   try {
+    if(ref&&expected.binding){
+      try{
+        const raw=readFileSync(join(ref.directory,"receipt.json")),receipt=JSON.parse(raw.toString()),paid=receipt.paid;
+        if(sha(raw)!==ref.manifestSha||!validateExtractionPaidArtifacts(ref.directory)||receipt.kind!=="subscription-native-direct"||paid.policy.control!=="live"||paid.policy.issue!==849||paid.policy.purpose!=="review"||
+          !equal(paid.binding,expected.binding)||!equal(receipt.runtime,expected.runtime)||paid.binding.freezeSha!==expected.freezeSha||paid.binding.promptSha!==expected.promptSha)return false;
+        const result=receipt.accounting.result,overage=receipt.rates.some((r:any)=>r.rate_limit_info?.isUsingOverage||r.rate_limit_info?.overageInUse)?"active":"inactive observed";
+        return typeof result?.result==="string"&&/^APPROVED(?:\s|$)/.test(result.result.trim())&&(expected.overage===undefined||expected.overage===overage);
+      }catch{}
+    }
     if (!ref || !lstatSync(ref.directory).isDirectory() || lstatSync(ref.directory).isSymbolicLink()) return false;
     const bytes = readFileSync(join(ref.directory, "review-evidence.json"));
     if (sha(bytes) !== ref.manifestSha) return false;
@@ -72,11 +87,12 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
       Object.keys(CLEARED_API_CREDENTIALS).some(key => reportedSettings.effective.env[key] !== "")) return false;
     if (!equal(native.init, init[0]) || !equal(native.account, account[0].response.response.account) || !equal(native.settings, settings[0].response.response) ||
       init[0].model !== MODEL || init[0].apiKeySource !== "none" || init[0].claude_code_version !== "2.1.293" || !equal(init[0].tools, [])) return false;
-    const rates = output.filter(e => e.type === "rate_limit_event");
-    if (!rates.length || !equal(native.rates, rates) || native.overage !== "inactive observed" || rates.some(r => {
-      const info = r.rate_limit_info; return !info || info.status !== "allowed" || info.isUsingOverage === true || info.overageInUse === true ||
-        !(info.isUsingOverage === false || info.overageInUse === false);
-    })) return false;
+    const paid:NativePaidEvidence=JSON.parse(raw["paid.json"]!.toString("utf8"));
+    if(!expected.binding||paid.policy.issue!==849||paid.policy.control!=="live"||paid.policy.purpose!=="review"||
+      !equal(paid.binding,expected.binding)||execution.paidPolicySha!==sha(JSON.stringify(paid.policy))||!equal(execution.paidBinding,expected.binding))return false;
+    const rates=output.filter(e=>e.type==="rate_limit_event");
+    const overage=rates.some(r=>r.rate_limit_info?.isUsingOverage===true||r.rate_limit_info?.overageInUse===true)?"active":"inactive observed";
+    if(!rates.length||!equal(native.rates,rates)||native.overage!==overage||(expected.overage!==undefined&&expected.overage!==overage)||rates.some(r=>!admittedNativeRate(r.rate_limit_info,paid.policy.allowOverage)))return false;
     const result = results[0];
     if (!equal(native.result, result) || result.is_error !== false || result.subtype !== "success" || result.num_turns !== 1 ||
       typeof result.result !== "string" || !/^APPROVED(?:\s|$)/.test(result.result.trim()) ||
@@ -89,7 +105,7 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
     const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
     let physicalText = "";
     for (const call of calls) {
-      if (call.authRoute !== "subscription-oauth-no-api-key" || call.upstream !== "https://api.anthropic.com/v1/messages" || call.requestMethod !== "POST" || call.requestPath !== "/v1/messages" || call.status !== 200 || call.requestedModel !== MODEL || call.servedModel !== MODEL || call.outcome !== "completed" || call.failure ||
+      if (call.authRoute !== "subscription-oauth-no-api-key" || call.upstream !== `https://api.anthropic.com${call.requestPath}` || call.requestMethod !== "POST" || !["/v1/messages","/v1/messages?beta=true"].includes(call.requestPath) || call.status !== 200 || call.requestedModel !== MODEL || call.servedModel !== MODEL || call.outcome !== "completed" || call.failure ||
         !call.finished || !call.responseClosed || !call.responseEof || call.responseCancelled || call.actualInvoiceUsd !== null) return false;
       const requestBytes = Buffer.from(call.rawRequestBase64, "base64"), responseBytes = Buffer.from(call.rawResponseBase64, "base64");
       if (sha(requestBytes) !== call.requestSha || requestBytes.length !== call.stateBytes || sha(responseBytes) !== call.rawResponseSha || responseBytes.length !== call.responseBytes) return false;
@@ -118,6 +134,9 @@ export function validateReviewEvidence(expected: { freezeSha: string; promptSha:
         cacheReadInputTokens: counters.cache_read_input_tokens, cacheCreationInputTokens: counters.cache_creation_input_tokens } }, usage: { cache_creation: counters.cache_creation } });
       if (!equal(priced, call.apiEquivalent)) return false;
     }
-    return physicalText.trim() === result.result.trim() && Object.entries(totals).every(([key, n]) => usage[key] === n);
+    const physical=calls.map((call:any)=>({requestBytesBase64:call.rawRequestBase64,usage:literalNativeUsage({requestMethod:call.requestMethod,requestPath:call.requestPath,status:call.status,upstreamDispatched:call.upstreamDispatched,subscriptionHeaderAccepted:call.authRoute==="subscription-oauth-no-api-key",finished:call.finished,responseNaturalEof:call.responseEof,consumerCancelled:call.responseCancelled,streamClosed:call.responseClosed,upstreamReaderClosed:call.upstreamReaderClosed,outcome:call.outcome,requestBytesBase64:call.rawRequestBase64,requestSha:call.requestSha,requestBody:Buffer.from(call.rawRequestBase64,"base64").toString("utf8"),requestPricingHeaders:call.requestPricingHeaders,responseHeaders:call.responseHeaders,responseBytesBase64Chunks:[call.rawResponseBase64],usage:call.usage,rawUsageEvents:call.rawUsageEvents})}));
+    return reparseNativeBudget(849,"live",paid.policy,expected.binding,paid.entries,physical)&&
+      validGrantEvidence(paid.policy,expected.binding,raw["paid-grant.json"]!,paid.grant.sha,paid.startedAtUtc,paid.entries[0]?.at??NaN)&&
+      physicalText.trim()===result.result.trim()&&Object.entries(totals).every(([key,n])=>usage[key]===n);
   } catch { return false; }
 }
