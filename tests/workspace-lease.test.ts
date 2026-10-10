@@ -15,7 +15,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(leaseHelper = helper) {
+function fixture(leaseHelper = helper, pauseBeforeRemoval = false) {
   const root = mkdtempSync(join(tmpdir(), "brain-workspace-lease-")); dirs.push(root);
   mkdirSync(join(root, "dist"));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "odysseus-build-fixture", type: "module", exports: "./dist/index.js" }));
@@ -31,7 +31,11 @@ const coordinated=await ensureWorkspaceLease(root,mode);
 if(coordinated!==undefined)process.exit(coordinated);
 writeFileSync(join(root,id+"-entered"),String(process.pid));
 if(action==="writer"||action==="hold") {
-  if(action==="writer")rmSync(join(root,"dist/index.js"));
+  if(action==="writer") {
+    if(${pauseBeforeRemoval})while(!existsSync(join(root,id+"-continue")))await delay(5);
+    rmSync(join(root,"dist/index.js"));
+    writeFileSync(join(root,id+"-removed"),"removed\\n");
+  }
   while(!existsSync(join(root,id+"-release")))await delay(5);
   if(action==="writer")writeFileSync(join(root,"dist/index.js"),'export const captain = "Odysseus";\\n');
 } else if(action==="reader") {
@@ -55,19 +59,42 @@ function start(root: string, mode: "read" | "write", action: string, id: string)
   return { child, stdout: new Response(child.stdout).text(), stderr: new Response(child.stderr).text() };
 }
 
-async function entered(root: string, id: string) {
+async function waitForMarker(root: string, id: string, phase: "entered" | "removed") {
   const deadline = Date.now() + 10_000;
-  while (!existsSync(join(root, id + "-entered"))) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${id} to acquire workspace ownership`);
+  while (!existsSync(join(root, id + "-" + phase))) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${id}: ${phase}`);
     await Bun.sleep(5);
   }
 }
+const entered = (root: string, id: string) => waitForMarker(root, id, "entered");
+const removed = (root: string, id: string) => waitForMarker(root, id, "removed");
 const release = (root: string, id: string) => writeFileSync(join(root, id + "-release"), "release\n");
+
+test("writer removal readiness waits beyond entry notification through a controlled gap", async () => {
+  const root = fixture(helper, true), other = fixture();
+  const writer = start(root, "write", "writer", "writer");
+  await entered(root, "writer");
+  expect(existsSync(join(root, "dist/index.js"))).toBe(true);
+  expect(existsSync(join(root, "writer-removed"))).toBe(false);
+  let removalReady = false;
+  const ready = removed(root, "writer").then(() => { removalReady = true; });
+  // Observe a real independent import while the writer is held at the gap.
+  const independent = start(other, "read", "reader", "other");
+  expect(await independent.child.exited, await independent.stderr).toBe(0);
+  expect(readFileSync(join(other, "other-result"), "utf8")).toBe("Odysseus");
+  expect(removalReady).toBe(false);
+  writeFileSync(join(root, "writer-continue"), "continue\n");
+  await ready;
+  expect(existsSync(join(root, "dist/index.js"))).toBe(false);
+  release(root, "writer");
+  expect(await writer.child.exited, await writer.stderr).toBe(0);
+  expect(readFileSync(join(root, "dist/index.js"), "utf8")).toContain('captain = "Odysseus"');
+});
 
 test("a live export reader waits through removal and publication; another worktree remains independent", async () => {
   const root = fixture(), other = fixture();
   const writer = start(root, "write", "writer", "writer");
-  await entered(root, "writer");
+  await removed(root, "writer");
   expect(existsSync(join(root, "dist/index.js"))).toBe(false);
   const reader = start(root, "read", "reader", "reader");
   const independent = start(other, "read", "reader", "other");
@@ -233,7 +260,7 @@ test("Odysseus importer",async()=>{
 });
 test("excluded importer",()=>{throw new Error("selector was lost");});
 `);
-  const owner = start(root, "write", "writer", "host"); await entered(root, "host");
+  const owner = start(root, "write", "writer", "host"); await removed(root, "host");
   const args = ["test", "reader.test.ts", "--timeout", "30000", "-t", "Odysseus importer"];
   const child = Bun.spawn([process.execPath, ...args], { cwd: root, stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH! } });
   children.push(child);
