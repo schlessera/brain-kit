@@ -11,7 +11,10 @@ function runChecker(directory: string) {
   });
 }
 
-function fixture(run: (directory: string, source: string, command: () => ReturnType<typeof runChecker>) => void) {
+function fixture(
+  run: (directory: string, source: string, command: () => ReturnType<typeof runChecker>) => void,
+  exceptions: Record<string, string> = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), "docs-citation-proof-"));
   try {
     mkdirSync(join(directory, "scripts"));
@@ -24,10 +27,10 @@ function fixture(run: (directory: string, source: string, command: () => ReturnT
     ).find((node) => ts.isIdentifier(node.name) && node.name.text === "CITATION_EXCEPTIONS");
     expect(declaration?.initializer && ts.isObjectLiteralExpression(declaration.initializer)).toBe(true);
     const ledger = declaration!.initializer!;
-    // This tiny repository has no historical exceptions. Copy executable code
-    // unchanged, replacing only the real repository's static exception data.
+    // Copy executable code unchanged, replacing only the real repository's
+    // static exception data with this tiny repository's explicit fixtures.
     writeFileSync(join(directory, "scripts/check-citations.ts"),
-      checker.slice(0, ledger.getStart(parsed)) + "{}" + checker.slice(ledger.getEnd()));
+      checker.slice(0, ledger.getStart(parsed)) + JSON.stringify(exceptions) + checker.slice(ledger.getEnd()));
     const init = Bun.spawnSync(["git", "init", "-q"], { cwd: directory });
     expect(init.exitCode).toBe(0);
     const source = "src/hooks.ts";
@@ -68,4 +71,14 @@ test("the command exits unsuccessfully for drift in a non-decision document", ()
     expect(result.stdout.toString()).toContain("does not start on `citationProof`");
     expect(result.exitCode).toBe(1);
   });
+});
+
+test("the command exits unsuccessfully for a stale exception", () => {
+  fixture((_directory, _source, command) => {
+    const result = command();
+    expect(result.stdout.toString()).toContain(
+      "exception docs/guide.md|src/hooks.ts:2 declares 1 citation(s), matches 0",
+    );
+    expect(result.exitCode).toBe(1);
+  }, { "docs/guide.md|src/hooks.ts:2": "historical fixture that is no longer cited" });
 });
