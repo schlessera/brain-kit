@@ -61,17 +61,22 @@ async function outer(): Promise<void> {
   writeFileSync(join(root, "pi/settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
 
   // Egress listeners outside the worker. Any connection or datagram is an escape.
-  const counts = { tcp: 0, udp: 0, unixHost: 0, unixHome: 0, abstract: 0 };
+  const counts = { tcp: 0, udp: 0, unixHost: 0, unixHome: 0, unixGit: 0, abstract: 0 };
   const quiet = { data() {}, error() {} };
   const tcp = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { ...quiet, open() { counts.tcp++; } } });
   const udp = await Bun.udpSocket({ hostname: "127.0.0.1", socket: { data() { counts.udp++; } } });
   mkdirSync(join(home, "run"), { recursive: true });
   const unixHost = Bun.listen({ unix: join(root, "host-agent.sock"), socket: { ...quiet, open() { counts.unixHost++; } } });
   const unixHome = Bun.listen({ unix: join(home, "run/agent.sock"), socket: { ...quiet, open() { counts.unixHome++; } } });
+  // Inside the read envelope: the brain's .git holds a host daemon's socket
+  // (as git fsmonitor does) and repository config. Restricted mode masks it.
+  mkdirSync(join(brainPath, ".git"), { recursive: true });
+  writeFileSync(join(brainPath, ".git/config"), `[core]\n\t# ${MARKERS.gitConfig}\n`);
+  const unixGit = Bun.listen({ unix: join(brainPath, ".git/fsmonitor--daemon.ipc"), socket: { ...quiet, open() { counts.unixGit++; } } });
   const abstractName = `\0odysseus-host-${process.pid}`;
   const abstract = Bun.listen({ unix: abstractName, socket: { ...quiet, open() { counts.abstract++; } } });
   writeFileSync(portsPath, JSON.stringify({ tcp: tcp.port, udp: udp.port, unixHost: join(root, "host-agent.sock"),
-    unixHome: join(home, "run/agent.sock"), abstract: abstractName.slice(1) }));
+    unixHome: join(home, "run/agent.sock"), unixGit: join(brainPath, ".git/fsmonitor--daemon.ipc"), abstract: abstractName.slice(1) }));
 
   let exit: number, stderr: string;
   try {
@@ -88,7 +93,7 @@ async function outer(): Promise<void> {
   } finally {
     // Let a late datagram or connection land before counting.
     await Bun.sleep(200);
-    tcp.stop(true); udp.close(); unixHost.stop(true); unixHome.stop(true); abstract.stop(true);
+    tcp.stop(true); udp.close(); unixHost.stop(true); unixHome.stop(true); unixGit.stop(true); abstract.stop(true);
   }
   const receipt = existsSync(receiptPath) ? JSON.parse(readFileSync(receiptPath, "utf8")) : null;
   console.log(JSON.stringify({ exit, stderr: stderr.slice(-4000), counts, policy: readFileSync(policyPath, "utf8"), receipt }));
@@ -111,7 +116,7 @@ async function server(): Promise<void> {
   // secrets are leaks.
   const secrets = Object.entries(MARKERS).filter(([name]) => name !== "ambient");
   const attackConfig = JSON.stringify({ ports, markers: Object.fromEntries(secrets.map(([k, v]) => [k, reverse(v)])),
-    secrets: [join(home, ".ssh/id_odysseus"), join(root, "claude/.credentials.json"), join(root, "pi/settings.json")],
+    secrets: [join(home, ".ssh/id_odysseus"), join(root, "claude/.credentials.json"), join(root, "pi/settings.json"), join(brainPath, ".git/config")],
     hostHome: home, upstreamPort: 0, policy: policyPath });
   const shell = adapter === "claude" ? "Bash" : "bash";
   const bash = (command: string) => adapter === "claude" ? { name: "Bash", input: { command, timeout: 60000 } } : { name: "bash", input: { command } };
@@ -263,7 +268,7 @@ try:
 except OSError as e: res["net"]["udp-host"] = code(e)
 try: socket.getaddrinfo("odysseus-exfil.example", 443); res["net"]["dns"] = "resolved"
 except OSError as e: res["net"]["dns"] = type(e).__name__
-for name, path in (("unix-host", cfg["ports"]["unixHost"]), ("unix-home", cfg["ports"]["unixHome"]), ("unix-abstract", "\\0" + cfg["ports"]["abstract"])):
+for name, path in (("unix-host", cfg["ports"]["unixHost"]), ("unix-home", cfg["ports"]["unixHome"]), ("unix-git", cfg["ports"]["unixGit"]), ("unix-abstract", "\\0" + cfg["ports"]["abstract"])):
     s = socket.socket(socket.AF_UNIX); s.settimeout(3)
     try: s.connect(path); res["net"][name] = "connected"
     except OSError as e: res["net"][name] = code(e)

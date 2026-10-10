@@ -43,6 +43,22 @@ const SYSTEM_DIRECTORIES = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64",
 const SYSTEM_ETC = ["ld.so.cache", "ld.so.conf", "ld.so.conf.d", "alternatives", "passwd", "group",
   "nsswitch.conf", "hosts", "localtime", "os-release"];
 
+/**
+ * The restricted envelope hides the brain's `.git` (maintainer ruling 1A on
+ * #676). A read-only mount does not stop `connect()` to a socket a host
+ * process listens on inside the envelope, and git's own daemons (fsmonitor)
+ * put one there. Masking it also hides hooks and config. A directory becomes
+ * an empty read-only tmpfs; a gitlink file is covered by a node it cannot open.
+ */
+function maskedGit(brain: string): string[] {
+  const git = join(brain, ".git");
+  let info: ReturnType<typeof lstatSync>;
+  try { info = lstatSync(git); } catch { return []; }
+  if (info.isDirectory()) return ["--tmpfs", git, "--remount-ro", git];
+  if (info.isFile()) return ["--ro-bind", "/dev/null", git];
+  throw new WorkerHostError("the brain's .git must be a directory or a gitlink file to be masked");
+}
+
 function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[] {
   const argv: string[] = [];
   for (const path of SYSTEM_DIRECTORIES) {
@@ -117,6 +133,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     "--ro-bind", brain, brain,
+    ...(input.restricted ? maskedGit(brain) : []),
     "--tmpfs", scratch, "--clearenv"];
   if (state) argv.push("--bind", state, state);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
