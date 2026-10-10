@@ -11,6 +11,13 @@ audit command, skill, severity or JSON contract.
 #1408 then made `brain audit --fix` deterministic. The "current boundary" below
 describes the command as it was measured, before that change.
 
+> **2026-10-10 — Harness removed.** Under #838's lean evaluation protocol
+> the spike harness and its experiment-tier tests were deleted. The commands
+> and file names below describe [the `audit-capabilities` harness as it stood at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/scripts/evals/audit-capabilities),
+> and run only from that commit. The authored benchmark cases
+> now live in `tests/fixtures/audit-fix/benchmark.json`; the shipped-behaviour
+> tests that used them stay in `tests/`.
+
 ## The current boundary
 
 `audit --fix` sends severity, path, finding message and existing suggestion to
@@ -185,7 +192,7 @@ unresolved links, quoted/negated markers, absent sources, failed module checks,
 escaped module configuration and a larger handwritten index. No additional
 domain repair handler is fabricated to improve coverage.
 
-`benchmark.ts` indexes each whole brain and executes the real audit command.
+[`benchmark.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/audit-capabilities/benchmark.ts) indexes each whole brain and executes the real audit command.
 Its input record separates actual audit detections from validation rules:
 an unparseable child can also make a link unresolved, scalar tags are reported
 as missing required metadata by validation and corpus noise by audit, and the

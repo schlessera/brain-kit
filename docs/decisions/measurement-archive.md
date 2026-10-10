@@ -194,6 +194,19 @@ a date.
 
 ### Retained in place (241 files)
 
+> **2026-10-10 — #838 spike harnesses removed.** The maintainer ruled the
+> evaluation machinery over-built, and every `scripts/evals/` harness, the
+> triage `experiment/` code and their tests were deleted. The `scripts/evals/`
+> and experiment rows below therefore no longer exist on main. Read them
+> [at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/scripts/evals),
+> the last commit that has them. Two files moved rather than going:
+> `benchmark.json` moved unchanged to `tests/fixtures/audit-fix/`, and the triage
+> answers moved to [`evidence/848-triage-classifier/`](evidence/848-triage-classifier/).
+> The authored cases of the candidates still open were exported as data to
+> `evals/cases/`. The `.gitignore` entries for the archived result paths stay,
+> so restoring archived bytes at their original paths still cannot slip them
+> into a commit.
+
 Every file below is still tracked at its existing path. The consumer named is
 the reason it stays.
 

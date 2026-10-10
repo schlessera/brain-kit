@@ -11,9 +11,16 @@ changes no production default; #680 owns the integration.
 
 Measured on 2026-10-09 against corpus `89209c39506d`.
 
+> **2026-10-10 — Experiment harness removed.** Under #838's lean evaluation
+> protocol the experiment code and its tests were deleted. The file names below
+> refer to [the triage `experiment/` directory at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment),
+> the code that produced these results. The raw answers moved to
+> [`evidence/848-triage-classifier/`](evidence/848-triage-classifier/). The donor
+> triage eval stays, and this decision still binds.
+
 ## What was compared
 
-Forty items (`packages/ui-server/evals/triage/experiment/corpus.ts`). The
+Forty items ([`corpus.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/corpus.ts)). The
 reference split is the donor eval's twenty, already validated by a label panel
 for the donor. The new items are twenty Odysseus minimal pairs, ten tuning and
 ten held-out, with disjoint families. Routes: 13 `needs_user` (one carries an
@@ -51,7 +58,7 @@ record which rows were lost.
 
 [Jev runs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09.json),
 three repetitions per configuration. The [raw answers and per-call
-measurements](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json)
+measurements](evidence/848-triage-classifier/2026-10-09-answers.json)
 behind them are kept separately:
 
 | arm | floor | gate | missed esc. | false esc. | fallbacks | $/1k items | p95 call |
@@ -73,7 +80,7 @@ batch. The runner does not keep raw responses, so why the batch did not parse
 is unknown.
 
 Against the criteria registered before measurement
-(`packages/ui-server/evals/triage/experiment/README.md`), Jev Choice at 0.4:
+([experiment README](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/README.md)), Jev Choice at 0.4:
 
 1. passes every repetition on both splits;
 2. has a false-escalation rate within five points of the baseline's (0% at
@@ -83,7 +90,7 @@ Against the criteria registered before measurement
 
 ## Why the floor is 0.4, and how it was chosen
 
-`experiment/calibrate.ts` recomputes everything in this section from the raw
+[`calibrate.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/calibrate.ts) recomputes everything in this section from the raw
 answers, with no network.
 
 Before any floor applies, Choice answers 38–39 of 40 items correctly in every
@@ -101,7 +108,7 @@ either. Up to 0.4 it scores 10 of 10 in every repetition; from 0.5, one correct
 answer falls back in some repetitions. It did not drive the choice, but it was
 visible during calibration. A fresh held-out set, scored blind at
 0.4, would make the result stronger. The floor is then frozen in
-`protocol.ts`, and a separate run produced the 0.4 rows above.
+[`protocol.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/protocol.ts), and a separate run produced the 0.4 rows above.
 
 ## Why Noul is rejected
 
@@ -116,7 +123,7 @@ both problems. A rewritten question set would need its own measurement.
 ## What #680 should take from this
 
 - **Pin** `jev-1.13.0` and the four-way Choice question with the criteria in
-  `experiment/adapter.ts`. A model change requires rerunning `run.ts`.
+  [`adapter.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/adapter.ts). A model change requires rerunning [`run.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/packages/ui-server/evals/triage/experiment/run.ts).
 - **Floor**: accept a Choice only when confidence and the chosen route's
   probability are both at least 0.4. Otherwise, and for any missing, malformed
   or unknown answer, route to `needs_user`.

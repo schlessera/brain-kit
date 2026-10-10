@@ -7,6 +7,11 @@ protocol. Source discovery used main
 The controls below are keyless experiments. No classifier, full-completion
 quality benchmark, production write mechanism or adoption decision was measured.
 
+> **2026-10-10 — Harness removed.** Under #838's lean evaluation protocol
+> the spike harness and its experiment-tier tests were deleted. The commands
+> and file names below describe [the `note-disposition` harness as it stood at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/scripts/evals/note-disposition),
+> and run only from that commit.
+
 ## What actually runs
 
 `brain process` reads the complete source note through containment, retrieves
@@ -175,7 +180,7 @@ prices are not transferred here.
 ## Multi-target comparison instrument
 
 The original sixteen cases above remain offline controls. The separate
-`benchmark.json` adds twenty-six authored cases, six tuning and twenty
+[`benchmark.json`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/note-disposition/benchmark.json) adds twenty-six authored cases, six tuning and twenty
 held-out, with competing targets, realistic observations and recurring
 procedures. Entity and representation-template identifiers are separated across
 partitions. Complete expected files retain original source bytes and existing
@@ -183,7 +188,7 @@ frontmatter. These author goldens require the standing opposite-family review
 before live execution; literal expected-file agreement is stricter than semantic
 equivalence and cannot replace independent review of actual output documents.
 
-`live.ts` compares the actual `brain process --keep-note`, unique exact-body
+[`live.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/note-disposition/live.ts) compares the actual `brain process --keep-note`, unique exact-body
 matching, and bounded JEV disposition/target/type judgments followed by focused
 full-document generation. The current path retains its actual retrieval snippets
 and proposal-only semantics. Experimental full-document projections preserve
@@ -253,7 +258,7 @@ comparison, and the issue remains open in that case.
 
 The [2026-10-07 cap clarification](https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493) applies the $15/$150 ceilings to actual additional billed charges. API-price equivalents for subscription work are separate diagnostics. Review and any reruns still belong in the issue receipt and combined ledger; do not deduct an equivalent estimate as though it were an observed subscription charge. Direct Messages API and TypeSafe request reservations use verified token pricing as conservative charge allowances.
 
-`review.ts` supplies the required complementary Sonnet 5.5 review. It gates the prompt on the existing subscription/settings checks, isolates runtime state, removes unrelated provider credentials, disables tools and automatic memory, and aborts after 180 seconds. Its native stdout tee preserves exact bytes before SDK parsing, including error results, partial final frames and split Unicode characters. Usage is priced independently of the SDK dollar fallback; absent cache TTL produces a price interval. Raw rate-limit overage flags are retained. Missing usage or missing overage evidence remains unknown, never an invented zero. A confirmed withheld prompt records that no model request was released. The protected raw artifact stays outside the repository; public review evidence includes findings, frozen hashes and sanitized billing/usage receipts.
+[`review.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/note-disposition/review.ts) supplies the required complementary Sonnet 5.5 review. It gates the prompt on the existing subscription/settings checks, isolates runtime state, removes unrelated provider credentials, disables tools and automatic memory, and aborts after 180 seconds. Its native stdout tee preserves exact bytes before SDK parsing, including error results, partial final frames and split Unicode characters. Usage is priced independently of the SDK dollar fallback; absent cache TTL produces a price interval. Raw rate-limit overage flags are retained. Missing usage or missing overage evidence remains unknown, never an invented zero. A confirmed withheld prompt records that no model request was released. The protected raw artifact stays outside the repository; public review evidence includes findings, frozen hashes and sanitized billing/usage receipts.
 
 The complementary review rejected the first freeze on 2026-10-07. Its findings corrected two fictional ledgers, added affirmative and one-off minimal pairs, and tightened scoring: rejected proposals cannot count as exact successes, accepted non-golden writes count as unsupported effects, and retention checks use the actual written target. The raw first-review receipt is preserved separately; no live comparison used that rejected freeze.
 
