@@ -34,20 +34,33 @@ export const htmlPreviewFixture: BrowserCommand<[string | null, string?], void> 
 };
 
 /** Keyless native image request for the mask-editor integration scene. */
-export const overlayImageFixture: BrowserCommand<[boolean], void> = async (ctx, enabled) => {
+const overlayImages = new WeakMap<object, () => void>();
+export const overlayImageFixture: BrowserCommand<[boolean, boolean?], void> = async (ctx, enabled, deferred = false) => {
+  overlayImages.get(ctx.page)?.();
+  overlayImages.delete(ctx.page);
   await ctx.page.unroute("**/api/files/content?*");
   if (!enabled) return;
   const origin = new URL(ctx.page.url()).origin;
+  const ready = deferred ? new Promise<void>(resolve => overlayImages.set(ctx.page, resolve)) : Promise.resolve();
   await ctx.page.route("**/api/files/content?*", async route => {
     const url = new URL(route.request().url());
     if (url.origin !== origin || url.searchParams.get("path") !== "raft.png") { await route.abort(); return; }
+    await ready;
     await route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><rect width="100" height="60" fill="teal"/></svg>' });
   });
+};
+/** Release the held native response without a timer or a browser fetch mock. */
+export const overlayImageRelease: BrowserCommand<[], void> = async ctx => {
+  const release = overlayImages.get(ctx.page);
+  if (!release) throw new Error("No deferred overlay image fixture");
+  release();
+  overlayImages.delete(ctx.page);
 };
 
 declare module "vitest/browser" {
   interface BrowserCommands {
-    overlayImageFixture(enabled: boolean): Promise<void>;
+    overlayImageFixture(enabled: boolean, deferred?: boolean): Promise<void>;
+    overlayImageRelease(): Promise<void>;
     htmlPreviewFixture(path: string | null, html?: string): Promise<void>;
     formViewport(
       width: number,

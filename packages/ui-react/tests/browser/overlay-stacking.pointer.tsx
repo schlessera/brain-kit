@@ -108,6 +108,17 @@ async function trap(dialog: HTMLElement) {
   }
 }
 
+async function maskReady(dialog: HTMLElement) {
+  const image = dialog.querySelector<HTMLImageElement>("img")!;
+  await expect.poll(() => image.complete && image.naturalWidth === 100 && image.naturalHeight === 60,
+    { message: "native raft image is loaded" }).toBe(true);
+  const useArea = dialog.querySelector<HTMLElement>("[data-bk-button]")!;
+  // The image load enables this last focus stop in a React commit. Taking
+  // trap's snapshot before that commit makes Brush look like the last stop.
+  await expect.poll(() => useArea.tabIndex, { message: "Use this area joins the focus stops" }).toBe(0);
+  expect(useArea.getAttribute("aria-disabled"), "loaded mask control is enabled").not.toBe("true");
+}
+
 test("Files → More: native sheet wins, Escape closes only the topmost and returns each opener", async ctx => {
   // Mutation: restore focus synchronously in Overlay cleanup; Files opener assertion fails.
   const s = await mount(ctx, 320);
@@ -249,6 +260,7 @@ for (const site of ["zoom", "mask"] as const) test(`${site} fullscreen has a nam
   const dialog = s.overlay('[data-bk-overlay="fullscreen"]');
   const name = dialog.getAttribute("aria-label") ?? document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent;
   expect(name?.trim(), "fullscreen resolves a nonempty accessible name").toBe(site === "zoom" ? "Ithaca route" : "Mark the area to change");
+  if (site === "mask") await maskReady(dialog);
   await trap(dialog);
   if (site === "zoom") {
     const controls = [...dialog.querySelectorAll("button")];
@@ -263,6 +275,29 @@ for (const site of ["zoom", "mask"] as const) test(`${site} fullscreen has a nam
   await userEvent.keyboard("{Escape}"); await frame();
   expect(document.querySelector('[data-bk-overlay="fullscreen"]'), "Escape dismisses fullscreen").toBeNull();
   expect(document.activeElement, "fullscreen opener returned").toBe(opener);
+});
+
+test("mask fullscreen wraps before and after the native image enables its last control", async ctx => {
+  const s = await mount(ctx);
+  await commands.overlayImageFixture(true, true);
+  ctx.onTestFinished(() => commands.overlayImageFixture(false));
+  const opener = s.host.querySelector<HTMLElement>("[data-test-mask]")!;
+  opener.focus(); await userEvent.click(opener); await frame();
+  const dialog = s.overlay('[data-bk-overlay="fullscreen"]');
+  const useArea = dialog.querySelector<HTMLElement>("[data-bk-button]")!;
+  const brush = dialog.querySelector<HTMLInputElement>('input[type="range"]')!;
+  expect(dialog.querySelector<HTMLImageElement>("img")!.complete, "native response remains held").toBe(false);
+  expect(useArea.tabIndex, "loading control is outside the focus stops").toBe(-1);
+  expect(useArea.getAttribute("aria-disabled"), "loading control is disabled").toBe("true");
+  await trap(dialog);
+  await commands.overlayImageRelease();
+  await maskReady(dialog);
+  brush.focus(); await userEvent.keyboard("{Tab}");
+  expect(document.activeElement, "newly enabled control follows Brush instead of wrapping").toBe(useArea);
+  await trap(dialog);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(dialog.isConnected, "Escape dismisses loaded mask").toBe(false);
+  expect(document.activeElement, "loaded mask returns its opener").toBe(opener);
 });
 
 test("subagent Escape pops one level without remounting and focuses the new Back button", async ctx => {
