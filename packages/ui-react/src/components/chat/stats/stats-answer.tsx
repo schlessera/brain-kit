@@ -1,7 +1,7 @@
 import { BarList, Callout, Label, Receipt, StatTiles, TrendChart } from "@schlessera/brain-ui-kit";
 import type { ReactNode } from "react";
 import { useMediaQuery } from "../../../hooks/use-media-query.js";
-import { RECEIPT_KEY_WIDTH, type StatsSection } from "./compose-stats.js";
+import { RECEIPT_KEY_WIDTH, type StatsSection } from "../../../lib/stats/compose-stats.js";
 
 /**
  * The /stats answer, drawn from the kit (#97). Every decision about what is

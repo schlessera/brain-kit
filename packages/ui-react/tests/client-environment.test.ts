@@ -12,6 +12,9 @@ import {
  * than a flag combination — the point of the module is that a phone, a tablet
  * and a desktop come out looking different.
  */
+const GLOBALS = ["window", "document", "navigator"] as const;
+let saved: Array<readonly [string, PropertyDescriptor | undefined]> = [];
+
 function install(opts: {
   queries?: string[];
   width?: number;
@@ -24,22 +27,23 @@ function install(opts: {
   canShareFiles?: boolean;
   locale?: string;
 }) {
+  if (!saved.length) saved = GLOBALS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   const queries = new Set(opts.queries ?? []);
   const width = opts.width ?? 1440;
-  (globalThis as Record<string, unknown>).window = {
+  Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: {
     innerWidth: width,
     isSecureContext: true,
     screen: opts.screen ?? { width, height: 900 },
     matchMedia: (q: string) => ({ matches: queries.has(q) }),
-  };
-  (globalThis as Record<string, unknown>).document = {
+  } });
+  Object.defineProperty(globalThis, "document", { configurable: true, writable: true, value: {
     documentElement: { clientWidth: width },
     querySelector: (sel: string) =>
       sel === `[${READING_COLUMN_ATTR}]` && opts.columnWidth
         ? { getBoundingClientRect: () => ({ width: opts.columnWidth }) }
         : null,
-  };
-  (globalThis as Record<string, unknown>).navigator = {
+  } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, writable: true, value: {
     language: opts.locale ?? "en-GB",
     ...(opts.devices
       ? {
@@ -51,13 +55,15 @@ function install(opts: {
       : {}),
     ...(opts.geolocation ? { geolocation: {} } : {}),
     ...(opts.share ? { share: () => {}, canShare: () => opts.canShareFiles === true } : {}),
-  };
+  } });
 }
 
 afterEach(() => {
-  for (const key of ["window", "document", "navigator"]) {
-    delete (globalThis as Record<string, unknown>)[key];
+  for (const [key, descriptor] of saved) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
   }
+  saved = [];
   // The device inventory is cached module-wide (one page = one device); each
   // test installs a different machine, so drop it between them.
   resetClientEnvironmentCache();

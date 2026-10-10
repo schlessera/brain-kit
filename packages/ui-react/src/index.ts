@@ -101,6 +101,15 @@ export {
   type LocalCaptureEnvironment,
 } from "./voice/local-capture.js";
 export { BrainUiProvider, useBrainUiRoot, useBrainApi, useBrainConfig } from "./root-context.js";
+export { AppErrorBoundary, type AppErrorBoundaryProps } from "./components/layout/app-error-boundary.js";
+
+// Share exports and the stats command, for hosts that assemble their own
+// shell around the kit (the project website's demo is one, #1382).
+export { shareMarkdown, renderBlockHtml } from "./components/chat/share-document.js";
+export { buildDiagramShareOptions } from "./components/chat/mermaid-share.js";
+export { inlineMermaidDiagrams } from "./lib/mermaid.js";
+export { splitFrontmatter, type FrontmatterSplit } from "./lib/frontmatter.js";
+export { runStats } from "./components/chat/use-chat-commands.js";
 
 export { type RecordingStore, type Recording, type RecordingState, type RecordingBudget, type RecordingEvent, type RecordingRecovery } from "./lib/recordings.js";
 export { RecordingsTray } from "./components/voice/recordings-tray.js";

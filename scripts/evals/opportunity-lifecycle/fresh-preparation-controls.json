@@ -1,0 +1,1745 @@
+{
+  "mode": "keyless preparation only; new inputs await complementary review",
+  "measured": false,
+  "runtime": {
+    "bun": "1.4.2",
+    "sdk": "0.3.293",
+    "nativeCLI": "2.1.293"
+  },
+  "currentCore": "unimplemented/blocked by #1275; no bypass baseline",
+  "complementaryReview": "pending current Claude subscription hold",
+  "adoption": "unresolved",
+  "historicalReportUnchangedSHA256": "64e74393ad7da8c5cb80c783d4003157a584775721be36f953a43b2f8771070b",
+  "seededCurrentSourceRerun": {
+    "runtime": "Bun 1.4.2",
+    "observations": 120,
+    "repetitions": 5,
+    "results": [
+      {
+        "id": "new",
+        "split": "tuning",
+        "repetitions": 5,
+        "exactDiffMismatchedFiles": 0,
+        "deadlineErrors": 0,
+        "briefingErrors": 0,
+        "unintendedEdits": 0,
+        "replayWrites": 0
+      },
+      {
+        "id": "existing-prep",
+        "split": "tuning",
+        "repetitions": 5,
+        "exactDiffMismatchedFiles": 0,
+        "deadlineErrors": 0,
+        "briefingErrors": 0,
+        "unintendedEdits": 0,
+        "replayWrites": 0
+      },
+      {
+        "id": "custom-taxonomy",
+        "split": "held-out",
+        "repetitions": 5,
+        "exactDiffMismatchedFiles": 0,
+        "deadlineErrors": 0,
+        "briefingErrors": 0,
+        "unintendedEdits": 0,
+        "replayWrites": 0
+      },
+      {
+        "id": "module-directory",
+        "split": "held-out",
+        "repetitions": 5,
+        "exactDiffMismatchedFiles": 0,
+        "deadlineErrors": 0,
+        "briefingErrors": 0,
+        "unintendedEdits": 0,
+        "replayWrites": 0
+      }
+    ],
+    "prototypeSha256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+    "expectedSha256": "b76e730af26c0f276fbf2b73aff791ccce1d1baa0c9ab7cc4eb979bfc798f67f",
+    "fixtureSha256": "36a0447045d7316f0ea09579c847942827e55d2afafebc014f89ad6b2fce3abb"
+  },
+  "fresh": {
+    "brains": 16,
+    "checkpoints": 24,
+    "applied": 16,
+    "clarified": 8,
+    "rows": [
+      {
+        "case": "single-screen",
+        "split": "tuning",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "deadline": "2026-07-20"
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "deadline": "2026-07-20"
+          }
+        ],
+        "candidateMutationMs": 36.530755,
+        "verificationIncludingReplayMs": 632.32482,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/ithaca/status.md": "576d72712dc4dfb036b3e7ac2e6febdda3a9006248c0c07575bf9fc07bfa0d62",
+          "career/opportunities/ithaca/research.md": "993142b1385a0e51db72e96fb2b141720a4f1d44c0726f04bf5138bbe7a73a98",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "cf42cfa84722c33f287b86486d70d9ecac48320800aae0e52d6f5ac019b964af",
+          "notes/unrelated.md": "14c06835906471fa75a2ad759f50557fa23965eee9ee32d254ddd3d817eadf3b",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "b47a1f43741e757e1d54bd43c414e1b87bd8db9a8e66b09e92854f3c5444ff94",
+          "career/opportunities/ithaca/interview-prep.md": "978b30a95b036b26824b785cbc510ff1875b101f55641fd66fa42354b89784ff"
+        }
+      },
+      {
+        "case": "rebook-then-cancel",
+        "split": "tuning",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "deadline": "2026-07-18"
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "deadline": "2026-07-18"
+          }
+        ],
+        "candidateMutationMs": 11.133853000000045,
+        "verificationIncludingReplayMs": 594.5830559999999,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/ithaca/status.md": "ad0fbc5fb97e3206625759e7eaaf3e50085d7682e27d4ec41b636c2993a9c1c0",
+          "career/opportunities/ithaca/research.md": "ed23e9c826c62a81bc2f0cf2698cb13bd494ed6339372e78123dd8a6e7675711",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "c62e4ac4964be388c81826133dfef7cc7df9b1a2698f8ce7984c19c2ea1f3cfb",
+          "notes/unrelated.md": "8b2aef6691616bff857e6eddc6e4edd54fbeee336045af2b30965997c9dbac22",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "ee5ba608e266a6d81e9faf317ed9e07e2bb95fb13fae67866e3bbd9c4d151a56",
+          "career/opportunities/ithaca/interview-prep.md": "52778f86de7c7dca8f1fe8c16a73b1a62e3080bf238174b545ae41044feac6cf"
+        }
+      },
+      {
+        "case": "rebook-then-cancel",
+        "split": "tuning",
+        "checkpoint": 1,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "deadline": "2026-07-21"
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "deadline": "2026-07-21"
+          }
+        ],
+        "candidateMutationMs": 19.97824300000002,
+        "verificationIncludingReplayMs": 581.1575259999997,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "mtimeNs",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/ithaca/status.md": "7625a07d087dfcbdcda274bd4a6d54c01bf993d60659e8104bbaaad2e0bd6c76",
+          "career/opportunities/ithaca/research.md": "ed23e9c826c62a81bc2f0cf2698cb13bd494ed6339372e78123dd8a6e7675711",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "c76a9ddf89b6be6045df933c6d7e198753cce2b89a01f497b478113dfda39034",
+          "notes/unrelated.md": "8b2aef6691616bff857e6eddc6e4edd54fbeee336045af2b30965997c9dbac22",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "ee5ba608e266a6d81e9faf317ed9e07e2bb95fb13fae67866e3bbd9c4d151a56",
+          "career/opportunities/ithaca/interview-prep.md": "e61943015eda059b05132b6d3ec3710ce495d397f160d92284cba3de8e573905"
+        }
+      },
+      {
+        "case": "rebook-then-cancel",
+        "split": "tuning",
+        "checkpoint": 2,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [],
+        "candidateMutationMs": 18.974672000000282,
+        "verificationIncludingReplayMs": 578.0663690000001,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/ithaca/status.md": "d0ecbac91a0ca8ea2cfd1bd5130122af6be436e0d9d1aad2a813d0aa58f1d0cd",
+          "career/opportunities/ithaca/research.md": "ed23e9c826c62a81bc2f0cf2698cb13bd494ed6339372e78123dd8a6e7675711",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "73b3bcd3347d270926cdb5d338883ed30ce7ffcd8123ebac7e462a0a2a0555ab",
+          "notes/unrelated.md": "8b2aef6691616bff857e6eddc6e4edd54fbeee336045af2b30965997c9dbac22",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "ee5ba608e266a6d81e9faf317ed9e07e2bb95fb13fae67866e3bbd9c4d151a56",
+          "career/opportunities/ithaca/interview-prep.md": "efc8d0cea979e0592652e5643f9e2e534541f3e7f34d082a0a8f5b26203b5b88"
+        }
+      },
+      {
+        "case": "legacy-close",
+        "split": "tuning",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [],
+        "candidateMutationMs": 6.720610000000306,
+        "verificationIncludingReplayMs": 635.7211860000002,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/questions.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/ithaca/status.md": "6d3981c05671a1497ccaf10b71f7aa14af9f6cd7eebe677c986e626669576de9",
+          "career/opportunities/ithaca/research.md": "de9bf7fd73954a7c1d0a1bd9610d9311bd04ca9705d70254d113b5e6f23d885e",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "73b3bcd3347d270926cdb5d338883ed30ce7ffcd8123ebac7e462a0a2a0555ab",
+          "notes/unrelated.md": "a1b89e86ac87516d137ebbb847e29b30a191a73a26c21b9acbabea07dc68ad7d",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "9c825cfd3d213f04149c928b1db0fbb055fbe3ba2b77cbb6e84d76fc3ac1bbad",
+          "career/opportunities/ithaca/interview-prep.md": "26a737717e3b461a85e703b57b2aafb4357ab543fa14b036eadbc5ad5c43c6e4",
+          "career/opportunities/ithaca/questions.md": "0bc9215c1e115286343eb23e7b8b1561cac389a284545ccee3b53023283e98b4"
+        }
+      },
+      {
+        "case": "offer-unknown-step",
+        "split": "tuning",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [],
+        "candidateMutationMs": 5.801306000000295,
+        "verificationIncludingReplayMs": 698.147453,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "work/leads/ithaca",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/ithaca/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "5349eb15019c604444898d5ee82bd24e00607e0e354206308794926b56a390da",
+          "work/leads/ithaca/status.md": "14b328b2daf32814cf2107d44669d1031dcdab02aed249fc87f0f5a6871e0dc7",
+          "work/leads/ithaca/research.md": "736710691ec5d0e08bd30af083d0bd5d18e03064501b3c0e1d3a52fe176c6ee2",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "17c15ffc44233800e4a6f422776a92a2a8724222cc66ad5be7e3009d9b822903",
+          "notes/unrelated.md": "fb7cf8231c98bceb6190553948788416b46ac72d9f16140665561db3fc19cbb8",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "3e4c77ae1a6ab90b33163c114255002a62fbd5136a7767b3e2dc7a13b9d3a05e"
+        }
+      },
+      {
+        "case": "two-rounds-offset-order",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "deadline": "2026-07-24"
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "deadline": "2026-07-24"
+          }
+        ],
+        "candidateMutationMs": 9.264097999999649,
+        "verificationIncludingReplayMs": 713.8307990000003,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "work/leads/pylos",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "48491a69600a676083bf85e6b0db4c6d240c190a9ffd268314423df0834f4826",
+          "work/leads/pylos/research.md": "12bf127390cd2c9d3439e15b0f3277afa4b11d0e5f8bb4e0b919277d355c8781",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "fec7e461c5a0b0b75ffd10c4400e834cff47295fa0e34f48d7c14990b7a80371",
+          "notes/unrelated.md": "a8faad564c8ac2897b8e6150f160d6800600bcd56133855e9e6a6c6122c45d55",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "d8451ea8284fbfea83228fc15cf36db657b0ca939df71c2625591bb32e029d52",
+          "work/leads/pylos/interview-prep.md": "b6cb6c53c2f8345cf5bc8a32af029f8317c1f69fd53bf7a43b1dbff27aabc3df"
+        }
+      },
+      {
+        "case": "two-rounds-offset-order",
+        "split": "held-out",
+        "checkpoint": 1,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "deadline": "2026-07-19"
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "deadline": "2026-07-19"
+          }
+        ],
+        "candidateMutationMs": 18.429759999999987,
+        "verificationIncludingReplayMs": 720.5852500000001,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/pylos",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "acde014eaddad8d8dd19988447d2ba782740fe685c5d4d0f39bfad78a80a2681",
+          "work/leads/pylos/research.md": "12bf127390cd2c9d3439e15b0f3277afa4b11d0e5f8bb4e0b919277d355c8781",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "6b3a4a2568e3e37df06fb37fe324cfbf862f4c5bbd90c2f754a0d0d1873fdb6c",
+          "notes/unrelated.md": "a8faad564c8ac2897b8e6150f160d6800600bcd56133855e9e6a6c6122c45d55",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "d8451ea8284fbfea83228fc15cf36db657b0ca939df71c2625591bb32e029d52",
+          "work/leads/pylos/interview-prep.md": "e2bb733ef2bab63341dac89a68cb768774b4b38cdd7e7a520ab43248aa817e03"
+        }
+      },
+      {
+        "case": "two-rounds-offset-order",
+        "split": "held-out",
+        "checkpoint": 2,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "deadline": "2026-07-24"
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "deadline": "2026-07-24"
+          }
+        ],
+        "candidateMutationMs": 22.434119000000464,
+        "verificationIncludingReplayMs": 723.3659740000003,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/pylos",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/pylos/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "743a173885e8def76da2cfaa3d7110ef3b107c4f5927cfdabdfb4820618a8384",
+          "work/leads/pylos/research.md": "12bf127390cd2c9d3439e15b0f3277afa4b11d0e5f8bb4e0b919277d355c8781",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "fec7e461c5a0b0b75ffd10c4400e834cff47295fa0e34f48d7c14990b7a80371",
+          "notes/unrelated.md": "a8faad564c8ac2897b8e6150f160d6800600bcd56133855e9e6a6c6122c45d55",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "d8451ea8284fbfea83228fc15cf36db657b0ca939df71c2625591bb32e029d52",
+          "work/leads/pylos/interview-prep.md": "b6cb6c53c2f8345cf5bc8a32af029f8317c1f69fd53bf7a43b1dbff27aabc3df"
+        }
+      },
+      {
+        "case": "offer-sibling-retirement",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/scheria/interview-prep.md",
+            "deadline": "2026-07-21"
+          },
+          {
+            "path": "career/opportunities/scheria/questions.md",
+            "deadline": "2026-07-22"
+          },
+          {
+            "path": "career/opportunities/scheria/status.md",
+            "deadline": "2026-07-21"
+          }
+        ],
+        "candidateMutationMs": 8.767348000000311,
+        "verificationIncludingReplayMs": 733.2580609999995,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/scheria/status.md": "e3626f18ff01eeca107d594a76eb65b35dc3adcb6144a3e43d183eb3c2a90921",
+          "career/opportunities/scheria/research.md": "327a844aaebaf13269ec41d791d5b0dc5aa1242f7b7d98c62618e8ba2db46492",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "ee5780e96a303e800d991bfe8c4ef03c9f35396e312729f7abe992cd419720a4",
+          "notes/unrelated.md": "59388fe2799b3a73119d562a279bb9b12cf2a00d096f7d2d88ed86dcab1a6b46",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "f4e7927f5f3ad16b36d5962609d9cca842ce5feb5995370c95049c05318de435",
+          "career/opportunities/scheria/interview-prep.md": "b81893f6f23733bf7ec2d9fd2cd288fd12140345930ab7e707d2315fb8040776",
+          "career/opportunities/scheria/questions.md": "4b6f6e12cdc12121feef85cdba524f422437dec102841bc42d47fbbd24809731"
+        }
+      },
+      {
+        "case": "offer-sibling-retirement",
+        "split": "held-out",
+        "checkpoint": 1,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/scheria/status.md",
+            "deadline": "2026-07-25"
+          }
+        ],
+        "candidateMutationMs": 16.043982000000142,
+        "verificationIncludingReplayMs": 723.5403650000007,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria/questions.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/scheria/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/scheria/status.md": "0839b91879fafb17036b4e30143a7500a6a7aee132dd56289c3ab8028d2afe73",
+          "career/opportunities/scheria/research.md": "327a844aaebaf13269ec41d791d5b0dc5aa1242f7b7d98c62618e8ba2db46492",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "f5935a73b4ef02c466ddee90faff85d3addd84c1e76ee6ab97dd1efac4f173fc",
+          "notes/unrelated.md": "59388fe2799b3a73119d562a279bb9b12cf2a00d096f7d2d88ed86dcab1a6b46",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "f4e7927f5f3ad16b36d5962609d9cca842ce5feb5995370c95049c05318de435",
+          "career/opportunities/scheria/interview-prep.md": "a645db24ebf414844848934f3e7bdf136faeb9a41576308618317da3b66c24ac",
+          "career/opportunities/scheria/questions.md": "f85bc0edc1476cdde5d0246ba3f0192918482a4e8d84abf69586e0d54fdda42c"
+        }
+      },
+      {
+        "case": "cancel-close-history",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "work/leads/sparta/interview-prep.md",
+            "deadline": "2026-07-23"
+          },
+          {
+            "path": "work/leads/sparta/status.md",
+            "deadline": "2026-07-23"
+          }
+        ],
+        "candidateMutationMs": 9.53348399999959,
+        "verificationIncludingReplayMs": 724.2048509999986,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "work/leads/sparta",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/sparta/interview-prep.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "work/leads/sparta/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "5349eb15019c604444898d5ee82bd24e00607e0e354206308794926b56a390da",
+          "work/leads/sparta/status.md": "bab3b1d821018c59c49965b7b0c9d52461d16e136f90d856f464cee8cc052c4b",
+          "work/leads/sparta/research.md": "3b9ed697945f5dbd69551b0b80a3e90d3508e5a1d8f118deb752896e747f2bf0",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "7d0273c92c73c8b71778fade2201f0c8677bd43afc2c0ef95143f7f43cf82bd8",
+          "notes/unrelated.md": "a8b53c401243e1e3eaec6583a76fab68017daccb76794e2349a6cc15df996543",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "f6d5d5af22c4320cf235493c50e33515a40735f6204ecc03a56ff887266a01f1",
+          "work/leads/sparta/interview-prep.md": "3f73e5b63f56c7752c74281ee5836a56f69be6dd0001b6acf1312dd5fc5320fe"
+        }
+      },
+      {
+        "case": "cancel-close-history",
+        "split": "held-out",
+        "checkpoint": 1,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [],
+        "candidateMutationMs": 14.008132999999361,
+        "verificationIncludingReplayMs": 720.1405949999989,
+        "effects": [
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/now.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/sparta",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/sparta/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/sparta/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "5349eb15019c604444898d5ee82bd24e00607e0e354206308794926b56a390da",
+          "work/leads/sparta/status.md": "b6afc871a65af4501b05a3263ff45ff4ec8bb3a12f687b066a1aa9e7969f03ab",
+          "work/leads/sparta/research.md": "3b9ed697945f5dbd69551b0b80a3e90d3508e5a1d8f118deb752896e747f2bf0",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "73b3bcd3347d270926cdb5d338883ed30ce7ffcd8123ebac7e462a0a2a0555ab",
+          "notes/unrelated.md": "a8b53c401243e1e3eaec6583a76fab68017daccb76794e2349a6cc15df996543",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "f6d5d5af22c4320cf235493c50e33515a40735f6204ecc03a56ff887266a01f1"
+        }
+      },
+      {
+        "case": "cancel-close-history",
+        "split": "held-out",
+        "checkpoint": 2,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [],
+        "candidateMutationMs": 13.667010999999547,
+        "verificationIncludingReplayMs": 713.9685539999991,
+        "effects": [
+          {
+            "path": "work/leads",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "work/leads/sparta",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "work/leads/sparta/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "5349eb15019c604444898d5ee82bd24e00607e0e354206308794926b56a390da",
+          "work/leads/sparta/status.md": "bdad0923d8173a65597b930f7d38893d0c4e379beb657d6a9472ee070bc1ebb6",
+          "work/leads/sparta/research.md": "3b9ed697945f5dbd69551b0b80a3e90d3508e5a1d8f118deb752896e747f2bf0",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "73b3bcd3347d270926cdb5d338883ed30ce7ffcd8123ebac7e462a0a2a0555ab",
+          "notes/unrelated.md": "a8b53c401243e1e3eaec6583a76fab68017daccb76794e2349a6cc15df996543",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "f6d5d5af22c4320cf235493c50e33515a40735f6204ecc03a56ff887266a01f1"
+        }
+      },
+      {
+        "case": "two-contacts-rebook",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/aeaea/interview-prep.md",
+            "deadline": "2026-07-26"
+          },
+          {
+            "path": "career/opportunities/aeaea/status.md",
+            "deadline": "2026-07-26"
+          }
+        ],
+        "candidateMutationMs": 8.669762999999875,
+        "verificationIncludingReplayMs": 728.0388579999999,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "added"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/aeaea/status.md": "ab52782db5674e7d411e4bcc2d9a38cc5adb94180cce57486713c7e2a2ed2099",
+          "career/opportunities/aeaea/research.md": "6fd38a1f382b4c4b2dec9072a12d33155df73226097a734d02dce97fdb273769",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "018d5208bf21e09fe7478cccb0648246617aec2481dec4ea2b4543f46f13409b",
+          "notes/unrelated.md": "a7e9bc58e41d7c4eb74340b8201a5e37edb6c8241369f161f55a9060d1847cfa",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "43f833538fc43b7863d7aab36251367ee86c02cd2f375c406efdb6a89911f6d3",
+          "career/opportunities/aeaea/interview-prep.md": "040411733de0f6308c89c3fef75c894319481f853cf68d1e591cdae8a64e4191"
+        }
+      },
+      {
+        "case": "two-contacts-rebook",
+        "split": "held-out",
+        "checkpoint": 1,
+        "outcome": "planned",
+        "replay": "applied",
+        "deadlines": [
+          {
+            "path": "career/opportunities/aeaea/interview-prep.md",
+            "deadline": "2026-07-27"
+          },
+          {
+            "path": "career/opportunities/aeaea/status.md",
+            "deadline": "2026-07-27"
+          }
+        ],
+        "candidateMutationMs": 18.135671000000002,
+        "verificationIncludingReplayMs": 709.5049139999992,
+        "effects": [
+          {
+            "path": "career/opportunities",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/_index.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea/interview-prep.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "career/opportunities/aeaea/status.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          },
+          {
+            "path": "context",
+            "fields": [
+              "mtimeNs"
+            ]
+          },
+          {
+            "path": "context/current-focus.md",
+            "fields": [
+              "mtimeNs",
+              "size",
+              "bytesBase64",
+              "sha256"
+            ]
+          }
+        ],
+        "referenceFiles": {
+          "brain.config.json": "04fb106c28dc77eca73068b5482a6936c2ab98dc62ea63de8f06d0a9cc3c31d9",
+          "career/opportunities/aeaea/status.md": "9d6483f4c8f53dcbf67eb4d22060a20cddd02a49e8b128a62be430cabf4ad19d",
+          "career/opportunities/aeaea/research.md": "6fd38a1f382b4c4b2dec9072a12d33155df73226097a734d02dce97fdb273769",
+          "career/opportunities/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/current-focus.md": "4426b21cf9444d5863900b5b610aadf5fa86ade32b8424409726ad663192f1e5",
+          "notes/unrelated.md": "a7e9bc58e41d7c4eb74340b8201a5e37edb6c8241369f161f55a9060d1847cfa",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "43f833538fc43b7863d7aab36251367ee86c02cd2f375c406efdb6a89911f6d3",
+          "career/opportunities/aeaea/interview-prep.md": "e68f71716bc6e63ef11c62487894f3eef393a5e2a2e6cb665f6de9617019d77a"
+        }
+      },
+      {
+        "case": "unknown-timezone",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 1.1140159999995376,
+        "verificationIncludingReplayMs": 1.1178099999997357,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "d9fdf5d6075585471d38bf9666925706ad89b2777e2e3e03d7a3607d4102d733",
+          "work/leads/pylos/research.md": "2c5181d4d6f3442dff60ecb309f78a491cdf33c841f525fa3c750e0f0b7c654d",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "c76676f6c453ac4c2d9d319432c0a0f1440fd86d8faaa80b630193411c7da584",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "1179a4e2e841b0c2bf7fcc62cfacb000e04f60d154697f5edcd99f94e79fe981"
+        }
+      },
+      {
+        "case": "unknown-contact",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.4888150000006135,
+        "verificationIncludingReplayMs": 0.491186999999627,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "ccf50bfa916e71a0e76838174b35c639b0581ed4239e84635071b9b9112dd406",
+          "work/leads/pylos/research.md": "bbd29b4f8f030707c2072a6e550dc0e5d9d9aa61c3abff83078ac3d98e0e37cd",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "1830f05f99495b7fc7400f22dab45b2abd3b38985b836b435dfb9063afd1c700",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "1f99c910a916fe4fecad99396414fb04b6f32c2602c6695538febdfaf726d35f"
+        }
+      },
+      {
+        "case": "wrong-offset",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.6159870000010415,
+        "verificationIncludingReplayMs": 0.6187449999997625,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "ccb31aa6fc6b63e9f296beeae46ee9994c0475894b1afdc14a71d6037b74c5db",
+          "work/leads/pylos/research.md": "c87f50685eb4386ae06df8d3c876a2c8627d7093494d2a658cd503491f816ced",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "5e069d913060e7afdb9f2aae4dee984be23c5b64a1b4ef0684c133d372a93dbc",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "823dc23a97919f6cdd0ea9e881a0f4db4e572add80c66bbc68fdcc8c4b9c0633"
+        }
+      },
+      {
+        "case": "unknown-round",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.7084189999986847,
+        "verificationIncludingReplayMs": 0.7108659999994416,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "6014d999cd9315ec6aefbc9a0c6eafe063fdc8d2ac8752e74bfeae26d825dc4d",
+          "work/leads/pylos/research.md": "46569f4bca2afbb4dca6eacc01581acd9ef3643ff6f424c8691954862cbb8d43",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "94067f7a8f69609dfbc15b4fb0aeec63969164e281c5e174990c8fb1d4e42a87",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "a0d1bc3f885dac7667165838e2add20d872568e3adf3dd2b6fe0e9d702d0c330"
+        }
+      },
+      {
+        "case": "unknown-target",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.3347319999993488,
+        "verificationIncludingReplayMs": 0.33710099999916565,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "c885df14910457eeccfafe7568d269d82481d23ff0c219bc8e42d3a04f2cc503",
+          "work/leads/pylos/research.md": "6bd30e42aa476daa18f0c0c8390123c71816519f6dfb9c12e819262af1c5c5ff",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "476340d714d07519b077dd5910416c7ce958a4cbadd22f56e876294fbd1c77f7",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "3395774245aa15edd9cd6fce97d30ddd0c485e27bd72b5670ec4fb96bb88f81c"
+        }
+      },
+      {
+        "case": "ambiguous-focus",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.6247980000007374,
+        "verificationIncludingReplayMs": 0.6271500000002561,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "779583f7c6a0d2aadd142fe1566635eb2bcbfb431c497224b755ecbf489c5b5d",
+          "work/leads/pylos/research.md": "da7b6e87f73b2abef1dc4b1c88950f8d46007dc46b401d23d79bb5b7a97f3ff6",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "efe4a649fd9d250cfc0c2dac21fad18f60f11b0432e0f31cb9b8a64bab72db10",
+          "notes/unrelated.md": "0656dec07a12ac10ab15296b79a8daf1b242475e49b58b282ebb0f31f84ff129",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "bd9af8940c43c7686237e9137621ec6f671f240cd9b02151372602137bc83b45"
+        }
+      },
+      {
+        "case": "partial-unowned",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.6770990000004531,
+        "verificationIncludingReplayMs": 0.6790040000014415,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "ebd43b75e26894aa0880296adffa39c8bedb6b579d410e8fa30af1c8d1de966f",
+          "work/leads/pylos/research.md": "1668a11753e764490cab360d0dfa2e4089e7ed602bfa34507f7a116db32674e0",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "93f4c4fa62bffcc8082df15f9b7a9bdf29f1ffadf2e63badd04157d7bad708f2",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "05d74e9156a3d22a1309b34bfaf79e5cab9ceae6720806f28a6fb5ca577a4dfb",
+          "work/leads/pylos/interview-prep.md": "ee4760004df88ff3f3895a4ef99a89809287ae89d0cf27c4ab267fee50352d14"
+        }
+      },
+      {
+        "case": "offer-unconfirmed-step",
+        "split": "held-out",
+        "checkpoint": 0,
+        "outcome": "clarify",
+        "replay": null,
+        "deadlines": null,
+        "candidateMutationMs": 0.4290020000007644,
+        "verificationIncludingReplayMs": 0.4320210000005318,
+        "effects": [],
+        "referenceFiles": {
+          "brain.config.json": "0b6258e5d7e7e78936e880c4941ab1a325d2d8ef0f415962db818acb8aee86a6",
+          "work/leads/pylos/status.md": "1a65b46012d4452d5bcd3e54f1b60eb21476220a35b7b1d428c43ce770265845",
+          "work/leads/pylos/research.md": "d260c16c36cdce869f41416e1145aa091110c5de6a9d03333a727f07963dbfc4",
+          "work/leads/criteria.md": "52dcdde8ddca1aa1ced8c11cd7e343e7da42b294440ae993ea0f6facecf1cf49",
+          "context/now.md": "8d005e827f8072f09b92ad8a57922c60cf043cada67c6233d03950705df2c890",
+          "notes/unrelated.md": "6753c7e71d6d08eb0ca056312a6ca490bdcdbc35321653035b9352fb5d17716b",
+          "notes/quoted.md": "ab1035e51095704af8062484532d416f23f124100dbea5b0e97b4e92485cfd50",
+          "attachments/manifest.txt": "56ca6ebbcc9dad0d16a2ab57705a63ab03c615977dda0255b2925a1b8484f428"
+        }
+      }
+    ]
+  },
+  "nativeFixture": {
+    "scope": "scripted SDK/manual permission default runtime observer control; not current-core performance",
+    "requestedModel": "claude-sonnet-5-5",
+    "physicalModelFixtureRequests": 11,
+    "nonModelFixtureRequests": 0,
+    "scriptedTools": 10,
+    "deniedOutsideTools": 2,
+    "outsideSentinelUnchanged": true,
+    "outsideReadLeaked": false,
+    "effects": {
+      "statusExact": true,
+      "prepExact": true,
+      "focusExact": true,
+      "actualPipelineExists": true,
+      "actualDatabaseExists": true
+    },
+    "observedProcessClose": [
+      {
+        "closed": true,
+        "stdoutFinished": true,
+        "code": 0,
+        "signal": null,
+        "forcedKill": false,
+        "error": null
+      }
+    ],
+    "stdoutSHA256": "d0261fa3b6d6a882542f6a128ceb4c63e79f94610000b8dbf42659c463d04d77",
+    "rawNativeStdoutSHA256": "6cc64e7686e667536d754c9c73956ac17e767baee011e6d73da7569c8ba0ed62",
+    "timeout": false,
+    "bwrapWaitCompleted": true,
+    "syntheticUsageOnly": [
+      {
+        "model": "claude-sonnet-5-5",
+        "input": 55,
+        "output": 121,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      }
+    ],
+    "providerInference": false,
+    "invoice": "not a provider billing observation",
+    "dependencyAdmission": "fresh ownedClosure link-count check before native fixture dispatch, no outside-shared regular inode"
+  },
+  "mutations": [
+    {
+      "mutation": "module-authority",
+      "exit": 1,
+      "sourceSHA256": "88411c225b3c54489732e752527b216390f61a5c79d21f290d1521a7a20c0d66",
+      "behavioralFailure": "disabled module and changed configuration",
+      "logSHA256": "46df51c6502f48084aa36ab0a81d4d450d5e455d769bdcb16947dac7c90b57c8"
+    },
+    {
+      "mutation": "config-revision",
+      "exit": 1,
+      "sourceSHA256": "88411c225b3c54489732e752527b216390f61a5c79d21f290d1521a7a20c0d66",
+      "behavioralFailure": "configuration revision participates",
+      "logSHA256": "f1ca3c7012bd2fa22eba7fae94329bde2d94f82df1e125d62664d9983190342e"
+    },
+    {
+      "mutation": "symlink-target",
+      "exit": 1,
+      "sourceSHA256": "cf67317767e4fb3c1fe81f1024a89430a52b48ac6c438e3b95a2e73059f98fc6",
+      "behavioralFailure": "complete observer detects",
+      "logSHA256": "be69a5daddb8bf3470c33e02821a850e785f8c1508994e75fcaa2c21fcd11aeb"
+    },
+    {
+      "mutation": "mtime",
+      "exit": 1,
+      "sourceSHA256": "cf67317767e4fb3c1fe81f1024a89430a52b48ac6c438e3b95a2e73059f98fc6",
+      "behavioralFailure": "complete observer detects",
+      "logSHA256": "fc3456e6b7e3a772714746957cd1cdf5d2767383c15dbc7a6a2cad2d15ad511c"
+    },
+    {
+      "mutation": "membership",
+      "exit": 1,
+      "sourceSHA256": "cf67317767e4fb3c1fe81f1024a89430a52b48ac6c438e3b95a2e73059f98fc6",
+      "behavioralFailure": "complete observer detects",
+      "logSHA256": "68d5d3a7ed9e748f8ea3249fb0ddc839eee7b0e0cf1c8b0f6d387bce6703bf90"
+    },
+    {
+      "mutation": "closure-no-retired-focus",
+      "exit": 1,
+      "sourceSHA256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+      "behavioralFailure": null,
+      "logSHA256": "1919b64ea43dba7254622d08c66d5503acf899b8cb2a9298d8f9c38908c385e3"
+    },
+    {
+      "mutation": "closure-existing-focus",
+      "exit": 1,
+      "sourceSHA256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+      "behavioralFailure": null,
+      "logSHA256": "f9ef9c78a3a064600ae00bf54ff542469b6165e0cc338e263cce3b979a21d0e0"
+    },
+    {
+      "mutation": "terminal-output-count",
+      "exit": 1,
+      "sourceSHA256": "e3654e911adbc1e2a5128b98528847aec620b38e6cb17a48216b06cd3045ada3",
+      "behavioralFailure": null,
+      "logSHA256": "ce4fe190fff5b49f324e468e67d52f042d302e09f4e3d6fb98be1684bd07319e"
+    },
+    {
+      "mutation": "final-line-retention",
+      "exit": 1,
+      "sourceSHA256": "e3654e911adbc1e2a5128b98528847aec620b38e6cb17a48216b06cd3045ada3",
+      "behavioralFailure": null,
+      "logSHA256": "5c1c70777be88373b13c54fe00a17adad82d1a6b8247baf0402345c67ecacd79"
+    },
+    {
+      "mutation": "propagated-deadline",
+      "exit": 1,
+      "sourceSHA256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+      "behavioralFailure": null,
+      "logSHA256": "82e9dc5b89586c6b8849a6a06ac3d84c9c2a0a504553bd80d3e29c3d49d50bd9"
+    },
+    {
+      "mutation": "native-read-guard",
+      "exit": 1,
+      "sourceSHA256": "6e65b8adac7684b1d1d2429ceda6c560b9f894f5bddec249504eb4e1f6b27795",
+      "behavioralFailure": "outside sentinel was read",
+      "logSHA256": "5a83a07167aaf5e3b59213c95cee235eb234e7008e3c3ca385b3500620fc1eba",
+      "actualReadLeaked": true,
+      "actualOutsideWrite": false
+    },
+    {
+      "mutation": "native-write-guard",
+      "exit": 1,
+      "sourceSHA256": "6e65b8adac7684b1d1d2429ceda6c560b9f894f5bddec249504eb4e1f6b27795",
+      "behavioralFailure": "outside sentinel was overwritten",
+      "logSHA256": "eff71c2b75c8644319f3bd2fe7420f0f53417c418344f290b2f3baf40c870433",
+      "actualReadLeaked": false,
+      "actualOutsideWrite": true
+    },
+    {
+      "mutation": "forced-drain-receipt",
+      "exit": 1,
+      "sourceSHA256": "5dfc603016053f38111a3df89ec2e6ae3b3c57f19e45e4bd8e2992345059bb5b",
+      "behavioralFailure": "accounting.complete expected false after observed forced SIGKILL",
+      "logSHA256": "c993ad8092ae5ee191734acd3fb85fcff2c63623a0198943c459cf8a9696b6e3"
+    },
+    {
+      "mutation": "split-UTF8-decoder",
+      "exit": 1,
+      "sourceSHA256": "5dfc603016053f38111a3df89ec2e6ae3b3c57f19e45e4bd8e2992345059bb5b",
+      "behavioralFailure": "parsed frame label expected intact Ithaca \u2014 \u03a9; raw bytes still exact",
+      "logSHA256": "41e073cfa7a1a707b76bb3b14cffb1f11d85a5539e0bc1adda1db6489112dded"
+    },
+    {
+      "mutation": "closure-mode",
+      "exit": 1,
+      "sourceSHA256": "9ea47d2a5785aa45ac5a1bc49a58ab2a73b9b13d6a752db522261d2128b8b4e1",
+      "behavioralFailure": "not.toBe",
+      "logSHA256": "932f57433771d5872fc2f734dd9133d3cfe5bf09308537538ed84e152ccce98f"
+    },
+    {
+      "mutation": "closure-resolved-link",
+      "exit": 1,
+      "sourceSHA256": "9ea47d2a5785aa45ac5a1bc49a58ab2a73b9b13d6a752db522261d2128b8b4e1",
+      "behavioralFailure": "toBe(\"b.txt\")",
+      "logSHA256": "f3f2bcb711ca246fdf445f663d18b420d95ef339e84f93b0c7c5bb8e94cdfab4"
+    },
+    {
+      "mutation": "outside-hardlink",
+      "exit": 1,
+      "sourceSHA256": "ef4749b873a56b2b1b5ae306618e2a9d7fbd1a413b40d49c3d87739781003be2",
+      "behavioralFailure": "toThrow",
+      "logSHA256": "ef14e2dc7747c201cbee1e2668ad85a8703f43dfa0985b4ed1842019831b9d11"
+    },
+    {
+      "mutation": "unowned-frontmatter",
+      "exit": 1,
+      "sourceSHA256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+      "behavioralFailure": "unowned complete frontmatter changed",
+      "logSHA256": "c9d38910057909ebf45ce5d7e84e61fb417b25a889f71c409202b8367c885109"
+    },
+    {
+      "mutation": "retired-status-history",
+      "exit": 1,
+      "sourceSHA256": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+      "behavioralFailure": "retired original deadline history missing",
+      "logSHA256": "20961b34de9c220f7046fd74510fad4089ea53ce4953df468f570ba9bfcb784d"
+    }
+  ],
+  "restoredValidation": {
+    "targetedTests": 47,
+    "assertions": 509,
+    "fail": 0,
+    "fullSuite": "not rerun for private harness; exact-head CI remains required"
+  },
+  "comparison": {
+    "callsSaved": null,
+    "timeSavedMs": null,
+    "costSavedUsd": null,
+    "quality": null
+  },
+  "sourceHashes": {
+    "scripts/evals/opportunity-lifecycle/prototype.ts": "ac299aa6287e3c2e09e5330d791dae2ee7c027a392605afbab052d09020f646a",
+    "scripts/evals/opportunity-lifecycle/fresh-corpus.ts": "4bc373c40cc08de45677104c111e6525dffdd20fc6a98c0f0df232ec9849b828",
+    "scripts/evals/opportunity-lifecycle/fresh-run.ts": "a39aab034087bd6949a25b1c9874792ee8ec488e8d2038ea0267c37334b0d538",
+    "scripts/evals/opportunity-lifecycle/native-evidence.ts": "5dfc603016053f38111a3df89ec2e6ae3b3c57f19e45e4bd8e2992345059bb5b",
+    "scripts/evals/opportunity-lifecycle/native-offline.ts": "cd7c744a8b984d0af5874244a1acf1c5cf76baddc826bea51a2469761460457e",
+    "scripts/evals/opportunity-lifecycle/offline-launch.py": "caf698f3240c6fe59b1eeea71c337f5dd195ec0c930a33930b1a9286edcb9586",
+    "scripts/evals/opportunity-lifecycle/protocol.ts": "faf513f4e1feace843276071d44f9c4ec428122e00cf5f63381c276f7738876b",
+    "scripts/evals/opportunity-lifecycle/closure.ts": "ef4749b873a56b2b1b5ae306618e2a9d7fbd1a413b40d49c3d87739781003be2",
+    "scripts/evals/opportunity-lifecycle/prepare.ts": "1a418e71503b700d2434d3426f5633625af8283847ef578b174a8c64eb1f3580"
+  },
+  "freezeCorrection": {
+    "supersededByteOnlyDigest": "36b9983d02f16e7ebaa978d9c3ed45f3a72a61b25ebd9ebbcdd6b6aba53b362a",
+    "scope": "new complete owned-tree closure: all modes, device/inode/mtime/size/content, constrained resolved links/target bytes,17whole workspace roots/manifests and installed dependencies",
+    "semanticInputsChanged": true,
+    "newLiveAdmission": false,
+    "supersededClosureDigest": "93bbe50f5b3fc755e2c827043d4c62e470cafbc528ae29c38b3f80554f2d6e79",
+    "semanticChange": "illustrative complete reference files now preserve existing titles/unowned headers and retired original dates; confirmed event inputs/schema/protocol unchanged"
+  },
+  "dependencyDetachment": {
+    "ownedPhysicalDependencyFilesCopied": 59489,
+    "bytesCopied": 1331664273,
+    "allCopiedRegularFilesSingleLinked": true,
+    "remainingCount": 0,
+    "scope": "only owned directory entries replaced; original shared inodes and symlinks untouched",
+    "recomputedPriorSHA256Count": 59489,
+    "changedBytes": 0
+  }
+}

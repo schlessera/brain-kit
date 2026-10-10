@@ -10,6 +10,7 @@ import type {
   ToolCallView,
   ToolSemantics,
 } from "@schlessera/brain-ui-sdk/client";
+import { SearchResultsOutput } from "../tool-cards/search-results.js";
 import type { ToolCall } from "../../../stores/chat-store.js";
 import {
   getToolIcon,
@@ -118,7 +119,7 @@ const PI_RENDERERS: ToolRenderer[] = [
     summary: (tool) => str(tool.input?.query) || null,
     meta: (tool) => getOutputMeta(asToolCall(tool)),
     Input: ({ tool }) => <KeyValueView tool={asToolCall(tool)} />,
-    Output: DefaultOutput,
+    Output: SearchResultsOutput,
   },
   {
     match: "brain_context",

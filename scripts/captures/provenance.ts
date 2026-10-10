@@ -31,7 +31,7 @@ export async function sourceProvenance(root: string): Promise<{
   const git = (args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   const files = git(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).split("\u0000").filter(Boolean);
   const relevant = files.filter((path) => path === "bun.lock" || path === "package.json" ||
-    path === "docs/process/feature-captures.md" || path === "scripts/capture.ts" || path === "scripts/build.ts" || path === "scripts/visual.mjs" || path.startsWith("scripts/captures/") ||
+    path === "docs/process/feature-captures.md" || path === "scripts/capture.ts" || path === "scripts/build.ts" || path === "scripts/visual.mjs" || path === "scripts/workspace-lease.mjs" || path.startsWith("scripts/captures/") ||
     /^packages\/(?:core|ui-kit|ui-react|ui-sdk|ui-server|render-template)\//.test(path)).sort();
   const records = await Promise.all(relevant.map(async (path) => {
     try { return { path, sha256: sha256(await readFile(resolve(root, path))) }; }

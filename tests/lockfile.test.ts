@@ -35,9 +35,9 @@ const ROOT = resolve(import.meta.dir, "..");
 // Bun 1.4.2: src/install/lockfile/bun.lock.rs, Version::from_int.
 const SUPPORTED_LOCKFILE_VERSIONS = [0, 1, 2, 3];
 
-/** The bun `.depot/workflows/ci.yml` installs for every job. */
+/** The bun `.github/workflows/ci.yml` installs for every job. */
 function pinnedBunVersions(): string[] {
-  const workflow = readFileSync(join(ROOT, ".depot/workflows/ci.yml"), "utf8");
+  const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
   return [...workflow.matchAll(/bun-version:\s*"([^"]+)"/g)].map((match) => match[1]!);
 }
 

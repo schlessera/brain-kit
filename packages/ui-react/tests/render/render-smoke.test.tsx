@@ -80,7 +80,7 @@ import { SessionDrawer } from "../../src/components/chat/session-drawer.js";
 import { SessionList } from "../../src/components/chat/session-list.js";
 import { WelcomeState } from "../../src/components/chat/welcome-state.js";
 import { ComposerView } from "../../src/components/chat/composer-view.js";
-import { AttachmentCount, ThinkingBlock, ThinkingIndicator, TurnHeader, UserTurn } from "../../src/components/chat/transcript-turn.js";
+import { AttachmentCount, ThinkingBlock, TurnHeader, UserTurn } from "../../src/components/chat/transcript-turn.js";
 import { Segmented, SwitchRow } from "../../src/components/graph/graph-form.js";
 import { NodeCard } from "../../src/components/graph/node-card.js";
 import { PrincipalList } from "../../src/components/settings/principal-list.js";
@@ -97,6 +97,7 @@ import { FrontmatterPanel } from "../../src/components/files/frontmatter-panel.j
 import { ViewerEmpty, ViewerToolbar, formatSize } from "../../src/components/files/file-viewer-frame.js";
 import { BriefingOutput, StreamingOutput } from "../../src/components/quick-actions/streaming-output.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
+import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
 import { DevicesAgentsTab } from "../../src/components/settings/devices-agents-tab.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { FilePanel } from "../../src/components/files/file-panel.js";
@@ -4333,8 +4334,8 @@ describe("single-key shortcuts (D36)", () => {
     const decided: unknown[] = [];
     const view = render(<Harness calls={[pending("t1")]} onApproval={(...a) => decided.push(a)} />);
     const card = view.getByRole("group", { name: "Approval: Bash" });
-    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allowa");
-    expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Denyd");
+    expect(view.getByRole("button", { name: /^Allow/ }).textContent).toBe("Allow a");
+    expect(view.getByRole("button", { name: /^Deny/ }).textContent).toBe("Deny d");
 
     // Bare letters elsewhere do nothing: the scope is the card.
     fireEvent.keyDown(document.body, { key: "a" });
@@ -5785,9 +5786,6 @@ describe("transcript turn views", () => {
     fireEvent.click(summary);
     expect(onOpenChange).toHaveBeenCalledWith(true);
     done.unmount();
-    const waiting = render(<ThinkingIndicator />);
-    expect(waiting.getByText("Thinking...")).toBeTruthy();
-    waiting.unmount();
   });
 });
 
@@ -5992,7 +5990,7 @@ describe("approval cards follow rememberability (#147)", () => {
   test("the transcript card drops Always allow when the host will not keep it", () => {
     for (const [tool, offered] of [[OFFERED, true], [UNKEPT, false], [COMMAND, false]] as const) {
       const view = render(<ToolCallTimeline toolCalls={[tool]} onApproval={() => {}} />);
-      expect(view.queryByRole("button", { name: "Always allow" }) !== null).toBe(offered);
+      expect(view.queryByRole("button", { name: /^Always allow/ }) !== null).toBe(offered);
       // Allow and Deny are never what this changes.
       expect(view.getByRole("button", { name: /^Allow/ })).toBeTruthy();
       expect(view.getByRole("button", { name: /^Deny/ })).toBeTruthy();
@@ -6647,8 +6645,10 @@ for(const [backend,name] of [["pi","show_block"],["claude","mcp__brain-ui__show_
 
 import { AttachmentRow as SentKitAttachmentRow, type AttachmentRowProps as SentKitAttachmentRowProps } from "@schlessera/brain-ui-kit";
 import { sentTrackFiles } from "../sent-track-fixtures.js";
-for (const backend of ["claude", "pi"] as const) {
-  test(`${backend} actual sent and replayed validated tracks use identical static kit attachment rows`, () => {
+for (const backend of ["claude", "pi"] as const) for (const [clock, hour, minute] of [["10:38", 10, 38], ["12:15", 12, 15]] as const) {
+  test(`${backend} actual sent and replayed validated tracks use identical static kit attachment rows (${clock} message time)`, () => {
+    // The message clock may resemble audio duration; attachment assertions own only their rows (#1264).
+    const timestamp = new Date(2026, 6, 12, hour, minute).getTime();
     const root = createBrainUiRoot({ storage: null }); const files = sentTrackFiles(); const sessionId = `sent-tracks-${backend}`;
     expect(files[0]!.detected).toBe("gpx"); expect(files[0]!.summary!.status).not.toBe("no_line");
     expect(files[1]!.detected).toBe("kml"); expect(files[1]!.summary!.status).toBe("no_line"); expect(files[1]!.summary!.waypointCount).toBe(4);
@@ -6656,19 +6656,25 @@ for (const backend of ["claude", "pi"] as const) {
     root.stores.chat.getState().setActiveSession(sessionId); root.stores.chat.setState({ backendIds: { [sessionId]: backend } });
     root.stores.chat.getState().addUserMessage(sessionId, "Here is the route.", undefined, undefined, undefined, files);
     const noop = () => {};
-    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!}
+    const bubble = () => <BrainUiProvider root={root}><SupportingMessageBubble message={{ ...root.stores.chat.getState().buffers[sessionId]!.messages.at(-1)!, timestamp }}
       onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
     try {
       const view = render(bubble()); expect(root.stores.chat.getState().buffers[sessionId]!.messages[0]!.files).toHaveLength(2);
       const rows = [...view.container.querySelectorAll('[data-kit-attachment-row]')]; expect(rows).toHaveLength(2);
+      expect(view.container.textContent).toContain(clock);
+      for (const row of rows) {
+        expect(row.textContent).not.toContain("sent · staged");
+        expect(row.textContent).not.toContain("0:38");
+        expect(row.textContent).not.toContain("transcribed on device");
+        expect(row.textContent).not.toContain("untrusted");
+        expect(row.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
+      }
       const text = rows.map(row => row.textContent);
       expect(text[0]).toBe(files[0]!.incomingName + `GPX · ${files[0]!.bytes} B · sentStaged as ${files[0]!.name}`);
       expect(text[1]).toBe(files[1]!.name + `KML · ${files[1]!.bytes} B · sent4 waypoints; no usable track line. The original is attached.`);
-      for (const row of rows) expect(row.querySelectorAll('a,button,[role="button"],[tabindex]')).toHaveLength(0);
-      expect(view.container.textContent).not.toContain("sent · staged");
-      expect(view.container.textContent).not.toContain("0:38"); expect(view.container.textContent).not.toContain("transcribed on device"); expect(view.container.textContent).not.toContain("untrusted");
       act(() => root.connection.handleServerMessage({ type: "session_history", sessionId, messages: [{ role: "user", content: "Here is the route.", toolCalls: [], files }] }));
       view.rerender(bubble()); expect([...view.container.querySelectorAll('[data-kit-attachment-row]')].map(row => row.textContent)).toEqual(text);
+      expect(view.container.textContent).toContain(clock);
     } finally { act(() => root.dispose()); }
   });
 }
@@ -6911,4 +6917,347 @@ test("live approval and terminal frames update the same orbit without an announc
     expect(orbit.querySelector('[data-orbit-agent="research"]')?.getAttribute('data-orbit-state')).toBe("stopped");
     expect(orbit.querySelectorAll('[aria-live],[role="status"]')).toHaveLength(0);
   }finally{await act(async()=>root.dispose());}
+});
+
+import { SubagentView as PermissionSubagentView } from "../../src/components/chat/subagent-view.js";
+const permissionTool: ToolCall = { id:"permission-original",name:"Edit",input:{file_path:"knowledge/scylla.md",old_string:"Risk six men.",new_string:"Keep the crossing visible."},inputJson:"{}",status:"pending_approval",approvalKind:"tool" };
+for(const location of ["main","subagent"] as const){
+  test(`${location} actual pending permission uses the kit ApprovalCard and original nonempty diff`,()=>{
+    const root=createBrainUiRoot({storage:null});const decisions:unknown[]=[];
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");
+    const span={spanId:"permission-agent",runId:"permission-run",sessionId:"permission-session",origin:"session" as const,kind:"subagent" as const,name:"Agent",startedAt:0};
+    const child={...span,spanId:permissionTool.id,parentSpanId:span.spanId,kind:"tool" as const,name:"Edit"};
+    root.stores.activity.setState({spans:{"permission-run":{[span.spanId]:span,[child.spanId]:child}},spanRun:{[span.spanId]:span.runId,[child.spanId]:child.runId}});
+    try {
+      const onApproval=(...args:unknown[])=>decisions.push(args);
+      const view=render(<BrainUiProvider root={root}>{location==="main"?<ToolCallTimeline toolCalls={[permissionTool]} onApproval={onApproval}/>:<PermissionSubagentView spanId={span.spanId} onApproval={onApproval}/>}</BrainUiProvider>);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls).toHaveLength(1);
+      expect(view.container.textContent).toContain("Edit");
+      expect(permissionTool.input.old_string).not.toBe("");expect(permissionTool.input.new_string).not.toBe("");
+      expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(1);
+      const card=view.container.querySelector('[data-kit-approval-card]')!;
+      expect(card.textContent).toContain("knowledge/scylla.md");expect(card.textContent).toContain("Risk six men.");expect(card.textContent).toContain("Keep the crossing visible.");
+      fireEvent.click(view.getByRole("button",{name:/^Allow(?:$| )/}));expect(decisions).toEqual([[permissionTool.id,true,undefined]]);
+    }finally{root.dispose();}
+  });
+}
+
+import { replyToToolApproval } from "../../src/lib/tool-approval.js";
+import type { ClientMessage as PermissionReply } from "@schlessera/brain-ui-sdk/protocol";
+function permissionMirror(root: ReturnType<typeof createBrainUiRoot>) {
+  const span={spanId:"permission-agent",runId:"permission-run",kind:"subagent" as const,origin:"session" as const,name:"Agent",startedAt:0};
+  const child={...span,spanId:permissionTool.id,parentSpanId:span.spanId,kind:"tool" as const,name:"Edit"};
+  root.stores.activity.setState({spans:{[span.runId]:{[span.spanId]:span,[child.spanId]:child}},spanRun:{[span.spanId]:span.runId,[child.spanId]:child.runId}});
+  return span;
+}
+for (const location of ["main", "subagent"] as const) {
+  test(`${location} refused tool permission keeps its original control for a later explicit decision`, () => {
+    const root = createBrainUiRoot({ storage: null });
+    const accepted: PermissionReply[] = [];
+    let connected = false;
+    root.stores.chat.getState().requestToolApproval(null, permissionTool.id, permissionTool.name, permissionTool.input, undefined, "tool");
+    const span = permissionMirror(root);
+    const decide = (id: string, approved: boolean, always?: boolean) => replyToToolApproval(root, null, message => {
+      if (!connected) return false;
+      accepted.push(message);
+      return true;
+    }, id, approved, always);
+    function Pending() {
+      const calls = useChatStore(s => activeChat(s).messages.at(-1)?.toolCalls ?? []);
+      return <>{location === "main" ? <ToolCallTimeline live toolCalls={calls} onApproval={decide} /> : <PermissionSubagentView spanId={span.spanId} onApproval={decide} />}<textarea data-composer aria-label="continue after permission" /></>;
+    }
+    try {
+      const view = render(<BrainUiProvider root={root}><Pending /></BrainUiProvider>);
+      const allow = view.getByRole("button", { name: /^Allow(?:$| )/ });
+      allow.focus();
+      fireEvent.click(allow);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status, "a refused send leaves the original request pending").toBe("pending_approval");
+      expect(accepted).toEqual([]);
+      expect(view.getByRole("button", { name: /^Allow(?:$| )/ }), "the same explicit control remains usable").toBe(allow);
+      expect(document.activeElement, "a refused decision retains focus").toBe(allow);
+      connected = true;
+      fireEvent.click(allow);
+      expect(accepted, "one later explicit decision is accepted").toEqual([{ type: "tool_approval", toolUseId: permissionTool.id, channel: "card" }]);
+      expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status).toBe("approved");
+      expect(view.container.querySelectorAll("[data-kit-approval-card]")).toHaveLength(0);
+      expect(document.activeElement).toBe(view.getByLabelText("continue after permission"));
+    } finally { root.dispose(); }
+  });
+}
+test("duplicate main and subagent controls send the original request once and share its resolved state",()=>{
+  const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+  root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+  const send=(message:PermissionReply)=>{replies.push(message);return true;};
+  const decide=(id:string,approved:boolean,always?:boolean)=>replyToToolApproval(root,null,send,id,approved,always);
+  function Both(){const calls=useChatStore(s=>activeChat(s).messages.at(-1)?.toolCalls??[]);return <><ToolCallTimeline live toolCalls={calls} onApproval={decide}/><PermissionSubagentView spanId={span.spanId} onApproval={decide}/><textarea data-composer aria-label="continue"/></>;}
+  try {
+    const view=render(<BrainUiProvider root={root}><Both/></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(2);
+    const allow=view.getAllByRole("button",{name:/^Allow(?:$| )/});const deny=view.getAllByRole("button",{name:/^Deny/});expect(allow).toHaveLength(2);
+    act(()=>{fireEvent.click(allow[0]!);fireEvent.click(deny[1]!);});
+    expect(replies).toEqual([{type:"tool_approval",toolUseId:permissionTool.id,channel:"card"}]);
+    expect(activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!.status).toBe("approved");
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
+    expect(document.activeElement).toBe(view.getByLabelText("continue"));
+  }finally{root.dispose();}
+});
+for(const [choice,approved,always] of [["Allow",true,undefined],["Deny",false,undefined],["Always allow",true,true]] as const){
+  test(`${choice} on the subagent retains its exact request and eligibility`,()=>{
+    const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+    try {const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={(id,ok,keep)=>replyToToolApproval(root,null,message=>{replies.push(message);return true;},id,ok,keep)}/></BrainUiProvider>);
+      fireEvent.click(view.getByRole("button",{name:choice==="Always allow"?/^Always allow/:choice==="Allow"?/^Allow(?:$| )/:/^Deny/}));
+      expect(replies).toEqual([approved?{type:"tool_approval",toolUseId:permissionTool.id,...(always?{always:true}:{}),channel:"card"}:{type:"tool_denial",toolUseId:permissionTool.id,message:"Denied by user",channel:"card"}]);
+    }finally{root.dispose();}
+  });
+}
+for(const kind of ["command","tool"] as const){test(`${kind} unrememberable subagent has no Always allow action`,()=>{
+  const root=createBrainUiRoot({storage:null});root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,kind,false);const span=permissionMirror(root);
+  try{const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={()=>{}}/></BrainUiProvider>);expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(1);expect(view.queryByRole("button",{name:/^Always allow/}) !== null).toBe(false);}finally{root.dispose();}
+});}
+
+test("a stale Always allow callback cannot remember a command or a host-refused grant",()=>{
+  for(const [kind,rememberable] of [["command",true],["tool",false]] as const){
+    const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+    try {root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,kind,rememberable);
+      replyToToolApproval(root,null,message=>{replies.push(message);return true;},permissionTool.id,true,true);
+      expect(replies).toEqual([{type:"tool_approval",toolUseId:permissionTool.id,channel:"card"}]);
+    }finally{root.dispose();}
+  }
+});
+test("restored closed subagent requests have no decision controls and stale callbacks send nothing",()=>{
+  const root=createBrainUiRoot({storage:null});const replies:PermissionReply[]=[];
+  try {
+    root.stores.chat.getState().requestToolApproval(null,permissionTool.id,permissionTool.name,permissionTool.input,undefined,"tool");const span=permissionMirror(root);
+    root.stores.chat.getState().closeRestoredApprovals(null,[{toolUseId:permissionTool.id,closure:"answered"}]);
+    const tool=activeChat(root.stores.chat.getState()).messages.at(-1)!.toolCalls[0]!;expect(tool.restored).toBe(true);expect(tool.readOnly).toBe("answered");
+    const view=render(<BrainUiProvider root={root}><PermissionSubagentView spanId={span.spanId} onApproval={(id,ok,keep)=>replyToToolApproval(root,null,message=>{replies.push(message);return true;},id,ok,keep)}/></BrainUiProvider>);
+    expect(view.container.querySelectorAll('[data-kit-approval-card]')).toHaveLength(0);
+    replyToToolApproval(root,null,message=>{replies.push(message);return true;},permissionTool.id,true,true);expect(replies).toEqual([]);
+  }finally{root.dispose();}
+});
+
+
+describe("SearchResultCard integration", () => {
+  const hit = { path: "knowledge/scylla.md", title: "Scylla crossing", type: "note", score: 0.75,
+    snippet: "Row past >>>Scylla<<< and avoid >>>six heads<<<." };
+
+  test("Search panel renders real score and every highlighted segment through the kit card", async () => {
+    const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ results: [hit], warnings: ["FTS only"] }) });
+    const mounted = render(<BrainUiProvider root={ui}><SearchPanel open onClose={() => {}} /></BrainUiProvider>);
+    try {
+      changeControlledInput(mounted.getByPlaceholderText("Search your brain...") as HTMLInputElement, "Scylla");
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)); });
+      expect([...mounted.container.querySelectorAll("mark")].map(mark => mark.textContent)).toEqual(["Scylla", "six heads"]);
+      expect(mounted.getByText("0.75")).toBeTruthy();
+      expect(mounted.getByText("FTS only")).toBeTruthy();
+      expect(mounted.getByText("Scylla crossing")).toBeTruthy();
+    } finally { mounted.unmount(); ui.dispose(); }
+  });
+
+  for (const [backend, name, output] of [
+    ["claude", "mcp__brain__brain_search", JSON.stringify({ results: [hit], warnings: ["FTS only"] })],
+    ["pi", "brain_search", "> FTS only\n- knowledge/scylla.md — Scylla crossing [note]\n    Row past >>>Scylla<<< and avoid >>>six heads<<<."],
+  ] as const) {
+    test(`${backend}: actual registered search output renders cards and opens only its provider root`, () => {
+      const ui = createBrainUiRoot({ storage: null });
+      const opened: string[] = [];
+      ui.stores.file.setState({ openFile: async path => { opened.push(path); } });
+      registerBuiltinRenderers(ui.renderers);
+      const tool = { id: "search-proof", name, input: { query: "Scylla" }, output };
+      const Output = ui.renderers.resolve(tool, backend)!.Output!;
+      const mounted = render(<BrainUiProvider root={ui}><Output tool={tool} /></BrainUiProvider>);
+      try {
+        expect([...mounted.container.querySelectorAll("mark")].map(mark => mark.textContent)).toEqual(["Scylla", "six heads"]);
+        expect(mounted.getByText("FTS only")).toBeTruthy();
+        if (backend === "claude") expect(mounted.getByText("0.75")).toBeTruthy();
+        else expect(mounted.queryByText("0.94")).toBeNull();
+        fireEvent.click(mounted.getByTitle("knowledge/scylla.md"));
+        expect(opened).toEqual(["knowledge/scylla.md"]);
+        expect(ui.stores.ui.getState().filePanelOpen).toBe(true);
+      } finally { mounted.unmount(); ui.dispose(); }
+    });
+  }
+});
+
+
+describe("SearchResultCard adversarial output", () => {
+  function show(output: string, isError = false) {
+    const ui = createBrainUiRoot({ storage: null });
+    registerBuiltinRenderers(ui.renderers);
+    const tool = { id: "hostile-search", name: "brain_search", input: {}, output, isError };
+    const Output = ui.renderers.resolve(tool, "pi")!.Output!;
+    const view = render(<BrainUiProvider root={ui}><Output tool={tool} /></BrainUiProvider>);
+    return { ui, view };
+  }
+  test("unsafe results remain visible but cannot open a file", () => {
+    const { ui, view } = show(JSON.stringify({ results: [{ path: "../secret.md", title: "Untrusted path", snippet: "visible evidence" }], warnings: [] }));
+    const opened: string[] = [];
+    ui.stores.file.setState({ openFile: async path => { opened.push(path); } });
+    try {
+      expect(view.getByText("Untrusted path")).toBeTruthy();
+      expect(view.queryByRole("button")).toBeNull();
+      fireEvent.click(view.getByTitle("../secret.md"));
+      expect(opened).toEqual([]);
+      expect(ui.stores.ui.getState().filePanelOpen).toBe(false);
+      expect(view.queryByText("0.94")).toBeNull();
+    } finally { view.unmount(); ui.dispose(); }
+  });
+  for (const [output, isError] of [["Search refused", true], ["old server prose", false], ["- knowledge/scylla.md — Scylla [note]\n… [truncated 12 bytes]", false]] as const) {
+    test(`fallback retains the original result: ${output}`, () => {
+      const { ui, view } = show(output, isError);
+      try {
+        expect(view.container.querySelector("[data-search-result-card]")).toBeNull();
+        expect(view.container.textContent).toContain(output);
+      } finally { view.unmount(); ui.dispose(); }
+    });
+  }
+});
+
+import { MessageBubble as WaitingMessageBubble } from "../../src/components/chat/message-bubble.js";
+import { emptyEvidence as waitingEmptyEvidence } from "../../src/lib/trackers.js";
+import { StreamingAnswer as WaitingKitAnswer } from "@schlessera/brain-ui-kit";
+import { describeRetry as waitingRetryText } from "@schlessera/brain-ui-sdk/internal/client";
+function waitingBubble(root: BrainUiRoot, message: import("../../src/stores/chat-store.js").ChatMessage) {
+  const noop = () => {};
+  return <BrainUiProvider root={root}><WaitingMessageBubble message={message} onToolApproval={noop}
+    onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>;
+}
+for (const backend of ["claude", "pi"] as const) {
+  test(`${backend} actual no-first-token turn uses two kit ghosts without answer text or its own Stop`, () => {
+    const root = createBrainUiRoot({ storage: null });
+    try {
+      const chat = root.stores.chat.getState(); chat.setActiveSession("waiting-turn");
+      root.stores.chat.setState({ backendIds: { "waiting-turn": backend } });
+      chat.startAssistantMessage("waiting-turn", "odysseus-turn");
+      const message = root.stores.chat.getState().buffers["waiting-turn"]!.messages[0]!;
+      expect(message.isStreaming).toBe(true); expect(message.parts).toHaveLength(0);
+      const view = render(waitingBubble(root, message));
+      const row = view.container.querySelector('[data-kit-streaming-answer]'); expect(row !== null).toBe(true);
+      expect(row!.querySelector('[aria-live="polite"]')!.textContent).toBe("thinking");
+      expect(row!.querySelectorAll('.bk-ghost')).toHaveLength(2);
+      expect(row!.querySelectorAll('[role="button"],button')).toHaveLength(0);
+      expect(row!.textContent).not.toContain("Stop"); expect(row!.textContent).not.toContain("$");
+      expect(row!.textContent).not.toContain("tools done"); expect(row!.textContent).not.toContain("Three venues");
+      act(() => chat.appendText("waiting-turn", "Circe **names the passage**."));
+      view.rerender(waitingBubble(root, root.stores.chat.getState().buffers["waiting-turn"]!.messages[0]!));
+      expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+      expect(view.container.querySelector('strong')!.textContent).toBe("names the passage");
+    } finally { act(() => root.dispose()); }
+  });
+}
+test("kit status supplies no unmeasured cost, target, elapsed, phase or answer", () => {
+  const view = render(<WaitingKitAnswer bars={false}/>);
+  expect(view.container.textContent).not.toContain("$");
+  expect(view.container.textContent).toBe("Stop");
+});
+test("kit announces only the phase word, leaving supplied elapsed and target outside it", () => {
+  const view = render(<WaitingKitAnswer phase="thinking" elapsed="4s" target="Scylla passage" bars={false} stoppable={false}/>);
+  const live = view.container.querySelector('[aria-live="polite"]')!;
+  expect(live.textContent).toBe("thinking");
+  view.rerender(<WaitingKitAnswer phaseLabel="waiting for approval" elapsed="5s" target="Write" bars={false} stoppable={false}/>);
+  expect(live.textContent).toBe("waiting for approval");
+});
+
+
+test("waiting status follows thinking, tools, approvals, retry and terminal facts without duplicating prose", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.startAssistantMessage(null, "crossing-turn");
+    const current = () => root.stores.chat.getState().draft!.messages.at(-1)!;
+    const view = render(waitingBubble(root, current()));
+    const redraw = () => view.rerender(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    act(() => chat.appendThinking(null, "Compare the cost of each passage.")); redraw();
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    expect(view.container.textContent).toContain("Compare the cost of each passage.");
+    act(() => chat.startToolCall(null, "read-directions", "Read")); redraw();
+    expect(current().toolCalls).toHaveLength(1);
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    act(() => chat.requestToolApproval(null, "write-directions", "Write", { file_path: "voyage/crossing.md", content: "Keep six men clear of Scylla." })); redraw();
+    const row = view.container.querySelector('[data-kit-streaming-answer]')!;
+    expect(row !== null).toBe(true); expect(row.textContent).toContain("waiting for approval"); expect(row.textContent).toContain("Write");
+    expect(row.querySelectorAll('.bk-ghost,button,[role="button"]')).toHaveLength(0);
+    expect(view.getByRole('button', { name: 'Allow' })).toBeTruthy();
+    const retry = { attempt: 2, maxAttempts: 5, delayMs: 8000, errorClass: "overloaded", status: 503 };
+    act(() => chat.setRetry(null, retry)); redraw();
+    expect(view.container.querySelectorAll('[data-kit-streaming-answer]')).toHaveLength(1);
+    expect(view.container.querySelector('[data-kit-streaming-answer]')!.textContent).toContain(waitingRetryText(retry));
+    expect(view.container.querySelector('[aria-live="polite"]')!.textContent).toBe("retrying");
+    act(() => { chat.resolveToolApproval(null, "write-directions", true); chat.appendText(null, "Take the **Scylla passage**."); }); redraw();
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+    expect(view.container.querySelector('strong')!.textContent).toBe("Scylla passage");
+    act(() => chat.finishAssistantMessage(null)); redraw();
+    expect(current().isStreaming).toBe(false); expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+  } finally { act(() => root.dispose()); }
+});
+test("a recovered waiting shell without a host start has no elapsed, and host timing matches its turn", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-wait"); chat.startAssistantMessage("restored-wait", "restored-turn");
+    const base = root.stores.chat.getState().buffers["restored-wait"]!.messages[0]!;
+    const shell = { ...base, turnShell: true as const };
+    const view = render(waitingBubble(root, shell));
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => root.stores.trackers.setState({ recoverySupported: true, evidence: { "restored-wait": {
+      ...waitingEmptyEvidence(), latest: { requestId: null, turnId: "different-turn", state: "running", outcome: null, endedAt: null, startedAt: Date.now() - 70_000 }
+    } } }));
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => root.stores.trackers.setState({ evidence: { "restored-wait": {
+      ...waitingEmptyEvidence(), latest: { requestId: null, turnId: "restored-turn", state: "running", outcome: null, endedAt: null, startedAt: Date.now() - 70_000 }
+    } } }));
+    expect(view.container.querySelector('[data-stream-elapsed]')!.textContent).toMatch(/^1m (9|10)s$/);
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("actual restored pending approval shell keeps truthful wait status until the host closes it", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-approval-wait");
+    chat.addUserMessage("restored-approval-wait", "Write the directions.", "typed");
+    chat.requestToolApproval("restored-approval-wait", "pending-write", "Write", { file_path: "voyage/directions.md" }, undefined, "tool", true, "restored-turn");
+    const current = () => root.stores.chat.getState().buffers["restored-approval-wait"]!.messages.at(-1)!;
+    expect(current().turnShell).toBe(true); expect(current().isStreaming).toBe(false); expect(current().toolCalls[0]!.restored).toBe(true);
+    const view = render(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    expect(view.container.querySelector('[aria-live="polite"]')!.textContent).toBe("waiting for approval");
+    expect(view.container.querySelector('[data-stream-elapsed]')).toBeNull();
+    act(() => chat.closeRestoredApprovals("restored-approval-wait", [{ toolUseId: "pending-write", closure: "ended" }]));
+    view.rerender(waitingBubble(root, current()));
+    expect(view.container.querySelector('[data-kit-streaming-answer]')).toBeNull();
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("an older pending tool does not label a later running tool group as approval-wait", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.startAssistantMessage(null);
+    chat.requestToolApproval(null, "old-write", "Write", { file_path: "voyage/directions.md" });
+    chat.appendText(null, "The passage remains open."); chat.startToolCall(null, "new-read", "Read");
+    const message = root.stores.chat.getState().draft!.messages.at(-1)!;
+    expect(message.toolCalls[0]!.status).toBe("pending_approval"); expect(message.toolCalls[1]!.status).toBe("streaming");
+    const view = render(waitingBubble(root, message));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(false);
+    expect(view.container.textContent).toContain("The passage remains open.");
+  } finally { act(() => root.dispose()); }
+});
+
+
+test("actual history with a restored approval never uses replay time as elapsed", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState(); chat.setActiveSession("restored-history-wait");
+    root.connection.handleServerMessage({ type: "session_history", sessionId: "restored-history-wait", messages: [
+      { role: "user", content: "Write the directions.", toolCalls: [] },
+      { role: "assistant", content: "The directions are ready.", toolCalls: [], turnId: "restored-turn" }
+    ] });
+    chat.requestToolApproval("restored-history-wait", "pending-write", "Write", { file_path: "voyage/directions.md" }, undefined, "tool", true, "restored-turn");
+    const message = root.stores.chat.getState().buffers["restored-history-wait"]!.messages.at(-1)!;
+    expect(message.turnShell).toBeUndefined(); expect(message.toolCalls[0]!.restored).toBe(true); expect(message.content).toBe("The directions are ready.");
+    const view = render(waitingBubble(root, message));
+    expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
+    expect(view.container.querySelector('[data-stream-elapsed]') !== null).toBe(false);
+  } finally { act(() => root.dispose()); }
 });

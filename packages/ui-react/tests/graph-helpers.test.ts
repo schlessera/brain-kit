@@ -15,7 +15,7 @@ import {
   nodeSize,
   radialLayout,
   topLevelDir,
-} from "../src/components/graph/lib/graph-helpers.js";
+} from "../src/lib/graph-helpers.js";
 import type { GraphSubgraphResponse } from "@schlessera/brain-ui-sdk/protocol";
 
 function node(

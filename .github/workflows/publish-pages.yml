@@ -1,0 +1,163 @@
+name: Update and publish website
+
+# Website publication; package CI uses the separate ci.yml and contract.yml workflows.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'packages/*/README.md'
+      - 'scripts/captures/font-lock.json'
+      - 'scripts/captures/fonts.css'
+      - 'scripts/build.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/publish-pages.yml'
+    # Changesets creates one tag per package. This canonical tag deploys once.
+    tags: ['@schlessera/brain@*']
+  release:
+    types: [published]
+  schedule:
+    # Bulk pushes of >3 package tags do not emit GitHub tag-push events.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Optional full main commit SHA for rebuilding or rollback (default current main)
+        required: false
+        type: string
+      brain_kit_tag:
+        description: Optional stable canonical release tag, e.g. @schlessera/brain@0.40.0 (default latest stable tag)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages-publication
+  cancel-in-progress: false
+
+env:
+  SITE_BASE: /brain-kit/
+
+jobs:
+  artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      publish: ${{ steps.selection.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Release runs pair current website main with the independently tagged product.
+          ref: ${{ inputs.source_sha || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.3'
+      - name: Validate source and select the product
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          REQUESTED_SOURCE: ${{ inputs.source_sha }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            test "$EVENT_REF" = refs/heads/main
+            if [ -n "$REQUESTED_SOURCE" ]; then
+              [[ "$REQUESTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+              test "$(git rev-parse HEAD)" = "$REQUESTED_SOURCE"
+            fi
+          elif [ "$EVENT_NAME" = push ] && [[ "$EVENT_REF" == refs/tags/* ]]; then
+            tag="${EVENT_REF#refs/tags/}"
+            [[ "$tag" =~ ^@schlessera/brain@[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            test "$(git rev-parse "$tag^{commit}")" = "$(git rev-parse "$EVENT_SHA^{commit}")"
+          elif [ "$EVENT_NAME" = push ]; then
+            test "$EVENT_REF" = refs/heads/main
+            git merge-base --is-ancestor "$EVENT_SHA" HEAD
+          fi
+      - name: Select latest stable release or skip an unchanged scheduled run
+        id: selection
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REQUESTED_TAG: ${{ inputs.brain_kit_tag }}
+        run: bun website/scripts/select-publication.ts
+      - name: Assemble isolated website and product sources
+        if: steps.selection.outputs.publish == 'true'
+        env:
+          PUBLICATION_WORKSPACE: ${{ runner.temp }}/brain-kit-pages-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bun website/scripts/prepare-publication.ts
+      - name: Install frozen build dependencies
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: |
+          bun install --frozen-lockfile
+          npm ci --prefix website --no-audit --no-fund
+      - name: Install Chromium pinned by the selected lockfile
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: |
+          bunx --no-install playwright install --with-deps chromium
+          bun -e 'const { chromium } = require("playwright"); console.log("CHROME_PATH=" + chromium.executablePath())' >> "$GITHUB_ENV"
+      - name: Rebuild product components, demo and every share export
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: bun website/scripts/build.ts --refresh-shares
+      - name: Typecheck the demo integration
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: bunx --no-install tsc -p website/tsconfig.json
+      - name: Smoke and end-to-end checks of the rebuilt website
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: bun website/scripts/check.ts
+      - name: Verify exact website, product and regenerated artifact identity
+        if: steps.selection.outputs.publish == 'true'
+        working-directory: ${{ env.PAGES_WORKSPACE }}
+        run: bun website/scripts/verify-publication.ts
+      - name: Save browser diagnostics and build provenance
+        if: always() && steps.selection.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PAGES_WORKSPACE }}/website/test-results/
+            ${{ env.PAGES_WORKSPACE }}/website/.impeccable/review/
+            ${{ env.PAGES_WORKSPACE }}/website/dist/build-manifest.json
+            ${{ env.PAGES_WORKSPACE }}/website/public/assets/shares/provenance.json
+            ${{ env.PAGES_WORKSPACE }}/website/public/assets/previews/provenance.json
+            ${{ env.PAGES_WORKSPACE }}/.website-source.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.selection.outputs.publish == 'true'
+        with:
+          path: ${{ env.PAGES_WORKSPACE }}/website/dist
+
+  deploy:
+    needs: artifact
+    if: needs.artifact.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the verified artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -39,6 +39,7 @@ async function wrapper(...args: string[]) {
     await mkdir(resolve(root, "packages/ui-kit"), { recursive: true });
     await mkdir(resolve(root, "node_modules/vitest"), { recursive: true });
     await copyFile(resolve(import.meta.dir, "../scripts/visual.mjs"), resolve(root, "scripts/visual.mjs"));
+    await copyFile(resolve(import.meta.dir, "../scripts/workspace-lease.mjs"), resolve(root, "scripts/workspace-lease.mjs"));
     await writeFile(resolve(root, "node_modules/vitest/vitest.mjs"), "console.log(JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));\n");
     const result = Bun.spawnSync(["node", resolve(root, "scripts/visual.mjs"), "--inside", ...args], {
       stdin: "ignore", stdout: "pipe", stderr: "pipe",

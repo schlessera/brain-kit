@@ -1,4 +1,5 @@
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
+import { lazyChunk } from "./lib/lazy-chunk.js";
 
 /**
  * The two secondary surfaces, loaded on first use.
@@ -14,11 +15,11 @@ import { Suspense, lazy } from "react";
  * empty — the chunk resolves in a frame or two on any warm cache, and a
  * spinner that flashes for one frame reads as a glitch rather than as progress.
  */
-const GraphPageLazy = lazy(() =>
+const GraphPageLazy = lazyChunk(() =>
   import("./components/graph/graph-page.js").then((m) => ({ default: m.GraphPage }))
 );
 
-const ActivityPageLazy = lazy(() =>
+const ActivityPageLazy = lazyChunk(() =>
   import("./components/activity/activity-page.js").then((m) => ({
     default: m.ActivityPage,
   }))

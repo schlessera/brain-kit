@@ -84,6 +84,20 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive: ui-react share and stats exports (#1382).** For shells that
+assemble their own surfaces around ui-react, the `@schlessera/brain-ui-react`
+root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
+`buildDiagramShareOptions`, `inlineMermaidDiagrams`), `splitFrontmatter` with
+`FrontmatterSplit`, and the `/stats` command's `runStats`. The project
+website's demo uses exactly these, so it builds from the public entry instead of
+from ui-react's source tree.
+
+**Additive: `AppErrorBoundary` (#1377).** `@schlessera/brain-ui-react` exports
+`AppErrorBoundary` and `AppErrorBoundaryProps` (`children`, plus a `reload`
+hook for tests). A shell wraps its whole tree in it, providers included, so a
+render error outside a page shows a reload screen instead of a blank app. The
+page-level boundary inside `AppShell` needs nothing from the shell.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.
@@ -265,6 +279,63 @@ from a null or absent timestamp. `ListRowProps` gains four optional props,
 `finished` and `withdrawn`. A `ListRow` given none of the new props renders
 as before.
 
+## Runtime approval composition (additive, #1141)
+
+`@schlessera/brain-ui-kit` extends `ApprovalCardProps` with optional
+`onAlwaysAllow?: () => void`, `children?: ReactNode`, `wrapHeader?: boolean`
+and `shortcuts?: { allow: string; deny: string }`. `onAlwaysAllow` offers a
+remembered-grant action only when supplied; the host determines its eligibility.
+`children` carries actual tool input or permission details. `wrapHeader` lets
+tool names and full targets wrap in the header. `shortcuts` prints decision
+hints while preserving the decision's accessible name; it installs no key
+handler. Existing props and callbacks remain compatible. These additions ship
+in a minor, with the public declarations recorded in `api-report/`.
+
+## Search result cards (additive, #1138)
+
+`SearchResultCardProps` in `@schlessera/brain-ui-kit` gains optional
+`segments?: readonly {text: string; hit: boolean}[]`, `title?: string`,
+`type?: string` and `active?: boolean`. Supplied segments replace the
+single `before`/`highlight`/`after` snippet and preserve each matched span;
+an empty array clears the snippet. Omitted segments retain the existing
+single-highlight API. `active` draws the surrounding list's current
+keyboard selection. Existing props and their defaults remain compatible.
+
+The Search panel and both backend search-output renderers adopt the card.
+They clear absent scores and snippets instead of using presentation defaults.
+The existing search tool and HTTP result schemas are unchanged; pi's
+formatted output carries no score. Incompatible, ambiguous, clipped and
+failed tool output retains a readable original-text fallback. File opening
+uses the current root's authenticated file viewer; unsafe paths have no
+open action.
+
+## Streaming waiting status (approved pre-1.0 break, #1144)
+
+The maintainer-approved minor removes `StreamingAnswer`'s prototype defaults
+for phase, target, elapsed time, answer text and cost. Callers supply those
+facts explicitly; omitted facts draw no sample values. Only the phase word
+is announced in the polite live region, while elapsed ticks and targets remain
+outside it. `StreamingAnswerProps` gains optional `pulse?: boolean`; false
+selects a static status dot. Hosts retaining the former sample presentation
+must pass its values explicitly. The runtime uses the component for waiting
+status while preserving rich thinking/tool/prose rendering and the composer's
+single Stop; stream and cancellation schemas are unchanged. The minor changeset
+records this approved migration, and `api-report/` records the added prop.
+
+## Exec wrapper in app configuration (additive, #1363)
+
+`ServerConfig` in `@schlessera/brain-ui-server` gains optional
+`exec?: ExecWrapperConfig` (`{ wrapper?: string; killer?: string }`), and
+`createBrainClient`'s options gain optional `exec`. `resolveServerConfig(env)`
+always sets `exec` from that record's `BRAIN_UI_EXEC_WRAPPER` and
+`BRAIN_UI_EXEC_KILLER`. Every brain CLI and repository-script spawn of an app
+goes through its configuration's wrapper, never the process environment's, so
+two apps in one process keep separate wrappers. A configuration without
+`exec` keeps the process environment's wrapper, resolved once by
+`createApp()`; a client built without `exec` resolves it once at construction.
+Neither ever spawns unwrapped because the field is absent. A relative wrapper
+path now refuses at `resolveServerConfig()` instead of failing each spawn.
+
 ## Consumers
 
 | Consumer | Surfaces used |
@@ -405,6 +476,27 @@ output-directory refusal before processing, with stderr and no success envelope.
 `--human` displays paths/dimensions and stderr errors. `--` terminates options.
 The [photo guide](../packages/module-travel/README.md#photo-copies) documents runtime
 requirements. No schema version, MCP tool or existing envelope changes.
+
+## Travel registries
+
+**Additive CLI contract (#569):** `brain travel sync [--check] --json` returns
+`{sync: {check: boolean, files: string[]}}`. It regenerates the
+`travel-trips` region of `<trip dir>/_index.md` and the `travel-places` region
+of `<place dir>/_index.md`, creating a missing index with core `type: index`
+frontmatter. `files` lists the root-relative registries written, or with
+`--check` those that would be written; `--check` writes nothing and exits `1`
+when any is listed. A current brain writes nothing and reports `[]`.
+
+Bytes outside the regions are preserved, and `updated` changes only in a file
+whose region changed. Counts and bounds derive from canonical visits with the
+place deduplication rules above; a country's rollup also counts the visits of
+places within it, once per document/visit pair. Unknown dates and coordinates
+render as `unknown`. Any `brain travel validate` error, malformed region
+markers, a symlinked registry, trip and place types sharing a directory, or a
+registry changed after it was read (checked before the first write) exits `1`
+with stderr and no success envelope, and neither registry is written. Table layout is prose for
+people, not a parsed contract. No schema version, MCP tool or existing envelope
+changes.
 
 ## Asynchronous UI startup
 
@@ -557,6 +649,7 @@ policy. The rationale and measurements are in
 | `brain travel migrate [--dry-run] --json` | `{ "migration": { "path", "changed": boolean, "dry_run": boolean } }` — `path` is `brain.config.ts` or `brain.config.json`; `changed` reports the proposed edit even during dry run. Reapplication reports false without a write. Refusals exit `1` with actionable stderr and no success envelope |
 | `brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] --json` | `{ "photo": { "files": [{ "source", "output", "width", "height", "bytes", "captured_at": string \| null, "location": { "lat", "lon" } \| null, "date_source": "exif" \| "flag" \| "none" }], "errors": [{ "source", "message" }] } }` — [photo and naming contract](#travel-photo-copies); exit `0` for complete success, `2` for input failures, `1` for usage/output-directory refusal without an envelope |
 | `brain travel route <url\|file> --to <dir> [--name <label>] [--date YYYY-MM-DD] [--trim-start-m N] [--trim-end-m N] --json` | `{ "route": { "source_kind": "local_gpx" \| "gpx_url" \| "komoot_tour" \| "komoot_smarttour", "gpx": string, "date_source": "flag" \| "none", "distance_km": number, "ascent_m": number \| null, "altitude_min_m": number \| null, "altitude_max_m": number \| null, "shape": "loop" \| "one_way" \| "unknown", "recorded_duration_s": number \| null, "points": number, "segments": number, "trim": { "start_m": number, "end_m": number }, "warnings": string[] } }` — With `--name`, the stem is `[<date>-]<slug(label)>`; dates come only from a valid flag, never GPX timestamps. `date_source` is `flag` only when that date is applied to a requested name, otherwise `none`. Without `--name`, legacy names stay unchanged. Naming validation follows the [photo rules](#travel-photo-copies). `gpx` is the new root-relative asset path. All metrics describe serialized retained geometry. Nonnegative cuts use metres, with a 1 mm minimum for a nonzero cut. Missing elevations/timestamps stay `null`; segment gaps are excluded. Exit `0` after creating a new file, `1` with stderr and no success envelope on refusal. Existing outputs and sources are preserved. Outdooractive URLs currently refuse pending written site permission (#568). [Metric and trimming semantics](../packages/module-travel/README.md#route-import) are part of this contract; warnings are prose |
+| `brain travel sync [--check] --json` | `{ "sync": { "check": boolean, "files": string[] } }` — regenerates the trip and place registry regions; `files` are the root-relative registries written (or stale, with `--check`). Exit `0` when written or current, `1` for `--check` with stale registries, and `1` with stderr and no envelope when a canonical record is invalid or a region is malformed; nothing is written then. [Registry contract](#travel-registries) |
 | `brain jobs scrape --json` | `{ "report": ScrapeReport }` — a module command, listed here because a hosting container runs it on a schedule (see Consumers). `sources[].status` added in 0.37.0 |
 
 The nullable tag declaration correction (#702) is an approved pre-1.0

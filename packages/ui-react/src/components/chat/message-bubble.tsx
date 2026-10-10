@@ -14,6 +14,8 @@ import type {
 } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import { ToolCallTimelineCell } from "./tool-call-timeline.js";
+import { TurnStatus } from "./turn-status.js";
+import { awaitsDecision } from "../../stores/chat-store.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { linkifyPaths } from "./brain-markdown.js";
 import { AskUserCard } from "./ask-user-card.js";
@@ -31,9 +33,7 @@ import { ShareMenu } from "../share/share-menu.js";
 import { ZoomableImage } from "../images/zoomable-image.js";
 import {
   AttachmentCount,
-  RetryIndicator,
   ThinkingBlock,
-  ThinkingIndicator,
   TurnHeader,
   UserTurn,
 } from "./transcript-turn.js";
@@ -368,6 +368,9 @@ function AssistantContent({
     message.askUserExchanges
   );
 
+  const lastGroup = groups.at(-1);
+  const approval = lastGroup?.kind === "tools" ? lastGroup.toolCalls.find(awaitsDecision) : undefined;
+
   // Safety net: an exchange without a matching tool part — e.g. a stream that
   // missed the tool_use_start — would otherwise vanish, stranding an
   // unanswerable prompt. Render those trailing so a prompt is never lost.
@@ -470,12 +473,13 @@ function AssistantContent({
           first, live and on replay alike. */}
       {message.failure && !message.isStreaming ? <TurnError message={message} latest={closing} /> : null}
 
-      {message.isStreaming && message.retry && <RetryIndicator retry={message.retry} />}
-
-      {message.isStreaming &&
-        !message.retry &&
-        groups.length === 0 &&
-        unmatchedExchanges.length === 0 && <ThinkingIndicator />}
+      {(message.isStreaming || approval?.restored) && (message.retry ? (
+        <TurnStatus message={message} mode="retry" />
+      ) : approval ? (
+        <TurnStatus message={message} mode="approval" target={approval.name} restored={approval.restored} turnId={approval.approvalTurnId} />
+      ) : groups.length === 0 && unmatchedExchanges.length === 0 ? (
+        <TurnStatus message={message} mode="thinking" />
+      ) : null)}
 
       {/* One closing row per answer (D37 §8, D50): the follow-ups the model
           offered, after everything else, until the next user message. */}

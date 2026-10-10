@@ -13,7 +13,7 @@ import type { BrainApi } from "../../src/lib/api-client.js";
 import { runStats, useChatCommands } from "../../src/components/chat/use-chat-commands.js";
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
 import { StatsAnswer } from "../../src/components/chat/stats/stats-answer.js";
-import { composeStatsAnswer } from "../../src/components/chat/stats/compose-stats.js";
+import { composeStatsAnswer } from "../../src/lib/stats/compose-stats.js";
 import packageInfo from "../../package.json";
 import { actionableTrends, corpusStats, runtimeStats, statsHistory } from "../stats-fixtures.js";
 

@@ -31,7 +31,8 @@ function fixture(ctx: TestContext) {
   const net = installFaultNetwork({ routes: url => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : Response.json({}) });
   const root = createBrainUiRoot({ storage: null, request: net.request });
   root.stores.connection.getState().setVpnStatus("connected", "odysseus");
-  const partitions = createLocalPartitions({ name: `odysseus-tray-${crypto.randomUUID()}`, heldAccountKey: () => root.stores.connection.getState().accountKey });
+  const storageName = `odysseus-tray-${crypto.randomUUID()}`;
+  const partitions = createLocalPartitions({ name: storageName, heldAccountKey: () => root.stores.connection.getState().accountKey });
   root.partitions = partitions;
   root.localWork = createLocalWork({ stores: root.stores, partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
   root.recordings = createRecordingStore({ root, partitions, heldAccountKey: () => root.stores.connection.getState().accountKey });
@@ -75,7 +76,7 @@ function fixture(ctx: TestContext) {
     });
     ctx.onTestFinished(off);
   });
-  return { root, partitions, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
+  return { root, partitions, storageName, host, react, net, ref, ready, seed, renderTray, mountChat, nextAudioCommit };
 }
 async function tap(el: Element) {
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -586,12 +587,45 @@ for (const reason of ["limit", "storage", "interrupted"] as const) {
     await expect.poll(() => document.activeElement?.textContent).toBe("Keep recording");
     const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]) === `recording:index:${row.id}` && (typeof value === "object" && value !== null && ["saved", "interrupted"].includes((value as { state: string }).state)));
     ctx.onTestFinished(() => hold.restore());
+    // Hold only completion delivery after the real durable discard. Storage
+    // absence alone cannot establish that the async UI handler has announced it.
+    const discard = c.root.recordings!.discard.bind(c.root.recordings);
+    let releaseNotice!: () => void;
+    const noticeGate = new Promise<void>(resolve => { releaseNotice = resolve; });
+    let deletionFinished!: () => void;
+    const deleted = new Promise<void>(resolve => { deletionFinished = resolve; });
+    vi.spyOn(c.root.recordings!, "discard").mockImplementation(async (partition, id) => {
+      await discard(partition, id);
+      deletionFinished();
+      await noticeGate;
+    });
+    ctx.onTestFinished(() => releaseNotice());
     const automatic = c.root.recordings!.stop(reason);
     await hold.started;
     await tap(button(c.host, "Discard recording"));
     hold.release(); await automatic;
     await expect.poll(async () => c.root.recordings!.get(row.partition, row.id), { message: "confirmed discard deletes the same recording after automatic termination" }).toBeUndefined();
-    expect(c.host.textContent).toContain("Recording discarded from this device.");
+    await deleted;
+    expect(c.host.textContent, "durable deletion precedes the held UI completion").not.toContain("Recording discarded from this device.");
+    let sampled = false;
+    await expect.poll(() => {
+      const text = c.host.textContent;
+      // The first real DOM sample observes the pending notice; release the
+      // delivery and require the subsequent painted completion, without a sleep.
+      if (!sampled) { sampled = true; releaseNotice(); }
+      return text;
+    }, { message: "confirmed discard announces its rendered completion" }).toContain("Recording discarded from this device.");
+    await expect.poll(() => c.host.querySelector(`[data-recording-focus="${row.id}"]`), { message: "the discarded recording has no visible row" }).toBeNull();
+    expect((await c.root.recordings!.list(row.partition)).map(saved => saved.id), "the deleted recording stays absent from inventory").not.toContain(row.id);
+    await expect(c.root.recordings!.playback(row.partition, row.id), "discarded audio cannot be played").rejects.toThrow("Recording not found");
+    // Recreate the store over a newly opened device database, as a reload does.
+    const reopened = createLocalPartitions({ name: c.storageName, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
+    const reloaded = createRecordingStore({ root: c.root, partitions: reopened, heldAccountKey: () => c.root.stores.connection.getState().accountKey });
+    try {
+      expect(await reopened.open(row.partition).get(`recording:index:${row.id}`), "the original recording index is absent after reopening storage").toBeUndefined();
+      expect((await reloaded.list(row.partition)).map(saved => saved.id), "recreated inventory cannot resurrect the discarded recording").not.toContain(row.id);
+      await expect(reloaded.playback(row.partition, row.id), "recreated playback cannot recover discarded audio").rejects.toThrow("Recording not found");
+    } finally { reloaded.dispose(); }
   });
 }
 
@@ -616,7 +650,7 @@ test("failed capture discard stays visible after Stop and restores mic focus", a
 });
 
 
-test("stale same-scope tabs cannot overwrite an accepted transcript with another acceptance or snapshot", async ctx => {
+test("stale same-scope tabs keep both accepted transcripts and continue ordinary snapshots on the branch", async ctx => {
   const a = fixture(ctx); await a.ready(); const draftId = a.root.stores.drafts.getState().idFor(null);
   a.root.stores.drafts.getState().edit(draftId, null, { text: "Inspect the fleet." }); await a.root.localWork!.snapshotNow();
   const first = await a.seed(), second = await a.seed("transcript-ready", "Telemachus confirms the route.");
@@ -627,11 +661,15 @@ test("stale same-scope tabs cannot overwrite an accepted transcript with another
   expect(b.root.stores.drafts.getState().drafts[draftId]?.text, "second tab restores the shared non-empty draft").toBe("Inspect the fleet.");
   await a.root.recordings!.accept(first.partition, first.id, draftId, null); await a.root.localWork!.snapshotNow();
   const outcome = await b.root.recordings.accept(second.partition, second.id, draftId, null).then(() => null, error => error);
-  expect(outcome, "stale acceptance refuses to overwrite already accepted text").toBeInstanceOf(Error);
+  expect(outcome, "stale acceptance commits its unbound branch").toBeNull();
+  const branch = b.root.stores.drafts.getState().resolveId(draftId);
+  expect(branch).not.toBe(draftId);
+  expect(await a.partitions.open(first.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({ sessionId: null, text: "Inspect the fleet.\nTelemachus confirms the route." });
   expect((await a.partitions.open(first.partition).get(`root:ithaca/draft/${draftId}`) as { text: string }).text, "first transcript stays durable after its audio is gone").toBe(`Inspect the fleet.\n${TEXT}`);
-  expect(await b.root.recordings.get(second.partition, second.id)).toMatchObject({ state: "transcript-ready", transcript: "Telemachus confirms the route.", chunkCount: 1 });
+  expect(await b.root.recordings.get(second.partition, second.id), "audio is deleted only after the retained branch commits").toBeUndefined();
   b.root.stores.drafts.getState().edit(draftId, null, { text: "A stale tab's new plan." });
-  await expect(b.root.localWork.snapshotNow(), "stale ordinary snapshot is refused too").rejects.toThrow("changed in another tab");
+  await b.root.localWork.snapshotNow();
+  expect(await a.partitions.open(first.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({text:"A stale tab's new plan."});
   expect((await a.partitions.open(first.partition).get(`root:ithaca/draft/${draftId}`) as { text: string }).text).toBe(`Inspect the fleet.\n${TEXT}`);
 });
 
@@ -652,30 +690,26 @@ test("dismissing mixed audio-loss notices never discards a surviving transcript"
 });
 
 
-test("a concurrent ordinary snapshot fences acceptance until its guarded draft commit", async ctx => {
+test("a concurrent ordinary snapshot fences acceptance until its retained branch commits", async ctx => {
   const a = fixture(ctx); await a.ready(); const id = a.root.stores.drafts.getState().idFor(null);
   a.root.stores.drafts.getState().edit(id, null, { text: "Inspect the fleet." }); await a.root.localWork!.snapshotNow(); const row = await a.seed();
   const b = fixture(ctx); await b.ready(); b.root.recordings!.dispose(); b.root.localWork!.dispose();
-  let entered!: () => void, release!: () => void;
-  const started = new Promise<void>(resolve => { entered = resolve; });
-  const gate = new Promise<void>(resolve => { release = resolve; }); ctx.onTestFinished(() => release());
-  const partitions = { ...a.partitions, open: (partition: Recording["partition"]) => {
-    const handle = a.partitions.open(partition); return { ...handle, async write(changes: Parameters<typeof handle.write>[0]) {
-      if (changes.some(c => "put" in c && c.put === `root:ithaca/draft/${id}` && (c.value as { text?: string }).text === "Penelope's newer plan.")) { entered(); await gate; }
-      await handle.write(changes);
-    } };
-  } };
+  const hold = holdIndexedDbWrite((key, value) => Array.isArray(key) && String(key[1]) === `root:ithaca/draft/${id}` && (value as {text?:string}).text === "Penelope's newer plan.");
+  ctx.onTestFinished(() => hold.restore());
+  const partitions = a.partitions;
   b.root.localWork = createLocalWork({ stores: b.root.stores, partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
   await b.root.localWork.restoring(); b.root.stores.drafts.getState().edit(id, null, { text: "Penelope's newer plan." });
-  const snapshot = b.root.localWork.snapshotNow(); await started;
+  const snapshot = b.root.localWork.snapshotNow(); await hold.started;
   let completed = false;
   const accepting = a.root.recordings!.accept(row.partition, row.id, id, null).then(() => { completed = true; return null; }, error => { completed = true; return error; });
   await wait(500);
   expect(completed, "acceptance waits for the competing draft commit").toBe(false);
-  release(); await snapshot;
-  expect(await accepting, "stale acceptance refuses the newer committed draft").toBeInstanceOf(Error);
+  hold.release(); await snapshot;
+  expect(await accepting, "stale acceptance retains a branch after the newer commit").toBeNull();
   expect((await a.partitions.open(row.partition).get(`root:ithaca/draft/${id}`) as { text: string }).text).toBe("Penelope's newer plan.");
-  expect(await a.root.recordings!.get(row.partition, row.id), "refused concurrent acceptance keeps its audio").toMatchObject({ state: "transcript-ready", transcript: TEXT, chunkCount: 1 });
+  expect(await a.root.recordings!.get(row.partition, row.id)).toBeUndefined();
+  const branch = a.root.stores.drafts.getState().resolveId(id);
+  expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({sessionId:null,text:`Inspect the fleet.\n${TEXT}`});
 });
 
 
@@ -750,7 +784,7 @@ test("automatic capture termination leaves composer editing focus alone", async 
 });
 
 for (const operation of ["accept", "snapshot"] as const) {
-  test(`fresh same-scope tabs cannot ${operation} a different draft identity into an occupied session`, async ctx => {
+  test(`fresh same-scope tabs retain ${operation} on a new unbound branch for an occupied session`, async ctx => {
     const a = fixture(ctx); await a.ready();
     const b = fixture(ctx); await b.ready(); b.root.recordings!.dispose(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
     b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
@@ -764,12 +798,15 @@ for (const operation of ["accept", "snapshot"] as const) {
     if (operation === "accept") attempt = b.root.recordings!.accept(second.partition, second.id, bId, "ithaca");
     else { b.root.stores.drafts.getState().edit(bId, "ithaca", { text: "The other tab's plan." }); attempt = b.root.localWork.snapshotNow(); }
     const outcome = await attempt.then(() => null, error => error);
-    expect(outcome, "a different draft identity cannot replace an accepted session transcript").toBeInstanceOf(Error);
+    expect(outcome, "a different draft identity branches without replacing the accepted session transcript").toBeNull();
+    const branch = b.root.stores.drafts.getState().resolveId(bId);
+    expect(await a.partitions.open(first.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({sessionId:null,text:operation === "accept" ? "Telemachus confirms the route." : "The other tab's plan."});
     const c = fixture(ctx); await c.ready(); c.root.localWork!.dispose(); c.root.partitions = a.partitions;
     c.root.localWork = createLocalWork({ stores: c.root.stores, partitions: a.partitions, scope: "root:ithaca", onAccountSwitch: () => {}, tracks: () => [], watchTracks: () => () => {} });
     await c.root.localWork.restoring(); await c.root.localWork.snapshotNow();
     expect(c.root.stores.drafts.getState().drafts[c.root.stores.drafts.getState().idFor("ithaca")]?.text, "reload retains the accepted transcript after its audio was deleted").toBe(TEXT);
-    expect(await b.root.recordings!.get(second.partition, second.id)).toMatchObject({ transcript: "Telemachus confirms the route.", chunkCount: 1 });
+    if (operation === "accept") expect(await b.root.recordings!.get(second.partition, second.id)).toBeUndefined();
+    else expect(await b.root.recordings!.get(second.partition, second.id)).toMatchObject({ transcript: "Telemachus confirms the route.", chunkCount: 1 });
   });
 }
 
@@ -895,3 +932,61 @@ test("auth expiry cancels an Add activation queued behind transcript input", asy
   await expect.poll(() => c.host.querySelector("[role=alert]")?.textContent, { message: "auth expiry invalidates the queued Add activation" }).toBe(ACCEPT_FAILED);
   expect(await c.root.recordings!.get(row.partition, row.id)).toMatchObject({ state: "transcript-ready", transcript: "Penelope confirms the fleet.", chunkCount: 1 });
 });
+
+
+for (const phase of ["transcript input", "recording read"])
+  test(`pending ${phase} keeps Add on its incoming branch across navigation`, async ctx => {
+    const a = fixture(ctx); await a.ready();
+    const id = a.root.stores.drafts.getState().idFor(null);
+    a.root.stores.drafts.getState().edit(id, null, { text: "Inspect the fleet." });
+    await a.root.localWork!.snapshotNow();
+    const row = await a.seed();
+    const b = fixture(ctx); await b.ready();
+    b.root.recordings!.dispose(); b.root.localWork!.dispose(); b.root.partitions = a.partitions;
+    b.root.localWork = createLocalWork({ stores: b.root.stores, partitions: a.partitions, scope: "root:ithaca", tracks: () => [], watchTracks: () => () => {} });
+    b.root.recordings = createRecordingStore({ root: b.root, partitions: a.partitions, heldAccountKey: () => "odysseus" });
+    await b.root.localWork.restoring();
+    await b.root.localWork.snapshotNow();
+    a.root.stores.drafts.getState().edit(id, null, { text: "Penelope keeps the loom order." });
+    await a.root.localWork!.snapshotNow();
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    ctx.onTestFinished(() => release());
+    let accepting: Promise<unknown> | undefined;
+    const added = phase === "transcript input" ? "Bring the oars." : TEXT;
+    if (phase === "transcript input") {
+      b.renderTray(); await expand(b);
+      const save = b.root.recordings.saveTranscript;
+      vi.spyOn(b.root.recordings, "saveTranscript").mockImplementation(async (...args) => { await save(...args); entered(); await gate; });
+      await userEvent.fill(b.host.querySelector<HTMLTextAreaElement>("textarea[aria-label^=Transcript]")!, added);
+      await started;
+      await tap(button(b.host, "Add transcript"));
+    } else {
+      const open = a.partitions.open.bind(a.partitions);
+      let armed = true;
+      vi.spyOn(a.partitions, "open").mockImplementation(partition => {
+        const handle = open(partition);
+        return { ...handle, async get(key) {
+          const value = await handle.get(key);
+          if (armed && key === `recording:index:${row.id}`) { armed = false; entered(); await gate; }
+          return value;
+        } };
+      });
+      accepting = b.root.recordings.accept(row.partition, row.id, id, null);
+      await started;
+    }
+    expect(b.root.stores.drafts.getState().resolveId(id), "Add starts before the native fork").toBe(id);
+    b.root.stores.drafts.getState().edit(id, null, { text: "Telemachus checks the route." });
+    await b.root.localWork.snapshotNow();
+    const branch = b.root.stores.drafts.getState().resolveId(id);
+    expect(branch).not.toBe(id);
+    b.root.stores.drafts.getState().openUnbound(id);
+    release();
+    if (accepting) await accepting;
+    await expect.poll(async () => (await b.root.recordings!.get(row.partition, row.id)) === undefined).toBe(true);
+    await b.root.localWork.snapshotNow();
+    expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${id}`),
+      "pending Add leaves the committed original's text intact").toMatchObject({ text: "Penelope keeps the loom order." });
+    expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({ text: `Telemachus checks the route.\n${added}` });
+  });

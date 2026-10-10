@@ -2,7 +2,7 @@
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
-import { commands, page } from "vitest/browser";
+import { page } from "vitest/browser";
 
 import "../../src/styles.css";
 import { Meter, type MeterProps } from "../../src/primitives/Meter.js";
@@ -10,16 +10,12 @@ import type { Tone } from "../../src/types.js";
 
 let host: HTMLDivElement | undefined;
 let renderer: Root | undefined;
-let fonts: HTMLStyleElement;
 let viewport: { width: number; height: number };
 const tones: Tone[] = ["teal", "amber", "red", "gold", "purple", "blue", "neutral"];
 
 beforeAll(async () => {
   viewport = { width: innerWidth, height: innerHeight };
   await page.viewport(1440, 900);
-  fonts = document.createElement("style");
-  fonts.textContent = await commands.rankFooterFonts();
-  document.head.append(fonts);
   await Promise.all([document.fonts.load('400 10px "JetBrains Mono"'), document.fonts.load('500 10px "JetBrains Mono"')]);
   await document.fonts.ready;
   expect(document.fonts.check('400 10px "JetBrains Mono"')).toBe(true);
@@ -33,7 +29,6 @@ afterEach(() => {
   host = undefined;
 });
 afterAll(async () => {
-  fonts?.remove();
   await page.viewport(viewport.width, viewport.height);
 });
 

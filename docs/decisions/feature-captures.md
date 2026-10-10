@@ -42,7 +42,7 @@ content on scrolling screens; that exclusion constrains their alt text.
 
 ## Readiness includes the environment that produced the pixels
 
-Use the shared pin (`const IMAGE =`, `scripts/visual.mjs:49-49`)
+Use the shared pin (`const IMAGE =`, `scripts/visual.mjs:50-50`)
 and its matching installed dependency. D10's measured rendering differences
 make a host browser an inadequate replacement for the declared environment.
 The paper renderer (`async function looksRightOnPaper(`, `packages/ui-kit/tests/visual/subjects.visual.tsx:177-182`)

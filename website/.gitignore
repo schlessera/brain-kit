@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.astro/
+public/assets/demo/
+public/assets/product.css
+public/assets/fonts.css
+public/demo/transport.js
+public/demo/api/
+test-results/
+.impeccable/*
+!.impeccable/design.json
+!.impeccable/mocks/
+.impeccable/mocks/*
+!.impeccable/mocks/references/
+.impeccable/mocks/references/*
+!.impeccable/mocks/references/provenance.json
+!.impeccable/mocks/references/purposeful-provenance.json

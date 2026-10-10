@@ -44,7 +44,7 @@ export async function launchCaptureBrowser(): Promise<Browser> {
 export async function capturePage(
   browser: Browser, root: string, cache: string, catalogue: Catalogue,
   origins: string[], viewport: Viewport, theme: "dark" | "light",
-): Promise<{ context: BrowserContext; page: Page; faults: string[] }> {
+): Promise<{ context: BrowserContext; page: Page; faults: string[]; consoleErrors: Array<Promise<unknown[]>> }> {
   const fonts = await verifyFontCache(root, cache);
   const context = await browser.newContext({
     viewport, deviceScaleFactor: catalogue.environment.device_scale_factor,
@@ -52,6 +52,7 @@ export async function capturePage(
     reducedMotion: catalogue.environment.reduced_motion, colorScheme: theme,
   });
   const faults: string[] = [];
+  const consoleErrors: Array<Promise<unknown[]>> = [];
   await context.route("**/*", async (route) => {
     const url = route.request().url();
     if (url === fonts.lock.preview_stylesheet_url) return route.fulfill({ body: Buffer.from(fonts.css), contentType: "text/css" });
@@ -69,13 +70,50 @@ export async function capturePage(
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => faults.push(`Browser error: ${error.message}`));
-  page.on("console", (message) => { if (message.type() === "error") faults.push(`Console error: ${message.text()}`); });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    faults.push(`Console error: ${message.text()}`);
+    // Clock/controller errors can be logged with their Error object rather
+    // than dispatched as window errors. Preserve that cause too.
+    consoleErrors.push(Promise.all(message.args().map(handle => handle.evaluate(value => {
+      const chain: unknown[] = [];
+      const seen = new Set<unknown>();
+      while (value !== undefined && value !== null && !seen.has(value) && chain.length < 8) {
+        seen.add(value);
+        if (value instanceof Error) {
+          chain.push({ name: value.name, message: value.message, stack: value.stack });
+          value = value.cause;
+        } else { chain.push({ value: String(value) }); break; }
+      }
+      return { chain };
+    }).catch(error => ({ unavailable: String(error) })))));
+  });
+  // Keep the browser-side Error.cause before transport serialization loses it.
+  await page.addInitScript(() => {
+    const errors: unknown[] = [];
+    Object.assign(window, { __captureBrowserErrors: errors });
+    window.addEventListener("error", (event) => {
+      const chain: unknown[] = [];
+      const seen = new Set<unknown>();
+      let error: unknown = event.error;
+      while (error !== undefined && error !== null && !seen.has(error) && chain.length < 8) {
+        seen.add(error);
+        if (error instanceof Error) {
+          chain.push({ name: error.name, message: error.message, stack: error.stack });
+          error = error.cause;
+        } else { chain.push({ value: String(error) }); break; }
+      }
+      errors.push({ message: event.message, filename: event.filename, line: event.lineno,
+        column: event.colno, chain, text: document.body?.innerText,
+        approvals: [...document.querySelectorAll("[data-approval-card]")].map(card => card.outerHTML) });
+    });
+  });
   await page.clock.setFixedTime(REFERENCE_INSTANT);
   await page.addInitScript(() => {
     let seed = 0x0d19;
     Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 0x100000000; };
   });
-  return { context, page, faults };
+  return { context, page, faults, consoleErrors };
 }
 
 /** Storybook's verified render lifecycle finishes after play and afterEach. */
