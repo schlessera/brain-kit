@@ -11,8 +11,10 @@ import { join } from "path";
 import { writeFileSync } from "fs";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
-import { FAKE_BUILTIN, FAKE_KEY_ENV } from "./fixtures/fake-builtin-embeddings";
-
+// Not imported from the preload: importing it would register the fake in this
+// process too, where the seam-contract suites enumerate the real registry.
+const FAKE_BUILTIN = "fake-builtin";
+const FAKE_KEY_ENV = "FAKE_BUILTIN_EMBEDDINGS_KEY";
 const PRELOAD = join(import.meta.dir, "fixtures/fake-builtin-embeddings.ts");
 const NO_PROVIDER = "vector search unavailable: no embedding provider configured";
 const FAKE_ID = "fake-builtin-embeddings";
