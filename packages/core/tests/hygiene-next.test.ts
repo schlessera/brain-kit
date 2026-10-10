@@ -182,6 +182,17 @@ describe("hygiene next real CLI", () => {
     expect(existsSync(join(r, "brain.db"))).toBe(false);
   });
 
+  test("configuration syntax blocker preserves the loader's actual config position", async () => {
+    const r = root();
+    writeFileSync(join(r, "brain.config.ts"), "export default { taxonomy: ] };\n");
+    const result = await runCli(r, ["hygiene", "next", "--json"]);
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({ blocker: { kind: "configuration", message: "Unexpected ]",
+      path: join(r, "brain.config.ts"), line: 1, column: 28 } });
+    expect(existsSync(join(r, "brain.db"))).toBe(false);
+    expect(existsSync(join(r, "context/hygiene"))).toBe(false);
+  });
+
   test("valid empty backlog succeeds with no finding and explicit end-state counts", async () => {
     const r = root();
     writeFileSync(join(r, "brain.config.json"), "{}");

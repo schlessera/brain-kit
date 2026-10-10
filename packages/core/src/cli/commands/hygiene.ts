@@ -170,13 +170,20 @@ export const hygieneCommand: CoreCommand = {
     if (sub === "next") {
       if (pos.length !== 1) throw new UsageError("Usage: brain hygiene next [--extra <file.json>]");
       if (cli.configError) {
-        const cause = cli.configCause as { sourceURL?: unknown; line?: unknown; column?: unknown } | undefined;
+        const cause = cli.configCause as {
+          sourceURL?: unknown; line?: unknown; column?: unknown;
+          position?: { file?: unknown; line?: unknown; column?: unknown };
+        } | undefined;
+        // Bun BuildMessage uses a 1-based position; ordinary runtime errors
+        // use sourceURL. Never pass through the config loader's own stack line.
+        const location = cause?.position?.file === cli.brain.configPath ? cause.position
+          : cause?.sourceURL === cli.brain.configPath ? cause : undefined;
         const payload = { blocker: {
           kind: "configuration",
           message: cli.configError,
           path: cli.brain.configPath,
-          line: cause?.sourceURL === cli.brain.configPath && typeof cause?.line === "number" ? cause.line : null,
-          column: cause?.sourceURL === cli.brain.configPath && typeof cause?.column === "number" ? cause.column : null,
+          line: typeof location?.line === "number" ? location.line : null,
+          column: typeof location?.column === "number" ? location.column : null,
         } };
         emit(cli.json, payload, () => console.error(`Review cannot start: ${cli.configError}`));
         return 1;
