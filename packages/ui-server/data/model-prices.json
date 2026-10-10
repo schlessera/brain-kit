@@ -5,6 +5,12 @@
   "litellm": {
     "fetchedAt": null,
     "rates": {
+      "jev-1.13.0": {
+        "input": 4.2e-8,
+        "output": 0,
+        "cacheRead": null,
+        "cacheWrite": null
+      },
       "claude-opus-4-6": {
         "input": 1.5e-5,
         "output": 7.5e-5,
