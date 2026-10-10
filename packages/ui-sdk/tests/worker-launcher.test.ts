@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, symlinkSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
 import { chmodSync } from "node:fs";
@@ -174,6 +174,35 @@ describe("real bubblewrap worker launcher", () => {
       try {
         expect(probeWorkerHost(f.brain, { restricted: true })).toEqual({ ok: true });
         expect(readdirSync(f.brain).sort()).toEqual(["context", "notes"]);
+      } finally { f.cleanup(); }
+    });
+
+    test.each(["directory", "gitlink file"] as const)("masks the brain's .git %s from a restricted worker", async (kind) => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root), git = join(f.brain, ".git");
+        if (kind === "directory") { mkdirSync(git); writeFileSync(join(git, "config"), "Odysseus: repository config.\n"); }
+        else writeFileSync(git, "gitdir: /elsewhere/odysseus\n");
+        const program = `import {readdirSync,readFileSync,statSync,writeFileSync} from "node:fs";
+          const git=${JSON.stringify(git)}; let write="ok"; try{writeFileSync(git+(statSync(git).isDirectory()?"/x":""),"x")}catch(e){write=e.code}
+          let seen; try{seen=statSync(git).isDirectory() ? readdirSync(git) : readFileSync(git,"utf8")}catch(e){seen=e.code}
+          console.log(JSON.stringify({seen, write}));`;
+        const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: {},
+          restricted: { readPaths: [process.execPath], inferenceDir: relay } });
+        worker.stdin.end();
+        const [code, output, errors] = await Promise.all([worker.exited, collect(worker.stdout), collect(worker.stderr)]);
+        expect(errors).toBe(""); expect(code).toBe(0);
+        expect(JSON.parse(output), "GIT_MASKED").toEqual(kind === "directory" ? { seen: [], write: "EROFS" } : { seen: "EACCES", write: "EACCES" });
+      } finally { f.cleanup(); }
+    });
+
+    test("refuses a .git symlink it cannot mask", () => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root);
+        symlinkSync(f.root, join(f.brain, ".git"));
+        expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
+          restricted: { readPaths: [process.execPath], inferenceDir: relay } })).toThrow("to be masked");
       } finally { f.cleanup(); }
     });
 

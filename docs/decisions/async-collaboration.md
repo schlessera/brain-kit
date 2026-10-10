@@ -143,13 +143,28 @@ environment and state. Loading ambient configuration puts the ambient marker
 into requests. A host gate that ignores the restricted requirement no longer
 refuses.
 
-One residual is accepted. A read-only mount does not prevent `connect`, so a
-Unix socket file inside the read envelope stays reachable. Only the brain,
-system directories and installed packages are in it, so this needs a host
-process that listens inside one of them. Approved follow-up execution has no
-production dispatcher yet; when one exists it must pass server-selected exact
-authority into this same envelope. Enabling autonomous dispatch still requires
-the full-system proof of #689.
+The [maintainer's rulings of 2026-10-10 on #676](https://github.com/schlessera/brain-kit/issues/676)
+settle the two questions the proof left open:
+
+- **Unix sockets inside the read envelope (ruling 1A).** A read-only mount
+  does not stop `connect()` to a socket that a host process already listens on
+  inside the envelope. That residual is accepted. Hostile content cannot create
+  such a listener, because the worker cannot write the brain, the system
+  directories or the installed packages, and every listener there belongs to
+  the host owner. As hardening, restricted mode masks the brain's `.git`, where
+  git's own fsmonitor daemon keeps a socket and where hooks and configuration
+  live. A `.git` directory becomes an empty read-only tmpfs, and a gitlink file
+  cannot be opened. A `.git` symlink, which cannot be masked, refuses the turn.
+  The containment suite plants a listening socket and a configuration secret
+  in the brain's `.git`. With the mask removed, the outside listener counts the
+  worker's connection (`EGRESS_NONE` fails for both adapters).
+- **Follow-up scope (ruling 2A).** The end-to-end proof that an approved
+  follow-up widens only the authorized operation, tool, input and path belongs
+  to #689, which wires the dispatcher. #676 owns the envelope: authority enters
+  it only through the server-selected request, and the proof above shows that
+  model output cannot change the principal or the roster.
+
+Enabling autonomous dispatch still requires the full-system proof of #689.
 
 ## Escalation and deterministic resolution
 

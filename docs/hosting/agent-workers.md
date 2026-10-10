@@ -104,10 +104,16 @@ Before an autonomous turn, the per-turn probe launches this restricted mode
 and checks that only loopback exists and the relay mount is present. A host that
 cannot create the network namespace refuses before any worker or inference.
 
-A Unix socket file inside the read envelope stays reachable, because a
-read-only mount does not prevent `connect`. The envelope contains only the
-brain, system directories and installed packages, so this needs a host process
-listening inside one of them.
+The brain's `.git` is masked in restricted mode: a directory becomes an empty
+read-only tmpfs, a gitlink file cannot be opened, and a `.git` symlink refuses
+the turn. That hides git's fsmonitor socket, hooks and configuration.
+
+One residual is accepted under the maintainer's ruling 1A on #676: any other
+Unix socket file inside the read envelope stays reachable, because a read-only
+mount does not prevent `connect()`. The envelope contains only the brain,
+system directories and installed packages, so this needs a host process that
+listens inside one of them. Hostile content cannot create such a listener. Keep
+host daemons' sockets out of the brain directory on a hosted install.
 
 ## Measured host-component matrix
 
