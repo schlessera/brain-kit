@@ -1,3 +1,5 @@
+import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
+mockWorkerHostForSdkStream();
 /**
  * The Claude subscription token as the operator sees it (#254): the mint date
  * and the expiry warning, when the token last worked, and every auth failure

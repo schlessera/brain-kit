@@ -33,7 +33,7 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
         `ip link set lo up && bun scripts/${script}.ts --out tmp/${script}.json`] });
     checks.push({ name: "native delegation, capabilities and measurement isolation",
       argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--net", "sh", "-c",
-        "ip link set lo up && bun scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun run test ./tests/measurement-isolation.test.ts"] });
+        "ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all sh -c 'bun scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun run test ./tests/measurement-isolation.test.ts'"] });
     checks.push({ name: "shared-process Chrome then child cleanup", argv: [bun, "run", "test", "--shard=1/1",
       "packages/ui-react/tests/chat-focus-runtime.test.ts", "packages/ui-react/tests/external-speech-runtime.test.ts"],
       env: { BRAIN_REQUIRE_CHROME: "1" } });
@@ -52,7 +52,7 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
     ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser"].map(name => Bun.which(name)).find(Boolean);
   if (!chrome || !Bun.file(chrome).size) throw new Error("Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH");
   if (process.platform !== "linux") throw new Error("Full local runtime proof requires the Linux namespace harness; use a Linux checkout/runner");
-  for (const name of ["bwrap", "unshare", "ip"]) if (!Bun.which(name)) throw new Error(`Local runtime proof requires ${name}`);
+  for (const name of ["bwrap", "unshare", "ip", "setpriv"]) if (!Bun.which(name)) throw new Error(`Local runtime proof requires ${name}`);
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
   if (namespace.exitCode !== 0) throw new Error("Local runtime proof requires permitted user/network namespaces; do not accept skipped tests");
   return chrome;

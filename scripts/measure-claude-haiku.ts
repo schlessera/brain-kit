@@ -2,7 +2,7 @@
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SDKMessage, query as QueryFunction } from "@anthropic-ai/claude-agent-sdk";
@@ -17,6 +17,8 @@ const { query } = await import(entry) as { query: typeof QueryFunction };
 const sdk = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(dirname(entry), "manifest.json"), "utf8"));
 const root = mkdtempSync(join(tmpdir(), "haiku-native-"));
+const brainPath = join(root, "brain");
+mkdirSync(brainPath);
 const env = { ...CLEARED_API_CREDENTIALS, HOME: root, PATH: process.env.PATH ?? "/usr/bin:/bin",
   CLAUDE_CONFIG_DIR: join(root, "config"), CLAUDE_CODE_OAUTH_TOKEN: "",
   ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
@@ -31,10 +33,10 @@ let successful = false;
 const saved = Object.fromEntries(["BRAIN_UI_EXEC_WRAPPER", "BRAIN_UI_EXEC_KILLER", "BRAIN_UI_SUBPROCESS_ENV_EXTRA"].map(key => [key, process.env[key]]));
 try {
   for (const key of Object.keys(saved)) delete process.env[key];
-  const spawn = selectedSpawn({ cwd: root, env });
+  const spawn = selectedSpawn({ cwd: brainPath, env });
   const bytes = readFileSync(spawn.command);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const observed = await probeClaudeRuntime({ brainPath: root, env, exec: {}, signal: controller.signal });
+  const observed = await probeClaudeRuntime({ brainPath, env, exec: {}, signal: controller.signal });
   identity = { sdk: sdk.version, declaredCli: sdk.claudeCodeVersion, manifestCli: manifest.version,
     runtime: observed.runtime.version, binary: { sha256, bytes: bytes.length }, optionalDependencies: sdk.optionalDependencies };
   assert.equal(sdk.version, "0.3.293", "require the actual candidate SDK");
@@ -80,7 +82,7 @@ try {
       if (msg.type === "result") terminal = msg;
     }
     const frames: Array<{ type: string; outcome?: string; message?: string }> = [];
-    const backend = createClaudeBackend({ brainPath: root, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
+    const backend = createClaudeBackend({ brainPath, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
     await backend.startTurn({ profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "No tools in this measurement." }) } });
     assert.equal(frames.at(-1)?.outcome, "success", JSON.stringify(frames.at(-1)));
