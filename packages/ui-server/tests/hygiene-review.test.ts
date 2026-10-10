@@ -23,7 +23,15 @@ function setup(body = "Odysseus sees [[Eumaeus hut]].", missingTitle = false) {
   const root = mkdtempSync(join(tmpdir(), "brain-hygiene-review-"));
   clean.push(() => rmSync(root, { force: true, recursive: true }));
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "journeys"));
-  symlinkSync(resolve(import.meta.dir, "../../../node_modules"), join(root, "node_modules"));
+  // Every workspace dependency except .bin: brainCliCommand prefers
+  // node_modules/.bin/brain, which exists only in a built-then-installed
+  // workspace, so linking the whole tree made this suite run the real CLI
+  // instead of its fixture depending on build state (#1536).
+  const workspaceModules = resolve(import.meta.dir, "../../../node_modules");
+  mkdirSync(join(root, "node_modules"));
+  for (const entry of readdirSync(workspaceModules)) {
+    if (entry !== ".bin") symlinkSync(join(workspaceModules, entry), join(root, "node_modules", entry));
+  }
   writeFileSync(join(root, "scripts/brain-cli.ts"), `import ${JSON.stringify(resolve(import.meta.dir, "fixtures/hygiene-cli.ts"))};\n`);
   // Minimal supported config, no providers or module inference.
   writeFileSync(join(root, "brain.config.ts"), 'export default { taxonomy: { types: { note: { dir: "journeys", orphanExempt: true, staleDays: 10000 } } } };\n');
