@@ -1,3 +1,4 @@
+import { TextButton } from "@schlessera/brain-ui-kit";
 import { useState, type ReactNode } from "react";
 import {
   Terminal,
@@ -474,13 +475,7 @@ export function ClampedPre({ text, isError }: { text: string; isError?: boolean 
         )}
       </div>
       {clampable && (
-        <button
-          type="button"
-          onClick={() => setShowAll(!showAll)}
-          className="mt-1 text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-        >
-          {showAll ? "Collapse" : `Show all (${lines} lines)`}
-        </button>
+        <TextButton tone="meta" label={showAll ? "Collapse" : `Show all (${lines} lines)`} expanded={showAll} onClick={() => setShowAll(!showAll)} style={{ marginTop: 4 }} />
       )}
     </div>
   );
@@ -497,13 +492,7 @@ function ClampedBox({ children, lineLabel }: { children: ReactNode; lineLabel: s
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-md bg-gradient-to-t from-surface to-transparent" />
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => setShowAll(!showAll)}
-        className="mt-1 text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-      >
-        {showAll ? "Collapse" : `Show all (${lineLabel})`}
-      </button>
+      <TextButton tone="meta" label={showAll ? "Collapse" : `Show all (${lineLabel})`} expanded={showAll} onClick={() => setShowAll(!showAll)} style={{ marginTop: 4 }} />
     </div>
   );
 }
@@ -718,16 +707,8 @@ function ReadOutputStub({ output }: { output: string }) {
   const lines = countLines(output.trimEnd());
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-      >
-        <ChevronRight
-          className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
-        />
-        {lines} lines read
-      </button>
+      <TextButton tone="meta" label={`${lines} lines read`} expanded={open} onClick={() => setOpen(!open)}
+        glyph={<ChevronRight className={cn("h-3 w-3 transition-transform", open && "rotate-90")} />} />
       {open && (
         <div className="mt-1">
           <ClampedPre text={output} />

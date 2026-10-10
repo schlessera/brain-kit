@@ -1,3 +1,4 @@
+import { IconButton } from "@schlessera/brain-ui-kit";
 import { FileText, RotateCcw, X } from "lucide-react";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { trackBytes, trackStatus, type PendingTrack } from "../../lib/track-uploads.js";
@@ -18,8 +19,8 @@ export function TrackChip({ track, file, onRemove, onRetry }: {
         <div className="break-words text-sm font-medium">{name}</div>
         <div className="break-words text-xs text-muted-foreground"><span className="font-mono">{format}</span> · {size} · {state}</div>
       </div>
-      {onRetry && track?.state === "failed" && <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2" onClick={onRetry} aria-label={`Retry ${name}`} title="Retry"><RotateCcw className="h-4 w-4" /></button>}
-      {onRemove && <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground hover:text-destructive focus-visible:outline focus-visible:outline-2" onClick={onRemove} aria-label={`Remove ${name}`} title="Remove"><X className="h-4 w-4" /></button>}
+      {onRetry && track?.state === "failed" && <IconButton size="md" name={`Retry ${name}`} glyph={<RotateCcw />} onClick={onRetry} />}
+      {onRemove && <IconButton size="md" name={`Remove ${name}`} glyph={<X />} onClick={onRemove} />}
     </div>
     {meta && meta.name !== name && <div className="px-3 pb-2 break-words text-xs text-muted-foreground">Staged as {meta.name}</div>}
     {meta?.summary?.status === "no_line" && <div className="px-3 pb-2 text-xs text-muted-foreground">{meta.summary.waypointCount} waypoints; no usable track line. The original is attached.</div>}

@@ -1,4 +1,5 @@
 import { useMemo, useState, type Ref } from "react";
+import { IconButton } from "@schlessera/brain-ui-kit";
 import { ArrowLeft, Bot, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
@@ -143,15 +144,7 @@ export function SubagentView({
 
 function BackButton({ onClick, backRef }: { onClick: () => void; backRef?: Ref<HTMLButtonElement> }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      ref={backRef}
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      aria-label="Back"
-    >
-      <ArrowLeft className="h-4 w-4" />
-    </button>
+    <IconButton size="sm" name="Back" glyph={<ArrowLeft />} onClick={onClick} ref={backRef} />
   );
 }
 

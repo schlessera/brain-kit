@@ -96,6 +96,7 @@ export function AnswerSuggestionsView({
           const icon = kitIcon(item.icon);
           return (
             <button
+              // raw-button: kit — native wrapping answer chip with a 44px target; SuggestionChips cannot draw it
               key={item.label}
               type="button"
               className="answer-chip bk-control"

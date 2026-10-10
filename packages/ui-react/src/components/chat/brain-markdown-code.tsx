@@ -48,7 +48,7 @@ function CodePre({ children }: React.ComponentPropsWithoutRef<"pre">) {
   return (
     <div data-chat-code className="my-3">
       <CodeBlock code={source} lang={language} fontSize={13} action={
-        <CopyButton getText={() => source} className="print:hidden -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground" />
+        <span className="print:hidden -mr-1 flex shrink-0"><CopyButton getText={() => source} size="md" tone="mute" /></span>
       }>{children}</CodeBlock>
     </div>
   );
