@@ -291,12 +291,14 @@ export function createInboxTriage(db: Database, deps: {
       const runIds = [...new Set(decisions.flatMap(row => row.runIds))];
       const costs = runIds.map(id => db.query("SELECT effective_cost_usd, input_tokens, output_tokens FROM activity_run_rollups WHERE run_id = ?").get(id) as { effective_cost_usd: number | null; input_tokens: number | null; output_tokens: number | null } | null);
       const effectiveCostUsd = costs.every(row => row?.effective_cost_usd != null) ? costs.reduce((sum, row) => sum + row!.effective_cost_usd!, 0) : null;
-      const contradictions = db.query("SELECT COUNT(*) AS n FROM inbox_checkpoints WHERE id LIKE 'triage-contradiction:%'").get() as { n: number };
+      const observed = db.query("SELECT facts_json FROM inbox_checkpoints WHERE id LIKE 'triage-contradiction:%'").all() as { facts_json: string }[];
+      const contradictions = observed.map(row => JSON.parse(JSON.parse(row.facts_json).decisions[0]) as { proposedRoute: Route | null });
       return { items: decisions.length, t2Fraction: decisions.length ? t2 / decisions.length : null, directToT2Fraction: decisions.length ? 1 : null,
         effectiveCostUsd, costPerItemUsd: decisions.length && effectiveCostUsd !== null ? effectiveCostUsd / decisions.length : null,
         inputTokens: costs.every(row => row?.input_tokens != null) ? costs.reduce((sum, row) => sum + row!.input_tokens!, 0) : null,
         outputTokens: costs.every(row => row?.output_tokens != null) ? costs.reduce((sum, row) => sum + row!.output_tokens!, 0) : null,
-        contradictions: contradictions.n,
+        contradictions: contradictions.filter(row => row.proposedRoute !== null).length,
+        recoveredGaps: contradictions.filter(row => row.proposedRoute === null).length,
         unpricedCalls: costs.filter(row => row?.effective_cost_usd == null).length };
     } };
 }

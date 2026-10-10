@@ -113,6 +113,8 @@ test("exhausted transport retries escalate without pretending the model misroute
     expect(f.requests).toHaveLength(3);
     expect(f.delays).toEqual([250, 500]);
     expect(f.store.getItem(item.itemId)?.status).toBe("blocked");
+    f.triage.contradict(item.itemId, "rule");
+    expect(f.triage.summary()).toMatchObject({ contradictions: 0, recoveredGaps: 1 });
   } finally { await f.close(); }
 });
 

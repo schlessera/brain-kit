@@ -80,6 +80,8 @@ reason and its accounting run IDs. Activity records actual input/output
 tokens, effective cost with the pricing-estimate flag, outcome and latency
 per physical call. Shared batch costs are counted once. Later server-observed
 route contradictions append audit checkpoints; they cannot change authority.
+Recovery of transport/accounting gaps is counted separately from contradictions
+of an answered route; an outage is never scored as a model misroute.
 The summary reports T2 fraction against the direct-to-T2 routing baseline
 (100%), effective cost and unpriced calls. This routing baseline is a
 counterfactual, not a measured cost comparison.
