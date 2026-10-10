@@ -598,3 +598,53 @@ for (const width of [320, 1280])
         for (const event of held) receive.call(socket!, event);
       }
     });
+
+for (const recovery of ["unknown", "undo"] as const)
+  test(`REST-only ${recovery} recovery waits for replicated authority`, async () => {
+    await scene({ start: false });
+    await page.getByRole("tab", { name: /^needs you / }).click();
+    const receive = socket!.onmessage!;
+    const held: MessageEvent[] = [];
+    socket!.onmessage = event => { held.push(event); };
+    try {
+      await page.getByRole("button", { name: "Start hygiene review", exact: true }).click();
+      await expect.poll(() => current()?.dataset.hygieneId).toBeTruthy();
+      const id = current().dataset.hygieneId!;
+      expect(ui!.stores.inbox.getState().items[id]).toBeUndefined();
+      // Another explicit server response can settle before this device receives
+      // the Action. Hold only inbound frames; the real dispatcher still applies.
+      await set({ mode: recovery === "unknown" ? "unknown" : "check_failed" });
+      socket!.send(JSON.stringify({ type: "inbox_resolve", itemId: id, optionId: "link-text", input: null }));
+      await expect.poll(async () => (await ui!.api.hygieneReview()).action?.hygiene?.outcome?.status).toBe("check_failed");
+      await page.getByRole("button", { name: "Pause", exact: true }).click();
+      await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
+      await page.getByRole("button", { name: "Resume", exact: true }).click();
+      const label = recovery === "unknown" ? "Check again" : "Undo change";
+      const button = page.getByRole("button", { name: label, exact: true });
+      await expect.element(button).toBeVisible();
+      expect((button.element() as HTMLButtonElement).disabled, `${label} waits for replicated authority`).toBe(true);
+      (button.element() as HTMLButtonElement).click();
+      expect(host!.querySelector("[data-hygiene-id]")?.textContent).not.toContain("Undo change · inverse preview");
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(0);
+      await expect.poll(() => held.length).toBeGreaterThan(0);
+      socket!.onmessage = receive;
+      for (const event of held.splice(0)) receive.call(socket!, event);
+      await expect.poll(() => ui!.stores.inbox.getState().items[id]?.version).toBeGreaterThan(1);
+      await expect.element(button).toBeEnabled();
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "receipt delivery does not confirm recovery").toHaveLength(0);
+      if (recovery === "unknown") {
+        await set({ mode: "check_clear" });
+        await button.click();
+        await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");
+      } else {
+        await button.click();
+        await page.getByRole("button", { name: "Confirm undo", exact: true }).click();
+        await expect.poll(() => current().textContent).toContain("Change undone");
+      }
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
+      expect(appliedCalls(await set({})), "recovery never repeats the original repair").toHaveLength(1);
+    } finally {
+      socket!.onmessage = receive;
+      for (const event of held) receive.call(socket!, event);
+    }
+  });
