@@ -16,6 +16,7 @@ import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
+import { sheetInput } from "./tests/visual/sheet-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
@@ -82,7 +83,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, buttonPointer, overlayMouse, dictationMotion },
+      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, buttonPointer, overlayMouse, dictationMotion },
       provider: playwright({
         launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
@@ -120,7 +121,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { sheetInput, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
@@ -154,7 +155,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
+              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
               // Chromium's own web-test mode retains native encoding without
               // waiting for idle periods that can exceed a functional poll (#940).
               provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),
@@ -173,7 +174,7 @@ export default mergeConfig(
             include: ["tests/visual/dictation-panel.visual.tsx"],
             browser: {
               enabled: true,
-              commands: { formViewport, formConsumerStyles, dictationPointer, dictationThemeStyles, dictationMotion, rankTouch },
+              commands: { sheetInput, formViewport, formConsumerStyles, dictationPointer, dictationThemeStyles, dictationMotion, rankTouch },
               provider: playwright({}),
               headless: true,
               instances: [{ browser: "chromium" }],

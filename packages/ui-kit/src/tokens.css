@@ -2461,3 +2461,12 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   }
 }
 @media print { .bk-overlay { display: none; } }
+
+/* A transparent header strip reserves native touch manipulation without
+ * changing paint or interfering with the scrolling body. Controls stay above it. */
+.bk-overlay-swipe-zone { display: none; position: absolute; inset: 0 0 auto; height: 56px; z-index: 1; touch-action: none; }
+.bk-overlay[data-bk-overlay="sheet"] .bk-overlay-swipe-zone { display: block; }
+:where(.bk-overlay-surface) :where(button, a[href], input, select, textarea, [role="button"], [contenteditable], [tabindex]) { position: relative; z-index: 2; }
+@media (max-width: 899px) {
+  .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-swipe-zone { display: block; }
+}

@@ -448,3 +448,50 @@ for (const theme of ["dark", "light"]) for (const control of controls) for (cons
     }
   });
 }
+
+// #1433: the actual unrecoverable credential remains protected above More.
+test("credential swipe is bounded and lower More is inert", async ctx => {
+  const s = await mount(ctx,320);
+  await userEvent.click(s.tab("More"));
+  const lower = s.overlay('[data-overlay-site="more"]').querySelector<HTMLElement>('.bk-overlay-surface')!;
+  flushSync(() => s.ui.stores.principal.setState({oneTimeCredential:credential}));
+  await frame();
+  const dialog = s.overlay('[role="alertdialog"]');
+  const sheet = dialog.querySelector<HTMLElement>('.bk-overlay-surface')!;
+  const focus = document.activeElement;
+  expect(focus?.textContent, "credential focuses Copy").toContain("Copy credential");
+  const r = sheet.getBoundingClientRect();
+  const p = {x:r.left+80,y:r.top+20};
+  await commands.sheetInput("pen", [{type:"down",...p,t:0},{type:"move",x:p.x,y:p.y+200,t:200}]);
+  expect(new DOMMatrix(getComputedStyle(sheet).transform).m42, "credential rubber-band bound").toBe(12);
+  expect(document.activeElement,"credential keeps Copy focus").toBe(focus);
+  await commands.sheetInput("pen", [{type:"up",x:p.x,y:p.y+200,t:400}]);
+  await frame();
+  expect(s.ui.stores.principal.getState().oneTimeCredential, "credential state retained").toEqual(credential);
+  expect(new DOMMatrix(getComputedStyle(lower).transform).m42, "lower sheet does not move").toBe(0);
+  // Native input is hit-tested against the top layer. Also deliver a lower
+  // DOM event to prove Overlay's own topmost guard, independent of inertness.
+  let pointerId = 0;
+  dialog.addEventListener("pointerdown",event => {pointerId=event.pointerId;},{once:true});
+  await commands.sheetInput("pen",[{type:"down",...p,t:0}]);
+  ctx.onTestFinished(() => commands.sheetInput("pen",[{type:"up",...p,t:500}]));
+  const l = lower.getBoundingClientRect();
+  for (const [type,y] of [["pointerdown",l.top+20],["pointermove",l.top+150]] as const)
+    lower.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerType:"pen",pointerId,clientX:l.left+80,clientY:y}));
+  expect(new DOMMatrix(getComputedStyle(lower).transform).m42, "lower guard rejects tracking").toBe(0);
+  await commands.sheetInput("pen",[{type:"up",...p,t:400}]);
+  expect(s.overlay('[data-overlay-site="more"]'),"lower More retained").not.toBeNull();
+});
+
+test("More swipe restores its tab and leaves Files open", async ctx => {
+  const s = await mount(ctx,320);
+  await userEvent.click(s.tab("Files")); await userEvent.click(s.tab("More"));
+  const more = s.overlay('[data-overlay-site="more"]');
+  const sheet = more.querySelector<HTMLElement>('.bk-overlay-surface')!;
+  const r = sheet.getBoundingClientRect(); const p = {x:r.left+80,y:r.top+20};
+  await commands.sheetInput("touch",[{type:"down",...p,t:0},{type:"move",x:p.x,y:p.y+121,t:200},{type:"up",x:p.x,y:p.y+121,t:400}]);
+  await frame();
+  expect(document.querySelector('[data-overlay-site="more"]'),"More swipe closes only More").toBeNull();
+  expect(s.overlay('[data-panel="Files"]'),"Files remains open").not.toBeNull();
+  expect(document.activeElement,"More tab receives swipe return focus").toBe(s.tab("More"));
+});

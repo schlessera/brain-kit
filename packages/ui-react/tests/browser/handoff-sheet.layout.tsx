@@ -201,3 +201,26 @@ for (const c of cases) test(`${c.width} ${c.theme}: handoff actions keep names, 
   await expect.poll(() => page.getByRole("button", { name: "Remove reference notes/sirens.md", exact: true }).elements()
     .some((el) => el.checkVisibility({ checkVisibilityCSS: true })), { message: "handoff Add Enter creates a visible reference" }).toBe(true);
 });
+
+// #1433: the existing handoff busy policy also bounds native header gestures.
+test("busy handoff swipe is bounded and preserves the pending handoff", async () => {
+  const { dialog } = await mount(320, 800, "dark");
+  flushSync(() => ui!.stores.handoff.getState().setPhase({kind: "creating"}));
+  const sheet = dialog.querySelector<HTMLElement>(".bk-overlay-surface")!;
+  const state = ui!.stores.handoff.getState().sheet;
+  // Creating disables To. Chromium can defer its blur until the next input;
+  // measure gesture focus from the modal's live fallback, not a disabled stop.
+  dialog.focus();
+  await nextFrame();
+  const focus = document.activeElement;
+  expect(focus,"busy focus fixture is a live modal stop").toBe(dialog);
+  const r = sheet.getBoundingClientRect();
+  const p = {x:r.left+80,y:r.top+20};
+  await commands.sheetInput("touch", [{type:"down",...p,t:0},{type:"move",x:p.x,y:p.y+200,t:200}]);
+  expect(new DOMMatrix(getComputedStyle(sheet).transform).m42, "busy handoff rubber-band bound").toBe(12);
+  expect(document.activeElement,"busy handoff preserves focus").toBe(focus);
+  await commands.sheetInput("touch", [{type:"up",x:p.x,y:p.y+200,t:400}]);
+  await nextFrame();
+  expect(ui!.stores.handoff.getState().sheet,"busy handoff stays open").toBe(state);
+  expect(ui!.stores.handoff.getState().phase.kind).toBe("creating");
+});
