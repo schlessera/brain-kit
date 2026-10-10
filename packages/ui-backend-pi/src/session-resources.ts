@@ -31,6 +31,9 @@ export function createSessionResources(options: {
   allowedTools: ReadonlySet<string>;
   confirmPatterns: readonly RegExp[];
   loadExtensions: boolean;
+  settingsSnapshot?: string;
+  permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
+  shellCwd?: string;
 }) {
   const { backend, brain, lock, allowedTools, confirmPatterns, loadExtensions } = options;
   const brainPath = backend.brainPath;
@@ -42,6 +45,7 @@ export function createSessionResources(options: {
       brain,
       turn: turnContext,
       lock,
+      shellCwd: options.shellCwd,
       capabilities: {
         location: caps.location,
         activity: caps.activity,
@@ -52,7 +56,7 @@ export function createSessionResources(options: {
   }
 
   /**
-   * Per-SESSION resource loader: skills, context files, extensions AND the
+   * Worker-local resource loader: skills, context files, extensions AND the
    * permission gate (an inline extension closing over this session's turn
    * holder). Built per session — not shared — because the gate must reach this
    * session's live bridge and the system-prompt append carries this session's
@@ -67,7 +71,10 @@ export function createSessionResources(options: {
     env: SessionEnv
   ): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
     const agentDir = getAgentDir();
-    const settingsManager = SettingsManager.create(brainPath, agentDir);
+    const settingsManager = options.settingsSnapshot !== undefined
+      ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
+          ...SettingsManager.create(brainPath, agentDir).getProjectSettings() })
+      : SettingsManager.create(brainPath, agentDir);
     const subagentTool =
       loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
     // No web extension, no search tool — and nothing to say about providers.
@@ -75,14 +82,14 @@ export function createSessionResources(options: {
       loadExtensions && hasPackage(settingsManager, "pi-web-access")
         ? readWebSearchBrief()
         : undefined;
-    const append = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch);
+    const append = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,
       settingsManager,
       noExtensions: !loadExtensions,
       extensionFactories: [
-        createPermissionGate({ turn: toolkit.turnContext,
+        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
           allowedTools: env.autonomous ? new Set(env.autonomous.allowedTools) : allowedTools, confirmPatterns }),
       ],
       agentsFilesOverride: withCwdContextFiles,
@@ -128,7 +135,8 @@ function buildAppend(
   options: CreatePiBackendOptions,
   env: SessionEnv,
   subagentTool: string | false,
-  webSearch: WebSearchBrief | undefined
+  webSearch: WebSearchBrief | undefined,
+  perTurnProcess: boolean
 ): string {
   // The chat-surface brief for one session: what the answer renders into
   // (diagrams, share blocks), which bridge tools exist, the reader's device.
@@ -156,12 +164,12 @@ function buildAppend(
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },
-      // How THIS backend executes: sessions persist in-process (no per-turn
-      // subprocess), sibling tool calls run concurrently, and the fan-out tool
+      // How THIS backend executes: production uses a fresh per-turn worker,
+      // sibling tool calls run concurrently, and the fan-out tool
       // exists only when the pi-subagents package is installed — naming a
       // missing tool would send the model after it.
       execution: {
-        perTurnProcess: false,
+        perTurnProcess,
         parallelToolCalls: true,
         subagentTool,
       },

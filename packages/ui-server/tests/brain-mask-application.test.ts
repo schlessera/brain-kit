@@ -131,3 +131,15 @@ test("mask membership is rechecked immediately before commit", async () => {
 test("mask base reader independently refuses traversal before resolving a mask shape", () => {
   expect(() => readMaskBase(root, "assets/../assets/raft.png")).toThrow("without traversal");
 });
+
+test("trusted pi mask identity refuses the Claude filename and accepts only the pi filename", async () => {
+  const apply = createMaskApplication({ root, backend: "pi", principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
+    lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available, record: result => records.push(result) });
+  const base = readMaskBase(root, imagePath, "pi");
+  const wrong = await apply({ ...request(), base });
+  expect(wrong.code, "worker input cannot select the other adapter's filename").toBe("invalid_target");
+  expect(existsSync(join(root, maskPath))).toBe(false);
+  const result = await apply({ ...request(), base, input: { imagePath, maskPath: "assets/raft.mask.png", png } });
+  expect(result.ok).toBe(true);
+  expect(readFileSync(join(root, "assets/raft.mask.png"))).toEqual(png);
+});

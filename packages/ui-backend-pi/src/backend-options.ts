@@ -100,7 +100,10 @@ export interface CreatePiBackendOptions {
    * without rebuilding the backend.
    */
   profiles?: PiProfile[] | (() => PiProfile[]);
-  /** Where pi stores session JSONL. Default: <brainPath>/.brain-kit-ui/sessions. */
+  /** Server-owned JSONL outside the brain and its ancestors (aliases refuse).
+   * Default: ~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions.
+   * Move existing transcripts here or configure an external directory to resume them.
+   */
   sessionDir?: string;
   /**
    * Load pi extensions (installed pi packages and repo-local extensions).
@@ -138,12 +141,9 @@ export interface CreatePiBackendOptions {
    */
   allowedTools?: readonly string[];
   /**
-   * LEGACY whole-lock opt-in: when injected, EVERY mutating tool execution
-   * serializes on this one mutex (the pre-0.27 behavior — for sharing a lock
-   * with another in-process writer). Absent (the default), mutations
-   * serialize per contention key instead: git staging/history commands
-   * repo-wide, brain document writes together, file writes per path — and
-   * everything else (builds, greps, curls) runs in parallel.
+   * LEGACY whole-lock opt-in for authoritative server applications, shared
+   * with another server writer. Absent, applications use contention keys.
+   * Worker scratch is separate per turn and cannot mutate the brain.
    */
   writeLock?: WriteLock;
   /** Where this backend reports degradations. Absent means silence. */

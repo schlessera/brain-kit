@@ -44,6 +44,13 @@ personal home is absent. Public source and system runtime remain admitted for
 execution, so this is private-data isolation, not proof of no public-source
 contamination. Fresh writable scratch state belongs to one arm only.
 
+With the hosted pi worker, native inference instrumentation runs after the shared
+launcher gate in the same isolated worker as the resource loader and tools.
+Capture files stay in worker scratch until observation drains finish; private
+measurement events return the fixed artifact inventory to the parent before
+worker teardown. The parent persists those bytes and shared billing-stop state.
+This instrumentation adds no production worker option or application route.
+
 Each arm first runs the shipped source CLI's actual keyless `index --force`.
 The full offline server/socket/backend/provider/serializer/SSE/parser control
 proves all three forms with fictional fake fetch. Separate populated list/read

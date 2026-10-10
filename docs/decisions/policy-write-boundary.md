@@ -36,9 +36,9 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:56-220`); pi builds its resource
+`packages/ui-backend-claude/src/sdk-options.ts:56-220`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:27-95`). A child-only wrapper
+`packages/ui-backend-pi/src/session-resources.ts:27-101`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
 the concrete unsandboxed extension-initialization escape.
 
@@ -184,8 +184,8 @@ operation below, never commands or file handles.
 
 The [maintainer ruling on #1037](https://github.com/schlessera/brain-kit/issues/1037)
 preserves hosted masking through one server-owned binary operation. It accepts
-only a PNG mask for a submitted existing image, at the existing Claude filename,
-with an 8 MiB byte cap and PNG signature check. Exact browser submission, current
+only a PNG mask for a submitted existing image, at the existing adapter filename,
+selected by trusted server backend identity, with an 8 MiB byte cap and PNG signature check. Exact browser submission, current
 turn authority/membership, cancellation, image/mask bases, policy/alias/path and
 topology checks bound the effect. Scratch masks retain their existing prerequisites;
 pruning runs under the same authority and records actual removals. The bridge tool

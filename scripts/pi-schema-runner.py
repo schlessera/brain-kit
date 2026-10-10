@@ -4,7 +4,7 @@ import argparse, base64, hashlib, json, os, pathlib, shutil, signal, subprocess,
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FORMS = ("flat", "shared", "shared-trimmed")
 MODEL = "gpt-6.1-sol"
-OWNED = ("scripts/measure-pi-schema.ts", "scripts/pi-schema-capture.ts", "scripts/pi-schema-measurement.ts", "scripts/pi-schema-offline-preload.ts", "scripts/pi-schema-preload.ts", "scripts/pi-schema-replay.ts", "scripts/pi-schema-runner.py", "scripts/pi-schema-protocol.md", "tests/pi-schema-measurement.test.ts")
+OWNED = ("scripts/measure-pi-schema.ts", "scripts/pi-schema-capture.ts", "scripts/pi-schema-measurement.ts", "scripts/pi-schema-offline-preload.ts", "scripts/pi-schema-preload.ts", "scripts/pi-schema-worker-preload.ts", "scripts/pi-schema-worker-receipts.ts", "scripts/pi-schema-replay.ts", "scripts/pi-schema-runner.py", "scripts/pi-schema-protocol.md", "tests/pi-schema-measurement.test.ts")
 sha = lambda data: hashlib.sha256(data).hexdigest()
 compact = lambda value: json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 

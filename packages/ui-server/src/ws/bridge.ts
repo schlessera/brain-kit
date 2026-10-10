@@ -440,14 +440,14 @@ export function makeBridge(
       return readBrainApplicationBase(host.brainPath!, path);
     };
     bridge.applyBrain = input => apply({ principalId, turnId, input });
-    if (backendId === "claude") {
-      const applyMask = createMaskApplication({ root: host.brainPath, principalId, turnId, signal,
+    if (backendId === "claude" || backendId === "pi") {
+      const applyMask = createMaskApplication({ root: host.brainPath, backend: backendId, principalId, turnId, signal,
         lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;
       bridge.requestMask = async (imagePath, instruction) => {
         assertAuthority();
-        const base = readMaskBase(host.brainPath!, imagePath);
+        const base = readMaskBase(host.brainPath!, imagePath, backendId);
         const png = await requestMask(imagePath, instruction);
         assertAuthority();
         pendingMasks.set(imagePath, { base, png: Uint8Array.from(png) });
@@ -462,7 +462,7 @@ export function makeBridge(
         }
         return applyMask({ principalId, turnId, input, base: pending.base });
       };
-      // Claude's scratch pruning is part of the mask operation, including its
+      // Hosted scratch pruning is part of the mask operation, including its
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
     }
@@ -470,7 +470,7 @@ export function makeBridge(
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch"] as const) {
+  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {

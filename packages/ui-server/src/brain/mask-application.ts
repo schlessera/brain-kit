@@ -3,7 +3,7 @@ import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, open
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { assertScratchMask, claudeMaskFilename } from "@schlessera/brain-ui-sdk/internal";
+import { assertScratchMask, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -73,13 +73,17 @@ function verify(file: File, expected: string | null): void {
   }
   if (read(file.at).hash !== expected) refuse("stale_base", "The image or mask changed while its editor was open; no overwrite was applied.");
 }
-export function readMaskBase(root: string, imagePath: string): MaskBase {
+type MaskBackend = "claude" | "pi";
+const maskFilename = (backend: MaskBackend, path: string) =>
+  (backend === "pi" ? piMaskFilename : claudeMaskFilename)(path, path);
+
+export function readMaskBase(root: string, imagePath: string, backend: MaskBackend = "claude"): MaskBase {
   root = realpathSync(root);
   if (!/\.(png|jpe?g|webp|gif|avif|heic|bmp|tiff?|svg)$/i.test(imagePath)) refuse("invalid_target", "A mask must belong to a submitted image.");
   const image = open(root, imagePath);
   try {
     if (!image.hash) refuse("missing_image", "The submitted image does not exist.");
-    const mask = open(root, claudeMaskFilename(imagePath, imagePath));
+    const mask = open(root, maskFilename(backend, imagePath));
     try { verify(image, image.hash); verify(mask, mask.hash); return { imageHash: image.hash!, maskHash: mask.hash }; }
     finally { close(mask); }
   } finally { close(image); }
@@ -87,6 +91,8 @@ export function readMaskBase(root: string, imagePath: string): MaskBase {
 
 export function createMaskApplication(options: {
   root: string;
+  /** Trusted host backend identity; never selected by a worker message. */
+  backend?: MaskBackend;
   principalId: string;
   turnId: string;
   signal: AbortSignal;
@@ -115,14 +121,14 @@ export function createMaskApplication(options: {
       if (input.png.byteLength > BRAIN_MASK_MAX_BYTES) refuse("payload_too_large", "Mask PNG exceeds the 8 MiB byte cap.");
       if (input.png.byteLength < PNG_SIGNATURE.length || !Buffer.from(input.png.subarray(0, 8)).equals(PNG_SIGNATURE))
         refuse("invalid_png", "The submitted mask must have the PNG signature.");
-      if (input.maskPath !== claudeMaskFilename(input.imagePath, input.imagePath)) refuse("invalid_target", "Only the mask filename for the submitted image may be applied.");
+      if (input.maskPath !== maskFilename(options.backend ?? "claude", input.imagePath)) refuse("invalid_target", "Only the mask filename for the submitted image may be applied.");
       validatePath(input.maskPath);
       // Own the bytes before lock admission; caller mutation cannot change the
       // signature, bounds or exact effect after validation.
       const png = Uint8Array.from(input.png);
       result = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(request.principalId, request.turnId);
-        const current = readMaskBase(root, input.imagePath);
+        const current = readMaskBase(root, input.imagePath, options.backend);
         if (current.imageHash !== base.imageHash || current.maskHash !== base.maskHash) refuse("stale_base", "The image or mask changed while its editor was open.");
         const image = open(root, input.imagePath);
         let mask: File;

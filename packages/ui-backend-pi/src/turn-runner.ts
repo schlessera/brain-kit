@@ -126,6 +126,8 @@ export function createPiTurnRunner(
         const images = toImages(req);
         emit({ type: "status", status: "thinking" });
         await session.prompt(req.prompt, images.length > 0 ? { images } : undefined);
+      } else {
+        await session.abort();
       }
     } catch (err) {
       // Runtime failure (no model/auth, provider unreachable) → diagnostic

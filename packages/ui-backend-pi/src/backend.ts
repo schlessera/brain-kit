@@ -4,16 +4,17 @@
  *
  * pi's built-in read/bash/edit/write tools are disabled (`noTools: "builtin"`)
  * and replaced with a curated, brain-repo-scoped tool set (see tools.ts).
- * Approvals are enforced by a single tool_call gate (permission-gate.ts)
- * registered as an inline extension on every session — it covers curated AND
- * extension-registered tools with the Claude backend's approval posture.
- * Conversations are pi SessionManager JSONL trees; the wire protocol frames
- * are produced by subscribing to the AgentSession event stream.
+ * The installed session, resource loader and tools run inside an isolated
+ * per-turn worker. A tool_call gate requests server-owned permission decisions;
+ * curated writes and bridge effects are authorized again on the server.
+ * Conversations are server-owned SessionManager JSONL trees; native events
+ * cross bounded protocol pipes before being translated to wire frames.
  *
  * Auth/model credentials come from pi's own mechanisms (env vars / `pi` auth
  * storage under the agent dir) — this backend does not manage keys.
  */
 import { join } from "path";
+import { piSessionDirectory } from "./session-storage.js";
 import type {
   AgentBackend,
   BackendCapabilities,
@@ -74,7 +75,9 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}) };
   assertPiSdks(options.versionRequirements, "backend construction");
   const brainPath = options.brainPath;
-  const sessionDir = options.sessionDir ?? join(brainPath, ".brain-kit-ui", "sessions");
+  const sessionDir = options.sessionFactory
+    ? options.sessionDir ?? join(brainPath, ".brain-kit-ui", "sessions")
+    : piSessionDirectory(brainPath, options.sessionDir);
   const allowedTools: ReadonlySet<string> = new Set(
     options.allowedTools ?? DEFAULT_PI_ALLOWED_TOOLS
   );
@@ -106,7 +109,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     loadExtensions: options.loadExtensions ?? true,
   });
   const runtime = createSessionRuntime({ backend: options, sessionDir, resources });
-  const pool = createSessionPool(runtime);
+  const pool = createSessionPool(runtime, Boolean(options.sessionFactory));
   const startTurn = createPiTurnRunner(pool, options);
 
   return {

@@ -31,10 +31,11 @@ the child with piped stdio (`createWrappedSpawn`,
 handlers are outside a boundary around that child. Their effects must be audited
 and validated separately; this report does not claim they currently write policies.
 
-Pi creates sessions directly in the server process (`async newSession`,
-`packages/ui-backend-pi/src/session-runtime.ts:37-72`). Its resource loader
+At the investigation baseline, pi created sessions directly in the server.
+The same SDK construction is now worker-local (`async newSession`,
+`packages/ui-backend-pi/src/native-session-runtime.ts:41-72`). Its resource loader
 initializes extensions (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:27-96`). The permission extension
+`packages/ui-backend-pi/src/session-resources.ts:27-101`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:76-100`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment

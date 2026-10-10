@@ -72,14 +72,16 @@ The concrete adapter integration points are:
 | Existing boundary | Required integration |
 | --- | --- |
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
-| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/session-runtime.ts:37-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. Keep ordinary disk storage and autonomous `SessionManager.inMemory`. |
-| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/session-runtime.ts:74-114`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
-| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:69-96`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
+| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. The worker uses `SessionManager.inMemory`; the server persists ordinary JSONL over pipes, and autonomous turns remain nonpersistent. |
+| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:74-109`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
+| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:73-101`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime
-factory option, new public seam or authentication wrapper is needed. An
-existing resident session keeps its native inference runtime; later requests
-still obtain native authentication afresh. This decision does not introduce a
+factory option, new public seam or authentication wrapper is needed. Each hosted turn reconstructs its native inference runtime inside a fresh
+worker; later requests still obtain native authentication afresh. Native state
+files are copied into writable worker scratch over pipes, and credential refresh
+is synchronized to the server-selected, unaliased native auth file with an exact
+source check. Runtime rules and account routing remain native pi behavior. This decision does not introduce a
 hot-reload promise for edits to `models.json`.
 
 ## Evidence and its limits

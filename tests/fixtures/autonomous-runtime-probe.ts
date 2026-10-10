@@ -107,7 +107,7 @@ const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "cla
   requiredEnvKeys: [], buildEnv: () => ({ ANTHROPIC_BASE_URL: url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
 const backend = backendName === "claude" ? createClaudeBackend({ brainPath, profiles: [profile], log: () => {} }) :
-  createPiBackend({ brainPath, profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], loadExtensions: false });
+  createPiBackend({ brainPath, sessionDir: join(root, "pi-sessions"), profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], loadExtensions: false });
 const controller = new AbortController();
 if (scenario === "preaborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);

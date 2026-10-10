@@ -30,7 +30,7 @@ export interface SessionPool {
   finish(entry: SessionEntry): void;
 }
 
-export function createSessionPool(runtime: SessionRuntime): SessionPool {
+export function createSessionPool(runtime: SessionRuntime, retainSessions = true): SessionPool {
   // Resident sessions, keyed by pi sessionId. Insertion order is the LRU order:
   // reused sessions are re-inserted at the tail, eviction drops the head.
   const sessions = new Map<string, SessionEntry>();
@@ -120,6 +120,11 @@ export function createSessionPool(runtime: SessionRuntime): SessionPool {
     finish(entry) {
       entry.running = false;
       if (entry.ephemeral) { disposeSession(entry.session); return; }
+      if (!retainSessions) {
+        sessions.delete(entry.session.sessionId);
+        disposeSession(entry.session);
+        return;
+      }
       evictIdle();
     },
   };
