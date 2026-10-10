@@ -31,7 +31,7 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 
 ## Original section map
 
-Presentation-only split from `84b8e00c7832a6f7ca35b67bf30bfece311e6771`.
+Presentation-only split from `1a8ba321e7f578baebb55f13532e773c543cf793`.
 Every original heading below points to its unchanged section. The introductory
 policy stays here; rules, examples, amendments and evidence move with their sections.
 Original fragment identities remain available at this entry point.
