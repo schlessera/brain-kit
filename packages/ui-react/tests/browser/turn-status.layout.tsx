@@ -40,6 +40,8 @@ async function mount(width: number, theme: string) {
   } });
   root.stores.ui.getState().setTheme(theme as "dark" | "light");
   const chat = root.stores.chat.getState(); chat.setActiveSession("crossing-a");
+  // Its history is here: a session still restoring takes no send (#1328).
+  chat.setMessages("crossing-a", []);
   chat.addUserMessage("crossing-a", "Which passage should we take?", "typed");
   chat.startAssistantMessage("crossing-a", "turn-a");
   vi.spyOn(root.connection, "send").mockImplementation(msg => { frames.push(msg); return true; });

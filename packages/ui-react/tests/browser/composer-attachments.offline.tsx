@@ -36,6 +36,8 @@ function mount() {
   } });
   root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: true });
   root.stores.chat.getState().setActiveSession("odysseus-ogygia");
+  // Its history is here: a session still restoring takes no send (#1328).
+  root.stores.chat.getState().setMessages("odysseus-ogygia", []);
   const host = document.createElement("div"); document.body.append(host);
   const renderer = createRoot(host);
   const frames: ClientMessage[] = [];
