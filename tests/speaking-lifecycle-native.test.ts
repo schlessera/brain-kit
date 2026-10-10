@@ -75,7 +75,7 @@ process.stdout.write(JSON.stringify({ type: "system", subtype: "init", model: "u
 test("actual observer inactive-overage receipt preserves unknown invoice instead of inventing zero", async () => {
   const root = mkdtempSync(join(tmpdir(), "brain-speaking-billing-")), receiptPath = join(root, "receipt.json"), sentinel = join(root, "sentinel.ts");
   const events = [{ type: "system", subtype: "init", model: "claude-sonnet-5-5", apiKeySource: "none", claude_code_version: "2.1.293" },
-    { type: "rate_limit_event", rate_limit_info: { isUsingOverage: false } },
+    { type: "rate_limit_event", rate_limit_info: { status:"allowed", isUsingOverage: false } },
     { type: "result", is_error: false, modelUsage: { "claude-sonnet-5-5": { inputTokens: 2, outputTokens: 3, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } }];
   writeFileSync(sentinel, `process.stdout.write(${JSON.stringify(events.map(e => JSON.stringify(e)).join("\n") + "\n")});`);
   const source = resolve("."), child = Bun.spawn([process.execPath, join(source, "scripts/evals/speaking-lifecycle/native-observer.ts"), "--settings", "{}"], {
@@ -94,13 +94,26 @@ test("actual observer inactive-overage receipt preserves unknown invoice instead
 
 test("actual observer preserves deterministic split UTF8, literal stdin and final unterminated result through native EOF",async()=>{
  const root=mkdtempSync(join(tmpdir(),"brain-speaking-utf8-")),receiptPath=join(root,"receipt.json"),sentinel=join(root,"sentinel.ts"),source=resolve(".");
- const events=[{type:"system",subtype:"init",model:"claude-sonnet-5-5",apiKeySource:"none",claude_code_version:"2.1.293"},{type:"rate_limit_event",rate_limit_info:{isUsingOverage:false}},{type:"result",is_error:false,result:"Odysseus π",modelUsage:{"claude-sonnet-5-5":{inputTokens:2,outputTokens:3,cacheReadInputTokens:0,cacheCreationInputTokens:0}}}];
+ const events=[{type:"system",subtype:"init",model:"claude-sonnet-5-5",apiKeySource:"none",claude_code_version:"2.1.293"},{type:"rate_limit_event",rate_limit_info:{status:"allowed",isUsingOverage:false}},{type:"result",is_error:false,result:"Odysseus π",modelUsage:{"claude-sonnet-5-5":{inputTokens:2,outputTokens:3,cacheReadInputTokens:0,cacheCreationInputTokens:0}}}];
  const wire=Buffer.from(events.map(e=>JSON.stringify(e)).join("\n")),boundary=wire.indexOf(Buffer.from("π"))+1;
  writeFileSync(sentinel,`const bytes=Buffer.from(${JSON.stringify(wire.toString("base64"))},"base64");process.stdout.write(bytes.subarray(0,${boundary}));for await(const ack of Bun.stdin.stream()){process.stdout.write(bytes.subarray(${boundary}));process.stderr.write("Odysseus late stderr\\n");break;}`);
  const child=Bun.spawn([process.execPath,join(source,"scripts/evals/speaking-lifecycle/native-observer.ts"),"--settings","{}"],{cwd:source,env:{PATH:process.env.PATH,BRAIN_SPEAKING_OFFLINE:"1",BRAIN_SPEAKING_SOURCE:source,BRAIN_ROOT:root,BRAIN_SPEAKING_RECEIPT:receiptPath,CLAUDE_CODE_OAUTH_TOKEN:"offline-fixture",BRAIN_SPEAKING_NATIVE_COMMAND:JSON.stringify([process.execPath,sentinel])},stdin:"pipe",stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(10000)});
- const reader=child.stdout.getReader(),parts:Uint8Array[]=[];const input=JSON.stringify({type:"user",message:{content:"Penelope π"}})+"\n";
+ const reader=child.stdout.getReader(),parts:Uint8Array[]=[];const input=JSON.stringify({type:"control_response",response:{content:"Penelope π"}})+"\n";
  try{let split=false;for(;;){const next=await reader.read();if(next.done)break;parts.push(next.value);if(!split&&next.value.at(-1)===0xcf){split=true;child.stdin.write(input);child.stdin.end();}}
  const [code,stderr]=await Promise.all([child.exited,new Response(child.stderr).text()]),receipt=JSON.parse(readFileSync(receiptPath,"utf8"));
  expect(split).toBe(true);expect(receipt.result?.result).toBe("Odysseus π");expect(code).toBe(0);expect(receipt.stdoutComplete).toBe(true);expect(receipt.stdoutDrained).toBe(true);expect(receipt.drained).toBe(true);expect(stderr).toContain("Odysseus late stderr");expect(Buffer.concat(parts)).toEqual(wire);expect(readFileSync(`${receiptPath}.stdout.jsonl`)).toEqual(wire);expect(readFileSync(`${receiptPath}.stdin.jsonl`,"utf8")).toBe(input);
  }finally{reader.releaseLock();child.stdin.end();child.kill();await child.exited;rmSync(root,{recursive:true,force:true});}
 });
+
+for(const newline of [true,false])test(`actual observer refuses an ungranted USER before native input, EOF=${!newline}`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),"speaking-user-guard-")),source=resolve("."),path=join(root,"receipt.json");
+ const child=Bun.spawn([process.execPath,join(source,"scripts/evals/speaking-lifecycle/native-observer.ts"),"--settings","{}"],{cwd:source,env:{PATH:process.env.PATH,BRAIN_SPEAKING_OFFLINE:"1",BRAIN_SPEAKING_SOURCE:source,BRAIN_ROOT:root,BRAIN_SPEAKING_RECEIPT:path,CLAUDE_CODE_OAUTH_TOKEN:"offline-fixture",BRAIN_SPEAKING_NATIVE_COMMAND:JSON.stringify([process.execPath,"-e",'for await(const b of Bun.stdin.stream())process.stdout.write(b);'])},stdin:"pipe",stdout:"pipe",stderr:"pipe",signal:AbortSignal.timeout(10000)});
+ const input=JSON.stringify({type:"user",message:{content:"UNGRANTED_USER_SENTINEL"}})+(newline?"\n":"");child.stdin.write(input);child.stdin.flush();child.stdin.end();
+ try{
+  const [exit,stdout]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const receipt=JSON.parse(readFileSync(path,"utf8"));
+  expect(receipt.promptReleased).toBe(false);expect(stdout).not.toContain("UNGRANTED_USER_SENTINEL");
+  expect(receipt.inputFailure).toContain("Actual USER release requires a consumed root native grant");
+  expect(readFileSync(`${path}.stdin.jsonl`,"utf8")).toBe(input);expect(receipt.drained).toBe(true);expect(exit).toBe(1);
+ }finally{child.kill();await child.exited;const r=JSON.parse(readFileSync(path,"utf8"));try{process.kill(r.nativePid,"SIGKILL");}catch{}rmSync(root,{recursive:true,force:true});}
+},15000);

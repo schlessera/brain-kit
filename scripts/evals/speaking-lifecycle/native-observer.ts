@@ -1,6 +1,8 @@
 /** Actual core Claude runner transport tee; authentication remains in cli-runners. */
 import { StringDecoder } from "node:string_decoder";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync,existsSync,readFileSync } from "node:fs";
+import {verifyConsumedNativeGrant,type NativePaidEvidence} from "../native-paid-entry";
+import {admittedNativeRate,validateNativePaidPolicy} from "../native-paid-policy";
 import { join } from "node:path";
 import { priceSonnet55Usage } from "../../measure-sonnet55-cost";
 
@@ -22,10 +24,12 @@ async function main() {
   const index = args.indexOf("--settings");
   if (index < 0 || !args[index + 1]) throw Error("Actual core neutralised settings are absent");
   const settings = JSON.parse(args[index + 1]!);
-  settings.autoMemoryEnabled = false;
+  settings.autoMemoryEnabled = false;settings.attribution=false;
   settings.hooks = { PreToolUse: [{ matcher: ".*", hooks: [{ type: "command", command: `python3 ${JSON.stringify(join(source, "scripts/evals/speaking-lifecycle/tool-hook.py"))}` }] }] };
   args[index + 1] = JSON.stringify(settings);
   const readOnlyReview = process.env.BRAIN_SPEAKING_READONLY_REVIEW === "1";
+  const paid:NativePaidEvidence|undefined=process.env.BRAIN_NATIVE_PAID?JSON.parse(process.env.BRAIN_NATIVE_PAID):undefined;
+  const verifyPaid=()=>{if(!paid)throw Error("Actual USER release requires a consumed root native grant");validateNativePaidPolicy(846,process.env.BRAIN_SPEAKING_OFFLINE==="1"?"offline":"live",paid.policy,paid.binding);if(paid.policy.purpose!==(readOnlyReview?"review":"workflow"))throw Error("Native purpose differs from root grant");verifyConsumedNativeGrant(paid,process.env.BRAIN_NATIVE_PAID_OUTPUT!);};
   args.push("--model", MODEL, "--no-session-persistence", "--max-turns", readOnlyReview ? "1" : "20");
   if (readOnlyReview) args.push("--tools", "", "--effort", "low");
   const receipt: any = { model: MODEL, promptReleased: false, result: null, init: null,
@@ -59,21 +63,23 @@ async function main() {
       if (killOwnedGroup("SIGKILL")) { receipt.termination.forced = true; save(); }
     }, 1000);
   }, deadlineMs);
+  const refusal=setInterval(()=>{const path=process.env.BRAIN_NATIVE_PAID_REFUSAL;if(path&&existsSync(path)&&!receipt.failure){receipt.failure=`Physical paid admission refused: ${readFileSync(path,"utf8")}`;save();killOwnedGroup("SIGTERM");forcedDeadline=setTimeout(()=>{if(killOwnedGroup("SIGKILL")){receipt.termination??={requested:"SIGTERM",forced:true,timedOut:false};save();}},1000);}},50);
+  function forward(line:string){
+    const event=JSON.parse(line);
+    if(event.type==="user"){verifyPaid();receipt.promptReleased=true;receipt.promptReleasedAtMs=performance.now()-receipt.startedAt;save();}
+    native.stdin.write(`${line}\n`);native.stdin.flush();
+  }
   const input = (async () => {
     const decoder = new StringDecoder("utf8"); let buffer = "";
     for await (const bytes of Bun.stdin.stream()) {
       appendFileSync(`${destination}.stdin.jsonl`, bytes);
       buffer += decoder.write(Buffer.from(bytes));
       const lines = buffer.split("\n"); buffer = lines.pop()!;
-      for (const line of lines) {
-        const event = JSON.parse(line);
-        if (event.type === "user") { receipt.promptReleased = true; receipt.promptReleasedAtMs=performance.now()-receipt.startedAt; save(); }
-        native.stdin.write(`${line}\n`); native.stdin.flush();
-      }
+      for (const line of lines) forward(line);
     }
-    buffer += decoder.end(); if (buffer) native.stdin.write(buffer);
+    buffer += decoder.end(); if (buffer) forward(buffer);
     native.stdin.end();
-  })().catch(error => { receipt.inputFailure = String(error); save(); });
+  })().catch(async error => { receipt.inputFailure = String(error);receipt.failure=receipt.inputFailure; save();await closeFailedNative(); });
   const stderr = (async () => {
     for await (const bytes of native.stderr) { appendFileSync(`${destination}.stderr.bin`, bytes); process.stderr.write(bytes); }
     receipt.stderrDrained = true;
@@ -109,9 +115,9 @@ async function main() {
     }
     if (event.type === "rate_limit_event") {
       receipt.rates.push(event);
-      if (event.rate_limit_info?.isUsingOverage === true || event.rate_limit_info?.overageInUse === true) {
-        receipt.overage = "active"; throw Error("Reported subscription overage; stop");
-      }
+      const info=event.rate_limit_info;
+      if(!admittedNativeRate(info,paid?.policy.allowOverage===true))throw Error("Native quota/paid admission refused");
+      if(info.isUsingOverage===true||info.overageInUse===true)receipt.overage="active";
     }
     if (event.type === "result") {
       receipt.result = event; receipt.apiEquivalent = priceSonnet55Usage(event);
@@ -138,7 +144,7 @@ async function main() {
     if (receipt.failure) throw Error(receipt.failure);
     if (receipt.inputFailure || receipt.stderrFailure) throw Error("Native transport input/stderr did not flush");
     if (receipt.exitCode !== 0 || !receipt.result || !receipt.init) throw Error("Native EOF/exit without complete usage receipt");
-    receipt.overage = receipt.rates.length && receipt.rates.every((r: any) => r.rate_limit_info?.isUsingOverage === false || r.rate_limit_info?.overageInUse === false) ? "inactive observed" : "unknown";
+    receipt.overage = receipt.rates.length&&receipt.rates.every((r:any)=>admittedNativeRate(r.rate_limit_info,paid?.policy.allowOverage===true))?(receipt.rates.some((r:any)=>r.rate_limit_info?.isUsingOverage===true||r.rate_limit_info?.overageInUse===true)?"active":"inactive observed"):"unknown";
     // A reported inactive overage route is not an invoice or a zero-charge receipt.
     receipt.additionalBilledUsd = null;
   } catch (error) {
@@ -154,7 +160,7 @@ async function main() {
     }catch(error){receipt.stdoutDrainFailure=String(error);}
   } finally {
     stdoutReader.releaseLock();
-    clearTimeout(deadline); if (forcedDeadline !== undefined) clearTimeout(forcedDeadline);
+    clearTimeout(deadline);clearInterval(refusal); if (forcedDeadline !== undefined) clearTimeout(forcedDeadline);
     receipt.durationMs = performance.now() - receipt.startedAt; receipt.finished = receipt.drained; save();
   }
   // On refusal the real runner may still hold stdin open awaiting a response.

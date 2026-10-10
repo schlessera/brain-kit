@@ -71,16 +71,7 @@ async function main(){
       if(mode==="archive"&&mainRequests===1)return response(physical,{tool:"Bash",input:{command:`brain archive ${p.hub} --json`}});
       return response(physical,mode==="review"?"APPROVED":"Offline speaking tool control complete.");
     }};
-    let result:Awaited<ReturnType<typeof runNative>>;
-    try {result=await runNative(p.root,output,"sk-ant-oat01-offline-fixture-not-a-credential",mode==="review"?"Return APPROVED for this scripted no-tools transport control.":lifecyclePrompt,options);}
-    catch(error) {
-      if(!["cli","archive"].includes(mode))throw error;
-      const native=JSON.parse(readFileSync(join(output,"native.json"),"utf8")),raw=readFileSync(join(output,"native.json.stdout.jsonl"),"utf8"),after=observe(p.root);
-      if(JSON.stringify(before)!==JSON.stringify(after))throw Error("Actual native auto-refused command changed the fixture");
-      if(native.init?.permissionMode!=="auto"||!raw.includes('"decision_reason_type":"classifier"')||!raw.includes("Classifier unavailable")||!native.drained||!native.stdoutComplete||!native.stderrDrained||native.result!==null)throw Error("Actual implicit-auto failure/unknown/drain boundary was not retained");
-      if(destination)writeFileSync(destination,JSON.stringify({passed:true,mode,currentArmComplete:false,auxiliaryAccountingComplete:false,coreArgsPermissionModeOmitted:true,native,before,after,rawUsageUnknown:true,semanticApproval:false},null,2),{mode:0o600});
-      console.log(JSON.stringify({passed:true,mode,nativeAutoRefusal:true,currentArmComplete:false,childrenDrained:true,externalRequests:0}));return;
-    }
+    const result=await runNative(p.root,output,"sk-ant-oat01-offline-fixture-not-a-credential",mode==="review"?"Return APPROVED for this scripted no-tools transport control.":lifecyclePrompt,options);
     const after=observe(p.root);
     for(const [path,entry]of Object.entries(before))if(path!==p.hub||mode!=="archive"){
       if(JSON.stringify(entry)!==JSON.stringify(after[path]))throw Error(`Actual native changed an unapproved existing entry: ${path}`);
@@ -99,10 +90,10 @@ async function main(){
       if(!raw.includes("status: archived")||!raw.includes("relevance: historical")||!raw.includes("updated: 2026-07-12"))throw Error("Actual native shipped archive tool did not preserve pinned lifecycle/relevance behavior");
     }
     if(!physical||!result.receipt.drained||!result.receipt.stdoutComplete||result.receipt.init?.claude_code_version!=="2.1.293")throw Error("Actual native runtime/physical/closure receipt incomplete");
-    if(destination)writeFileSync(destination,JSON.stringify({passed:true,mode,physical,actualCli:"2.1.293",coreArgsPermissionModeOmitted:true,nativeReportedPermissionMode:result.receipt.init?.permissionMode,before,after,toolResults,requestBodies:requestsBodies,native:result.receipt,calls:result.calls,evidence:result.evidence,semanticApproval:false,liveQuality:null,liveBilling:null},null,2),{mode:0o600});
+    if(destination)writeFileSync(destination,JSON.stringify({passed:true,mode,physical,actualCli:"2.1.293",currentArmComplete:false,coreArgsPermissionModeOmitted:false,nativeReportedPermissionMode:result.receipt.init?.permissionMode,before,after,toolResults,requestBodies:requestsBodies,native:result.receipt,calls:result.calls,evidence:result.evidence,semanticApproval:false,liveQuality:null,liveBilling:null},null,2),{mode:0o600});
     console.log(JSON.stringify({passed:true,mode,physical,actualCli:"2.1.293",childrenDrained:true,externalRequests:0}));
   }finally{
-    if(destination){const raw=`${destination}.raw`;mkdirSync(raw,{recursive:true,mode:0o700});for(const name of ["execution.json","review-evidence.json","native.json","native.json.stdin.jsonl","native.json.stdout.jsonl","native.json.stderr.bin","physical.json"])if(existsSync(join(output,name)))copyFileSync(join(output,name),join(raw,name));writeFileSync(join(raw,"request-bodies.json"),JSON.stringify(requestsBodies),{mode:0o600});}
+    if(destination){const raw=`${destination}.raw`;mkdirSync(raw,{recursive:true,mode:0o700});for(const name of ["paid.json","paid-grant.json","paid-refusal.json","execution.json","review-evidence.json","native.json","native.json.stdin.jsonl","native.json.stdout.jsonl","native.json.stderr.bin","physical.json"])if(existsSync(join(output,name)))copyFileSync(join(output,name),join(raw,name));writeFileSync(join(raw,"request-bodies.json"),JSON.stringify(requestsBodies),{mode:0o600});}
     p.close();rmSync(output,{recursive:true,force:true});
   }
 }

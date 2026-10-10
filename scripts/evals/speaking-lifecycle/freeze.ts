@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import { bundledClaudeBinary } from "../../../packages/core/src/providers/agents/claude-binary";
+import {hashFrozenFile} from "./frozen-file";
 import { protocol } from "./protocol";
 import { corpus, CORPUS_SHA } from "./corpus";
 import { FIXTURE_SHA } from "./fixtures";
@@ -21,7 +22,7 @@ export function observeTree(path: string, rejectExternalHardlinks = false) {
       if (stat.isSymbolicLink()) { modes[rel] = stat.mode & 0o7777; continue; }
       if (stat.isDirectory()) walk(full, rel);
       else if (stat.isFile()) {
-        hashes[rel] = sha(readFileSync(full)); modes[rel] = stat.mode & 0o7777;
+        hashes[rel] = hashFrozenFile(full); modes[rel] = stat.mode & 0o7777;
         const key = `${stat.dev}:${stat.ino}`, previous = inodes.get(key);
         inodes.set(key, { occurrences: (previous?.occurrences ?? 0) + 1, links: stat.nlink });
       } else throw Error("Runtime contains unsupported special member");
@@ -52,7 +53,7 @@ export function freeze() {
     for (const [path, mode] of Object.entries(tree.modes)) sourceModes[`${dir}/${path}`] = mode;
   }
   for (const path of ["docs/decisions/example-corpus.md", "docs/decisions/deterministic-sync.md", "docs/speaking-lifecycle-investigation.md", "package.json", "bun.lock", "packages/core/package.json", "packages/module-speaking/skills/submission-outcome/SKILL.md", "packages/module-speaking/skills/conference-aftermath/SKILL.md", "packages/module-speaking/src/module.ts", "scripts/measure-sonnet55-cost.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "packages/ui-kit/fixtures/README.md", "packages/ui-kit/fixtures/follow-ups.ts",
-    "bunfig.toml", "scripts/test.ts", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts",
+    "scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts","tests/native-paid-policy.test.ts","tests/mechanical-hygiene-offline-source.ts","bunfig.toml", "scripts/test.ts", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts",
     ...readdirSync(join(root, "tests")).filter(n => n.startsWith("speaking-lifecycle") && n.endsWith(".test.ts")).map(n => `tests/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
   const dependencyTree = observeTree(join(root, "node_modules"), true), dependencies = dependencyTree.hashes;
   const dependencyLinks = links(join(root, "node_modules"));
@@ -69,8 +70,8 @@ export function freeze() {
   const manifest = { sourceHashes: Object.fromEntries(Object.entries(sourceHashes).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)), sourceModes: Object.fromEntries(Object.entries(sourceModes).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)), workspaceTrees,
     dependencyModeSha: sha(JSON.stringify(dependencyTree.modes)), externalDependencyHardlinks: "refused", dependencyFiles: Object.keys(dependencies).length, dependencyTreeSha: sha(JSON.stringify(dependencies)),
     dependencyLinkSha: sha(JSON.stringify(dependencyLinks)), dependencyLinks: Object.keys(dependencyLinks).length,
-    sdk: sdk.version, native: { sha: sha(readFileSync(binary)), bytes: lstatSync(binary).size, mode: lstatSync(binary).mode & 0o7777, expectedCli: protocol.runtime.native },
-    bun: { version: Bun.version, sha: sha(readFileSync(process.execPath)), mode: lstatSync(process.execPath).mode & 0o7777 }, fixtureSha: sha(JSON.stringify(inputs)), originalRegressionSha:FIXTURE_SHA, corpusSha:CORPUS_SHA, protocolSha: sha(JSON.stringify(protocol)) };
+    sdk: sdk.version, native: { sha: hashFrozenFile(binary), bytes: lstatSync(binary).size, mode: lstatSync(binary).mode & 0o7777, expectedCli: protocol.runtime.native },
+    bun: { version: Bun.version, sha: hashFrozenFile(process.execPath), mode: lstatSync(process.execPath).mode & 0o7777 }, fixtureSha: sha(JSON.stringify(inputs)), originalRegressionSha:FIXTURE_SHA, corpusSha:CORPUS_SHA, protocolSha: sha(JSON.stringify(protocol)) };
   return { manifest, freezeSha: sha(JSON.stringify(manifest)), inputs, protocol };
 }
 if (import.meta.main) console.log(JSON.stringify(freeze(), null, 2));
