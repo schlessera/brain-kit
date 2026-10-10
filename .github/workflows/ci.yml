@@ -571,7 +571,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
+      # Native source freezes require dependency inodes owned by this checkout.
+      - run: bun install --frozen-lockfile --backend=copyfile
       - name: Recompute affected proof on the actual checkout
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
