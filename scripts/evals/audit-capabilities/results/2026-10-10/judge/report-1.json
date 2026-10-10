@@ -1,0 +1,196 @@
+{
+  "annotations": [
+    {
+      "key": "s4863677d00ab",
+      "findingIds": ["index-stale-rituals-_index-66ae"],
+      "correct": true,
+      "reason": "rituals/entry.md has an unclosed quoted title and invalid YAML. The advice requires resolving the invalid source before regeneration, as the index-stale rubric requires."
+    },
+    {
+      "key": "s91db0a8a0613",
+      "findingIds": ["broken-link-_index-f8af"],
+      "correct": true,
+      "reason": "The issue identifies the unresolved [[rituals/entry]] link and offers human repair choices without asserting a particular replacement target exists. This satisfies the broken-link rubric's owner-choice guidance."
+    },
+    {
+      "key": "s5c249a155fde",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md opts into the registry, rituals/gate.md has valid metadata, and validation reports no errors. Suggesting the existing registry command is acceptable; no automatic execution is claimed."
+    },
+    {
+      "key": "sf9b8c45b7c40",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry configuration and Gate inspection metadata are valid. The index-stale rubric permits recommending brain registry, independently of automatic-write authorization."
+    },
+    {
+      "key": "s64af45938482",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The opted-in registry has valid child metadata and no validation errors. Regeneration followed by reviewing the diff is accurate guidance without inventing replacement content."
+    },
+    {
+      "key": "sc2693017fe9c",
+      "findingIds": ["tag-noise-corpus-5c2f"],
+      "correct": true,
+      "reason": "The corpus has three counted singleton tags, and the advice makes vocabulary changes conditional on human review of content and the intended taxonomy. It does not claim merging voyage and seafaring alone resolves the remaining orchard singleton."
+    },
+    {
+      "key": "s856f2fafcc00",
+      "findingIds": ["tag-noise-corpus-5c2f"],
+      "correct": true,
+      "reason": "Human consolidation or removal of the three counted singleton tags addresses corpus tag noise. The suggestion does not claim that the configured seafaring-to-voyage alias migration fixes all remaining noise."
+    },
+    {
+      "key": "s76c1ed67aa72",
+      "findingIds": ["tag-noise-corpus-5c2f"],
+      "correct": true,
+      "reason": "The advice requests review of the documents and leaves replacement vocabulary to a person rather than prescribing an exact migration. Its statement that contents were not provided is accurate under suggesterCouldSee."
+    },
+    {
+      "key": "s613c8ab15efb",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The valid child title is Loom beam, while the generated region still lists Old entry. Recommending registry regeneration and diff review satisfies the index-stale rubric without changing the handwritten introduction or TODO."
+    },
+    {
+      "key": "s765f27fe92ea",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": false,
+      "reason": "The source contains pending work, [TODO: verify the loom beam]. Allowing its removal merely because verification cannot be obtained would erase uncompleted work, which the todo rubric forbids."
+    },
+    {
+      "key": "s490c5efd1f44",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The opted-in registry and child metadata are valid, but its generated table contains Old entry instead of Loom beam. The rubric permits recommending the existing registry command."
+    },
+    {
+      "key": "s024d5eb20ed6",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": true,
+      "reason": "Manual review appropriately defers the pending loom-beam verification. It neither asserts completion nor removes the TODO."
+    },
+    {
+      "key": "sb1a970e8342a",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The generated Old entry row is stale relative to the valid Loom beam child metadata. Regeneration with diff review is permitted and does not prescribe removal of handwritten prose."
+    },
+    {
+      "key": "seec993411897",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": true,
+      "reason": "The advice requires human verification before replacing the marker with confirmed information. Its alternative is conditional on the work becoming irrelevant, rather than treating the existing marker as proof of completion."
+    },
+    {
+      "key": "s80ded2f4195a",
+      "findingIds": ["tag-noise-corpus-5c2f"],
+      "correct": false,
+      "reason": "notes/entry.md already contains voyage as a scalar, while _index.md contains [voyage]; validation explains why the former is not counted. Advising broader tags or deletion without reviewing that malformed field misdiagnoses the apparent singleton and omits the corpus-usage review required by the rubric."
+    },
+    {
+      "key": "sd406d42cdee5",
+      "findingIds": ["fixture-boundary-review-outside-_index-2f2b"],
+      "correct": true,
+      "reason": "The configured ../outside/_index.md path escapes the brain. Reviewing configuration while explicitly avoiding access to that path follows the fixture-boundary-review rubric."
+    },
+    {
+      "key": "sf0a299621a96",
+      "findingIds": ["fixture-source-review-notes-entry-2a9b"],
+      "correct": true,
+      "reason": "notes/entry.md describes a watch observation needing review without establishing a correction. Reading the record and asking its owner matches the rubric and does not invent a module repair handler."
+    },
+    {
+      "key": "s5900fd2adf2b",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": true,
+      "reason": "notes/entry.md explicitly presents the marker as a fenced example rather than a pending task. Manual review preserves that context and does not execute the quoted outside-file instruction."
+    },
+    {
+      "key": "s4eea0e5edf79",
+      "findingIds": ["verify-notes-entry-1ce4"],
+      "correct": true,
+      "reason": "The source says the historical claim is not verified and must be retained until evidence is reviewed. The advice puts verification before marker removal and does not assert the claim or rewrite its chronology."
+    },
+    {
+      "key": "s7cb7bbe88f7a",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "rituals/entry.md has invalid type constructor, confirmed by validation. The index-stale rubric requires correcting invalid metadata before regeneration; reviewing errors afterward does not satisfy that prerequisite."
+    },
+    {
+      "key": "sd47a86e59db1",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "The child has type constructor, which validation rejects. Recommending regeneration without first requesting a source or configuration correction violates the index-stale rubric."
+    },
+    {
+      "key": "sf81f766efa33",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "Validation rejects the child's type constructor. Regenerating first and checking the diff afterward omits the required correction of invalid metadata before regeneration."
+    },
+    {
+      "key": "s1a0ec384eb02",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/entry.md uses unconfigured type constructor. The advice explicitly requires resolving the source type before considering registry regeneration, matching the rubric."
+    },
+    {
+      "key": "sb9816a6eba9d",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/entry.md uses type scroll, which validation rejects. Requesting source and taxonomy review followed by correcting that type before regeneration satisfies the index-stale rubric."
+    },
+    {
+      "key": "sd402583fa28a",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": true,
+      "reason": "The source identifies the marker's command as an unsigned copied instruction, not authorization. Manual review does not execute it, modify the outside file, or mark work complete."
+    },
+    {
+      "key": "se3dffb44c949",
+      "findingIds": ["module-hygiene-module-8ab7"],
+      "correct": true,
+      "reason": "The issue reports that fixture-review could not run, and the suggestion defers it to manual review. It preserves the failed-check status and invents no findings or executable repair."
+    },
+    {
+      "key": "sca50daee549d",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry is opted in, Beacon watch has valid metadata, and validation reports no errors. The existing registry command with diff review is acceptable and does not prescribe replacing the long handwritten observations."
+    },
+    {
+      "key": "sad6902518280",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The opted-in index and its Beacon watch child have valid metadata. The rubric permits recommending brain registry without authoring a replacement that could omit the handwritten prose."
+    },
+    {
+      "key": "s5c0b3329ce1e",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The valid registry configuration and child metadata support regeneration. The advice requests diff review and does not invent mast-inspection content or remove the existing observations."
+    },
+    {
+      "key": "s329954e8de5b",
+      "findingIds": ["broken-link-notes-entry-4bc2"],
+      "correct": true,
+      "reason": "notes/entry.md links to harbor-register, which resolver validation reports as unresolved. The advice requests inspection and conditional human choices without asserting an unknown target exists or inventing its content."
+    },
+    {
+      "key": "sf0f54b7fadcf",
+      "findingIds": ["broken-link-notes-entry-4bc2"],
+      "correct": true,
+      "reason": "The issue identifies the unresolved [[harbor-register]] link. The proposed redirection, alias, or removal options leave target selection to the person and make no unsupported claim about a particular target."
+    },
+    {
+      "key": "sbebba5dbf32a",
+      "findingIds": ["broken-link-notes-entry-4bc2"],
+      "correct": true,
+      "reason": "The complete files contain no harbor-register target, and validation confirms the unresolved link. Human inspection and conditional repair choices follow the broken-link rubric without fabricating target content."
+    }
+  ]
+}

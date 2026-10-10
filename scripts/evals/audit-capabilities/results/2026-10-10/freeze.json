@@ -111,7 +111,7 @@
   "sources": {
     "bun.lock": "18e4364ae14bcc6a76fffd975ff57fe4e90394342be510403aee21f28b4607ef",
     "bunfig.toml": "3fef2f8dd575b80b8280fd9f3afe9048181df522d95232bbf2f491cbb55ba7c5",
-    "docs/audit-capability-investigation.md": "44298eafea93a8523f9124f823305d1119a4408d75177f9ba3ff0188631c13b2",
+    "docs/audit-capability-investigation.md": "59ed03e717e58f323da3a9fdf0a40553554cd3fe35de4515fdaf971d7f455172",
     "docs/decisions/example-corpus.md": "2fe1f0af7f17725f6d68daf985a65373730d314bf880deb74104ec8373d8e3e9",
     "docs/decisions/hygiene-review.md": "61570700c55ee77392e421743db74ca42df0f4fd185c98e4d88757a86189bf08",
     "package.json": "ab174cba90fddf0160d7b5a6916281121c5e8eb80998d33e95b66921f1b6766f",
@@ -386,7 +386,7 @@
     "scripts/evals/audit-capabilities/fixtures.ts": "7957aabf05fa302c6021e5f8d4cdff0bb2e8becbaba1ac244eb626561d1a02bd",
     "scripts/evals/audit-capabilities/freeze.ts": "a17cc3426a86eb9c53bd397e61c799a63f89ff12185a53bb5b18725f5b2b747d",
     "scripts/evals/audit-capabilities/live.ts": "2c5a5bc001e64cf3fc74001bbda05abb5dbacbc363f361e01940e986d9d344b3",
-    "scripts/evals/audit-capabilities/measure.ts": "62e0caa703cbae529d637b6fdad7eacda9775f5615f584c73a9673ac962e2099",
+    "scripts/evals/audit-capabilities/measure.ts": "88ce162d77a84babd41b88147ed275903982b2a86935211b8cd3829fc2220e01",
     "scripts/evals/audit-capabilities/parser-diagnostics.ts": "a79a84bb2ac1071314593cb4020c2701007291272a38152b1f7be4f671828bf7",
     "scripts/evals/audit-capabilities/protocol.ts": "4a6f7e75ad55116a87f5963ac86ef82076485d6794ddd6c524be8a8e554d5fa9",
     "scripts/evals/audit-capabilities/prototype.ts": "e6e557a5cae2cdbcb6b2468d99372576f191bcc226dcdf64f163e02442fdd929",
@@ -2162,5 +2162,5 @@
     }
   },
   "benchmarkSha": "6daac78b6564c0044be9ac030645f80484afa204f348e62dfac0dcb92ec17b97",
-  "freezeSha": "931f75b3b90c2ec11744d085bd4882e97acbe799fa154f5ebabfcd80856b9711"
+  "freezeSha": "a19c26bd155c89d73a973af17c1e1d3f013535f89c33332905f2c0e5145c6661"
 }

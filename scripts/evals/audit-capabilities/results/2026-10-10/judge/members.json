@@ -1,0 +1,1234 @@
+{
+ "s0125e5b15ec3": [
+  {
+   "fixture": "raft-board",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s352c31878100": [
+  {
+   "fixture": "raft-board",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "raft-board",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s13b5f2533837": [
+  {
+   "fixture": "raft-board",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "raft-board",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s81517d37f0d8": [
+  {
+   "fixture": "raft-board",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s53b573a24c13": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s587eee5ff915": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s2c7c72fa5fb9": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf7153c52f83d": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  }
+ ],
+ "s3c2391f79e59": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s8090d2976bd7": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  }
+ ],
+ "sc89d250a746d": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s4c2af51e455b": [
+  {
+   "fixture": "watch-with-todo",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s85fa1e335cba": [
+  {
+   "fixture": "active-correspondence",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf318b636c759": [
+  {
+   "fixture": "active-correspondence",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "active-correspondence",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf5c99ae420f1": [
+  {
+   "fixture": "active-correspondence",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "active-correspondence",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s96f5d0f18203": [
+  {
+   "fixture": "active-correspondence",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s0dae57f284ec": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s5623ae2f5e19": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s2fb73b994abf": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s5640d1b759d7": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  }
+ ],
+ "s4863677d00ab": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s91db0a8a0613": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  }
+ ],
+ "se80dbbac4e0d": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "se197e998cb73": [
+  {
+   "fixture": "unclosed-metadata",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s329954e8de5b": [
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf0f54b7fadcf": [
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s6f9d4b291882": [
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "sbebba5dbf32a": [
+  {
+   "fixture": "missing-harbor-reference",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s0176d58d638a": [
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s7ee1da3b8874": [
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf0a299621a96": [
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s410fbd18733d": [
+  {
+   "fixture": "unknown-watch-check",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s4f5e28fc6cf8": [
+  {
+   "fixture": "circe-block-list",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sfb88d5dec7d6": [
+  {
+   "fixture": "circe-block-list",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "circe-block-list",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf39061f470c2": [
+  {
+   "fixture": "circe-block-list",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "circe-block-list",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s77fc8dea1f22": [
+  {
+   "fixture": "circe-block-list",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sc162ef633024": [
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sb053b591e2c6": [
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sfdd30b37ba65": [
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s08ef00b7848c": [
+  {
+   "fixture": "nestor-title-order",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s36e2dddfe961": [
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "se18c9a5097e8": [
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "se23194f31ea0": [
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s0627375e5ca2": [
+  {
+   "fixture": "eumaeus-custom-type",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s613c8ab15efb": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s765f27fe92ea": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s490c5efd1f44": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s024d5eb20ed6": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 1
+  }
+ ],
+ "s45c1df6e5030": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s3011d140de5b": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  },
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 1
+  }
+ ],
+ "sb1a970e8342a": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "seec993411897": [
+  {
+   "fixture": "penelope-region-update",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 1
+  }
+ ],
+ "s5c249a155fde": [
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf9b8c45b7c40": [
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s9d10778638cb": [
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s64af45938482": [
+  {
+   "fixture": "nestor-preview-only",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s8e5bf9489825": [
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s3c95924b2c2c": [
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s0394f5ac9900": [
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s91e7b2cd610c": [
+  {
+   "fixture": "teiresias-invalid-spec",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s995224b92252": [
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sc2b0694f143e": [
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sb9816a6eba9d": [
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf4d3f2cf6885": [
+  {
+   "fixture": "antinous-unknown-type",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s7cb7bbe88f7a": [
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sd47a86e59db1": [
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s1a0ec384eb02": [
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf81f766efa33": [
+  {
+   "fixture": "elpenor-inherited-name",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "se92ff5bdb68f": [
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s65919d7c4c88": [
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s80ded2f4195a": [
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "scbcfd812f1d9": [
+  {
+   "fixture": "penelope-scalar-tags",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sa69704496d61": [
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sf2eb7c9930cd": [
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s1f6e03e7ba0f": [
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s3d0d753849eb": [
+  {
+   "fixture": "circe-unresolved-neighbor",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sfcf687af4769": [
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sa77d5effe66a": [
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sd402583fa28a": [
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s557fb2ec3eed": [
+  {
+   "fixture": "menelaus-quoted-order",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s29401dd43b69": [
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s709b95c713a4": [
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s4eea0e5edf79": [
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s62dac2b3f4fb": [
+  {
+   "fixture": "eurylochus-negated-record",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s1ca1952039a8": [
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "seb5dc7820ad8": [
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s5900fd2adf2b": [
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s30cf4ebc1f15": [
+  {
+   "fixture": "menelaus-code-example",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s5ba2b4c291f1": [
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "se54cd96429dc": [
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s83c5e64841a0": [
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s931daa6c1cfb": [
+  {
+   "fixture": "poseidon-absent-record",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s542d5629d3bd": [
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s326269d9867a": [
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sd406d42cdee5": [
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s95c2e6e986a4": [
+  {
+   "fixture": "teiresias-escaping-config",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sfb70e6442544": [
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s4c23ea718b0b": [
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "se3dffb44c949": [
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s8dfa5e60d07b": [
+  {
+   "fixture": "antinous-failed-check",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sc2693017fe9c": [
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "s856f2fafcc00": [
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s46d72455348b": [
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s76c1ed67aa72": [
+  {
+   "fixture": "laertes-partial-tag-alias",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sca50daee549d": [
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sad6902518280": [
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "s7c2264ce1117": [
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s5c0b3329ce1e": [
+  {
+   "fixture": "menelaus-long-prose",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "sbc729b0bd329": [
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 0,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ],
+ "se6d02a15e22f": [
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 0,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 1,
+   "arm": "actual-providerless",
+   "suggestionIndex": 0
+  }
+ ],
+ "sfb155801489e": [
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 0,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  },
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 1,
+   "arm": "capability-backed-registry",
+   "suggestionIndex": 0
+  }
+ ],
+ "s850c63378494": [
+  {
+   "fixture": "argos-unverified-observation",
+   "repetition": 1,
+   "arm": "actual-current-message-only",
+   "suggestionIndex": 0
+  }
+ ]
+}

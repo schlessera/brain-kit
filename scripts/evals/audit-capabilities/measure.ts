@@ -46,19 +46,26 @@ try {
     try {
       const detected = await detect(p);
       if (!isDeepStrictEqual(detected, proof.rows.find((r: any) => r.id === f.id)?.detected)) throw Error(`${f.id}: detection differs from today's keyless proof`);
-      const firstCall = calls.length;
-      const provider = arm === "actual-current-message-only" ? completion(spend, f.id, repetition, key) : undefined;
+      const armStart = performance.now(); const firstCall = calls.length;
+      // Same runtime re-verification as live.ts before every paid dispatch.
+      const verifyFreeze = () => { if (runtimeFreeze().freezeSha !== frozen.freezeSha) throw Error("Runtime changed after freeze before physical dispatch"); };
+      const provider = arm === "actual-current-message-only" ? completion(spend, f.id, repetition, key, fetch, verifyFreeze) : undefined;
       const observed = await observeArm(p, f, arm, detected, provider).catch((error) => {
         observations.push({ fixture: f.id, repetition, arm, error: String(error), sourceEffects: error.sourceEffects ?? null, physicalCallIndices: calls.slice(firstCall).map((_, n) => firstCall + n) });
         save(); throw error;
       });
-      const durationMs = performance.now() - start;
-      observations.push({ fixture: f.id, split: f.split, repetition, arm, detected, durationMs, taskDurationMs: durationMs,
+      // Arm timing starts after preparation and detection, as in live.ts; only the measured freeze checks are excluded.
+      const excludedFreezeCheckMs = calls.slice(firstCall).reduce((sum, c) => sum + c.freezeCheckMs, 0);
+      const durationMs = performance.now() - armStart - excludedFreezeCheckMs;
+      const rawTaskDurationMs = performance.now() - start;
+      observations.push({ fixture: f.id, split: f.split, repetition, arm, detected, durationMs, rawTaskDurationMs,
+        taskDurationMs: rawTaskDurationMs - excludedFreezeCheckMs, excludedFreezeCheckMs,
         physicalCallIndices: calls.slice(firstCall).map((_, n) => firstCall + n), ...observed,
         projection: arm === "actual-current-message-only" ? currentProposalStats(observed.output, f) : null });
       save();
       console.error(`${f.id} rep ${repetition} ${arm}: ${calls.length - firstCall} call(s), known debit $${spend.knownChargeDebitUpperUsd.toFixed(4)}`);
       if (spend.stopped) throw Error("Stop after a failed or unknown-usage physical attempt");
+      if (new Date().toISOString().slice(0, 10) !== today) throw Error("Detection day crossed the keyless proof's day");
     } finally { p.close(); }
   }
 } finally {

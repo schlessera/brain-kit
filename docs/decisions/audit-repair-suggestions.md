@@ -2,106 +2,134 @@
 
 The [#841](https://github.com/schlessera/brain-kit/issues/841) comparison
 supports building `audit --fix` suggestions from the repair capabilities that
-actually exist. Today, only the registry handler for `index-stale` exists. The
-current completion prompt is worse than sending no prompt at all: on held-out
-cases it gave correct guidance for 24 of 40 findings, the audit's own
-providerless text for 34, and the capability-backed registry arm for 37. The
-prompt never identified a repairable finding. It costs money and about 3 s per
-call, and it adds nothing the deterministic paths do not already give.
+actually exist. Today that is only the registry handler for `index-stale`.
+The current completion prompt is worse than sending no prompt at all. On
+held-out cases it gave correct guidance for 28 of 40 findings. The audit's own
+providerless text gave correct guidance for 36, and the capability-backed
+registry arm for 38. The prompt never identified a repairable finding. It costs
+money, takes about 2.7 s per call, and adds nothing the deterministic paths do
+not already give.
 
 This record changes no production behaviour. [#1408](https://github.com/schlessera/brain-kit/issues/1408)
 owns the product change to `audit --fix`.
 
-Measured on 2026-10-10 (UTC detection day) at main
-`bae10edcf450a4b440cba3fdd2316d4724a75f90`, freeze
-`931f75b3b90c2ec11744d085bd4882e97acbe799fa154f5ebabfcd80856b9711`.
+Measured on 2026-10-10, the UTC detection day, on main
+`7e398dc207f2c4725f6c364331c3cd5d3112954d` plus this branch's `measure.ts`.
+The freeze is `a19c26bd155c89d73a973af17c1e1d3f013535f89c33332905f2c0e5145c6661`
+and is recorded in `results/2026-10-10/freeze.json`.
 
 ## What was compared
 
 Twenty-six authored cases (`scripts/evals/audit-capabilities/benchmark.json`):
-six tuning and twenty held-out, two repetitions each, through the actual audit
-command boundary.
+six tuning and twenty held-out, two repetitions each, run through the actual
+audit command boundary.
 
 | arm | what runs |
 | --- | --- |
-| `actual-current-message-only` | Today's `brain audit --fix` with a completion provider: `claude-sonnet-5-5`, Standard tier, 2,000-token limit, the shipped prompt unchanged. |
+| `actual-current-message-only` | Today's `brain audit --fix` with a completion provider: `claude-sonnet-5-5`, Standard tier, 2,000-token limit, the shipped prompt unchanged. The model sees only the finding list (`suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-68`). |
 | `actual-providerless` | Today's `brain audit --fix` with no provider: the audit's own suggestion text, marked manual. |
-| `capability-backed-registry` | The prototype: a suggestion per finding from the actual registry plan, type membership, validation and safe-path checks. It writes only when the case authorizes it. |
+| `capability-backed-registry` | The prototype: one suggestion per finding, built from the actual registry plan, type membership, validation and safe-path checks. It writes only when the case authorizes it. |
 
-The same day's [keyless proof](../../scripts/evals/audit-capabilities/results/2026-10-10/keyless-proof.json)
-passed every check on all 26 cases, and each case's detection matched it before
-its arms ran.
+The [keyless proof](../../scripts/evals/audit-capabilities/results/2026-10-10/keyless-proof.json)
+taken the same day passed every check on all 26 cases. Each case's detection
+matched it before that case's arms ran.
 
-gpt-6.1-sol, a different model family from the arm under test, annotated every
-one of the 168 suggestions against the category rubric in
-`scripts/evals/audit-capabilities/protocol.ts`, reading the complete fixture
-sources. The judge was arm-blind: suggestions arrived under opaque keys in
-three shuffled batches. On the 56 pairs where both repetitions produced
-identical suggestions, it gave the same verdict 55 times.
+Correctness was judged by gpt-6.1-sol, a different model family from the arm
+under test, against the category rubric in
+`scripts/evals/audit-capabilities/protocol.ts`, with the complete fixture
+sources in front of it. Each of the 112 distinct suggestions (per case and per
+input visibility) got one verdict, broadcast to every identical occurrence, so
+repeated outputs cannot disagree.
+
+The judge was told what each suggester could see. A suggester that truthfully
+says it cannot see a file is not penalized for that, only for wrong guidance.
+The judge was also told that repair flags are scored separately:
+- `canAutoFix: false` is never a guidance error, because `analyze.ts` counts
+  missed repairs itself.
+- `canAutoFix: true` is an error only when no repair exists.
+- A repair that is marked available but left unexecuted because it is not
+  authorized is correct.
+
+The [prompt](../../scripts/evals/audit-capabilities/results/2026-10-10/judge/prompt.md),
+inputs, raw reports and member map are kept in `results/2026-10-10/judge/`.
 [`analyze.ts`](../../scripts/evals/audit-capabilities/analyze.ts) scores the
 [observations](../../scripts/evals/audit-capabilities/results/2026-10-10/observations.json)
-from those [annotations](../../scripts/evals/audit-capabilities/results/2026-10-10/annotations.json).
+from the [annotations](../../scripts/evals/audit-capabilities/results/2026-10-10/annotations.json).
 
 ## Results
 
-[Analysis](../../scripts/evals/audit-capabilities/results/2026-10-10/analysis.json),
-held-out split (20 cases × 2 repetitions, 40 findings):
+[Analysis](../../scripts/evals/audit-capabilities/results/2026-10-10/analysis.json)
+of the held-out split (20 cases × 2 repetitions, 40 findings). Latency is arm
+time after fixture preparation and detection.
 
-| arm | correct guidance | repairable claimed | false auto-fix | writes | cost | p50 / p95 |
+| arm | correct guidance | repairable claimed | false auto-fix | writes | cost | arm p50 / p95 |
 | --- | --- | --- | --- | --- | --- | --- |
-| current prompt | 24 / 40 (60%) | 0 / 12 | 0 | 0 | $0.146 | 2,870 / 4,888 ms |
-| providerless | 34 / 40 (85%) | 0 / 12 | 0 | 0 | $0 | 28 / 72 ms |
-| capability-backed | **37 / 40 (92.5%)** | **12 / 12** | **0** | 10 | $0 | 41 / 98 ms |
+| current prompt | 28 / 40 (70%) | 0 / 12 | 0 | 0 | $0.139 | 2,733 / 4,592 ms |
+| providerless | 36 / 40 (90%) | 0 / 12 | 0 | 0 | $0 | 3 / 9 ms |
+| capability-backed | **38 / 40 (95%)** | **12 / 12** | **0** | 10 | $0 | 12 / 24 ms |
 
-The tuning split (6 cases × 2, 16 findings) points the same way: 14, 14 and
-16 of 16. Every capability-backed preview and authorized write matched its
-authored full-file effect. The one held-out case without write authorization,
+The tuning split (6 cases × 2 repetitions, 16 findings) gives 15, 14 and 16 of
+16. Every capability-backed preview and authorized write matched its authored
+full-file effect. The one held-out case without write authorization,
 `nestor-preview-only`, was correctly left unwritten in both repetitions.
 
 The current prompt never set `canAutoFix` and never returned a replacement
-`fix`, so it made no false repair claim. Its failures are guidance errors:
-- treating a quoted example marker as open work;
-- advising removal of an unverified claim that records unfinished work;
+`fix`, so it made no false repair claim. Its errors are guidance the person
+would follow wrongly:
+- treating a quoted example, or a copied instruction that is explicitly not
+  authorization, as work to do;
+- allowing a TODO that records unfinished work to be removed;
+- advising regeneration before the invalid child metadata the rubric says
+  must be corrected first;
 - recommending that content be copied from a path outside the brain;
-- ignoring a configured tag alias;
-- describing a missing record as a missing line.
+- asserting a cause for a failed module check that the evidence does not show.
 
-The model sees only the finding list, never the files
-(`suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-68`), so it cannot
-know any of these things.
+The model never sees the files, so it cannot know any of this.
 
-The capability-backed arm's three held-out misses are judge calls, not errors
-in what it did:
-- `nestor-preview-only` (both repetitions) reports `canAutoFix: true` with
-  `executionAuthorized: false` and correctly does not write. The judge read the
-  flag as a repair claim against a preview-only owner.
-- `penelope-scalar-tags` (one of two repetitions) gives the generic tag-noise
-  advice, and the judge split on it across the repetitions.
+On held-out cases, the providerless text misses the same invalid-metadata
+prerequisite on two cases, `antinous-unknown-type` and `elpenor-inherited-name`.
+On tuning, it also points at the wrong frontmatter for an unclosed quote. The
+capability arm's two held-out misses are one suggestion, repeated:
+`penelope-scalar-tags` gets the generic tag-noise advice, but the apparent
+singleton comes from a malformed scalar `tags:` value. The providerless arm
+gives the same advice text and was judged correct. The judge held the arm that
+could see the files, and so the malformed value, to the stricter reading.
+Counted either way, the order of the arms is unchanged.
 
-Spend: 52 paid calls, $0.195 at list price
-(`results/2026-10-10/billing.json`), no unknown-usage attempt and no invoice
-observed. The conservative per-call debit the spend guard settles is $0.445.
+Spend: 52 paid calls, $0.185 at list price
+(`results/2026-10-10/billing.json`). There was no unknown-usage attempt and no
+invoice was observed. The spend guard's conservative debit is $0.426 for the
+whole run, between $0.004 and $0.017 per call.
+
+An earlier run the same day was discarded. Its harness timed fixture
+preparation into arm latency and skipped the per-call freeze re-check, and its
+judge applied visibility and the repair flags inconsistently. That run ranked
+the arms in the same order.
 
 ## What #1408 should take from this
 
 - Stop asking a completion provider for `--fix` suggestions it cannot ground.
   The providerless text is already better, faster and free.
 - Report repairability from the registered capability, not from a model flag.
-  Keep `canAutoFix` (can be repaired) separate from execution authorization,
-  as the prototype does. That distinction is exactly what the judge contested
-  on `nestor-preview-only`, so name it plainly in the output.
+  Keep "can be repaired" (`canAutoFix`) separate from "may run"
+  (authorization), as the prototype does.
+- Close the guidance gaps both deterministic arms share: request the metadata
+  correction before regeneration when validation rejects a child, and point at
+  the file that failed validation.
 - Extend coverage one capability at a time. Each new handler needs its own
   authored cases under this rubric.
 
 ## Limits
 
-- Twenty-six authored cases. The decision rests on a large gap (60% against
-  85–92.5%) and on the absence of any repairable-finding recognition, not on
+- Twenty-six authored cases. The decision rests on a large gap (70% against
+  90–95%) and on the prompt never recognizing a repairable finding, not on
   precise rates.
-- One judge model. Its consistency across identical repetitions was 55 of 56,
-  and its strictest calls are named above.
-- The run used `measure.ts`. It reuses `live.ts`'s arms, provider wrapper and
-  spend guard, but skips the native review and paid-policy admission that
-  `live.ts main()` requires. It enforces the same-day keyless proof instead.
-- A completion prompt that receives the full sources is a different arm, and it
+- One judge model, with the rules stated above. Those rules were tightened
+  once after a first pass double-counted the repair flags; the inputs and raw
+  reports of the final pass are kept.
+- The run used `measure.ts`. It reuses `live.ts`'s arms, provider wrapper,
+  spend guard and per-call freeze re-check. It skips the native review and
+  paid-policy admission that `live.ts main()` requires, and enforces a
+  same-day keyless proof instead.
+- A completion prompt that receives the full sources is a different arm. It
   was not measured.
