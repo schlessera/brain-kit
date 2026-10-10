@@ -236,16 +236,21 @@ async function main(): Promise<number> {
   }
 
   // Read the actual positional subcommand, including one after `--`.
-  const hygieneNext = command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next";
+  const hygieneArgs = command === "hygiene" ? parseArgs(argv.slice(1)) : null;
+  const hygienePositionals = hygieneArgs?.args ?? [];
+  const hygieneNext = hygienePositionals[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
-  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext) {
+  const configBlockerCheck = hygienePositionals[0] === "check" && hygienePositionals[1] === "configuration-blocker";
+  const hygieneRepairWrite = (["resolve", "undo"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
+    (hygienePositionals[0] === "check" && !configBlockerCheck);
+  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext && !configBlockerCheck) {
     console.error(`Invalid brain.config:\n${configError}`);
     return 1;
   }
 
   // No config found at all → refuse anything that writes.
   const mutatingSub = MUTATING_SUBCOMMAND[command];
-  const mutates = hygieneNext ||
+  const mutates = hygieneNext || hygieneRepairWrite ||
     (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
     (MUTATING_WITH_FLAGS[command]?.(beforeTerminator(argv.slice(1))) ?? false);
   if (brain.configPath === null && mutates) {
