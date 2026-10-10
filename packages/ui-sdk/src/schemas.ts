@@ -1,3 +1,4 @@
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -677,6 +678,18 @@ export const inboxWorkPayloadSchema = z.strictObject({
   instruction: inboxText,
   operation: inboxOperationSchema.optional(),
 }) satisfies z.ZodType<InboxWorkPayload>;
+export const hygieneInputSchema = z.union([z.string().max(4096), z.array(z.string().max(256)).max(128), z.null()]);
+export const hygieneDiffSchema = z.strictObject({ path: inboxTargetPath, before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), changes: z.array(z.strictObject({ before: z.string().max(MAX_PROMPT_CHARS), after: z.string().max(MAX_PROMPT_CHARS), line: z.number().int().min(1) })).max(1024) }) satisfies z.ZodType<HygieneDiff>;
+export const hygieneEffectSchema = z.strictObject({
+  kind: z.literal("hygiene"), operation: z.enum(["resolve", "check", "undo", "dismiss", "snooze"]),
+  findingId: id, fingerprint: id, handler: id.optional(), input: hygieneInputSchema.optional(),
+  previewToken: id.optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+}) satisfies z.ZodType<HygieneEffect>;
+export const hygieneOutcomeSchema = z.strictObject({ version: z.literal(1), status: z.enum(["applying", "fixed", "stale", "refused", "check_failed", "still_detected", "not_detected", "undone", "dismissed", "snoozed"]), reason: z.string().max(4096).optional(), code: z.string().max(4096).optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(), fieldError: z.strictObject({ field: id, message: z.string().max(4096) }).optional() });
+export const hygieneActionSchema = z.strictObject({ findingId: id, fingerprint: id, finding: z.record(z.string(), z.unknown()), outcome: hygieneOutcomeSchema.optional() }) satisfies z.ZodType<HygieneAction>;
+export const hygieneReviewStateSchema = z.strictObject({ version: z.literal(1), status: z.enum(["idle", "active", "paused", "complete", "blocked"]), position: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, pendingActionId: id.optional(), counts: z.strictObject({ eligibleRemaining: inboxSeq, fixed: inboxSeq, dismissed: inboxSeq, snoozed: inboxSeq, nextSnoozeDueAt: z.string().nullable(), informationalNotShown: inboxSeq }).optional(), blocker: z.record(z.string(), z.unknown()).optional() }) satisfies z.ZodType<HygieneReviewState>;
+export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["start", "pause", "resume"]) }) satisfies z.ZodType<HygieneReviewCommand>;
+export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
 const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
 const snoozeEffectSchema = z.strictObject({ kind: z.literal("snooze") });
@@ -688,16 +701,16 @@ const writePolicyEffectSchema = z.strictObject({
 const openSessionEffectSchema = z.strictObject({
   kind: z.literal("open_session"), seed: z.strictObject({ prompt: inboxText }),
 });
-/** All six data variants; this is NOT the schema for v1 execution. */
+/** All seven data variants; this is NOT the schema for v1 execution. */
 export const resolutionEffectSchema = z.discriminatedUnion("kind", [
-  enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
+  hygieneEffectSchema, enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
   writePolicyEffectSchema, openSessionEffectSchema,
 ]) satisfies z.ZodType<ResolutionEffect>;
 /** Use at creation/application in v1: deferred kinds fail validation. */
 export const v1ResolutionEffectSchema = z.discriminatedUnion("kind", [
-  enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
+  hygieneEffectSchema, enqueueEffectSchema, cancelBlockedEffectSchema, snoozeEffectSchema, dismissEffectSchema,
 ]) satisfies z.ZodType<V1ResolutionEffect>;
-export const inboxOptionSchema = z.strictObject({ id, label: inboxText, effect: resolutionEffectSchema }) satisfies z.ZodType<InboxOption>;
+export const inboxOptionSchema = z.strictObject({ id, label: inboxText, effect: resolutionEffectSchema, input: z.strictObject({ type: z.enum(["none", "string", "enum", "date", "strings", "path"]), values: z.array(z.string()).optional(), example: z.string().optional() }).optional(), preview: hygieneDiffSchema.optional() }) satisfies z.ZodType<InboxOption>;
 
 // Compare exact JSON values, independent of object key order. An approved
 // operation binds the entire input and target, rather than just a tool name.
@@ -717,11 +730,12 @@ function sameInboxInput(left: unknown, right: unknown): boolean {
  * derive/revalidate that set for the principal and thread at each application.
  */
 export function validateResolutionEffect(
-  value: unknown, allowedOperations: readonly InboxOperation[]
+  value: unknown, allowedOperations: readonly InboxOperation[], options: { hygiene?: boolean } = {}
 ): ParseFrameResult<V1ResolutionEffect> {
   const parsed = v1ResolutionEffectSchema.safeParse(value);
   if (!parsed.success) return { ok: false, error: "Invalid or unavailable v1 resolution effect" };
   const effect = parsed.data;
+  if (effect.kind === "hygiene" && !options.hygiene) return { ok: false, error: "Hygiene effects require the human review coordinator" };
   if (effect.kind === "enqueue" && effect.payload.operation) {
     const operation = effect.payload.operation;
     if (!allowedOperations.some((allowed) => allowed.toolName === operation.toolName &&
@@ -733,7 +747,7 @@ export function validateResolutionEffect(
 }
 
 export const clientInboxResolveSchema = z.strictObject({
-  type: z.literal("inbox_resolve"), itemId: id, optionId: id, reason: inboxDismissReasonSchema.optional(),
+  type: z.literal("inbox_resolve"), itemId: id, optionId: id, reason: inboxDismissReasonSchema.optional(), input: hygieneInputSchema.optional(),
 }) satisfies z.ZodType<ClientInboxResolve>;
 export const clientInboxSnoozeSchema = z.strictObject({ type: z.literal("inbox_snooze"), itemId: id }) satisfies z.ZodType<ClientInboxSnooze>;
 export const clientInboxSubscribeSchema = z.strictObject({ type: z.literal("inbox_subscribe"), view: inboxViewSchema, threadId: id.optional() }) satisfies z.ZodType<ClientInboxSubscribe>;
@@ -1440,7 +1454,7 @@ const wireOperationSchema = inboxOperationSchema.loose().extend({ input: z.recor
 const wireWorkPayloadSchema = inboxWorkPayloadSchema.loose().extend({ operation: wireOperationSchema.optional() });
 const wireEffectSchema = z.discriminatedUnion("kind", [
   enqueueEffectSchema.loose().extend({ payload: wireWorkPayloadSchema }),
-  cancelBlockedEffectSchema.loose(), snoozeEffectSchema.loose(), dismissEffectSchema.loose(),
+  hygieneEffectSchema.loose(), cancelBlockedEffectSchema.loose(), snoozeEffectSchema.loose(), dismissEffectSchema.loose(),
   writePolicyEffectSchema.loose().extend({ policy: writePolicyEffectSchema.shape.policy.loose() }),
   openSessionEffectSchema.loose().extend({ seed: openSessionEffectSchema.shape.seed.loose() }),
 ]);
@@ -1466,8 +1480,9 @@ export const inboxQueueItemSchema = z.discriminatedUnion("type", [
 const wireOptionSchema = inboxOptionSchema.loose().extend({ effect: wireEffectSchema });
 export const inboxActionItemSchema = inboxItemBaseSchema.extend({
   queue: z.literal("actions"), type: z.enum(["approve", "choose", "fyi"]), status: inboxActionStatusSchema,
-  payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema),
+  payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema), hygiene: hygieneActionSchema.optional(),
 }).refine((item) => item.type !== "fyi" || item.options.length === 0, "FYIs cannot offer resolution options") satisfies z.ZodType<InboxActionItem>;
+export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable() }) satisfies z.ZodType<HygieneReviewRead>;
 export const inboxItemSchema = z.discriminatedUnion("queue", [inboxQueueItemSchema, inboxActionItemSchema]) satisfies z.ZodType<InboxItem>;
 const inboxChangeBaseSchema = z.looseObject({ changeId: inboxSeq, threadId: id, seq: z.number().int().min(1) });
 export const inboxChangeSchema = z.discriminatedUnion("kind", [

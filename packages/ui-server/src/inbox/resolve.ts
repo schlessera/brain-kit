@@ -35,6 +35,7 @@ export function createInboxResolver(db: Database, deps: {
   allowedOperations: (principalId: string, thread: InboxThread) => readonly InboxOperation[];
   now?: () => number;
   timeZone?: string;
+  applyHygiene?: (principalId: string, request: ClientInboxResolve) => Promise<{ replay: boolean; followUpId: string | undefined }>;
 }) {
   const now = deps.now ?? Date.now, timeZone = deps.timeZone ?? "UTC", store = createInboxStore(db, { now });
   new Intl.DateTimeFormat("en-US", { timeZone }).format(now());
@@ -60,21 +61,35 @@ export function createInboxResolver(db: Database, deps: {
     for (const { id } of blocks) store.commit([{ kind: "retain_block", itemId: id, expectedVersion: store.getItem(id)!.version, expiresAt: waitUntil + DAY }]);
     return { replay: false, followUpId: undefined };
   }
+  function inspect(principalId: string, msg: ClientInboxResolve) {
+    clientInboxResolveSchema.parse(msg);
+    const { action, raw, thread, allowed } = authorized(principalId, msg.itemId);
+    const option = inboxOptionSchema.parse(raw.options.find(option => option.id === msg.optionId));
+    const checked = validateResolutionEffect(option.effect, allowed, { hygiene: !!action.hygiene && !!deps.applyHygiene });
+    if (!checked.ok) throw new Error(checked.error);
+    const context = db.query("SELECT options_json, source_item_id FROM inbox_action_contexts WHERE item_id = ?")
+      .get(action.id) as { options_json: string; source_item_id: string | null } | null;
+    const revision = action.hygiene ? db.query("SELECT options_json FROM hygiene_action_revisions WHERE item_id = ? ORDER BY version DESC LIMIT 1").get(action.id) as { options_json: string } | null : null;
+    if ((action.hygiene && !context) || (context && (revision ?? context).options_json !== JSON.stringify(raw.options))) throw new Error("Stored Action options changed");
+    const effect = checked.message;
+    if (msg.reason !== undefined && effect.kind !== "dismiss" && !(effect.kind === "hygiene" && effect.operation === "dismiss")) throw new Error("Feedback belongs to dismissal");
+    if (msg.input !== undefined && (effect.kind !== "hygiene" || effect.operation !== "resolve" || JSON.stringify(msg.input) !== JSON.stringify(effect.input)))
+      throw new Error("Input does not match the confirmed preview");
+    return { action, thread, option, context, effect };
+  }
   return {
+    inspect,
+    async resolveAsync(principalId: string, request: ClientInboxResolve, expectedVersion?: number) {
+      const msg = clientInboxResolveSchema.parse(request), { effect } = inspect(principalId, msg);
+      if (effect.kind !== "hygiene") return this.resolve(principalId, msg, expectedVersion);
+      if (!deps.applyHygiene) throw new Error("Hygiene resolution is unavailable");
+      return deps.applyHygiene(principalId, msg);
+    },
     resolve(principalId: string, request: ClientInboxResolve, expectedVersion?: number): { replay: boolean; followUpId: string | undefined } {
       const msg = clientInboxResolveSchema.parse(request);
       return db.transaction(() => {
-        const { action, raw, thread, allowed } = authorized(principalId, msg.itemId);
-        // Validate RAW persisted data. The display reader tolerates additive
-        // fields; its projection cannot establish strict application validity.
-        const option = inboxOptionSchema.parse(raw.options.find(option => option.id === msg.optionId));
-        const checked = validateResolutionEffect(option.effect, allowed);
-        if (!checked.ok) throw new Error(checked.error);
-        const context = db.query("SELECT options_json, source_item_id FROM inbox_action_contexts WHERE item_id = ?")
-          .get(action.id) as { options_json: string; source_item_id: string | null } | null;
-        if (context && context.options_json !== JSON.stringify(raw.options)) throw new Error("Stored Action options changed");
-        const effect = checked.message;
-        if (msg.reason !== undefined && effect.kind !== "dismiss") throw new Error("Feedback belongs to dismissal");
+        const { action, thread, option, context, effect } = inspect(principalId, msg);
+        if (effect.kind === "hygiene") throw new Error("Hygiene requires asynchronous resolution");
         if (effect.kind === "snooze") return snooze(action, thread, expectedVersion);
         const prior = db.query("SELECT option_id, effect_json, reason FROM inbox_resolutions WHERE item_id = ?").get(action.id) as {
           option_id: string; effect_json: string; reason: string | null;
@@ -107,6 +122,7 @@ export function createInboxResolver(db: Database, deps: {
     snooze(principalId: string, itemId: string, expectedVersion?: number) {
       return db.transaction(() => {
         const { action, thread } = authorized(principalId, itemId);
+        if (action.hygiene) throw new Error("Use the stored hygiene Later option");
         return snooze(action, thread, expectedVersion);
       }).immediate();
     },

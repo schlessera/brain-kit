@@ -8,7 +8,7 @@ import { z } from "zod";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
-import { inboxItemSchema, v1ResolutionEffectSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { clientInboxResolveSchema, hygieneEffectSchema, hygieneReviewStateSchema, inboxItemSchema, inboxOptionSchema, v1ResolutionEffectSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { createUiDb } from "../db/client.js";
 import { createInboxStore } from "./store.js";
 import { failInboxWork, inboxIdentity } from "./actions.js";
@@ -87,8 +87,32 @@ function validateDatabase(db: Database): void {
   }
   for (const row of state.inbox_action_contexts) {
     const action = items.get(row.item_id);
-    if (!action || action.queue !== "actions" || JSON.stringify(action.options) !== row.options_json)
+    const revisions = state.hygiene_action_revisions.filter(r => r.item_id === row.item_id).sort((a, b) => Number(b.version) - Number(a.version));
+    const expectedOptions = action?.queue === "actions" && action.hygiene && revisions.length ? revisions[0]!.options_json : row.options_json;
+    if (!action || action.queue !== "actions" || JSON.stringify(action.options) !== expectedOptions)
       throw new Error("inbox_snapshot_relations");
+  }
+  for (const row of state.hygiene_action_revisions) {
+    const action = items.get(row.item_id);
+    const options = z.array(inboxOptionSchema).parse(JSON.parse(row.options_json as string));
+    if (!action || action.queue !== "actions" || !action.hygiene || Number(row.version) > action.version || !options.length)
+      throw new Error("inbox_snapshot_hygiene_relations");
+  }
+  for (const row of state.hygiene_effect_attempts) {
+    const request = clientInboxResolveSchema.parse(JSON.parse(row.request_json as string));
+    const effect = hygieneEffectSchema.parse(JSON.parse(row.effect_json as string));
+    const action = items.get(row.item_id);
+    if (!action || action.queue !== "actions" || !action.hygiene || request.itemId !== action.id ||
+        effect.findingId !== action.hygiene.findingId || effect.fingerprint !== action.hygiene.fingerprint ||
+        (row.status === "started" && action.status !== "pending") ||
+        (effect.operation === "snooze" && !Number.isSafeInteger(row.wait_until)))
+      throw new Error("inbox_snapshot_hygiene_relations");
+  }
+  for (const row of state.hygiene_review) {
+    const review = hygieneReviewStateSchema.parse(JSON.parse(row.data_json as string));
+    const action = review.pendingActionId ? items.get(review.pendingActionId) : null;
+    if (review.pendingActionId && (!action || action.queue !== "actions" || !action.hygiene || action.status !== "pending"))
+      throw new Error("inbox_snapshot_hygiene_relations");
   }
   for (const row of state.inbox_resolutions) {
     const action = items.get(row.item_id);

@@ -29,14 +29,14 @@ export function inboxActionSuppressed(db: Database, context: InboxActionContext,
 }
 
 /** Caller owns the encompassing transaction, including any blocked transition. */
-export function insertInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], context = inboxActionContext(action), now = Date.now()): void {
+export function insertInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], context = inboxActionContext(action), now = Date.now(), hygiene = false): void {
   if (!context.classKey || context.classKey.length > 256 || !context.evidenceBoundary ||
       !context.reraiseCondition || !Number.isSafeInteger(context.suppressionUntil) || context.suppressionUntil < 0)
     throw new Error("Invalid Action lifecycle context");
   if (action.type !== "fyi" && action.options.length === 0) throw new Error("A decision requires options");
   for (const option of action.options) {
     inboxOptionSchema.parse(option);
-    const result = validateResolutionEffect(option.effect, allowed);
+    const result = validateResolutionEffect(option.effect, allowed, { hygiene });
     if (!result.ok) throw new Error(result.error);
   }
   const store = createInboxStore(db, { now: () => now });
@@ -112,11 +112,11 @@ export function enforceInboxActionCap(db: Database, cap = INBOX_ACTION_CAP, now 
     retireInboxAction(db, item as InboxActionItem, "dropped", now);
 }
 
-export function createInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], options: { now?: number; cap?: number; context?: InboxActionContext } = {}): boolean {
+export function createInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], options: { now?: number; cap?: number; context?: InboxActionContext; hygiene?: boolean } = {}): boolean {
   const now = options.now ?? Date.now(), context = options.context ?? inboxActionContext(action);
   return db.transaction(() => {
     if (inboxActionSuppressed(db, context, now)) return false;
-    insertInboxAction(db, action, allowed, context, now);
+    insertInboxAction(db, action, allowed, context, now, options.hygiene);
     enforceInboxActionCap(db, options.cap, now);
     return true;
   }).immediate();
@@ -158,7 +158,7 @@ export function sweepInboxLifecycle(db: Database, now = Date.now(), cap?: number
       const item = store.getItem(entry.id)!;
       if (item.queue === "actions" && ["pending", "snoozed"].includes(item.status)) {
         if (item.expiresAt <= now) retireInboxAction(db, item, "expired", now);
-        else if (item.status === "snoozed" && item.waitUntil !== undefined && item.waitUntil <= now)
+        else if (!item.hygiene && item.status === "snoozed" && item.waitUntil !== undefined && item.waitUntil <= now)
           store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "pending", waitUntil: null }]);
       } else if (item.queue === "queue" && item.type !== "cleanup_pending") {
         if (item.expiresAt <= now && item.status === "blocked" && item.blockedByItemId) {

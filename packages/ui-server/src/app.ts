@@ -54,7 +54,8 @@ import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
 import { createInboxStore } from "./inbox/store.js";
-import { createInboxResolver } from "./inbox/resolve.js";
+import { createHygieneReview } from "./inbox/hygiene-review.js";
+import { createHygieneReviewRoutes } from "./routes/hygiene-review.js";
 import { createInboxStream } from "./inbox/stream.js";
 import { isUsablePrincipal, prunePrincipals, resolvePrincipal } from "./db/principals.js";
 import {
@@ -304,6 +305,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
+  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone });
+  try { await hygieneReview.recover(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
   // Activity record: span store + live stream + notifications + lifecycle
@@ -364,7 +367,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
-      createInboxResolver(db, { allowedOperations: () => [], timeZone: config.inbox?.budget?.timeZone })),
+      hygieneReview.resolver),
     classifier,
     labeller: createLabeller({
       options: options.labeller ?? null,
@@ -559,6 +562,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Passkey registration/management: after the guard, so a session is required
   // by mount position (the public assertion routes are registered above).
   app.route("/api", passkeyManagementRoutes(authMode, passkeyCtx));
+  app.route("/api", createHygieneReviewRoutes(hygieneReview));
   // Principal management: also after the guard. Its router adds the narrower
   // owner-only check after authentication has resolved the caller principal.
   app.route(
