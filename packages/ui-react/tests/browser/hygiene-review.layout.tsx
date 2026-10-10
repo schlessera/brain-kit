@@ -55,7 +55,7 @@ async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "
   await page.viewport(width, 1000);
   document.documentElement.dataset.theme = theme;
   fixture = (await commands.hygieneServer({ op: "start" })) as typeof fixture;
-  await set({ ...patch, start: true });
+  await set({ start: true, ...patch });
   ui = createBrainUiRoot({
     storage: null,
     request: async (url, init) => {
@@ -483,3 +483,118 @@ test("disconnect cancels a scheduled selection read before it starts", async () 
   await new Promise(r => setTimeout(r, 600));
   expect(reviewReads, "disconnect clears the scheduled selection read").toBe(readsAtDisconnect);
 });
+
+for (const width of [320, 1280])
+  test(`${width}: REST-only refreshed finding waits for replicated authority and never replays a click`, async () => {
+    await scene({}, width);
+    await chooseText();
+    await set({ mode: "stale" });
+    await apply();
+    await expect.poll(() => current().textContent).toContain("This file changed");
+    const oldId = current().dataset.hygieneId!;
+    const receive = socket!.onmessage!;
+    const held: MessageEvent[] = [];
+    socket!.onmessage = event => { held.push(event); };
+    try {
+      await set({ fingerprint: "50314b3e36cd", mode: "" });
+      await page.getByRole("button", { name: "Refresh finding", exact: true }).click();
+      await expect.poll(() => [...host!.querySelectorAll<HTMLElement>("[data-hygiene-id]")]
+        .some(el => el.dataset.hygieneId !== oldId)).toBe(true);
+      const fresh = [...host!.querySelectorAll<HTMLElement>("[data-hygiene-id]")]
+        .find(el => el.dataset.hygieneId !== oldId)!;
+      const id = fresh.dataset.hygieneId!;
+      expect(id, "REST returned a nonempty replacement Action identity").toBeTruthy();
+      expect(ui!.stores.inbox.getState().items[id], "inbox replication is deliberately held").toBeUndefined();
+      await expect.poll(() => held.length, { message: "real inbound frames are delayed" }).toBeGreaterThan(0);
+      if (width === 320) {
+        const later = page.getByRole("button", { name: "Later ▾", exact: true });
+        expect(later.element().getAttribute("aria-disabled"), "REST-only decision controls must be unavailable").toBe("true");
+        (later.element() as HTMLElement).click();
+        expect(host!.querySelector("[data-hygiene-later-confirm]")).toBeNull();
+        expect(page.getByRole("button", { name: "Apply fix", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
+        expect(page.getByRole("radio", { name: "Keep the text, remove the link" }).element()).toBeDisabled();
+      } else {
+        expect(page.getByRole("button", { name: /^Open finding:/ }).query(), "REST-only desktop detail entry is unavailable").toBeNull();
+        await commands.hygieneServer({ op: "ax", selector: "[data-hygiene-id]" });
+        expect(host!.textContent, "REST-only replacement never opens an absent terminal decision")
+          .not.toContain("This decision is no longer listed");
+        expect(host!.querySelector("[data-hygiene-detail] [data-hygiene-id]")?.getAttribute("data-hygiene-id"))
+          .toBe(oldId);
+        await page.getByRole("button", { name: "Back to Actions", exact: true }).click();
+        expect(page.getByRole("button", { name: /^Open finding:/ }).query(), "REST-only desktop detail entry is unavailable").toBeNull();
+      }
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "no response is queued for replay").toHaveLength(0);
+      await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `replication-wait-${width}.png` });
+      socket!.onmessage = receive;
+      for (const event of held.splice(0)) receive.call(socket!, event);
+      await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("pending");
+      if (width === 1280) await page.getByRole("button", { name: /^Open finding:/ }).click();
+      await expect.poll(() => current().dataset.hygieneId).toBe(id);
+      await chooseText();
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "delivery alone never applies a repair").toHaveLength(0);
+      await apply();
+      await expect.poll(() => {
+        const item = ui!.stores.inbox.getState().items[id];
+        return item?.queue === "actions" ? item.hygiene?.outcome?.status : undefined;
+      }).toBe("fixed");
+      expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
+      expect(appliedCalls(await set({})), "one old stale attempt and exactly one explicit replacement repair").toHaveLength(2);
+    } finally {
+      socket!.onmessage = receive;
+      for (const event of held) receive.call(socket!, event);
+    }
+  });
+
+for (const width of [320, 1280])
+  for (const operation of ["start", "resume"] as const)
+    test(`${width}: REST-only ${operation} keeps manual and disposition controls unavailable until replication`, async () => {
+      await scene({ start: false, category: "manual" }, width);
+      await page.getByRole("tab", { name: /^needs you / }).click();
+      const receive = socket!.onmessage!;
+      const held: MessageEvent[] = [];
+      socket!.onmessage = event => { held.push(event); };
+      try {
+        await page.getByRole("button", { name: "Start hygiene review", exact: true }).click();
+        await expect.poll(() => current()?.dataset.hygieneId).toBeTruthy();
+        const id = current().dataset.hygieneId!;
+        if (operation === "resume") {
+          await page.getByRole("button", { name: "Pause", exact: true }).click();
+          await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
+          await page.getByRole("button", { name: "Resume", exact: true }).click();
+          await expect.poll(() => host!.querySelector("[data-hygiene-strip]")?.textContent).toContain("1 of 2 open");
+          expect(current().dataset.hygieneId, "Resume retains the same REST-only pending Action").toBe(id);
+        }
+        expect(ui!.stores.inbox.getState().items[id]).toBeUndefined();
+        await expect.poll(() => held.length).toBeGreaterThan(0);
+        if (width === 320) {
+          for (const name of ["Done, check again", "Later ▾", "Dismiss"]) {
+            const button = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
+            expect(button.getAttribute("aria-disabled"), `${name} waits for replication`).toBe("true");
+            button.click();
+          }
+          title().focus();
+          await userEvent.keyboard("ald");
+          expect(host!.querySelector("[data-hygiene-later-confirm], [data-hygiene-dismiss-confirm]")).toBeNull();
+        } else {
+          expect(page.getByRole("button", { name: /^Open finding:/ }).query()).toBeNull();
+        }
+        expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(0);
+        socket!.onmessage = receive;
+        for (const event of held.splice(0)) receive.call(socket!, event);
+        await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("pending");
+        if (width === 1280) await page.getByRole("button", { name: /^Open finding:/ }).click();
+        expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "replication never replays disabled controls").toHaveLength(0);
+        if (operation === "start") {
+          await page.getByRole("button", { name: "Done, check again", exact: true }).click();
+          await expect.poll(() => current().textContent).toContain("Still detected — nothing changed");
+        } else {
+          await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+          await page.getByRole("button", { name: "Confirm dismiss finding", exact: true }).click();
+          await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("dismissed");
+        }
+        expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
+      } finally {
+        socket!.onmessage = receive;
+        for (const event of held) receive.call(socket!, event);
+      }
+    });
