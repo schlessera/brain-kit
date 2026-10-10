@@ -1563,7 +1563,7 @@ signatures (every public export and the types it is made of)
   Overlay (packages/ui-kit/src/chrome/Overlay.tsx)
     export function Overlay(p: OverlayProps): import("react").JSX.Element | null;
   OverlayCloseReason (packages/ui-kit/src/chrome/Overlay.tsx)
-    export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request";
+    export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request" | "swipe";
   OverlayName (packages/ui-kit/src/chrome/Overlay.tsx)
     type OverlayName = {
         title: string;
