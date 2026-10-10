@@ -4895,19 +4895,16 @@ signatures (every public export and the types it is made of)
         preview: string;
         attachmentCount: number;
     }
-  ENV_VARS (packages/ui-sdk/src/config/env.ts)
-    const ENV_VARS: readonly EnvVarSpec[];
+  ENV_VARS (packages/ui-sdk/src/config/env-vars.ts)
+    const ENV_VARS: readonly [{
+        readonly description: "Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override.";
+        readonly name: "BRAIN_WORKER_LAUNCH";
+        readonly required: "trusted worker bootstrap only";
+    }];
   EditedApprovalCheckInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface EditedApprovalCheckInput extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
         originalInput: unknown;
         editedInput: unknown;
-    }
-  EnvVarSpec (packages/ui-sdk/src/config/env-core.ts)
-    export interface EnvVarSpec {
-        name: string;
-        description: string;
-        default?: string | null;
-        required: boolean | string;
     }
   ExecWrapperConfig (packages/ui-sdk/src/server/exec-wrapper.ts)
     export interface ExecWrapperConfig {
