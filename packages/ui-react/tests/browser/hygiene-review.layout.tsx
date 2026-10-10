@@ -16,6 +16,8 @@ let renderer: Root | undefined,
   host: HTMLDivElement | undefined,
   socket: WebSocket | undefined;
 const frames: ClientMessage[] = [];
+let reviewReads = 0, failedReads = 0;
+let holdRead = false, releaseRead: (() => void) | undefined;
 let styles: HTMLStyleElement;
 const originalTheme = document.documentElement.dataset.theme;
 const viewport = { width: innerWidth, height: innerHeight };
@@ -29,6 +31,8 @@ afterAll(async () => {
   await page.viewport(viewport.width, viewport.height);
 });
 afterEach(async () => {
+  releaseRead?.();
+  holdRead = false; releaseRead = undefined; failedReads = 0; reviewReads = 0;
   if (renderer) flushSync(() => renderer!.unmount());
   renderer = undefined;
   ui?.dispose();
@@ -56,6 +60,11 @@ async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "
     storage: null,
     request: async (url, init) => {
       const path = new URL(url, location.origin).pathname;
+      if (path.endsWith("/hygiene/review") && (!init?.method || init.method === "GET")) {
+        reviewReads++;
+        if (failedReads > 0) { failedReads--; throw new Error("fixture read unavailable"); }
+        if (holdRead) await new Promise<void>((resolve) => { releaseRead = resolve; });
+      }
       if (path.includes("/hygiene/")) return fetch(url, init);
       if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
       if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
@@ -407,4 +416,70 @@ test("a REST read of the previous failure cannot erase the focus handoff for a c
   await expect.poll(() => current()?.dataset.hygieneId).not.toBe(before);
   await expect.poll(() => document.activeElement, { message: "confirmed recovery focuses the next title" }).toBe(title());
   expect(appliedCalls(await set({}))).toHaveLength(1);
+});
+
+for (const width of [320, 1280])
+  for (const completion of ["fix", "check", "dismiss", "later"] as const)
+    test(`${width}: delayed final ${completion} delivers completion to both devices without reload`, async () => {
+      await scene({ remaining: 1, category: completion === "check" ? "manual" : "broken-link" }, width);
+      expect(await commands.hygieneServer({ op: "native", id: fixture!.id, width, theme: "dark", completion }))
+        .toMatchObject({ completion, width, state: "complete", operations: 1 });
+    });
+
+for (const stop of ["pause", "offline", "unsupported", "unmount"] as const)
+  test(`transient selection refresh stops on ${stop}, including an outstanding read`, async () => {
+    await scene({ remaining: 1 });
+    await settle();
+    const idleReads = reviewReads;
+    await new Promise(r => setTimeout(r, 600));
+    expect(reviewReads, "waiting for a pending decision never polls").toBe(idleReads);
+    await set({ holdNext: true });
+    await page.getByRole("button", { name: "Later ▾", exact: true }).click();
+    await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
+    await expect.poll(async () => (await set({}) as { selecting: boolean }).selecting).toBe(true);
+    await settle();
+    holdRead = true;
+    await expect.poll(() => !!releaseRead, { message: "selection refresh started another real read" }).toBe(true);
+    if (stop === "pause") await page.getByRole("button", { name: "Pause", exact: true }).click();
+    else if (stop === "unmount") flushSync(() => renderer!.render(<div />));
+    else ui!.stores.inbox.setState(stop === "offline" ? { online: false } : { supported: false });
+    await settle();
+    holdRead = false;
+    releaseRead!(); releaseRead = undefined;
+    await settle();
+    const stoppedReads = reviewReads;
+    await new Promise(r => setTimeout(r, 700));
+    expect(reviewReads, `${stop} cancels selection refresh even after its read returns`).toBe(stoppedReads);
+  });
+
+test("transient selection refresh retries an unavailable REST read and stops at server completion", async () => {
+  await scene({ remaining: 1 });
+  await set({ holdNext: true });
+  await page.getByRole("button", { name: "Later ▾", exact: true }).click();
+  await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
+  await expect.poll(async () => (await set({}) as { selecting: boolean }).selecting).toBe(true);
+  failedReads = 1;
+  await expect.poll(() => failedReads).toBe(0);
+  await set({ releaseNext: true });
+  await expect.poll(() => host!.textContent, { message: "server completion arrives after a failed read" }).toContain("Review complete");
+  await expect.poll(() => document.activeElement?.textContent).toBe("Review complete");
+  await settle();
+  const finalReads = reviewReads;
+  await new Promise(r => setTimeout(r, 700));
+  expect(reviewReads, "completed review stops selection refresh").toBe(finalReads);
+});
+
+test("disconnect cancels a scheduled selection read before it starts", async () => {
+  await scene({ remaining: 1 });
+  await set({ holdNext: true });
+  await page.getByRole("button", { name: "Later ▾", exact: true }).click();
+  await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
+  await expect.poll(() => host!.querySelector("[data-hygiene-id]")).toBeNull();
+  // Terminal delta/REST response has committed the selecting render; its
+  // first 250ms read is still scheduled. Disconnect before it starts.
+  ui!.stores.inbox.setState({ online: false });
+  await settle();
+  const readsAtDisconnect = reviewReads;
+  await new Promise(r => setTimeout(r, 600));
+  expect(reviewReads, "disconnect clears the scheduled selection read").toBe(readsAtDisconnect);
 });
