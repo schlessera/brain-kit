@@ -3,7 +3,9 @@
 The UI operational database holds decisions and work; markdown remains the
 source of truth for brain content. Resolving a decision changes operational
 state and may enqueue a follow-up. It never invokes a backend, writes a policy,
-starts an interactive session or remembers a standing grant.
+starts an interactive session or remembers a standing grant. Human-started
+hygiene Actions call the deterministic CLI through the journaled review
+coordinator.
 
 ## Escalation
 
@@ -25,7 +27,7 @@ charges through the existing budget recovery path.
 
 ## Resolution and snooze
 
-The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:34-114`)
+The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:34-129`)
 rechecks the durable principal and derives the current operation
 envelope from server code. It validates raw persisted options against the
 strict v1 schemas, rather than trusting the permissive display projection.
@@ -110,3 +112,13 @@ cannot resurrect staging after cleanup has started; it needs fresh intake.
 Boot and drain maintenance reconcile these records without inference. The
 complete production dispatcher, containment and system proof remain the
 enablement gate described in the async-collaboration decision.
+
+## Human-started hygiene effects
+
+The [hygiene review contract](integration-contract.md#human-started-hygiene-review-additive-1027)
+adds a concrete deterministic effect to the same resolver. Its original Action
+context stays immutable; CLI previews append frozen option revisions and
+versioned outcomes to the shared change stream. The coordinator journals
+dispatch before I/O, completes Actions only on confirmed results, and recovers
+uncertain repairs through check rather than reapply. Generic model escalation
+cannot admit hygiene effects. UI controls remain a separate consumer.

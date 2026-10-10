@@ -259,12 +259,16 @@ export function createInboxStream(store: InboxStore, db: Database, log?: Logger,
     entry.subscriptions.delete(scope(msg));
     if (entry.subscriptions.size === 0) dropConnection(ws);
   }
-  function handleDecision(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): void {
+  async function handleDecision(ws: WSContext, msg: ClientInboxResolve | ClientInboxSnooze, authorization: AuthorizationContext): Promise<void> {
     if (closed) return;
     const entry: Connection = connections.get(key(ws)) ?? { ws, authorization, release: () => {}, subscriptions: new Map() };
     if (!authorized(entry)) return;
     try {
-      if (msg.type === "inbox_resolve") resolver.resolve(authorization.principalId, msg);
+      if (msg.type === "inbox_resolve") {
+        const { effect } = resolver.inspect(authorization.principalId, msg);
+        if (effect.kind === "hygiene") await resolver.resolveAsync(authorization.principalId, msg);
+        else resolver.resolve(authorization.principalId, msg);
+      }
       else resolver.snooze(authorization.principalId, msg.itemId);
       pump();
     } catch {

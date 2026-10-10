@@ -3197,11 +3197,48 @@ export interface InboxWorkPayload {
  * Model output is data, never authority. These payloads contain no trust,
  * principal, profile, tool-policy or grant fields. Creation AND application
  * must validate the requested operation against server-owned authority.
+ * `hygiene` is server-built human review only, never generic model escalation.
  * `write_policy` and `open_session` describe deferred v2 data only; v1 uses
  * V1ResolutionEffect and v1ResolutionEffectSchema, which exclude both kinds.
  * Snooze has no model-selected time; the server derives it deterministically.
  */
+export type HygieneInput = string | string[] | null;
+export interface HygieneDiff {
+  path: string; before: string; after: string;
+  changes: Array<{ before: string; after: string; line: number }>;
+}
+export interface HygieneEffect {
+  kind: "hygiene";
+  operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+  findingId: string;
+  fingerprint: string;
+  handler?: string;
+  input?: HygieneInput;
+  previewToken?: string;
+  undoToken?: string;
+}
+export interface HygieneAction {
+  findingId: string;
+  fingerprint: string;
+  /** Supported CLI projection, retained as display data. */
+  finding: Record<string, unknown>;
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed"; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+}
+export interface HygieneReviewState {
+  version: 1;
+  status: "idle" | "active" | "paused" | "complete" | "blocked";
+  position: number;
+  fixed: number; dismissed: number; snoozed: number;
+  pendingActionId?: string;
+  counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number };
+  blocker?: Record<string, unknown>;
+}
+export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" }
+export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
+export interface HygieneReviewRead { review: HygieneReviewState; action: InboxActionItem | null }
+
 export type ResolutionEffect =
+  | HygieneEffect
   | { kind: "enqueue"; payload: InboxWorkPayload }
   | { kind: "cancel_blocked" }
   | { kind: "snooze" }
@@ -3215,6 +3252,9 @@ export interface InboxOption {
   id: string;
   label: string;
   effect: ResolutionEffect;
+  /** CLI-owned input descriptor; no client-selected effect. */
+  input?: { type: "none" | "string" | "enum" | "date" | "strings" | "path"; values?: string[]; example?: string };
+  preview?: HygieneDiff;
 }
 
 export interface InboxItemBase {
@@ -3252,6 +3292,7 @@ export type InboxActionItem = InboxItemBase & {
   payload: { title: string; detail: string };
   /** FYIs have no options and do not count against the decision cap. */
   options: InboxOption[];
+  hygiene?: HygieneAction;
 };
 
 /** Queue work acquires leases; human Actions never enter `claimed`. */
@@ -3291,6 +3332,8 @@ export interface ClientInboxResolve {
   optionId: string;
   /** Feedback only, never standing authority. */
   reason?: InboxDismissReason;
+  /** Must exactly match the input bound to the stored preview. */
+  input?: HygieneInput;
 }
 
 /** The server computes waitUntil; clients cannot override the scheduling rule. */

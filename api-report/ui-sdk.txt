@@ -145,6 +145,14 @@ export "." (./src/index.ts)
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
+  type HygieneAction
+  type HygieneDiff
+  type HygieneEffect
+  type HygieneInput
+  type HygienePreviewRequest
+  type HygieneReviewCommand
+  type HygieneReviewRead
+  type HygieneReviewState
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -495,6 +503,14 @@ export "./client" (./src/client/index.ts)
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
   type HelloState
+  type HygieneAction
+  type HygieneDiff
+  type HygieneEffect
+  type HygieneInput
+  type HygienePreviewRequest
+  type HygieneReviewCommand
+  type HygieneReviewRead
+  type HygieneReviewState
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskPayload
   type InboxActionItem
@@ -909,6 +925,14 @@ export "./protocol" (./src/protocol.ts)
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
+  type HygieneAction
+  type HygieneDiff
+  type HygieneEffect
+  type HygieneInput
+  type HygienePreviewRequest
+  type HygieneReviewCommand
+  type HygieneReviewRead
+  type HygieneReviewState
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -1132,6 +1156,15 @@ export "./schemas" (./src/schemas.ts)
   draftSchema
   draftSummarySchema
   handoffRequestSchema
+  hygieneActionSchema
+  hygieneDiffSchema
+  hygieneEffectSchema
+  hygieneInputSchema
+  hygieneOutcomeSchema
+  hygienePreviewRequestSchema
+  hygieneReviewCommandSchema
+  hygieneReviewReadSchema
+  hygieneReviewStateSchema
   inboxActionItemSchema
   inboxActionStatusSchema
   inboxChangeSchema
@@ -1442,6 +1475,14 @@ export "./server" (./src/server/index.ts)
   HANDOFF_MAX_REFERENCES
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
+  type HygieneAction
+  type HygieneDiff
+  type HygieneEffect
+  type HygieneInput
+  type HygienePreviewRequest
+  type HygieneReviewCommand
+  type HygieneReviewRead
+  type HygieneReviewState
   IMAGE_MASK_PAYLOAD_SCHEMA
   type ImageMaskHandlerOptions
   type ImageMaskPayload
@@ -4585,6 +4626,7 @@ signatures (every public export and the types it is made of)
         itemId: string;
         optionId: string;
         reason?: InboxDismissReason;
+        input?: HygieneInput;
     }
   ClientInboxSnooze (packages/ui-sdk/src/protocol.ts)
     export interface ClientInboxSnooze {
@@ -5175,6 +5217,82 @@ signatures (every public export and the types it is made of)
     }
   HelloState (packages/ui-sdk/src/client/ws-client.ts)
     export type HelloState = "pending" | "received" | "absent";
+  HygieneAction (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneAction {
+        findingId: string;
+        fingerprint: string;
+        finding: Record<string, unknown>;
+        outcome?: {
+            version: 1;
+            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed";
+            reason?: string;
+            code?: string;
+            undoToken?: string;
+            fieldError?: {
+                field: string;
+                message: string;
+            };
+        };
+    }
+  HygieneDiff (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneDiff {
+        path: string;
+        before: string;
+        after: string;
+        changes: Array<{
+            before: string;
+            after: string;
+            line: number;
+        }>;
+    }
+  HygieneEffect (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneEffect {
+        kind: "hygiene";
+        operation: "resolve" | "check" | "undo" | "dismiss" | "snooze";
+        findingId: string;
+        fingerprint: string;
+        handler?: string;
+        input?: HygieneInput;
+        previewToken?: string;
+        undoToken?: string;
+    }
+  HygieneInput (packages/ui-sdk/src/protocol.ts)
+    export type HygieneInput = string | string[] | null;
+  HygienePreviewRequest (packages/ui-sdk/src/protocol.ts)
+    export interface HygienePreviewRequest {
+        itemId: string;
+        optionId: string;
+        expectedVersion: number;
+        input: HygieneInput;
+    }
+  HygieneReviewCommand (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneReviewCommand {
+        operation: "start" | "pause" | "resume";
+    }
+  HygieneReviewRead (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneReviewRead {
+        review: HygieneReviewState;
+        action: InboxActionItem | null;
+    }
+  HygieneReviewState (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneReviewState {
+        version: 1;
+        status: "idle" | "active" | "paused" | "complete" | "blocked";
+        position: number;
+        fixed: number;
+        dismissed: number;
+        snoozed: number;
+        pendingActionId?: string;
+        counts?: {
+            eligibleRemaining: number;
+            fixed: number;
+            dismissed: number;
+            snoozed: number;
+            nextSnoozeDueAt: string | null;
+            informationalNotShown: number;
+        };
+        blocker?: Record<string, unknown>;
+    }
   IMAGE_MASK_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const IMAGE_MASK_PAYLOAD_SCHEMA: z.ZodObject<{
         bytes: z.ZodNumber;
@@ -5205,6 +5323,7 @@ signatures (every public export and the types it is made of)
             detail: string;
         };
         options: InboxOption[];
+        hygiene?: HygieneAction;
     };
   InboxActionStatus (packages/ui-sdk/src/protocol.ts)
     export type InboxActionStatus = "pending" | "snoozed" | "resolved" | "dismissed" | "expired" | "dropped";
@@ -5259,6 +5378,12 @@ signatures (every public export and the types it is made of)
         id: string;
         label: string;
         effect: ResolutionEffect;
+        input?: {
+            type: "none" | "string" | "enum" | "date" | "strings" | "path";
+            values?: string[];
+            example?: string;
+        };
+        preview?: HygieneDiff;
     }
   InboxQueueItem (packages/ui-sdk/src/protocol.ts)
     export type InboxQueueItem = InboxItemBase & {
@@ -5981,7 +6106,7 @@ signatures (every public export and the types it is made of)
         noGrantSurface?: boolean;
     }
   ResolutionEffect (packages/ui-sdk/src/protocol.ts)
-    export type ResolutionEffect = {
+    export type ResolutionEffect = HygieneEffect | {
         kind: "enqueue";
         payload: InboxWorkPayload;
     } | {
@@ -8629,6 +8754,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   clientInboxResolveSchema (packages/ui-sdk/src/schemas.ts)
     const clientInboxResolveSchema: z.ZodObject<{
+        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
         itemId: z.ZodString;
         optionId: z.ZodString;
         reason: z.ZodOptional<z.ZodEnum<{
@@ -8936,6 +9062,7 @@ signatures (every public export and the types it is made of)
         handoffId: z.ZodString;
         type: z.ZodLiteral<"handoff_status">;
     }, z.core.$loose>, z.ZodObject<{
+        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
         itemId: z.ZodString;
         optionId: z.ZodString;
         reason: z.ZodOptional<z.ZodEnum<{
@@ -9351,11 +9478,317 @@ signatures (every public export and the types it is made of)
         references: z.ZodArray<z.ZodString>;
         sourceSessionId: z.ZodString;
     }, z.core.$loose>;
+  hygieneActionSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneActionSchema: z.ZodObject<{
+        finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+        findingId: z.ZodString;
+        fingerprint: z.ZodString;
+        outcome: z.ZodOptional<z.ZodObject<{
+            code: z.ZodOptional<z.ZodString>;
+            fieldError: z.ZodOptional<z.ZodObject<{
+                field: z.ZodString;
+                message: z.ZodString;
+            }, z.core.$strict>>;
+            reason: z.ZodOptional<z.ZodString>;
+            status: z.ZodEnum<{
+                applying: "applying";
+                check_failed: "check_failed";
+                dismissed: "dismissed";
+                fixed: "fixed";
+                not_detected: "not_detected";
+                refused: "refused";
+                snoozed: "snoozed";
+                stale: "stale";
+                still_detected: "still_detected";
+                undone: "undone";
+            }>;
+            undoToken: z.ZodOptional<z.ZodString>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
+  hygieneDiffSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneDiffSchema: z.ZodObject<{
+        after: z.ZodString;
+        before: z.ZodString;
+        changes: z.ZodArray<z.ZodObject<{
+            after: z.ZodString;
+            before: z.ZodString;
+            line: z.ZodNumber;
+        }, z.core.$strict>>;
+        path: z.ZodString;
+    }, z.core.$strict>;
+  hygieneEffectSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneEffectSchema: z.ZodObject<{
+        findingId: z.ZodString;
+        fingerprint: z.ZodString;
+        handler: z.ZodOptional<z.ZodString>;
+        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+        kind: z.ZodLiteral<"hygiene">;
+        operation: z.ZodEnum<{
+            check: "check";
+            dismiss: "dismiss";
+            resolve: "resolve";
+            snooze: "snooze";
+            undo: "undo";
+        }>;
+        previewToken: z.ZodOptional<z.ZodString>;
+        undoToken: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+  hygieneInputSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneInputSchema: z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>;
+  hygieneOutcomeSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneOutcomeSchema: z.ZodObject<{
+        code: z.ZodOptional<z.ZodString>;
+        fieldError: z.ZodOptional<z.ZodObject<{
+            field: z.ZodString;
+            message: z.ZodString;
+        }, z.core.$strict>>;
+        reason: z.ZodOptional<z.ZodString>;
+        status: z.ZodEnum<{
+            applying: "applying";
+            check_failed: "check_failed";
+            dismissed: "dismissed";
+            fixed: "fixed";
+            not_detected: "not_detected";
+            refused: "refused";
+            snoozed: "snoozed";
+            stale: "stale";
+            still_detected: "still_detected";
+            undone: "undone";
+        }>;
+        undoToken: z.ZodOptional<z.ZodString>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  hygienePreviewRequestSchema (packages/ui-sdk/src/schemas.ts)
+    const hygienePreviewRequestSchema: z.ZodObject<{
+        expectedVersion: z.ZodNumber;
+        input: z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>;
+        itemId: z.ZodString;
+        optionId: z.ZodString;
+    }, z.core.$strict>;
+  hygieneReviewCommandSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewCommandSchema: z.ZodObject<{
+        operation: z.ZodEnum<{
+            pause: "pause";
+            resume: "resume";
+            start: "start";
+        }>;
+    }, z.core.$strict>;
+  hygieneReviewReadSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewReadSchema: z.ZodObject<{
+        action: z.ZodNullable<z.ZodObject<{
+            createdAt: z.ZodNumber;
+            dedupKey: z.ZodString;
+            expiresAt: z.ZodNumber;
+            hygiene: z.ZodOptional<z.ZodObject<{
+                finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                outcome: z.ZodOptional<z.ZodObject<{
+                    code: z.ZodOptional<z.ZodString>;
+                    fieldError: z.ZodOptional<z.ZodObject<{
+                        field: z.ZodString;
+                        message: z.ZodString;
+                    }, z.core.$strict>>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    status: z.ZodEnum<{
+                        applying: "applying";
+                        check_failed: "check_failed";
+                        dismissed: "dismissed";
+                        fixed: "fixed";
+                        not_detected: "not_detected";
+                        refused: "refused";
+                        snoozed: "snoozed";
+                        stale: "stale";
+                        still_detected: "still_detected";
+                        undone: "undone";
+                    }>;
+                    undoToken: z.ZodOptional<z.ZodString>;
+                    version: z.ZodLiteral<1>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
+            id: z.ZodString;
+            options: z.ZodArray<z.ZodObject<{
+                effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    kind: z.ZodLiteral<"enqueue">;
+                    payload: z.ZodObject<{
+                        instruction: z.ZodString;
+                        operation: z.ZodOptional<z.ZodObject<{
+                            input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                            targetPath: z.ZodString;
+                            toolName: z.ZodString;
+                        }, z.core.$loose>>;
+                    }, z.core.$loose>;
+                }, z.core.$loose>, z.ZodObject<{
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    handler: z.ZodOptional<z.ZodString>;
+                    input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                    kind: z.ZodLiteral<"hygiene">;
+                    operation: z.ZodEnum<{
+                        check: "check";
+                        dismiss: "dismiss";
+                        resolve: "resolve";
+                        snooze: "snooze";
+                        undo: "undo";
+                    }>;
+                    previewToken: z.ZodOptional<z.ZodString>;
+                    undoToken: z.ZodOptional<z.ZodString>;
+                }, z.core.$loose>, z.ZodObject<{
+                    kind: z.ZodLiteral<"cancel_blocked">;
+                }, z.core.$loose>, z.ZodObject<{
+                    kind: z.ZodLiteral<"snooze">;
+                }, z.core.$loose>, z.ZodObject<{
+                    kind: z.ZodLiteral<"dismiss">;
+                    reason: z.ZodOptional<z.ZodEnum<{
+                        dont_ask_again: "dont_ask_again";
+                        need_more_info: "need_more_info";
+                        no_longer_relevant: "no_longer_relevant";
+                        wrong_call: "wrong_call";
+                    }>>;
+                }, z.core.$loose>, z.ZodObject<{
+                    kind: z.ZodLiteral<"write_policy">;
+                    policy: z.ZodObject<{
+                        content: z.ZodString;
+                        slug: z.ZodString;
+                    }, z.core.$loose>;
+                }, z.core.$loose>, z.ZodObject<{
+                    kind: z.ZodLiteral<"open_session">;
+                    seed: z.ZodObject<{
+                        prompt: z.ZodString;
+                    }, z.core.$loose>;
+                }, z.core.$loose>], "kind">;
+                id: z.ZodString;
+                input: z.ZodOptional<z.ZodObject<{
+                    example: z.ZodOptional<z.ZodString>;
+                    type: z.ZodEnum<{
+                        date: "date";
+                        enum: "enum";
+                        none: "none";
+                        path: "path";
+                        string: "string";
+                        strings: "strings";
+                    }>;
+                    values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>;
+                label: z.ZodString;
+                preview: z.ZodOptional<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    changes: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        line: z.ZodNumber;
+                    }, z.core.$strict>>;
+                    path: z.ZodString;
+                }, z.core.$strict>>;
+            }, z.core.$loose>>;
+            payload: z.ZodObject<{
+                detail: z.ZodString;
+                title: z.ZodString;
+            }, z.core.$loose>;
+            queue: z.ZodLiteral<"actions">;
+            runId: z.ZodOptional<z.ZodString>;
+            status: z.ZodEnum<{
+                dismissed: "dismissed";
+                dropped: "dropped";
+                expired: "expired";
+                pending: "pending";
+                resolved: "resolved";
+                snoozed: "snoozed";
+            }>;
+            threadId: z.ZodString;
+            type: z.ZodEnum<{
+                approve: "approve";
+                choose: "choose";
+                fyi: "fyi";
+            }>;
+            updatedAt: z.ZodNumber;
+            version: z.ZodNumber;
+            waitUntil: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$loose>>;
+        review: z.ZodObject<{
+            blocker: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+            counts: z.ZodOptional<z.ZodObject<{
+                dismissed: z.ZodNumber;
+                eligibleRemaining: z.ZodNumber;
+                fixed: z.ZodNumber;
+                informationalNotShown: z.ZodNumber;
+                nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
+                snoozed: z.ZodNumber;
+            }, z.core.$strict>>;
+            dismissed: z.ZodNumber;
+            fixed: z.ZodNumber;
+            pendingActionId: z.ZodOptional<z.ZodString>;
+            position: z.ZodNumber;
+            snoozed: z.ZodNumber;
+            status: z.ZodEnum<{
+                active: "active";
+                blocked: "blocked";
+                complete: "complete";
+                idle: "idle";
+                paused: "paused";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  hygieneReviewStateSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneReviewStateSchema: z.ZodObject<{
+        blocker: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        counts: z.ZodOptional<z.ZodObject<{
+            dismissed: z.ZodNumber;
+            eligibleRemaining: z.ZodNumber;
+            fixed: z.ZodNumber;
+            informationalNotShown: z.ZodNumber;
+            nextSnoozeDueAt: z.ZodNullable<z.ZodString>;
+            snoozed: z.ZodNumber;
+        }, z.core.$strict>>;
+        dismissed: z.ZodNumber;
+        fixed: z.ZodNumber;
+        pendingActionId: z.ZodOptional<z.ZodString>;
+        position: z.ZodNumber;
+        snoozed: z.ZodNumber;
+        status: z.ZodEnum<{
+            active: "active";
+            blocked: "blocked";
+            complete: "complete";
+            idle: "idle";
+            paused: "paused";
+        }>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
   inboxActionItemSchema (packages/ui-sdk/src/schemas.ts)
     const inboxActionItemSchema: z.ZodObject<{
         createdAt: z.ZodNumber;
         dedupKey: z.ZodString;
         expiresAt: z.ZodNumber;
+        hygiene: z.ZodOptional<z.ZodObject<{
+            finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+            findingId: z.ZodString;
+            fingerprint: z.ZodString;
+            outcome: z.ZodOptional<z.ZodObject<{
+                code: z.ZodOptional<z.ZodString>;
+                fieldError: z.ZodOptional<z.ZodObject<{
+                    field: z.ZodString;
+                    message: z.ZodString;
+                }, z.core.$strict>>;
+                reason: z.ZodOptional<z.ZodString>;
+                status: z.ZodEnum<{
+                    applying: "applying";
+                    check_failed: "check_failed";
+                    dismissed: "dismissed";
+                    fixed: "fixed";
+                    not_detected: "not_detected";
+                    refused: "refused";
+                    snoozed: "snoozed";
+                    stale: "stale";
+                    still_detected: "still_detected";
+                    undone: "undone";
+                }>;
+                undoToken: z.ZodOptional<z.ZodString>;
+                version: z.ZodLiteral<1>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         id: z.ZodString;
         options: z.ZodArray<z.ZodObject<{
             effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -9368,6 +9801,21 @@ signatures (every public export and the types it is made of)
                         toolName: z.ZodString;
                     }, z.core.$loose>>;
                 }, z.core.$loose>;
+            }, z.core.$loose>, z.ZodObject<{
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                handler: z.ZodOptional<z.ZodString>;
+                input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                kind: z.ZodLiteral<"hygiene">;
+                operation: z.ZodEnum<{
+                    check: "check";
+                    dismiss: "dismiss";
+                    resolve: "resolve";
+                    snooze: "snooze";
+                    undo: "undo";
+                }>;
+                previewToken: z.ZodOptional<z.ZodString>;
+                undoToken: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>, z.ZodObject<{
                 kind: z.ZodLiteral<"cancel_blocked">;
             }, z.core.$loose>, z.ZodObject<{
@@ -9393,7 +9841,29 @@ signatures (every public export and the types it is made of)
                 }, z.core.$loose>;
             }, z.core.$loose>], "kind">;
             id: z.ZodString;
+            input: z.ZodOptional<z.ZodObject<{
+                example: z.ZodOptional<z.ZodString>;
+                type: z.ZodEnum<{
+                    date: "date";
+                    enum: "enum";
+                    none: "none";
+                    path: "path";
+                    string: "string";
+                    strings: "strings";
+                }>;
+                values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
             label: z.ZodString;
+            preview: z.ZodOptional<z.ZodObject<{
+                after: z.ZodString;
+                before: z.ZodString;
+                changes: z.ZodArray<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    line: z.ZodNumber;
+                }, z.core.$strict>>;
+                path: z.ZodString;
+            }, z.core.$strict>>;
         }, z.core.$loose>>;
         payload: z.ZodObject<{
             detail: z.ZodString;
@@ -9558,6 +10028,33 @@ signatures (every public export and the types it is made of)
             createdAt: z.ZodNumber;
             dedupKey: z.ZodString;
             expiresAt: z.ZodNumber;
+            hygiene: z.ZodOptional<z.ZodObject<{
+                finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                outcome: z.ZodOptional<z.ZodObject<{
+                    code: z.ZodOptional<z.ZodString>;
+                    fieldError: z.ZodOptional<z.ZodObject<{
+                        field: z.ZodString;
+                        message: z.ZodString;
+                    }, z.core.$strict>>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    status: z.ZodEnum<{
+                        applying: "applying";
+                        check_failed: "check_failed";
+                        dismissed: "dismissed";
+                        fixed: "fixed";
+                        not_detected: "not_detected";
+                        refused: "refused";
+                        snoozed: "snoozed";
+                        stale: "stale";
+                        still_detected: "still_detected";
+                        undone: "undone";
+                    }>;
+                    undoToken: z.ZodOptional<z.ZodString>;
+                    version: z.ZodLiteral<1>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
             id: z.ZodString;
             options: z.ZodArray<z.ZodObject<{
                 effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -9570,6 +10067,21 @@ signatures (every public export and the types it is made of)
                             toolName: z.ZodString;
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
+                }, z.core.$loose>, z.ZodObject<{
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    handler: z.ZodOptional<z.ZodString>;
+                    input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                    kind: z.ZodLiteral<"hygiene">;
+                    operation: z.ZodEnum<{
+                        check: "check";
+                        dismiss: "dismiss";
+                        resolve: "resolve";
+                        snooze: "snooze";
+                        undo: "undo";
+                    }>;
+                    previewToken: z.ZodOptional<z.ZodString>;
+                    undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
                     kind: z.ZodLiteral<"cancel_blocked">;
                 }, z.core.$loose>, z.ZodObject<{
@@ -9595,7 +10107,29 @@ signatures (every public export and the types it is made of)
                     }, z.core.$loose>;
                 }, z.core.$loose>], "kind">;
                 id: z.ZodString;
+                input: z.ZodOptional<z.ZodObject<{
+                    example: z.ZodOptional<z.ZodString>;
+                    type: z.ZodEnum<{
+                        date: "date";
+                        enum: "enum";
+                        none: "none";
+                        path: "path";
+                        string: "string";
+                        strings: "strings";
+                    }>;
+                    values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>;
                 label: z.ZodString;
+                preview: z.ZodOptional<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    changes: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        line: z.ZodNumber;
+                    }, z.core.$strict>>;
+                    path: z.ZodString;
+                }, z.core.$strict>>;
             }, z.core.$loose>>;
             payload: z.ZodObject<{
                 detail: z.ZodString;
@@ -9768,6 +10302,33 @@ signatures (every public export and the types it is made of)
                 createdAt: z.ZodNumber;
                 dedupKey: z.ZodString;
                 expiresAt: z.ZodNumber;
+                hygiene: z.ZodOptional<z.ZodObject<{
+                    finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    outcome: z.ZodOptional<z.ZodObject<{
+                        code: z.ZodOptional<z.ZodString>;
+                        fieldError: z.ZodOptional<z.ZodObject<{
+                            field: z.ZodString;
+                            message: z.ZodString;
+                        }, z.core.$strict>>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        status: z.ZodEnum<{
+                            applying: "applying";
+                            check_failed: "check_failed";
+                            dismissed: "dismissed";
+                            fixed: "fixed";
+                            not_detected: "not_detected";
+                            refused: "refused";
+                            snoozed: "snoozed";
+                            stale: "stale";
+                            still_detected: "still_detected";
+                            undone: "undone";
+                        }>;
+                        undoToken: z.ZodOptional<z.ZodString>;
+                        version: z.ZodLiteral<1>;
+                    }, z.core.$strict>>;
+                }, z.core.$strict>>;
                 id: z.ZodString;
                 options: z.ZodArray<z.ZodObject<{
                     effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -9780,6 +10341,21 @@ signatures (every public export and the types it is made of)
                                 toolName: z.ZodString;
                             }, z.core.$loose>>;
                         }, z.core.$loose>;
+                    }, z.core.$loose>, z.ZodObject<{
+                        findingId: z.ZodString;
+                        fingerprint: z.ZodString;
+                        handler: z.ZodOptional<z.ZodString>;
+                        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                        kind: z.ZodLiteral<"hygiene">;
+                        operation: z.ZodEnum<{
+                            check: "check";
+                            dismiss: "dismiss";
+                            resolve: "resolve";
+                            snooze: "snooze";
+                            undo: "undo";
+                        }>;
+                        previewToken: z.ZodOptional<z.ZodString>;
+                        undoToken: z.ZodOptional<z.ZodString>;
                     }, z.core.$loose>, z.ZodObject<{
                         kind: z.ZodLiteral<"cancel_blocked">;
                     }, z.core.$loose>, z.ZodObject<{
@@ -9805,7 +10381,29 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>;
                     }, z.core.$loose>], "kind">;
                     id: z.ZodString;
+                    input: z.ZodOptional<z.ZodObject<{
+                        example: z.ZodOptional<z.ZodString>;
+                        type: z.ZodEnum<{
+                            date: "date";
+                            enum: "enum";
+                            none: "none";
+                            path: "path";
+                            string: "string";
+                            strings: "strings";
+                        }>;
+                        values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                    }, z.core.$strict>>;
                     label: z.ZodString;
+                    preview: z.ZodOptional<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        changes: z.ZodArray<z.ZodObject<{
+                            after: z.ZodString;
+                            before: z.ZodString;
+                            line: z.ZodNumber;
+                        }, z.core.$strict>>;
+                        path: z.ZodString;
+                    }, z.core.$strict>>;
                 }, z.core.$loose>>;
                 payload: z.ZodObject<{
                     detail: z.ZodString;
@@ -9975,6 +10573,33 @@ signatures (every public export and the types it is made of)
         createdAt: z.ZodNumber;
         dedupKey: z.ZodString;
         expiresAt: z.ZodNumber;
+        hygiene: z.ZodOptional<z.ZodObject<{
+            finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+            findingId: z.ZodString;
+            fingerprint: z.ZodString;
+            outcome: z.ZodOptional<z.ZodObject<{
+                code: z.ZodOptional<z.ZodString>;
+                fieldError: z.ZodOptional<z.ZodObject<{
+                    field: z.ZodString;
+                    message: z.ZodString;
+                }, z.core.$strict>>;
+                reason: z.ZodOptional<z.ZodString>;
+                status: z.ZodEnum<{
+                    applying: "applying";
+                    check_failed: "check_failed";
+                    dismissed: "dismissed";
+                    fixed: "fixed";
+                    not_detected: "not_detected";
+                    refused: "refused";
+                    snoozed: "snoozed";
+                    stale: "stale";
+                    still_detected: "still_detected";
+                    undone: "undone";
+                }>;
+                undoToken: z.ZodOptional<z.ZodString>;
+                version: z.ZodLiteral<1>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         id: z.ZodString;
         options: z.ZodArray<z.ZodObject<{
             effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -9987,6 +10612,21 @@ signatures (every public export and the types it is made of)
                         toolName: z.ZodString;
                     }, z.core.$loose>>;
                 }, z.core.$loose>;
+            }, z.core.$loose>, z.ZodObject<{
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                handler: z.ZodOptional<z.ZodString>;
+                input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                kind: z.ZodLiteral<"hygiene">;
+                operation: z.ZodEnum<{
+                    check: "check";
+                    dismiss: "dismiss";
+                    resolve: "resolve";
+                    snooze: "snooze";
+                    undo: "undo";
+                }>;
+                previewToken: z.ZodOptional<z.ZodString>;
+                undoToken: z.ZodOptional<z.ZodString>;
             }, z.core.$loose>, z.ZodObject<{
                 kind: z.ZodLiteral<"cancel_blocked">;
             }, z.core.$loose>, z.ZodObject<{
@@ -10012,7 +10652,29 @@ signatures (every public export and the types it is made of)
                 }, z.core.$loose>;
             }, z.core.$loose>], "kind">;
             id: z.ZodString;
+            input: z.ZodOptional<z.ZodObject<{
+                example: z.ZodOptional<z.ZodString>;
+                type: z.ZodEnum<{
+                    date: "date";
+                    enum: "enum";
+                    none: "none";
+                    path: "path";
+                    string: "string";
+                    strings: "strings";
+                }>;
+                values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
             label: z.ZodString;
+            preview: z.ZodOptional<z.ZodObject<{
+                after: z.ZodString;
+                before: z.ZodString;
+                changes: z.ZodArray<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    line: z.ZodNumber;
+                }, z.core.$strict>>;
+                path: z.ZodString;
+            }, z.core.$strict>>;
         }, z.core.$loose>>;
         payload: z.ZodObject<{
             detail: z.ZodString;
@@ -10047,6 +10709,21 @@ signatures (every public export and the types it is made of)
   inboxOptionSchema (packages/ui-sdk/src/schemas.ts)
     const inboxOptionSchema: z.ZodObject<{
         effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
+            findingId: z.ZodString;
+            fingerprint: z.ZodString;
+            handler: z.ZodOptional<z.ZodString>;
+            input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+            kind: z.ZodLiteral<"hygiene">;
+            operation: z.ZodEnum<{
+                check: "check";
+                dismiss: "dismiss";
+                resolve: "resolve";
+                snooze: "snooze";
+                undo: "undo";
+            }>;
+            previewToken: z.ZodOptional<z.ZodString>;
+            undoToken: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>, z.ZodObject<{
             kind: z.ZodLiteral<"enqueue">;
             payload: z.ZodObject<{
                 instruction: z.ZodString;
@@ -10081,7 +10758,29 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
         }, z.core.$strict>], "kind">;
         id: z.ZodString;
+        input: z.ZodOptional<z.ZodObject<{
+            example: z.ZodOptional<z.ZodString>;
+            type: z.ZodEnum<{
+                date: "date";
+                enum: "enum";
+                none: "none";
+                path: "path";
+                string: "string";
+                strings: "strings";
+            }>;
+            values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
         label: z.ZodString;
+        preview: z.ZodOptional<z.ZodObject<{
+            after: z.ZodString;
+            before: z.ZodString;
+            changes: z.ZodArray<z.ZodObject<{
+                after: z.ZodString;
+                before: z.ZodString;
+                line: z.ZodNumber;
+            }, z.core.$strict>>;
+            path: z.ZodString;
+        }, z.core.$strict>>;
     }, z.core.$strict>;
   inboxQueueItemSchema (packages/ui-sdk/src/schemas.ts)
     const inboxQueueItemSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -10302,6 +11001,33 @@ signatures (every public export and the types it is made of)
             createdAt: z.ZodNumber;
             dedupKey: z.ZodString;
             expiresAt: z.ZodNumber;
+            hygiene: z.ZodOptional<z.ZodObject<{
+                finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                outcome: z.ZodOptional<z.ZodObject<{
+                    code: z.ZodOptional<z.ZodString>;
+                    fieldError: z.ZodOptional<z.ZodObject<{
+                        field: z.ZodString;
+                        message: z.ZodString;
+                    }, z.core.$strict>>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    status: z.ZodEnum<{
+                        applying: "applying";
+                        check_failed: "check_failed";
+                        dismissed: "dismissed";
+                        fixed: "fixed";
+                        not_detected: "not_detected";
+                        refused: "refused";
+                        snoozed: "snoozed";
+                        stale: "stale";
+                        still_detected: "still_detected";
+                        undone: "undone";
+                    }>;
+                    undoToken: z.ZodOptional<z.ZodString>;
+                    version: z.ZodLiteral<1>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
             id: z.ZodString;
             options: z.ZodArray<z.ZodObject<{
                 effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -10314,6 +11040,21 @@ signatures (every public export and the types it is made of)
                             toolName: z.ZodString;
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
+                }, z.core.$loose>, z.ZodObject<{
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    handler: z.ZodOptional<z.ZodString>;
+                    input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                    kind: z.ZodLiteral<"hygiene">;
+                    operation: z.ZodEnum<{
+                        check: "check";
+                        dismiss: "dismiss";
+                        resolve: "resolve";
+                        snooze: "snooze";
+                        undo: "undo";
+                    }>;
+                    previewToken: z.ZodOptional<z.ZodString>;
+                    undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
                     kind: z.ZodLiteral<"cancel_blocked">;
                 }, z.core.$loose>, z.ZodObject<{
@@ -10339,7 +11080,29 @@ signatures (every public export and the types it is made of)
                     }, z.core.$loose>;
                 }, z.core.$loose>], "kind">;
                 id: z.ZodString;
+                input: z.ZodOptional<z.ZodObject<{
+                    example: z.ZodOptional<z.ZodString>;
+                    type: z.ZodEnum<{
+                        date: "date";
+                        enum: "enum";
+                        none: "none";
+                        path: "path";
+                        string: "string";
+                        strings: "strings";
+                    }>;
+                    values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>;
                 label: z.ZodString;
+                preview: z.ZodOptional<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    changes: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        line: z.ZodNumber;
+                    }, z.core.$strict>>;
+                    path: z.ZodString;
+                }, z.core.$strict>>;
             }, z.core.$loose>>;
             payload: z.ZodObject<{
                 detail: z.ZodString;
@@ -10887,6 +11650,21 @@ signatures (every public export and the types it is made of)
     export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;
   resolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const resolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        findingId: z.ZodString;
+        fingerprint: z.ZodString;
+        handler: z.ZodOptional<z.ZodString>;
+        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+        kind: z.ZodLiteral<"hygiene">;
+        operation: z.ZodEnum<{
+            check: "check";
+            dismiss: "dismiss";
+            resolve: "resolve";
+            snooze: "snooze";
+            undo: "undo";
+        }>;
+        previewToken: z.ZodOptional<z.ZodString>;
+        undoToken: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
         kind: z.ZodLiteral<"enqueue">;
         payload: z.ZodObject<{
             instruction: z.ZodString;
@@ -13403,6 +14181,33 @@ signatures (every public export and the types it is made of)
             createdAt: z.ZodNumber;
             dedupKey: z.ZodString;
             expiresAt: z.ZodNumber;
+            hygiene: z.ZodOptional<z.ZodObject<{
+                finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                findingId: z.ZodString;
+                fingerprint: z.ZodString;
+                outcome: z.ZodOptional<z.ZodObject<{
+                    code: z.ZodOptional<z.ZodString>;
+                    fieldError: z.ZodOptional<z.ZodObject<{
+                        field: z.ZodString;
+                        message: z.ZodString;
+                    }, z.core.$strict>>;
+                    reason: z.ZodOptional<z.ZodString>;
+                    status: z.ZodEnum<{
+                        applying: "applying";
+                        check_failed: "check_failed";
+                        dismissed: "dismissed";
+                        fixed: "fixed";
+                        not_detected: "not_detected";
+                        refused: "refused";
+                        snoozed: "snoozed";
+                        stale: "stale";
+                        still_detected: "still_detected";
+                        undone: "undone";
+                    }>;
+                    undoToken: z.ZodOptional<z.ZodString>;
+                    version: z.ZodLiteral<1>;
+                }, z.core.$strict>>;
+            }, z.core.$strict>>;
             id: z.ZodString;
             options: z.ZodArray<z.ZodObject<{
                 effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -13415,6 +14220,21 @@ signatures (every public export and the types it is made of)
                             toolName: z.ZodString;
                         }, z.core.$loose>>;
                     }, z.core.$loose>;
+                }, z.core.$loose>, z.ZodObject<{
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    handler: z.ZodOptional<z.ZodString>;
+                    input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                    kind: z.ZodLiteral<"hygiene">;
+                    operation: z.ZodEnum<{
+                        check: "check";
+                        dismiss: "dismiss";
+                        resolve: "resolve";
+                        snooze: "snooze";
+                        undo: "undo";
+                    }>;
+                    previewToken: z.ZodOptional<z.ZodString>;
+                    undoToken: z.ZodOptional<z.ZodString>;
                 }, z.core.$loose>, z.ZodObject<{
                     kind: z.ZodLiteral<"cancel_blocked">;
                 }, z.core.$loose>, z.ZodObject<{
@@ -13440,7 +14260,29 @@ signatures (every public export and the types it is made of)
                     }, z.core.$loose>;
                 }, z.core.$loose>], "kind">;
                 id: z.ZodString;
+                input: z.ZodOptional<z.ZodObject<{
+                    example: z.ZodOptional<z.ZodString>;
+                    type: z.ZodEnum<{
+                        date: "date";
+                        enum: "enum";
+                        none: "none";
+                        path: "path";
+                        string: "string";
+                        strings: "strings";
+                    }>;
+                    values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                }, z.core.$strict>>;
                 label: z.ZodString;
+                preview: z.ZodOptional<z.ZodObject<{
+                    after: z.ZodString;
+                    before: z.ZodString;
+                    changes: z.ZodArray<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        line: z.ZodNumber;
+                    }, z.core.$strict>>;
+                    path: z.ZodString;
+                }, z.core.$strict>>;
             }, z.core.$loose>>;
             payload: z.ZodObject<{
                 detail: z.ZodString;
@@ -13622,6 +14464,33 @@ signatures (every public export and the types it is made of)
                 createdAt: z.ZodNumber;
                 dedupKey: z.ZodString;
                 expiresAt: z.ZodNumber;
+                hygiene: z.ZodOptional<z.ZodObject<{
+                    finding: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+                    findingId: z.ZodString;
+                    fingerprint: z.ZodString;
+                    outcome: z.ZodOptional<z.ZodObject<{
+                        code: z.ZodOptional<z.ZodString>;
+                        fieldError: z.ZodOptional<z.ZodObject<{
+                            field: z.ZodString;
+                            message: z.ZodString;
+                        }, z.core.$strict>>;
+                        reason: z.ZodOptional<z.ZodString>;
+                        status: z.ZodEnum<{
+                            applying: "applying";
+                            check_failed: "check_failed";
+                            dismissed: "dismissed";
+                            fixed: "fixed";
+                            not_detected: "not_detected";
+                            refused: "refused";
+                            snoozed: "snoozed";
+                            stale: "stale";
+                            still_detected: "still_detected";
+                            undone: "undone";
+                        }>;
+                        undoToken: z.ZodOptional<z.ZodString>;
+                        version: z.ZodLiteral<1>;
+                    }, z.core.$strict>>;
+                }, z.core.$strict>>;
                 id: z.ZodString;
                 options: z.ZodArray<z.ZodObject<{
                     effect: z.ZodDiscriminatedUnion<[z.ZodObject<{
@@ -13634,6 +14503,21 @@ signatures (every public export and the types it is made of)
                                 toolName: z.ZodString;
                             }, z.core.$loose>>;
                         }, z.core.$loose>;
+                    }, z.core.$loose>, z.ZodObject<{
+                        findingId: z.ZodString;
+                        fingerprint: z.ZodString;
+                        handler: z.ZodOptional<z.ZodString>;
+                        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+                        kind: z.ZodLiteral<"hygiene">;
+                        operation: z.ZodEnum<{
+                            check: "check";
+                            dismiss: "dismiss";
+                            resolve: "resolve";
+                            snooze: "snooze";
+                            undo: "undo";
+                        }>;
+                        previewToken: z.ZodOptional<z.ZodString>;
+                        undoToken: z.ZodOptional<z.ZodString>;
                     }, z.core.$loose>, z.ZodObject<{
                         kind: z.ZodLiteral<"cancel_blocked">;
                     }, z.core.$loose>, z.ZodObject<{
@@ -13659,7 +14543,29 @@ signatures (every public export and the types it is made of)
                         }, z.core.$loose>;
                     }, z.core.$loose>], "kind">;
                     id: z.ZodString;
+                    input: z.ZodOptional<z.ZodObject<{
+                        example: z.ZodOptional<z.ZodString>;
+                        type: z.ZodEnum<{
+                            date: "date";
+                            enum: "enum";
+                            none: "none";
+                            path: "path";
+                            string: "string";
+                            strings: "strings";
+                        }>;
+                        values: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                    }, z.core.$strict>>;
                     label: z.ZodString;
+                    preview: z.ZodOptional<z.ZodObject<{
+                        after: z.ZodString;
+                        before: z.ZodString;
+                        changes: z.ZodArray<z.ZodObject<{
+                            after: z.ZodString;
+                            before: z.ZodString;
+                            line: z.ZodNumber;
+                        }, z.core.$strict>>;
+                        path: z.ZodString;
+                    }, z.core.$strict>>;
                 }, z.core.$loose>>;
                 payload: z.ZodObject<{
                     detail: z.ZodString;
@@ -14661,6 +15567,21 @@ signatures (every public export and the types it is made of)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
   v1ResolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const v1ResolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        findingId: z.ZodString;
+        fingerprint: z.ZodString;
+        handler: z.ZodOptional<z.ZodString>;
+        input: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>>;
+        kind: z.ZodLiteral<"hygiene">;
+        operation: z.ZodEnum<{
+            check: "check";
+            dismiss: "dismiss";
+            resolve: "resolve";
+            snooze: "snooze";
+            undo: "undo";
+        }>;
+        previewToken: z.ZodOptional<z.ZodString>;
+        undoToken: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
         kind: z.ZodLiteral<"enqueue">;
         payload: z.ZodObject<{
             instruction: z.ZodString;
@@ -14686,7 +15607,9 @@ signatures (every public export and the types it is made of)
   validateExecWrapper (packages/ui-sdk/src/server/exec-wrapper.ts)
     export function validateExecWrapper(raw: string | undefined): string | undefined;
   validateResolutionEffect (packages/ui-sdk/src/schemas.ts)
-    export function validateResolutionEffect(value: unknown, allowedOperations: readonly InboxOperation[]): ParseFrameResult<V1ResolutionEffect>;
+    export function validateResolutionEffect(value: unknown, allowedOperations: readonly InboxOperation[], options?: {
+        hygiene?: boolean;
+    }): ParseFrameResult<V1ResolutionEffect>;
   validateVersionMinimum (packages/ui-sdk/src/server/version-requirements.ts)
     export function validateVersionMinimum(value: unknown, owner: string, identity: string): string;
   visibleToolName (packages/ui-sdk/src/tool-contracts/contract.ts)

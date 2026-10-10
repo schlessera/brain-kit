@@ -117,3 +117,17 @@ work. Boot and subsequent intake compensate abandoned preparations after an
 hour, while committed staging IDs are protected from legacy share TTL pruning.
 The audit-only export includes these receipts; it still excludes staging bytes
 and is not a backup. See the [HTTP intake/recovery contract](http-api.md#authenticated-cli-intake-additive-679).
+
+## Hygiene review revisions and dispatch journal
+
+Migration `036_hygiene_review.sql` adds one durable review projection,
+append-only confirmed option revisions and a journal of hygiene CLI attempts.
+These records belong to the UI operational store and its backup/export, never
+`brain.db`. Hygiene Actions still use `inbox_items`, versioned upserts and the
+shared resolution records. Original Action contexts remain immutable; each
+server-produced preview/outcome revision freezes the current strict options.
+The resolver compares against the latest immutable revision for hygiene only.
+One unfinished attempt per Action serializes asynchronous CLI dispatch across
+connections. Recovery rechecks the original finding/fingerprint without
+replaying the repair. The documented HTTP read exposes review counters across
+reloads/devices; the existing inbox stream exposes Action outcomes.

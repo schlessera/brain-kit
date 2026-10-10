@@ -16,6 +16,9 @@ type Check = { path?: string; init?: RequestInit; status?: number; body?: object
 // this map is cross-checked with the spec and the actual Hono mounts.
 const checks: Record<string, Check> = {
   "GET /api/health": { body: { status: "healthy" } },
+  "GET /api/hygiene/review": { body: { review: { version: 1, status: "idle" }, action: null } },
+  "POST /api/hygiene/review": { init: json("POST", { operation: "pause" }), body: { review: { version: 1, status: "paused" }, action: null } },
+  "POST /api/hygiene/review/preview": { init: json("POST", { itemId: "missing", optionId: "link-note", expectedVersion: 1, input: "notes/arrival.md" }), status: 409, body: { error: "preview_refused" } },
   "GET /api/status": { body: { healthy: true, version: "dev", software: { sourceCommit: "dev" } } },
   "POST /api/auth/login": { init: json("POST", { password: "wrong-fixture-password" }), status: 401, body: { error: "Invalid credentials" } },
   "POST /api/auth/logout": { init: { method: "POST" }, body: { ok: true } },

@@ -622,3 +622,12 @@ describe("the exec wrapper covers the shared CLI client", () => {
     expect(readFileSync(log, "utf-8")).toContain("--version");
   }, 30_000);
 });
+
+test("hygiene reads business refusals on exit 1 but rejects an abnormal CLI exit", async () => {
+  const root = temporaryBrain();
+  installBrainCli(root, 'console.log(JSON.stringify({status:"refused",id:"ithaca-link",reason:"stale-fingerprint"})); process.exit(1);\n');
+  const brain = createBrainClient({ brainPath: root });
+  expect(await brain.hygiene!(["resolve", "--", "ithaca-link"])).toMatchObject({ status: "refused" });
+  installBrainCli(root, 'console.log(JSON.stringify({status:"fixed",id:"ithaca-link"})); process.exit(2);\n');
+  await expect(brain.hygiene!(["resolve", "--", "ithaca-link"])).rejects.toThrow("exit 2");
+});

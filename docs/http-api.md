@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview and saved-audio transcription routes mounted by `createApp`: 117 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 120 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -76,6 +76,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/graph/meta` | I | Read graph availability and provenance | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/graph/neighborhood` | I | Read bounded local presentation subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/health` | S | Probe SQLite liveness without identity | Health probes and React connectivity; preserve public minimal response without identity. |
+| GET | `/api/hygiene/review` | S | Read the durable review strip and pending Action | Independent clients and hygiene review controls; preserve SDK review/read shapes. |
+| POST | `/api/hygiene/review` | S | Start, pause or resume human review | Human principal authority and one pending Action; preserve SDK command/read shapes. |
+| POST | `/api/hygiene/review/preview` | S | Bind typed handler input to a current CLI preview | Human principal authority, stored option and version; preserve SDK preview shapes. |
 | POST | `/api/internal/inbox/poke` | S | Recover and trigger the Queue lifecycle | Generated-host cron caller; independent boot bearer token plus actual loopback socket. See the [runtime specification](inbox-runtime.md). |
 | GET | `/api/models` | S | Read full catalog including hidden profiles | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
 | PUT | `/api/models/billing` | I | Replace billing classification overrides | React settings: incidental configuration transport; no independent HTTP promise. Supported hidden-set override listed separately. |
@@ -150,7 +153,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 117 declared endpoints are mounted regardless of backend, renderer or
+All 120 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -918,3 +921,13 @@ Unsupported providers return 501 `saved_audio_unsupported`.
 `DELETE ?disposition=accepted|discarded` returns 200 with a `consumed` receipt;
 an invalid disposition gives 400. It removes text, retains the immutable id
 and hash, and inserts a hashless tombstone if no upload has claimed yet.
+
+## Human-started hygiene review (additive, #1027)
+
+`GET /api/hygiene/review` reads durable review state and its pending Action.
+`POST /api/hygiene/review` accepts `{ operation: "start" | "pause" | "resume" }`.
+`POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
+`expectedVersion` and bounded handler `input`. Owner/ambient operation authority
+is rechecked against the durable principal. These routes run only deterministic
+CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
+See [the wire shapes and error codes](integration-contract.md#human-started-hygiene-review-additive-1027).

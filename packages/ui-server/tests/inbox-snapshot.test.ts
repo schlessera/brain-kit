@@ -13,6 +13,7 @@ import { createInboxBudget, acquireInboxBudgetRun } from "../src/inbox/budget.js
 import { createPrincipal } from "../src/db/principals.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { escalateInbox } from "../src/inbox/escalate.js";
+import { createInboxAction } from "../src/inbox/actions.js";
 import { createInboxResolver } from "../src/inbox/resolve.js";
 import { recordCompletedCall } from "../src/inbox/yield.js";
 import { createInboxRuntime } from "../src/inbox/runtime.js";
@@ -104,6 +105,16 @@ async function world() {
   const attempt = notices.beginAttempt({ endpoint, principalId: principal.id }, AT + 60_000)!;
   notices.finishAttempt(attempt.attemptId, "success", AT + 60_000);
   expect(notices.digest(ctx(principal), AT).status).toBe("ready");
+  store.openReviewThread("hygiene-review");
+  const hygiene: InboxActionItem = { id: "hygiene-action", dedupKey: "hygiene-action", threadId: "hygiene-review", queue: "actions", type: "choose", status: "pending", version: 1, createdAt: AT, updatedAt: AT, expiresAt: AT + YEAR,
+    payload: { title: "Review the Ithaca route", detail: "journeys/return-to-ithaca.md" },
+    hygiene: { findingId: "ithaca-link", fingerprint: "0123456789ab", finding: { path: "journeys/return-to-ithaca.md" } },
+    options: [{ id: "check", label: "Done, check again", effect: { kind: "hygiene", operation: "check", findingId: "ithaca-link", fingerprint: "0123456789ab" } }] };
+  createInboxAction(db, hygiene, [], { now: AT, hygiene: true });
+  store.commit([{ kind: "hygiene_update", itemId: hygiene.id, expectedVersion: 1, hygiene: { ...hygiene.hygiene!, outcome: { version: 1, status: "still_detected" } }, options: hygiene.options }]);
+  db.query("INSERT INTO hygiene_review VALUES (1, ?)").run(JSON.stringify({ version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0, pendingActionId: hygiene.id }));
+  db.query("INSERT INTO hygiene_effect_attempts (id, item_id, principal_id, request_json, effect_json, status, result_json) VALUES (?, ?, ?, ?, ?, 'finished', ?)").run("hygiene-attempt", hygiene.id, principal.id,
+    JSON.stringify({ type: "inbox_resolve", itemId: hygiene.id, optionId: "check" }), JSON.stringify(hygiene.options[0]!.effect), JSON.stringify({ status: "still_detected", id: "ithaca-link" }));
   writeFileSync(join(root, "content.md"), "Odysseus's content stays in git.");
   return { root, path, db, store, principal, budget, records };
 }
@@ -503,4 +514,22 @@ test("recovery export CLI waits for a short exclusive database lock", async () =
   expect(await restoreInboxSnapshot(snapshot, restoredPath, restoredRoot, snapshot.createdAt)).toEqual({ recovered: 0, resumed: false });
   expect(connect(restoredPath).query("SELECT * FROM inbox_scheduler_heartbeats").all())
     .toEqual([{ name: "Odysseus", tick_at: AT, change_cursor: 7 }]);
+});
+
+
+test("backup refuses a hygiene attempt naming another Action and a missing pending review pointer", async () => {
+  const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT);
+  for (const mode of ["attempt", "pointer"]) {
+    const corrupt = editImage(snapshot, db => {
+      if (mode === "attempt") {
+        db.exec("DROP TRIGGER hygiene_attempt_identity_immutable");
+        db.query("UPDATE hygiene_effect_attempts SET request_json = ? WHERE id = 'hygiene-attempt'").run(JSON.stringify({ type: "inbox_resolve", itemId: "approve-ithaca", optionId: "check" }));
+        // Restore identical schema: this proves the relation guard, not schema drift.
+        const original = f.db.query("SELECT sql FROM sqlite_master WHERE name = 'hygiene_attempt_identity_immutable'").get() as { sql: string };
+        db.exec(original.sql);
+      } else db.query("UPDATE hygiene_review SET data_json = ? WHERE singleton = 1").run(JSON.stringify({ version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0, pendingActionId: "missing-action" }));
+    });
+    const target = directory();
+    await expect(restoreInboxSnapshot(corrupt, join(target, "ui.sqlite"), target, AT)).rejects.toThrow("inbox_snapshot_hygiene_relations");
+  }
 });
