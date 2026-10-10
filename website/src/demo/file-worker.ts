@@ -1,11 +1,12 @@
 /// <reference lib="webworker" />
-import { documentByPath } from './odyssey.ts';
+import { documents } from './odyssey.ts';
 import type { ExportCatalogue } from './export-key.ts';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 declare const __DEMO_VERSION__: string;
 const base = new URL('../', worker.registration.scope).pathname;
 let catalogue: Promise<ExportCatalogue> | undefined;
+let library: Promise<Record<string, { kind: string; content: string }>> | undefined;
 worker.addEventListener('install', event => event.waitUntil(worker.skipWaiting()));
 worker.addEventListener('activate', event => event.waitUntil(worker.clients.claim()));
 worker.addEventListener('fetch', event => {
@@ -16,7 +17,12 @@ worker.addEventListener('fetch', event => {
   if (!raw && !html) return;
   event.respondWith((async () => {
     const path = url.searchParams.get('path') || '';
-    const record = documentByPath[path];
+    let record: { kind: string; content: string } | undefined = documents.get(path);
+    if (!record && path.endsWith('.md')) {
+      library ||= fetch(`${base}demo/library.json?v=${__DEMO_VERSION__}`).then(response => { if (!response.ok) throw Error('Demo library unavailable'); return response.json(); });
+      const records = await library;
+      if (Object.hasOwn(records, path)) record = records[path];
+    }
     if (record && (!html || record.kind === 'html')) return new Response(record.content, { headers: {
       'Content-Type': record.kind === 'html' ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox allow-scripts",

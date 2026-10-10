@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { loadAuditDocs } from "../../lib/auditor.js";
 import { openDatabase } from "../../lib/db.js";
 import {
+  canonicalFindings,
   detectCandidates,
   HygieneRefusal,
   readHygieneLog,
@@ -15,11 +16,12 @@ import {
   type HygieneState,
   type ReconcileOptions,
 } from "../../lib/hygiene.js";
+import { selectHygieneNext } from "../../lib/hygiene-next.js";
 import { indexAll } from "../../lib/indexer.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|dismiss|snooze> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze> — the content-hygiene log under context/hygiene/
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
@@ -37,6 +39,13 @@ const HELP = `brain hygiene <reconcile|list|dismiss|snooze> — the content-hygi
       --json envelope: { "opened", "reopened", "resolved", "stillOpen", "snoozed", "dismissed",
       "invalidated", "invalidations", "changedFiles", "detected": [{ "id", "category", "path",
       "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks" }
+
+  next [--extra <file.json>]
+      Reconcile and select one eligible canonical finding by severity, known
+      urgency, age, then identity. Informational findings are counted but not
+      shown. Returns { "finding", "counts" }; invalid configuration returns
+      { "blocker": { "kind": "configuration", "message", "path", "line", "column" } }
+      with exit 1 before any indexing or hygiene writes.
 
   list [--state open|snoozed|dismissed|resolved]
       The log's entries.
@@ -121,7 +130,8 @@ async function detectAndReconcile(cli: CliContext, opts: Omit<ReconcileOptions, 
     await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
     const { candidates, failedChecks } = await detectCandidates(db, cli.brain, opts.now);
     const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
-    return reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks });
+    const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks });
+    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]) };
   } finally {
     db.close();
   }
@@ -157,6 +167,43 @@ export const hygieneCommand: CoreCommand = {
     const { args: pos, flags } = parseArgs(args);
     const sub = pos[0];
 
+    if (sub === "next") {
+      if (pos.length !== 1) throw new UsageError("Usage: brain hygiene next [--extra <file.json>]");
+      if (cli.configError) {
+        const cause = cli.configCause as {
+          sourceURL?: unknown; line?: unknown; column?: unknown;
+          position?: { file?: unknown; line?: unknown; column?: unknown };
+        } | undefined;
+        // Bun BuildMessage uses a 1-based position; ordinary runtime errors
+        // use sourceURL. Never pass through the config loader's own stack line.
+        const location = cause?.position?.file === cli.brain.configPath ? cause.position
+          : cause?.sourceURL === cli.brain.configPath ? cause : undefined;
+        const payload = { blocker: {
+          kind: "configuration",
+          message: cli.configError,
+          path: cli.brain.configPath,
+          line: typeof location?.line === "number" ? location.line : null,
+          column: typeof location?.column === "number" ? location.column : null,
+        } };
+        emit(cli.json, payload, () => console.error(`Review cannot start: ${cli.configError}`));
+        return 1;
+      }
+      if (flags.extra === true) throw new UsageError("--extra needs a file");
+      const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
+      const now = new Date();
+      const { result, findings } = await detectAndReconcile(cli, { now, extra });
+      if (result.failedChecks.length > 0) {
+        emit(cli.json, { blocker: { kind: "checks", failedChecks: result.failedChecks } }, () => console.error(`Review cannot start: checks failed: ${result.failedChecks.join(", ")}`));
+        return 1;
+      }
+      const payload = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now);
+      emit(cli.json, payload, () => {
+        console.log(payload.finding ? `${payload.finding.id}: ${payload.finding.title}` : "No open findings.");
+        console.log(`${payload.counts.eligibleRemaining} eligible, ${payload.counts.fixed} resolved, ${payload.counts.dismissed} dismissed, ${payload.counts.snoozed} snoozed, ${payload.counts.informationalNotShown} informational not shown`);
+      });
+      return 0;
+    }
+
     if (sub === "list") {
       const state = flags.state;
       if (state !== undefined && !STATES.includes(state as HygieneState)) {
@@ -177,7 +224,7 @@ export const hygieneCommand: CoreCommand = {
       // A finding the skill reported (`--extra`) is detected again only from the same candidates.
       const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
       try {
-        const result = await detectAndReconcile(cli, { now, extra, dispositions: [request] });
+        const { result } = await detectAndReconcile(cli, { now, extra, dispositions: [request] });
         const payload = {
           status: request.kind,
           id: request.id,
@@ -205,13 +252,13 @@ export const hygieneCommand: CoreCommand = {
       }
     }
 
-    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|dismiss|snooze>");
+    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
     if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
     const fixed = typeof flags.fixed === "string" ? readFixed(flags.fixed) : [];
     const dryRun = flags["dry-run"] === true;
-    const result = await detectAndReconcile(cli, { now: new Date(), dryRun, extra, fixed });
+    const { result } = await detectAndReconcile(cli, { now: new Date(), dryRun, extra, fixed });
     emit(cli.json, result, () => {
       const prefix = dryRun ? "[DRY-RUN] " : "";
       console.log(

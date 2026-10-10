@@ -1,34 +1,30 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
+import { listPublishablePackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 // Build order is not load-bearing: each package's tsconfig.build.json extends
 // the root tsconfig, whose customConditions ["bun"] resolve cross-package
 // imports to the sibling's src/, never to emitted .d.ts. What consumers get
 // from dist is checked separately, after this script, by
-// scripts/check-dist-types.ts. Dependencies are listed before dependents
-// anyway, so a future resolution change fails loudly instead of subtly.
-const packages = [
-  "geo",
-  "render-template",
-  "core",
-  // Ahead of ui-sdk, whose `show_block` handler classifies links with the
-  // kit's `./links` export (#43), and of ui-react, which renders the kit.
-  "ui-kit",
-  "ui-sdk",
-  "ui-backend-claude",
-  "ui-backend-pi",
-  "ui-render-puppeteer",
-  "scrape",
-  "ui-server",
-  "ui-react",
-  "module-finance",
-  "module-images",
-  "module-video",
-  "module-jobs",
-  "module-speaking",
-  "module-travel",
-];
+// scripts/check-dist-types.ts. The packages come from their manifests, in the
+// same dependency-first order the release publishes them
+// (scripts/publishable-packages.ts), so a future resolution change fails
+// loudly instead of subtly.
+//
+//   bun scripts/build.ts --dry-run [root]
+//
+// prints that order without building or removing anything.
+const args = process.argv.slice(2);
+if (args.includes("--dry-run")) {
+  const dryRoot = resolve(args.find((arg) => arg !== "--dry-run") ?? resolve(import.meta.dir, ".."));
+  for (const { dir } of listPublishablePackages(dryRoot)) console.log(`Would build packages/${dir}`);
+  process.exit(0);
+}
+if (args.length > 0) {
+  console.error(`Build failed: unexpected arguments ${args.join(" ")} (only --dry-run [root] is accepted).`);
+  process.exit(1);
+}
 
 const root = resolve(import.meta.dir, "..");
 const coordinated = await ensureWorkspaceLease(root, "write");
@@ -41,6 +37,7 @@ if (!bunx) {
   process.exit(1);
 }
 
+const packages = listPublishablePackages(root).map((pkg) => pkg.dir);
 for (const packageName of packages) {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");

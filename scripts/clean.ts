@@ -1,29 +1,13 @@
 import { rmSync } from "fs";
 import { resolve } from "path";
+import { listPublishablePackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), "write");
 if (coordinated !== undefined) process.exit(coordinated);
 
-const packages = [
-  "geo",
-  "render-template",
-  "core",
-  "ui-kit",
-  "ui-sdk",
-  "ui-backend-claude",
-  "ui-backend-pi",
-  "ui-render-puppeteer",
-  "scrape",
-  "ui-server",
-  "ui-react",
-  "module-finance",
-  "module-images",
-  "module-video",
-  "module-jobs",
-  "module-speaking",
-  "module-travel",
-];
+// The same manifest-derived list the build writes dist/ for.
+const packages = listPublishablePackages(resolve(import.meta.dir, "..")).map((pkg) => pkg.dir);
 
 for (const packageName of packages) {
   rmSync(resolve(import.meta.dir, "..", "packages", packageName, "dist"), {
