@@ -450,6 +450,25 @@ signatures (every public export and the types it is made of)
   InMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export interface InMemoryMeterProvider extends MeterProvider, MetricsReader {
     }
+  InboxBridgeContext (packages/ui-server/src/inbox/bridge-tools.ts)
+    export interface InboxBridgeContext {
+        principalId: string;
+        origin: "interactive" | {
+            threadId: string;
+        };
+        turnId: string;
+        isCurrent: () => boolean;
+        sessionId: () => string | undefined;
+        membership: "interactive" | "voice" | "restricted";
+        allowedReads?: readonly ("inbox_list" | "inbox_get")[];
+        approvedAction?: {
+            sessionId: string;
+            itemId: string;
+            optionId: string;
+            expectedVersion: number;
+            effect: V1ResolutionEffect;
+        };
+    }
   InboxBudgetConfig (packages/ui-server/src/inbox/budget.ts)
     export interface InboxBudgetConfig {
         spendUsd: number;
@@ -459,6 +478,8 @@ signatures (every public export and the types it is made of)
         timeZone: string;
         unpricedUsdPerToken: number;
     }
+  InboxIntake (packages/ui-server/src/inbox/intake.ts)
+    export type InboxIntake = ReturnType<typeof createInboxIntake>;
   LABEL_MAX_CHARS (packages/ui-server/src/labels/normalise.ts)
     const LABEL_MAX_CHARS: 32;
   LABEL_RUN_NAME (packages/ui-server/src/labels/labeller.ts)
@@ -678,6 +699,15 @@ signatures (every public export and the types it is made of)
     }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
+  ShareInput (packages/ui-server/src/share/staging.ts)
+    export interface ShareInput {
+        tracksOnly?: boolean;
+        signal?: AbortSignal;
+        title?: string | undefined;
+        text?: string | undefined;
+        url?: string | undefined;
+        files: File[];
+    }
   SpanEventRow (packages/ui-server/src/activity/store.ts)
     export interface SpanEventRow {
         spanId: string;
@@ -774,6 +804,7 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
+        readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
         constructor(options: WsHostOptions);
         close(): void;
     }
@@ -795,6 +826,7 @@ signatures (every public export and the types it is made of)
         wsMaxConnections?: number;
         isPrincipalValid?: (principal: Principal) => boolean;
         isPrincipalAuthorized?: (principalId: string) => boolean;
+        inboxTools?: ReturnType<typeof createInboxBridgeTools>;
         conversationProvider?: LiveConversationProvider;
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
@@ -813,6 +845,117 @@ signatures (every public export and the types it is made of)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export function createInMemoryMeterProvider(): InMemoryMeterProvider;
+  createInboxBridgeTools (packages/ui-server/src/inbox/bridge-tools.ts)
+    export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>): {
+        forTurn(context: InboxBridgeContext): Pick<BackendBridge, "inboxAdd" | "inboxGet" | "inboxList" | "resolveAction">;
+    };
+  createInboxIntake (packages/ui-server/src/inbox/intake.ts)
+    export function createInboxIntake(db: Database, brainRoot: string, log?: Logger): {
+        cli: (input: ShareInput, key: string, principal: Principal, isCurrent?: () => boolean) => Promise<{
+            created: boolean;
+            itemId: string;
+            result: ShareIntakeResult;
+            threadId: string;
+        }>;
+        close: () => Promise<void>;
+        protectedIds: () => Set<string>;
+        reconcile: () => Promise<void>;
+        share: (input: ShareInput, principal: Principal) => Promise<{
+            created: boolean;
+            itemId: string;
+            result: ShareIntakeResult;
+            threadId: string;
+        }>;
+    };
+  createInboxResolver (packages/ui-server/src/inbox/resolve.ts)
+    export function createInboxResolver(db: Database, deps: {
+        allowedOperations: (principalId: string, thread: InboxThread) => readonly InboxOperation[];
+        now?: () => number;
+        timeZone?: string;
+        applyHygiene?: (principalId: string, request: ClientInboxResolve) => Promise<{
+            replay: boolean;
+            followUpId: string | undefined;
+        }>;
+    }): {
+        inspect: (principalId: string, msg: ClientInboxResolve) => {
+            action: InboxActionItem;
+            context: null | {
+                options_json: string;
+                source_item_id: null | string;
+            };
+            effect: import("@schlessera/brain-ui-sdk").V1ResolutionEffect;
+            option: {
+                effect: {
+                    findingId: string;
+                    fingerprint: string;
+                    handler?: string | undefined;
+                    input?: null | string | string[] | undefined;
+                    kind: "hygiene";
+                    operation: "check" | "dismiss" | "resolve" | "snooze" | "undo";
+                    previewToken?: string | undefined;
+                    undoToken?: string | undefined;
+                } | {
+                    kind: "cancel_blocked";
+                } | {
+                    kind: "dismiss";
+                    reason?: "dont_ask_again" | "need_more_info" | "no_longer_relevant" | "wrong_call" | undefined;
+                } | {
+                    kind: "enqueue";
+                    payload: {
+                        instruction: string;
+                        operation?: undefined | {
+                            input: Record<string, unknown>;
+                            targetPath: string;
+                            toolName: string;
+                        };
+                    };
+                } | {
+                    kind: "open_session";
+                    seed: {
+                        prompt: string;
+                    };
+                } | {
+                    kind: "snooze";
+                } | {
+                    kind: "write_policy";
+                    policy: {
+                        content: string;
+                        slug: string;
+                    };
+                };
+                id: string;
+                input?: undefined | {
+                    example?: string | undefined;
+                    type: "date" | "enum" | "none" | "path" | "string" | "strings";
+                    values?: string[] | undefined;
+                };
+                label: string;
+                preview?: undefined | {
+                    after: string;
+                    before: string;
+                    changes: {
+                        after: string;
+                        before: string;
+                        line: number;
+                    }[];
+                    path: string;
+                };
+            };
+            thread: InboxThread;
+        };
+        resolve(principalId: string, request: ClientInboxResolve, expectedVersion?: number): {
+            followUpId: string | undefined;
+            replay: boolean;
+        };
+        resolveAsync(principalId: string, request: ClientInboxResolve, expectedVersion?: number): Promise<{
+            followUpId: string | undefined;
+            replay: boolean;
+        }>;
+        snooze(principalId: string, itemId: string, expectedVersion?: number): {
+            followUpId: undefined;
+            replay: boolean;
+        };
+    };
   createLabeller (packages/ui-server/src/labels/labeller.ts)
     export function createLabeller(deps: CreateLabellerDeps): Labeller;
   createObservability (packages/ui-server/src/observability/index.ts)
@@ -833,10 +976,79 @@ signatures (every public export and the types it is made of)
         modelSource?: BackendModelSource | null;
         log?: Logger;
     }): BackendRegistry;
+  inspect (packages/ui-server/src/inbox/resolve.ts)
+    function inspect(principalId: string, msg: ClientInboxResolve): {
+        action: InboxActionItem;
+        context: null | {
+            options_json: string;
+            source_item_id: null | string;
+        };
+        effect: import("@schlessera/brain-ui-sdk").V1ResolutionEffect;
+        option: {
+            effect: {
+                findingId: string;
+                fingerprint: string;
+                handler?: string | undefined;
+                input?: null | string | string[] | undefined;
+                kind: "hygiene";
+                operation: "check" | "dismiss" | "resolve" | "snooze" | "undo";
+                previewToken?: string | undefined;
+                undoToken?: string | undefined;
+            } | {
+                kind: "cancel_blocked";
+            } | {
+                kind: "dismiss";
+                reason?: "dont_ask_again" | "need_more_info" | "no_longer_relevant" | "wrong_call" | undefined;
+            } | {
+                kind: "enqueue";
+                payload: {
+                    instruction: string;
+                    operation?: undefined | {
+                        input: Record<string, unknown>;
+                        targetPath: string;
+                        toolName: string;
+                    };
+                };
+            } | {
+                kind: "open_session";
+                seed: {
+                    prompt: string;
+                };
+            } | {
+                kind: "snooze";
+            } | {
+                kind: "write_policy";
+                policy: {
+                    content: string;
+                    slug: string;
+                };
+            };
+            id: string;
+            input?: undefined | {
+                example?: string | undefined;
+                type: "date" | "enum" | "none" | "path" | "string" | "strings";
+                values?: string[] | undefined;
+            };
+            label: string;
+            preview?: undefined | {
+                after: string;
+                before: string;
+                changes: {
+                    after: string;
+                    before: string;
+                    line: number;
+                }[];
+                path: string;
+            };
+        };
+        thread: InboxThread;
+    };
   normaliseLabel (packages/ui-server/src/labels/normalise.ts)
     export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
+  reconcile (packages/ui-server/src/inbox/intake.ts)
+    function reconcile(): Promise<void>;
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
   websocket re-exported from hono

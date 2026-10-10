@@ -14,6 +14,7 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { Principal } from "../db/principals.js";
+import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
 import type { DraftStore } from "../drafts/store.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
@@ -144,6 +145,7 @@ export interface WsHostOptions {
    * @internal Supplied by createApp (#1053).
    */
   inbox?: InboxStream;
+  inboxTools?: ReturnType<typeof createInboxBridgeTools>;
   /**
    * The user's remembered "always allow" tool grants. Optional: a host
    * without one never auto-answers and never persists an `always` approval —
@@ -231,6 +233,7 @@ export class WsHost {
   readonly activity: ActivityRuntime | null;
   /** @internal Host wiring (#1053). */
   readonly inbox: InboxStream | null;
+  readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
   /** @internal Host wiring (#1053). */
   readonly drafts: DraftStore | null;
   /** @internal Host wiring (#1053). */
@@ -293,6 +296,7 @@ export class WsHost {
     this.isPrincipalAuthorized = options.isPrincipalAuthorized ?? (() => false);
     this.activity = options.activity ?? null;
     this.inbox = options.inbox ?? null;
+    this.inboxTools = options.inboxTools ?? null;
     this.drafts = options.drafts ?? null;
     this.toolPermissions = options.toolPermissions ?? null;
     if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);

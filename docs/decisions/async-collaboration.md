@@ -66,11 +66,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:375`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:399`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:381`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:405`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:70-236`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:71-240`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -78,7 +78,7 @@ and configuration audience; the old plan's “full host environment” descripti
 is historical. Preserve subscription billing and the selected runtime identity.
 
 Pi disables built-in tools but currently loads resources and extensions
-(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:28-133`)
+(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:28-134`)
 and gates extension calls (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
@@ -174,7 +174,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:182-276`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge.ts:185-279`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

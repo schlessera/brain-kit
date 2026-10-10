@@ -212,6 +212,12 @@ export interface BackendBridge {
    * expose it as a read-only tool.
    */
   queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
+  /** Host-selected scope and provenance; every call rechecks current authority. */
+  inboxList?(input: import("../tool-contracts/inbox.js").InboxListInput): Promise<{ items: import("../protocol.js").InboxItem[]; threads: import("../protocol.js").InboxThread[] }>;
+  inboxGet?(input: import("../tool-contracts/inbox.js").InboxGetInput): Promise<{ item: import("../protocol.js").InboxItem; thread: import("../protocol.js").InboxThread }>;
+  inboxAdd?(input: import("../tool-contracts/inbox.js").InboxAddInput): Promise<{ created: boolean; threadId: string; itemId: string }>;
+  resolveAction?(input: import("../tool-contracts/inbox.js").ResolveActionInput): Promise<{ replay: boolean; followUpId?: string }>;
+
 }
 
 /** A read over the activity record, shaped for model consumption. */

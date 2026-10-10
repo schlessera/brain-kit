@@ -50,6 +50,7 @@ export function createSessionResources(options: {
       capabilities: {
         location: caps.location,
         activity: caps.activity,
+        inbox: caps.inbox,
         mask: caps.mask,
       },
     });
@@ -166,6 +167,8 @@ function buildAppend(
         askUserForm: env.caps.askUserForm && "ask_user_form",
         location: env.caps.location && "get_current_location",
         activity: env.caps.activity && "query_activity",
+        inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
+        inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action",
         mask: env.caps.mask && "request_image_mask",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",

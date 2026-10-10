@@ -70,7 +70,7 @@ does a replayed session show?
    loaded (D44) it measured no effect on the call rate. The description, which
    D44 puts in every prompt, carries a `suggestions:` line. The brief's
    "names every kind" assertion exempts `suggestions` by name
-   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:122-126`).
+   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:125-129`).
 9. **It merges before it is measured, and the release waits.** #550 runs the
    keyed measurement on both backends: the suggestion rate, the rate when the
    answer ends in a question, the drop rate, the added tokens, and a read of

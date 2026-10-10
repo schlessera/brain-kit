@@ -1,3 +1,4 @@
+import { INBOX_TOOL_CONTRACTS, handleInboxTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -81,6 +82,7 @@ export interface PiBridgeToolOptions {
   capabilities?: {
     location?: boolean;
     activity?: boolean;
+    inbox?: boolean;
     mask?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
@@ -280,6 +282,13 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
+  if (capabilities?.inbox) for (const contract of INBOX_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(_id: string, input: unknown) {
+      if (!turn.bridge) throw new Error("No current bridge");
+      return textResult(await handleInboxTool(contract.name, input, turn.bridge));
+    },
+  });
   return tools;
 }
 

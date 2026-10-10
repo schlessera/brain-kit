@@ -275,7 +275,7 @@ Two things stop that residue being read as a like-for-like gap, and both cut
 against reading pi as a second replication of the brief result. pi is on a
 different harness driving the model directly, and — this is the one that matters
 — **pi has no no-brief arm and no supported way to have one.**
-`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:171`
+`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:174`
 passes the block brief into `buildSystemPromptAppend` unconditionally, not
 behind a capability check like `askUser`, `location`, `activity` and `mask` on
 the lines above it. So every pi number was measured with the brief present. The

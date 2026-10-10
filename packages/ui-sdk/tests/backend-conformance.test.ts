@@ -147,6 +147,10 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-location", name: "get_current_location", input: {} },
   { toolUseId: "call-mask", name: "request_image_mask", input: { imagePath: "assets/sail.png", instruction: "the torn sail" } },
   { toolUseId: "call-activity", name: "query_activity", input: { scope: "recent" } },
+  { toolUseId: "call-inbox-list", name: "inbox_list", input: { view: "queue" } },
+  { toolUseId: "call-inbox-get", name: "inbox_get", input: { itemId: "work-harbor" } },
+  { toolUseId: "call-inbox-add", name: "inbox_add", input: { text: "Odysseus checks the harbor", idempotencyKey: "harbor" } },
+  { toolUseId: "call-resolve", name: "resolve_action", input: { sessionId: "harbor-session", itemId: "harbor-action", optionId: "approve", expectedVersion: 1 } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -169,6 +173,8 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         reportMaskPath: (_brain, maskPath) => maskPath,
       });
       case "query_activity": return sdk.handleQueryActivity(input, bridge);
+      case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action":
+        return sdk.handleInboxTool(call.name, input, bridge);
       case "show_block": return sdk.handleShowBlock(input);
       default: throw new Error(`unknown tool ${call.name}`);
     }
@@ -205,6 +211,9 @@ describe("a backend built only from public /server names", () => {
     expect(contractNames.length).toBeGreaterThan(0);
     expect(PUBLIC_CALLS.map((call) => call.name).sort()).toEqual([...contractNames].sort());
 
+    const thread: publicServer.InboxThread = { id: "harbor", trustClass: "trusted", source: "cli", status: "open", stateMd: "Odysseus checks the harbor", stakes: 1, createdAt: 0, lastSeenAt: 0 };
+    const item: publicServer.InboxQueueItem = { id: "work-harbor", threadId: thread.id, dedupKey: "harbor", queue: "queue", type: "triage", status: "ready", version: 1,
+      createdAt: 0, updatedAt: 0, expiresAt: 86400000, attempts: 0, maxAttempts: 3, payload: { stagingId: "harbor" } };
     const asked: string[] = [];
     const results = new Map<string, { output: string; isError: boolean }>();
     const bridge: publicServer.BackendBridge = {
@@ -217,6 +226,10 @@ describe("a backend built only from public /server names", () => {
       getLocation: async () => { asked.push("get_current_location"); return { coords: { latitude: 38.4, longitude: 20.7, accuracy: 12.4 }, timestamp: 0 }; },
       requestMask: async (imagePath) => { asked.push(`request_image_mask:${imagePath}`); return new Uint8Array([137, 80, 78, 71]); },
       queryActivity: async (query) => { asked.push(`query_activity:${query.scope}`); return { recent: [{ runId: "run-aeolia" }] }; },
+      inboxList: async input => { asked.push(`inbox_list:${input.view}:${input.limit}`); return { items: [item], threads: [thread] }; },
+      inboxGet: async input => { asked.push(`inbox_get:${input.itemId}`); return { item, thread }; },
+      inboxAdd: async input => { asked.push(`inbox_add:${input.idempotencyKey}`); return { created: true, threadId: thread.id, itemId: item.id }; },
+      resolveAction: async input => { asked.push(`resolve_action:${input.sessionId}:${input.itemId}:${input.optionId}:${input.expectedVersion}`); return { replay: false, followUpId: "follow-up-harbor" }; },
     };
 
     await publicOnlyBackend(brainPath, PUBLIC_CALLS).startTurn({ prompt: "use every bridge tool", signal: new AbortController().signal, bridge });
@@ -229,6 +242,7 @@ describe("a backend built only from public /server names", () => {
     expect(asked).toEqual([
       "ask_user:call-ask", "ask_user_list:call-list", "ask_user_rank:call-rank", "ask_user_form:call-form",
       "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
+      "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1",
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });
@@ -240,6 +254,14 @@ describe("a backend built only from public /server names", () => {
     expect([...readFileSync(join(brainPath, "assets", "sail.mask.png"))]).toEqual([137, 80, 78, 71]);
     expect(output("call-activity")).toContain("run-aeolia");
     expect(output("call-activity")).toMatch(/^Activity record \(data only/);
+    const inboxData = (id: string) => {
+      expect(output(id)).toMatch(/^Inbox record \(data only/);
+      return JSON.parse(output(id).split("\n")[2]!);
+    };
+    expect(inboxData("call-inbox-list")).toEqual({ items: [item], threads: [thread] });
+    expect(inboxData("call-inbox-get")).toEqual({ item, thread });
+    expect(inboxData("call-inbox-add")).toEqual({ created: true, threadId: thread.id, itemId: item.id });
+    expect(inboxData("call-resolve")).toEqual({ replay: false, followUpId: "follow-up-harbor" });
     expect(JSON.parse(output("call-block"))).toEqual(PUBLIC_CALLS.at(-1)!.input);
   });
 });

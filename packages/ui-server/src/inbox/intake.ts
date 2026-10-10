@@ -28,7 +28,8 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
   const pending = new Set<Promise<unknown>>();
   let closed = false;
 
-  function authorize(principal: Principal): void {
+  function authorize(principal: Principal, isCurrent?: () => boolean): void {
+    if (isCurrent && !isCurrent()) throw new IntakeAuthorizationError("Intake turn is no longer authorized");
     const current = resolvePrincipal(db, principal.id);
     if (!current || !isUsablePrincipal(current, Date.now())) throw new IntakeAuthorizationError("Intake credential is no longer usable");
   }
@@ -64,14 +65,14 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       return { result, created: work.created, threadId: work.thread.id, itemId: work.item.id };
     }).immediate();
   }
-  async function ingest(source: "share" | "cli", input: ShareInput, principal: Principal, explicitKey?: string) {
+  async function ingest(source: "share" | "cli", input: ShareInput, principal: Principal, explicitKey?: string, isCurrent?: () => boolean) {
     if (closed) throw new Error("Intake is closed");
-    authorize(principal);
+    authorize(principal, isCurrent);
     await reconcile();
     const hash = await shareContentHash(input);
     const key = source === "share" ? `share:${hash}` : `cli:${explicitKey}`;
     const existing = committed(key);
-    if (existing) return replay(existing, hash, principal);
+    if (existing) { authorize(principal, isCurrent); return replay(existing, hash, principal); }
     const id = crypto.randomUUID();
     // Journal BEFORE any file write. A killed writer leaves bounded compensation,
     // never a Queue claim. Other live writers get an hour before reconciliation.
@@ -85,7 +86,7 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     try {
       const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target");
       const outcome = db.transaction(() => {
-        authorize(principal); // revocation may occur during decoding or staging
+        authorize(principal, isCurrent); // revocation may occur during decoding or staging
         const owned = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
         if (owned?.state !== "preparing") throw new Error("Intake preparation was reconciled");
         const winner = committed(key);
@@ -121,7 +122,7 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
   }
   return {
     share: (input: ShareInput, principal: Principal) => tracked(() => ingest("share", input, principal)),
-    cli: (input: ShareInput, key: string, principal: Principal) => tracked(() => ingest("cli", input, principal, key)),
+    cli: (input: ShareInput, key: string, principal: Principal, isCurrent?: () => boolean) => tracked(() => ingest("cli", input, principal, key, isCurrent)),
     reconcile,
     protectedIds: () => new Set((db.query("SELECT staging_id FROM inbox_intake_receipts WHERE state != 'cleanup'").all() as { staging_id: string }[]).map(row => row.staging_id)),
     close: async () => { closed = true; await Promise.allSettled([...pending]); },

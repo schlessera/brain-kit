@@ -74,8 +74,11 @@ export function makeBridge(
   const assertAuthority = () => {
     if (signal.aborted || !isAuthorized()) throw new Error("This turn no longer has current principal authority.");
   };
+  const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
+    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   const bridge: BackendBridge = {
+    ...inbox,
     // A bridge tool that wrote into the scratch area prunes it through the
     // host's pass (#310), the way the CLI's own writers prune after a write.
     ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),

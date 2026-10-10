@@ -512,14 +512,24 @@ export "./client" (./src/client/index.ts)
   type HygieneReviewRead
   type HygieneReviewState
   IMAGE_MASK_PAYLOAD_SCHEMA
+  INBOX_ADD_CONTRACT
+  INBOX_ADD_INPUT_SCHEMA
+  INBOX_GET_CONTRACT
+  INBOX_GET_INPUT_SCHEMA
+  INBOX_LIST_CONTRACT
+  INBOX_LIST_INPUT_SCHEMA
+  INBOX_TOOL_CONTRACTS
   type ImageMaskPayload
   type InboxActionItem
   type InboxActionStatus
+  type InboxAddInput
   type InboxChange
   type InboxDelta
   type InboxDismissReason
+  type InboxGetInput
   type InboxItem
   type InboxItemBase
+  type InboxListInput
   type InboxOperation
   type InboxOption
   type InboxQueueItem
@@ -580,6 +590,8 @@ export "./client" (./src/client/index.ts)
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
+  RESOLVE_ACTION_CONTRACT
+  RESOLVE_ACTION_INPUT_SCHEMA
   type RecordingTranscription
   type RenderContentType
   type RenderFormat
@@ -587,6 +599,7 @@ export "./client" (./src/client/index.ts)
   type RendererPack
   type RequestImageMaskInput
   type ResolutionEffect
+  type ResolveActionInput
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
@@ -1496,21 +1509,32 @@ export "./server" (./src/server/index.ts)
   type HygieneReviewRead
   type HygieneReviewState
   IMAGE_MASK_PAYLOAD_SCHEMA
+  INBOX_ADD_CONTRACT
+  INBOX_ADD_INPUT_SCHEMA
+  INBOX_GET_CONTRACT
+  INBOX_GET_INPUT_SCHEMA
+  INBOX_LIST_CONTRACT
+  INBOX_LIST_INPUT_SCHEMA
+  INBOX_TOOL_CONTRACTS
   type ImageMaskHandlerOptions
   type ImageMaskPayload
   type InboxActionItem
   type InboxActionStatus
+  type InboxAddInput
   type InboxChange
   type InboxDelta
   type InboxDismissReason
+  type InboxGetInput
   type InboxItem
   type InboxItemBase
+  type InboxListInput
   type InboxOperation
   type InboxOption
   type InboxQueueItem
   type InboxQueueStatus
   type InboxSnapshot
   type InboxThread
+  type InboxToolName
   type InboxView
   type InboxWorkPayload
   type KeyedLock
@@ -1571,6 +1595,8 @@ export "./server" (./src/server/index.ts)
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
+  RESOLVE_ACTION_CONTRACT
+  RESOLVE_ACTION_INPUT_SCHEMA
   type RecordingTranscription
   type RenderContentType
   type RenderFormat
@@ -1578,6 +1604,7 @@ export "./server" (./src/server/index.ts)
   type RequestImageMaskInput
   type RequestToolPermissionOptions
   type ResolutionEffect
+  type ResolveActionInput
   type ResolvedBackendModule
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
@@ -1744,6 +1771,7 @@ export "./server" (./src/server/index.ts)
   handleAskUserList
   handleAskUserRank
   handleGetCurrentLocation
+  handleInboxTool
   handleQueryActivity
   handleRequestImageMask
   handleShowBlock
@@ -1877,7 +1905,17 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GET_CURRENT_LOCATION_TOOL_NAME
   type GetCurrentLocationInput
   IMAGE_MASK_PAYLOAD_SCHEMA
+  INBOX_ADD_CONTRACT
+  INBOX_ADD_INPUT_SCHEMA
+  INBOX_GET_CONTRACT
+  INBOX_GET_INPUT_SCHEMA
+  INBOX_LIST_CONTRACT
+  INBOX_LIST_INPUT_SCHEMA
+  INBOX_TOOL_CONTRACTS
   type ImageMaskPayload
+  type InboxAddInput
+  type InboxGetInput
+  type InboxListInput
   LOCATION_PAYLOAD_SCHEMA
   type LocationPayload
   QUERY_ACTIVITY_CONTRACT
@@ -1889,7 +1927,10 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
+  RESOLVE_ACTION_CONTRACT
+  RESOLVE_ACTION_INPUT_SCHEMA
   type RequestImageMaskInput
+  type ResolveActionInput
   SHOW_BLOCK_CONTRACT
   SHOW_BLOCK_DESCRIPTION
   SHOW_BLOCK_INPUT_SCHEMA
@@ -3182,7 +3223,24 @@ signatures (every public export and the types it is made of)
   BRIDGE_MCP_PREFIX (packages/ui-sdk/src/tool-contracts/contract.ts)
     const BRIDGE_MCP_PREFIX: "mcp__brain-ui__";
   BRIDGE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/bridge.ts)
-    const BRIDGE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolComponentContract<"ask_user", z.ZodObject<{
+    const BRIDGE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"inbox_list", z.ZodObject<{
+        limit: z.ZodDefault<z.ZodNumber>;
+        threadId: z.ZodOptional<z.ZodString>;
+        view: z.ZodEnum<{
+            actions: "actions";
+            queue: "queue";
+        }>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"inbox_get", z.ZodObject<{
+        itemId: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"inbox_add", z.ZodObject<{
+        idempotencyKey: z.ZodString;
+        text: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"resolve_action", z.ZodObject<{
+        expectedVersion: z.ZodNumber;
+        itemId: z.ZodString;
+        optionId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolComponentContract<"ask_user", z.ZodObject<{
         questions: z.ZodArray<z.ZodObject<{
             header: z.ZodString;
             multiSelect: z.ZodBoolean;
@@ -4062,7 +4120,7 @@ signatures (every public export and the types it is made of)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block"];
+        names: readonly [...("inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block"];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -4139,6 +4197,23 @@ signatures (every public export and the types it is made of)
         pruneScratch?(): Promise<void>;
         activity?(event: BackendActivityEvent): void;
         queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
+        inboxList?(input: import("../tool-contracts/inbox.js").InboxListInput): Promise<{
+            items: import("../protocol.js").InboxItem[];
+            threads: import("../protocol.js").InboxThread[];
+        }>;
+        inboxGet?(input: import("../tool-contracts/inbox.js").InboxGetInput): Promise<{
+            item: import("../protocol.js").InboxItem;
+            thread: import("../protocol.js").InboxThread;
+        }>;
+        inboxAdd?(input: import("../tool-contracts/inbox.js").InboxAddInput): Promise<{
+            created: boolean;
+            threadId: string;
+            itemId: string;
+        }>;
+        resolveAction?(input: import("../tool-contracts/inbox.js").ResolveActionInput): Promise<{
+            replay: boolean;
+            followUpId?: string;
+        }>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -5320,6 +5395,61 @@ signatures (every public export and the types it is made of)
         maskPath: z.ZodString;
         note: z.ZodString;
     }, z.core.$loose>;
+  INBOX_ADD_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_ADD_CONTRACT: import("./contract.js").ToolContract<"inbox_add", z.ZodObject<{
+        idempotencyKey: z.ZodString;
+        text: z.ZodString;
+    }, z.core.$strict>>;
+  INBOX_ADD_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_ADD_INPUT_SCHEMA: z.ZodObject<{
+        idempotencyKey: z.ZodString;
+        text: z.ZodString;
+    }, z.core.$strict>;
+  INBOX_GET_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_GET_CONTRACT: import("./contract.js").ToolContract<"inbox_get", z.ZodObject<{
+        itemId: z.ZodString;
+    }, z.core.$strict>>;
+  INBOX_GET_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_GET_INPUT_SCHEMA: z.ZodObject<{
+        itemId: z.ZodString;
+    }, z.core.$strict>;
+  INBOX_LIST_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_LIST_CONTRACT: import("./contract.js").ToolContract<"inbox_list", z.ZodObject<{
+        limit: z.ZodDefault<z.ZodNumber>;
+        threadId: z.ZodOptional<z.ZodString>;
+        view: z.ZodEnum<{
+            actions: "actions";
+            queue: "queue";
+        }>;
+    }, z.core.$strict>>;
+  INBOX_LIST_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_LIST_INPUT_SCHEMA: z.ZodObject<{
+        limit: z.ZodDefault<z.ZodNumber>;
+        threadId: z.ZodOptional<z.ZodString>;
+        view: z.ZodEnum<{
+            actions: "actions";
+            queue: "queue";
+        }>;
+    }, z.core.$strict>;
+  INBOX_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const INBOX_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"inbox_list", z.ZodObject<{
+        limit: z.ZodDefault<z.ZodNumber>;
+        threadId: z.ZodOptional<z.ZodString>;
+        view: z.ZodEnum<{
+            actions: "actions";
+            queue: "queue";
+        }>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"inbox_get", z.ZodObject<{
+        itemId: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"inbox_add", z.ZodObject<{
+        idempotencyKey: z.ZodString;
+        text: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"resolve_action", z.ZodObject<{
+        expectedVersion: z.ZodNumber;
+        itemId: z.ZodString;
+        optionId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>>];
   ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export interface ImageMaskHandlerOptions {
         brainPath: string;
@@ -5347,6 +5477,8 @@ signatures (every public export and the types it is made of)
     };
   InboxActionStatus (packages/ui-sdk/src/protocol.ts)
     export type InboxActionStatus = "pending" | "snoozed" | "resolved" | "dismissed" | "expired" | "dropped";
+  InboxAddInput (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export type InboxAddInput = z.infer<typeof INBOX_ADD_INPUT_SCHEMA>;
   InboxChange (packages/ui-sdk/src/protocol.ts)
     export type InboxChange = {
         changeId: number;
@@ -5373,6 +5505,8 @@ signatures (every public export and the types it is made of)
     }
   InboxDismissReason (packages/ui-sdk/src/protocol.ts)
     export type InboxDismissReason = "dont_ask_again" | "wrong_call" | "need_more_info" | "no_longer_relevant";
+  InboxGetInput (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export type InboxGetInput = z.infer<typeof INBOX_GET_INPUT_SCHEMA>;
   InboxItem (packages/ui-sdk/src/protocol.ts)
     export type InboxItem = InboxQueueItem | InboxActionItem;
   InboxItemBase (packages/ui-sdk/src/protocol.ts)
@@ -5387,6 +5521,8 @@ signatures (every public export and the types it is made of)
         version: number;
         runId?: string;
     }
+  InboxListInput (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export type InboxListInput = z.infer<typeof INBOX_LIST_INPUT_SCHEMA>;
   InboxOperation (packages/ui-sdk/src/protocol.ts)
     export interface InboxOperation {
         toolName: string;
@@ -5453,6 +5589,8 @@ signatures (every public export and the types it is made of)
         createdAt: number;
         lastSeenAt: number;
     }
+  InboxToolName (packages/ui-sdk/src/server/bridge-tools/inbox.ts)
+    export type InboxToolName = (typeof INBOX_TOOL_CONTRACTS)[number]["name"];
   InboxView (packages/ui-sdk/src/protocol.ts)
     export type InboxView = "queue" | "actions";
   InboxWorkPayload (packages/ui-sdk/src/protocol.ts)
@@ -6070,6 +6208,20 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   REQUEST_IMAGE_MASK_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_TOOL_NAME: "request_image_mask";
+  RESOLVE_ACTION_CONTRACT (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const RESOLVE_ACTION_CONTRACT: import("./contract.js").ToolContract<"resolve_action", z.ZodObject<{
+        expectedVersion: z.ZodNumber;
+        itemId: z.ZodString;
+        optionId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>>;
+  RESOLVE_ACTION_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    const RESOLVE_ACTION_INPUT_SCHEMA: z.ZodObject<{
+        expectedVersion: z.ZodNumber;
+        itemId: z.ZodString;
+        optionId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>;
   RecordingTranscription (packages/ui-sdk/src/protocol.ts)
     export interface RecordingTranscription {
         recordingId: string;
@@ -6148,6 +6300,8 @@ signatures (every public export and the types it is made of)
             prompt: string;
         };
     };
+  ResolveActionInput (packages/ui-sdk/src/tool-contracts/inbox.ts)
+    export type ResolveActionInput = z.infer<typeof RESOLVE_ACTION_INPUT_SCHEMA>;
   ResolvedBackendModule (packages/ui-sdk/src/server/backend-module.ts)
     export interface ResolvedBackendModule {
         backend: AgentBackend;
@@ -8178,6 +8332,10 @@ signatures (every public export and the types it is made of)
         location?: string | false;
         mask?: string | false;
         activity?: string | false;
+        inboxList?: string | false;
+        inboxGet?: string | false;
+        inboxAdd?: string | false;
+        resolveAction?: string | false;
         block?: string | false;
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
@@ -9486,6 +9644,8 @@ signatures (every public export and the types it is made of)
     export function handleAskUserRank(input: AskUserRankInput, bridge: BackendBridge, requestId?: string): Promise<AskUserRankPayload>;
   handleGetCurrentLocation (packages/ui-sdk/src/server/bridge-tools/location.ts)
     export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
+  handleInboxTool (packages/ui-sdk/src/server/bridge-tools/inbox.ts)
+    export function handleInboxTool(name: InboxToolName, input: unknown, bridge: BackendBridge): Promise<string>;
   handleQueryActivity (packages/ui-sdk/src/server/bridge-tools/activity.ts)
     export function handleQueryActivity(input: QueryActivityInput, bridge: BackendBridge): Promise<string>;
   handleRequestImageMask (packages/ui-sdk/src/server/bridge-tools/mask.ts)

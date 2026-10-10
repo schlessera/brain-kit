@@ -143,10 +143,11 @@ export {
   handleAskUserRank,
   handleGetCurrentLocation,
   handleQueryActivity,
+  handleInboxTool,
   handleRequestImageMask,
   handleShowBlock,
 } from "./bridge-tools/index.js";
-export type { ImageMaskHandlerOptions, LocationHandlerOptions } from "./bridge-tools/index.js";
+export type { ImageMaskHandlerOptions, LocationHandlerOptions, InboxToolName } from "./bridge-tools/index.js";
 export { BRIDGE_TOOL_POSTURE } from "../tool-contracts/bridge.js";
 export { EXEC_KILLER_ENV, EXEC_WRAPPER_ENV, validateExecWrapper, wrapCommand } from "./exec-wrapper.js";
 export type { SubprocessEnvAudience } from "./subprocess-env.js";

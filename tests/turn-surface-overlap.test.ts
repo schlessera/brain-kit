@@ -63,7 +63,7 @@ test("installed CLI relevance hint follows the unchanged complete skill listing"
     tools: ["mcp__brain-ui__show_block"], skills: ["voyage-plan"] }) });
   const skills = observedSkills(result.request);
   expect(skills).toEqual(baselineSkills);
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(8);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(12);
   expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
   const messages = JSON.stringify(result.request.messages);
   const hint = messages.indexOf("<tool_relevance>");
@@ -91,7 +91,7 @@ test("native skill load set keeps rejected names discoverable without their desc
 
 test("router fallback preserves all actual MCP tools and all project skills", async () => {
   const result = await captureSurface({ decision: Promise.resolve({ arm: "hard-prune", routed: false, tools: [], skills: [] }) });
-  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(8);
+  expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__"))).toHaveLength(12);
   expect(deferredToolNames(result.request).filter(name => name.startsWith("mcp__brain__"))).toHaveLength(8);
   expect(result.request.tools.filter(tool => tool.name.startsWith("mcp__")).every(tool => tool.defer_loading !== true)).toBe(true);
   const messages = JSON.stringify(result.request.messages);

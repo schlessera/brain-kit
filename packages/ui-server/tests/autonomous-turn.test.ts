@@ -356,3 +356,28 @@ test("missing, expired and reused reservations refuse actual backend starts", as
     expect(starts).toBe(1);
   } finally { f.db.close(); }
 });
+
+for (const adapter of ["claude", "pi"] as const) test(`${adapter} autonomous inbox scope comes from the admitted item, not another record's run id`, async () => {
+  let reached = false;
+  const f = setup(async req => {
+    reached = true;
+    const list = await req.bridge.inboxList!({ view: "queue", limit: 50 });
+    expect(list.items.map(item => item.id)).toEqual(["odysseus"]);
+    await expect(req.bridge.inboxGet!({ itemId: "penelope" })).rejects.toThrow("outside this turn's scope");
+    req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  });
+  f.backend.id = adapter;
+  const now = Date.now(), inbox = createInboxStore(f.db);
+  try {
+    inbox.ingest({ threadId: "penelope", itemId: "penelope", dedupKey: "penelope", stagingId: "penelope", source: "share", stakes: 1, expiresAt: now + 86400000 });
+    inbox.commit([{ kind: "item", item: { id: "earlier-record", dedupKey: "earlier-record", threadId: "penelope", runId: f.input.turnId,
+      queue: "actions", type: "fyi", status: "pending", version: 1, createdAt: now, updatedAt: now, expiresAt: now + 86400000,
+      payload: { title: "Penelope's harbor update", detail: "Activity linkage is not an admission grant." }, options: [] } }]);
+    // SQLite storage order must not choose authority. The FYI is a valid
+    // record linking to activity, but has no admitted budget item.
+    f.db.query("UPDATE inbox_items SET rowid = -1 WHERE id = 'earlier-record'").run();
+    const allowedTools = ["inbox_list", "inbox_get"].map(name => adapter === "claude" ? `mcp__brain-ui__${name}` : name);
+    await runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, allowedTools });
+    expect(reached).toBe(true);
+  } finally { f.db.close(); }
+});

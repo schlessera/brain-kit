@@ -6,6 +6,9 @@
 import type { Database } from "bun:sqlite";
 import type { AgentBackend, BackendBridge, PermissionRequest, ServerMessage,
   StartTurnRequest, AskUserQuestion, BillingMode, PricingRoute, CompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
+import { createInboxBridgeTools } from "./bridge-tools.js";
+import { createInboxIntake } from "./intake.js";
+import { createInboxResolver } from "./resolve.js";
 import { acquireInboxBudgetRun } from "./budget.js";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
@@ -98,6 +101,13 @@ async function executeAutonomousTurn(
   lifetime: ReturnType<typeof acquireInboxRunLifetime>,
 ): Promise<AutonomousTurnResult> {
   const principalId = input.principalId;
+  // Activity-linked items may share a run id. Only the admitted budget item
+  // selects the origin; a model-authored record is never a scope grant.
+  const origin = deps.db.query(`SELECT i.thread_id FROM inbox_budget_reservations r
+    JOIN inbox_items i ON i.id = r.item_id WHERE r.run_id = ? AND r.principal_id = ?
+    AND r.status = 'active' AND r.runtime_acquired_at IS NOT NULL AND i.deleted_at IS NULL`)
+    .get(input.turnId, principalId) as { thread_id: string } | null;
+  if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   const recorder = createTurnRecorder(deps, { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
@@ -180,7 +190,14 @@ async function executeAutonomousTurn(
       controller.abort();
     }
   };
+  const intake = createInboxIntake(deps.db, deps.brainPath ?? process.cwd());
+  const inbox = createInboxBridgeTools(deps.db, intake, createInboxResolver(deps.db, { allowedOperations: () => [] })).forTurn({
+    principalId, turnId: input.turnId, origin: { threadId: origin.thread_id }, membership: "restricted",
+    allowedReads: (["inbox_list", "inbox_get"] as const).filter(name => input.allowedTools.includes(deps.backend.id === "claude" ? `mcp__brain-ui__${name}` : name)),
+    isCurrent: () => !closed && !controller.signal.aborted && checkPrincipal(), sessionId: () => undefined,
+  });
   const bridge: BackendBridge = {
+    ...inbox,
     emit,
     activity: (event) => { if (!closed) { checkPrincipal(); recorder.observeActivity(event); } },
     checkpointPermission: (request) => checkpoint({ kind: "permission", request }),
@@ -210,6 +227,7 @@ async function executeAutonomousTurn(
     throw error;
   } finally {
     closed = true;
+    await intake.close();
     clearInterval(principalCheck);
     input.signal.removeEventListener("abort", abort);
     // The backend has returned. Release its kernel lock under the operational

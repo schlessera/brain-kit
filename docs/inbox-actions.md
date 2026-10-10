@@ -122,3 +122,17 @@ versioned outcomes to the shared change stream. The coordinator journals
 dispatch before I/O, completes Actions only on confirmed results, and recovers
 uncertain repairs through check rather than reapply. Generic model escalation
 cannot admit hygiene effects. UI controls remain a separate consumer.
+
+## Agent bridge access
+
+The existing UI bridge now exposes durable inbox reads and trusted-origin text
+intake in both first-party backends. See the [tool contract](integration-contract/mcp.md#durable-inbox-bridge-tools-additive-685)
+for names, limits, trust, scope and replay semantics. Intake calls the same
+compensated staging path as authenticated CLI intake. A turn that ends while
+staging cannot commit new work.
+
+`resolve_action` delegates to this resolver only after checking a server-held
+exact approved session/Action binding. Ordinary v1 sessions have no binding
+and refuse. This adds the contract and concrete executor without enabling the
+deferred discuss flow or production dispatch. Restricted and voice turns can
+read their inbox scope but cannot add or resolve through these tools.
