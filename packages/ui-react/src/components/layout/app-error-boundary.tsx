@@ -58,7 +58,7 @@ function RootFallback({ error, reload }: { error: unknown; reload?: () => void }
       <div style={S.column}>
         <h1 ref={heading} tabIndex={-1} style={S.title}>{stale ? "A new version is ready" : "Brain stopped working"}</h1>
         <p style={S.body}>{stale ? "Brain was updated since this page opened. Reload to continue." : "An error stopped the app from drawing. Reloading starts it fresh."}</p>
-        <button type="button" aria-label="Reload Brain" style={S.button} onClick={() => {
+        <button /* raw-button: api — the root crash screen must render without the kit, its stylesheet or any provider (#1377) */ type="button" aria-label="Reload Brain" style={S.button} onClick={() => {
           try { markReload(sessionStorage); } catch { /* storage may be unavailable */ }
           if (reload) reload(); else window.location.reload();
         }}>Reload</button>
