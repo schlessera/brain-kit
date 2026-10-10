@@ -728,20 +728,30 @@ export "./client" (./src/client/index.ts)
   visibleToolName
 
 export "./internal" (./src/internal.ts)
+  ANTHROPIC_INFERENCE_ROUTES
   ARCHIVING_UPDATE_REASON
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
   GIT_LOCK_KEY
+  INFERENCE_PLACEHOLDER
+  type InferenceRelay
+  type InferenceRelayEvent
+  type InferenceRelayOptions
+  MAX_INFERENCE_REQUEST_BYTES
   type QuestionObservation
+  type RestrictedEnvelope
   SUBPROCESS_ENV
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
+  WORKER_INFERENCE_DIR
+  WORKER_INFERENCE_SOCKET
   WORKER_SCRATCH
   WorkerHostError
   type WorkerHostProbe
+  type WorkerHostProbeOptions
   type WorkerLaunch
   applyClassification
   archivesDocument
@@ -763,6 +773,8 @@ export "./internal" (./src/internal.ts)
   readWebSearchRouting
   requireWorkerHost
   resolveWebSearchConfigPath
+  restrictedReadPaths
+  startInferenceRelay
   webSearchBrief
   webSearchProvider
   workerHostBoundary
@@ -2793,6 +2805,7 @@ signatures (every public export and the types it is made of)
         onYield?: (key: string) => void;
         yieldAfterMs?: number;
         completedToolCalls?: readonly CompletedAutonomousToolCall[];
+        containment?: "restricted";
     }
   BBox (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   BLOCK_SCHEMA (packages/ui-sdk/src/tool-contracts/blocks.ts)
@@ -4134,6 +4147,7 @@ signatures (every public export and the types it is made of)
   BackendCapabilities (packages/ui-sdk/src/server/backend.ts)
     export interface BackendCapabilities {
         autonomous?: boolean;
+        restrictedAutonomous?: boolean;
         resume: boolean;
         permissions: boolean;
         thinking: boolean;
@@ -8448,7 +8462,7 @@ signatures (every public export and the types it is made of)
         version: string;
     };
   assertTurnPosture (packages/ui-sdk/src/server/backend.ts)
-    export function assertTurnPosture(req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>, supportsAutonomous?: boolean): void;
+    export function assertTurnPosture(req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>, supportsAutonomous?: boolean, supportsRestricted?: boolean): void;
   assertVersionRequirements (packages/ui-sdk/src/server/version-requirements.ts)
     export function assertVersionRequirements(check: VersionRequirementCheck): void;
   bashLockKey (packages/ui-sdk/src/server/lock-keys.ts)
