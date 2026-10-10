@@ -75,6 +75,13 @@ function validateDatabase(db: Database): void {
       ...(item.queue === "queue" ? { attempts: item.attempts, max_attempts: item.maxAttempts,
         claimed_at: item.claimedAt ?? null, lease_until: item.leaseUntil ?? null, blocked_by_item_id: item.blockedByItemId ?? null } : {}) };
     if (Object.entries(pairs).some(([key, value]) => row[key] !== value)) throw new Error("inbox_snapshot_projection");
+    if (item.queue === "actions" && item.hygiene?.outcome?.status === "superseded") {
+      const replacement = items.get(item.hygiene.outcome.supersededBy ?? "");
+      if (item.status !== "dropped" || !replacement || replacement.queue !== "actions" || !replacement.hygiene ||
+          replacement.hygiene.findingId !== item.hygiene.findingId || replacement.hygiene.fingerprint === item.hygiene.fingerprint ||
+          replacement.id !== inboxIdentity("hygiene-refresh", item.id, replacement.hygiene.fingerprint))
+        throw new Error("inbox_snapshot_hygiene_relations");
+    }
     if (item.queue === "queue" && item.status === "blocked") {
       const blocker = items.get(item.blockedByItemId!);
       if (!blocker || blocker.queue !== "actions" || blocker.type === "fyi" ||

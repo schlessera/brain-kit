@@ -76,7 +76,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/graph/neighborhood` | I | Read bounded local presentation subgraph | React graph views; no independent HTTP guarantee. Existing CLI/MCP and direct-SQL promises remain separately binding. |
 | GET | `/api/health` | S | Probe SQLite liveness without identity | Health probes and React connectivity; preserve public minimal response without identity. |
 | GET | `/api/hygiene/review` | S | Read the durable review strip and pending Action | Independent clients and hygiene review controls; preserve SDK review/read shapes. |
-| POST | `/api/hygiene/review` | S | Start, pause or resume human review | Human principal authority and one pending Action; preserve SDK command/read shapes. |
+| POST | `/api/hygiene/review` | S | Start, pause, resume or refresh human review | Human principal authority and one pending Action; preserve SDK command/read shapes. |
 | POST | `/api/hygiene/review/preview` | S | Bind typed handler input to a current CLI preview | Human principal authority, stored option and version; preserve SDK preview shapes. |
 | POST | `/api/internal/inbox/poke` | S | Recover and trigger the Queue lifecycle | Generated-host cron caller; independent boot bearer token plus actual loopback socket. See the [runtime specification](inbox-runtime.md). |
 | GET | `/api/models` | S | Read full catalog including hidden profiles | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
@@ -924,7 +924,16 @@ and hash, and inserts a hashless tombstone if no upload has claimed yet.
 ## Human-started hygiene review (additive, #1027)
 
 `GET /api/hygiene/review` reads durable review state and its pending Action.
-`POST /api/hygiene/review` accepts `{ operation: "start" | "pause" | "resume" }`.
+`POST /api/hygiene/review` accepts `{ operation: "start" | "pause" | "resume" | "refresh" }`.
+Refresh reads the current canonical finding through read-only targeted CLI selection.
+A new fingerprint atomically replaces the card and retains a `superseded` receipt
+on the terminal old card. Position/counters and Markdown remain unchanged; old
+preview/confirmation requests refuse. Missing/changed findings remain pending
+with stale evidence, and unavailable checks remain refused. An unchanged fingerprint
+returns the same card. Refresh preserves Pause and cannot re-admit a cap-retired card;
+use Resume. Full [refresh semantics](integration-contract.md#human-started-hygiene-review-additive-1027)
+bind independent clients.
+
 `POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
 `expectedVersion` and bounded handler `input`. Owner/ambient operation authority
 is rechecked against the durable principal. These routes run only deterministic

@@ -30,7 +30,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:180-182`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:182-184`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -272,3 +272,27 @@ receipt semantics are defined in [the integration contract](../integration-contr
 Server Action identity, principal authorization, write serialization and
 interrupted-effect recovery remain C4 responsibilities; a CLI preview grants
 no additional authority.
+
+
+## Explicit refresh supersedes the premise
+
+The [maintainer ruling on #1493](https://github.com/schlessera/brain-kit/issues/1493)
+on **2026-10-10** makes Refresh a server-owned replacement of the pending card,
+not a rebinding of its immutable identity or resolution effect. When the same
+canonical finding has a new fingerprint, the old card retains a `superseded`
+receipt naming one new card. Supersession uses the shared terminal `dropped`
+status; it is distinct from Actions-limit retirement and records no suppression.
+It replaces one pending decision with one, without advancing review position,
+counting a disposition, writing Markdown or retiring unrelated capped cards.
+
+An unchanged fingerprint returns the same card. Missing findings, unavailable
+checks and changes during preparation leave the old card pending with an honest
+stale/refused result. Current CLI evidence and all handler previews precede
+atomic replacement; obsolete device responses cannot apply to the retired card.
+Each replacement has a new identity even if its fingerprint was seen earlier.
+Pause/reload/restart preserve the chosen state. Actions-limit retirement (#1490)
+requires Resume to admit a card; Refresh cannot resume that path.
+
+The supported operation and read-only targeted CLI projection are defined in
+[the human-review contract](../integration-contract.md#human-started-hygiene-review-additive-1027).
+React consumes those operations and never selects or counts the replacement.

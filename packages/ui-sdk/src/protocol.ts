@@ -3222,7 +3222,7 @@ export interface HygieneAction {
   fingerprint: string;
   /** Supported CLI projection, retained as display data. */
   finding: Record<string, unknown>;
-  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed"; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
+  outcome?: { version: 1; status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded"; supersededBy?: string; reason?: string; code?: string; undoToken?: string; fieldError?: { field: string; message: string } };
 }
 export interface HygieneReviewState {
   version: 1;
@@ -3233,7 +3233,7 @@ export interface HygieneReviewState {
   counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number };
   blocker?: Record<string, unknown>;
 }
-export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" }
+export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
 export interface HygieneReviewRead { review: HygieneReviewState; action: InboxActionItem | null }
 

@@ -199,3 +199,11 @@ test("hygiene is strict review data and generic model effect validation cannot a
   expect(clientInboxResolveSchema.safeParse({ type: "inbox_resolve", itemId: "ithaca", optionId: "repair", input: { grant: "wide" } }).success).toBe(false);
   expect(clientInboxResolveSchema.safeParse({ type: "inbox_resolve", itemId: "ithaca", optionId: "repair", input: ["voyage"] }).success).toBe(true);
 });
+
+test("human hygiene refresh and superseded receipts round-trip without accepting client authority", async () => {
+  const { hygieneReviewCommandSchema, hygieneReviewReadSchema } = await import("../src/schemas.js");
+  expect(hygieneReviewCommandSchema.parse({ operation: "refresh" })).toEqual({ operation: "refresh" });
+  expect(hygieneReviewCommandSchema.safeParse({ operation: "refresh", principalId: "owner" }).success).toBe(false);
+  const read: import("../src/protocol.js").HygieneReviewRead = { review: { version: 1, status: "active", position: 1, fixed: 0, dismissed: 0, snoozed: 0 }, action: { ...actionItem, status: "dropped", hygiene: { findingId: "finding", fingerprint: "old", finding: { evidence: "Eumaeus hut" }, outcome: { version: 1, status: "superseded", supersededBy: "new-card" } } } };
+  expect(read).toEqual(hygieneReviewReadSchema.parse(read));
+});
