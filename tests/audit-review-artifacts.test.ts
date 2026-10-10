@@ -7,18 +7,21 @@ import { rateAdmission,paidReservation,validPaidPolicy,claimPaidGrant,validGrant
 import { createReviewAdmission } from "../scripts/evals/audit-capabilities/review-native";
 import { startRelay } from "../scripts/evals/audit-capabilities/review-relay";
 import { runtimeFreeze,sha } from "../scripts/evals/audit-capabilities/freeze";
+import { DETECTION_DAY } from "../scripts/evals/audit-capabilities/benchmark";
+// The synthetic relay controls pin only the admission guard's local clock; the frozen live day is what they are about.
+const onDetectionDay=()=>new Date(DETECTION_DAY+"T12:00:00.000Z");
 const temp=mkdtempSync(join(tmpdir(),"1295-raw-controls-"));let reference:any,expected:any,errorDirectory:string,paidDirectory:string;
-beforeAll(async()=>{
- const out=join(temp,"actual-native");
- const child=Bun.spawn(["python3","scripts/evals/audit-capabilities/review-offline-launch.py","--bun",process.execPath,"--output",out],{cwd:process.cwd(),env:{PATH:process.env.PATH!,HOME:temp},stdout:"pipe",stderr:"pipe"});
+// A failed launch names the rejected guard: the collector's native/relay refusals lead, then the stdout/stderr tails
+// (the full stdout receipt is long enough for the matcher to truncate its middle away).
+function refusals(stdout:string){try{const r=JSON.parse(stdout.trim().split("\n").at(-1)!);return {nativeFailure:r.native?.failure??null,callFailures:(r.calls??[]).map((c:any)=>c.failure).filter(Boolean)};}catch{return null;}}
+async function launch(out:string,mode:string){const child=Bun.spawn(["python3","scripts/evals/audit-capabilities/review-offline-launch.py","--bun",process.execPath,"--output",out,"--mode",mode],{cwd:process.cwd(),env:{PATH:process.env.PATH!,HOME:temp},stdout:"pipe",stderr:"pipe"});
  const [exit,stdout,stderr]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
- expect({exit,stdout,stderr}).toMatchObject({exit:0});
- const dir=join(out,"artifacts"),execution=JSON.parse(readFileSync(join(dir,"execution.json"),"utf8"));
+ expect({mode,exit,refusals:exit===0?null:refusals(stdout),stdoutTail:stdout.slice(-2000),stderrTail:stderr.slice(-2000)}).toMatchObject({mode,exit:0});return join(out,"artifacts");}
+beforeAll(async()=>{
+ const dir=await launch(join(temp,"actual-native"),"normal"),execution=JSON.parse(readFileSync(join(dir,"execution.json"),"utf8"));
  expected={freezeSha:execution.freezeSha,promptSha:execution.promptSha,runtime:execution.runtime};reference=saveEvidenceBundle(dir);
- const errorOut=join(temp,"actual-native-error");const bad=Bun.spawn(["python3","scripts/evals/audit-capabilities/review-offline-launch.py","--bun",process.execPath,"--output",errorOut,"--mode","native-error"],{cwd:process.cwd(),env:{PATH:process.env.PATH!,HOME:temp},stdout:"pipe",stderr:"pipe"});
- const [badExit]=await Promise.all([bad.exited,new Response(bad.stdout).text(),new Response(bad.stderr).text()]);expect(badExit).toBe(0);errorDirectory=join(errorOut,"artifacts");
- const paidOut=join(temp,"actual-native-paid");const paid=Bun.spawn(["python3","scripts/evals/audit-capabilities/review-offline-launch.py","--bun",process.execPath,"--output",paidOut,"--mode","paid-extra"],{cwd:process.cwd(),env:{PATH:process.env.PATH!,HOME:temp},stdout:"pipe",stderr:"pipe"});
- const [paidExit]=await Promise.all([paid.exited,new Response(paid.stdout).text(),new Response(paid.stderr).text()]);expect(paidExit).toBe(0);paidDirectory=join(paidOut,"artifacts");
+ errorDirectory=await launch(join(temp,"actual-native-error"),"native-error");
+ paidDirectory=await launch(join(temp,"actual-native-paid"),"paid-extra");
 },30000);
 afterAll(()=>rmSync(temp,{recursive:true,force:true}));
 function formatControl(){const dir=mkdtempSync(join(temp,"format-"));cpSync(reference.directory,dir,{recursive:true});
@@ -114,7 +117,7 @@ test("actual native stderr error before SDK throw retains literal bytes and true
 test("actual relay refuses changed physical prompt tools effort and policy binding before forwarding",async()=>{
  const f=runtimeFreeze(),payload="Approved fictional review input",runtime={sdk:f.binaries.claude.sdkVersion,nativeSha:f.binaries.claude.sha256,nativeMode:f.binaries.claude.mode,bunSha:f.binaries.bun.sha256,bunVersion:Bun.version,bunMode:f.binaries.bun.mode};
  const p={...policy(),freezeSha:f.freezeSha,runtimeSha:sha(JSON.stringify(runtime)),promptSha:sha(payload),protocolSha:sha(JSON.stringify(f.protocol))};
- const input={frozen:f,payload,proofSha:p.proofSha,detectedSha:p.detectedSha,policy:p};
+ const input={frozen:f,payload,proofSha:p.proofSha,detectedSha:p.detectedSha,policy:p,now:onDetectionDay};
  for(const change of [{messages:[{role:"user",content:"altered prompt"}]},{messages:[{role:"user",content:payload},{role:"user",content:"Unapproved Odysseus instruction"}]},{messages:[{role:"user",content:[{type:"text",text:payload},{type:"text",text:"Unapproved instruction"}]}]},{messages:[{role:"user",content:[{type:"text",text:payload},{type:"image",source:{type:"base64",media_type:"image/png",data:"AA=="}}]}]},{tools:[{name:"Write"}]},{tools:{name:"Write"}},{output_config:{effort:"high"}}]){
   let forwarded=0;const guard=createReviewAdmission(input),relay=startRelay({oauthToken:"offline-auth",beforeForward:guard.beforeForward,save:()=>{},fetch:async()=>{forwarded++;throw Error("unexpected forwarded request");}});
   try{const response=await fetch(relay.url+"/v1/messages",{method:"POST",headers:{authorization:"Bearer offline-auth"},body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:1000,messages:[{role:"user",content:payload}],tools:[],output_config:{effort:"low"},...change})});
@@ -139,7 +142,7 @@ test("actual relay refuses changed physical prompt tools effort and policy bindi
 test("actual relay atomically consumes grant and refuses reuse from another output scope",async()=>{
  const f=runtimeFreeze(),payload="Odysseus single-use grant",runtime={sdk:f.binaries.claude.sdkVersion,nativeSha:f.binaries.claude.sha256,nativeMode:f.binaries.claude.mode,bunSha:f.binaries.bun.sha256,bunVersion:Bun.version,bunMode:f.binaries.bun.mode};
  const p={...policy(),freezeSha:f.freezeSha,runtimeSha:sha(JSON.stringify(runtime)),promptSha:sha(payload),protocolSha:sha(JSON.stringify(f.protocol))};
- const input={frozen:f,payload,proofSha:p.proofSha,detectedSha:p.detectedSha,policy:p};let forwarded=0;
+ const input={frozen:f,payload,proofSha:p.proofSha,detectedSha:p.detectedSha,policy:p,now:onDetectionDay};let forwarded=0;
  for(let scope=0;scope<2;scope++){
  const guard=createReviewAdmission(input),relay=startRelay({oauthToken:"offline-auth",beforeForward:guard.beforeForward,save:()=>{},fetch:async()=>{forwarded++;throw Error("controlled failure after admission");}});
  try{await fetch(relay.url+"/v1/messages",{method:"POST",headers:{authorization:"Bearer offline-auth"},body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:1000,messages:[{role:"user",content:payload}],tools:[],output_config:{effort:"low"}})});expect(forwarded).toBe(1);expect(lstatSync(p.consumedMarkerPath).mode&0o777).toBe(0o600);}finally{await relay.stop();}
