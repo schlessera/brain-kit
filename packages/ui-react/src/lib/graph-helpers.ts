@@ -243,27 +243,45 @@ export interface LabelPolicyInput {
   selectedId: number | null;
   hoveredId: number | null;
   matchIds: ReadonlySet<number>;
-  /** Camera ratio — sigma's zoom, 1 = fit, smaller = zoomed in. */
-  cameraRatio: number;
+  viewport: { width: number; height: number };
+  labelSize: number;
+  /** Active note and its neighbors; focus replaces the overview candidate list. */
+  focusedIds?: ReadonlySet<number>;
+}
+
+/** Keep the original phone typography; give spacious views a larger label. */
+export function graphLabelSize(width: number, height: number): number {
+  const space = Math.max(0, Math.min(1, (Math.min(width, height) - 400) / 450));
+  return Math.round(11 + 2 * space);
+}
+
+/** Screen-space density stays steady through camera zoom and pan. */
+export function graphLabelBudget(viewport: { width: number; height: number }, labelSize: number): number {
+  const area = Math.max(0, viewport.width) * Math.max(0, viewport.height);
+  const footprint = Math.max(1, labelSize) ** 2 * 240;
+  return Math.min(60, Math.max(8, Math.round(area / footprint)));
 }
 
 /**
- * Which nodes must always carry a label: selection, hover, search matches,
- * the virtual root, plus the top-K nodes by rank where K grows as the user
- * zooms in. Never "all labels" — the renderer's own density threshold handles
- * the rest.
+ * Focus offers only the active note and its visible neighbors. The overview
+ * includes selection, hover, matches, the virtual root and ranked candidates.
+ * Oversample its screen budget to fill gaps after rejecting collisions; the
+ * final overview drawing limit stays independent of camera zoom.
  */
 export function labelSet(input: LabelPolicyInput): Set<number> {
   const forced = new Set<number>();
+  const active = input.hoveredId ?? input.selectedId;
+  if (active !== null && input.focusedIds) {
+    forced.add(active);
+    for (const node of input.nodes) if (input.focusedIds.has(node.id)) forced.add(node.id);
+    return forced;
+  }
   if (input.selectedId !== null) forced.add(input.selectedId);
   if (input.hoveredId !== null) forced.add(input.hoveredId);
   for (const id of input.matchIds) forced.add(id);
   for (const node of input.nodes) if (node.virtual) forced.add(node.id);
 
-  // Zoomed out (ratio >= 1): a handful of anchors. Each halving of the ratio
-  // doubles the quota. Capped so a deep zoom cannot force thousands.
-  const zoomFactor = Math.max(0.05, Math.min(4, input.cameraRatio));
-  const quota = Math.min(60, Math.max(4, Math.round(8 / zoomFactor)));
+  const quota = graphLabelBudget(input.viewport, input.labelSize) * 3;
 
   const ranked = [...input.nodes].sort((a, b) => rank(b) - rank(a));
   for (let i = 0; i < Math.min(quota, ranked.length); i++) {
