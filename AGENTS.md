@@ -62,8 +62,8 @@ on, links to or describes them.
   CI's leakage gate covers the whole tree, with no exempt directories.
 - **Contract stability.** The CLI `--json` shapes, MCP tool names and schemas,
   `schema_version`, and frontmatter semantics are the compatibility contract
-  (`docs/integration-contract.md`). Changing one means updating that doc in the
-  same commit and prefixing the commit `CONTRACT:`. An additive change ships in
+  (`docs/integration-contract.md`). Changing one means updating that index or its
+  relevant component in the same commit and prefixing the commit `CONTRACT:`. An additive change ships in
   a minor; a breaking one also needs a maintainer ruling on its issue first —
   the doc's header says exactly which is which.
 - **No new seams.** Extension interfaces exist only where a second

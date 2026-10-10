@@ -66,7 +66,7 @@ shipping both in `@schlessera/brain-ui-sdk` does not give them the same stabilit
 classification. This ruling records the current boundary. It does not freeze
 experimental interfaces immediately or schedule 1.0.
 
-[Revision negotiation](../integration-contract.md#revision-negotiation) selects
+[Revision negotiation](../integration-contract/wire.md#revision-negotiation) selects
 which connection rules apply. It does not replace semantic versioning
 or waive a documented compatibility guarantee. For example, requiring a reply
 field from a previously tolerated client can be breaking even when the protocol

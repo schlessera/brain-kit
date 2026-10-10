@@ -39,7 +39,7 @@ bun run check:pr --base origin/main
 - [ ] The PR and completed/advanced issues have verified release milestones under docs/process/github.md.
 - [ ] A changeset is included, or this changes nothing a consumer can see.
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
-- [ ] `docs/integration-contract.md` is updated in this same commit, or nothing in the machine surface moved.
+- [ ] The integration contract index or relevant component is updated in this same commit, or nothing in the machine surface moved.
 - [ ] Docs under `docs/` reflect the change, or nothing documented moved.
 
 ## Anything left open

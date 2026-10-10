@@ -195,7 +195,7 @@ configured rates or the documented fallback rates on ingest.
 
 `readOnlyHint: true` and `openWorldHint: false` are client hints. Backend
 permission policy remains separate. This module owns the supported name,
-schemas and behavior under the shared [integration contract](../../docs/integration-contract.md#module-tools):
+schemas and behavior under the shared [integration contract](../../docs/integration-contract/mcp.md#module-tools):
 additions ship in a minor; breaking changes need the project's ruling and
 versioning procedure.
 

@@ -115,7 +115,7 @@ enablement gate described in the async-collaboration decision.
 
 ## Human-started hygiene effects
 
-The [hygiene review contract](integration-contract.md#human-started-hygiene-review-additive-1027)
+The [hygiene review contract](integration-contract/package-api.md#human-started-hygiene-review-additive-1027)
 adds a concrete deterministic effect to the same resolver. Its original Action
 context stays immutable; CLI previews append frozen option revisions and
 versioned outcomes to the shared change stream. The coordinator journals

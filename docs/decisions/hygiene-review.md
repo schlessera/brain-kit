@@ -8,7 +8,7 @@ They bind selection, reconciliation and dismissal/snooze in human-triggered
 asynchronous hygiene review. This record explains the approved policy. The
 identity, fingerprint and disposition definitions that implement it are in
 [What the implementation defines](#what-the-implementation-defines) (#1024);
-selection is defined in [the selection contract](../integration-contract.md#hygiene-selection-additive-1026) (#1026). The review interface remains separate work.
+selection is defined in [the selection contract](../integration-contract/package-api.md#hygiene-selection-additive-1026) (#1026). The review interface remains separate work.
 
 The [shared Queue/Actions decision](async-collaboration.md) continues to govern
 durable Action identity, validated effects, authorization, idempotency and
@@ -114,7 +114,7 @@ serialized fingerprint format or complete equivalence map:
 
 #1024 fills in what the policy above leaves to the implementation: the
 equivalence map, the fingerprints and the storage. The `brain hygiene` JSON
-shapes are in [the integration contract](../integration-contract.md#hygiene-review-data-additive-1024).
+shapes are in [the integration contract](../integration-contract/package-api.md#hygiene-review-data-additive-1024).
 
 **Equivalence map.** Each `brain validate` rule becomes a candidate with a
 category and ID evidence (`VALIDATION_JOIN`,
@@ -214,7 +214,7 @@ normal hard cap and current previews, and concurrent requests must not create
 duplicate pending cards. If the fresh card itself loses, pause with the new
 receipt; the server never retries or re-admits automatically. Reload and backup
 must retain that honest state. The additive reason and response semantics are
-specified in [the review contract](../integration-contract.md#human-started-hygiene-review-additive-1027).
+specified in [the review contract](../integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
 
 Keeping a terminal card advertised as pending makes review and backup disagree
 with the shared lifecycle. Automatically re-admitting it would turn hard-cap
@@ -289,7 +289,7 @@ post-check. The failed effect remains written and its finding remains open;
 no automatic rollback occurs. A Markdown receipt holds the exact before/after
 bytes. Undo has an inverse preview and requires the whole file to still match
 the written effect. Any subsequent edit makes it stale. The operations and
-receipt semantics are defined in [the integration contract](../integration-contract.md#bounded-hygiene-repair-operations-additive-1025).
+receipt semantics are defined in [the integration contract](../integration-contract/package-api.md#bounded-hygiene-repair-operations-additive-1025).
 Server Action identity, principal authorization, write serialization and
 interrupted-effect recovery remain C4 responsibilities; a CLI preview grants
 no additional authority.
@@ -315,5 +315,5 @@ Pause/reload/restart preserve the chosen state. Actions-limit retirement (#1490)
 requires Resume to admit a card; Refresh cannot resume that path.
 
 The supported operation and read-only targeted CLI projection are defined in
-[the human-review contract](../integration-contract.md#human-started-hygiene-review-additive-1027).
+[the human-review contract](../integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
 React consumes those operations and never selects or counts the replacement.

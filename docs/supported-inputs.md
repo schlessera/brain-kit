@@ -184,7 +184,7 @@ there; enable/disable is a separate writer. Dormant modules retain domain loadin
 and validation. Invalid hand-edited JSON fails; it does not erase an override or
 silently fall back. Settings paths cannot alias another path through symlinks.
 
-The [module settings contract](integration-contract.md#module-settings-additive-528)
+The [module settings contract](integration-contract/package-api.md#module-settings-additive-528)
 defines the shipped snapshot, provenance, opaque source revision, CLI and HTTP
 writer. Load, validation, CLI saves and UI saves use the same domain schema.
 Untouched optional fields stay absent; read-only/unsupported JSON values remain
@@ -224,7 +224,7 @@ writer applies even when a module has no custom editor metadata.
 
 Settings live at the manifest-name path, independent of a package key alias.
 Core frontmatter, wiki links, registry declarations and generated-region markers
-retain their [file-layer contracts](integration-contract.md#file-layer-contracts).
+retain their [file-layer contracts](integration-contract/frontmatter.md#file-layer-contracts).
 Module-specific Markdown fields augment those rules; they do not replace them.
 
 ## Storage that is not a user input format

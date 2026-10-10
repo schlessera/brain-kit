@@ -183,7 +183,7 @@ image and a requested 1000 ms timeslice. The highest observed rate was Firefox's
 This supplies no Android or physical-device measurement. The separate local
 capture limit remains ten minutes. The additive surface and exact receipt/error
 semantics are already recorded in the
-[integration contract](../integration-contract.md#saved-audio-transcription-additive-1021)
+[integration contract](../integration-contract/package-api.md#saved-audio-transcription-additive-1021)
 and [HTTP reference](../http-api.md#saved-audio-transcription).
 
 ## Failed capture explanations — 2026-10-08

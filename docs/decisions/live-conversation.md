@@ -104,7 +104,7 @@ interaction design and live-device proof remain independent requirements.
 
 [#957](https://github.com/schlessera/brain-kit/issues/957) exports the seam as
 `LiveConversationProvider` and implements the host side of this record; the
-[integration contract](../integration-contract.md#live-conversation-additive-957)
+[integration contract](../integration-contract/wire.md#live-conversation-additive-957)
 is the normative text. Three choices it made within this record's scope:
 
 - **Commit is a client frame.** The client reviews the recognized text and

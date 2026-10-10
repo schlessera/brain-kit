@@ -58,7 +58,7 @@ Model-submitted effects use `resolutionEffectSchema`; v1 creation/application
 uses `v1ResolutionEffectSchema` or `validateResolutionEffect` with server-owned
 exact permitted operations. `write_policy` and `open_session` are deferred data
 variants and fail v1 validation. Neither a parsed effect nor an operation
-request grants authority. See the [durable wire contract](../../docs/integration-contract.md#durable-queue-and-actions-additive)
+request grants authority. See the [durable wire contract](../../docs/integration-contract/wire.md#durable-queue-and-actions-additive)
 for payloads, state vocabularies and ordering.
 
 ## Backend seam (`./server`)

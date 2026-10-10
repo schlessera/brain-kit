@@ -1,4 +1,4 @@
-# A change to docs/integration-contract.md is a contract change. Its PR is
+# A change to the integration-contract index or a component is a contract change. Its PR is
 # titled `CONTRACT:` and labelled `contract`, and a PR that is titled or
 # labelled that way changes the doc. The rule is scripts/check-contract-pr.ts;
 # CONTRIBUTING.md says what it enforces.

@@ -23,7 +23,7 @@ a 288px card has 262px of content, which leaves a 160px value track after the
 92px key track and 10px gutter. The existing mono font stays 500 at
 10.5px/1.5, with a 5px row gap. Only rows whose content wraps grow. Long
 unbroken values wrap within their track; empty values receive no placeholder.
-Colors continue through the existing [theme and tone rules](design-kit.md#2026-09-18--d32-the-light-theme-is-light-dark-per-token-switched-by-color-scheme-under-data-theme).
+Colors continue through the existing [theme and tone rules](design-kit/tokens-and-styles.md#2026-09-18--d32-the-light-theme-is-light-dark-per-token-switched-by-color-scheme-under-data-theme).
 
 An explicit positive minimum above 92px raises the cap to that minimum.
 It is deliberately not clamped or stacked: an oversized caller-supplied floor

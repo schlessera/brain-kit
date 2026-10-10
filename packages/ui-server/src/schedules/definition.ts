@@ -3,7 +3,7 @@
  * supported-tool registry and the Markdown definition file.
  *
  * Every rule here follows the scheduled-task contract
- * (docs/integration-contract.md#scheduled-tasks-additive-914). Nothing in a definition
+ * (docs/integration-contract/package-api.md#scheduled-tasks-additive-914). Nothing in a definition
  * carries authority: creator, approval and control state live in the
  * operational ledger.
  */

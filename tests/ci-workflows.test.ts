@@ -266,7 +266,7 @@ describe("contributions execute without privileged credentials", () => {
       // They were read, judged and rejected as text: the title claims a
       // contract change the empty diff does not make.
       const stderr = new TextDecoder().decode(result.stderr);
-      expect(stderr).toContain("The title starts with `CONTRACT:`, but docs/integration-contract.md did not change.");
+      expect(stderr).toContain("The title starts with `CONTRACT:`, but docs/integration-contract.md and its authoritative components did not change.");
       expect(result.exitCode).toBe(1);
     } finally {
       rmSync(scratch, { recursive: true, force: true });

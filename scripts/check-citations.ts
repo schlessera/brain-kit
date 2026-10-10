@@ -445,21 +445,21 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/ws/connection.ts#L162",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/cron/run-job.ts#L108",
       "docs/decisions/session-principals.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/index.ts#L44",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/7a7bd9caff1453abaceddc98826b652f2ca955cb/packages/module-jobs/src/types.ts#L147",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/chat-page.tsx#L142",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/settings/pi-accounts.tsx#L71",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/activity/span-bits.tsx#L88",
+      "docs/decisions/design-kit/foundations.md|https://github.com/schlessera/brain-kit/blob/7a7bd9caff1453abaceddc98826b652f2ca955cb/packages/module-jobs/src/types.ts#L147",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/chat-page.tsx#L142",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/chat/composer.tsx#L205",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/settings/pi-accounts.tsx#L71",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/components/activity/span-bits.tsx#L88",
       "docs/decisions/audit-repair-suggestions.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/activity-store.ts#L261",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/chat-store.ts#L228",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/provider-store.ts#L8",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/activity-store.ts#L261",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/chat-store.ts#L228",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/provider-store.ts#L8",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/06889f5622a8cf26c4f4961f541fa993e998c2f4/packages/ui-react/src/stores/file-store.ts#L26",
+      "docs/decisions/design-kit/state-architecture.md|https://github.com/schlessera/brain-kit/blob/5835058d4eeee18aae483b180234e9c861ba9c7b/packages/ui-react/src/components/chat/renderers/index.ts#L10",
       // D52's "today" key map, before #946 moved the destinations into desktop-routes.ts.
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104",
-      "docs/decisions/design-kit.md|https://github.com/schlessera/brain-kit/blob/2efd725e233abefca36c25693cd362cf69a0b1bd/docs/decisions/design-kit.md#L2522",
+      "docs/decisions/design-kit/sessions-and-drafts.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84",
+      "docs/decisions/design-kit/show-block-brief.md|https://github.com/schlessera/brain-kit/blob/70e7ed3808c81a6aa5d59ea316dec9888851c155/packages/ui-backend-claude/src/ask-user-tool.ts#L104",
+      "docs/decisions/design-kit/show-block-brief.md|https://github.com/schlessera/brain-kit/blob/2efd725e233abefca36c25693cd362cf69a0b1bd/docs/decisions/design-kit.md#L2522",
       "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/ea2c3d840920a4e73adc650566a6cfc110e9646e/packages/ui-server/src/middleware/auth.ts#L253",
       "docs/decisions/hardening.md|https://github.com/schlessera/brain-kit/blob/b44fd7d356cf414de54bbb59c63fc966b10cca8b/packages/ui-server/src/agent/backend.ts#L1039",
       "docs/decisions/claude-code-runtime.md|https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304",
@@ -485,31 +485,31 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   // decided. That code is gone or now does the opposite, so there is nothing
   // current to anchor to, and re-pointing would make the record claim
   // something about code it never described.
-  "docs/decisions/design-kit.md|chat-page.tsx:142,158,168":
+  "docs/decisions/design-kit/state-architecture.md|chat-page.tsx:142,158,168":
     "the static getState call sites this audit found were since fixed",
-  "docs/decisions/design-kit.md|composer.tsx:205":
+  "docs/decisions/design-kit/state-architecture.md|composer.tsx:205":
     "the static store access this audit found was since fixed",
-  "docs/decisions/design-kit.md|pi-accounts.tsx:71":
+  "docs/decisions/design-kit/state-architecture.md|pi-accounts.tsx:71":
     "the static store access this audit found was since fixed",
-  "docs/decisions/design-kit.md|span-bits.tsx:88":
+  "docs/decisions/design-kit/state-architecture.md|span-bits.tsx:88":
     "the default-store static this audit found was since fixed",
-  "docs/decisions/design-kit.md|activity-store.ts:261,270":
+  "docs/decisions/design-kit/state-architecture.md|activity-store.ts:261,270":
     "activity-store.ts is now a re-export shim; the cited logic moved and no longer touches a default store",
-  "docs/decisions/design-kit.md|chat-store.ts:364":
+  "docs/decisions/design-kit/state-architecture.md|chat-store.ts:364":
     "chat-store.ts is now a shim; the cited localStorage read moved behind an injected env.storage()",
-  "docs/decisions/design-kit.md|provider-store.ts:44":
+  "docs/decisions/design-kit/state-architecture.md|provider-store.ts:44":
     "provider-store.ts is now a shim; the cited read moved behind an injected env.storage()",
-  "docs/decisions/design-kit.md|228":
+  "docs/decisions/design-kit/state-architecture.md|228":
     "the guard line paired with chat-store.ts:364; chat-store.ts is now a shim",
-  "docs/decisions/design-kit.md|8":
+  "docs/decisions/design-kit/state-architecture.md|8":
     "the guard line paired with provider-store.ts:44; provider-store.ts is now a shim",
-  "docs/decisions/design-kit.md|26":
+  "docs/decisions/design-kit/state-architecture.md|26":
     "the guard line paired with file-store.ts:135; file-store.ts is now a shim",
-  "docs/decisions/design-kit.md|file-store.ts:135":
+  "docs/decisions/design-kit/state-architecture.md|file-store.ts:135":
     "file-store.ts is now a shim; the cited read moved behind an injected env.storage()",
-  "docs/decisions/design-kit.md|components/chat/renderers/index.ts:10":
+  "docs/decisions/design-kit/state-architecture.md|components/chat/renderers/index.ts:10":
     "the module-level registration latch this audit found was since removed",
-  "docs/decisions/design-kit.md|packages/ui-backend-claude/src/ask-user-tool.ts:107":
+  "docs/decisions/design-kit/show-block-brief.md|packages/ui-backend-claude/src/ask-user-tool.ts:107":
     "records the call as it was before D44; it now passes alwaysLoad",
   "docs/decisions/claude-code-runtime.md|packages/ui-backend-claude/src/model-discovery.ts:86-104":
     "model discovery preferring the API key; #253 made it prefer the subscription token",
