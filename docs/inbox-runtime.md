@@ -105,6 +105,14 @@ write the crew policy and run a shell payload that calls home. No secret
 reaches a model request, the policy bytes and host listener are untouched, and
 each attempt ends as a cancel-only decision.
 
+`packages/ui-server/tests/inbox-dispatch-ae.test.ts` composes the design's
+acceptance examples through the dispatcher: AE1–AE5, AE7–AE9 and AE11–AE15.
+AE6 and AE10 are deferred to v2. An arrival that T1 cannot route, for
+example without a classification key, stays queued until it expires; the
+agent tier never runs unrouted work. Intake assigns stakes 1 and no deadline,
+which stays below the push cutoff of 12, so the dispatcher's own decisions
+reach the twice-daily digest rather than an immediate push.
+
 ## Runtime token file
 
 Set `BRAIN_UI_INBOX_POKE_TOKEN_FILE` to an absolute file path in a private
