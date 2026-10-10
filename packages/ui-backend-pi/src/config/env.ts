@@ -170,6 +170,13 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
       "call time under whatever name the config declares (default: GEMINI_API_KEY).",
   },
   {
+    source: "pi provider API key for a restricted autonomous turn",
+    description:
+      "The selected provider's key from pi's own environment variable, or a " +
+      "`$NAME` reference in `auth.json` or `models.json`, read in the server " +
+      "for the inference relay. The worker never receives the value.",
+  },
+  {
     source: "filtered environment snapshot (`subprocessEnv`)",
     description:
       "At each tool spawn, forwards the SDK agent allowlist plus valid operator " +

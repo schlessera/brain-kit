@@ -99,6 +99,8 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
 
   const capabilities: BackendCapabilities = {
     autonomous: true,
+    // Restricted turns run in the relay-only envelope (autonomous-envelope.ts).
+    restrictedAutonomous: true,
     resume: true,
     permissions: true,
     thinking: true,

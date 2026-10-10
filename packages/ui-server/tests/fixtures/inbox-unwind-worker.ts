@@ -9,7 +9,7 @@ import { escalateInbox } from "../../src/inbox/escalate.js";
 const [path, fixture, ready, mode] = process.argv.slice(2);
 const input = JSON.parse(readFileSync(fixture!, "utf8")) as { principalId: string; action: InboxActionItem; operation: InboxOperation; stagingId: string };
 const db = createUiDb(path!), activity = createActivityStore(db, { writer: "unwind-fixture" });
-const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
+const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
   req.bridge.activity!({ kind: "autonomous_identity", runtimeSessionId: "ephemeral", backendId: "fixture" });
   req.bridge.activity!({ kind: "runtime_observed", billing: "api" });
   let denied = false;

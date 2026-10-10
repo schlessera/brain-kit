@@ -92,7 +92,11 @@ interface SettingsLike {
  * flag settings switched off: a configured helper is a request to bill a key,
  * and the operator should see it refused, not silently ignored.
  */
-export function settingsRefusal(report: CliSettingsReport | undefined): string | null {
+export function settingsRefusal(
+  report: CliSettingsReport | undefined,
+  /** Exact values the host itself pinned in flag settings (the autonomous relay route). */
+  pinned: Readonly<Record<string, string>> = {}
+): string | null {
   if (!report) return "the CLI did not report its settings";
   const layers: Array<[string, SettingsLike | undefined]> = [
     ["effective settings", report.effective],
@@ -114,7 +118,7 @@ export function settingsRefusal(report: CliSettingsReport | undefined): string |
     }
     for (const key of Object.keys(CLEARED_API_CREDENTIALS)) {
       const value = settings?.env?.[key];
-      if (typeof value === "string" && value.trim() !== "") return `${name} set ${key}`;
+      if (typeof value === "string" && value.trim() !== "" && pinned[key] !== value) return `${name} set ${key}`;
     }
   }
   return null;

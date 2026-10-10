@@ -5,7 +5,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentSession, SessionManager, FileEntry } from "@earendil-works/pi-coding-agent";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns } from "@schlessera/brain-ui-sdk/server";
-import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import type { PiWorkerInference } from "./autonomous-envelope.js";
 import { createBrainAccess } from "./brain-access.js";
 import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
@@ -23,6 +24,8 @@ interface Init {
   entries?: FileEntry[];
   profileId?: string;
   agentFiles: Record<string, string>;
+  /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
+  inference?: PiWorkerInference;
 }
 let session: PiSessionLike | undefined;
 let manager: SessionManager | undefined;
@@ -50,6 +53,19 @@ async function initialize(init: Init): Promise<void> {
   authPath = join(state, "auth.json"); originalAuth = init.agentFiles["auth.json"];
   for (const name of ["auth.json", "models.json", "settings.json"]) {
     if (init.agentFiles[name] !== undefined) writeFileSync(join(state, name), init.agentFiles[name]!);
+  }
+  if (init.inference) {
+    // This trusted entry runs before pi or any tool initializes. The worker's
+    // network namespace holds only loopback; this port forwards to the server's
+    // relay socket, the one route out. pi holds a placeholder, never the key.
+    const forward = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
+      const url = new URL(request.url);
+      return fetch(`http://localhost${url.pathname}${url.search}`, { method: request.method, headers: request.headers,
+        body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
+        unix: WORKER_INFERENCE_SOCKET } as RequestInit);
+    } });
+    writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { [init.inference.provider]: {
+      baseUrl: `http://127.0.0.1:${forward.port}${init.inference.basePath}`, apiKey: init.inference.placeholder } } }));
   }
   const resources = createSessionResources({ backend: init.backend,
     brain: createBrainAccess(init.backend.brainPath), lock: toolLockFromKeyed(createKeyedLock()),

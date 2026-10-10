@@ -28,7 +28,7 @@ function setup() {
   const authorization = testAuthorization(principal.id);
   const store = createActivityStore(db, { writer: "worker-host-test" });
   let starts = 0;
-  const backend = makeFakeBackend({ id: "claude", capabilities: { autonomous: true },
+  const backend = makeFakeBackend({ id: "claude", capabilities: { autonomous: true, restrictedAutonomous: true },
     histories: { source: [{ role: "user", content: "Odysseus fixture", toolCalls: [] }] }, startTurn: async request => {
     starts++;
     request.bridge.emit({ type: "session_info", sessionId: "should-never-exist", isNew: true });

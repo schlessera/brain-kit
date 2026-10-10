@@ -52,7 +52,7 @@ test("cancellation preserves staging while a real backend is held after denial",
   const gate = new Promise<void>(resolve => { release = resolve; });
   const reached = new Promise<void>(resolve => { held = resolve; });
   let backendAlive = false, denied = false, aborted = false, starts = 0;
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
     starts++;
     backendAlive = true;
     req.bridge.activity!({ kind: "autonomous_identity", runtimeSessionId: "ephemeral", backendId: "fixture" });
@@ -100,7 +100,7 @@ function holdBackend(f: ReturnType<typeof setup>, cap?: number) {
   const reached = new Promise<void>(resolve => { held = resolve; });
   let alive = false, starts = 0, denied = false, aborted = false;
   const completed = { toolName: "prepare_staging", input: { stagingId: f.stagingId } };
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
     bridge = req.bridge;
     alive = true; starts++;
     bridge.activity!({ kind: "autonomous_identity", runtimeSessionId: "ephemeral", backendId: "fixture" });
@@ -247,7 +247,7 @@ test("expired Queue leases do not recover an actually running backend", async ()
   const f = setup(), activity = createActivityStore(f.db);
   let held!: () => void, release!: () => void;
   const reached = new Promise<void>(r => { held = r; }), gate = new Promise<void>(r => { release = r; });
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
     req.bridge.activity!({ kind: "autonomous_identity", runtimeSessionId: "ephemeral", backendId: "fixture" });
     held(); await gate;
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });

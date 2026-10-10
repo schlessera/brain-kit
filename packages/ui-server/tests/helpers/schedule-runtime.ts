@@ -27,7 +27,7 @@ export function scriptedBackend(script: Script) {
   const calls: StartTurnRequest[] = [];
   const backend: AgentBackend = {
     id: POLICY.backendId,
-    capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false,
+    capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false,
       askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
     listProfiles: () => [], listSessions: async () => [], getHistory: async () => [],
     startTurn: async (request) => { calls.push(request); await script(request, calls.length); },

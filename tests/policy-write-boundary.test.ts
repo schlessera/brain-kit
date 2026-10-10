@@ -225,7 +225,9 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     policyHeld(r, []);
     expect(r.after.target, "the unattended turn could not change even the ordinary note").toBe(TARGET);
     expect(r.receipt.failure).toBeUndefined();
-    executorsHeld(r, adapter);
+    // The restricted envelope (#676) loads no project hook, MCP server or
+    // extension at all, so none of the pre-tool executors starts.
+    expect(r.receipt.witnesses, "no ambient pre-tool executor runs in an autonomous turn").toEqual([]);
     const command = calls(r, shell)[0]!;
     expect(command.result.output).toContain("Read-only file system");
     expect(command.result.output, "scratch remains writable for triage").toContain("Odysseus scratch succeeds");

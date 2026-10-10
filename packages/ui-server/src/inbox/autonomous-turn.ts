@@ -61,13 +61,18 @@ export async function runAutonomousTurn(
   if (deps.backend.capabilities.autonomous !== true) {
     throw new BackendRequestError(`Backend ${deps.backend.id} does not support autonomous turns.`);
   }
+  // Untrusted work runs only where the restricted envelope exists (#676).
+  if (deps.backend.capabilities.restrictedAutonomous !== true) {
+    throw new BackendRequestError(`Backend ${deps.backend.id} cannot run the restricted autonomous envelope.`);
+  }
   const principalId = input.principalId;
   const usable = (): boolean => {
     const principal = resolvePrincipal(deps.db, principalId);
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
-  try { requireWorkerHost(deps.brainPath ?? process.cwd()); }
+  // The restricted envelope must be establishable, not only the ordinary worker (#676).
+  try { requireWorkerHost(deps.brainPath ?? process.cwd(), { restricted: true }); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.emit?.({ type: "error", code: "BACKEND_REQUEST_ERROR", turnId: input.turnId, message,
@@ -143,7 +148,7 @@ async function executeAutonomousTurn(
     recorder.observeFrame(frame);
     deps.emit?.({ ...frame, turnId: input.turnId } as ServerMessage);
   };
-  const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const,
+  const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const, containment: "restricted" as const,
     allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend: input.systemPromptAppend,
     completedToolCalls: Object.freeze(completedCallsForRun(deps.db, input.turnId)),
     yieldAfterMs: input.yieldAfterMs ?? 20_000,

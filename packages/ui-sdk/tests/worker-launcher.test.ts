@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
 import { join, resolve } from "node:path";
-import { launchAgentWorker, probeWorkerHost, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
+import { chmodSync } from "node:fs";
+import { launchAgentWorker, probeWorkerHost, restrictedReadPaths, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
+import { WORKER_INFERENCE_DIR } from "../src/server/inference-relay";
 import { createWorkerPipes } from "../src/server/worker-pipes";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
@@ -135,5 +137,85 @@ describe("real bubblewrap worker launcher", () => {
     try { mkdirSync(join(f.brain, "scratch")); expect(() => workerCommand({ brainPath: f.brain, scratchPath: join(f.brain, "scratch"),
       command: [process.execPath], env: {} })).toThrow("outside the authoritative brain"); }
     finally { f.cleanup(); }
+  });
+
+  describe("restricted envelope (#676)", () => {
+    function relayDir(root: string): string {
+      const dir = join(root, "relay"); mkdirSync(dir); chmodSync(dir, 0o700); return dir;
+    }
+
+    test("a real restricted worker sees only loopback, the explicit envelope and the relay directory", async () => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root);
+        writeFileSync(join(relay, "marker"), "relay");
+        // A host secret beside the brain, host scratch and the relay's host path.
+        writeFileSync(join(f.root, "secret"), "Odysseus: host secret.\n");
+        const hidden = [join(f.root, "secret"), f.scratch, join(f.root, "relay")];
+        const program = `import {existsSync,readFileSync,writeFileSync} from "node:fs";
+          const links=readFileSync("/proc/net/dev","utf8").split("\\n").slice(2).map(l=>l.split(":")[0].trim()).filter(Boolean);
+          let brainWrite="ok"; try{writeFileSync(${JSON.stringify(f.policy)},"changed")}catch(e){brainWrite=e.code}
+          console.log(JSON.stringify({links, visible:${JSON.stringify(hidden)}.filter(p=>existsSync(p)),
+            relay:readFileSync(${JSON.stringify(WORKER_INFERENCE_DIR)}+"/marker","utf8"), brain:existsSync(${JSON.stringify(f.policy)}),
+            brainWrite, env:Object.keys(process.env).filter(k=>k!=="PWD").sort()}));`;
+        const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { HOME: "/tmp" },
+          restricted: { readPaths: [process.execPath], inferenceDir: relay } });
+        worker.stdin.end();
+        const [code, output, errors] = await Promise.all([worker.exited, collect(worker.stdout), collect(worker.stderr)]);
+        expect(errors).toBe(""); expect(code).toBe(0);
+        expect(JSON.parse(output)).toEqual({ links: ["lo"], visible: [], relay: "relay", brain: true, brainWrite: "EROFS",
+          env: ["BRAIN_WORKER_SCRATCH", "HOME"] });
+        expect(readFileSync(f.policy, "utf8")).toBe(GOLDEN);
+      } finally { f.cleanup(); }
+    });
+
+    test("the restricted probe passes on this host and removes its fixtures", () => {
+      const f = fixture();
+      try {
+        expect(probeWorkerHost(f.brain, { restricted: true })).toEqual({ ok: true });
+        expect(readdirSync(f.brain).sort()).toEqual(["context", "notes"]);
+      } finally { f.cleanup(); }
+    });
+
+    test("argv: private network, no host root, relay at its fixed path", () => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root);
+        const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
+          restricted: { readPaths: [process.execPath], inferenceDir: relay } });
+        expect(argv).toContain("--unshare-net");
+        const pairs = argv.map((arg, i) => `${arg} ${argv[i + 1]} ${argv[i + 2]}`);
+        expect(pairs).not.toContain("--ro-bind / /");
+        expect(pairs).toContain(`--ro-bind ${relay} ${WORKER_INFERENCE_DIR}`);
+        expect(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {} })).not.toContain("--unshare-net");
+      } finally { f.cleanup(); }
+    });
+
+    test.each([["/"], ["/home"], ["/etc"], ["ancestor"]])("refuses %s as a read path broader than an explicit envelope", (path) => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root);
+        expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
+          restricted: { readPaths: [path === "ancestor" ? f.root : path], inferenceDir: relay } })).toThrow("broader than an explicit envelope");
+      } finally { f.cleanup(); }
+    });
+
+    test("refuses a relay directory other users could reach", () => {
+      const f = fixture();
+      try {
+        const relay = relayDir(f.root); chmodSync(relay, 0o755);
+        expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
+          restricted: { readPaths: [], inferenceDir: relay } })).toThrow("private directory");
+      } finally { f.cleanup(); }
+    });
+
+    test("installed-runtime read paths cover node_modules and linked workspaces, not their siblings", () => {
+      const paths = restrictedReadPaths([join(ROOT, "packages/ui-backend-pi/src/worker-entry.ts")]);
+      expect(paths).toContain(join(ROOT, "node_modules"));
+      expect(paths).toContain(join(ROOT, "packages/ui-sdk"));
+      expect(paths).toContain(join(ROOT, "packages/ui-backend-pi"));
+      expect(paths).not.toContain(ROOT);
+      expect(paths).not.toContain(join(ROOT, "packages"));
+    });
   });
 });

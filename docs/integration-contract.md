@@ -216,6 +216,29 @@ The reservation ledger is internal operational storage. Existing HTTP, wire,
 SDK turn-request, CLI/MCP and content-index shapes remain unchanged; full-v1
 containment and system proof still gate production dispatch.
 
+## Restricted autonomous containment (additive, #676)
+
+`AutonomousTurnOptions.containment?: "restricted"` asks a backend to run the
+turn inside the restricted envelope for untrusted execution: a private network
+namespace with only loopback, an explicit read envelope instead of the host
+root, no ambient project configuration, and inference only through a
+server-owned relay that holds the credential. `BackendCapabilities.restrictedAutonomous?: boolean`
+advertises that support and is only meaningful with `autonomous`.
+`assertTurnPosture` gains an optional third argument, `supportsRestricted`
+(default `false`); with it false, a turn that requests containment rejects with
+`BackendRequestError` before runtime work rather than running uncontained.
+
+`runAutonomousTurn` always requests containment and refuses a backend without
+the capability. Both first-party backends advertise it. A restricted turn also
+refuses with `BackendRequestError` when its profile's credential cannot be held
+by the relay: a Claude subscription profile without `CLAUDE_CODE_OAUTH_TOKEN`,
+or a pi profile without an API key for an `anthropic-messages`,
+`openai-completions` or `openai-responses` provider. A host that cannot
+establish the envelope refuses with `failure.errorClass = worker_host_unsupported`.
+An autonomous request without `containment`, such as a handoff summary, keeps
+its existing meaning. No wire, HTTP, CLI or MCP shape changes, and nothing
+dispatches autonomous work in production.
+
 ## Interactive priority and cooperative autonomous yield (additive, #687)
 
 `KeyedLockAcquireOptions` adds optional `priority` (`"interactive"` or

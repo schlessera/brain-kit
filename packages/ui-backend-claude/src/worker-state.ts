@@ -38,7 +38,8 @@ function files(root: string, prefix = ""): string[] {
   }
   return result;
 }
-export function createClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>) {
+export function createClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>,
+  options: { ephemeral?: boolean } = {}) {
   const brain = realpathSync(brainPath);
   const configured = resolve(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"));
   let ancestor = configured;
@@ -53,6 +54,9 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
   // Both fixtures and native CLI use the SDK's project-directory encoding.
   const project = `projects/${brain.replace(/[^a-zA-Z0-9]/g, "-")}`;
   const state = mkdtempSync("/dev/shm/brain-claude-state-");
+  // An autonomous turn starts from nothing saved and saves nothing: no stored
+  // login, settings, account file or transcript enters or leaves it (#676).
+  if (options.ephemeral) return { path: state, persist() {}, cleanup: () => rmSync(state, { recursive: true, force: true }) };
   const initial = new Map<string, string>();
   try {
     let total = 0;

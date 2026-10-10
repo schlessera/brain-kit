@@ -311,8 +311,10 @@ export function runBackendContract(
       for (const key of keys) {
         expect(typeof backend.capabilities[key]).toBe("boolean");
       }
-      const optional = Object.hasOwn(backend.capabilities, "autonomous") ? ["autonomous"] : [];
-      if (optional.length) expect(typeof backend.capabilities.autonomous).toBe("boolean");
+      const optional = (["autonomous", "restrictedAutonomous"] as const).filter((key) => Object.hasOwn(backend.capabilities, key));
+      for (const key of optional) expect(typeof backend.capabilities[key]).toBe("boolean");
+      // The restricted envelope is a kind of autonomous turn, never claimed alone.
+      if (backend.capabilities.restrictedAutonomous) expect(backend.capabilities.autonomous).toBe(true);
       expect(Object.keys(backend.capabilities).sort()).toEqual([...keys, ...optional].sort());
       expect(backend.id.length).toBeGreaterThan(0);
     });

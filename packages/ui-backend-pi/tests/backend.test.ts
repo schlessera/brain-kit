@@ -17,6 +17,7 @@ describe("createPiBackend (no LLM)", () => {
         autonomous: true,
         resume: true,
         permissions: true,
+        restrictedAutonomous: true,
         thinking: true,
         attachments: true,
         askUser: true,

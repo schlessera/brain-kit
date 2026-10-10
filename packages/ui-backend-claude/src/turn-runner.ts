@@ -90,7 +90,7 @@ export function createClaudeTurnRunner(options: {
   async function startTurn(req: StartTurnRequest): Promise<void> {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
-    assertTurnPosture(req, true);
+    assertTurnPosture(req, true, true);
     requireWorkerHost(options.backend.brainPath);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
@@ -357,7 +357,7 @@ export function createClaudeTurnRunner(options: {
             if (abortController.signal.aborted) return withhold();
             if (!sdkTurn.subscriptionOnly) return true;
             const verdict = subscriptionVerdict(account);
-            const conflict = verdict.ok ? settingsRefusal(settings) : null;
+            const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;
             if (!verdict.ok || conflict) {
               // The CLI never reaches init, so this is the only report the
               // refused turn gets: what the handshake said it would bill.

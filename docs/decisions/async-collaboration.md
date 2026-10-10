@@ -66,11 +66,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:367`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:391`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:375`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:399`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:56-222`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:70-236`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -78,12 +78,78 @@ and configuration audience; the old plan's “full host environment” descripti
 is historical. Preserve subscription billing and the selected runtime identity.
 
 Pi disables built-in tools but currently loads resources and extensions
-(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:27-132`)
+(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:28-133`)
 and gates extension calls (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:76-146`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
+
+## Autonomous containment — 2026-10-10
+
+#676 builds the restricted envelope this section requires, for both
+first-party runtimes; [the hosting guide](../hosting/agent-workers.md#the-restricted-envelope-for-autonomous-turns-676)
+describes its parts. The choices that bind later work:
+
+- **Inference leaves through a server-owned relay, and the credential stays
+  with it.** The worker's network namespace holds only loopback. A Unix socket
+  bound into the worker reaches a relay that forwards only the provider's
+  inference routes to the profile's upstream and injects the server-held
+  credential. The worker holds a placeholder. A worker that held the real
+  credential could print it into model-visible output, and an egress allowlist
+  on the worker side would be a predicate the runtime could route around.
+- **The read envelope is explicit.** The host root is not mounted. System
+  directories, a fixed list of `/etc` files, the brain, the installed runtime,
+  scratch and runtime state are. This is what keeps stored logins, the host
+  home and host sockets out, rather than a list of hidden paths.
+- **No ambient configuration.** Claude reads no setting source and uses only
+  the server's MCP server. pi loads no extension, skill, prompt template, theme,
+  context file, `SYSTEM.md` or project setting. Both keep the enforced roster
+  rather than hiding tools, so an out-of-roster call escalates as AE3 requires;
+  the voice decision's one mechanism with named memberships is unchanged.
+- **Untrusted work asks for the envelope explicitly.** `runAutonomousTurn` sets
+  `autonomous.containment: "restricted"` and dispatches only to a backend that
+  advertises `capabilities.restrictedAutonomous`; any other backend is refused.
+  A handoff summary, which reuses the nonpersistent toolless mode for a user's
+  own conversation, does not request it and is unchanged.
+- **Credentials the relay cannot hold refuse.** A Claude subscription turn
+  needs `CLAUDE_CODE_OAUTH_TOKEN`; a stored `claude login` is never copied into
+  the envelope. pi needs an API key for an Anthropic Messages or
+  OpenAI-compatible provider; OAuth logins and command-sourced keys refuse.
+  These are visible refusals before any worker starts, not a weaker profile.
+- **The per-turn host probe launches the restricted mode.** A host that cannot
+  create the network namespace refuses autonomous turns before any worker.
+
+`tests/autonomous-containment.test.ts` is the proof. A hostile staged Odysseus
+share drives a keyless fixture model, inside an offline network namespace, to
+run an attack in the actual worker of each adapter through `runAutonomousTurn`.
+Listeners outside the worker and the server observe no TCP, UDP, DNS, host or
+abstract Unix socket egress. No marker from the server environment, a host
+file, a stored login or the real key appears in any environment, `/proc`
+environ or readable file. The relay refuses non-inference methods, paths and
+traversals; the upstream sees only the inference route, and always with the
+server's key. Policy writes, symlink writes and hardlinks fail while a scratch
+write is read back. No request carries an ambient instruction, skill, hook
+context or extension tool, and every request carries the server's snapshot. An
+out-of-roster call becomes a durable escalation under the server's principal.
+A host without the restricted capability refuses before any worker or request.
+
+Its recorded mutations each fail the intended assertion for both adapters. A
+worker without its network namespace, behind a blinded probe, reaches the host
+TCP, UDP and abstract listeners. The host root in place of the read envelope
+reaches the host Unix sockets. A relay without its route check forwards
+non-inference paths. The real key in the worker environment leaks into its
+environment and state. Loading ambient configuration puts the ambient marker
+into requests. A host gate that ignores the restricted requirement no longer
+refuses.
+
+One residual is accepted. A read-only mount does not prevent `connect`, so a
+Unix socket file inside the read envelope stays reachable. Only the brain,
+system directories and installed packages are in it, so this needs a host
+process that listens inside one of them. Approved follow-up execution has no
+production dispatcher yet; when one exists it must pass server-selected exact
+authority into this same envelope. Enabling autonomous dispatch still requires
+the full-system proof of #689.
 
 ## Escalation and deterministic resolution
 
