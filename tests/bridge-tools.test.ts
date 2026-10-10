@@ -109,6 +109,13 @@ function readSnapshot(name: "before" | "after"): Snapshot {
 }
 
 function makeAdapters(root: string) {
+  // Serialization fixture: the server application boundary is tested separately.
+  // Adapter handlers must delegate exact effects, never write these files themselves.
+  const maskApplications: shared.BrainMaskInput[] = [];
+  const application = { applyImageMask: async (input: shared.BrainMaskInput) => {
+    maskApplications.push(input);
+    return { ok: true, message: "Applied by fixture host", changes: [] };
+  } };
   const bridge = {
     askUser: async () => ({
       answers: { Choice: "A" },
@@ -130,6 +137,7 @@ function makeAdapters(root: string) {
     userAgent: "brain-ui/1.0",
   };
   return {
+    maskApplications,
     claude: [
       claudeAsk.createAskUserTool(bridge.askUser),
       claudeAskList.createAskUserListTool(bridge.askUserList),
@@ -138,7 +146,7 @@ function makeAdapters(root: string) {
       claudeLocation.createLocationTool(bridge.getLocation, {
         reverseGeocodeConfig: noGeocode,
       }),
-      claudeMask.createMaskTool(bridge.requestMask, root),
+      claudeMask.createMaskTool(bridge.requestMask, root, application),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
       claudeBlock.createShowBlockTool(),
     ] as any[],
@@ -353,7 +361,7 @@ describe("bridge tool adapter identity", () => {
     );
   });
 
-  test("mask paths preserve each adapter's pre-refactor symlink behavior", async () => {
+  test("pi writes canonical masks; Claude delegates the unchanged lexical payload to the host", async () => {
     const root = mkdtempSync(join(tmpdir(), "bridge-mask-symlink-"));
     try {
       writeFileSync(join(root, "original.png"), "image");
@@ -387,7 +395,8 @@ describe("bridge tool adapter identity", () => {
       symlinkSync("real", join(root, "alias"));
       writeFileSync(join(root, "real", "x-mask.png"), "old mask");
 
-      const claudeMaskTool = makeAdapters(root).claude.find(
+      const claudeAdapters = makeAdapters(root);
+      const claudeMaskTool = claudeAdapters.claude.find(
         (tool) => tool.name === shared.REQUEST_IMAGE_MASK_TOOL_NAME
       )!;
       const claudeResult = await claudeMaskTool.handler(
@@ -398,9 +407,8 @@ describe("bridge tool adapter identity", () => {
         maskPath: "alias/x-mask.png",
         imagePath: "alias/x.png",
       });
-      expect(readFileSync(join(root, "real", "x-mask.png"))).toEqual(
-        Buffer.from([1, 2, 3])
-      );
+      expect(claudeAdapters.maskApplications).toEqual([{ imagePath: "alias/x.png", maskPath: "alias/x-mask.png", png: new Uint8Array([1, 2, 3]) }]);
+      expect(readFileSync(join(root, "real", "x-mask.png"), "utf8")).toBe("old mask");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

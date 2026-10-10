@@ -1,18 +1,21 @@
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
+import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { createWorkerEffectWitness } from "./worker-effect-witness.js";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
 const entry = Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../packages/ui-backend-claude/src"));
 const { query } = await import(entry) as typeof import("@anthropic-ai/claude-agent-sdk");
 const rows: unknown[] = [];
 for (const allowChild of [false, true]) {
     const root = mkdtempSync(join(tmpdir(), "delegation-probe-"));
-    const cwd = join(root, "cwd"), home = join(root, "home"), marker = join(cwd, "marker");
+    const cwd = join(root, "cwd"), home = join(root, "home"), marker = join(WORKER_SCRATCH, "marker");
+    const witness = createWorkerEffectWitness({ marker });
     mkdirSync(cwd);
     mkdirSync(home);
     writeFileSync(join(cwd, ".fixture"), "Nobody sails for Ithaca.");
@@ -40,7 +43,7 @@ for (const allowChild of [false, true]) {
                 model?: unknown;
             };
             const child = JSON.stringify(body.system).includes("INHERITANCE_CHILD");
-            const call = child ? (childSent ? null : { id: "toolu_child", name: "Bash", input: { command: `touch ${marker}` } }) :
+            const call = child ? (childSent ? null : { id: "toolu_child", name: "Bash", input: { command: `touch ${marker} && ${witness.command}` } }) :
                 (mainSent ? null : { id: "toolu_parent", name: "Agent", input: { description: "Read fictional fixture", prompt: "Run the controlled fixture call.", subagent_type: "fixture-reader" } });
             requests.push({ child, model: body.model, call: call?.name ?? null });
             if (call) {
@@ -107,7 +110,7 @@ for (const allowChild of [false, true]) {
         assert.ok(hooks.some(row => row.name === "Bash"), "the child Bash must reach the inherited production hooks");
         if (allowChild) {
             assert.equal(approvals.length, 0, "the allowlisted child control needs no grant");
-            assert.equal(existsSync(marker), true, "the child control must create the marker");
+            assert.equal(witness.effects.marker, true, "the child control must create the marker");
         }
         else {
             assert.ok(hooks.some(row => row.name === "Bash" && JSON.stringify(row.output).includes('"permissionDecision":"ask"')), "the child must inherit the enforcement ask");
@@ -116,13 +119,14 @@ for (const allowChild of [false, true]) {
             } | undefined)?.outsideEnforcedAllowlist, "the child grant must retain the enforced-roster marker");
             assert.ok(callbacks.some(row => row.name === "Bash"), "the denied child must reach the production permission callback");
             assert.equal(approvals.length, 1, "the denied child needs exactly one bridge decision");
-            assert.equal(existsSync(marker), false, "the denied child must not create the marker");
+            assert.equal(witness.effects.marker, false, "the denied child must not create the marker");
         }
-        rows.push(JSON.parse(JSON.stringify({ allowChild, version, requests, callbacks, hooks, approvals, marker: existsSync(marker), terminal, verdict: "pass" }).replaceAll(root, "<scratch>")));
+        rows.push(JSON.parse(witness.sanitize(JSON.stringify({ allowChild, version, requests, callbacks, hooks, approvals, marker: witness.effects.marker, terminal, verdict: "pass" }).replaceAll(root, "<scratch>"))));
     }
     finally {
         clearTimeout(deadline);
         server.stop(true);
+        witness.stop();
         for (const key of Object.keys(process.env))
             if (!(key in saved))
                 delete process.env[key];

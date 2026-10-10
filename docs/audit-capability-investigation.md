@@ -6,6 +6,9 @@ Source discovery used main `44be3840f9fb74ea3ce62ebd6f65696aee745863` on
 2026-10-02. The private controls make no paid requests and change no shipped
 audit command, skill, severity or JSON contract.
 
+**Measured result (2026-10-10):** see
+[`docs/decisions/audit-repair-suggestions.md`](decisions/audit-repair-suggestions.md).
+
 ## The current boundary
 
 `audit --fix` sends severity, path, finding message and existing suggestion to

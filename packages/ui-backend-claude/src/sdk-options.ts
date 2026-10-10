@@ -23,7 +23,7 @@ import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
-import { createWrappedSpawn } from "./spawn-wrapper.js";
+import { createWorkerSpawn } from "./worker-spawn.js";
 import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import type { TurnLockBinding } from "./turn-lock.js";
@@ -36,6 +36,7 @@ export interface ClaudeSdkTurn {
    * released only after the account the CLI selected has been checked.
    */
   subscriptionOnly: boolean;
+  finishWorker(): Promise<void>;
 }
 
 /**
@@ -194,12 +195,10 @@ export function createClaudeSdkTurn(options: {
   if (backend.claudeCodePath !== undefined) {
     sdkOptions.pathToClaudeCodeExecutable = backend.claudeCodePath;
   }
-  // Only when the host configured one: with no wrapper the SDK spawns exactly
-  // as it always has, which is the path every existing deployment is on.
-  const exec = resolveExecConfig();
-  if (exec.wrapper !== undefined) {
-    sdkOptions.spawnClaudeCodeProcess = createWrappedSpawn(exec);
-  }
+  // Every runtime-owned executor enters the worker. An optional host exec
+  // wrapper runs inside it and can never replace the filesystem boundary.
+  const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal);
+  sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their
   // handler, each together with its allowlist entry; `show_block` needs no
@@ -226,6 +225,7 @@ export function createClaudeSdkTurn(options: {
   return {
     options: sdkOptions,
     subscriptionOnly,
+    finishWorker: worker.finish,
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(req.prompt, req.attachments)

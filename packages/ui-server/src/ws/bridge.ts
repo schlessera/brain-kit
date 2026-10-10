@@ -1,3 +1,4 @@
+import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
 import type { BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -65,6 +66,15 @@ export function makeBridge(
   // classification pass that runs after the result (D42). Cheap when no
   // classifier is configured: a few string appends.
   const collector = host.classifier ? new TurnTextCollector() : null;
+  const principalId = turn.principalId;
+  const authorization = turn.authorization;
+  const signal = turn.abortController.signal;
+  const isAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
+    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
+  const assertAuthority = () => {
+    if (signal.aborted || !isAuthorized()) throw new Error("This turn no longer has current principal authority.");
+  };
+  const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   const bridge: BackendBridge = {
     // A bridge tool that wrote into the scratch area prunes it through the
     // host's pass (#310), the way the CLI's own writers prune after a write.
@@ -409,16 +419,12 @@ export function makeBridge(
     },
   };
   if (host.brainPath && applicationPolicy) {
-    const principalId = turn.principalId;
-    const authorization = turn.authorization;
-    const signal = turn.abortController.signal;
     const operationTools = backendId === "claude"
       ? { add: "mcp__brain-ui__brain_add", update: "mcp__brain-ui__brain_update", archive: "mcp__brain-ui__brain_archive", write: "mcp__brain-ui__write_file", edit: "mcp__brain-ui__edit_file", staged: "mcp__brain-ui__apply_staged_changes" }
       : { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
     const apply = createBrainApplication({
       root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
-      isAuthorized: () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
-        authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId),
+      isAuthorized,
       approve: async (input, destructive) => {
         if (work?.posture === "voice") return false;
         const decision = await bridge.requestPermission({ toolUseId: `application-${crypto.randomUUID()}`,
@@ -434,6 +440,48 @@ export function makeBridge(
       return readBrainApplicationBase(host.brainPath!, path);
     };
     bridge.applyBrain = input => apply({ principalId, turnId, input });
+    if (backendId === "claude") {
+      const applyMask = createMaskApplication({ root: host.brainPath, principalId, turnId, signal,
+        lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
+        record: result => recorder?.recordApplication?.(result) });
+      const requestMask = bridge.requestMask!;
+      bridge.requestMask = async (imagePath, instruction) => {
+        assertAuthority();
+        const base = readMaskBase(host.brainPath!, imagePath);
+        const png = await requestMask(imagePath, instruction);
+        assertAuthority();
+        pendingMasks.set(imagePath, { base, png: Uint8Array.from(png) });
+        return png;
+      };
+      bridge.applyImageMask = async input => {
+        const pending = pendingMasks.get(input.imagePath);
+        pendingMasks.delete(input.imagePath);
+        if (!pending || !Buffer.from(pending.png).equals(Buffer.from(input.png))) {
+          const result = { ok: false, code: "permission_denied", message: "No matching browser mask submission exists for this turn.", changes: [] };
+          recorder?.recordApplication?.(result); return result;
+        }
+        return applyMask({ principalId, turnId, input, base: pending.base });
+      };
+      // Claude's scratch pruning is part of the mask operation, including its
+      // exact removals. No second, unrecorded prune callback is handed out.
+      delete bridge.pruneScratch;
+    }
+  }
+  // A worker may invoke a bridge executor without the runtime's permission
+  // hook. Check live server authority on every parent effect, not only at
+  // tool admission. Voice retains the same narrower named capabilities.
+  if (backendId === "claude") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch"] as const) {
+    const original = bridge[name];
+    if (!original) continue;
+    (bridge as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+      if (name === "requestPermission" && work?.posture === "voice") return Promise.resolve({ behavior: "deny", message: "Voice cannot grant tools." });
+      try {
+        assertAuthority();
+        if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
+          throw new Error("This capability is outside the voice membership.");
+        return (original as (...input: unknown[]) => unknown)(...args);
+      } catch (error) { return Promise.reject(error); }
+    };
   }
   return bridge;
 }

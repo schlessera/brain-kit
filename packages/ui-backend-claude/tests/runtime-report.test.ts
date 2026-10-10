@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * Each Claude turn reports the runtime that ran, the credential it selected,
  * and the billing mode that implies, checked against the PROFILE's policy
@@ -204,3 +205,5 @@ describe("observedBilling", () => {
     });
   }
 });
+
+mockWorkerHostForSdkStream();

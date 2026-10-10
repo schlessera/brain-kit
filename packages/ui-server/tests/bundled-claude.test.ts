@@ -12,13 +12,14 @@
  * real against a loopback server with bogus credentials only.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackendActivityEvent, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 import { createBackendRegistry } from "../src/agent/backend";
 import { resolveServerConfig } from "../src/config/env";
+import { fixtureShellQuote } from "../../../scripts/worker-effect-witness";
 import { bundledClaudeBinary } from "./helpers/claude-binary";
 
 // Distinct bogus values, so a header names exactly which credential was sent.
@@ -30,11 +31,16 @@ const savedEnv = { ...process.env };
 const scratch: string[] = [];
 const seen: Array<{ xApiKey: string | null; authorization: string | null }> = [];
 let server: ReturnType<typeof Bun.serve>;
+const wrapperCommands: string[] = [];
 
 beforeAll(() => {
   server = Bun.serve({
     port: 0,
-    fetch(req) {
+    async fetch(req) {
+      if (new URL(req.url).pathname === "/fixture-command") {
+        wrapperCommands.push(await req.text());
+        return new Response(null, { status: 204 });
+      }
       if (new URL(req.url).pathname === "/v1/messages") {
         seen.push({ xApiKey: req.headers.get("x-api-key"), authorization: req.headers.get("authorization") });
       }
@@ -53,6 +59,7 @@ afterAll(() => {
 
 afterEach(() => {
   seen.length = 0;
+  wrapperCommands.length = 0;
   for (const key of Object.keys(process.env)) {
     if (!(key in savedEnv)) delete process.env[key];
   }
@@ -107,14 +114,16 @@ async function productionTurn(brainPath: string): Promise<BackendActivityEvent[]
 
 /** An exec wrapper that records the command the SDK chose, and runs nothing. */
 function recordingWrapper(): { wrapper: string; commands: () => string[] } {
-  const dir = tempDir("bundled-wrapper-");
-  const log = join(dir, "commands.log");
+  // /tmp is fresh inside the worker; this fixture executable stays read-only.
+  const dir = mkdtempSync("/var/tmp/bundled-wrapper-");
+  scratch.push(dir);
   const wrapper = join(dir, "wrapper");
-  writeFileSync(wrapper, `#!/bin/sh\necho "$1" >> ${JSON.stringify(log)}\nexit 1\n`);
+  const report = `await fetch("http://127.0.0.1:${server.port}/fixture-command", {method:"POST", body:process.argv.at(-1)});`;
+  writeFileSync(wrapper, `#!/bin/sh\n${fixtureShellQuote(process.execPath)} -e ${fixtureShellQuote(report)} "$1"\nexit 1\n`);
   chmodSync(wrapper, 0o755);
   return {
     wrapper,
-    commands: () => readFileSync(log, "utf8").trim().split("\n"),
+    commands: () => [...wrapperCommands],
   };
 }
 

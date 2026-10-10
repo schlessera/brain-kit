@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * This pins current behaviour so the 0.34.0 factory split can be proven
  * behaviour-preserving. Changing an assertion here is a behaviour change and
@@ -393,3 +394,5 @@ describe("createClaudeBackend stream and usage characterization", () => {
     }
   });
 });
+
+mockWorkerHostForSdkStream();

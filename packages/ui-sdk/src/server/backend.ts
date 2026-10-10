@@ -160,6 +160,8 @@ export interface BackendBridge {
   /** Host-owned, turn-bound application. Absent means no authoritative route. */
   readBrainBase?(path: string): Promise<{ content: string; expectedBaseHash: string }>;
   applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
+  /** Narrow, turn-bound PNG mask application; never a general binary writer. */
+  applyImageMask?(input: import("./brain-mask.js").BrainMaskInput): Promise<import("./brain-application.js").BrainApplicationResult>;
   emit(msg: ServerMessage): void;
   /** Synchronous server checkpoint before a no-grant denial; never an approval promise. */
   checkpointPermission?(req: PermissionRequest): void;

@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A voice-posture turn runs on the named voice allowlist, not the ordinary one
  * (#957; docs/decisions/voice-permission.md "The voice posture"). Enforcement
@@ -60,3 +61,5 @@ describe("claude: the voice posture selects VOICE_ALLOWED_TOOLS", () => {
       .rejects.toBeInstanceOf(BackendRequestError);
   });
 });
+
+mockWorkerHostForSdkStream();

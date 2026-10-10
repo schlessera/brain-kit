@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * The binary option the SDK receives (#213): no `claudeCodePath` leaves
  * `pathToClaudeCodeExecutable` out, so the SDK runs its built-in binary; a
@@ -38,3 +39,5 @@ describe("pathToClaudeCodeExecutable", () => {
     expect((await optionsFor("/opt/claude/bin/claude"))?.pathToClaudeCodeExecutable).toBe("/opt/claude/bin/claude");
   });
 });
+
+mockWorkerHostForSdkStream();

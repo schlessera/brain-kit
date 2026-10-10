@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A message sent while a Claude turn runs reaches the model inside that turn
  * (#1003), the way Claude Code itself delivers one typed mid-turn.
@@ -426,3 +427,5 @@ describe("a follow-up with no turn to join", () => {
     });
   });
 });
+
+mockWorkerHostForSdkStream();

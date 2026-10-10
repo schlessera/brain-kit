@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -162,3 +163,5 @@ for (const allowed of [true, false]) test(`constrained subscription turn ${allow
   expect(h.released).toHaveLength(allowed ? 1 : 0);
   expect(h.frames.at(-1)).toMatchObject(allowed ? { type: "result", outcome: "success" } : { type: "error", code: "CLAUDE_AUTH" });
 });
+
+mockWorkerHostForSdkStream();

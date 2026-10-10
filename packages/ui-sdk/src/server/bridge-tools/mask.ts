@@ -77,7 +77,10 @@ export async function handleRequestImageMask(
   if (!resolveInRepo(options.brainPath, maskRel)) {
     throw new Error(`Cannot write a mask for ${input.imagePath}`);
   }
-  if (maskInScratch(rootReal, maskRel, maskAbs)) {
+  if (bridge.applyImageMask) {
+    const result = await bridge.applyImageMask({ imagePath: input.imagePath, maskPath: maskRel, png });
+    if (!result.ok) throw new Error(result.message);
+  } else if (maskInScratch(rootReal, maskRel, maskAbs)) {
     // Beside a draft in the scratch area: the scratch rules, then the host's
     // prune, the way the CLI's own writers prune after a write (#310).
     assertScratchMask(rootReal, maskRel, maskAbs);

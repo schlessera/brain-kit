@@ -2,11 +2,13 @@
 // Run in the same loopback-only network namespace as measure-claude-runtime.
 // The query wrapper observes existing handlers and messages; it forwards their
 // inputs and outputs unchanged. It installs no permission decision of its own.
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
+import { createWorkerEffectWitness, fixtureShellQuote } from "./worker-effect-witness.js";
+import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { resetRtkProbe } from "../packages/ui-sdk/src/server/rtk.js";
 import { createClaudeBackend, type InferenceProfile } from "../packages/ui-backend-claude/src/index";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
@@ -27,18 +29,24 @@ try {
       const root = mkdtempSync(join(tmpdir(), "enforcement-probe-"));
       const cwd = join(root, "cwd"), home = join(root, "home"), bin = join(root, "bin");
       for (const dir of [cwd, home, bin]) mkdirSync(dir);
-      const original = join(cwd, "original"), rewritten = join(cwd, "rewritten"), settingsMarker = join(cwd, "settings-hook-ran");
-      const command = `touch ${original}`;
+      const original = join(WORKER_SCRATCH, "original"), rewritten = join(WORKER_SCRATCH, "rewritten"), settingsMarker = join(WORKER_SCRATCH, "settings-hook-ran");
+      // Real writes stay in the worker's ephemeral scratch. A controlled native
+      // witness reports filesystem observations to the loopback controller,
+      // independently of SDK hook/permission return values and tool text.
+      const witness = createWorkerEffectWitness({ original, rewritten, settingsHook: settingsMarker });
+      const effects = witness.effects;
+      const writeCommand = (path: string) => `touch ${path} && ${witness.command}`;
+      const command = writeCommand(original);
       // Controlled rewrite oracle, invoked by the production RTK hook. Other
       // scenarios explicitly decline, so host RTK installations cannot vary it.
       writeFileSync(join(bin, "rtk"), '#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\ncat > /dev/null\n' +
-        (scenario === "rtk-rewrite" ? `printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command: `touch ${rewritten}` } } })}'\n` : "exit 0\n"));
+        (scenario === "rtk-rewrite" ? `printf '%s\\n' ${fixtureShellQuote(JSON.stringify({ hookSpecificOutput: { updatedInput: { command: writeCommand(rewritten) } } }))}\n` : "exit 0\n"));
       chmodSync(join(bin, "rtk"), 0o755);
       if (scenario.startsWith("settings-")) {
         mkdirSync(join(cwd, ".claude"));
         const settings = scenario === "settings-allow" ? { permissions: { allow: ["Bash(touch:*)", "Bash"] } } : {
           hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command:
-            `touch ${settingsMarker}; echo '${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } })}'` }] }] },
+            `touch ${settingsMarker} && ${witness.command}; echo '${JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } })}'` }] }] },
         };
         writeFileSync(join(cwd, ".claude/settings.json"), JSON.stringify(settings));
       }
@@ -110,7 +118,7 @@ try {
         Object.assign(process.env, saved);
         resetRtkProbe();
       }
-      const effects = { original: existsSync(original), rewritten: existsSync(rewritten), settingsHook: existsSync(settingsMarker) };
+      witness.stop();
       const ask = hookCalls.some(({ output }) => "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" && output.hookSpecificOutput.permissionDecision === "ask");
       const missing = !log.callSent || !toolUseSeen || !claudeCode || resultSubtype !== "success" || matchingHooks.length === 0 ||
         matchingHooks.some((index) => !hookCalls.some((h) => h.index === index)) || toolResults.length === 0 ||
@@ -133,7 +141,7 @@ try {
           "A denied call must leave neither file and return the named denial; a permitted control must create only its intended file." } : {}),
         planned: { name: "Bash", input: { command }, sent: log.callSent, toolUseSeen }, hooks: hookCalls, callbacks: callbackCalls,
         requests, toolResults, effects, resultSubtype };
-      results.push(JSON.parse(JSON.stringify(observation).replaceAll(root, "<scratch>")));
+      results.push(JSON.parse(witness.sanitize(JSON.stringify(observation).replaceAll(root, "<scratch>"))));
       rmSync(root, { recursive: true, force: true });
     }
   }

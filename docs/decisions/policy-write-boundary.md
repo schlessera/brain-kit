@@ -36,7 +36,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:55-221`); pi builds its resource
+`packages/ui-backend-claude/src/sdk-options.ts:56-220`); pi builds its resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:27-95`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -177,4 +177,25 @@ The five implementation children of #51 separately own host setup, this applicat
 route, each runtime worker, and integrated escape proof. The route does not claim
 worker containment or enable unattended authoritative writes. Current principal
 and exact operation membership are checked again at application time. Supported
-applications are bounded UTF-8 Markdown effects, never commands or file handles.
+applications are bounded UTF-8 Markdown effects plus the narrow PNG mask
+operation below, never commands or file handles.
+
+## PNG mask application — 2026-10-10
+
+The [maintainer ruling on #1037](https://github.com/schlessera/brain-kit/issues/1037)
+preserves hosted masking through one server-owned binary operation. It accepts
+only a PNG mask for a submitted existing image, at the existing Claude filename,
+with an 8 MiB byte cap and PNG signature check. Exact browser submission, current
+turn authority/membership, cancellation, image/mask bases, policy/alias/path and
+topology checks bound the effect. Scratch masks retain their existing prerequisites;
+pruning runs under the same authority and records actual removals. The bridge tool
+and browser/model result shape remain unchanged. This is an additive contract
+change; it supplies no generic binary route or autonomous authority.
+
+Claude uses the structured server write/edit tools rather than translating native
+built-in callbacks. This preserves exact-base validation and server-side permission
+checks without performing a privileged effect inside a hook that the runtime can
+later deny. Unsupported notebooks refuse. The CLI, tools, subagents and project
+stdio MCP descendants enter the mandatory worker; only trusted bridge handlers and
+bounded native transcript persistence remain in the parent. #1039 owns the wider
+integrated escape matrix and #676 still owns credential/configuration/egress proof.

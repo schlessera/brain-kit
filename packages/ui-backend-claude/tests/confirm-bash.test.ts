@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * Bash confirmation patterns.
  *
@@ -257,3 +258,5 @@ describe("what the card says (#112)", () => {
     expect(await descriptionFor("git push --force", [])).toBeUndefined();
   });
 });
+
+mockWorkerHostForSdkStream();
