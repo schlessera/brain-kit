@@ -30,13 +30,14 @@ const ACCEPTED: Record<string, string> = {
 
 /**
  * SHA-256 of the social cards the maintainer accepted on #1428, which replaced
- * the #1423 card: the 1x file and its 2x render from the same source. They are
- * reviewed raster masters rather than renders of one, so they are pinned here
- * instead of being reproduced by the generator.
+ * the #1423 card (v2, the contrast revision): the 1x file and its 2x render
+ * from the same source. They are reviewed raster masters rather than renders
+ * of one, so they are pinned here instead of being reproduced by the
+ * generator.
  */
 const ACCEPTED_SOCIAL_CARDS: Record<string, string> = {
-  "social-card.png": "01c36f6af3a73dc5ed5f122adf5f0714a1ac6bdb3f9e95a218018d2e88f400e3",
-  "social-card@2x.png": "db722b199ffdbbd31cc92fa385cede9c8599f07b4446361ab312e73ec7fa2597",
+  "social-card.png": "5563862a1d879433287b6771f5b7fb1cc75f622a84f8933d621c5e7344d60b00",
+  "social-card@2x.png": "39104736876a87ff32aa87ced7cf5d86db3b96a357753f1a7f1fc381742c8703",
 };
 
 const SHIPPED: readonly string[] = [...BRAND_MASTERS, ...BRAND_RASTERS];
