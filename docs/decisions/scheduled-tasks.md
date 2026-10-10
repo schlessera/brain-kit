@@ -20,7 +20,7 @@ name future interfaces, not capabilities of the installed packages.
 Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
 
 - Queue lifecycle promotes an existing scheduled item at its due time
-  (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:176-177`).
+  (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:186-187`).
   The runtime ticks every minute (`INBOX_TICK_MS`, `packages/ui-server/src/inbox/runtime.ts:11-13`).
 - Production app wiring supplies recovery and budgets, without a dispatcher
   (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:298-303`).

@@ -118,8 +118,15 @@ function validateDatabase(db: Database): void {
   for (const row of state.hygiene_review) {
     const review = hygieneReviewStateSchema.parse(JSON.parse(row.data_json as string));
     const action = review.pendingActionId ? items.get(review.pendingActionId) : null;
-    if (review.pendingActionId && (!action || action.queue !== "actions" || !action.hygiene || action.status !== "pending"))
+    if (review.pendingActionId && (!action || action.queue !== "actions" || !action.hygiene || !["pending", "snoozed"].includes(action.status)))
       throw new Error("inbox_snapshot_hygiene_relations");
+    if (review.pauseReason) {
+      const retired = items.get(review.pauseReason.retiredActionId), receipt = items.get(review.pauseReason.retirementReceiptId);
+      if (review.pendingActionId || !retired || retired.queue !== "actions" || !retired.hygiene || retired.status !== "dropped" ||
+          review.pauseReason.retirementReceiptId !== inboxIdentity("retired", retired.id) ||
+          !receipt || receipt.queue !== "actions" || receipt.type !== "fyi" || receipt.threadId !== retired.threadId)
+        throw new Error("inbox_snapshot_hygiene_relations");
+    }
   }
   for (const row of state.inbox_resolutions) {
     const action = items.get(row.item_id);

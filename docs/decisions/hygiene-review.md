@@ -200,6 +200,27 @@ Leaving, disconnecting or an arbitrary timeout cannot apply a repair. Shared
 principal authorization, path containment, locks, idempotency and recovery still
 bind concurrent devices, stale evidence and interrupted effects.
 
+## Actions-cap retirement and explicit re-entry
+
+The maintainer [ruled on #1490 on 2026-10-10](https://github.com/schlessera/brain-kit/issues/1490#issuecomment-6097281945)
+that shared Actions-cap retirement pauses review, clears the pending pointer and
+retains a reference to the shared retirement receipt. Retirement is an
+operational event, never a fixed/dismissed/snoozed hygiene disposition. Preserve
+the dropped Action, its suppression and the authoritative Markdown unchanged.
+
+Only explicit human start/resume may re-admit the same unchanged canonical
+finding with a fresh operational Action identity. Admission still uses the
+normal hard cap and current previews, and concurrent requests must not create
+duplicate pending cards. If the fresh card itself loses, pause with the new
+receipt; the server never retries or re-admits automatically. Reload and backup
+must retain that honest state. The additive reason and response semantics are
+specified in [the review contract](../integration-contract.md#human-started-hygiene-review-additive-1027).
+
+Keeping a terminal card advertised as pending makes review and backup disagree
+with the shared lifecycle. Automatically re-admitting it would turn hard-cap
+retirement into repeated eviction. Neither is an acceptable substitute for the
+human's explicit re-entry.
+
 ## Alternatives rejected
 
 - **Category-first ordering.** It can place a less severe eligible category ahead

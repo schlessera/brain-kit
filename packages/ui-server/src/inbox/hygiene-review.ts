@@ -25,6 +25,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
   const resolver = createInboxResolver(db, { now, timeZone: deps.timeZone, allowedOperations: () => [], applyHygiene: apply });
   let preparing: Promise<void> | null = null;
+  let pauseGeneration = 0;
   const inFlight = new Set<string>();
   function authority(principalId: string) {
     const p = resolvePrincipal(db, principalId);
@@ -121,49 +122,67 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
       return read();
     }).immediate();
   }
-  async function select(principalId?: string) {
+  async function select(principalId?: string, resumeRetired = false) {
+    const generation = pauseGeneration;
+    const paused = state().pauseReason;
+    // Recovery/next-item selection cannot authorize re-admission after retirement.
+    if (paused && (!principalId || !resumeRetired)) return;
     // CLI selection/reconciliation and previews are outside write transactions.
     const next = nextSchema.parse(await cli(["next"]));
     if (principalId) authority(principalId);
-    const finding = "finding" in next ? next.finding : null;
+    let finding = "finding" in next ? next.finding : null;
+    if (paused && !("blocker" in next)) {
+      const retired = action(paused.retiredActionId);
+      if (finding?.id !== retired.hygiene!.findingId || finding.fingerprint !== retired.hygiene!.fingerprint) {
+        const listed = z.object({ entries: z.array(z.looseObject({ id, state: text, fingerprint: text.nullable() })) }).parse(await cli(["list"]));
+        if (listed.entries.some(e => e.id === retired.hygiene!.findingId && e.state === "open" && e.fingerprint === retired.hygiene!.fingerprint))
+          finding = findingSchema.parse(retired.hygiene!.finding);
+      }
+    }
     const options = await prepareOptions(finding);
     if (principalId) authority(principalId);
     db.transaction(() => {
       const review = state();
-      if (review.pendingActionId || review.status !== "active") return;
+      if (generation !== pauseGeneration) return;
+      if (review.pendingActionId || (review.status !== "active" && !(resumeRetired && paused && ["paused", "blocked"].includes(review.status)))) return;
+      if (review.pauseReason && (!resumeRetired || !principalId || review.pauseReason.retiredActionId !== paused?.retiredActionId)) return;
       if ("blocker" in next) { save({ ...review, status: "blocked", blocker: next.blocker }); return; }
-      if (!finding) { save({ ...review, status: "complete", counts: next.counts }); return; }
-      const itemId = inboxIdentity("hygiene", finding.id, finding.fingerprint);
-      const existing = store.getItem(itemId);
+      if (!finding) { save({ ...review, status: "complete", pauseReason: undefined, counts: next.counts }); return; }
+      const readmitting = paused && action(paused.retiredActionId).hygiene!.findingId === finding.id && action(paused.retiredActionId).hygiene!.fingerprint === finding.fingerprint;
+      const itemId = readmitting ? inboxIdentity("hygiene-readmission", paused.retiredActionId) : inboxIdentity("hygiene", finding.id, finding.fingerprint);
+      const existing = store.orderedItems().map(v => v.item).find(i => i.queue === "actions" && i.hygiene?.findingId === finding.id && i.hygiene.fingerprint === finding.fingerprint && ["pending", "snoozed"].includes(i.status)) ?? store.getItem(itemId);
       if (existing) {
         if (existing.queue === "actions" && ["pending", "snoozed"].includes(existing.status)) {
-          if (existing.status === "snoozed") store.commit([{ kind: "transition", itemId, expectedVersion: existing.version, to: "pending", waitUntil: null }]);
-          save({ ...review, pendingActionId: itemId, position: review.position + 1, counts: next.counts });
+          if (existing.status === "snoozed") store.commit([{ kind: "transition", itemId: existing.id, expectedVersion: existing.version, to: "pending", waitUntil: null }]);
+          save({ ...review, status: "active", pauseReason: undefined, pendingActionId: existing.id, position: review.position + 1, counts: next.counts });
           return;
         }
         throw new Error("Finding already has a terminal Action for this fingerprint");
       }
-      const threadId = inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
+      const threadId = readmitting ? inboxIdentity("hygiene-readmission-thread", itemId) : inboxIdentity("hygiene-thread", finding.id, finding.fingerprint);
       store.openReviewThread(threadId);
       const item: InboxActionItem = { id: itemId, dedupKey: itemId, threadId, queue: "actions", type: "choose", status: "pending", version: 1, createdAt: now(), updatedAt: now(), expiresAt: Number.MAX_SAFE_INTEGER,
         payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
+      // Publish the pointer first, in this same transaction, so admission's cap
+      // can pause even when the incoming card itself immediately loses.
+      save({ ...review, status: "active", pauseReason: undefined, pendingActionId: itemId, position: review.position + 1, counts: next.counts });
       if (!createInboxAction(db, item, [], { now: now(), hygiene: true })) throw new Error("Hygiene Action suppressed");
-      save({ ...review, pendingActionId: itemId, position: review.position + 1, counts: next.counts });
     }).immediate();
   }
-  async function ensureNext(principalId?: string) {
-    if (!preparing) preparing = select(principalId).finally(() => { preparing = null; });
+  async function ensureNext(principalId?: string, resumeRetired = false) {
+    if (!preparing) preparing = select(principalId, resumeRetired).finally(() => { preparing = null; });
     await preparing;
   }
   async function command(principalId: string, operation: "start" | "pause" | "resume" | "refresh") {
     authority(principalId);
     if (operation === "refresh") return refresh(principalId);
+    if (operation === "pause") pauseGeneration++;
     db.transaction(() => {
       const review = state();
       if (operation === "pause") save({ ...review, status: "paused" });
-      else save({ ...review, status: "active", blocker: undefined });
+      else save({ ...review, status: review.pauseReason ? "paused" : "active", blocker: undefined });
     }).immediate();
-    if (operation !== "pause" && !state().pendingActionId) await ensureNext(principalId);
+    if (operation !== "pause" && !state().pendingActionId) await ensureNext(principalId, !!state().pauseReason);
     return read();
   }
   async function preview(principalId: string, request: { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }) {

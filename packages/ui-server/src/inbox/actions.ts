@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { InboxActionItem, InboxOperation, InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
-import { inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
+import { hygieneReviewStateSchema, inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
 import { inboxThreadAwaitingSettlement } from "./lifetime.js";
 
@@ -93,6 +93,16 @@ export function retireInboxAction(db: Database, action: InboxActionItem, status:
       evidenceBoundary: stored?.evidence_boundary ?? action.dedupKey,
       expiresAt: Math.max(now + DAY, stored?.suppression_until ?? action.expiresAt),
       reraiseCondition: stored?.reraise_condition ?? "New evidence or suppression expiry." }]);
+  }
+  if (status === "dropped" && report && action.hygiene) {
+    const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
+    const review = row ? hygieneReviewStateSchema.parse(JSON.parse(row.data_json)) : null;
+    if (review?.pendingActionId === action.id) {
+      db.query("UPDATE hygiene_review SET data_json = ? WHERE singleton = 1").run(JSON.stringify(hygieneReviewStateSchema.parse({
+        ...review, status: "paused", pendingActionId: undefined,
+        pauseReason: { kind: "actions-limit", retiredActionId: action.id, retirementReceiptId: inboxIdentity("retired", action.id) },
+      })));
+    }
   }
   enqueueInboxCleanup(db, action.threadId, now);
 }

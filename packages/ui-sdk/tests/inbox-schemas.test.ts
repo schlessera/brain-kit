@@ -4,12 +4,23 @@ import {
   inboxActionStatusSchema, inboxQueueStatusSchema, inboxWorkPayloadSchema, inboxOptionSchema,
   resolutionEffectSchema, v1ResolutionEffectSchema, validateResolutionEffect,
   clientInboxResolveSchema, parseClientMessage, parseServerMessage,
+  hygieneReviewReadSchema,
 } from "../src/schemas.js";
 import type { ClientMessage, ClientInboxResolve, InboxChange, InboxDismissReason, InboxSnapshot, InboxDelta, ServerHello } from "../src/protocol.js";
 import { actionItem, effects, operation, queueItem, thread } from "./inbox-fixtures.js";
 
 const parseClient = (value: unknown) => parseClientMessage(JSON.stringify(value));
 const parseServer = (value: unknown) => parseServerMessage(JSON.stringify(value));
+
+test("review reads retain an optional strict Actions-limit pause reason and accept existing states", () => {
+  const review = { version: 1, status: "paused", position: 1, fixed: 0, dismissed: 0, snoozed: 0 };
+  expect(hygieneReviewReadSchema.parse({ review, action: null })).toEqual({ review, action: null });
+  const pauseReason = { kind: "actions-limit", retiredActionId: "retired-card", retirementReceiptId: "retirement-fyi" };
+  const read = { review: { ...review, pauseReason }, action: null };
+  expect(hygieneReviewReadSchema.parse(JSON.parse(JSON.stringify(read)))).toEqual(read);
+  for (const bad of [{ ...pauseReason, kind: "fixed" }, { ...pauseReason, retirementReceiptId: "" }, { ...pauseReason, principalId: "wider" }])
+    expect(hygieneReviewReadSchema.safeParse({ review: { ...review, pauseReason: bad }, action: null }).success).toBe(false);
+});
 const commands: ClientMessage[] = [
   { type: "inbox_resolve", itemId: actionItem.id, optionId: "enqueue", reason: "need_more_info" },
   { type: "inbox_snooze", itemId: actionItem.id },

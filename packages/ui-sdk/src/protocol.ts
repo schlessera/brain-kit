@@ -3230,6 +3230,8 @@ export interface HygieneReviewState {
   position: number;
   fixed: number; dismissed: number; snoozed: number;
   pendingActionId?: string;
+  /** Shared cap retirement pauses review without disposing its finding. */
+  pauseReason?: { kind: "actions-limit"; retiredActionId: string; retirementReceiptId: string };
   counts?: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number };
   blocker?: Record<string, unknown>;
 }
