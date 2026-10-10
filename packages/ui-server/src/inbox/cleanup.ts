@@ -11,7 +11,9 @@ import { inboxThreadAwaitingSettlement, reapInboxThreadLifetimes } from "./lifet
 
 /** Recoverable compensation, never called from a SQLite transaction. Each
  * directory removal is idempotent; its durable lease is acknowledged afterwards. */
-export function createInboxCleanup(db: Database, brainRoot: string, options: { now?: () => number } = {}) {
+export function createInboxCleanup(db: Database, brainRoot: string, options: { now?: () => number;
+  /** Internal crash fixture between removal and acknowledgement; never wired by createApp. */
+  afterRemove?: () => Promise<void> } = {}) {
   const now = options.now ?? Date.now, store = createInboxStore(db, { now });
   let active: Promise<number> | null = null, closed = false;
   function claim(id: string): InboxQueueItem | null {
@@ -58,6 +60,7 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
       if (!item || item.type !== "cleanup_pending") continue;
       try {
         await remove(item.payload.stagingId);
+        await options.afterRemove?.();
         reapInboxThreadLifetimes(db, item.threadId);
         // A process killed here leaves a claimed row; restart safely repeats
         // rm, which succeeds even when both directories are already absent.

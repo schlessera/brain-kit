@@ -41,6 +41,8 @@ export function createInboxRuntime(db: Database, deps: {
   route?: (signal: AbortSignal) => Promise<void>;
   /** Engine eligibility: ready work this dispatcher may claim now. */
   claimable?: (item: InboxQueueItem) => boolean;
+  /** Internal crash fixture inside staging compensation; never a production option. */
+  afterCleanupRemove?: () => Promise<void>;
 }) {
   assertInboxRecoveryReady(db);
   const now = deps.now ?? Date.now;
@@ -49,7 +51,7 @@ export function createInboxRuntime(db: Database, deps: {
     clearInterval: (timer) => clearInterval(timer),
   };
   const store = createInboxStore(db, { now });
-  const cleanup = deps.brainRoot ? createInboxCleanup(db, deps.brainRoot, { now }) : undefined;
+  const cleanup = deps.brainRoot ? createInboxCleanup(db, deps.brainRoot, { now, afterRemove: deps.afterCleanupRemove }) : undefined;
   const budget = deps.budget ? createInboxBudget(db, { ...deps.budget, now }) : undefined;
   const dispatchEnabled = Boolean(deps.dispatch && budget && deps.operation);
   const controller = new AbortController();
