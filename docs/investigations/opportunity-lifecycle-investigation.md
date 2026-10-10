@@ -113,7 +113,7 @@ bun run test tests/opportunity-lifecycle-eval.test.ts
 bun scripts/evals/opportunity-lifecycle/run.ts --repeat 5
 ```
 
-The committed [report](../../scripts/evals/opportunity-lifecycle/keyless-report.json)
+The archived [report](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/opportunity-lifecycle/keyless-report.json)
 records fixture, schema, prototype and proposed-golden SHA-256 values, runtime,
 repetitions, local p50/p95/min/max and throughput. Timings include planning,
 source writes, pipeline generation, full keyless index rebuild and briefing;

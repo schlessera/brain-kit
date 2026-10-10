@@ -1,6 +1,0 @@
-import {strict as assert} from "node:assert";
-globalThis.fetch=(async()=>{throw new Error("offline auth readiness forbids network")}) as typeof fetch;
-assert(process.env.ANTHROPIC_API_KEY);for(const name of ["ANTHROPIC_OAUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_AUTH_TOKEN"])assert.equal(process.env[name],undefined);
-assert.equal(process.env.BRAIN_MEASURE_BILLING_ROUTE,"anthropic-api-key");assert(process.env.HOME?.includes("invocation-"));assert(process.env.PI_CODING_AGENT_DIR?.includes("invocation-"));
-const {ModelRuntime}=await import("@earendil-works/pi-coding-agent");const runtime=await ModelRuntime.create({allowModelNetwork:false});const model=runtime.getModel("anthropic","claude-sonnet-5-5");assert.equal(model?.id,"claude-sonnet-5-5");const auth=await runtime.getAuth(model!);assert.equal(auth?.source,"ANTHROPIC_API_KEY");assert.equal(auth?.auth.apiKey,process.env.ANTHROPIC_API_KEY);assert.equal(auth?.auth.headers?.Authorization,undefined);
-console.log(JSON.stringify({credentialPresence:{apiKey:true,oauthToken:false,claudeOauthToken:false,authToken:false},selectedModel:model?.id,provider:model?.provider,authSource:auth?.source,authKeyMatchesIsolatedEnv:true,authorizationHeaderAbsent:true,freshHomeAndPiConfig:true,providerRequests:0}));

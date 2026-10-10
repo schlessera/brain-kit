@@ -1,2 +1,0 @@
-import {installPiApiCapture} from "./pi-api-capture.ts";
-installPiApiCapture();

@@ -285,13 +285,13 @@ The [approval receipt](https://github.com/schlessera/brain-kit/issues/840#issuec
 preceded all comparison calls. The six tuning classifications selected 0.7
 before querying held-out cases; no input, prompt or threshold changed afterward.
 All 156 observations completed: 26 fixtures, two repetitions, three arms.
-The [frozen protocol and runtime](../../scripts/evals/note-disposition/results/2026-10-07/protocol.json),
-[tuning receipt](../../scripts/evals/note-disposition/results/2026-10-07/calibration.json),
-[complete projections and proposals](../../scripts/evals/note-disposition/results/2026-10-07/observations.json),
-[every physical call](../../scripts/evals/note-disposition/results/2026-10-07/physical-calls.json),
-[scorer output](../../scripts/evals/note-disposition/results/2026-10-07/summary.json),
-[independent assessment and sensitivity](../../scripts/evals/note-disposition/results/2026-10-07/audit.json)
-and [all four sanitized review receipts](../../scripts/evals/note-disposition/results/2026-10-07/reviews.json)
+The [frozen protocol and runtime](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/protocol.json),
+[tuning receipt](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/calibration.json),
+[complete projections and proposals](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/observations.json),
+[every physical call](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/physical-calls.json),
+[scorer output](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/summary.json),
+[independent assessment and sensitivity](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/audit.json)
+and [all four sanitized review receipts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/reviews.json)
 are retained. The audit includes SHA-256 identities of the original five run
 artifacts. Physical-call receipt multisets reconcile with all observations;
 tuning calls occur exactly once. All 137 physical responses were HTTP 200 with
