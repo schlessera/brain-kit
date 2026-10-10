@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
 import { readFileSync, existsSync } from "fs";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix } from "path";
 
 import { estimateTokens } from "./context-assembler.js";

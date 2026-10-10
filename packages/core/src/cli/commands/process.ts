@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
-import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { CompletionProvider } from "../../lib/seams.js";
 import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";

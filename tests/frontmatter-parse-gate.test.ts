@@ -10,7 +10,7 @@ import { scanSource, scanTree } from "../scripts/check-frontmatter-parse";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OTHER = "packages/core/src/lib/indexer/parse.ts";
-const HELPER = "packages/module-jobs/src/lib/frontmatter-parse.ts";
+const HELPER = "packages/common/src/frontmatter-parse.ts";
 const SERIALIZER = "packages/core/src/lib/frontmatter.ts";
 
 const rules = (file: string, text: string) => scanSource(file, text).map((f) => f.rule);
@@ -39,12 +39,21 @@ describe("rule 1: gray-matter is loaded only by its designated files", () => {
   });
 
   test("the helper itself is not a loophole when it moves", () => {
-    expect(rules("packages/core/src/frontmatter-parse.ts", 'import matter from "gray-matter";')).toEqual([1]);
+    // Its former per-package paths, and the same file name in any other package.
+    for (const file of [
+      "packages/core/src/lib/frontmatter-parse.ts",
+      "packages/module-jobs/src/lib/frontmatter-parse.ts",
+      "packages/core/src/frontmatter-parse.ts",
+      "packages/common/src/lib/frontmatter-parse.ts",
+      "packages/common/tests/other.test.ts",
+    ]) {
+      expect({ file, rules: rules(file, 'import matter from "gray-matter";') }).toEqual({ file, rules: [1] });
+    }
   });
 
   test("mentions in comments and strings, and the helper import, pass", () => {
     const text = '// gray-matter caches\nconst s = "gray-matter";\n' +
-      'import { parseFrontmatter } from "./frontmatter-parse.js";\nparseFrontmatter(raw);\n';
+      'import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";\nparseFrontmatter(raw);\n';
     expect(scanSource(OTHER, text)).toEqual([]);
   });
 });

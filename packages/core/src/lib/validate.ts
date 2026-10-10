@@ -14,7 +14,7 @@
  * the taxonomy so validation and the indexer's link graph agree exactly.
  */
 
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 

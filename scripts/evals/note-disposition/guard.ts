@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { safeResolve } from "../../../packages/core/src/lib/safe-path";
 import type { Taxonomy } from "../../../packages/core/src/lib/taxonomy";
 

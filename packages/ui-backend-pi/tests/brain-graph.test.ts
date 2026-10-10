@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { parseFrontmatter } from "../../core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { indexAll, initContext, openDatabase } from "@schlessera/brain/internal";

@@ -11,7 +11,7 @@
  * the file is skipped.
  */
 
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { resolve } from "path";

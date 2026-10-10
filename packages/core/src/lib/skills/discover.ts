@@ -16,7 +16,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
-import { parseFrontmatter } from "../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { LoadedModule } from "../module-types.js";
 import type { SkillManifest } from "../seams.js";

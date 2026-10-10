@@ -47,7 +47,7 @@ signatures (every public export and the types it is made of)
   imagesModule (packages/module-images/src/module.ts)
     const imagesModule: ModuleManifest<ImagesConfig>;
   manifest (packages/module-images/src/module.ts) exported name of imagesModule
-  readEnvVar (packages/module-images/src/config/env-core.ts)
+  readEnvVar (packages/common/src/env-core.ts)
     export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
   resolveEnv (packages/module-images/src/config/env.ts)
     export function resolveEnv(env?: NodeJS.ProcessEnv): ImagesEnv;

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { readFileSync, existsSync, realpathSync } from "fs";
 import { relative } from "path";
 

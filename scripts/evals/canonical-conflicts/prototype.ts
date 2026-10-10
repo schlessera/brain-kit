@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { getMarkdownFiles } from "../../../packages/core/src/lib/indexer";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { frontmatterLength, topLevelBlocks } from "../../../packages/core/src/lib/document-parts";
 import { safeResolve } from "../../../packages/core/src/lib/safe-path";
 import { hygieneId, type HygieneCandidate } from "../../../packages/core/src/lib/hygiene";

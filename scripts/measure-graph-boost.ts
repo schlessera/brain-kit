@@ -33,7 +33,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 
 import { initContext } from "../packages/core/src/lib/context.js";
 import { openDatabase } from "../packages/core/src/lib/db.js";

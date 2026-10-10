@@ -152,7 +152,13 @@ jobs:
             (cd "packages/$package" && \
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")
             TARBALL_CONTENTS=$(tar -tzf "$TARBALL_DIR/$package.tgz")
-            grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            if [ "$package" = common ]; then
+              # Internal-only: two ./internal/* entries and no root entry.
+              grep -q "^package/dist/env-core\.js$" <<< "$TARBALL_CONTENTS"
+              grep -q "^package/dist/frontmatter-parse\.js$" <<< "$TARBALL_CONTENTS"
+            else
+              grep -q "^package/dist/index\.js$" <<< "$TARBALL_CONTENTS"
+            fi
             if [ "$package" = geo ]; then
               grep -q "^package/assets/IBMPlexSans-Regular\.ttf$" <<< "$TARBALL_CONTENTS"
               grep -q "^package/assets/IBMPlexSans-Medium\.ttf$" <<< "$TARBALL_CONTENTS"
@@ -191,6 +197,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-common": `file:${tarballs}/common.tgz`,
                 "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain": `file:${tarballs}/core.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
@@ -214,6 +221,7 @@ jobs:
           bun add "$TARBALL_DIR"/*.tgz react react-dom
           bun -e '
             const names = [
+              "@schlessera/brain-common/internal/frontmatter",
               "@schlessera/brain-geo",
               "@schlessera/brain",
               "@schlessera/brain-ui-sdk",
@@ -330,6 +338,8 @@ jobs:
           '
           node --input-type=module <<'NODE'
           const nodePackages = [
+            "@schlessera/brain-common/internal/env",
+            "@schlessera/brain-common/internal/frontmatter",
             "@schlessera/brain-geo",
             "@schlessera/brain-geo/server",
             "@schlessera/brain-ui-sdk",

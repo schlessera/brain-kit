@@ -22,7 +22,7 @@ import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/pr
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
-import { envFlag, type DynamicEnvReadSpec } from "./env-core.js";
+import { envFlag, type DynamicEnvReadSpec } from "@schlessera/brain-common/internal/env";
 import {
   type ConfirmPatternSource,
   type ExecWrapperConfig,
@@ -52,7 +52,7 @@ function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
 }
 
 /**
- * The shared descriptor contract (sync-enforced copy in ./env-core.ts),
+ * The shared descriptor contract (@schlessera/brain-common/internal/env),
  * under the name this package has always exported. This package's entries
  * use the `string` arm of `required` for conditionally-required variables
  * (e.g. "AUTH_MODE=password") and `null` for "no default".
@@ -60,7 +60,7 @@ function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
 /**
  * One environment variable the server reads.
  *
- * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
  * package's published descriptor shape, and widening it to the shared
  * union would be a breaking change for typed consumers of ENV_VARS.
  */

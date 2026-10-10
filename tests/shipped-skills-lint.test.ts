@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { dirname, relative, resolve } from "path";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 
 import { lintSkills } from "../packages/core/src/lib/skills/lint";
 import type { SkillManifest } from "../packages/core/src/lib/seams";

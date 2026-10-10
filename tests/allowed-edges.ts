@@ -21,15 +21,20 @@ export interface Edges {
 
 // Keyed by npm name; values are the edges the architecture allows.
 export const ALLOWED_EDGES: Record<string, Edges> = {
+  // #1396 (maintainer ruling 2026-10-09): one internal-only leaf holding the
+  // env descriptor core and the cache-free frontmatter parser, replacing the
+  // byte-identical copies each package carried. It depends on no internal
+  // package, and nothing else may join it without its own issue.
+  "@schlessera/brain-common": { dependencies: [], optionalPeers: [] },
   // core owns the render template (the CLI's `brain render` uses it); the
   // Puppeteer renderer is heavyweight and optional, so it may never be hard.
   "@schlessera/brain": {
-    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-geo"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain-render-template", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-render-puppeteer"],
   },
   // Content modules extend core; concrete web imports also share scrape below.
-  "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
-  "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain-common", "@schlessera/brain"], optionalPeers: [] },
+  "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain-common", "@schlessera/brain"], optionalPeers: [] },
   // #1205's approved module-images pattern uses core's manifest, command
   // context and concrete Gemini completion implementation at runtime.
   // This opt-in module therefore requires core; the vendor SDK remains
@@ -38,7 +43,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // jobs fetches public boards through the polite scraping base.
   // `puppeteer-core` stays optional underneath it.
   "@schlessera/brain-module-jobs": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain", "@schlessera/brain-scrape"],
     optionalPeers: [],
   },
   "@schlessera/brain-module-speaking": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
@@ -46,7 +51,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // existing robots/pacing/redirect client instead of a second scrape stack;
   // this concrete CLI job does not need the optional browser driver.
   "@schlessera/brain-module-travel": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-scrape", "@schlessera/brain-geo"], optionalPeers: [],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain", "@schlessera/brain-scrape", "@schlessera/brain-geo"], optionalPeers: [],
   },
   // #525 ownership B: geo is a concrete independent library; consumers depend one way.
   "@schlessera/brain-geo": { dependencies: [], optionalPeers: [] },
@@ -65,14 +70,14 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // nothing about documents, taxonomy or the index, so it must NEVER depend on
   // core. An edge here would mean scraping logic had started reasoning about
   // what it was scraping, which is the consuming module's job.
-  "@schlessera/brain-scrape": { dependencies: [], optionalPeers: [] },
+  "@schlessera/brain-scrape": { dependencies: ["@schlessera/brain-common"], optionalPeers: [] },
   // Agent backends implement the SDK seam; pi additionally embeds core.
   "@schlessera/brain-backend-claude": {
-    dependencies: ["@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
   "@schlessera/brain-backend-pi": {
-    dependencies: ["@schlessera/brain", "@schlessera/brain-ui-sdk"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain", "@schlessera/brain-ui-sdk"],
     optionalPeers: [],
   },
   // #558 Option B shares the existing pure classifier through template/links,
@@ -99,7 +104,7 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // The edge is one way — core never imports the UI protocol — and a host
   // that uses neither feature does not install core.
   "@schlessera/brain-ui-server": {
-    dependencies: ["@schlessera/brain-render-template", "@schlessera/brain-ui-sdk", "@schlessera/brain-geo"],
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain-render-template", "@schlessera/brain-ui-sdk", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain", "@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"],
   },
 };

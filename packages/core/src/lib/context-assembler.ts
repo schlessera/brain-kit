@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import type { RerankSetup } from "./registry.js";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { BrainContext } from "./context.js";
 import type { EmbeddingProvider } from "./seams.js";

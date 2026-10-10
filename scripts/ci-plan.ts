@@ -23,9 +23,10 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
     "tests/decision-citations.test.ts", "tests/dependency-edges.test.ts",
-    "tests/frontmatter-parse-sync.test.ts",
+    "tests/frontmatter-parse-gate.test.ts",
   ],
   contract: ["tests/api-surface.test.ts", "tests/dependency-edges.test.ts", "tests/decision-citations.test.ts"],
+  common: ["packages/common/tests/frontmatter-parse.test.ts"],
   core: [
     "packages/core/tests/frontmatter-parse.test.ts",
     "packages/core/tests/frontmatter.test.ts",

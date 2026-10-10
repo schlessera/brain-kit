@@ -17,7 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";

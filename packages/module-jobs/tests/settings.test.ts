@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "../../core/tests/cli-harness";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { configSchema } from "../src/module";
 import { jobsSettings, planScoringMigration } from "../src/settings";
 import { loadScoringConfig, parseScoringConfig, scoreJob } from "../src/score";

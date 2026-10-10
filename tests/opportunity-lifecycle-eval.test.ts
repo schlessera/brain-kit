@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { apply, inspect, type Event, type Lab, type Plan } from "../scripts/evals/opportunity-lifecycle/prototype";
 import { cases, DAY, doc, prepare, prose, schedule } from "../scripts/evals/opportunity-lifecycle/fixtures";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 import { getMarkdownFiles, indexAll } from "../packages/core/src/lib/indexer";
 import { openDatabase } from "../packages/core/src/lib/db";
 import { generateBriefing } from "../packages/core/src/cli/commands/briefing";

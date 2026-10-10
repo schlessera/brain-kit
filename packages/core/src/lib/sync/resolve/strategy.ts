@@ -10,7 +10,7 @@
  * 6. anything else → `synthesize`.
  */
 
-import { parseFrontmatter } from "../../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { basename } from "path";
 
 import { SIDECAR_CACHES } from "../../cache-attributes.js";

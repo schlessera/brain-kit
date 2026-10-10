@@ -6,7 +6,7 @@ import { z } from "zod";
 import { brainConfigSchema, type BrainConfig } from "../../../packages/core/src/lib/config";
 import { buildTaxonomy, type Taxonomy } from "../../../packages/core/src/lib/taxonomy";
 import { safeResolve, writeFileSafely } from "../../../packages/core/src/lib/safe-path";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { editFrontmatter, type FrontmatterValue } from "../../../packages/core/src/lib/frontmatter-edit";
 import { inertGeneratedText, readGeneratedRegion, rewriteGeneratedRegion, splitFrontmatterBlock } from "../../../packages/core/src/lib/generated-regions";
 import { planRegistry, applyRegistry } from "../../../packages/core/src/lib/index-registry";

@@ -2,7 +2,7 @@
 
 Every frontmatter parse in the tree goes through one helper,
 `parseFrontmatter` (`parseFrontmatter`,
-`packages/core/src/lib/frontmatter-parse.ts:29-31`), which always passes
+`packages/common/src/frontmatter-parse.ts:28-30`), which always passes
 gray-matter an options object. A lint gate refuses every other way of reaching
 gray-matter's parser. Issue #142 holds the reproductions and the ruling.
 
@@ -41,20 +41,20 @@ maintainer chose option B on #142 on 2026-09-28.
   passed, so the cache is never read or written. Parsing behaviour is
   otherwise unchanged, and the tests pin it: dates, byte order mark, CRLF,
   empty, missing and unclosed blocks, custom delimiters, engines, excerpts.
-- **A copy per parsing package, not an export.** `ui-server` does not depend
-  on core. Exporting the helper from `@schlessera/brain` would also widen the
-  public API that #534 is curating. So core holds the canonical copy, and
-  `module-finance`, `module-jobs`, `module-travel` and `ui-server` each carry a byte-identical
-  `src/lib/frontmatter-parse.ts`, held identical by
-  `tests/frontmatter-parse-sync.test.ts`. This follows the `env-core.ts`
-  precedent. Tests and root scripts import core's copy by path.
+- **One internal leaf package, not a copy per package** (#1396, maintainer
+  ruling 2026-10-09). The helper lives in `@schlessera/brain-common` and is
+  reached through its `./internal/frontmatter` entry, which carries no
+  compatibility promise ([public export boundary](public-export-boundary.md)).
+  Every package that parses frontmatter depends on it; tests and root scripts
+  import it the same way or by path. Only this package and core, for the
+  serializer below, depend on gray-matter.
 - **The gate:** `scripts/check-frontmatter-parse.ts`, run by `bun run lint`.
   It is AST-based and scans every package's `src`, `tests` and `scripts`, plus
   the root `scripts/` and `tests/`. It enforces two rules.
   - Rule 1: gray-matter may be loaded (`import`, `import type`, `export …
     from`, `import x = require()`, `require()`, `import()`, subpaths) only by
     the files in its `ALLOWED` list (`ALLOWED`,
-    `scripts/check-frontmatter-parse.ts:39-57`).
+    `scripts/check-frontmatter-parse.ts:40-57`).
   - Rule 2: inside those files, the default binding may only be called with an
     object literal where gray-matter takes its options, or named in a type.
     Aliases, re-exports, `matter.read`, `matter.cache` and variable options
@@ -113,9 +113,21 @@ file is parsed once per run.
 
 ## Changing this
 
-- A package that starts parsing frontmatter copies the canonical file in
-  verbatim. The sync test lists the packages that carry a copy, so that list
-  changing is the review trail.
-- An edit to the helper is made in core and copied to all the others.
+- A package that starts parsing frontmatter adds `@schlessera/brain-common`
+  to its dependencies and its edge to `tests/allowed-edges.ts`.
+- An edit to the helper is made once, in `packages/common`.
 - A new entry in `ALLOWED` needs a reason that says why the file cannot reach
   the cache. "It only parses once" is not one: the cache is process-wide.
+
+## Superseded: a copy per parsing package
+
+Until #1396 the helper was not shared. `ui-server` did not depend on core, and
+exporting it from `@schlessera/brain` would have widened the public API that
+#534 was curating, so core held the canonical copy and `module-finance`,
+`module-jobs`, `module-travel` and `ui-server` each carried a byte-identical
+`src/lib/frontmatter-parse.ts`, held identical by a sync test, following the
+`env-core.ts` copies of the environment chokepoints. The maintainer ruled on
+2026-10-09 (#1347) to replace both sets of copies with one published leaf
+package whose entries are internal: a shared utility package is not an
+extension interface, so the no-new-seams rule does not apply, and a package
+cannot be left unpublished because consumers install every package from npm.

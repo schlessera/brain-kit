@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "fs";
-import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 
 import type { BrainContext } from "../../lib/context.js";

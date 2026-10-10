@@ -50,6 +50,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
+    "@schlessera/brain-common": "workspace:*",
     "@schlessera/brain": "workspace:*",
     "zod": "^4.4.3"
   },

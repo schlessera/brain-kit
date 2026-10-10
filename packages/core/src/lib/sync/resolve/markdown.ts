@@ -10,7 +10,7 @@
  * document emitted from its own units comes back byte for byte.
  */
 
-import { parseFrontmatter } from "../../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";

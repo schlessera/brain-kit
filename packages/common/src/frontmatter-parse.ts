@@ -1,9 +1,8 @@
-// SYNC-ENFORCED: this file is copied verbatim into every package that parses
-// frontmatter (`packages/*/src/lib/frontmatter-parse.ts`). Edit the canonical
-// copy in packages/core, then copy it byte-for-byte to the others;
-// tests/frontmatter-parse-sync.test.ts fails on any drift. There is no shared
-// package for it on purpose: a dependency edge (or a public export) for one
-// function is not worth its cost. See docs/decisions/frontmatter-parsing.md.
+// Internal to brain-kit: reached through
+// `@schlessera/brain-common/internal/frontmatter`, with no compatibility
+// promise. Every package that parses frontmatter imports it from there; it
+// replaced five byte-identical copies (#1396). See
+// docs/decisions/frontmatter-parsing.md.
 //
 // The only door to gray-matter's parser. Called without options, gray-matter
 // keeps every input string in a process-global cache (`matter.cache`) and
