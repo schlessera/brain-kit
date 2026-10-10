@@ -18,6 +18,7 @@ const LINTS = [
   "check-module-casts.ts", // `as` casts papering over the module config contract
   "check-leakage.ts", // personal strings anywhere in the tree (CI's leakage gate, runnable locally)
   "check-kit-purity.ts", // ui-kit stays prop-driven: no store, no I/O, no ambient globals
+  "check-raw-buttons.ts", // raw <button> in ui-react needs a kit control or a raw-button marker (#1379)
   "check-root-stores.ts", // internal imperative store access must use an explicit root
   "check-layer-direction.ts", // ui-react stores/, lib/ and connection.ts never import components/ (#1380)
   "check-oxlint.ts", // oxlint correctness pass (ruleset in .oxlintrc.json)
