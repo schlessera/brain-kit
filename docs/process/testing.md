@@ -29,7 +29,9 @@ inspecting CI on a PR live in the `work-issue` skill's
   `bun test [paths/flags]` (the latter still needs the documented timeout).
   Each package's own `bun run test`/`bun test` also loads its local preload;
   new workspaces must include the same test config, because Bun does not
-  inherit it from parent directories.
+  inherit it from parent directories. Run `experiments/` from the root too:
+  `bun run test:experiments` and `bun run test experiments/<file>` both go
+  through `scripts/test.ts`, which passes the preload explicitly.
 - Guarded Bun spawns add an absolute runtime preload to children, even with a
   different cwd or replaced environment. Child test hooks and ordinary child
   exit checks reject swallowed escapes; callers must assert child exit codes.
@@ -129,6 +131,38 @@ bound and left the same missing bound live twelve lines up in `lifetime`, which
 only a second review found. In #136, `localeCompare` survived fifty lines above
 the comment explaining why `breakdown()` had stopped using it.
 
+## The experiment tier
+
+Tests that exercise only a measurement or eval harness live under
+`experiments/`; everything else stays in `tests/` or a package's `tests/`. The
+boundary, the reasons and the file- and assertion-level inventory are in
+[the experiment-tier decision](../decisions/experiment-tier.md).
+
+- **What belongs there.** A file whose every assertion is about a harness:
+  spend and grant ledgers, relays and observers, freezes and review packets,
+  prototype gates, scorers, measurement-script arithmetic and the offline
+  launchers around them. A test that protects shipped behaviour, security, a
+  contract, the native runtime, an offline boundary or release/CI tooling
+  stays in product proof, whatever experiment it came from. Split a mixed file:
+  move each product block verbatim into a product test and keep its assertions.
+- **Discovery.** `bun run test` passes `./packages ./tests` to Bun as directory
+  roots, so `experiments/` is excluded by construction from the default run,
+  every `check:pr` mode and hosted unit shards. New files in either domain are
+  discovered without a list.
+- **Running it.** `bun run test:experiments` runs the complete tier offline
+  through the same wrapper, preload and timeout as `bun run test`. It needs
+  `python3`, `bwrap`, `unshare`, `setpriv` and `ip` plus permitted namespaces,
+  and refuses to start without them. `bun run test experiments/<file>` runs one
+  file while debugging.
+- **The release gate.** Release preparation runs the tier after
+  `bun run version` and before `bun run release` (the
+  [release skill](../../.agents/skills/release/SKILL.md) has the sequence).
+  Only a run with no failure, skip or todo that executed every inventoried file
+  writes `tmp/experiment-tier-receipt.json`; `scripts/publish.ts` refuses to
+  publish unless it names the current working-tree content, `bun.lock`,
+  experiment inventory and Bun version. A failing experiment test is a failing
+  release check, not a skip.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are
@@ -152,7 +186,9 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   skips are not green.
 - Retain every test, default discovery, pinned offline image and failure
   artifact. Optional `check:pr --full` runs complete affected local proof;
-  `--all` retains every local release/diagnostic category. Scheduled
+  `--all` retains every local release/diagnostic category. The one exception
+  to default discovery is [the experiment tier](#the-experiment-tier), which
+  release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
 - Keep drafts cheap and batch intermediate pushes. After cheap gates, run

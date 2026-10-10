@@ -87,9 +87,21 @@ and the CLI onboarding tests spawn a real `brain` process per assertion, which
 does not fit the 5s default — bare `bun test` fakes timeout failures.
 Paths narrow the run (`bun run test packages/ui-server tests/foo.test.ts`), and
 flags pass through (`bun run test --shard=1/3`, `bun run test -t "name"`); with
-no path it runs `packages` and `tests`. A `--timeout` of your own overrides the
-script's, because the last one wins. A flag whose value is optional
-(`--changed`) takes it only as `--changed=<ref>`.
+no path it runs `./packages` and `./tests` and nothing else. A `--timeout` of
+your own overrides the script's, because the last one wins. A flag whose value
+is optional (`--changed`) takes it only as `--changed=<ref>`.
+
+Tests that exercise only a measurement or eval harness live under
+`experiments/`, not `tests/`. Default discovery, `check:pr` and hosted CI never
+select them; release preparation runs all of them with `bun run test:experiments`
+(see [Releasing](#releasing)), and `bun run test experiments/<file>` runs one
+through the same offline guard while you work on it. A test belongs there only
+when everything it asserts is about the harness. A test that protects shipped
+behaviour, security, a contract, the native runtime, an offline boundary or
+release/CI tooling stays in `tests/` or its package, whatever measurement it
+grew out of; split a mixed file rather than moving it whole.
+[The testing process](docs/process/testing.md#the-experiment-tier) has the
+boundary and the file-level inventory.
 
 The test preload rejects accidental real external `fetch` calls and real curl
 execution, even when the code under test catches the error. Real HTTP(S)
@@ -127,6 +139,8 @@ bun run check:pr --base origin/main         # local preflight and affected fast 
 bun run check:pr --base origin/main --full  # optional complete affected local fallback
 bun run check:pr --all                      # complete local release/diagnostic inventory
 ```
+
+None of these runs the `experiments/` tier; release preparation does.
 
 Preflight includes committed, staged, unstaged and untracked changes. It runs
 lint/leakage, environment documentation, changeset checks and affected fast
@@ -415,9 +429,20 @@ An export that only first-party packages need belongs in the owning package's
 
 ## Releasing
 
-`bun run version` (changesets), then `bun run release`. The step-by-step
+`bun run version` (changesets), then the post-version build, typecheck and
+tests, then `bun run test:experiments`, then `bun run release`. The step-by-step
 checklist is the repo-local `release` skill (`.agents/skills/release/`), which
 agents load automatically; what follows is why it says what it says.
+
+The experiment tier runs at release time rather than on every PR because its
+tests prove harnesses, not what ships (#1386). It still has to pass on the
+exact candidate: `bun run test:experiments` writes
+`tmp/experiment-tier-receipt.json` only after a complete run with no failure,
+skip or todo, and `scripts/publish.ts` refuses to publish unless that receipt
+names the current working-tree content, `bun.lock` hash, experiment inventory
+and Bun version. That is why it runs after `bun run version`: the lock refresh
+there changes the candidate. The build, typecheck, product test, packaging and
+runtime requirements of a release are unchanged.
 
 `bun run version` chains `rm bun.lock && bun install` after `changeset version`,
 and that second half is not optional: bun resolves `workspace:*` pins from the

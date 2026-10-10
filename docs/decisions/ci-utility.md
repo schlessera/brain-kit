@@ -36,6 +36,19 @@ full inventory and `check:pr --all` runs every category for releases or diagnosi
 Neither is mandatory for an ordinary contribution with complete passing hosted
 proof. They are not substitutes for automatic event/checkout evidence.
 
+> **2026-10-10 — Implementation context (complete default discovery above).**
+> Under the maintainer's 2026-10-09 ruling on
+> [#1386](https://github.com/schlessera/brain-kit/issues/1386), tests that
+> exercise only measurement and eval harnesses moved to `experiments/`, which
+> default discovery, `check:pr` (including `--full` and `--all`) and hosted unit
+> proof do not select. Release preparation runs that whole tier with
+> `bun run test:experiments` after `bun run version`, and `bun run release`
+> refuses a candidate without its matching receipt
+> ([experiment-tier.md](experiment-tier.md)). This narrows only where
+> experiment-only tests run. Every product, security, contract, runtime,
+> offline-boundary and release-tooling test, including measurement isolation,
+> stays in the default discovery and the guarantees this record describes.
+
 ## Scheduling and selection
 
 Drafts run cheap rejection/metadata gates only. Marking ready selects complete
