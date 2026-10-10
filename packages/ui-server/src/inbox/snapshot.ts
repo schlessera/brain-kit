@@ -109,17 +109,26 @@ function validateDatabase(db: Database): void {
     const request = clientInboxResolveSchema.parse(JSON.parse(row.request_json as string));
     const effect = hygieneEffectSchema.parse(JSON.parse(row.effect_json as string));
     const action = items.get(row.item_id);
+    const receipt = action?.status === "dropped" ? items.get(inboxIdentity("retired", action.id)) : null;
+    const retiredDuringDispatch = action?.queue === "actions" && action.hygiene && receipt?.queue === "actions" && receipt.type === "fyi" && receipt.threadId === action.threadId;
     if (!action || action.queue !== "actions" || !action.hygiene || request.itemId !== action.id ||
         effect.findingId !== action.hygiene.findingId || effect.fingerprint !== action.hygiene.fingerprint ||
-        (row.status === "started" && action.status !== "pending") ||
+        (row.status === "started" && action.status !== "pending" && !retiredDuringDispatch) ||
         (effect.operation === "snooze" && !Number.isSafeInteger(row.wait_until)))
       throw new Error("inbox_snapshot_hygiene_relations");
   }
   for (const row of state.hygiene_review) {
     const review = hygieneReviewStateSchema.parse(JSON.parse(row.data_json as string));
     const action = review.pendingActionId ? items.get(review.pendingActionId) : null;
-    if (review.pendingActionId && (!action || action.queue !== "actions" || !action.hygiene || action.status !== "pending"))
+    if (review.pendingActionId && (!action || action.queue !== "actions" || !action.hygiene || !["pending", "snoozed"].includes(action.status)))
       throw new Error("inbox_snapshot_hygiene_relations");
+    if (review.pauseReason) {
+      const retired = items.get(review.pauseReason.retiredActionId), receipt = items.get(review.pauseReason.retirementReceiptId);
+      if (review.pendingActionId || !retired || retired.queue !== "actions" || !retired.hygiene || retired.status !== "dropped" ||
+          review.pauseReason.retirementReceiptId !== inboxIdentity("retired", retired.id) ||
+          !receipt || receipt.queue !== "actions" || receipt.type !== "fyi" || receipt.threadId !== retired.threadId)
+        throw new Error("inbox_snapshot_hygiene_relations");
+    }
   }
   for (const row of state.inbox_resolutions) {
     const action = items.get(row.item_id);

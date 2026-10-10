@@ -9,6 +9,8 @@ import { createHygieneReview } from "../src/inbox/hygiene-review.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxStream } from "../src/inbox/stream.js";
 import { inboxSnoozeUntil } from "../src/inbox/resolve.js";
+import { createInboxAction, inboxIdentity, INBOX_ACTION_CAP, sweepInboxLifecycle } from "../src/inbox/actions.js";
+import { exportInboxSnapshot, restoreInboxSnapshot } from "../src/inbox/snapshot.js";
 import { createHygieneReviewRoutes } from "../src/routes/hygiene-review.js";
 import { Hono } from "hono";
 import type { AppEnv } from "../src/app-env.js";
@@ -47,6 +49,224 @@ function logBytes(root: string) {
   const dir = join(root, "context/hygiene");
   return readdirSync(dir).sort().map(p => [p, readFileSync(join(dir, p), "utf8")]);
 }
+
+function fillActions(f: ReturnType<typeof setup>, at: number, count = INBOX_ACTION_CAP) {
+  for (let i = 0; i < count; i++) {
+    const id = `ordinary-${i}-${at}`, threadId = `ordinary-thread-${i}-${at}`;
+    f.store.openReviewThread(threadId);
+    createInboxAction(f.db, { id, dedupKey: id, threadId, queue: "actions", type: "choose", status: "pending", version: 1,
+      createdAt: at + i, updatedAt: at + i, expiresAt: Number.MAX_SAFE_INTEGER, payload: { title: "Review the voyage", detail: "Choose the next harbor." },
+      options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] }, [], { now: at + i });
+  }
+}
+
+for (const status of ["pending", "snoozed"] as const) test(`Actions production cap retires ${status} review atomically; reload, backup and explicit concurrent Resume preserve one fresh finding`, async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  if (status === "snoozed") f.store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "snoozed", waitUntil: Date.now() + 86400000 }]);
+  await expect(exportInboxSnapshot(f.db, f.root)).resolves.toMatchObject({ format: "brain-ui-operational-backup" });
+  const before = logBytes(f.root), at = Date.now() + 1000;
+  fillActions(f, at, INBOX_ACTION_CAP - 1);
+  expect(f.store.getItem(item.id)?.status).toBe(status);
+  fillActions(f, at + 1000, 1);
+  expect(f.store.getItem(item.id)?.status).toBe("dropped");
+  // This must fail before any schema/backup assertion if reconciliation is removed.
+  expect(f.review.read().review.pendingActionId).toBeUndefined();
+  const retired = f.review.read();
+  expect(retired.action).toBeNull();
+  expect(retired.review).toMatchObject({ status: "paused", fixed: 0, dismissed: 0, snoozed: 0,
+    pauseReason: { kind: "actions-limit", retiredActionId: item.id, retirementReceiptId: inboxIdentity("retired", item.id) } });
+  expect(f.store.getItem(inboxIdentity("retired", item.id))?.type).toBe("fyi");
+  const suppressions = f.db.query("SELECT * FROM inbox_suppressions").all();
+  expect(suppressions).toHaveLength(1);
+  expect(logBytes(f.root)).toEqual(before);
+  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const restarted = createHygieneReview(foreign, { brain: f.brain });
+  expect(restarted.read()).toEqual(retired);
+  const calls = f.argv().length;
+  // Refresh supersedes a pending premise; it cannot Resume a cap-retired card.
+  expect(await restarted.command(f.principal.id, "refresh")).toEqual(retired);
+  expect(f.argv()).toHaveLength(calls);
+  await restarted.recover(); sweepInboxLifecycle(f.db);
+  expect(f.argv()).toHaveLength(calls); expect(pending(f)).toHaveLength(0);
+  const backup = await exportInboxSnapshot(f.db, f.root);
+  f.db.query("UPDATE hygiene_review SET data_json = ? WHERE singleton = 1").run(JSON.stringify({ ...retired.review,
+    pauseReason: { ...retired.review.pauseReason, retirementReceiptId: "missing-receipt" } }));
+  await expect(exportInboxSnapshot(f.db, f.root)).rejects.toThrow("inbox_snapshot_hygiene_relations");
+  f.db.query("UPDATE hygiene_review SET data_json = ? WHERE singleton = 1").run(JSON.stringify(retired.review));
+  const restoredPath = join(f.root, "restored.sqlite");
+  await restoreInboxSnapshot(backup, restoredPath, f.root);
+  const restoredDb = createUiDb(restoredPath); clean.push(() => restoredDb.close());
+  expect(createHygieneReview(restoredDb, { brain: f.brain }).read()).toEqual(retired);
+  // Use a later admission clock so the fresh review card wins the age tie.
+  const resume = createHygieneReview(f.db, { brain: f.brain, now: () => at + 3000 });
+  const responses = Promise.all([resume.command(f.principal.id, "resume"), resume.command(f.principal.id, "resume")]);
+  await expect(responses).resolves.toBeArray();
+  const [one, two] = await responses;
+  expect(one.action?.id).not.toBe(item.id); expect(one.action?.status).toBe("pending");
+  expect(two.action?.id).toBe(one.action!.id); expect(pending(f)).toHaveLength(1);
+  expect(one.action?.hygiene?.findingId).toBe(item.hygiene!.findingId);
+  expect(one.action?.hygiene?.fingerprint).toBe(item.hygiene!.fingerprint);
+  expect(one.review.pauseReason).toBeUndefined();
+  expect(f.db.query("SELECT * FROM inbox_suppressions WHERE class_key = ?").all((suppressions[0] as { class_key: string }).class_key)).toEqual(suppressions);
+  expect(f.store.orderedItems().filter(({ item }) => item.queue === "actions" && item.type !== "fyi" && ["pending", "snoozed"].includes(item.status))).toHaveLength(INBOX_ACTION_CAP);
+  expect(logBytes(f.root)).toEqual(before);
+  expect((await resume.command(f.principal.id, "start")).action?.id).toBe(one.action!.id);
+  expect(f.applies()).toHaveLength(0);
+});
+
+test("an immediately retired admission pauses again with a fresh receipt and never auto-retries", async () => {
+  const f = setup(), at = Date.now() + 60000;
+  fillActions(f, at);
+  const started = await f.review.command(f.principal.id, "start");
+  expect(started.review.pendingActionId).toBeUndefined(); expect(started.action).toBeNull();
+  expect(started.review.status).toBe("paused");
+  const original = started.review.pauseReason!.retiredActionId;
+  const resumed = await f.review.command(f.principal.id, "resume");
+  expect(resumed.review.pendingActionId).toBeUndefined(); expect(resumed.action).toBeNull();
+  expect(resumed.review.status).toBe("paused");
+  const fresh = resumed.review.pauseReason!.retiredActionId;
+  expect(fresh).not.toBe(original);
+  expect(f.store.getItem(fresh)?.status).toBe("dropped");
+  expect(resumed.review.pauseReason!.retirementReceiptId).toBe(inboxIdentity("retired", fresh));
+  expect(pending(f)).toHaveLength(0);
+  const calls = f.argv().length;
+  await f.review.recover(); sweepInboxLifecycle(f.db);
+  expect(f.argv()).toHaveLength(calls); expect(f.review.read()).toEqual(resumed);
+  await exportInboxSnapshot(f.db, f.root);
+  const next = await f.review.command(f.principal.id, "start");
+  expect(next.review.pauseReason!.retiredActionId).not.toBe(fresh);
+  expect(pending(f)).toHaveLength(0); expect(f.applies()).toHaveLength(0);
+});
+
+test("Resume re-admits the retired canonical finding even when next would select another eligible finding", async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  const at = Date.now() + 1000; fillActions(f, at);
+  // A new validation error outranks the retired warning, but explicit Resume
+  // must finish the human's interrupted finding first.
+  writeFileSync(join(f.root, "journeys/telemachus.md"), '---\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\nTelemachus returns.\n');
+  const selected = await f.brain.hygiene!(["next"]) as { finding: { id: string } };
+  expect(selected.finding.id).not.toBe(item.hygiene!.findingId);
+  const path = join(f.root, item.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8") + "\nThe crew waits.\n");
+  const resumed = await createHygieneReview(f.db, { brain: f.brain, now: () => at + 3000 }).command(f.principal.id, "resume");
+  expect(resumed.action?.hygiene?.findingId).toBe(item.hygiene!.findingId);
+  expect(resumed.action?.hygiene?.fingerprint).toBe(item.hygiene!.fingerprint);
+  expect(resumed.action?.options.find(o => o.id === "link-text")?.preview?.before).toContain("The crew waits.");
+  expect(pending(f)).toHaveLength(1);
+});
+
+test("failed or unauthorized Resume preserves the retirement; configuration recovery requires another explicit Resume", async () => {
+  const f = setup(); await f.review.command(f.principal.id, "start");
+  const at = Date.now() + 1000; fillActions(f, at);
+  const retired = f.review.read();
+  const agent = createPrincipal(f.db, { authMethod: "delegated", label: "Odysseus helper", createdBy: f.principal.id, ttlSeconds: 3600 });
+  await expect(f.review.command(agent.id, "resume")).rejects.toThrow("Human review authority");
+  const failing = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async () => { throw new Error("CLI unavailable"); } } });
+  await expect(failing.command(f.principal.id, "resume")).rejects.toThrow("CLI unavailable");
+  expect(f.review.read()).toEqual(retired); expect(pending(f)).toHaveLength(0);
+  const config = join(f.root, "brain.config.ts"), before = readFileSync(config, "utf8");
+  writeFileSync(config, 'throw new Error("unknown schemaa");\n');
+  const blocked = await f.review.command(f.principal.id, "resume");
+  expect(blocked.review.status).toBe("blocked");
+  expect(blocked.review.pauseReason).toEqual(retired.review.pauseReason);
+  expect(blocked.review.blocker?.kind).toBe("configuration"); expect(blocked.action).toBeNull();
+  writeFileSync(config, before);
+  const calls = f.argv().length; await f.review.recover();
+  expect(f.argv()).toHaveLength(calls);
+  const resumed = await createHygieneReview(f.db, { brain: f.brain, now: () => at + 3000 }).command(f.principal.id, "resume");
+  expect(resumed.action?.status).toBe("pending"); expect(resumed.review.pauseReason).toBeUndefined();
+});
+
+test("Pause during retired-card Resume cancels its pending admission", async () => {
+  const f = setup(); await f.review.command(f.principal.id, "start");
+  const at = Date.now() + 1000; fillActions(f, at);
+  const retired = f.review.read();
+  let release!: () => void, reached!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), entered = new Promise<void>(r => { reached = r; });
+  const review = createHygieneReview(f.db, { now: () => at + 3000, brain: { ...f.brain, hygiene: async args => {
+    if (args[0] === "next") { reached(); await gate; }
+    return f.brain.hygiene!(args);
+  } } });
+  const resumed = review.command(f.principal.id, "resume");
+  await entered;
+  try { await review.command(f.principal.id, "pause"); } finally { release(); }
+  await resumed;
+  expect(pending(f)).toHaveLength(0);
+  expect(review.read()).toEqual(retired);
+});
+
+test("cap retirement during confirmed CLI dispatch retains a valid backup and settles the receipt without resurrecting the card", async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  let release!: () => void, reached!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), entered = new Promise<void>(r => { reached = r; });
+  const review = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args[0] === "resolve" && !args.includes("--dry-run")) { reached(); await gate; }
+    return f.brain.hygiene!(args);
+  } } });
+  const dispatched = review.resolver.resolveAsync(f.principal.id, request(item));
+  await entered;
+  try {
+    const before = logBytes(f.root);
+    fillActions(f, Date.now() + 1000);
+    expect(logBytes(f.root)).toEqual(before);
+    expect(review.read().review.pendingActionId).toBeUndefined();
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    const exporting = exportInboxSnapshot(f.db, f.root);
+    await expect(exporting).resolves.toMatchObject({ format: "brain-ui-operational-backup" });
+    const backup = await exporting;
+    const path = join(f.root, "dispatch-restored.sqlite");
+    await restoreInboxSnapshot(backup, path, f.root);
+    const db = createUiDb(path); clean.push(() => db.close());
+    expect(createHygieneReview(db, { brain: f.brain }).read()).toEqual(review.read());
+    release();
+    await expect(dispatched).resolves.toMatchObject({ replay: false });
+    expect(f.db.query("SELECT status, result_json FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id))
+      .toMatchObject({ status: "finished", result_json: expect.stringContaining('"status":"fixed"') });
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    expect(review.read().review).toMatchObject({ status: "paused", fixed: 0, dismissed: 0, snoozed: 0 });
+    expect(pending(f)).toHaveLength(0); expect(f.applies()).toHaveLength(1);
+    // Recovery of the pre-completion backup checks the authorized effect;
+    // it never dispatches the write again or re-admits its retired card.
+    await createHygieneReview(db, { brain: f.brain }).recover();
+    expect(f.applies()).toHaveLength(1);
+    expect(db.query("SELECT status FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id)).toEqual({ status: "finished" });
+    expect(createHygieneReview(db, { brain: f.brain }).read().review.status).toBe("paused");
+    await exportInboxSnapshot(db, f.root);
+  } finally { release(); await dispatched.catch(() => {}); }
+});
+
+test("cap retirement with a lost CLI receipt keeps the journal recoverable without repeating the write", async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  let release!: () => void, reached!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), entered = new Promise<void>(r => { reached = r; });
+  const review = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args[0] === "resolve" && !args.includes("--dry-run")) {
+      reached(); await gate;
+      await f.brain.hygiene!(args);
+      throw new Error("CLI receipt lost after publication");
+    }
+    return f.brain.hygiene!(args);
+  } } });
+  const dispatched = review.resolver.resolveAsync(f.principal.id, request(item));
+  await entered;
+  try {
+    fillActions(f, Date.now() + 1000);
+    const retired = review.read();
+    release();
+    await expect(dispatched).resolves.toMatchObject({ replay: false });
+    expect(f.db.query("SELECT status FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id)).toEqual({ status: "started" });
+    await expect(exportInboxSnapshot(f.db, f.root)).resolves.toMatchObject({ format: "brain-ui-operational-backup" });
+    expect(review.read()).toEqual(retired);
+    expect(f.applies()).toHaveLength(1);
+    await review.recover();
+    expect(f.db.query("SELECT status, result_json FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id))
+      .toMatchObject({ status: "finished", result_json: expect.stringContaining('"status":"fixed"') });
+    expect(f.applies()).toHaveLength(1);
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    expect(review.read()).toEqual(retired);
+    expect(pending(f)).toHaveLength(0);
+  } finally { release(); await dispatched.catch(() => {}); }
+});
 
 test("repeated concurrent start and resume preserve exactly one pending Action; pause writes no disposition", async () => {
   const f = setup();

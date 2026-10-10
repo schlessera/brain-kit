@@ -5284,6 +5284,11 @@ signatures (every public export and the types it is made of)
         dismissed: number;
         snoozed: number;
         pendingActionId?: string;
+        pauseReason?: {
+            kind: "actions-limit";
+            retiredActionId: string;
+            retirementReceiptId: string;
+        };
         counts?: {
             eligibleRemaining: number;
             fixed: number;
@@ -9727,6 +9732,11 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>;
             dismissed: z.ZodNumber;
             fixed: z.ZodNumber;
+            pauseReason: z.ZodOptional<z.ZodObject<{
+                kind: z.ZodLiteral<"actions-limit">;
+                retiredActionId: z.ZodString;
+                retirementReceiptId: z.ZodString;
+            }, z.core.$strict>>;
             pendingActionId: z.ZodOptional<z.ZodString>;
             position: z.ZodNumber;
             snoozed: z.ZodNumber;
@@ -9753,6 +9763,11 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>>;
         dismissed: z.ZodNumber;
         fixed: z.ZodNumber;
+        pauseReason: z.ZodOptional<z.ZodObject<{
+            kind: z.ZodLiteral<"actions-limit">;
+            retiredActionId: z.ZodString;
+            retirementReceiptId: z.ZodString;
+        }, z.core.$strict>>;
         pendingActionId: z.ZodOptional<z.ZodString>;
         position: z.ZodNumber;
         snoozed: z.ZodNumber;

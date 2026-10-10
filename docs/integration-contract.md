@@ -5781,10 +5781,41 @@ these HTTP operations through this contract; Actions use existing inbox replicat
 `HygieneReviewState` has `version: 1`, `status` (`idle`, `active`, `paused`,
 `complete`, `blocked`), nonnegative `position`, `fixed`, `dismissed`, `snoozed`,
 optional `pendingActionId`, optional C2 `counts` and optional CLI `blocker`.
+Additive in 0.41.0 (#1490): optional `pauseReason` is
+`{ kind: "actions-limit", retiredActionId, retirementReceiptId }`.
+When the shared hard Actions cap drops the pending review card (including a
+snoozed card), its retirement and the review pause commit together. The review
+clears `pendingActionId`, returns `action: null`, and retains the dropped Action
+and shared FYI receipt through `pauseReason`. The three disposition counters and
+hygiene Markdown dispositions are unchanged; the original suppression remains.
+Read, reload, recovery and lifecycle sweeps never re-admit this card.
+
+An explicit human start/resume re-admits the unchanged canonical finding under a
+fresh operational Action and thread identity, with freshly generated previews,
+through normal admission and the same hard cap. It clears the reason only when
+selection succeeds. Concurrent/repeated requests retain one pending card. If the
+fresh card immediately loses at the cap, the review pauses again with its new
+retirement receipt; there is no retry loop. A human Pause during in-flight
+Resume cancels that admission. Selection still reconciles through
+`next`; if that selects a different finding, the supported `list` read confirms
+that the retired fingerprint is still open before its retained finding is used.
+Changed or no-longer-open evidence follows the ordinary fresh selection instead.
+CLI failure preserves the paused reason for a later explicit attempt; a CLI
+blocker can coexist with it. Operational backups validate the referenced dropped
+hygiene Action and matching FYI receipt as well as pending/snoozed pointers.
+If a confirmed CLI operation is already in flight at retirement, its journal
+remains backed up with the dropped card and matching retirement receipt. Its
+actual result settles that journal without changing the terminal card or review
+disposition counters. Recovery checks an uncertain operation through the existing
+read/check path; it never repeats the write or re-admits the card. Retirement
+itself does not revoke principal authority or cancel an already confirmed write.
+A lost CLI receipt retains the started journal and releases the in-process guard,
+including when the card was dropped during dispatch. A later check-only recovery
+settles it without updating the terminal card or repeating the content write.
 Position counts presentations in this durable review, including a due snooze's
 return. The three counters count confirmed review dispositions; C2 counts retain
 their distinct backlog meaning. A reload or another device reads the same state.
-Pause neither disposes the finding nor changes its pending Action. Start/resume
+Manual pause neither disposes the finding nor changes its pending Action. Start/resume
 returns an existing pending Action. An empty selection returns deferred counts
 without an Action; a configuration/check blocker returns the CLI blocker instead.
 
