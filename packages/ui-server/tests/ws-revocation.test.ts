@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { serializeSigned } from "hono/utils/cookie";
 
@@ -663,83 +663,94 @@ describe("principal revocation boundary", () => {
     }
   );
 
-  test("expiry closes an open socket and drops its queued follow-up", async () => {
-    const releaseRunning = deferred();
-    const prompts: string[] = [];
-    const backend = makeFakeBackend({
-      id: "fake",
-      startTurn: async (request) => {
-        prompts.push(request.prompt);
-        if (request.prompt === "running") await releaseRunning.promise;
-      },
-    });
-    const { host } = hostFor(backend);
-    const principal = {
-      ...testPrincipal("expiring"),
-      expiresAt: Date.now() + 50,
-    };
-    const handlers = createWsHandlers(host, principal);
-    const socket = fakeSocket();
-    await handlers.onOpen({} as Event, socket.ws);
+  // Twenty fresh hosts exercise the regression in ordinary local and CI discovery.
+  test.each(Array.from({ length: 20 }, (_, index) => index + 1))(
+    "expiry closes an open socket and drops its queued follow-up (run %i/20)",
+    async () => {
+      let now = Date.now();
+      const clock = spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const releaseRunning = deferred();
+        const prompts: string[] = [];
+        const backend = makeFakeBackend({
+          id: "fake",
+          startTurn: async (request) => {
+            prompts.push(request.prompt);
+            if (request.prompt === "running") await releaseRunning.promise;
+          },
+        });
+        const { host } = hostFor(backend);
+        const principal = {
+          ...testPrincipal("expiring"),
+          expiresAt: Date.now() + 50,
+        };
+        const handlers = createWsHandlers(host, principal);
+        const socket = fakeSocket();
+        await handlers.onOpen({} as Event, socket.ws);
 
-    handlers.onMessage(
-      {
-        data: JSON.stringify({
-          type: "chat_message",
-          text: "running",
-          sessionId: "session-expiry",
-        }),
-      } as MessageEvent,
-      socket.ws
-    );
-    await until(() => prompts.length === 1);
-    handlers.onMessage(
-      {
-        data: JSON.stringify({
-          type: "chat_message",
-          text: "queued after running",
-          sessionId: "session-expiry",
-        }),
-      } as MessageEvent,
-      socket.ws
-    );
-    await until(
-      () => host.coordinator.bySession.get("session-expiry")?.queue.length === 1
-    );
+        handlers.onMessage(
+          {
+            data: JSON.stringify({
+              type: "chat_message",
+              text: "running",
+              sessionId: "session-expiry",
+            }),
+          } as MessageEvent,
+          socket.ws
+        );
+        await until(() => prompts.length === 1);
+        handlers.onMessage(
+          {
+            data: JSON.stringify({
+              type: "chat_message",
+              text: "queued after running",
+              sessionId: "session-expiry",
+            }),
+          } as MessageEvent,
+          socket.ws
+        );
+        await until(
+          () => host.coordinator.bySession.get("session-expiry")?.queue.length === 1
+        );
 
-    // Release the running turn AFTER expiry but BEFORE the sweep: the dequeue
-    // then happens inside the window the timer has not reached yet, which is
-    // precisely where a follow-up could start past expiry and survive, since a
-    // started turn is never aborted.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(principal.expiresAt).toBeLessThan(Date.now());
-    expect(socket.closed).toEqual([]);
-    releaseRunning.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(prompts).toEqual(["running"]);
+        // Keep authorization time fixed through the real per-turn host probe and
+        // queue admission. Its synchronous startup can exceed the 50 ms lifetime.
+        // Advance only after both prerequisites exist, then release before yielding
+        // to the real sweep timer: dequeue must reject an already-expired follow-up.
+        now = principal.expiresAt + 1;
+        expect(principal.expiresAt).toBeLessThan(Date.now());
+        expect(socket.closed).toEqual([]);
+        releaseRunning.resolve();
+        await until(() => host.coordinator.running.size === 0);
+        expect(prompts).toEqual(["running"]);
 
-    await until(() => socket.closed.length === 1, 1_500);
-    expect(socket.closed).toEqual([[1008, "Session expired"]]);
-    expect(prompts).toEqual(["running"]);
-    // The follow-up never ran, and the slot itself is gone once the running
-    // turn finished — a stronger outcome than an emptied queue.
-    expect(host.coordinator.bySession.has("session-expiry")).toBe(false);
+        // Dequeue rechecks expiry and closes the socket before the turn settles.
+        // Assert that disposition directly so a missing close fails here.
+        expect(socket.closed).toEqual([[1008, "Session expired"]]);
+        expect(prompts).toEqual(["running"]);
+        // The follow-up never ran, and the slot itself is gone once the running
+        // turn finished — a stronger outcome than an emptied queue.
+        expect(host.coordinator.bySession.has("session-expiry")).toBe(false);
 
-    handlers.onMessage(
-      {
-        data: JSON.stringify({
-          type: "chat_message",
-          text: "after expiry",
-          sessionId: "session-expiry",
-        }),
-      } as MessageEvent,
-      socket.ws
-    );
-    releaseRunning.resolve();
-    await until(() => host.coordinator.running.size === 0);
+        handlers.onMessage(
+          {
+            data: JSON.stringify({
+              type: "chat_message",
+              text: "after expiry",
+              sessionId: "session-expiry",
+            }),
+          } as MessageEvent,
+          socket.ws
+        );
+        releaseRunning.resolve();
+        await until(() => host.coordinator.running.size === 0);
 
-    expect(prompts).toEqual(["running"]);
-  });
+        expect(prompts).toEqual(["running"]);
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
 
   test("a disconnected queued sender becomes the current authority when dequeued", async () => {
     const releaseFirst = deferred();
