@@ -8,11 +8,7 @@ import { probeBrainCliVersion } from "../src/brain/client";
 import { createRecordingObservability } from "../src/observability";
 
 const dirs: string[] = [];
-const saved = { wrapper: process.env.BRAIN_UI_EXEC_WRAPPER, killer: process.env.BRAIN_UI_EXEC_KILLER };
 afterEach(() => {
-  for (const [key, value] of Object.entries({ BRAIN_UI_EXEC_WRAPPER: saved.wrapper, BRAIN_UI_EXEC_KILLER: saved.killer })) {
-    if (value === undefined) delete process.env[key]; else process.env[key] = value;
-  }
   for (const dir of dirs.splice(0)) {
     for (const name of ["probe.pid", "descendant.pid", "helper.pid"]) {
       const path = join(dir, name);
@@ -42,12 +38,10 @@ function fixture(output: string, body = 'exec sleep 8') {
 }
 async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, killer?: string) {
   const observability = createRecordingObservability();
-  if (f.wrapper) process.env.BRAIN_UI_EXEC_WRAPPER = f.wrapper; else delete process.env.BRAIN_UI_EXEC_WRAPPER;
-  if (killer) process.env.BRAIN_UI_EXEC_KILLER = killer; else delete process.env.BRAIN_UI_EXEC_KILLER;
   let error: unknown;
   const started = Date.now();
   try {
-    if (kind === "brain") await probeBrainCliVersion(f.dir, observability.logger("brain"));
+    if (kind === "brain") await probeBrainCliVersion(f.dir, observability.logger("brain"), { exec: { wrapper: f.wrapper, killer } });
     else await probeClaudeRuntime({ claudeCodePath: f.path, brainPath: f.dir, env: { PATH: process.env.PATH }, exec: { wrapper: f.wrapper, killer } });
   } catch (caught) { error = caught; }
   return { elapsed: Date.now() - started, error, logs: observability.logs.find({ severity: "WARN" }) };

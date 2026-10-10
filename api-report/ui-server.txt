@@ -673,6 +673,7 @@ signatures (every public export and the types it is made of)
             ttlMs: number;
         };
         subscription: SubscriptionConfig;
+        exec?: ExecWrapperConfig;
     }
   Severity (packages/ui-server/src/observability/types.ts)
     export type Severity = (typeof SEVERITIES)[number];
@@ -803,6 +804,7 @@ signatures (every public export and the types it is made of)
         searchTimeoutMs?: number;
         minimumVersion?: string;
         log?: Logger;
+        exec?: ExecWrapperConfig;
     }): BrainClient;
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
