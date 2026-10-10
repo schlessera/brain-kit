@@ -1,6 +1,7 @@
+import { Button, IconButton } from "@schlessera/brain-ui-kit";
 import { trackBytes, trackDisplayName } from "../../lib/track-uploads.js";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Share2, X } from "lucide-react";
+import { Share2, X } from "lucide-react";
 import type { StoredShare } from "@schlessera/brain-ui-sdk/share-target";
 import { useShareIntake } from "../../hooks/use-share-intake.js";
 import { useShareStore } from "../../stores/share-store.js";
@@ -60,15 +61,7 @@ function ShareCard({
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <Share2 className="h-3.5 w-3.5" />
         <span className="flex-1">Shared to your brain</span>
-        <button
-          type="button"
-          onClick={onDismiss}
-          title="Dismiss"
-          aria-label="Dismiss shared files"
-          className="flex min-h-11 min-w-11 items-center justify-center rounded transition-colors hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <IconButton size="md" name="Dismiss shared files" glyph={<X />} onClick={onDismiss} />
       </div>
 
       <div className="flex gap-3">
@@ -106,22 +99,9 @@ function ShareCard({
       </div>
 
       <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-lg bg-primary-fill px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
-        >
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          Add to brain
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="min-h-11 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground disabled:opacity-60"
-        >
-          Dismiss
-        </button>
+        <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }}
+          label={busy ? "Adding…" : "Add to brain"} disabled={busy} onClick={onConfirm} />
+        <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Dismiss" onClick={onDismiss} />
       </div>
     </div>
   );
@@ -151,14 +131,7 @@ export function ShareIntake() {
       {error && (
         <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive-fill/5 px-3 py-2 text-[11px] text-destructive">
           <div className="flex-1">{error}</div>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            title="Dismiss"
-            className="shrink-0 rounded p-0.5 transition-colors hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <IconButton size="sm" name="Dismiss error" glyph={<X />} onClick={() => setError(null)} />
         </div>
       )}
 

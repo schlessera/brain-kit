@@ -1,3 +1,4 @@
+import { TextButton } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Brain, WifiOff, ShieldAlert } from "lucide-react";
@@ -10,8 +11,7 @@ import { useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { AssociateRecordings } from "../voice/associate-recordings.js";
 import { LoginScreen } from "./login-screen.js";
 import { useVpnStatus } from "../../hooks/use-vpn-status.js";
-import {
-  deriveConnectionIssue,
+import { deriveConnectionIssue,
   type ConnectionIssue,
 } from "../../lib/connection-issue.js";
 import { rebindPushSubscriptionAfterLogin } from "../../lib/push-registration.js";
@@ -306,13 +306,7 @@ function OfflineBanner({
             )}
             <span>{message}</span>
             {(issue === "refused" || issue === "capacity") && (
-              <button
-                type="button"
-                onClick={root.connection.reconnectNow}
-                className="font-medium underline underline-offset-2 hover:text-foreground"
-              >
-                Retry now
-              </button>
+              <TextButton tone="inherit" inline label="Retry now" onClick={root.connection.reconnectNow} />
             )}
             <span
               className="inline-block h-1.5 w-1.5 rounded-full bg-primary-mark"

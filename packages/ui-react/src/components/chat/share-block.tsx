@@ -1,3 +1,4 @@
+import { Button } from "@schlessera/brain-ui-kit";
 import type { BrainUiRoot } from "../../root.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useRef } from "react";
@@ -49,12 +50,8 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => void primary.run()}
-            className="rounded-md bg-primary-fill px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            {primary.label}
-          </button>
+          <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }}
+            label={primary.label} onClick={() => void primary.run()} />
           <ShareMenu options={secondary} title="Other formats" />
         </div>
       </div>

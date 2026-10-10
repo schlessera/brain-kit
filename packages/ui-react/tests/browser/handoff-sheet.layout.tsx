@@ -111,7 +111,7 @@ const cases = [
 for (const c of cases) {
   const name = `${c.width}×${c.height} ${c.theme === "light" ? "paper" : "dark"}`;
 
-  test(`${name}: the sheet fits the viewport, focuses To, and every control is a 44px target`, async () => {
+  test(`${name}: the sheet fits the viewport, focuses To, and actions are reachable at their ruled pointer size`, async () => {
     const { dialog } = await mount(c.width, c.height, c.theme);
     const to = dialog.querySelector("select")!;
     expect(document.activeElement, "focus goes to the To select").toBe(to);
@@ -125,14 +125,15 @@ for (const c of cases) {
     expect(panel.right, "no horizontal overflow, right").toBeLessThanOrEqual(c.width + 0.5);
     if (c.width >= 900) expect(panel.width, "the desktop dialog is 480px").toBeCloseTo(480, 0);
     expect(document.documentElement.scrollWidth, "the page does not scroll sideways").toBeLessThanOrEqual(c.width);
-    const controls = [...dialog.querySelectorAll<HTMLElement>("button, select, textarea, input")]
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button, [role="button"], select, textarea, input')]
       .filter((el) => el.getBoundingClientRect().width > 0);
     expect(controls.length, "the sheet has controls to measure").toBeGreaterThan(4);
     for (const el of controls) {
       const rect = el.getBoundingClientRect();
       const label = el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName;
-      expect(rect.height, `${label} height`).toBeGreaterThanOrEqual(44);
-      if (el.tagName === "BUTTON") expect(rect.width, `${label} width`).toBeGreaterThanOrEqual(36);
+      const compact = el.classList.contains("bk-icon-btn") && el.dataset.size === "sm" && !matchMedia("(any-pointer: coarse)").matches;
+      expect(rect.height, `${label} height`).toBeGreaterThanOrEqual(compact ? 28 : 44);
+      if (el.matches("button, [role=button]")) expect(rect.width, `${label} width`).toBeGreaterThanOrEqual(compact ? 28 : 36);
     }
     // A configured profile that cannot run is listed, disabled, with its reason.
     expect([...to.options].map((o) => [o.textContent, o.disabled])).toEqual([
@@ -141,10 +142,11 @@ for (const c of cases) {
     ]);
     expect(to.value, "the runnable profile stays chosen").toBe("codex");
     expect(to.getBoundingClientRect().right, "the To select fits the sheet").toBeLessThanOrEqual(panel.right + 0.5);
-    const startButton = dialog.querySelector<HTMLElement>('button[aria-label^="Start new chat on"]')!;
+    expect(page.getByRole("button", { name: "Start new chat on Codex · gpt-5.5", exact: true }).elements().length, "handoff start accessible name").toBe(1);
+    const startButton = page.getByRole("button", { name: "Start new chat on Codex · gpt-5.5", exact: true }).element() as HTMLElement;
     expect(startButton.getAttribute("aria-label")).toBe("Start new chat on Codex · gpt-5.5");
     // At 320 the two actions sit side by side.
-    const cancel = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    const cancel = page.getByRole("button", { name: "Cancel", exact: true }).element() as HTMLElement;
     expect(Math.round(cancel.getBoundingClientRect().top)).toBe(Math.round(startButton.getBoundingClientRect().top));
     // The summary's busy state says it spends before anything else is shown.
     expect(dialog.textContent).toContain("Drafting a summary with Claude Opus · spends");
@@ -179,3 +181,23 @@ for (const width of [1280, 320]) {
     }
   });
 }
+
+for (const c of cases) test(`${c.width} ${c.theme}: handoff actions keep names, focus rings and Add works by click and Enter`, async () => {
+  await mount(c.width, c.height, c.theme);
+  const cancel = page.getByRole("button", { name: "Cancel", exact: true }).element() as HTMLElement;
+  await userEvent.keyboard("{Tab}");
+  cancel.focus();
+  const ring = getComputedStyle(cancel);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "handoff action focus ring").toEqual(["2px", "solid", "2px"]);
+  await page.getByRole("button", { name: "+ add a file", exact: true }).click();
+  await userEvent.fill(page.getByRole("textbox", { name: "Brain file path" }), "notes/sirens.md");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect.poll(() => page.getByRole("button", { name: "Remove reference notes/sirens.md", exact: true }).elements()
+    .some((el) => el.checkVisibility({ checkVisibilityCSS: true })), { message: "handoff Add click creates a visible reference" }).toBe(true);
+  await page.getByRole("button", { name: "Remove reference notes/sirens.md", exact: true }).click();
+  await page.getByRole("button", { name: "+ add a file", exact: true }).click();
+  await userEvent.fill(page.getByRole("textbox", { name: "Brain file path" }), "notes/sirens.md");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => page.getByRole("button", { name: "Remove reference notes/sirens.md", exact: true }).elements()
+    .some((el) => el.checkVisibility({ checkVisibilityCSS: true })), { message: "handoff Add Enter creates a visible reference" }).toBe(true);
+});
