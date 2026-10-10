@@ -17,6 +17,7 @@ import type {
 import type { BrainAccess } from "./brain-access.js";
 import { resolveWebSearchEnv } from "./config/env.js";
 import { createPermissionGate } from "./permission-gate.js";
+import { restrictedResources } from "./restricted-resources.js";
 import { createTurnContext } from "./turn-context.js";
 import {
   createBrainTools,
@@ -72,24 +73,9 @@ export function createSessionResources(options: {
   ): Promise<{ loader: DefaultResourceLoader; settingsManager: SettingsManager }> {
     const agentDir = getAgentDir();
     if (env.autonomous?.containment === "restricted") {
-      // The restricted envelope (#676, R29): no project or user settings,
-      // extensions, skills, prompt templates, themes, context files or
-      // SYSTEM.md. The only instructions are the server's immutable snapshot.
-      // The permission gate is an inline factory, so it is still installed.
-      const settingsManager = SettingsManager.inMemory({});
-      const append = env.autonomous.systemPromptAppend;
-      const loader = new DefaultResourceLoader({
-        cwd: brainPath, agentDir, settingsManager,
-        noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-        extensionFactories: [
-          options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
-            allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }),
-        ],
-        systemPromptOverride: () => undefined,
-        appendSystemPromptOverride: () => append ? [append] : [],
-      });
-      await loader.reload();
-      return { loader, settingsManager };
+      return restrictedResources(brainPath, agentDir, env.autonomous,
+        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
+          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }));
     }
     const settingsManager = options.settingsSnapshot !== undefined
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),

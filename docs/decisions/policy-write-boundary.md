@@ -38,7 +38,7 @@ This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
 `packages/ui-backend-claude/src/sdk-options.ts:70-234`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:27-101`). A child-only wrapper
+`packages/ui-backend-pi/src/session-resources.ts:28-102`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
 the concrete unsandboxed extension-initialization escape.
 

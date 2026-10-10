@@ -35,7 +35,7 @@ At the investigation baseline, pi created sessions directly in the server.
 The same SDK construction is now worker-local (`async newSession`,
 `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`). Its resource loader
 initializes extensions (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:27-101`). The permission extension
+`packages/ui-backend-pi/src/session-resources.ts:28-102`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:76-100`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment

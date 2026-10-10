@@ -62,14 +62,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   let child: ReturnType<typeof launchAgentWorker>;
   try {
-    child = envelope
-      // The restricted envelope: minimum runtime variables only, the installed
-      // runtime as the explicit read envelope, and the relay as the one route out.
-      ? launchAgentWorker({ brainPath: backend.brainPath, command: [process.execPath, entry],
-          env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath },
-          restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } })
-      : launchAgentWorker({ brainPath: backend.brainPath, command: [process.execPath, entry],
-          env: { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath } });
+    child = launchAgentWorker({ brainPath: backend.brainPath,
+      command: [process.execPath, entry],
+      env: envelope
+        // The restricted envelope: minimum runtime variables only, the installed
+        // runtime as the explicit read envelope, and the relay as the one route out.
+        ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
+        : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath },
+      ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
+    });
   } catch (error) { envelope?.relay.stop(); throw error; }
   // The relay lives exactly as long as the worker it serves.
   if (envelope) void child.exited.finally(() => envelope.relay.stop());
