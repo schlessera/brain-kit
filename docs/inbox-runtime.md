@@ -94,6 +94,15 @@ replay of the applied write through its changed base. Restoring the daily
 with its spend and trust, and it resolves to one effect. A fixture clock stands
 in for elapsed lease and backoff time; production uses the system clock.
 
+`tests/autonomous-app.test.ts` runs the same app with each installed
+first-party runtime in its restricted envelope, offline. A share arrives
+through the share target. The cron poke routes it, the agent tier runs behind
+the inference relay, two WebSocket devices resolve the decision, and the
+follow-up applies once. A hostile share drives the model to read host secrets,
+write the crew policy and run a shell payload that calls home. No secret
+reaches a model request, the policy bytes and host listener are untouched, and
+each attempt ends as a cancel-only decision.
+
 ## Runtime token file
 
 Set `BRAIN_UI_INBOX_POKE_TOKEN_FILE` to an absolute file path in a private
