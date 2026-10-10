@@ -55,7 +55,7 @@ functions**: `decideToolPermission` with `DEFAULT_ALLOWED_TOOLS`
 (`DEFAULT_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:26`), the
 six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
-`packages/ui-backend-claude/src/sdk-options.ts:90-113`)
+`packages/ui-backend-claude/src/sdk-options.ts:107-130`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
 (`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:55`).
 Tools that exist only in the recording harness and have no counterpart in this
@@ -228,7 +228,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:426-431`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
-| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:90-113`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
+| the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:107-130`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
 
 Module tools are admitted only by exact name, never by their own annotations,
 as [module-mcp-tools.md §6](module-mcp-tools.md#6-annotations-and-permissions)
@@ -487,8 +487,8 @@ to a turn — `InferenceProfile.allowedTools`
 (`allowedTools?: string[]`, `packages/ui-backend-claude/src/profiles.ts:27`) and
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:48-49`), resolved into the SDK's `allowedTools` per turn (the
-`allowed` array, from `const allowed`, `sdk-options.ts:90`, and what it
-becomes, `allowedTools: allowed`, `:159`). The voice posture is one
+`allowed` array, from `const allowed`, `sdk-options.ts:107`, and what it
+becomes, `allowedTools: allowed`, `:181`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -574,7 +574,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:367`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:375`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

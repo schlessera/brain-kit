@@ -36,7 +36,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:56-220`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:70-234`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:27-101`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -180,7 +180,9 @@ For both adapters the suite covers:
 - **Autonomous turns.** Bash and the raw write tool are explicitly allowed, but
   their writes stay in scratch. The autonomous bridge has no application route,
   so R31 is held by the absence of any authoritative change, not by a paired
-  edit.
+  edit. Since #676 these turns run in the restricted envelope and load no
+  project hook, MCP server or extension, so the suite asserts that none of the
+  pre-tool executors starts.
 - **Refusal.** With a failing host probe, interactive, voice and autonomous turns
   are refused before any inference request, process spawn or pre-tool executor.
 
@@ -194,10 +196,12 @@ It proves the filesystem boundary only.
 #676 separately owns complete R28/R29/R31 credentials, ambient-configuration and
 egress containment for both runtimes. The filesystem experiment, these rulings,
 the integrated proof and a green tool-membership test do not discharge that
-obligation. The worker still shares the host network namespace, so a host
-process that hands out descriptors over a reachable Unix socket is egress under
-#676, not a case this suite closes. Autonomous
-enablement still requires the complete containment and system proofs. #674 must
+obligation. Interactive and voice workers still share the host network
+namespace, so a host process that hands out descriptors over a reachable Unix
+socket is not a case this suite closes. The restricted envelope for autonomous
+turns and its proof are recorded in
+[the async collaboration decision](async-collaboration.md#autonomous-containment--2026-10-10).
+Autonomous enablement still requires the complete system proof. #674 must
 assess its implementation's machine-contract and version impact separately;
 this decision changes documentation only.
 
@@ -241,4 +245,5 @@ checks without performing a privileged effect inside a hook that the runtime can
 later deny. Unsupported notebooks refuse. The CLI, tools, subagents and project
 stdio MCP descendants enter the mandatory worker; only trusted bridge handlers and
 bounded native transcript persistence remain in the parent. #1039 owns the wider
-integrated escape matrix and #676 still owns credential/configuration/egress proof.
+integrated escape matrix; #676's credential, configuration and egress proof is
+[recorded separately](async-collaboration.md#autonomous-containment--2026-10-10).

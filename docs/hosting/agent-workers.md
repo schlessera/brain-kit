@@ -50,19 +50,73 @@ SDK/extension initialization into these workers. The integrated
 adapter/application proof is `tests/policy-write-boundary.test.ts` (#1039);
 the [decision record](../decisions/policy-write-boundary.md#the-integrated-proof--1039)
 lists its cases. A passing host probe alone still does not establish that proof.
-#676 separately owns credentials,
-ambient configuration, network/Unix-socket egress and full autonomous containment.
-This launcher shares the host network namespace and exposes a read-only host
-root; it is not that complete containment profile.
+Interactive and voice workers share the host network namespace and see a
+read-only host root. Autonomous turns use the restricted envelope below.
+
+## The restricted envelope for autonomous turns (#676)
+
+`runAutonomousTurn` sends every autonomous turn with
+`autonomous.containment: "restricted"`, and dispatches only to a backend that
+advertises `capabilities.restrictedAutonomous`; both first-party backends do.
+A handoff summary is nonpersistent and toolless but not restricted, and is
+unchanged. A restricted turn's worker is launched in the launcher's
+`restricted` mode.
+It adds a network namespace that holds only loopback, so no host interface,
+host TCP/UDP listener, resolver or abstract Unix socket is reachable. The host
+root is not mounted. The worker sees only `/usr` and the system library and
+binary directories, a fixed list of dynamic-linker and name-service files from
+`/etc`, the read-only brain, the installed runtime it runs, a fresh tmpfs
+`/tmp`, scratch and runtime state. The installed runtime is the executable for
+Claude, and for pi the Bun binary, each `node_modules` on the entry's path and
+the linked workspace packages in them. The launcher refuses a read path that is
+the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
+brain. No host home, stored login or `/run` socket is visible.
+
+The worker's only route out is the server-owned inference relay
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:60-132`).
+It is a Unix socket in a private `0700` directory, bind-mounted read-only at
+`/run/brain-inference`. It forwards only `POST` to the provider's inference
+routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
+to the upstream the profile selects. It removes every inbound credential,
+cookie, host and forwarding header, sets the server-held credential, and
+refuses redirects and bodies over 32 MiB. The worker holds the placeholder
+`brain-inference-relay-placeholder` where its credential would be.
+
+- **Claude** reaches the relay through the CLI's `ANTHROPIC_UNIX_SOCKET`, with
+  `ANTHROPIC_BASE_URL=http://localhost`. Flag settings pin both. The environment
+  is `PATH`, `LANG`, the pinned route and placeholder, and the non-essential-traffic
+  and auto-update switches. Runtime state is an empty tmpfs directory: no stored
+  login, settings, account file or transcript enters or leaves it. The turn sets
+  `settingSources: []` and `strictMcpConfig: true`. Tool membership stays the
+  enforced roster, so an out-of-roster call escalates rather than disappears. A subscription turn needs `CLAUDE_CODE_OAUTH_TOKEN`; a stored
+  `claude login` is never copied into the envelope, so such a turn refuses.
+- **pi** runs its SDK in process, so its trusted worker entry binds a loopback
+  port before pi initializes and forwards it to the relay socket. pi's provider
+  points at that port with the placeholder key. No `auth.json`, `models.json` or
+  settings file is copied in. The resource loader loads no extension, skill,
+  prompt template, theme, context file, `SYSTEM.md` or project setting; the
+  inline permission gate remains. The relay supports the `anthropic-messages`,
+  `openai-completions` and `openai-responses` provider APIs with an API key from
+  `auth.json`, the server environment or a `models.json` override. OAuth logins,
+  command-sourced keys and other provider APIs refuse.
+
+Before an autonomous turn, the per-turn probe launches this restricted mode
+and checks that only loopback exists and the relay mount is present. A host that
+cannot create the network namespace refuses before any worker or inference.
+
+A Unix socket file inside the read envelope stays reachable, because a
+read-only mount does not prevent `connect`. The envelope contains only the
+brain, system directories and installed packages, so this needs a host process
+listening inside one of them.
 
 ## Measured host-component matrix
 
 These rows qualify the launcher/probe component. Where a row says so, the
-integrated two-adapter proof (#1039) has also passed on that tuple; it drives
-the installed adapters with loopback fixture inference. Neither is complete
-containment (#676). Each automatic proof retains its exact tuple in
-`tmp/worker-host-probe.json` or `tmp/policy-boundary-probe.json` and the
-unit-job logs/artifacts. Changing a tuple still requires the actual
+integrated two-adapter proof (#1039) and the autonomous containment proof (#676)
+have also passed on that tuple; both drive the installed adapters with loopback
+fixture inference. Each automatic proof retains its exact tuple in
+`tmp/worker-host-probe.json`, `tmp/policy-boundary-probe.json` or
+`tmp/autonomous-containment-probe.json` and the unit-job logs/artifacts. Changing a tuple still requires the actual
 per-turn capability check; an OS name alone never admits a turn.
 
 | Host / architecture | Kernel / Bun / bubblewrap | Installed adapters and runtimes | Brain / scratch backing filesystems | Required capabilities and proof |
@@ -92,6 +146,12 @@ bun run test packages/ui-sdk/tests/worker-launcher.test.ts \
 For the integrated two-adapter proof, run `bun run test tests/policy-write-boundary.test.ts`.
 It needs bubblewrap, unprivileged namespaces and `python3`, and makes no request
 beyond the loopback fixture inside its own network namespace.
+
+For the autonomous containment proof, run `bun run test tests/autonomous-containment.test.ts
+packages/ui-sdk/tests/inference-relay.test.ts`. It also needs `/usr/bin/python3`,
+which the attack runs inside the restricted envelope. Listeners outside the
+worker and the server count every connection and datagram, and the fixture
+upstream records the credential the relay injected.
 
 The component fixture programs perform only filesystem/stdio operations and make no
 network or provider requests. The probe's clear environment and exec boundary
