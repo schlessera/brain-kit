@@ -15,6 +15,7 @@ behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
 private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
+`@schlessera/brain/internal/graph`,
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,

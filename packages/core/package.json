@@ -56,6 +56,11 @@
       "bun": "./src/internal.ts",
       "types": "./dist/internal.d.ts",
       "default": "./dist/internal.js"
+    },
+    "./internal/graph": {
+      "bun": "./src/internal-graph.ts",
+      "types": "./dist/internal-graph.d.ts",
+      "default": "./dist/internal-graph.js"
     }
   },
   "files": [
