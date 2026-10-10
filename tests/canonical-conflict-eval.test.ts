@@ -165,7 +165,7 @@ test("configured authority, archive and taxonomy exclusions remain code gates", 
 });
 
 test("offline report retains a known retrieval miss and leaves live adoption metrics unmeasured", async () => {
-  const r = await controlReport(); expect(r.results).toHaveLength(21); expect(r.results.every(x => x.correct)).toBe(true); expect(r.cases).toBe(21);
+  const r = await controlReport(); expect(r.results).toHaveLength(23); expect(r.results.every(x => x.correct)).toBe(true); expect(r.cases).toBe(23);
   expect(r.draftCandidateRecall).toEqual({ positives: 6, retrieved: 5 });
   expect(r.adoption).toBe("not measured"); expect(r.replacement).toBe("not proposed");
   expect(Object.keys(r.live)).toHaveLength(7);
@@ -179,7 +179,7 @@ test("code controls numeric and calendar differences even when scripted contradi
       expect(record(p, await inspect(p.root, p.taxonomy, pair, DAY, async () => judgment)).entries).toHaveLength(expected);
     } finally { p.close(); }
   }
-  const p = prepare({ ...fixtures[0]!, anchor: "Odysseus: Count = 9007199254740992", other: "Odysseus: Count = 9007199254740993" });
+  const p = prepare({ ...fixtures.find(f => f.id === "numeric-difference")!, anchor: "Odysseus: Count = 9007199254740992", other: "Odysseus: Count = 9007199254740993" });
   try { expect(record(p, await inspect(p.root, p.taxonomy, pairs(p.root, p.taxonomy, DAY)[0]!, DAY, async () => YES)).entries).toHaveLength(1); }
   finally { p.close(); }
 });
