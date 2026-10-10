@@ -4,7 +4,7 @@ import { currentProposalStats } from "../scripts/evals/audit-capabilities/live";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-test("actual audit invocation observes an unexpected binary source file", async () => {
+test("actual audit invocation never calls a provider that would write an unexpected binary source file", async () => {
   const f = cases.find(f => f.id === "menelaus-quoted-order")!;
   const p = await prepareBenchmark(f);
   try {
@@ -15,8 +15,8 @@ test("actual audit invocation observes an unexpected binary source file", async 
       writeFileSync(join(p.root, "unexpected.bin"), Buffer.from([0, 255, 128]));
       return "[]";
     } });
-    expect(called).toBe(true);
-    expect(fileMap(p, f)).not.toEqual(before);
+    expect(called).toBe(false);
+    expect(fileMap(p, f)).toEqual(before);
   } finally { p.close(); }
 });
 
@@ -29,15 +29,15 @@ test("authored complete effects match real detected registry execution, preserve
   for (const row of proof.rows) for (const [check, passed] of Object.entries(row.checks)) expect(passed, `${row.id}: ${check}`).toBe(true);
 });
 
-test("malformed truthy auto-fix flag remains visible as the current CLI claim and invalid shape", async () => {
+test("malformed truthy auto-fix provider claims never enter the CLI results", async () => {
   const f = cases.find(f => f.id === "menelaus-quoted-order")!; const p = await prepareBenchmark(f);
   try {
     const proposed = [{ path: "notes/entry.md", issue: "TODO", suggestion: "delete it", canAutoFix: "false", fix: "invented" }];
     const actual = await commandOutput(p, true, { id: "offline-script", capabilities: { vision: false }, async complete() { return JSON.stringify(proposed); } });
-    expect(actual).toEqual(proposed);
+    expect(actual).not.toEqual(proposed);
     const measured = currentProposalStats(actual, f);
-    expect(measured.rows[0]!.claimed).toBe(true);
-    expect(measured.rows[0]!.supportedShape).toBe(false);
+    expect(measured.rows.length).toBeGreaterThan(0);
+    expect(measured.rows.every(row => !row.claimed && row.supportedShape)).toBe(true);
     expect(fileMap(p, f)).toEqual(f.files);
   } finally { p.close(); }
 });
@@ -50,16 +50,21 @@ test("held-out entity groups and unique authored template IDs stay outside tunin
   for (const f of held) expect(tuning.has(f.entity)).toBe(false);
 });
 
-test("actual current command accepts unsafe provider claims but neither writes nor sends source content", async () => {
+test("actual current command ignores unsafe provider claims without calling the provider or writing", async () => {
   const f = cases.find(f => f.id === "menelaus-long-prose")!;
   const p = await prepareBenchmark(f);
   try {
     const before = await detect(p); let prompt = ""; let calls = 0;
     const proposed = [{ path: "../outside.md", issue: "invented", suggestion: "replace", canAutoFix: true, fix: "invented" }];
     const actual = await commandOutput(p, true, { id: "offline-script", capabilities: { vision: false }, async complete(input) { calls++; prompt = input.prompt; return JSON.stringify(proposed); } });
-    expect(calls).toBe(1); expect(prompt).toContain("no longer matches");
-    expect(prompt).not.toContain("beacon observation 99");
-    expect(actual).toEqual(proposed);
+    expect(calls).toBe(0); expect(prompt).toBe("");
+    expect(actual).not.toEqual(proposed);
+    expect(actual).toEqual(before.report.issues.map(issue => ({
+      path: issue.path, issue: issue.message, suggestion: issue.suggestion || "Manual review needed.",
+      canAutoFix: issue.category === "index-stale" && f.expectedAvailablePaths.includes(issue.path),
+      ...(issue.category === "index-stale" && f.expectedAvailablePaths.includes(issue.path)
+        ? { repair: { capability: "registry", path: issue.path } } : {}),
+    })));
     expect(fileMap(p, f)).toEqual(f.files);
     expect((await detect(p)).report).toEqual(before.report);
   } finally { p.close(); }

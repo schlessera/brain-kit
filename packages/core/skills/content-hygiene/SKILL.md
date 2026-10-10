@@ -208,7 +208,8 @@ If nothing changed (`changedFiles` empty and no fixes), print one line:
   not churn timestamps just by running.
 - **Failure mode** — if any command fails (e.g. `brain hygiene reconcile` exits non-zero), stop and
   report; never write partial state.
-- The interactive `brain audit --fix` suggestion flow is separate and is **not** invoked here.
+- The deterministic `brain audit --fix` suggestion report is separate and is **not** invoked here.
+  It calls no provider, applies nothing, and its repair metadata grants no execution permission.
 
 ## CLI it relies on
 

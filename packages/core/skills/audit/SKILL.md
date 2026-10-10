@@ -51,8 +51,10 @@ For staleness, propagation, orphans, and TODO/VERIFY markers, present the findin
 context for the user to decide, and make the edit only on their say-so. These involve knowledge
 the audit can't have (is this fact still true? should this derivative be regenerated?).
 
-The `brain audit --fix` flow produces AI-authored fix suggestions and is a separate, interactive
-path — this skill does not invoke it as part of a sweep.
+The `brain audit --fix` flow reports deterministic suggestions and repair availability,
+without calling a provider or changing files. Only an available registry repair carries
+`canAutoFix: true` and `repair: { capability: "registry", path }`; availability is not
+execution permission. This skill does not invoke it as part of a sweep.
 
 ## 5. Re-check and commit
 
