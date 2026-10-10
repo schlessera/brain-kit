@@ -1,13 +1,14 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
-import { execConfig, subprocessEnv } from "../config/env.js";
+import { ambientExecConfig, subprocessEnv } from "../config/env.js";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import {
   killWrapped,
   probeVersionCommand,
   assertVersionRequirements,
   validateVersionMinimum,
+  type ExecWrapperConfig,
   type VersionProbeResult,
 } from "@schlessera/brain-ui-sdk/server";
 import type {
@@ -106,7 +107,7 @@ export function brainCliCommand(brainPath: string): string[] {
 }
 
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
-export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal } = {}): Promise<void> {
+export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal }): Promise<void> {
   const phase = options.phase ?? "startup";
   const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
   if (options.minimumVersion !== undefined) {
@@ -126,7 +127,7 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
     result = await probeVersionCommand([...command, "--version"], {
       cwd: brainPath,
       env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-      exec: execConfig(),
+      exec: options.exec,
       signal: options.signal,
     });
   } catch (error) {
@@ -164,8 +165,20 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
 /** Interactive search must finish or fail within a bounded time. */
 const SEARCH_TIMEOUT_MS = 15_000;
 
-export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: number; minimumVersion?: string; log?: Logger }): BrainClient {
+export function createBrainClient(opts: {
+  brainPath: string;
+  searchTimeoutMs?: number;
+  minimumVersion?: string;
+  log?: Logger;
+  /**
+   * The exec wrapper every brain CLI launch goes through. `createApp()` passes
+   * its configuration's. Omitted, it is resolved from the process environment
+   * once, here, so a client built directly by an embedder is never unwrapped.
+   */
+  exec?: ExecWrapperConfig;
+}): BrainClient {
   const { brainPath } = opts;
+  const exec = opts.exec ?? ambientExecConfig();
   const minimumVersion = opts.minimumVersion;
   if (minimumVersion !== undefined) validateVersionMinimum(minimumVersion, "host versionRequirements.brainCli", "brain CLI during client construction");
   const log = opts.log ?? { emit() {}, enabled: () => false };
@@ -178,7 +191,7 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     signal?.throwIfAborted();
     const command = brainCliCommand(brainPath);
     if (minimumVersion !== undefined) {
-      await probeBrainCliVersion(brainPath, log, { minimumVersion, phase: "invocation", command, signal });
+      await probeBrainCliVersion(brainPath, log, { exec, minimumVersion, phase: "invocation", command, signal });
       signal?.throwIfAborted();
     }
     // Every brain CLI launch goes through the host's wrapper, not only the
@@ -187,7 +200,6 @@ export function createBrainClient(opts: { brainPath: string; searchTimeoutMs?: n
     // search or a stats call executes repository code just as a tool call
     // does. Leaving these two spawns unwrapped would have left the privilege
     // boundary with a hole the size of the whole read path.
-    const exec = execConfig();
     const proc = Bun.spawn(wrapCommand([...command, ...args], exec.wrapper), {
       cwd: brainPath,
       stdout: "pipe",

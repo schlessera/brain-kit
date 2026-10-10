@@ -45,6 +45,7 @@ beforeAll(async () => {
   app = new Hono().route("/api", createBrainRoutes({
     brain: createBrainClient({ brainPath: root }), brainPath: root,
     keyterms: { brainPath: root, cacheDir: root, limit: 10 },
+    exec: {},
   }));
 });
 

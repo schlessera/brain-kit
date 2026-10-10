@@ -9,6 +9,7 @@ import { parserDiagnostic } from "./parser-diagnostics";
 import { buildReviewPacket, combinedReview, reviewPlan } from "./review-packets";
 import { validPaidPolicy, type RootPaidPolicy } from "./review-policy";
 import { assertSourceEffect, sourceSnapshot } from "./effects";
+import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import { anthropicCompletions } from "../../../packages/core/src/providers/completions/anthropic";
 export type Http = (url: string, init: RequestInit) => Promise<Response>;
@@ -29,11 +30,11 @@ const count = (v: unknown): v is number => typeof v === "number" && Number.isSaf
 const INPUT_TOKEN_UPPER = 1_000_000;
 const INPUT_USD_PER_MILLION_UPPER = 8;
 const OUTPUT_USD_PER_MILLION_UPPER = 20;
-/** Independently official raw-usage pricing; incomplete TTL is a bounded interval. */
+/** Raw-usage pricing at the Sonnet 5.5 list rates (`SONNET55_USD_PER_MTOK`); incomplete TTL is a bounded interval. */
 export function priceUsage(u: any): PhysicalCall["cost"] {
   if (!u || ![u.input_tokens, u.output_tokens, u.cache_read_input_tokens, u.cache_creation_input_tokens].every(count)) return null;
   if (u.cache_creation != null && (typeof u.cache_creation !== "object" || Array.isArray(u.cache_creation))) return null;
-  const base = (u.input_tokens * 2 + u.output_tokens * 10 + u.cache_read_input_tokens * .2) / 1e6;
+  const base = (u.input_tokens * RATE.input + u.output_tokens * RATE.output + u.cache_read_input_tokens * RATE.cacheRead) / 1e6;
   const write = u.cache_creation_input_tokens;
   const short = u.cache_creation?.ephemeral_5m_input_tokens, long = u.cache_creation?.ephemeral_1h_input_tokens;
   // Missing TTL permits the documented interval; malformed or contradictory
@@ -43,9 +44,9 @@ export function priceUsage(u: any): PhysicalCall["cost"] {
     (count(short) && count(long) && short + long !== write)) return null;
   if (!write) return { lowerUsd: base, upperUsd: base };
   if (count(short) && count(long) && short + long === write) {
-    const exact = base + (short * 2.5 + long * 4) / 1e6; return { lowerUsd: exact, upperUsd: exact };
+    const exact = base + (short * RATE.cacheWrite5m + long * RATE.cacheWrite1h) / 1e6; return { lowerUsd: exact, upperUsd: exact };
   }
-  return { lowerUsd: base + write * 2.5 / 1e6, upperUsd: base + write * 4 / 1e6 };
+  return { lowerUsd: base + write * RATE.cacheWrite5m / 1e6, upperUsd: base + write * RATE.cacheWrite1h / 1e6 };
 }
 export class Spend {
   usedUpper = 0; stopped = false; unknownCostAttempts = 0;
