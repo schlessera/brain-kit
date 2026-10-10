@@ -14,30 +14,23 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import { readFileSync, existsSync, statSync } from "fs";
-import { resolve } from "path";
-import { Glob } from "bun";
 
 import { initContext } from "./lib/context.js";
 import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
-import { hybridSearch, filterSearch, isIsoDate } from "./lib/search-engine.js";
-import { assembleContext } from "./lib/context-assembler.js";
-import { rerankSetup } from "./lib/registry.js";
+import { isIsoDate } from "./lib/search-engine.js";
 import { walkLinks } from "./lib/link-walk.js";
-import { readDocumentPart } from "./lib/document-parts.js";
-import { ingest } from "./lib/ingestion.js";
-import { archiveDocument, relevanceOnArchive } from "./lib/archiver.js";
-import { indexAll } from "./lib/indexer.js";
-import { updateDocument } from "./lib/frontmatter-edit.js";
-import type { FrontmatterValue } from "./lib/frontmatter-edit.js";
-import { safeResolve, writeFileSafely } from "./lib/safe-path.js";
 import { resolveProviders } from "./lib/registry.js";
+import type { EmbeddingProvider } from "./lib/seams.js";
 import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
-import { SEARCH_SORTS, type SearchOptions, type DocumentType } from "./lib/types.js";
+import { SEARCH_SORTS } from "./lib/types.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
+import { indexStaleness } from "./lib/ops/staleness.js";
+import { contextBriefing, listDocuments, readDocument, searchDocuments } from "./lib/ops/read.js";
+import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "./lib/ops/write.js";
 
 // Server-side result caps — agents can ask for less, never more.
 export const MAX_SEARCH_LIMIT = 50;
@@ -86,131 +79,110 @@ export function serverInstructions(profileName?: string): string {
   );
 }
 
-export async function startMcpServer(
-  brainContext?: BrainContext,
-  configError?: string
-): Promise<void> {
-  const brain = brainContext ?? await initContext();
-  const dims = EMBEDDING_DIMENSIONS;
-  const configWarning = configError
-    ? `brain.config is invalid; using degraded core defaults: ${configError.split("\n")[0]}`
-    : null;
-  const moduleWarnings: string[] = [];
+/** How long one staleness probe answers for every read tool. */
+const STALENESS_TTL_MS = 10_000;
 
-  // Without a usable embedding provider vector/hybrid degrade to FTS with a
-  // warning, as in the CLI; the registry decides availability for both.
-  const { embeddings, warnings } = resolveProviders(brain.config);
-  if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
-  const embDims = embeddings?.dimensions ?? dims;
-
-  const db = openDatabase(brain.dbPath, { embeddingDimensions: embDims });
-  // Every search/context tool here is read-only. Loading the extension makes
-  // stored vectors queryable on this connection; it must not migrate the
-  // vector schema, which drops every vector and costs a paid re-embedding run.
-  // The write tools (create/update/archive) reindex through indexAll, which
-  // prepares the vector store itself when it is about to embed.
-  let vecReady = false;
-  const ensureVec = async () => {
-    if (!vecReady) vecReady = (await loadVecSupport(db)).ok;
-  };
-
-  // ------------------------------------------------------------------------
-  // Index staleness — read tools warn when markdown files on disk are newer
-  // than their indexed_at (or missing from the index). Cached briefly.
-  // ------------------------------------------------------------------------
-  const STALENESS_TTL_MS = 10_000;
-  let staleCache: { at: number; warning: string | null } = { at: 0, warning: null };
-
-  const indexStalenessWarning = (): string | null => {
+/**
+ * The read tools' staleness warning: markdown files on disk newer than their
+ * indexed_at, missing from the index, or deleted from disk. Cached briefly,
+ * and never allowed to break a read.
+ */
+function stalenessWarning(db: Database, brain: BrainContext): () => string | null {
+  let cache: { at: number; warning: string | null } = { at: 0, warning: null };
+  return () => {
     const now = Date.now();
-    if (now - staleCache.at < STALENESS_TTL_MS) return staleCache.warning;
-
+    if (now - cache.at < STALENESS_TTL_MS) return cache.warning;
     let warning: string | null = null;
     try {
-      const rows = db
-        .prepare("SELECT path, indexed_at FROM documents WHERE asset_type = 'markdown'")
-        .all() as { path: string; indexed_at: string }[];
-      const indexedMap = new Map(rows.map((r) => [r.path, Date.parse(r.indexed_at)]));
-
-      let staleCount = 0;
-      const seen = new Set<string>();
-      const glob = new Glob("**/*.md");
-      for (const path of glob.scanSync({ cwd: brain.root })) {
-        if (brain.taxonomy.isExcludedPath(path)) continue;
-        seen.add(path);
-        const indexedAt = indexedMap.get(path);
-        try {
-          if (indexedAt === undefined || statSync(resolve(brain.root, path)).mtimeMs > indexedAt) {
-            staleCount++;
-          }
-        } catch {
-          // File vanished mid-scan — the deleted check below covers it.
-        }
-      }
-      for (const path of indexedMap.keys()) if (!seen.has(path)) staleCount++;
-
-      if (staleCount > 0) {
-        warning = `index is stale (${staleCount} file(s) newer than index); run \`brain index\``;
-      }
+      const { stale } = indexStaleness(db, brain.root, brain.taxonomy);
+      if (stale > 0) warning = `index is stale (${stale} file(s) newer than index); run \`brain index\``;
     } catch {
       // Never let the staleness probe break a read.
     }
-
-    staleCache = { at: now, warning };
+    cache = { at: now, warning };
     return warning;
   };
+}
 
-  const textContent = (text: string, warnings: string[]) => {
-    const content: Array<{ type: "text"; text: string }> = [{ type: "text", text }];
-    if (warnings.length > 0) {
-      content.push({ type: "text", text: warnings.map((w) => `warning: ${w}`).join("\n") });
-    }
-    return content;
-  };
+/** Everything the core tool wrappers share, resolved once per server. */
+interface CoreTools {
+  brain: BrainContext;
+  db: Database;
+  embeddings?: EmbeddingProvider;
+  /** Load the vector extension on first use. */
+  ensureVec: () => Promise<void>;
+  stale: () => string | null;
+  /** The invalid-config warning, when the server runs on degraded defaults. */
+  configWarning: string | null;
+  /** The config warning, module-load warnings, then these. */
+  toolWarnings: (...warnings: Array<string | null>) => string[];
+  /** The refusal every write tool returns while the config is invalid. */
+  degradedWriteError: () => ReturnType<typeof errorResult> | null;
+  /** The effective taxonomy's types, for the type-filter descriptions. */
+  typeList: string;
+}
 
-  const errorResult = (e: unknown) => ({
-    content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }],
-    isError: true,
-  });
-  const toolWarnings = (...warnings: Array<string | null>) => [
-    ...(configWarning ? [configWarning] : []),
-    ...moduleWarnings,
-    ...warnings.filter((warning): warning is string => warning !== null),
-  ];
-  const degradedWriteError = () =>
-    configError
-      ? errorResult(
-          new Error(
-            `brain.config is invalid; write tools are disabled until it is fixed: ${configError.split("\n")[0]}`
-          )
-        )
-      : null;
+const textContent = (text: string, warnings: string[]) => {
+  const content: Array<{ type: "text"; text: string }> = [{ type: "text", text }];
+  if (warnings.length > 0) {
+    content.push({ type: "text", text: warnings.map((w) => `warning: ${w}`).join("\n") });
+  }
+  return content;
+};
 
-  const typeList = brain.taxonomy.validTypes().join(", ");
+/** A structured result with its compact JSON text copy. */
+const structuredResult = <T extends Record<string, unknown>>(structured: T) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(structured) }],
+  structuredContent: structured,
+});
 
-  const server = new McpServer(
-    { name: "brain", version: packageVersion() },
-    { instructions: serverInstructions(brain.config?.profile?.name) }
-  );
+/** A write tool's result: JSON text only. */
+const jsonText = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
-  // ------------------------------------------------------------------------
-  // 1. brain_search
-  // ------------------------------------------------------------------------
-  const searchResultSchema = z.object({
-    path: z.string(),
-    title: z.string(),
-    type: z.string(),
-    relevance: z.string().nullish(),
-    status: z.string().nullish(),
-    summary: z.string().nullish(),
-    updated: z.string().nullish(),
-    deadline: z.string().nullish(),
-    tags: z.string().nullish(),
-    score: z.number().nullish(),
-    snippet: z.string().nullish(),
-    supersededBy: z.string().optional(),
-  });
+const errorResult = (e: unknown) => ({
+  content: [{ type: "text" as const, text: `Error: ${(e as Error).message}` }],
+  isError: true,
+});
 
+const searchResultSchema = z.object({
+  path: z.string(),
+  title: z.string(),
+  type: z.string(),
+  relevance: z.string().nullish(),
+  status: z.string().nullish(),
+  summary: z.string().nullish(),
+  updated: z.string().nullish(),
+  deadline: z.string().nullish(),
+  tags: z.string().nullish(),
+  score: z.number().nullish(),
+  snippet: z.string().nullish(),
+  supersededBy: z.string().optional(),
+});
+
+const listedDocumentSchema = z.object({
+  path: z.string(),
+  title: z.string(),
+  type: z.string(),
+  relevance: z.string().nullish(),
+  status: z.string().nullish(),
+  tags: z.string().nullish(),
+});
+
+const graphEdgeSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  resolved: z.boolean(),
+});
+const graphNodeSchema = z.object({
+  path: z.string(),
+  title: z.string(),
+  type: z.string(),
+  summary: z.string().nullable(),
+  updated: z.string().nullable(),
+});
+
+/** brain_search, brain_context, brain_read, brain_list and brain_graph, in that order. */
+function registerReadTools(server: McpServer, t: CoreTools): void {
   server.registerTool(
     "brain_search",
     {
@@ -218,7 +190,7 @@ export async function startMcpServer(
         `Search the brain knowledge base using hybrid FTS5 + vector search. Returns documents matching a query with optional filters for type, tag, relevance, and search mode. \`limit\` defaults to 10 and returns at most ${MAX_SEARCH_LIMIT} results; a larger value is capped.`,
       inputSchema: {
         query: z.string().describe("Search query"),
-        type: z.string().optional().describe(`Filter by document type (${typeList})`),
+        type: z.string().optional().describe(`Filter by document type (${t.typeList})`),
         tag: z.string().optional().describe("Filter by tag"),
         relevance: z.string().optional().describe("Filter by relevance (primary, secondary, historical)"),
         mode: z.enum(["fts", "vector", "hybrid"]).default("hybrid").describe("Search mode: fts, vector, or hybrid"),
@@ -246,13 +218,11 @@ export async function startMcpServer(
     },
     async (params) => {
       try {
-        if (params.mode !== "fts") await ensureVec();
-
-        const setup = rerankSetup(brain.config?.reranker, params.rerank);
-        const opts: SearchOptions = {
+        if (params.mode !== "fts") await t.ensureVec();
+        const { results, warnings } = await searchDocuments(t, {
           query: params.query,
           mode: params.mode,
-          rerank: setup.rerank,
+          rerank: params.rerank,
           type: params.type,
           tag: params.tag,
           relevance: params.relevance,
@@ -261,48 +231,23 @@ export async function startMcpServer(
           limit: Math.min(Math.max(1, params.limit), MAX_SEARCH_LIMIT),
           updatedSince: params.updated_since,
           updatedBefore: params.updated_before,
-          deadlineFrom: params.deadline_from ?? (params.upcoming ? new Date().toISOString().slice(0, 10) : undefined),
+          deadlineFrom: params.deadline_from,
           deadlineTo: params.deadline_to,
-          sort: params.sort ?? (params.upcoming ? "deadline" : undefined),
-        };
-
-        const { results, warnings } = await hybridSearch(db, opts, { embeddings, taxonomy: brain.taxonomy, ...setup.deps });
-        if (setup.warning) warnings.unshift(setup.warning);
-        const stale = indexStalenessWarning();
-        if (stale) warnings.push(stale);
-        if (configWarning) warnings.unshift(configWarning);
-
-        const structured = {
-          results: results.map((r) => ({
-            path: r.path,
-            title: r.title,
-            type: r.type,
-            relevance: r.relevance,
-            status: r.status,
-            summary: r.summary,
-            updated: r.updated,
-            deadline: r.deadline ?? null,
-            tags: r.tags,
-            score: r.score,
-            snippet: r.snippet,
-            ...(r.supersededBy ? { supersededBy: r.supersededBy } : {}),
-          })),
-          warnings,
-        };
-
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
-          structuredContent: structured,
-        };
+          sort: params.sort,
+          upcoming: params.upcoming,
+        });
+        // Module-load warnings are not part of this tool's answer.
+        const stale = t.stale();
+        return structuredResult({
+          results,
+          warnings: [...(t.configWarning ? [t.configWarning] : []), ...warnings, ...(stale ? [stale] : [])],
+        });
       } catch (e) {
         return errorResult(e);
       }
     }
   );
 
-  // ------------------------------------------------------------------------
-  // 2. brain_context
-  // ------------------------------------------------------------------------
   server.registerTool(
     "brain_context",
     {
@@ -322,26 +267,18 @@ export async function startMcpServer(
     },
     async (params) => {
       try {
-        await ensureVec();
-
-        const searchWarnings: string[] = [];
-        const context = await assembleContext(db, brain, {
+        await t.ensureVec();
+        const briefing = await contextBriefing(t, {
           query: params.query,
           maxTokens: params.max_tokens,
           includeIdentity: params.include_identity,
           includeCurrentFocus: params.include_current_focus,
-          embeddings,
-          rerank: rerankSetup(brain.config?.reranker),
-          warnings: searchWarnings,
         });
-
-        const stale = indexStalenessWarning();
         // A degraded lane or a reranker that did not run is part of the answer.
-        const warnings = toolWarnings(...searchWarnings, stale);
-
+        const warnings = t.toolWarnings(...briefing.warnings, t.stale());
         return {
-          content: textContent(context, warnings),
-          structuredContent: { context, warnings },
+          content: textContent(briefing.context, warnings),
+          structuredContent: { context: briefing.context, warnings },
         };
       } catch (e) {
         return errorResult(e);
@@ -349,9 +286,6 @@ export async function startMcpServer(
     }
   );
 
-  // ------------------------------------------------------------------------
-  // 3. brain_read
-  // ------------------------------------------------------------------------
   server.registerTool(
     "brain_read",
     {
@@ -374,33 +308,13 @@ export async function startMcpServer(
     },
     async (params) => {
       try {
-        const fullPath = safeResolve(brain.root, params.path);
-        if (!fullPath) return errorResult(new Error("path escapes the brain root directory"));
-
-        const content = readDocumentPart(readFileSync(fullPath, "utf-8"), {
-          section: params.section,
-          maxTokens: params.max_tokens,
-          sectionHint: 'section: "<heading>"',
-        });
-        const stale = indexStalenessWarning();
-        return { content: textContent(content, toolWarnings(stale)) };
+        const content = readDocument(t.brain.root, { path: params.path, section: params.section, maxTokens: params.max_tokens });
+        return { content: textContent(content, t.toolWarnings(t.stale())) };
       } catch (e) {
         return errorResult(e);
       }
     }
   );
-
-  // ------------------------------------------------------------------------
-  // 4. brain_list
-  // ------------------------------------------------------------------------
-  const listedDocumentSchema = z.object({
-    path: z.string(),
-    title: z.string(),
-    type: z.string(),
-    relevance: z.string().nullish(),
-    status: z.string().nullish(),
-    tags: z.string().nullish(),
-  });
 
   server.registerTool(
     "brain_list",
@@ -422,56 +336,19 @@ export async function startMcpServer(
     },
     async (params) => {
       try {
-        const opts: SearchOptions = {
+        const { documents } = listDocuments(t.db, {
           type: params.type,
           tag: params.tag,
           status: params.status,
           relevance: params.relevance,
-          includeArchived: params.status === "archived",
           limit: Math.min(Math.max(1, params.limit), MAX_LIST_LIMIT),
-        };
-
-        const results = filterSearch(db, opts);
-        const stale = indexStalenessWarning();
-        const warnings = toolWarnings(stale);
-
-        const structured = {
-          documents: results.map((r) => ({
-            path: r.path,
-            title: r.title,
-            type: r.type,
-            relevance: r.relevance,
-            status: r.status,
-            tags: r.tags,
-          })),
-          warnings,
-        };
-
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
-          structuredContent: structured,
-        };
+        });
+        return structuredResult({ documents, warnings: t.toolWarnings(t.stale()) });
       } catch (e) {
         return errorResult(e);
       }
     }
   );
-
-  // ------------------------------------------------------------------------
-  // 5. brain_graph
-  // ------------------------------------------------------------------------
-  const graphEdgeSchema = z.object({
-    source: z.string(),
-    target: z.string(),
-    resolved: z.boolean(),
-  });
-  const graphNodeSchema = z.object({
-    path: z.string(),
-    title: z.string(),
-    type: z.string(),
-    summary: z.string().nullable(),
-    updated: z.string().nullable(),
-  });
 
   server.registerTool(
     "brain_graph",
@@ -493,25 +370,19 @@ export async function startMcpServer(
     async (params) => {
       try {
         const depth = Math.min(Math.max(1, params.depth), MAX_GRAPH_DEPTH);
-        const { edges, nodes } = walkLinks(db, { path: params.path, depth, direction: params.direction });
-
-        const stale = indexStalenessWarning();
-        const warnings = toolWarnings(stale);
-        const structured = { edges, nodes, warnings };
-
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(structured) }],
-          structuredContent: structured,
-        };
+        const { edges, nodes } = walkLinks(t.db, { path: params.path, depth, direction: params.direction });
+        return structuredResult({ edges, nodes, warnings: t.toolWarnings(t.stale()) });
       } catch (e) {
         return errorResult(e);
       }
     }
   );
+}
 
-  // ------------------------------------------------------------------------
-  // 6. brain_add
-  // ------------------------------------------------------------------------
+/** brain_add, brain_update and brain_archive, in that order. Each refuses while the config is invalid. */
+function registerWriteTools(server: McpServer, t: CoreTools): void {
+  const deps = { db: t.db, root: t.brain.root, taxonomy: t.brain.taxonomy };
+
   server.registerTool(
     "brain_add",
     {
@@ -519,40 +390,23 @@ export async function startMcpServer(
         "Add new content to the brain knowledge base. Content is classified, given frontmatter, and written to the appropriate directory. Returns the action taken and the file path. Classification is rule-based, with no model call: content titled exactly like an existing document of an append-match type is appended to it, otherwise the brain's classifier hints pick the type, otherwise it lands in the inbox type. Pass `type` to choose it yourself.",
       inputSchema: {
         content: z.string().describe("Content to add"),
-        type: z.string().optional().describe(`Document type (${typeList}). Defaults to auto-classification.`),
+        type: z.string().optional().describe(`Document type (${t.typeList}). Defaults to auto-classification.`),
         title: z.string().optional().describe("Title for the document"),
         tags: z.string().optional().describe("Comma-separated tags"),
       },
     },
     async (params) => {
-      const degraded = degradedWriteError();
+      const degraded = t.degradedWriteError();
       if (degraded) return degraded;
       try {
-        const tagList = params.tags
-          ? params.tags.split(",").map((t) => t.trim()).filter(Boolean)
-          : undefined;
-
-        const result = await ingest(
-          {
-            content: params.content,
-            type: params.type as DocumentType | undefined,
-            title: params.title,
-            tags: tagList,
-          },
-          db,
-          { root: brain.root, taxonomy: brain.taxonomy }
-        );
-
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        const tags = params.tags ? splitTags(params.tags) : undefined;
+        return jsonText(await addDocument(deps, { content: params.content, type: params.type, title: params.title, tags }));
       } catch (e) {
         return errorResult(e);
       }
     }
   );
 
-  // ------------------------------------------------------------------------
-  // 7. brain_update
-  // ------------------------------------------------------------------------
   server.registerTool(
     "brain_update",
     {
@@ -571,70 +425,25 @@ export async function startMcpServer(
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async (params) => {
-      const degraded = degradedWriteError();
+      const degraded = t.degradedWriteError();
       if (degraded) return degraded;
       try {
-        const fullPath = safeResolve(brain.root, params.path);
-        if (!fullPath) return errorResult(new Error("path escapes the brain root directory"));
-        if (!existsSync(fullPath) || !fullPath.endsWith(".md")) {
-          return errorResult(new Error(`not an existing markdown document: ${params.path}`));
-        }
-
-        const raw = readFileSync(fullPath, "utf-8");
-        const updates: Record<string, FrontmatterValue> = {};
-        const changes: string[] = [];
-
-        if (params.summary !== undefined) { updates.summary = params.summary; changes.push("summary"); }
-        if (params.status !== undefined) { updates.status = params.status; changes.push("status"); }
-        if (params.relevance !== undefined) { updates.relevance = params.relevance; changes.push("relevance"); }
-        if (params.tags !== undefined) {
-          updates.tags = params.tags.split(",").map((t) => t.trim()).filter(Boolean);
-          changes.push("tags");
-        }
-        if (params.deadline !== undefined) {
-          updates.deadline = params.deadline === "" ? null : params.deadline;
-          changes.push("deadline");
-        }
-        if (params.next_review !== undefined) {
-          updates.next_review = params.next_review === "" ? null : params.next_review;
-          changes.push("next_review");
-        }
-        if (params.append_content) changes.push("content");
-
-        // Archiving by a status edit applies brain_archive's relevance rule
-        // (#450) to the effective relevance, including one set in this call.
-        if (params.status === "archived") {
-          const relevance = relevanceOnArchive(raw, params.relevance);
-          if (relevance) {
-            updates.relevance = relevance;
-            if (!changes.includes("relevance")) changes.push("relevance");
-          }
-        }
-
-        if (changes.length === 0) return errorResult(new Error("no changes specified"));
-
-        const updated = new Date().toISOString().split("T")[0];
-        updates.updated = updated;
-        // Only these keys change; the rest of the frontmatter keeps its bytes (#449).
-        // Staged and renamed over the document, so a failed write leaves it whole (#1355).
-        writeFileSafely(fullPath, updateDocument(raw, updates, params.append_content || undefined));
-        await indexAll(db, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true });
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ path: params.path, updated, changes }),
-          }],
-        };
+        return jsonText(await updateDocumentFields(deps, {
+          path: params.path,
+          summary: params.summary,
+          status: params.status,
+          relevance: params.relevance,
+          tags: params.tags === undefined ? undefined : splitTags(params.tags),
+          deadline: params.deadline,
+          nextReview: params.next_review,
+          appendContent: params.append_content,
+        }));
       } catch (e) {
         return errorResult(e);
       }
     }
   );
 
-  // ------------------------------------------------------------------------
-  // 8. brain_archive
-  // ------------------------------------------------------------------------
   server.registerTool(
     "brain_archive",
     {
@@ -647,17 +456,10 @@ export async function startMcpServer(
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async (params) => {
-      const degraded = degradedWriteError();
+      const degraded = t.degradedWriteError();
       if (degraded) return degraded;
       try {
-        const result = await archiveDocument(brain.root, params.path, {
-          dryRun: params.dry_run,
-          db,
-          reindex: params.dry_run
-            ? undefined
-            : (d) => indexAll(d, { root: brain.root, taxonomy: brain.taxonomy, force: false, quiet: true }),
-        });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        return jsonText(await archiveWithReindex(deps, { path: params.path, dryRun: params.dry_run }));
       } catch (e) {
         return errorResult(e);
       }
@@ -667,6 +469,63 @@ export async function startMcpServer(
   // Note: brain_process was removed intentionally in the reference too — it
   // spawned a nested agent with write tools from within the server. Note
   // processing goes through the /process-notes skill (or `brain process`).
+}
+
+export async function startMcpServer(
+  brainContext?: BrainContext,
+  configError?: string
+): Promise<void> {
+  const brain = brainContext ?? await initContext();
+  const configWarning = configError
+    ? `brain.config is invalid; using degraded core defaults: ${configError.split("\n")[0]}`
+    : null;
+  const moduleWarnings: string[] = [];
+
+  // Without a usable embedding provider vector/hybrid degrade to FTS with a
+  // warning, as in the CLI; the registry decides availability for both.
+  const { embeddings, warnings } = resolveProviders(brain.config);
+  if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
+
+  const db = openDatabase(brain.dbPath, { embeddingDimensions: embeddings?.dimensions ?? EMBEDDING_DIMENSIONS });
+  // Every search/context tool here is read-only. Loading the extension makes
+  // stored vectors queryable on this connection; it must not migrate the
+  // vector schema, which drops every vector and costs a paid re-embedding run.
+  // The write tools (create/update/archive) reindex through indexAll, which
+  // prepares the vector store itself when it is about to embed.
+  let vecReady = false;
+  const ensureVec = async () => {
+    if (!vecReady) vecReady = (await loadVecSupport(db)).ok;
+  };
+
+  const tools: CoreTools = {
+    brain,
+    db,
+    embeddings,
+    ensureVec,
+    stale: stalenessWarning(db, brain),
+    configWarning,
+    toolWarnings: (...warnings) => [
+      ...(configWarning ? [configWarning] : []),
+      ...moduleWarnings,
+      ...warnings.filter((warning): warning is string => warning !== null),
+    ],
+    degradedWriteError: () =>
+      configError
+        ? errorResult(
+            new Error(
+              `brain.config is invalid; write tools are disabled until it is fixed: ${configError.split("\n")[0]}`
+            )
+          )
+        : null,
+    typeList: brain.taxonomy.validTypes().join(", "),
+  };
+
+  const server = new McpServer(
+    { name: "brain", version: packageVersion() },
+    { instructions: serverInstructions(brain.config?.profile?.name) }
+  );
+  registerReadTools(server, tools);
+  registerWriteTools(server, tools);
 
   // Core's names are registered first. Module tools are fixed for this
   // process and registered before connect, so no list-changed event is sent.
