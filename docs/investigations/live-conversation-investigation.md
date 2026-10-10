@@ -1,7 +1,7 @@
 # Live conversation qualification and interface specification
 
 Evidence read on **2026-10-04 (Europe/Berlin)** for [#317](https://github.com/schlessera/brain-kit/issues/317).
-The [selected direction](decisions/live-conversation.md) is both engines through
+The [selected direction](../decisions/live-conversation.md) is both engines through
 one conversation interface. This is an unshipped specification, with bounded
 qualification of two configurations. Provider/device readiness is unproven.
 The interaction proposal's timing values remain proposals.
@@ -162,7 +162,7 @@ to grant a permission merely because the user spoke.
 
 These names describe the proposed common seam as specified on the evidence
 date. #957 has since exported it, with the adjustments its
-[contract](integration-contract.md#live-conversation-additive-957) records
+[contract](../integration-contract.md#live-conversation-additive-957) records
 (`open` takes `{ signal, resync }`; results are `completed` or `error`).
 A provider descriptor creates a server-side conversation
 session with a capability profile, disclosure and normalized event stream.

@@ -132,7 +132,7 @@ test("actual relay refuses changed physical prompt tools effort and policy bindi
   let forwarded=0;const guard=createReviewAdmission({...input,policy:invalid}),relay=startRelay({oauthToken:"offline-auth",beforeForward:guard.beforeForward,save:()=>{},fetch:async()=>{forwarded++;throw Error("unexpected");}});
   try{await fetch(relay.url+"/v1/messages",{method:"POST",headers:{authorization:"Bearer offline-auth"},body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:1000,messages:[{role:"user",content:payload}],tools:[],output_config:{effort:"low"}})});expect(forwarded).toBe(0);}finally{await relay.stop();}
  }
- const path="docs/audit-capability-investigation.md",original=readFileSync(path);let forwarded=0;
+ const path="docs/investigations/audit-capability-investigation.md",original=readFileSync(path);let forwarded=0;
  const guard=createReviewAdmission(input),relay=startRelay({oauthToken:"offline-auth",beforeForward:guard.beforeForward,save:()=>{},fetch:async()=>{forwarded++;throw Error("unexpected");}});
  try{writeFileSync(path,Buffer.concat([original,Buffer.from("\nOdysseus controlled source mutation\n")]));
   const r=await fetch(relay.url+"/v1/messages",{method:"POST",headers:{authorization:"Bearer offline-auth"},body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:1000,messages:[{role:"user",content:payload}],tools:[],output_config:{effort:"low"}})});expect(forwarded).toBe(0);expect(r.status).toBe(403);

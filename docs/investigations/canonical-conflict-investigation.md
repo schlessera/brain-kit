@@ -77,7 +77,7 @@ control schema. A valid but wrong semantic answer can still produce a wrong
 report: scripted answers do not prove prompt-injection resistance or vendor
 correctness. No classifier decides which file is canonical, dates, permission,
 truth or a replacement operation. No thresholds are borrowed from
-[deterministic sync](decisions/deterministic-sync.md) or D42.
+[deterministic sync](../decisions/deterministic-sync.md) or D42.
 
 Abstention or incomplete retrieval is not evidence that an existing conflict
 disappeared. A future adapter must retain findings through the existing
@@ -160,7 +160,7 @@ A changed secondary span retains that identity but changes a separate inspection
 digest of the two facts and configured anchor.
 
 That digest is not an approved production evidence fingerprint. The
-[hygiene-review decision](decisions/hygiene-review.md) still binds #597's explicit
+[hygiene-review decision](../decisions/hygiene-review.md) still binds #597's explicit
 equivalence mappings, contributing provenance, severity/known-urgency ordering
 and relevant-evidence invalidation. A future conflict adapter must specify which
 authority, semantic spans, eligibility and source facts enter its fingerprint;
@@ -243,7 +243,7 @@ Recommendation for a first evaluation is report-only with no replacement effect.
 It still needs a measured go/no-go; neither adoption nor rejection follows from
 these controls. If accepted, file the smallest concrete CLI candidate/report
 scope under #838, assess new CLI/JSON/frontmatter behavior against the
-[integration contract](integration-contract.md), and keep review semantics/UI
+[integration contract](../integration-contract.md), and keep review semantics/UI
 under #597. Any fragment-replacement proposal is a separate, explicitly assessed
 effect with zero wrong-replacement/content-loss tolerance and the full permission,
 premise, post-check and recovery requirements. Add no generic classifier or

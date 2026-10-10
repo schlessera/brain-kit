@@ -15,7 +15,7 @@ export function semanticPaths(){return [
  ...readdirSync(import.meta.dir).filter(p=>/\.(ts|py)$/.test(p)).map(p=>`scripts/evals/candidate-extraction/${p}`),
  ...readdirSync(join(ROOT,"tests")).filter(p=>/^candidate-extraction-.*\.test\.ts$/.test(p)).map(p=>`tests/${p}`),
  "scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts","tests/native-paid-policy.test.ts",
- "docs/candidate-extraction-investigation.md","scripts/evals/candidate-extraction/README.md","scripts/evals/candidate-extraction/keyless-report.json","AGENTS.md","ROADMAP.md","CONTRIBUTING.md","docs/process/github.md","docs/integration-contract.md","docs/extending/README.md",
+ "docs/investigations/candidate-extraction-investigation.md","scripts/evals/candidate-extraction/README.md","scripts/evals/candidate-extraction/keyless-report.json","AGENTS.md","ROADMAP.md","CONTRIBUTING.md","docs/process/github.md","docs/integration-contract.md","docs/extending/README.md",
  "docs/decisions/example-corpus.md","docs/decisions/deterministic-sync.md","packages/core/fixtures/README.md","packages/ui-kit/fixtures/README.md",
  "packages/module-speaking/skills/conference-research/SKILL.md","packages/module-speaking/skills/new-submission/SKILL.md","packages/module-jobs/skills/research-opportunity/SKILL.md",
  "packages/module-speaking/src/module.ts","packages/module-jobs/src/module.ts","packages/module-jobs/src/cli.ts","packages/module-jobs/src/salary.ts","packages/module-jobs/src/pipeline.ts","packages/module-jobs/src/score.ts","packages/module-jobs/src/settings.ts","packages/module-jobs/src/db.ts",

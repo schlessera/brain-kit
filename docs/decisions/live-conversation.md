@@ -11,7 +11,7 @@ it exports no interface, ships no provider and approves no paid experiment.
 The required experience keeps listening and conversing while host-owned work
 is pending, then incorporates an identified result. An asynchronous SDK method
 or parallel tool calls alone do not satisfy that requirement. The
-[qualification and interface specification](../live-conversation-investigation.md)
+[qualification and interface specification](../investigations/live-conversation-investigation.md)
 compares `gemini-3.8-live` with GPT-Live `gpt-live-1` client delegation against
 the same boundary. Native nonblocking functions and application delegation
 are different mechanisms; adapters must preserve those differences.

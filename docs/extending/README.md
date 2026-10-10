@@ -94,7 +94,7 @@ classification does not freeze the seams immediately or schedule 1.0; see the
 The [live-conversation decision](../decisions/live-conversation.md) selects
 Gemini Live and OpenAI GPT-Live as two intended implementations of one
 conversation interface, `LiveConversationProvider`. Its
-[specification](../live-conversation-investigation.md) keeps host-owned tools,
+[specification](../investigations/live-conversation-investigation.md) keeps host-owned tools,
 permissions, correlation and playback authority, and the
 [contract](../integration-contract.md#live-conversation-additive-957) documents
 its SDK, configuration and wire surface. It does not replace dictation's

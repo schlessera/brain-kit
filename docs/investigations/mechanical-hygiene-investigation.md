@@ -27,7 +27,7 @@ source values and their calendar round trips before planning.
 
 [#597](https://github.com/schlessera/brain-kit/issues/597) has settled ordering,
 canonical identity and evidence-invalidation policies, recorded in
-[hygiene-review.md](decisions/hygiene-review.md). Its category repair handlers,
+[hygiene-review.md](../decisions/hygiene-review.md). Its category repair handlers,
 interaction design and runtime integration remain separate work. There is no
 shipped date/table review handler to duplicate. Reuse its shared approved effect
 lifecycle when a production repair is integrated; repair is not Dismiss, Snooze

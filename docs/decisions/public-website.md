@@ -17,7 +17,7 @@ maintained documentation. Use Astro with static output in `website/`. Keep
 belongs in `website/` and links to those guides rather than duplicating their
 installation or configuration instructions.
 
-The [investigation](../public-website-investigation.md) compares three concrete
+The [investigation](../investigations/public-website-investigation.md) compares three concrete
 approaches against Markdown reuse, routes, assets, preview, source links,
 navigation and maintenance. VitePress 1.6.4 supplies useful docs navigation,
 search and edit links, but its docs-first theme and Vue customization are a

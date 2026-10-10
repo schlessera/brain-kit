@@ -73,7 +73,7 @@ the named link/image assertion; restore mutations before retaining results.
 The experiment deliberately does not implement production navigation, raw-HTML
 link rewriting, complete fragment/link validation, search, responsive styling,
 accessibility acceptance, capture provenance or publishing. The
-[investigation](../../docs/public-website-investigation.md) describes the
+[investigation](../../docs/investigations/public-website-investigation.md) describes the
 measured implementation boundary; the binding
 [decision record](../../docs/decisions/public-website.md) records both maintainer
 rulings and the separately authorized publishing procedure.

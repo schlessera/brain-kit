@@ -50,7 +50,7 @@ export function freeze() {
     for (const [path, hash] of Object.entries(tree.hashes)) sourceHashes[`${dir}/${path}`] = hash;
     for (const [path, mode] of Object.entries(tree.modes)) sourceModes[`${dir}/${path}`] = mode;
   }
-  for (const path of ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/tag-alias-investigation.md", "package.json", "bun.lock", "packages/core/package.json", "packages/core/skills/audit/SKILL.md", "scripts/measure-sonnet55-cost.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts",
+  for (const path of ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/investigations/tag-alias-investigation.md", "package.json", "bun.lock", "packages/core/package.json", "packages/core/skills/audit/SKILL.md", "scripts/measure-sonnet55-cost.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts",
     "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts","bunfig.toml", "scripts/test.ts", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts",
     ...readdirSync(join(root, "tests")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).map(n => `tests/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
   const dependencyTree = observeTree(join(root, "node_modules"), true), dependencies = dependencyTree.hashes;

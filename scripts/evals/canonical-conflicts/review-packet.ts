@@ -10,7 +10,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   if (proof.freezeSha !== frozen.freezeSha || proof.testsExitCode !== 0 || proof.typecheckExitCode !== 0 || proof.lintExitCode !== 0 ||
     ["read", "finding", "write-denial", "review"].some(mode => proof.nativeExitCodes[mode] !== 0)) throw Error("Exact current keyless preparation proof absent");
   const root = new URL("../../../", import.meta.url).pathname;
-  const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/canonical-conflict-investigation.md",
+  const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/investigations/canonical-conflict-investigation.md",
     "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts",
     "packages/core/skills/content-hygiene/SKILL.md", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/document-parts.ts",
     "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/common/src/frontmatter-parse.ts", "packages/common/src/env-core.ts", "packages/core/src/lib/hygiene-next.ts", "packages/core/src/lib/hygiene-repair.ts",

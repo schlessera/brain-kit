@@ -3034,7 +3034,7 @@ settled outcomes. Approval and denial semantics are otherwise unchanged.
 A separately registered live-conversation provider runs a bidirectional voice
 session beside dictation, whose `SpeechProvider`, `AsrClient` and
 `/api/voice/session` keep their meaning. The [decision](decisions/live-conversation.md)
-and [specification](live-conversation-investigation.md) give the reasoning;
+and [specification](investigations/live-conversation-investigation.md) give the reasoning;
 this section is the contract. The host owns semantic commit, admission, the
 agent backend, tools, permissions, cancellation and every identity. Provider
 text, native call ids and generated speech are evidence, never authority.

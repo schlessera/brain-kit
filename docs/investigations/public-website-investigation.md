@@ -3,10 +3,10 @@
 Investigation for [#611](https://github.com/schlessera/brain-kit/issues/611),
 under the [launch epic](https://github.com/schlessera/brain-kit/issues/608).
 The maintainer selected Astro static output and repository-controlled GitHub
-Pages on 2026-10-01. The binding [decision record](decisions/public-website.md)
+Pages on 2026-10-01. The binding [decision record](../decisions/public-website.md)
 captures both rulings, alternatives and implementation requirements. This
 report preserves the comparison and dated measurements; it does not authorize
-publication. The repeatable [local experiment](../scripts/site-model-spike/README.md)
+publication. The repeatable [local experiment](../../scripts/site-model-spike/README.md)
 provides the evidence.
 
 ## Recommendation and alternatives

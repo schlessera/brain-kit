@@ -10,7 +10,7 @@ import { MODEL } from "./protocol";
 import { validateReviewEvidence } from "./review-evidence";
 import type { RootPaidPolicy } from "./review-policy";
 export const REVIEW_FILES = [
-  "docs/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md",
+  "docs/investigations/audit-capability-investigation.md", "docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "packages/ui-kit/fixtures/README.md",
   "scripts/evals/audit-capabilities/benchmark.ts", "scripts/evals/audit-capabilities/prototype.ts", "scripts/evals/audit-capabilities/protocol.ts", "scripts/evals/audit-capabilities/live.ts", "scripts/evals/audit-capabilities/freeze.ts", "scripts/evals/audit-capabilities/review.ts", "scripts/evals/audit-capabilities/review-packets.ts", "scripts/evals/audit-capabilities/analyze.ts",
   "scripts/evals/audit-capabilities/effects.ts", "scripts/evals/audit-capabilities/review-drain.ts", "scripts/evals/audit-capabilities/review-native.ts", "scripts/evals/audit-capabilities/review-evidence.ts", "scripts/evals/audit-capabilities/review-relay.ts", "scripts/evals/audit-capabilities/review-policy.ts", "scripts/evals/audit-capabilities/review-offline.ts", "scripts/evals/audit-capabilities/review-offline-launch.py", "scripts/evals/audit-capabilities/parser-diagnostics.ts",
   "scripts/evals/note-disposition/review.ts", "scripts/evals/note-disposition/live.ts", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts", "scripts/measure-sonnet55-cost.ts",

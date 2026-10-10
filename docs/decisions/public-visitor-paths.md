@@ -3,7 +3,7 @@
 Maintainer rulings of 2026-10-01 and 2026-10-02 under
 [#616](https://github.com/schlessera/brain-kit/issues/616) and the
 [public-launch epic](https://github.com/schlessera/brain-kit/issues/608).
-The [dated investigation](../visitor-feedback-investigation.md) compares
+The [dated investigation](../investigations/visitor-feedback-investigation.md) compares
 visitor journeys and mailing services. These choices bind the public website;
 they do not authorize account creation, a paid plan, live signup, sending or
 publication.
