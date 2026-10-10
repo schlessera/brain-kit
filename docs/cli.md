@@ -409,3 +409,19 @@ A failed post-check leaves the effect written and the finding open. Inspect
 `brain hygiene check configuration-blocker --json` reports `blocked` or `ready`
 even with invalid configuration and never writes. See [the contract](integration-contract/package-api.md#bounded-hygiene-repair-operations-additive-1025)
 for inputs, results and the publication limitation.
+
+### Review hygiene findings in Actions
+
+In the chat UI, open **Actions → needs you → Start hygiene review**. The server
+uses these same CLI operations to present one finding, its source provenance,
+priority reason and exact repair preview. **Pause** preserves the pending Action;
+**Resume**, page reload and reconnect return to it. Waiting needs no agent turn
+or inference call.
+
+Only a confirmed fix, successful manual recheck, Dismiss or Later moves the
+active review forward. A failed post-check keeps the written bytes and offers
+a separately confirmed Undo. Dismiss and Later are review dispositions;
+`brain validate` continues reporting unresolved errors. **Review complete**
+shows the confirmed dispositions and deferred backlog counts. The
+[review contract](integration-contract/package-api.md#human-started-hygiene-review-additive-1027)
+defines the HTTP operations, durable Action state and check-only restart recovery.
