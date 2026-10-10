@@ -123,3 +123,64 @@ test("send combines nonempty typed and dictated drafts and marks the message as 
   expect(m.field().value).toBe("");
   expect(m.view.queryByText("Athena says the wind is favourable.") === null).toBe(true);
 });
+
+// Slash commands (#1504): Enter runs a command the reader typed or picked from
+// the palette, exactly as clicking its row does, and sends nothing.
+const chatMessages = (frames: ClientMessage[]) => frames.filter(frame => frame.type === "chat_message");
+const enter = (m: ReturnType<typeof mount>) => fireEvent.keyDown(m.field(), { key: "Enter" });
+
+test("Enter on a typed /stats runs the statistics and sends no message", async () => {
+  const m = mount(); await tick();
+  m.type("/stats");
+  enter(m); await tick();
+  expect(chatMessages(m.frames)).toEqual([]);
+  expect(m.root.stores.chat.getState().buffers[SESSION]!.messages.find(message => message.role === "user")?.content).toBe("Stats");
+  expect(m.field().value).toBe("");
+});
+
+test("Enter runs the palette's active row, and the arrows move it", async () => {
+  const m = mount(); await tick();
+  m.type("/s");
+  const active = () => m.view.container.querySelector('[data-command-palette] [aria-current="true"]')?.textContent;
+  expect(active()).toContain("/sync");
+  fireEvent.keyDown(m.field(), { key: "ArrowDown" });
+  expect(active()).toContain("/search");
+  enter(m); await tick();
+  expect(m.root.stores.ui.getState().searchPanelOpen).toBe(true);
+  expect(chatMessages(m.frames)).toEqual([]);
+});
+
+test("Enter runs the first row when the reader has not moved", async () => {
+  const first = mount(); await tick();
+  first.type("/s");
+  enter(first); await tick();
+  expect(first.root.stores.ui.getState().syncPanelOpen).toBe(true);
+  expect(chatMessages(first.frames)).toEqual([]);
+});
+
+test("an exact command still runs after Escape dismissed the palette", async () => {
+  const m = mount(); await tick();
+  m.type("/stats");
+  fireEvent.keyDown(m.field(), { key: "Escape" });
+  expect(m.view.container.querySelector("[data-command-palette]")).toBeNull();
+  enter(m); await tick();
+  expect(chatMessages(m.frames)).toEqual([]);
+  expect(m.root.stores.chat.getState().buffers[SESSION]!.messages.find(message => message.role === "user")?.content).toBe("Stats");
+});
+
+test("a draft that starts with a slash but names no command is sent as text", async () => {
+  const m = mount(); await tick();
+  m.type("/etc/hosts?");
+  expect(m.view.container.querySelector("[data-command-palette]")).toBeNull();
+  enter(m); await tick();
+  expect(chatMessages(m.frames)).toHaveLength(1);
+  expect(chatMessages(m.frames)[0]).toMatchObject({ text: "/etc/hosts?" });
+});
+
+test("the palette's active row is marked and announced", async () => {
+  const m = mount(); await tick();
+  m.type("/st");
+  const rows = within(m.view.container.querySelector<HTMLElement>("[data-command-palette]")!).getAllByRole("button");
+  expect(rows.map(row => row.getAttribute("aria-current"))).toEqual(["true"]);
+  expect(m.view.getByRole("status", { name: "Slash command" }).textContent).toBe("/stats, Brain statistics, 1 of 1");
+});

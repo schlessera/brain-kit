@@ -13,7 +13,7 @@ import {
   type PendingAttachment,
 } from "../../lib/image-attachments.js";
 import { ShareIntake } from "./share-card.js";
-import { CommandPalette } from "./command-palette.js";
+import { CommandPalette, exactCommand, matchCommands } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
 import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
@@ -280,6 +280,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // palette without clearing the draft; typing brings it back.
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const showCommandPalette = input.startsWith("/") && !paletteDismissed;
+  // The palette's active row (#1504): Enter runs it, the arrows move it, and
+  // it returns to the first row whenever the filter changes.
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const paletteMatches = showCommandPalette ? matchCommands(input.slice(1)) : [];
+  const paletteActive = Math.min(paletteIndex, Math.max(paletteMatches.length - 1, 0));
+  /** What Enter runs instead of sending: the active row, or a command typed in full. */
+  const commandForEnter = (): string | null => paletteMatches[paletteActive]?.name ?? exactCommand(input);
 
   // An answer suggestion the reader took (#40, D50): merged into the draft,
   // never sent. The draft is kept byte for byte, the suggestion lands on its
@@ -787,7 +794,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
               : wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
           paletteOpen={showCommandPalette}
-          palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} onSelect={handleCommand} /> : null}
+          palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} activeIndex={paletteActive} onSelect={handleCommand} /> : null}
+          onPaletteMove={paletteMatches.length ? (step) => setPaletteIndex((paletteActive + step + paletteMatches.length) % paletteMatches.length) : undefined}
           attachMenuOpen={attachMenuOpen}
           attachments={attachments.map((a) => ({ previewUrl: a.previewUrl, name: a.name }))}
           tracks={tracks}
@@ -830,9 +838,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (voiceMode === "dictate") return;
             setInput(value);
             setPaletteDismissed(false);
+            setPaletteIndex(0);
           }}
           onSend={() => {
-            if (voiceMode !== "dictate" && canSend) handleSubmit();
+            if (voiceMode === "dictate") return;
+            // A slash command runs as clicking its row does; it is never sent.
+            const command = commandForEnter();
+            if (command) handleCommand(command);
+            else if (canSend) handleSubmit();
           }}
           onStop={handleCancel}
           onMic={micMode === "pending" ? undefined : handleMicTap}
