@@ -1,13 +1,13 @@
-import { expect, test, spyOn } from "bun:test";
+import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { fixtures, prepare, oracle } from "../scripts/evals/note-disposition/fixture";
 import { routeJudgment, validateProposal } from "../scripts/evals/note-disposition/guard";
 import { controlReport } from "../scripts/evals/note-disposition/run";
 import { scoreReceipts } from "../scripts/evals/note-disposition/score";
-import { processCommand } from "../packages/core/src/cli/commands/process";
-import { indexAll } from "../packages/core/src/lib/indexer";
-import { openDatabase } from "../packages/core/src/lib/db";
+
+// The real `brain process` assertion this file used to hold lives in
+// tests/process-command-proposals.test.ts (#1386).
 
 test("golden groups do not cross tuning and held-out documents", () => {
   const tuning = new Set(fixtures.filter(f => f.split === "tuning").map(f => f.group));
@@ -94,30 +94,6 @@ test("keep, unknown, complex and invalid targets perform no generation in the pr
   }
   expect(generationCalls).toBe(0);
   expect(routeJudgment({ disposition: "merge", target: "projects/active/sailing.md", confidence: 0.95 }, ["projects/active/sailing.md"], 0.9).generate).toBe(true);
-});
-
-test("actual process command returns proposals without applying, reading full targets, or validating operation paths", async () => {
-  const f = { ...fixtures[0]!, source: "harbor sentinel note", target: `harbor sentinel target\n${"An unrelated voyage detail. ".repeat(200)}TARGET-END-BEYOND-SNIPPET` };
-  const p = prepare(f);
-  const dbPath = join(p.env.root, "brain.db");
-  const db = openDatabase(dbPath);
-  await indexAll(db, { root: p.env.root, taxonomy: p.env.taxonomy, force: true, quiet: true });
-  db.close();
-  const output = spyOn(console, "log").mockImplementation(() => {});
-  let prompt = "";
-  const scripted = { action: "merge", reasoning: "scripted control", operations: [{ op: "update", path: "../outside.md", content: "replacement" }] };
-  try {
-    await processCommand.run([p.env.source.path], {
-      json: true, brain: { root: p.env.root, dbPath, config: p.config, configPath: null, modules: [], taxonomy: p.env.taxonomy },
-      completions: { id: "fixture", capabilities: { vision: false }, async complete(input) { prompt = input.prompt; return JSON.stringify(scripted); } },
-    });
-    expect(prompt).toContain(`(${p.env.targets[0]!.path}):`);
-    expect(prompt).toContain(">>>harbor<<< >>>sentinel<<< target");
-    expect(prompt).not.toContain("TARGET-END-BEYOND-SNIPPET");
-    expect(JSON.parse(String(output.mock.calls[0]![0]))).toEqual(scripted);
-    expect(readFileSync(join(p.env.root, p.env.source.path), "utf8")).toBe(p.env.source.raw);
-    expect(readFileSync(join(p.env.root, p.env.targets[0]!.path), "utf8")).toBe(p.env.targets[0]!.raw);
-  } finally { output.mockRestore(); p.close(); }
 });
 
 test("offline report leaves every live quality, price and latency metric unmeasured", () => {

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createJevClient, type JevResult } from "../packages/core/src/lib/jev";
+import type { JevResult } from "../packages/core/src/lib/jev";
 import { expectedStart, fixtures } from "../scripts/evals/candidate-extraction/fixtures";
 import { authoredChoices, evaluate, scriptedResult } from "../scripts/evals/candidate-extraction/run";
 import { checkBio, checkOutline, conferenceResearch, domainRoles, durationSeconds, findCandidates, jobResearch, prepare, resolve, roles, submissionReview, type Role } from "../scripts/evals/candidate-extraction/prototype";
 
+// The shipped jev-client outcome tests this describe used to hold live in
+// tests/jev-research-outcomes.test.ts (#1386).
 describe("private exact-span extraction controls", () => {
   for (const fixture of fixtures) {
     test(`${fixture.id}: actual response parser and research consumer retain authored values/spans`, async () => {
@@ -79,14 +81,6 @@ describe("private exact-span extraction controls", () => {
     expect(() => { prepared.candidates[0].start++; }).toThrow();
   });
 
-  test.each(["999", "-1", "1.5", "01", "NaN", "__proto__", "unlisted"]) ("malformed selected index %s reaches real parser and abstains", async (choice) => {
-    const prepared = prepare(fixtures[1].source, "job");
-    const good = authoredChoices(fixtures[1], prepared); expect(good.salary).not.toBe("unclear");
-    const result = await scriptedResult(prepared, { ...good, salary: choice });
-    expect(result.outcome).toBe("bad_response");
-    expect(jobResearch(prepared, result).fields.salary!.status).toBe("unresolved");
-  });
-
   test.each(["missing", "low-confidence", "bad-distribution", "wrong-kind"]) ("%s response keeps nonempty salary unresolved", async (mutation) => {
     const prepared = prepare(fixtures[1].source, "job");
     const result = await scriptedResult(prepared, authoredChoices(fixtures[1], prepared), (raw) => {
@@ -107,14 +101,6 @@ describe("private exact-span extraction controls", () => {
     expect(jobResearch(prepared, result).fields.salary).toEqual({ status: choice === "none" ? "absent" : "unresolved", value: null, provenance: null, reason: choice === "none" ? "explicit_none" : "unclear" });
   });
 
-  test("missing key never touches even an available transport", async () => {
-    const prepared = prepare(fixtures[1].source, "job"); let calls = 0;
-    const client = createJevClient({ apiKey: null, fetch: async () => { calls++; throw new Error("unexpected transport"); } });
-    const result = await client.ask(prepared.request);
-    expect(result.outcome).toBe("no_key"); expect(calls).toBe(0);
-    expect(jobResearch(prepared, result).fields.salary!.reason).toBe("no_key");
-  });
-
   test("exact provenance does not prove an injected semantic role is correct", async () => {
     const fixture = fixtures.find((f) => f.id === "injection-only")!;
     const prepared = prepare(fixture.source, "cfp");
@@ -125,17 +111,6 @@ describe("private exact-span extraction controls", () => {
     expect(report.fields.deadline!.status).toBe("selected");
     expect(report.fields.deadline!.provenance!.text).toBe(injected.text);
     expect(fixture.expected.deadline!.status).toBe("unresolved");
-  });
-
-  test("real client timeout and failure remain unresolved without losing raw input", async () => {
-    const prepared = prepare(fixtures[0].source, "cfp");
-    for (const fetch of [async () => new Promise<Response>(() => {}), async () => { throw new Error("fixture failure"); }]) {
-      const client = createJevClient({ apiKey: "fixture-only", timeoutMs: 5, fetch });
-      const result = await client.ask(prepared.request);
-      expect(["timeout", "network_error"]).toContain(result.outcome);
-      expect(conferenceResearch(prepared, result).fields.deadline!.status).toBe("unresolved");
-      expect(prepared.source).toBe(fixtures[0].source);
-    }
   });
 
   test("option overflow refuses whole request, including sentinel capacity", () => {
