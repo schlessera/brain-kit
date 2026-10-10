@@ -178,9 +178,11 @@ export function DictationSheet({
     </div>
   ) : null;
   return (
-    <Overlay open={open} variant="sheet" label="Dictation" closedBy={draining ? "none" : "any"}
+    <Overlay open={open} variant="sheet" label="Dictation" data-dictation="" closedBy={draining ? "none" : "any"}
       onClose={reason => reason === "scrim" ? onStop() : onCancel()}
-      returnFocus={() => composerRef?.current?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]') ?? null}>
+      // A breakpoint move unmounts the modal after the desktop has focused
+      // its replacement Done. Preserve that focus; a real close returns to mic.
+      returnFocus={() => doneRef.current ?? composerRef?.current?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]') ?? null}>
       {content}
     </Overlay>
   );
