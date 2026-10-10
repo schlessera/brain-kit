@@ -5,13 +5,13 @@
 // scratch Git checkout, so a failing, skipped or partial run, or any later
 // change to the source, lock or inventory, is shown to block the release.
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DEFAULT_ROOTS } from "../scripts/test";
 import { discoverTests } from "../scripts/test-shards";
 import {
-  assertExperimentReceipt, candidate, danglingBins, EXPERIMENT_ROOT, experimentRunArgv, missingTools, readJunit, RECEIPT_PATH,
+  assertExperimentReceipt, candidate, COPY_INSTALL, danglingBins, EXPERIMENT_ROOT, externallyHardlinked, experimentRunArgv, missingTools, readJunit, RECEIPT_PATH,
   RECEIPT_SCHEMA, receiptProblems, REQUIRED_TOOLS, runProblems, type Candidate,
 } from "../scripts/test-experiments";
 
@@ -77,7 +77,8 @@ describe("experiment tier discovery", () => {
   test("the product guards with an experiment origin stay in product discovery", () => {
     // CI names both (scripts/check-pr.ts runtime proof, scripts/ci-plan.ts FAST_TESTS).
     const product = discoverTests(ROOT, DEFAULT_ROOTS);
-    for (const guard of ["tests/measurement-isolation.test.ts", "tests/measurement-fixture-lifetime.test.ts", "tests/show-block-schema-forms.test.ts"]) {
+    for (const guard of ["tests/measurement-isolation.test.ts", "tests/measurement-fixture-lifetime.test.ts", "tests/show-block-schema-forms.test.ts",
+      "tests/installed-turn-surface.test.ts"]) {
       expect(product).toContain(guard);
     }
   });
@@ -95,6 +96,20 @@ describe("experiment tier discovery", () => {
       symlinkSync("../../built.js", join(dir, "node_modules/.bin/built"));
       symlinkSync("../@fixture/pkg/dist/cli.js", join(dir, "node_modules/.bin/unbuilt"));
       expect(danglingBins(dir)).toEqual(["node_modules/.bin/unbuilt"]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("node_modules hard-linked to files outside it is detected; links inside it are not", () => {
+    const dir = mkdtempSync(join(tmpdir(), "experiment-links-"));
+    try {
+      mkdirSync(join(dir, "node_modules/a"), { recursive: true });
+      writeFileSync(join(dir, "node_modules/a/own.js"), "");
+      linkSync(join(dir, "node_modules/a/own.js"), join(dir, "node_modules/a/twin.js"));
+      expect(externallyHardlinked(dir)).toBeUndefined();
+      writeFileSync(join(dir, "cache.js"), "");
+      linkSync(join(dir, "cache.js"), join(dir, "node_modules/a/cached.js"));
+      expect(externallyHardlinked(dir)).toBe("node_modules/a/cached.js");
+      expect(COPY_INSTALL).toBe("rm -rf node_modules && bun install --frozen-lockfile --backend=copyfile");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -219,6 +234,17 @@ describe("the experiment command and the release gate, run for real", () => {
     const run = await runTier(dir);
     expect(run.code).not.toBe(0);
     expect(run.output).toContain("the workspace is not built (node_modules/.bin/unbuilt dangle)");
+    expect(refusal(dir)).toContain("no experiment-tier receipt");
+  }));
+
+  test("a hard-linked install refuses the tier with the copy-install remedy", () => checkout(async (dir) => {
+    mkdirSync(join(dir, "node_modules/pkg"), { recursive: true });
+    writeFileSync(join(dir, "cache.js"), "");
+    linkSync(join(dir, "cache.js"), join(dir, "node_modules/pkg/index.js"));
+    const run = await runTier(dir);
+    expect(run.code).not.toBe(0);
+    expect(run.output).toContain("node_modules is hard-linked to Bun's cache (node_modules/pkg/index.js)");
+    expect(run.output).toContain(COPY_INSTALL);
     expect(refusal(dir)).toContain("no experiment-tier receipt");
   }));
 

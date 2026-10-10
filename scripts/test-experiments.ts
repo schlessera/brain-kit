@@ -208,6 +208,37 @@ export function danglingBins(root: string): string[] {
     .map((name) => `node_modules/.bin/${name}`).sort();
 }
 
+/** The reinstall that gives the harnesses runtime bytes they own. */
+export const COPY_INSTALL = "rm -rf node_modules && bun install --frozen-lockfile --backend=copyfile";
+
+/**
+ * The first installed file that shares its inode with something outside
+ * `node_modules`. Bun's default install hard-links the global cache, and the
+ * freeze and offline-source harnesses refuse such runtime bytes ("Installed
+ * dependency inode has external hardlinks"): 34 failures with the default
+ * install, none after a copy install of the same lock. Same rule as theirs:
+ * links beyond the occurrences inside the tree.
+ */
+export function externallyHardlinked(root: string): string | undefined {
+  const top = join(root, "node_modules");
+  if (!existsSync(top)) return undefined;
+  const inodes = new Map<string, { path: string; seen: number; links: number }>();
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name), stat = lstatSync(full);
+      if (stat.isDirectory()) walk(full);
+      else if (stat.isFile()) {
+        const key = `${stat.dev}:${stat.ino}`, entry = inodes.get(key);
+        if (entry) entry.seen++;
+        else inodes.set(key, { path: full, seen: 1, links: stat.nlink });
+      }
+    }
+  };
+  walk(top);
+  for (const entry of inodes.values()) if (entry.links > entry.seen) return entry.path.slice(root.length + 1);
+  return undefined;
+}
+
 export function missingTools(which: (name: string) => string | null = (name) => Bun.which(name)): string[] {
   return REQUIRED_TOOLS.filter((name) => !which(name));
 }
@@ -231,6 +262,12 @@ async function main(): Promise<number> {
   const dangling = danglingBins(root);
   if (dangling.length) {
     console.error(`Experiment tier refused: the workspace is not built (${dangling.join(", ")} dangle). Run \`bun run build\` first.`);
+    return 1;
+  }
+  const linked = externallyHardlinked(root);
+  if (linked) {
+    console.error(`Experiment tier refused: node_modules is hard-linked to Bun's cache (${linked}), which the ` +
+      `offline harnesses reject. Reinstall the same lock as copies: ${COPY_INSTALL}`);
     return 1;
   }
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
