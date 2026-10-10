@@ -11,11 +11,17 @@ The demo adapts the public Odyssey presentation fixtures into a linked file
 hierarchy, with typed Markdown frontmatter, people, voyage records, decisions
 and the closed crew ledger. Frontmatter starts collapsed. Explore opens the
 real file viewer; Sessions offers additional staged conversations. Keyword
-search and the graph operate on these same fictional records.
+search and the graph operate on these same fictional records, including the
+400+ records of the ui-kit fixture library
+([`packages/ui-kit/fixtures/library/`](../packages/ui-kit/fixtures/library/)),
+which the graph lays out as one cluster per top-level folder.
 
 Sharing uses the product's actual menus and share helpers. PNG and PDF targets
 are prepared with the production renderer and committed under
-`public/assets/shares/`. Markdown, text, rich text, diagram SVG and optimized
+`public/assets/shares/` for the featured records and every prepared response.
+Library records share as Markdown, text and rich text; their image and PDF
+options explain that no export is prepared, rather than committing hundreds of
+binaries. Markdown, text, rich text, diagram SVG and optimized
 images use the product's browser implementation. Desktop browsers download
 files; capable browsers can use their native share sheet. Exact content keys
 prevent an unrelated artifact from being substituted for a response.

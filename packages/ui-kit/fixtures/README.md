@@ -80,6 +80,7 @@ Homer's arithmetic**, which does not close either.
 | `sessions.ts` | one working session per tracker state, the pinned age clock, a long title | `SessionStrip`, `ComposerRow` |
 | `follow-ups.ts` | five pending follow-ups in send order, one with a label, and a long prompt | `PendingFollowUps`, `ComposerRow` |
 | `index.ts` | namespace re-exports and the `odyssey` aggregate | a story that composes four modules |
+| `library/` | 400+ whole Markdown records and the twelve ship rosters ([README](library/README.md)) | the website demo's file tree, search and graph |
 
 `types.ts` imports `Tone`, `ButtonTone` and `IconName` from `../src` rather
 than restating them, so a fixture cannot name a colour or an icon the
