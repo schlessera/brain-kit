@@ -32,7 +32,7 @@ import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/
 
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
-import { computeJson, scanCliArgs, UsageError } from "./io.js";
+import { computeJson, parseArgs, scanCliArgs, UsageError } from "./io.js";
 
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
@@ -234,15 +234,17 @@ async function main(): Promise<number> {
     return entry.helpExitCode ?? 0;
   }
 
+  // Read the actual positional subcommand, including one after `--`.
+  const hygieneNext = command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
-  if (configError && !TOLERATE_CONFIG_ERROR.has(command)) {
+  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext) {
     console.error(`Invalid brain.config:\n${configError}`);
     return 1;
   }
 
   // No config found at all → refuse anything that writes.
   const mutatingSub = MUTATING_SUBCOMMAND[command];
-  const mutates =
+  const mutates = hygieneNext ||
     (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
     (MUTATING_WITH_FLAGS[command]?.(beforeTerminator(argv.slice(1))) ?? false);
   if (brain.configPath === null && mutates) {

@@ -8,7 +8,7 @@ They bind selection, reconciliation and dismissal/snooze in human-triggered
 asynchronous hygiene review. This record explains the approved policy. The
 identity, fingerprint and disposition definitions that implement it are in
 [What the implementation defines](#what-the-implementation-defines) (#1024);
-selection and the review interface are not built yet.
+selection is defined in [the selection contract](../integration-contract.md#hygiene-selection-additive-1026) (#1026). The review interface remains separate work.
 
 The [shared Queue/Actions decision](async-collaboration.md) continues to govern
 durable Action identity, validated effects, authorization, idempotency and
@@ -29,8 +29,8 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 `packages/core/src/lib/hygiene.ts:61-77`), and its ID derives from those fields
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
-review dispositions. The existing CLI exposes reconciliation and listing
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:153-155`).
+review dispositions. The CLI exposes reconciliation, listing and deterministic selection
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:163-165`).
 
 ## Selection: severity and known urgency, then age and identity
 

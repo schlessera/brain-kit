@@ -642,6 +642,7 @@ policy. The rationale and measurements are in
 | `brain tags --json` | `{ "tags", "documents", "variantGroups": [{ "canonical", "members": [{ "tag", "count" }] }], "redundant": [{ "path", "tag", "repeats": "type"\|"directory" }], "aliasHits": [{ "path", "tag", "canonical" }], "outOfVocabulary": [{ "tag", "count" }] \| null }` (additive in 0.38.0). Read-only. `tags` counts distinct tags and `documents` the markdown documents carrying one, both read from frontmatter, not the index. `members` is never empty, most used first, and includes `canonical`. `redundant` is `[]` under `taxonomy.tags.redundant: "off"`. `outOfVocabulary` is `null` when no `taxonomy.tags.vocabulary` is set, most used first otherwise. `path` is repo-relative |
 | `brain tags --apply [--dry-run] [--only <old>] [--groups] [--redundant] --json` | `{ "files": [{ "path", "from": string[], "to": string[] }], "skipped": [{ "path", "reason" }], "warnings": string[] }`. `files` lists every document whose tags changed (or would, under `--dry-run`), in path order. `skipped` lists documents left alone: frontmatter that does not parse, a `tags:` entry the rewrite does not edit, a tag on an alias cycle, a file edited while the command ran (`"changed during apply"`), or a rewrite that would not read back as the planned tags. A `reason` starting `failed:` is a read or write error; the run goes on, and the command exits `2` after indexing and accepting the files it did rewrite. An index that cannot be opened stops the run before any file is rewritten: `files` is empty, `warnings` says why, and the exit code is `2`. Only the `tags:` entries change, on the raw text. `updated` is not bumped. The touched files are reindexed, and a file's mtime is accepted only when the index read exactly the bytes the rewrite wrote; `warnings` names each one that was not. Explicit aliases take precedence over variant groups, and a second run reports no `files`. `reason` and `warnings` are prose (additive in 0.38.0) |
 | `brain hygiene reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run] --json` | `{ "opened", "reopened", "resolved", "stillOpen", "snoozed", "changedFiles": string[], "detected": [{ "id", "category", "path", "message" }], "autoFixed", "failedChecks": string[] }`. The counts are this run's transitions: `opened` new issues, `reopened` issues back from resolved or an expired snooze, `resolved` issues no longer detected, `stillOpen` open issues still detected (or kept open while a check could not run), and `snoozed` the entries left snoozed. `changedFiles` lists the files under `context/hygiene/` written (or, with `--dry-run`, that would be); it is empty on a run that changes nothing. `detected` is every issue found this run, with its stable ID `{category}-{shortpath}-{hash4}` (hash4: SHA-1 over `{category}\|{path}\|{evidence}`). `--extra` is a JSON array of `{ "category", "path", "evidence", "message" }`, and `--fixed` a JSON array of `{ "path", "fix" }`, the auto-fixes to record in `last-run.md` (`autoFixed` counts them); a malformed one exits `1` and writes nothing. `failedChecks` names each check that could not run: a module whose hygiene check threw, or a core check that could not read its input (`fact-drift`, `tag-noise`); while any is named, no entry is resolved unless it was detected again. `--dry-run` writes no log file (the index is still refreshed). A log file that cannot be parsed safely (broken frontmatter, a section mixing entries with other text), or that changes while the command runs, exits `2` without writing it (a save in the instant between the last check and the rename can still be lost; there is no lock) (additive in 0.38.0). Additive in 0.41.0 (#1024): detection also runs `brain validate`'s corpus checks (`validation` in `failedChecks` when they cannot run), and candidates with one ID are one finding. Each `detected` item adds `"severity": "error"\|"warning"\|"info"\|null`, `"urgency": string\|null`, `"sources": [{ "source", "name", "severity" }]` (never empty) and `"fingerprint"` (12 hex digits). The envelope adds `"dismissed"` (entries left dismissed), `"invalidated"` (dispositions whose evidence changed this run) and `"invalidations": [{ "id", "disposition": "dismissed"\|"snoozed", "dispositionOn", "changed": string[], "previousId" }]`. `--extra` items may add `"severity"` and `"urgency"` (lowercase letters, digits and `-`). See [Hygiene review data](#hygiene-review-data-additive-1024) |
+| `brain hygiene next [--extra <file.json>] --json` | Reconcile + validation join, then one highest-priority eligible canonical finding: `{ "finding": object\|null, "counts": { "eligibleRemaining", "fixed", "dismissed", "snoozed", "nextSnoozeDueAt", "informationalNotShown" } }`. Exit `0` includes an empty backlog. Invalid configuration exits `1` with `{ "blocker": { "kind": "configuration", "message", "path", "line", "column" } }` before indexing or hygiene writes. Other unavailable checks exit `1` with `{ "blocker": { "kind": "checks", "failedChecks": string[] } }`. See [Hygiene selection](#hygiene-selection-additive-1026) (additive in 0.41.0) |
 | `brain hygiene list [--state open\|snoozed\|dismissed\|resolved] --json` | `{ "entries": [{ "id", "state": "open"\|"snoozed"\|"dismissed"\|"resolved", "path", "issue", "firstSeen", "lastSeen", "until", "dueAt", "resolvedBy", "resolvedOn", "sources", "severity", "fingerprint", "disposition", "invalidation" }] }`, the log as the files hold it; a field the entry does not carry is `null` (additive in 0.38.0). Additive in 0.41.0 (#1024): the `dismissed` state, `dueAt` (the instant a snooze is due, ISO), `sources` (`[]` for an entry written before sources were recorded), `severity`, `fingerprint` (as last detected), `disposition` `{ "kind": "dismissed"\|"snoozed", "on", "reason", "fingerprint" }` and `invalidation` `{ "on", "disposition", "dispositionOn", "changed": string[], "previousId" }`. `until` keeps its meaning: the snooze's day, `YYYY-MM-DD` |
 | `brain hygiene dismiss <id> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>] --json` | `{ "status": "dismissed", "id", "fingerprint", "until": null, "reason", "changedFiles" }`. Reconciles, then moves the finding to `context/hygiene/dismissed.md` with the date and the fingerprint it applies to; it stays out of review until its evidence fingerprint changes. Refused with exit `1` and nothing written when the finding is not detected now or its fingerprint is not `<fp>`: `{ "status": "refused", "reason": "not-detected"\|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }`. A finding reported through `reconcile --extra` is detected only when the same `--extra` file is given. A malformed argument exits `1` as a usage error (additive in 0.41.0) |
 | `brain hygiene snooze <id> --until <date\|date-time> --expect-fingerprint <fp> [--reason <text>] [--extra <file.json>] --json` | As `dismiss`, with `"status": "snoozed"` and `"until"` as given, into `context/hygiene/snoozed.md`. `--until` is an ISO date (due at the start of that UTC day) or a date-time with `Z` or an offset (due at that instant), and must be in the future. The finding returns when due, or before then as soon as its fingerprint changes (additive in 0.41.0) |
@@ -3778,6 +3779,81 @@ does not touch them.
 
 `brain validate`'s output and exit status do not change: a dismissed or
 snoozed error is still reported and still exits `1`.
+
+## Hygiene selection (additive, #1026)
+
+`brain hygiene next --json` refreshes the disposable index and reconciles the
+markdown log using the same validation join and disposition invalidation as
+`reconcile`. It selects only currently detected, open, non-informational
+canonical findings. Unchanged dismissals and future snoozes are excluded;
+unchanged snoozes return at their exact due instant. Resolved entries stay out
+unless their problem is detected again and reconciliation reopens them.
+Informational findings (including TODO/VERIFY) remain in the log and count as
+`informationalNotShown`; they do not prevent a review from completing.
+
+The finding retains `id`, `category`, `path`, stable `evidence`, `message`,
+`severity`, raw `urgency`, `sources`, `fingerprint`, and `fingerprintFields`.
+It adds a plain `title`, `line` (1-based in the actual file, or null), `field`
+(for field findings, or null), `excerpt` (one line, at most 60 Unicode code
+points around the first literal evidence occurrence, or null when absent or
+unreadable), `handler` (`manual` until a repair handler is delivered),
+`firstSeen`, and the log's `invalidation` receipt, if present. Reads for excerpts
+stay inside the brain root. Missing fields are located by field name rather
+than an invented line. Selection performs no content repair.
+
+Ordering is lexicographic: severity rank, urgency rank, oldest `firstSeen`,
+then canonical ID in code-unit order. Ranks are ordinals, never weighted scores.
+The most severe contributing source determines severity; categories and model
+judgments assign no priority.
+
+| Source input | Severity class | Rank |
+| --- | --- | --- |
+| Validation `level: error`; audit/module/extra `severity: error` | `error` | 0 |
+| Validation `level: warning`; audit/module/extra `severity: warning` | `warning` | 1 |
+| No source severity (including silent edits/index table lag) | `unknown` | 2 |
+| Audit/module/extra `severity: info` | `info` | 3; counted, not selected |
+
+| Explicit source urgency | Rank |
+| --- | --- |
+| `immediate` | 0 |
+| `overdue` | 1 |
+| `due` | 2 |
+| `upcoming` | 3 |
+| Absent, `unknown`, or any unsupported value | 4 (`unknown`) |
+
+Urgency is known only from a candidate's explicit `urgency` input (currently
+`--extra` candidates); no deadline, category, message, age or snooze date
+is used to infer it. If canonicalization joins multiple source urgency values,
+the highest recognized urgency wins; unsupported values contribute `unknown`.
+Raw urgency remains available separately on the finding. Missing first-seen
+sorts after dated peers; its age is null. Future dates have age zero.
+
+`priorityReason` is `{ severity: "error"|"warning"|"unknown"|"info",
+urgency: "immediate"|"overdue"|"due"|"upcoming"|"unknown", ageDays: number|null,
+newerWithSameRank: number, tieBreak:
+"only-finding"|"severity"|"urgency"|"age"|"identity" }`. Age is whole elapsed
+24-hour periods since the first-seen UTC day. `newerWithSameRank` counts eligible
+peers with the same severity and urgency ranks and a later first-seen date.
+`tieBreak` names the first differing comparison against the runner-up, or
+`only-finding` when there is none. Neither field changes priority.
+
+Counts are durable backlog totals after reconciliation, including the selected
+finding in `eligibleRemaining`. `fixed` counts resolved log entries (including
+`auto-disappeared`); it is not a session counter or proof of a handler's
+successful repair. `dismissed` and `snoozed` count entries in those states.
+`nextSnoozeDueAt` is the earliest known snooze instant, or null; unknown due
+times remain snoozed and do not invent a date. `informationalNotShown` counts
+currently detected open informational findings, once per canonical finding.
+
+A configuration blocker has the loader's `message`, the detected config `path`
+(or null), and `line`/`column` only when the original error identifies that
+configuration file; loader implementation stack locations are excluded. It
+never returns an empty-backlog receipt and writes neither the log nor the
+index. Only `hygiene next` tolerates an invalid config; `reconcile`, dispositions
+and `list` retain their refusal. With no configuration file, `next` retains the
+CLI's missing-config write refusal. A check blocker lists unavailable checks;
+reconciliation still preserves unseen entries under its existing failure
+rules, and selection never claims completion from incomplete detection.
 
 ## Module hygiene context (breaking, #699)
 
