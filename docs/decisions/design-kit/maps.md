@@ -181,4 +181,3 @@ The classification pass does not route to `map`. Its figures are
 coordinates, and a coordinate the text does not state is exactly what the
 block must never invent. That is D45's reason for leaving `trend` and `bars`
 to the tool, and it applies here for the same reason.
-

@@ -221,4 +221,3 @@ Rules a consumer may rely on:
 - `database.sizeBytes` is the logical size of the server database (pages ×
   page size, the WAL sidecar aside). It is a rebuild-cost figure for a
   disposable store, not a claim that the file holds authoritative state.
-

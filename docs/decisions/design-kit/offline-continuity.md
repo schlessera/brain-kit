@@ -248,4 +248,3 @@ The store tests force missing-chunk states, including a full origin that cannot
 repair metadata. Requesting `navigator.storage.persist()` is best effort; no
 copy calls it a guarantee. No unload callback can save data after a crash, and
 no local UI can report a recording after all evidence of it has disappeared.
-

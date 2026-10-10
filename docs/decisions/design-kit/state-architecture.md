@@ -279,4 +279,3 @@ Prefer making the wrong state unrepresentable over documenting it. Any place
 this refactor is tempted to say "these N call sites need care", stop and ask
 whether the type can refuse them instead. A migration that relies on vigilance
 at 55 call sites is not a migration, it is a bet.
-

@@ -213,5 +213,3 @@ D3's tool contracts in step 1 and `DECISIONS.md` sequenced them as S9, after the
 S1 fixes that package's renderer registry first. With no compatibility burden
 the ordering is a matter of engineering convenience rather than of exposure, so
 **wave 6 may fix the registry as part of itself** instead of waiting for S1.
-
-

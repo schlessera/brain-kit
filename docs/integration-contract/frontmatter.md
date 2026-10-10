@@ -322,4 +322,3 @@ exported from `@schlessera/brain` — and that test fails when this document, th
   maintain` (the hosting container runs it daily), `brain scratch prune`, and
   the chat server hourly. A file there may vanish at any time; a consumer that
   wants to keep one moves it out.
-

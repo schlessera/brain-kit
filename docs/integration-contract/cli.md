@@ -808,4 +808,3 @@ reuse the original staging result; source/principal provenance is server-owned,
 immutable and separated from CLI dedup keys. Queue-backed staging is exempt
 from legacy opportunistic pruning. Standalone staging retains its old lifetime.
 No production autonomous dispatch is enabled by these additive surfaces.
-

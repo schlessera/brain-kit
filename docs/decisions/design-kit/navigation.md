@@ -83,4 +83,3 @@ the app:
 11. **The neutral fill and the alpha derivation rule are the design's.**
 12. **Three more screens after the acceptance four:** Actions triage, File
     viewer, First run.
-

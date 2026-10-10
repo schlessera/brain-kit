@@ -214,5 +214,3 @@ or payload change follows. The
 retains all transcripts, item judgments, exact models/runtime versions,
 reviewed input hashes, private-data isolation limits, usage and billing
 provenance, and parameterized reproduction sources.
-
-

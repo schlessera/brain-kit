@@ -305,4 +305,3 @@ larger, and on prompts 3–7 the model stopped reading the brain through a
 shell. Prompts 4–7 are still two reps a run, so the summary's 1/4 to 3/4
 and `steps`' 3/4 to 4/4 are open in both directions, and so is an effect on
 `contact` and `quote` smaller than these counts can see.
-
