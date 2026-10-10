@@ -172,6 +172,36 @@ describe("a reload that kept the selected session's id", () => {
     expect(restorationOf(root.stores.chat.getState())).toBeNull();
   });
 
+  test("the bound runs from a request that left: offline, the session stays restoring", () => {
+    vi.useFakeTimers();
+    const root = reloaded();
+    root.connection.connect();
+    // The reader opens another session while the host is out of reach.
+    root.stores.chat.getState().setActiveSession("aeaea-circe");
+    vi.advanceTimersByTime(RESTORE_DEADLINE_MS * 2);
+    expect(restorationOf(root.stores.chat.getState()), "no request ever left").toEqual({ sessionId: "aeaea-circe", phase: "restoring" });
+  });
+
+  test("every other dispatch into the unseen session is refused too", () => {
+    const root = reloaded();
+    const socket = connect(root);
+    expect(root.connection.send({ type: "local_exchange", sessionId: OGYGIA, exchange: { id: "stats-1", command: "stats", prompt: "/stats", answer: "{}", context: "" } })).toBe(false);
+    expect(root.connection.send({ type: "retry_turn", sessionId: OGYGIA, failedTurnId: "turn-0", requestId: "retry-1" })).toBe(false);
+    expect(socket.frames("local_exchange")).toEqual([]);
+    expect(socket.frames("retry_turn")).toEqual([]);
+  });
+
+  test("selecting a failed session again is a new attempt, not the old failure", () => {
+    const root = reloaded();
+    const socket = connect(root);
+    socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: "transcript unreadable", sessionId: OGYGIA });
+    root.stores.chat.getState().setActiveSession("aeaea-circe");
+    socket.deliver({ type: "session_history", sessionId: "aeaea-circe", messages: HISTORY });
+    root.stores.chat.getState().setActiveSession(OGYGIA);
+    expect(restorationOf(root.stores.chat.getState())?.phase).toBe("restoring");
+    expect(socket.frames("session_resume").filter((f) => f.sessionId === OGYGIA), "and its history is asked for again").toHaveLength(2);
+  });
+
   test("SESSION_LOAD_ERROR keeps the selection and fails visibly; Retry restores only that session's history", () => {
     const root = reloaded();
     const socket = connect(root);
@@ -212,5 +242,22 @@ describe("a reload that kept the selected session's id", () => {
     socket.deliver({ type: "status", sessionId: OGYGIA, status: "idle" });
     expect(root.stores.chat.getState().activeSessionId, "late history does not reselect the abandoned session").toBeNull();
     expect(root.stores.drafts.getState().drafts[fresh]?.text, "nor overwrite the new chat's draft").toBe("A new voyage plan.");
+  });
+
+  test("a late resume announcement never adopts a new chat's transcript, even with the old buffer gone", () => {
+    const root = reloaded();
+    const socket = connect(root);
+    socket.deliver({ type: "error", code: "SESSION_LOAD_ERROR", message: "transcript unreadable", sessionId: OGYGIA });
+    const chat = root.stores.chat.getState();
+    chat.clearMessages();
+    // The abandoned session's buffer was evicted meanwhile.
+    root.stores.chat.setState((state) => { const buffers = { ...state.buffers }; delete buffers[OGYGIA]; return { buffers }; });
+    // The new chat's first message is on its way, as the composer leaves it.
+    root.stores.chat.getState().addUserMessage(null, "A new voyage plan.", "typed");
+    root.stores.chat.getState().startAssistantMessage(null);
+    root.stores.chat.getState().startDraftTurn();
+    socket.deliver({ type: "session_info", sessionId: OGYGIA, isNew: false });
+    expect(root.stores.chat.getState().activeSessionId, "the old session is not selected again").toBeNull();
+    expect(root.stores.chat.getState().draft?.messages.map((m) => m.content), "the new chat keeps its transcript").toEqual(["A new voyage plan.", ""]);
   });
 });

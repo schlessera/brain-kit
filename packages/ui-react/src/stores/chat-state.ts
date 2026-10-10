@@ -1869,7 +1869,13 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           const buffers = existing
             ? state.buffers
             : evictStale({ ...state.buffers, [sessionId]: emptyChat() }, sessionId);
-          return { activeSessionId: sessionId, buffers };
+          // Selecting a session again is a new attempt at restoring it (#1328).
+          let restoreFailures = state.restoreFailures;
+          if (sessionId !== state.activeSessionId && restoreFailures[sessionId]) {
+            restoreFailures = { ...restoreFailures };
+            delete restoreFailures[sessionId];
+          }
+          return { activeSessionId: sessionId, buffers, restoreFailures };
         }),
 
       setRunState: (sessionId, runState, note) =>
