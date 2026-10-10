@@ -8,6 +8,8 @@ import { doc, schedule } from "../scripts/evals/opportunity-lifecycle/fixtures";
 import { observe, differences } from "../scripts/evals/opportunity-lifecycle/observation";
 import { cli, successful } from "../scripts/evals/opportunity-lifecycle/cli";
 import { NativeEvidence } from "../scripts/evals/opportunity-lifecycle/native-evidence";
+import { prepare } from "../scripts/evals/opportunity-lifecycle/prepare";
+import { readFileSync } from "node:fs";
 
 const configuration = (enabled = true, fallback = true) => JSON.stringify({ reranker: { enabled: false },
   modules: { "@schlessera/brain-module-jobs": { enabled, criteria: "work/leads/criteria.md", opportunitiesDir: "work/leads", boards: [], queries: [] } },
@@ -149,4 +151,16 @@ test("forced native termination retains terminal diagnostics without claiming a 
   expect(observer.accounting().retainedResults).toHaveLength(1);
   expect(observer.accounting().rows[0]!.output).toBe(12);
   expect(observer.rawBytes().toString()).toBe(JSON.stringify(result));
+});
+
+test("fresh lifecycle preparation includes the approved common workspace in complete source/runtime inventory",()=>{
+ const parent=mkdtempSync(join(tmpdir(),"lifecycle-current-workspaces-")),output=join(parent,"review");
+ try{
+  expect(()=>prepare(output)).not.toThrow();
+  const manifest=JSON.parse(readFileSync(join(output,"manifest.json"),"utf8"));
+  expect(manifest.workspaces).toHaveLength(18);
+  expect(manifest.workspaces.find((w:any)=>w.root==="packages/common").manifest.kind).toBe("file");
+  for(const path of ["packages/common/src/frontmatter-parse.ts","packages/common/src/env-core.ts"])expect(manifest.sources[path].kind).toBe("file");
+  const corpus=JSON.parse(readFileSync(join(output,"corpus.json"),"utf8"));expect(corpus).toHaveLength(16);expect(corpus.reduce((n:number,c:any)=>n+c.checkpoints.length,0)).toBe(24);
+ }finally{rmSync(parent,{recursive:true,force:true});}
 });

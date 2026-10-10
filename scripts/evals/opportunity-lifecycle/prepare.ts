@@ -28,7 +28,10 @@ export function prepare(destination: string) {
     if (!closure[`${path}/package.json`]) throw new Error(`workspace manifest absent: ${name}`);
     return { root: path, rootIdentity: closure[path], manifest: closure[`${path}/package.json`] };
   });
-  if (workspaces.length !== 17) throw new Error("workspace inventory changed; re-audit complete scope");
+  // Re-audited after main introduced the shared internal common package (#1453).
+  const reviewedRoots = ["packages/common", "packages/core", "packages/geo", "packages/module-finance", "packages/module-images", "packages/module-jobs", "packages/module-speaking", "packages/module-travel", "packages/module-video", "packages/render-template", "packages/scrape", "packages/ui-backend-claude", "packages/ui-backend-pi", "packages/ui-kit", "packages/ui-react", "packages/ui-render-puppeteer", "packages/ui-sdk", "packages/ui-server"];
+  if (JSON.stringify(workspaces.map(workspace => workspace.root)) !== JSON.stringify(reviewedRoots))
+    throw new Error("workspace inventory changed; re-audit complete scope");
   const sdk = JSON.parse(readFileSync(join(root,"node_modules/@anthropic-ai/claude-agent-sdk/package.json"),"utf8"));
   const payload = { mode: "new author-provisional review freeze; no historical freeze identity", dispatchAllowed: false,
     runtime: { bun: Bun.version, bunBinarySHA256: sha(readFileSync(process.execPath)), sdk: sdk.version,

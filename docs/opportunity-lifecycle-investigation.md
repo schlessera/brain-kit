@@ -296,7 +296,7 @@ The first new byte-only freeze is retained as superseded after independent audit
 it omitted executable/directory modes and resolved link identity. Its replacement
 binds all physical files and directories, modes, device/inode identities, mtimes,
 sizes and content, plus literal links constrained to the owned tree, their resolved
-identities and target subtree bytes. All seventeen workspace roots/manifests and
+identities and target subtree bytes. All eighteen workspace roots/manifests and
 owned installed dependencies participate; only root Git administration is excluded.
 Real chmod and same-byte link retargeting change the digest, and omitting mode or
 resolved-path binding fails the intended assertions. Copies need their own literal

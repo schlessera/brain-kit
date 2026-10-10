@@ -323,7 +323,7 @@ independent veto. Whole-file archive scope and production transaction/locking
 limits still apply. The synthetic annotation controls prove binding and veto
 mechanics, not annotator correctness or authorship.
 
-The source freeze binds all seventeen workspace source/manifests, complete
+The source freeze binds all eighteen workspace source/manifests, complete
 installed JavaScript dependencies and link/mode metadata, outside-hardlink
 refusal, owned scripts/tests and exact Bun/SDK/native bytes. General OS libraries
 and the kernel remain outside this byte closure. Complete case/source review
