@@ -289,7 +289,7 @@ path you typed yourself: an error about a missing `--set`, `--baseline` or
 ## Output
 
 `--json` prints the envelope described in the
-[integration contract](integration-contract.md#brain-eval---json); `--out <file>`
+[integration contract](integration-contract/cli.md#brain-eval---json); `--out <file>`
 also writes it to a file, which must be inside the brain: a path that leads
 out, directly or through a symlink, is refused before the run starts. Without
 `--out` nothing is written. The `meta` block

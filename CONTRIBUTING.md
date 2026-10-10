@@ -260,7 +260,8 @@ with a standard XML parser and inspect its testcase names and counts.
 
 1. **Contract changes** (CLI `--json` shapes, MCP tool names/schemas, db
    `schema_version`, frontmatter semantics): update
-   `docs/integration-contract.md` in the same commit and prefix the commit with
+   the index or relevant component under
+   `docs/integration-contract/` in the same commit and prefix the commit with
    `CONTRACT:`. Additive changes ship in a minor; a breaking change needs a
    maintainer ruling on its issue before code is written (see the contract
    doc's header). Two checks hold this, described under
@@ -364,10 +365,11 @@ Two checks find contract changes, so a break cannot ship as a minor unnoticed.
 **The contract gate** (`.github/workflows/contract.yml`, rule in
 `scripts/check-contract-pr.ts`) runs on every pull request and again whenever
 its title or labels change. A PR whose diff touches
-`docs/integration-contract.md` must be titled `CONTRACT: <type>(<scope>): …`
+`docs/integration-contract.md` or any Markdown component in
+`docs/integration-contract/` must be titled `CONTRACT: <type>(<scope>): …`
 and carry the `contract` label. A PR titled `CONTRACT:` or labelled `contract`
-must touch the doc. PRs are squash-merged, so the title becomes the commit
-subject that an audit searches for. "Touches" means the PR's own diff, from
+must touch the index or a component. PRs are squash-merged, so the title
+becomes the commit subject that an audit searches for. "Touches" means the PR's own diff, from
 where its branch left the base to its head commit. If the gate fails, either
 fix the title and label, or move the doc edit out of a PR that is not a
 contract change.

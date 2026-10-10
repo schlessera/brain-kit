@@ -420,7 +420,7 @@ describe("readShareLaunchParams", () => {
 });
 
 test("the documented track manifest reaches the registered worker and stashes nonempty original GPX with mixed content", async () => {
-  const doc = await Bun.file(new URL("../../../docs/integration-contract.md", import.meta.url)).text();
+  const doc = await Bun.file(new URL("../../../docs/integration-contract/package-api.md", import.meta.url)).text();
   const example = doc.split("<!-- track-share-target-example -->")[1]?.split("<!-- /track-share-target-example -->")[0];
   expect(example).toBeDefined();
   const json = example!.match(/```json\n([\s\S]+?)\n```/)?.[1]; expect(json).toBeDefined();

@@ -12,7 +12,7 @@ on documented results and behavior. Keep internal schema versions to detect
 incompatible indexes. Markdown remains authoritative and the index remains
 rebuildable. The ruling neither schedules 1.0 nor freezes a new API immediately.
 
-The existing [direct-SQL contract](../integration-contract.md#braindb-direct-sql-reads)
+The existing [direct-SQL contract](../integration-contract/frontmatter.md#braindb-direct-sql-reads)
 remains binding until replacements and consumer transitions are implemented.
 Recording this ruling does not withdraw its table, column, metadata, read-only
 or version promises. The [shipped API specification](../content-index-queries.md)
@@ -123,7 +123,7 @@ neither justified a service or configurable query-provider seam.
 > first to export `./queries`, its declarations name all nine operations and its
 > query source matches the source the server was migrated against; 0.39.0 has no
 > entry. Graph and voice routes keep their mappings as recorded in the
-> [integration contract](../integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697).
+> [integration contract](../integration-contract/package-api.md#ui-server-optional-core-peer-breaking-host-migration-697).
 > The UI-server citations in this record that predate the migration link the
 > pre-migration commit; a frozen copy of those readers under
 > `tests/helpers/legacy-ui/` remains the parity and measurement baseline until

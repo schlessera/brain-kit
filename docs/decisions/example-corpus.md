@@ -28,7 +28,7 @@ leakage gate keeps its existing scope and patterns.
 
 This explicitly supersedes **D18's separate-persona and no-shared-content
 restrictions** and **D19's restriction to UI/presentation surfaces** in
-[the design-kit record](design-kit.md#2026-09-15--d19-the-fixture-world-is-the-odyssey-maintainers-choice).
+[the design-kit record](design-kit/fixtures.md#2026-09-15--d19-the-fixture-world-is-the-odyssey-maintainers-choice).
 Their reasons for separating invariant-focused fixtures from presentation
 fixtures still apply. One world does not mean one generic fixture framework.
 

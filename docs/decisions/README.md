@@ -116,7 +116,7 @@ replacement guidance or implementation. Distinguish two cases:
 - **Implementation context:** the code evolved or a planned fix landed, while
   the decision still binds. Say which claim describes the old implementation;
   do not call the decision superseded. The static-store audit in
-  [design-kit.md](design-kit.md#corrections-that-change-the-plan) is an example.
+  [design-kit.md](design-kit/state-architecture.md#corrections-that-change-the-plan) is an example.
 - **Superseded decision:** a later ruling reverses the choice. Name the reversed
   decision and link to the replacement ruling. Hardening's
   [decision 3](hardening.md#key-technical-decisions) now points to the

@@ -11,7 +11,7 @@ API migrations.
 
 [docs/http-api.md](../http-api.md) is the complete method/path inventory and
 supported specification, incorporated by the
-[integration contract](../integration-contract.md#ui-server-http-routes).
+[integration contract](../integration-contract/http.md#ui-server-http-routes).
 It selects 47 of 85 currently declared method/path pairs; 38 are internal,
 alongside the conditional static fallback. Selection rests on two grounds:
 

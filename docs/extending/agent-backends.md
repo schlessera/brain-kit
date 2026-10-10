@@ -133,7 +133,7 @@ host lists those apart, for presentation only, and drops any entry whose
 reason is not in the enum, so never put configuration detail such as a key
 name in it. A backend that lists every configured profile, as pi does, omits
 the member. See
-[the integration contract](../integration-contract.md#unavailable-profiles-additive-1044).
+[the integration contract](../integration-contract/wire.md#unavailable-profiles-additive-1044).
 
 Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:
@@ -151,7 +151,7 @@ keeps the backend-derived failure. The host also preserves observed terminal
 `attempts` and `resetsAt`; unknown values stay absent. `attempts` means reported
 retries (Claude's per-turn retry observations or pi's last reported attempt),
 not an estimate including the first call. Reset timestamps use epoch milliseconds.
-No additional backend method or separate wire field is required; see [Turn failures](../integration-contract.md#turn-failures-additive-in-0400).
+No additional backend method or separate wire field is required; see [Turn failures](../integration-contract/wire.md#turn-failures-additive-in-0400).
 
 ## Turn lifecycle
 

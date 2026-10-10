@@ -50,7 +50,7 @@ The binding constraints are:
   questions and `ask_user_list` do not. The current guard is
   (`questionForTypedAnswer`,
   `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`). The
-  [list contract](../integration-contract.md#ask_user_list-additive-in-0400)
+  [list contract](../integration-contract/mcp.md#ask_user_list-additive-in-0400)
   requires a reader and withholds the tool under `noGrantSurface`; voice does
   not widen it.
 - There is no wake word, speaker identification, voice authentication or
