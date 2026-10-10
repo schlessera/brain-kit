@@ -1,9 +1,10 @@
 ---
 import { href } from '../../model.mjs';
 import ExternalLink from './ExternalLink.astro';
+import { brandFile } from '../lib/brand.ts';
 ---
 <header class="site-header">
-  <a class="brand" href={href()}><img src={href('favicon.svg')} width="29" height="29" alt="" />brain-kit</a>
+  <a class="brand" href={href()}><img class="brand-lockup on-dark" src={brandFile('lockup-on-dark.svg')} width="135" height="32" alt="brain-kit"/><img class="brand-lockup on-paper" src={brandFile('lockup-on-paper.svg')} width="135" height="32" alt="brain-kit"/></a>
   <nav aria-label="Main navigation">
     <a href={href('#demo')}>Explore</a><a href={href('#how-it-works')}>How it works</a><a href={href('docs/')}>Docs</a><ExternalLink href="https://github.com/schlessera/brain-kit">GitHub</ExternalLink>
   </nav>
