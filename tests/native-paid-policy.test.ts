@@ -36,3 +36,21 @@ test("actual reservation refuses appended unreviewed USER text before the reques
   await expect(dispatch([{role:"user",content:[{type:"text",text:"Odysseus fixture"},{type:"text",text:"Unreviewed source"}]}])).rejects.toThrow("USER");
   expect(forwarded).toBe(0);
 });
+
+test("review financial admission rejects malformed tools before reserving or forwarding",()=>{
+  for(const tools of [{name:"Write"},"Write",[{}]]){
+    const b=new NativeBudget(842,"offline",policy(),binding,()=>{});
+    expect(()=>b.reserve(Buffer.from(JSON.stringify({...JSON.parse(wire.toString()),tools})))).toThrow("Exact frozen native prompt/tool/effort boundary");
+    expect(b.entries).toHaveLength(0);
+  }
+});
+
+test("job-fit workflow retains its original64-request bound while every review stays24",()=>{
+  const p={...policy(),issue:847 as const,purpose:"workflow" as const,maxPhysicalRequests:64 as const};
+  const b=new NativeBudget(847,"offline",p,binding,()=>{});
+  for(let index=0;index<64;index++){const id=b.reserve(wire);expect(id).toBe(index);b.settle(id,usage);}
+  expect(b.entries).toHaveLength(64);expect(()=>b.reserve(wire)).toThrow("physical bound");
+  for(const change of [{purpose:"review"},{issue:846},{maxPhysicalRequests:24},{maxPhysicalRequests:65}])
+    expect(()=>new NativeBudget((change.issue??847) as any,"offline",{...p,...change} as NativePaidPolicy,binding,()=>{})).toThrow("mismatched");
+  expect(()=>new NativeBudget(847,"offline",{...p,purpose:"review",maxPhysicalRequests:24},binding,()=>{})).not.toThrow();
+});
