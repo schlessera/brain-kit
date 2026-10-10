@@ -72,12 +72,20 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
       await demo.getByText(/^documents · \d+ snapshots$/).first().waitFor();
       await demo.getByText(String(corpus.documents), { exact: true }).first().waitFor();
       await overflowFree('stats');
-      // The daily briefing is `brain briefing`'s keyless output for the same files.
+      // The daily briefing, as the whatsup skill writes it from the same files.
       await demo.goto(`${origin}${base}demo/rank/?scene=ships&theme=${theme}`, { waitUntil: 'domcontentloaded' });
       await demo.getByText('Ship 12', { exact: true }).first().waitFor();
       await demo.getByText('More', { exact: true }).last().click();
       await demo.getByText('Daily briefing', { exact: true }).first().click();
-      for (const heading of ['Current Focus', 'Upcoming Deadlines', 'Upkeep', 'Stale Documents']) await demo.getByRole('heading', { name: heading, exact: true }).first().waitFor();
+      for (const heading of ['Today', 'Ahead', 'Ithaca', 'The brain']) await demo.getByRole('heading', { name: heading, exact: true }).first().waitFor();
+      // Read at a glance: entities are drawn as entities, links are rare, and
+      // nothing lists stale records.
+      const glance = await demo.locator('.whatsup-briefing').first().evaluate(root => ({
+        entities: ['p', 'co', 'proj', 'ev', 'd', 'st'].filter(kind => root.querySelector(`.entity-${kind}`)).length,
+        links: root.querySelectorAll('a').length,
+        stale: /stale/i.test(root.textContent ?? ''),
+      }));
+      assert(glance.entities === 6 && glance.links <= 2 && !glance.stale, `Briefing does not read at a glance: ${JSON.stringify(glance)}`);
       await overflowFree('briefing');
     }
     await context.close();

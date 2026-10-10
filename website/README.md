@@ -21,8 +21,9 @@ notes show up in the maintenance view. Brain statistics answer from the same
 files: document, type, tag and link counts, health ratios and six weeks of
 daily snapshots are measured from the records and their dates; only the
 agent's run and spend figures are written as fiction. The daily briefing is
-`brain briefing`'s keyless output for the same files, built section for section
-as core builds it; no model writes it.
+staged as the whatsup skill writes one: grouped by what matters today, with
+people, projects, events, dates and states marked as entities and almost no
+links; every figure in it is read from the records.
 
 Sharing uses the product's actual menus and share helpers. PNG and PDF targets
 are prepared with the production renderer and committed under
