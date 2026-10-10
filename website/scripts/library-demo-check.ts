@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import type { Page } from 'playwright';
 import { sceneIndex, type SceneId } from '../src/demo/scene-index.ts';
 import { knowledgeResponse } from '../src/demo/knowledge.ts';
@@ -52,6 +53,26 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
       await overflowFree('search');
       searched++;
     } else console.log(`Library search: this release draws no search entry at ${width}px; skipped.`);
+    // The graph's camera answers the mouse: a wheel zooms and a drag pans.
+    // Measured from an empty corner, so no hovered node can pass for a move.
+    if (width >= 900) {
+      await demo.goto(`${origin}${base}demo/rank/?scene=ships&theme=${theme}`, { waitUntil: 'domcontentloaded' });
+      await demo.getByText('Ship 12', { exact: true }).first().waitFor();
+      // A rail item in some releases; the command palette in others.
+      const entry = demo.getByText('Graph', { exact: true }).filter({ visible: true }).first();
+      if (await entry.count()) await entry.click();
+      else { await demo.keyboard.press('Control+k'); await demo.keyboard.type('Graph'); await demo.keyboard.press('Enter'); }
+      const canvas = demo.locator('canvas').last(); await canvas.waitFor(); await demo.waitForTimeout(2500);
+      const box = (await canvas.boundingBox())!; const corner = { x: box.x + 24, y: box.y + box.height - 24 };
+      const view = async () => createHash('sha1').update(await demo.screenshot({ clip: box })).digest('hex');
+      await demo.mouse.move(corner.x, corner.y); await demo.waitForTimeout(600);
+      const before = await view();
+      await demo.mouse.wheel(0, -500); await demo.waitForTimeout(900);
+      const zoomed = await view();
+      await demo.mouse.down(); await demo.mouse.move(corner.x + 120, corner.y - 80, { steps: 15 }); await demo.mouse.up(); await demo.mouse.move(corner.x, corner.y); await demo.waitForTimeout(900);
+      const panned = await view();
+      assert(before !== zoomed && zoomed !== panned, `Graph camera ignored the mouse at ${width}/${theme}: zoom ${before !== zoomed}, pan ${zoomed !== panned}`);
+    }
     // The graph lays out every folder; the library's largest ones are listed.
     if (width < 900) {
       await demo.goto(`${origin}${base}demo/rank/?theme=${theme}`, { waitUntil: 'domcontentloaded' });
@@ -90,5 +111,5 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
     }
     await context.close();
   }
-  console.log(`Library demo proof passed: ${Object.keys(sceneIndex).length} scenes at 320 and 1280, the graph, brain statistics and the daily briefing at 320, in both themes; search in ${searched} of 4 layouts.`);
+  console.log(`Library demo proof passed: ${Object.keys(sceneIndex).length} scenes at 320 and 1280, graph zoom and pan at 1280, the graph, brain statistics and the daily briefing at 320, in both themes; search in ${searched} of 4 layouts.`);
 }

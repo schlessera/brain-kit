@@ -18,7 +18,11 @@ const ActivityPage = lazy(() => import('../../../packages/ui-react/src/component
 const GraphPage = lazy(() => import('../../../packages/ui-react/src/components/graph/graph-page.tsx').then(m => ({ default: m.GraphPage })));
 const workStart = referenceNow - 60000;
 // The clock, like the responses, is fictional and isolated inside this iframe.
-Date.now = () => referenceNow;
+// It starts at 06:40 on the pinned morning and then runs in real time, because
+// a frozen clock stops anything timed by it: the graph camera's wheel zoom and
+// drag pan never moved.
+const clockStart = performance.now();
+Date.now = () => referenceNow + Math.floor(performance.now() - clockStart);
 const workSpans: ActivitySpan[] = [
   { runId: 'departure-review', spanId: 'root', kind: 'cron', origin: 'cron', name: 'Prepare for departure', startedAt: workStart },
   { runId: 'departure-review', spanId: 'supplies', parentSpanId: 'root', kind: 'subagent', origin: 'cron', name: 'invoke_agent', subagent: { type: 'supplies', description: 'Review the provisions.' }, startedAt: workStart, endedAt: workStart + 23000, outcome: 'success' },
@@ -133,7 +137,12 @@ class FixtureSocket {
     const frame = JSON.parse(raw);
     if (frame.type === 'ping') this.emit({ type: 'pong', probeId: frame.probeId });
     if (frame.type === 'activity_subscribe') this.emit({ type: 'activity_snapshot', view: frame.view, runId: frame.runId, spans: workSpans, events: [], highWaterSeq: { 'departure-review': 0 } });
-    if (frame.type === 'session_resume' && !seeding) { ui.stores.chat.getState().setActiveSession(frame.sessionId); seed(frame.sessionId === 'raft' ? 'comparison' : frame.sessionId === 'ogygia' ? 'rank' : frame.sessionId, frame.sessionId); }
+    // A host answers a resume with the transcript it already holds; the demo
+    // seeds only a session it holds nothing for. A reconnect asks again, and
+    // re-seeding then would replace the scene the visitor is looking at.
+    const held = ui.stores.chat.getState().buffers[frame.sessionId ?? '']?.messages.length;
+    if (frame.type === 'session_resume' && held) confirmHistory(frame.sessionId);
+    else if (frame.type === 'session_resume' && !seeding) { ui.stores.chat.getState().setActiveSession(frame.sessionId); seed(frame.sessionId === 'raft' ? 'comparison' : frame.sessionId === 'ogygia' ? 'rank' : frame.sessionId, frame.sessionId); }
     if (frame.type === 'ask_user_rank_response') {
       const key = frame.sessionId || ui.stores.chat.getState().activeSessionId || 'ogygia';
       if (frame.submissionId) this.emit({ type: 'ask_answer_receipt', requestId: frame.requestId, submissionId: frame.submissionId, sessionId: key, turnId: frame.turnId, state: 'accepted' });
