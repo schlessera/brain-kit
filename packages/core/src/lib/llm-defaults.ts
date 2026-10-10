@@ -13,8 +13,9 @@ export const EMBEDDING_MODEL = "gemini-embedding-2";
 /** Default embedding output dimensionality. */
 export const EMBEDDING_DIMENSIONS = 1536;
 
-/** Fast Gemini generation model — enrichment, briefings, vision descriptions. */
-export const GEMINI_FLASH_MODEL = "gemini-3-flash-preview";
+/** Fast Gemini generation model — enrichment, briefings, vision descriptions.
+ * Typed `string`: the default moves with Gemini releases. */
+export const GEMINI_FLASH_MODEL: string = "gemini-3-flash-preview";
 
 /** Fast Claude model for plain completions via the Anthropic API. */
 export const CLAUDE_FAST_MODEL = "claude-haiku-4-5-20251001";

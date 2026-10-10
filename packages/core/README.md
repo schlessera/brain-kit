@@ -56,6 +56,11 @@ errors. See the [API specification](../../docs/content-index-queries.md) for
 options, defaults, compatibility and snapshot semantics. Existing CLI/MCP
 behavior and direct-SQL guarantees remain binding during consumer migration.
 
+`@schlessera/brain/module` holds the supported module-authoring helpers: path
+containment, atomic writes, scratch, generated regions, the corpus walk, the
+index registry and completion-provider resolution
+([modules guide](../../docs/modules.md#the-module-authoring-entry)).
+
 `@schlessera/brain/internal` holds first-party native-handle search/context and
 write helpers. It has no compatibility guarantee and requires the same
 lockstep version; integrations should use the supported query results.

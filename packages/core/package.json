@@ -36,7 +36,12 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./testing": {
+    "./module": {
+    "bun": "./src/module.ts",
+    "types": "./dist/module.d.ts",
+    "default": "./dist/module.js"
+  },
+  "./testing": {
       "bun": "./src/testing/index.ts",
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"

@@ -85,6 +85,7 @@ export function buildRegistry(brain: BrainContext): Registry {
             // silently fell back to schema defaults on error).
             config: mod.config,
             taxonomy: cli.brain.taxonomy,
+            completions: cli.brain.config?.completions,
           });
         },
         async describe() {

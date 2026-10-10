@@ -1,8 +1,8 @@
 import { lstatSync, readFileSync } from "fs";
 import { join, posix } from "path";
-import { inertGeneratedText, rewriteGeneratedRegion, safeResolve, writeFileSafely } from "@schlessera/brain/internal";
+import { inertGeneratedText, rewriteGeneratedRegion, safeResolve, writeFileSafely } from "@schlessera/brain/module";
 import type { Taxonomy } from "@schlessera/brain";
-import type { ValidationIssue } from "@schlessera/brain/internal";
+import type { ValidationIssue } from "@schlessera/brain/module";
 import { readTravelCorpus, summarizePlaceVisits } from "./content.js";
 import type { Place, Trip, TravelCorpus } from "./content.js";
 

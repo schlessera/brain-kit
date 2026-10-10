@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { z } from "zod";
 import { isMap, isNode, isScalar, parseDocument, type YAMLMap } from "yaml";
 import { type ModuleSettings, type ModuleSettingsField, type ModuleSettingsMigrationPlan } from "@schlessera/brain";
-import { safeResolve } from "@schlessera/brain/internal";
+import { safeResolve } from "@schlessera/brain/module";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { parseScoringConfig, scoreMaxes } from "./score.js";
 import { getAdapterOptions } from "./scrape.js";

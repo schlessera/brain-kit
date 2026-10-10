@@ -576,6 +576,28 @@ same structure the first-party modules use — they are the reference examples.
 If it declares tools, lint also validates their imports, definitions, names,
 annotations, schemas, input descriptions and README coverage.
 
+### The module-authoring entry
+
+A module imports core from two supported entries: `@schlessera/brain` for the
+manifest API (`defineModule`, `CommandModule`, `CommandContext` …) and
+`@schlessera/brain/module` for the helpers that touch the brain's files the
+way core does. Both are `@experimental` until 1.0. Never import
+`@schlessera/brain/internal`: it has no compatibility promise, and the
+first-party modules do not use it either.
+
+| Need | `@schlessera/brain/module` exports |
+| --- | --- |
+| Keep a path inside the brain | `safeResolve`, `resolveWritable` |
+| Write a document atomically | `writeFileSafely` (`replace: false` refuses an existing name with `WriteRefusedError`, `code: "EEXIST"`) |
+| Intermediate files that are never canonical | `SCRATCH_DIR`, `scratchName`, `writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`, `pruneScratch` |
+| Rewrite a generated region, keeping the rest of the file | `splitFrontmatterBlock`, `rewriteGeneratedRegion`, `inertGeneratedText` |
+| Walk the corpus or regenerate registry indexes | `buildTaxonomy`, `getMarkdownFiles`, `runRegistry`, `ValidationIssue` |
+| Call the configured completion provider | `resolveCompletionProvider(ctx.completions)`, `geminiCompletions`, `GEMINI_FLASH_MODEL` |
+
+A command gets the merged taxonomy as `ctx.taxonomy` and the brain's
+`completions` block as `ctx.completions`. Index reads go through `ctx.queries`
+in hygiene checks, or `@schlessera/brain/queries`.
+
 The approved [module instruction ownership and migration policy](decisions/module-instruction-ownership.md)
 binds future instruction contributions and onboarding. It requires text
 derived from validated module config, explicitly owned generated regions,

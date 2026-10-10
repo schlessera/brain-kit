@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { buildTaxonomy } from "@schlessera/brain/internal";
+import { buildTaxonomy } from "@schlessera/brain/module";
 import { discoverSkills } from "../../core/src/lib/skills/discover.js";
 import { lintSkills } from "../../core/src/lib/skills/lint.js";
 import type { LoadedModule } from "@schlessera/brain";

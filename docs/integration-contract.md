@@ -118,6 +118,27 @@ hook for tests). A shell wraps its whole tree in it, providers included, so a
 render error outside a page shows a reload screen instead of a blank app. The
 page-level boundary inside `AppShell` needs nothing from the shell.
 
+**Additive: the module-authoring entry `@schlessera/brain/module` (#1397,
+ruled on #537).** The helpers a module needs to touch the brain's files the
+way core does, `@experimental` until 1.0: path containment and atomic writes
+(`safeResolve`, `resolveWritable`, `writeFileSafely` with
+`WriteFileSafelyOptions`, `WriteRefusedError`, whose `code` is `"EEXIST"` when
+a name may not be replaced); the scratch area (`SCRATCH_DIR`, `scratchName`,
+`writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`,
+`pruneScratch` with `ScratchReport`, `ScratchRemoval` and `ScratchFailure`);
+frontmatter and generated regions (`splitFrontmatterBlock`,
+`rewriteGeneratedRegion`, `inertGeneratedText`); the taxonomy, corpus walk and
+index registry (`buildTaxonomy`, `getMarkdownFiles`, `runRegistry` with
+`RegistryRun` and `RegistryProblem`, and `ValidationIssue`); and completion
+providers (`resolveCompletionProvider`, `geminiCompletions` with
+`GeminiCompletionConfig`, `GEMINI_FLASH_MODEL`). `CommandContext` gains an
+optional `completions`, the brain's `completions` config block as written, so
+a module command resolves the configured provider instead of reading core's
+process context. First-party modules import this entry and never
+`@schlessera/brain/internal`. Index reads stay behind `ctx.queries` and
+`@schlessera/brain/queries`. The `/internal` entry keeps the same names for
+the first-party packages that still import them.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.
@@ -2076,7 +2097,9 @@ query APIs. This scoped classification added the internal entry and migrated
 pi's imports; the [export curation](#package-entry-points) removed these
 helpers from the ordinary `@schlessera/brain` entry, and moved the other
 helpers pi and the modules share (path safety, scratch, generated regions,
-taxonomy, context and write helpers) to the same internal entry.
+taxonomy, context and write helpers) to the same internal entry. Modules now
+take theirs from the supported `@schlessera/brain/module` entry
+([package entry points](#package-entry-points)).
 Existing direct-SQL guarantees remain binding until the explicit retirement.
 
 ### UI server optional core peer (breaking host migration, #697)
