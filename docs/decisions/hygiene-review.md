@@ -214,7 +214,7 @@ normal hard cap and current previews, and concurrent requests must not create
 duplicate pending cards. If the fresh card itself loses, pause with the new
 receipt; the server never retries or re-admits automatically. Reload and backup
 must retain that honest state. The additive reason and response semantics are
-specified in [the review contract](../integration-contract.md#human-started-hygiene-review-additive-1027).
+specified in [the review contract](../integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
 
 Keeping a terminal card advertised as pending makes review and backup disagree
 with the shared lifecycle. Automatically re-admitting it would turn hard-cap
