@@ -1,0 +1,22 @@
+"""Freeze parameterized source records; no provider calls. Original semantics must match."""
+import hashlib,json,os
+from pathlib import Path
+checkout=Path(os.environ['BRAIN_MEASUREMENT_CHECKOUT']);scratch=Path(os.environ['BRAIN_MEASUREMENT_SCRATCH'])
+sha=lambda path:hashlib.sha256(path.read_bytes()).hexdigest()
+manifest=json.loads((scratch/'executed-manifest.json').read_text())
+for collection in ['sources','executionRuntimeSources']:
+    for path,digest in manifest[collection].items():
+        if sha(checkout/path)!=digest:raise RuntimeError('Source differs from the measured commit; prepare/review new semantics instead')
+for path,digest in manifest['corpusFiles'].items():
+    if sha(checkout/'packages/core/fixtures/corpus'/path)!=digest:raise RuntimeError('Corpus differs from measured bytes')
+manifest['launcher']=sha(scratch/'launch.py')
+manifest['complementaryReviewSource']=sha(scratch/'complementary-review.ts')
+for path in manifest['executionObservers']:manifest['executionObservers'][path]=sha(scratch/path)
+(scratch/'frozen-inputs.json').write_text(json.dumps(manifest,indent=2))
+snapshot=json.loads((scratch/'input-review-snapshot.json').read_text());snapshot['manifest']=manifest
+(scratch/'input-review-snapshot.json').write_text(json.dumps(snapshot,indent=2))
+ruling='https://github.com/schlessera/brain-kit/issues/838#issuecomment-6038531493'
+(scratch/'billing-ledger.json').write_text(json.dumps({'capUsd':150,'basis':'actual additional billed charges','ruling':ruling,'reservations':{'550':15}},indent=2))
+(scratch/'cap-plan.json').write_text(json.dumps({'billingMode':'actual-additional','issueActualBilledCapUsd':15,'ruling':ruling,'rootLedger':str(scratch/'billing-ledger.json'),'knownNewActualAdditionalBilledUsd':0,'nextActualAdditionalReservationUsd':15},indent=2))
+(scratch/'runs').mkdir(exist_ok=True)
+print(hashlib.sha256(json.dumps(manifest,separators=(',',':'),ensure_ascii=False).encode()).hexdigest())

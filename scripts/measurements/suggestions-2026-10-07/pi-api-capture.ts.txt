@@ -1,0 +1,79 @@
+import {readFileSync,writeFileSync,existsSync,appendFileSync,mkdirSync} from "node:fs";
+import {createHash,randomUUID} from "node:crypto";
+const MODEL="claude-sonnet-5-5",CONTEXT=1_000_000,MAX_OUTPUT=128_000,CAP=15;
+const integer=(n:unknown):n is number=>Number.isSafeInteger(n)&&Number(n)>=0;
+export function officialPrice(usage:any){
+ const values=[usage?.input_tokens,usage?.output_tokens,usage?.cache_read_input_tokens,usage?.cache_creation_input_tokens];
+ if(!values.every(integer))return null;
+ const [input,output,read,write]=values;
+ if(input+read+write>CONTEXT||output>MAX_OUTPUT)return null;
+ const base=input*20+output*100+read*2;
+ const short=usage.cache_creation?.ephemeral_5m_input_tokens,long=usage.cache_creation?.ephemeral_1h_input_tokens;
+ if(integer(short)&&integer(long)&&short+long===write){const usd=(base+short*25+long*40)/1e7;return {lowerUsd:usd,upperUsd:usd,exact:true};}
+ return {lowerUsd:(base+write*25)/1e7,upperUsd:(base+write*40)/1e7,exact:write===0};
+}
+export function installPiApiCapture(dispatch:typeof fetch=globalThis.fetch.bind(globalThis),timeoutMs=180000){
+ if(!Number.isFinite(timeoutMs)||timeoutMs<=0)throw new Error("Invalid API request deadline");
+ const scratch=process.env.TMPDIR;if(!scratch)throw new Error("Missing owned API receipt scratch");
+ const runs=`${scratch}/runs`;mkdirSync(runs,{recursive:true});const ledger=`${runs}/pi-api-raw-receipts.json`;
+ const read=():any[]=>existsSync(ledger)?JSON.parse(readFileSync(ledger,"utf8")):[];
+ const rows=read();const admissionError=`${runs}/pi-api-admission-error.json`;let blocked=existsSync(admissionError),active=false;
+ const save=()=>writeFileSync(ledger,JSON.stringify(rows,null,2),{mode:0o600});
+ const refuse=(reason:string):never=>{blocked=true;writeFileSync(admissionError,JSON.stringify({reason,physicalRequestStarted:false,cell:process.env.BRAIN_MEASURE_CELL??null}),{mode:0o600});throw new Error(`Pi API capture stopped: ${reason}`)};
+ globalThis.fetch=(async(input:any,init?:RequestInit)=>{
+  const url=new URL(typeof input==="string"||input instanceof URL?String(input):input.url);
+  if(["localhost","127.0.0.1","[::1]"].includes(url.hostname))return dispatch(input,init);
+  if(url.origin!=="https://api.anthropic.com"||url.pathname!=="/v1/messages")return refuse("unexpected external endpoint");
+  if(blocked||active||rows.some(row=>!row.finished||!row.apiEquivalent||row.error||row.model!==MODEL||row.responseModel!==MODEL||row.billingRoute!=="anthropic-api-key"||row.standardCapacity!=="standard_only"||row.inferenceGeography!=="global"||![row.apiEquivalent.lowerUsd,row.apiEquivalent.upperUsd,row.reservedActualApiUsd].every(n=>typeof n==="number"&&Number.isFinite(n)&&n>=0)||row.apiEquivalent.lowerUsd>row.apiEquivalent.upperUsd||row.apiEquivalent.upperUsd>row.reservedActualApiUsd))return refuse("prior unknown/error/invalid receipt or overlapping request");
+  const key=process.env.ANTHROPIC_API_KEY;
+  if(!key||process.env.ANTHROPIC_OAUTH_TOKEN||process.env.CLAUDE_CODE_OAUTH_TOKEN||process.env.ANTHROPIC_AUTH_TOKEN)return refuse("isolated API-key route absent");
+  const headers=new Headers(input instanceof Request?input.headers:undefined);new Headers(init?.headers).forEach((v,k)=>headers.set(k,v));
+  if(headers.get("x-api-key")!==key||headers.has("authorization"))return refuse("request auth selector mismatch");
+  const bodyText=typeof init?.body==="string"?init.body:input instanceof Request?await input.clone().text():null;
+  if(bodyText===null)return refuse("request body is not observable JSON");
+  let body:any;try{body=JSON.parse(bodyText)}catch{return refuse("invalid request JSON")}
+  if(body.model!==MODEL||body.stream!==true||!integer(body.max_tokens)||body.max_tokens===0||body.max_tokens>MAX_OUTPUT)return refuse("exact model/stream/output bound mismatch");
+  if(body.inference_geo!==undefined&&body.inference_geo!=="global"||body.speed!==undefined&&body.speed!=="standard"||body.tools?.some((tool:any)=>tool.type!==undefined&&tool.type!=="custom"))return refuse("premium geography/speed or server-tool surcharge input");
+  body.service_tier="standard_only";body.inference_geo="global";
+  const sentBody=JSON.stringify(body);headers.delete("content-length");
+  const sourceSignal=init?.signal??(input instanceof Request?input.signal:undefined);
+  const deadline=AbortSignal.timeout(timeoutMs);
+  const forwarded={...init,headers,body:sentBody,redirect:"error" as RequestRedirect,signal:sourceSignal?AbortSignal.any([sourceSignal,deadline]):deadline};
+  const bound=(CONTEXT*4+body.max_tokens*10)/1e6;
+  const spent=rows.reduce((sum,row)=>sum+row.apiEquivalent.upperUsd,0);
+  if(!Number.isFinite(bound)||bound<0||spent+bound>CAP)return refuse("next worst-case request exceeds actual API charge cap");
+  const id=randomUUID(),raw=`${runs}/pi-api-stdout-${id}.sse`;
+  const row:any={id,cell:process.env.BRAIN_MEASURE_CELL??null,model:MODEL,billingRoute:"anthropic-api-key",credentialPresence:{apiKey:true,oauthToken:false,claudeOauthToken:false,authToken:false},requestHeaderSelector:"x-api-key matches isolated key; Authorization absent",originalRequestBodyHash:createHash("sha256").update(bodyText).digest("hex"),requestBodyHash:createHash("sha256").update(sentBody).digest("hex"),standardCapacity:"standard_only",inferenceGeography:"global",timeoutMs,maxOutputTokens:body.max_tokens,contextInputUpperBound:CONTEXT,reservedActualApiUsd:bound,priorActualApiUpperUsd:spent,finished:false,apiEquivalent:null,parsedEventHashes:[]};
+  rows.push(row);save();writeFileSync(raw,"",{mode:0o600});active=true;
+  let response:Response;try{response=await dispatch(input,forwarded)}catch{row.error="request transport error; charge unknown";row.finished=true;active=false;blocked=true;save();throw new Error("Pi API transport error; preserved unknown charge receipt")}
+  row.status=response.status;save();
+  if(!response.ok||!response.body){row.error=`provider HTTP${response.status} or missing stream; charge unknown`;row.finished=true;active=false;blocked=true;save();return response;}
+  const decoder=new TextDecoder();let pending="",sawStart=false,sawStop=false;const usage:any={};row.rawUsageEvents=[];
+  const mergeUsage=(next:any)=>{row.rawUsageEvents.push(next);for(const [key,value] of Object.entries(next)){if(value==null)continue;if(key==="cache_creation"){usage[key]??={};for(const [ttl,count] of Object.entries(value as object))if(count!=null)usage[key][ttl]=count;}else usage[key]=value;}};
+  const event=(frame:string)=>{
+   const data=frame.split(/\r?\n/).filter(line=>line.startsWith("data:")).map(line=>line.slice(5).trimStart()).join("\n");if(!data)return;
+   let value:any;try{value=JSON.parse(data)}catch{row.error="invalid provider SSE JSON";blocked=true;return}
+   row.parsedEventHashes.push(createHash("sha256").update(JSON.stringify(value)).digest("hex"));
+   if(value.type==="message_start"){sawStart=true;row.responseModel=value.message?.model;if(row.responseModel!==MODEL){row.error="response model mismatch";blocked=true;}mergeUsage(value.message?.usage??{});}
+   if(value.type==="message_delta"){mergeUsage(value.usage??{});if(value.delta?.stop_reason)row.stopReason=value.delta.stop_reason;}
+   if(value.type==="message_stop")sawStop=true;
+   if(value.type==="error"){row.error="provider SSE error; charge unknown";blocked=true;}
+  };
+  const parse=(text:string,final=false)=>{pending+=text;let match:RegExpExecArray|null;while((match=/\r?\n\r?\n/.exec(pending))){event(pending.slice(0,match.index));pending=pending.slice(match.index+match[0].length)}if(final&&pending){event(pending);pending="";}};
+  const finalize=()=>{
+   parse(decoder.decode(),true);row.usage=usage;row.servedServiceTier=usage.service_tier??null;row.servedInferenceGeography=usage.inference_geo??null;row.sawMessageStart=sawStart;row.sawMessageStop=sawStop;
+   if(usage.service_tier!==undefined&&usage.service_tier!=="standard"||usage.inference_geo!==undefined&&usage.inference_geo!=="global"||usage.server_tool_use&&Object.values(usage.server_tool_use).some(n=>n!==0)){row.error="unexpected premium/service/server-tool usage";blocked=true;}
+   const price=officialPrice(usage);
+   if(!sawStart||!sawStop||!row.stopReason||!price||row.responseModel!==MODEL||usage.output_tokens>body.max_tokens){row.error??="incomplete or unpriced final usage";blocked=true;}
+   if(price&&price.upperUsd>bound){row.error="usage exceeded reserved bound";blocked=true;}
+   row.apiEquivalent=row.error?null:price;
+   row.finished=true;active=false;save();
+  };
+  const reader=response.body.getReader();
+  const stream=new ReadableStream<Uint8Array>({async pull(controller){
+   try{const next=await reader.read();if(next.done){finalize();controller.close();return}appendFileSync(raw,next.value);parse(decoder.decode(next.value,{stream:true}));save();controller.enqueue(next.value);}catch(error){row.error="stream transport/parser failure; charge unknown";row.finished=true;row.usage=usage;active=false;blocked=true;save();controller.error(error);}
+  },async cancel(reason){row.error="consumer cancelled before EOF; charge unknown";row.finished=true;row.usage=usage;active=false;blocked=true;save();await reader.cancel(reason)}});
+  return new Response(stream,{status:response.status,statusText:response.statusText,headers:response.headers});
+ }) as typeof fetch;
+ return {ledger,restore(){globalThis.fetch=dispatch;}};
+}

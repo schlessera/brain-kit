@@ -1,0 +1,28 @@
+import {strict as assert} from "node:assert";
+import {readFileSync,mkdtempSync,mkdirSync} from "node:fs";
+process.env.TMPDIR=mkdtempSync("/tmp/550-auth-probe-");mkdirSync(`${process.env.TMPDIR}/runs`);
+const {captureQuery}=await import("./query-capture.ts");
+const mode=process.argv[2];assert(["valid","api-init","missing-init","api-env","missing-account","api-account"].includes(mode));
+const usage={inputTokens:1,outputTokens:1,cacheReadInputTokens:0,cacheCreationInputTokens:0,webSearchRequests:0};
+const result={type:"result",subtype:"success",is_error:false,total_cost_usd:999,modelUsage:{"claude-sonnet-5-5":usage}};
+const init={type:"system",subtype:"init",model:"claude-sonnet-5-5",apiKeySource:mode==="api-init"?"ANTHROPIC_API_KEY":"none"};
+let spawns=0;
+const query=(parameters:any)=>({async *[Symbol.asyncIterator](){
+ const account={type:"control_response",response:{subtype:"success",response:{account:{tokenSource:"CLAUDE_CODE_OAUTH_TOKEN",apiProvider:"firstParty",...(mode==="api-account"?{apiKeySource:"ANTHROPIC_API_KEY"}:{})}}}};
+ const text=(mode==="missing-account"?"":JSON.stringify(account)+"\n")+(mode==="missing-init"?"":JSON.stringify(init)+"\n")+JSON.stringify(result);
+ const env:any={PATH:"/usr/bin:/bin",CLAUDE_CODE_OAUTH_TOKEN:"offline-fictional-placeholder"};if(mode==="api-env")env.ANTHROPIC_API_KEY="offline-fictional-placeholder";
+ const child=parameters.options.spawnClaudeCodeProcess({command:"/usr/bin/printf",args:["%s",text],cwd:process.env.TMPDIR,env});spawns++;
+ const closed=new Promise(resolve=>child.once("close",resolve));for await(const _ of child.stdout){}await closed;yield result;
+}});
+let error:any;try{for await(const _ of captureQuery(query,{prompt:"fictional",options:{model:"claude-sonnet-5-5"}})){} }catch(e){error=e}
+const receipts=JSON.parse(readFileSync(`${process.env.TMPDIR}/runs/sdk-raw-receipts.json`,"utf8"));
+if(mode==="valid"){
+ assert.equal(error,undefined);assert.equal(spawns,1);assert.equal(receipts[0].init.apiKeySource,"none");assert.equal(receipts[0].credentialPresence.oauthToken,true);assert.equal(receipts[0].credentialPresence.apiKey,false);
+ assert.doesNotThrow(()=>captureQuery(query,{prompt:"second fictional",options:{model:"claude-sonnet-5-5"}}));
+}else{
+ if(mode==="api-env"){assert.match(error.message,/credential route/);assert.equal(spawns,0);assert.equal(receipts[0].credentialPresence.apiKey,true);}
+ else{assert.equal(error,undefined);assert.equal(spawns,1);}
+ assert.throws(()=>captureQuery(query,{prompt:"second fictional",options:{model:"claude-sonnet-5-5"}}),/Stop new dispatch/);
+ assert.equal(spawns,mode==="api-env"?0:1);
+}
+console.log(`native auth-shape control ${mode} passed`);

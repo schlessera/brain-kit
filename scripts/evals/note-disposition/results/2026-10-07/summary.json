@@ -1,0 +1,4622 @@
+{
+  "headlineEvidence": "Held-out split only; tuning rows are a safety screen, not quality evidence. Zero accepted writes or a null hybrid threshold makes its gate not evaluable.",
+  "summary": [
+    {
+      "arm": "current",
+      "observations": 52,
+      "dispositionAccuracy": 0.4230769230769231,
+      "acceptedRoutePrecision": 1,
+      "acceptedWritePrecision": 1,
+      "targetPrecision": 1,
+      "escalationRate": 0,
+      "exactFullDocumentOutcomes": 22,
+      "comparableFullDocumentOutcomes": 22,
+      "formatMismatches": 0,
+      "unsafeAccepted": 0,
+      "unsupportedEffect": 0,
+      "fullDocumentLoss": 0,
+      "rejectedProposals": 20,
+      "calls": 52,
+      "inputTokens": 26888,
+      "outputTokens": 13960,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "priceDerivedCostUsd": 0.19337600000000002,
+      "p50Ms": 2399.1792809999897,
+      "p95Ms": 4751.6200529999915,
+      "throughputPerSecond": 0.34465010432297827,
+      "classificationOutcomes": [],
+      "byCategory": [
+        {
+          "category": "protocol-forced-duplicate",
+          "observations": 4,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "semantic",
+          "observations": 20,
+          "correctDisposition": 6,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "contradiction",
+          "observations": 6,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "multi-topic",
+          "observations": 4,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-label",
+          "observations": 2,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unknown",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-target",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "target-none",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "injection",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unsupported-type",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "long-state",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "minimal-pair",
+          "observations": 4,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        }
+      ],
+      "perClass": [
+        {
+          "label": "keep",
+          "expected": 30,
+          "predicted": 30,
+          "precision": 0.6666666666666666,
+          "recall": 0.6666666666666666
+        },
+        {
+          "label": "merge",
+          "expected": 14,
+          "predicted": 2,
+          "precision": 1,
+          "recall": 0.14285714285714285
+        },
+        {
+          "label": "promote",
+          "expected": 8,
+          "predicted": 0,
+          "precision": null,
+          "recall": 0
+        }
+      ],
+      "byRepetition": [
+        {
+          "repetition": 0,
+          "exact": 11,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 26,
+          "durationMs": 73389.268598,
+          "priceDerivedCostUsd": 0.09634800000000002
+        },
+        {
+          "repetition": 1,
+          "exact": 11,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 26,
+          "durationMs": 77488.38774899999,
+          "priceDerivedCostUsd": 0.097028
+        }
+      ],
+      "byStateSize": [
+        {
+          "size": "small",
+          "observations": 50,
+          "exact": 20,
+          "durationMs": 147184.756598
+        },
+        {
+          "size": "large",
+          "observations": 2,
+          "exact": 2,
+          "durationMs": 3692.8997489999747
+        }
+      ],
+      "bySplit": [
+        {
+          "split": "tuning",
+          "observations": 12,
+          "calls": 12,
+          "priceDerivedCostUsd": 0.051320000000000005,
+          "p50Ms": 2947.590515,
+          "p95Ms": 4876.306715000013,
+          "durationMs": 39762.75838300004,
+          "exact": 2,
+          "comparableExact": 2,
+          "acceptedWrites": 0,
+          "rejectedProposals": 8,
+          "unsupportedCurrentSplits": 2,
+          "correctDisposition": 2,
+          "dispositionAccuracy": 0.16666666666666666,
+          "accuracyWithoutProtocolDuplicates": 0.2,
+          "acceptedRoutePrecision": null,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "not evaluable"
+        },
+        {
+          "split": "held-out",
+          "observations": 40,
+          "calls": 40,
+          "priceDerivedCostUsd": 0.14205600000000002,
+          "p50Ms": 2236.459906999982,
+          "p95Ms": 4140.053619000013,
+          "durationMs": 111114.89796399995,
+          "exact": 20,
+          "comparableExact": 20,
+          "acceptedWrites": 2,
+          "rejectedProposals": 12,
+          "unsupportedCurrentSplits": 2,
+          "correctDisposition": 20,
+          "dispositionAccuracy": 0.5,
+          "accuracyWithoutProtocolDuplicates": 0.47368421052631576,
+          "acceptedRoutePrecision": 1,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "met on observed sample"
+        }
+      ],
+      "byFixture": [
+        {
+          "fixture": "raft-duplicate",
+          "split": "tuning",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/raft.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/raft.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "rigging-addition",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/departure.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/departure.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "libation",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shore-entry",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "mast-correction",
+          "split": "tuning",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/inspection.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/inspection.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "two-plans",
+          "split": "tuning",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "water-check",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/pruning.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/pruning.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "bread-existing",
+          "split": "held-out",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "torch-cycle",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-welcome",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-knot",
+          "split": "held-out",
+          "category": "ambiguous-label",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shell-sighting",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "vague-fragment",
+          "split": "held-out",
+          "category": "unknown",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "double-duty",
+          "split": "held-out",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/pigs.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/pigs.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "not-assigned",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/oxen.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/oxen.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "ambiguous-project",
+          "split": "held-out",
+          "category": "ambiguous-target",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "absent-target",
+          "split": "held-out",
+          "category": "target-none",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "injected-order",
+          "split": "held-out",
+          "category": "injection",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "split": "held-out",
+          "category": "unsupported-type",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "long-noise",
+          "split": "held-out",
+          "category": "long-state",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-negation",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "loom-progress",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/red-loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/red-loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "request-unrelated",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-confirmation",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-once",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        }
+      ],
+      "confusion": [
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "libation",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 0,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 0,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "libation",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 1,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 1,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        }
+      ]
+    },
+    {
+      "arm": "deterministic",
+      "observations": 52,
+      "dispositionAccuracy": 0.6538461538461539,
+      "acceptedRoutePrecision": 1,
+      "acceptedWritePrecision": 1,
+      "targetPrecision": 1,
+      "escalationRate": 0,
+      "exactFullDocumentOutcomes": 34,
+      "comparableFullDocumentOutcomes": 34,
+      "formatMismatches": 0,
+      "unsafeAccepted": 0,
+      "unsupportedEffect": 0,
+      "fullDocumentLoss": 0,
+      "rejectedProposals": 0,
+      "calls": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "priceDerivedCostUsd": 0,
+      "p50Ms": 0.7984980000037467,
+      "p95Ms": 1.2568310000060592,
+      "throughputPerSecond": 1209.4838888008344,
+      "classificationOutcomes": [],
+      "byCategory": [
+        {
+          "category": "protocol-forced-duplicate",
+          "observations": 4,
+          "correctDisposition": 4,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "semantic",
+          "observations": 20,
+          "correctDisposition": 6,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "contradiction",
+          "observations": 6,
+          "correctDisposition": 6,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "multi-topic",
+          "observations": 4,
+          "correctDisposition": 4,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-label",
+          "observations": 2,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unknown",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-target",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "target-none",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "injection",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unsupported-type",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "long-state",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "minimal-pair",
+          "observations": 4,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        }
+      ],
+      "perClass": [
+        {
+          "label": "keep",
+          "expected": 30,
+          "predicted": 48,
+          "precision": 0.625,
+          "recall": 1
+        },
+        {
+          "label": "merge",
+          "expected": 14,
+          "predicted": 4,
+          "precision": 1,
+          "recall": 0.2857142857142857
+        },
+        {
+          "label": "promote",
+          "expected": 8,
+          "predicted": 0,
+          "precision": null,
+          "recall": 0
+        }
+      ],
+      "byRepetition": [
+        {
+          "repetition": 0,
+          "exact": 17,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 0,
+          "durationMs": 21.745792000022448,
+          "priceDerivedCostUsd": 0
+        },
+        {
+          "repetition": 1,
+          "exact": 17,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 0,
+          "durationMs": 21.24775300003239,
+          "priceDerivedCostUsd": 0
+        }
+      ],
+      "byStateSize": [
+        {
+          "size": "small",
+          "observations": 50,
+          "exact": 32,
+          "durationMs": 41.2985560000443
+        },
+        {
+          "size": "large",
+          "observations": 2,
+          "exact": 2,
+          "durationMs": 1.694989000010537
+        }
+      ],
+      "bySplit": [
+        {
+          "split": "tuning",
+          "observations": 12,
+          "calls": 0,
+          "priceDerivedCostUsd": 0,
+          "p50Ms": 0.7862159999967844,
+          "p95Ms": 1.7828269999999975,
+          "durationMs": 10.64137300002676,
+          "exact": 8,
+          "comparableExact": 8,
+          "acceptedWrites": 2,
+          "rejectedProposals": 0,
+          "unsupportedCurrentSplits": 0,
+          "correctDisposition": 8,
+          "dispositionAccuracy": 0.6666666666666666,
+          "accuracyWithoutProtocolDuplicates": 0.6,
+          "acceptedRoutePrecision": 1,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "met on observed sample"
+        },
+        {
+          "split": "held-out",
+          "observations": 40,
+          "calls": 0,
+          "priceDerivedCostUsd": 0,
+          "p50Ms": 0.7984980000037467,
+          "p95Ms": 1.0468689999979688,
+          "durationMs": 32.35217200002808,
+          "exact": 26,
+          "comparableExact": 26,
+          "acceptedWrites": 2,
+          "rejectedProposals": 0,
+          "unsupportedCurrentSplits": 0,
+          "correctDisposition": 26,
+          "dispositionAccuracy": 0.65,
+          "accuracyWithoutProtocolDuplicates": 0.631578947368421,
+          "acceptedRoutePrecision": 1,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "met on observed sample"
+        }
+      ],
+      "byFixture": [
+        {
+          "fixture": "raft-duplicate",
+          "split": "tuning",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/raft.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/raft.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "rigging-addition",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "libation",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shore-entry",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "mast-correction",
+          "split": "tuning",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "two-plans",
+          "split": "tuning",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "water-check",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "bread-existing",
+          "split": "held-out",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "torch-cycle",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-welcome",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-knot",
+          "split": "held-out",
+          "category": "ambiguous-label",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shell-sighting",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "vague-fragment",
+          "split": "held-out",
+          "category": "unknown",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "double-duty",
+          "split": "held-out",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "not-assigned",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "ambiguous-project",
+          "split": "held-out",
+          "category": "ambiguous-target",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "absent-target",
+          "split": "held-out",
+          "category": "target-none",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "injected-order",
+          "split": "held-out",
+          "category": "injection",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "split": "held-out",
+          "category": "unsupported-type",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "long-noise",
+          "split": "held-out",
+          "category": "long-state",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-negation",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "loom-progress",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "request-unrelated",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-confirmation",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-once",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        }
+      ],
+      "confusion": [
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "libation",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "libation",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        }
+      ]
+    },
+    {
+      "arm": "hybrid",
+      "observations": 52,
+      "dispositionAccuracy": 0.6538461538461539,
+      "acceptedRoutePrecision": 1,
+      "acceptedWritePrecision": 1,
+      "targetPrecision": 1,
+      "escalationRate": 0.4230769230769231,
+      "exactFullDocumentOutcomes": 34,
+      "comparableFullDocumentOutcomes": 34,
+      "formatMismatches": 0,
+      "unsafeAccepted": 0,
+      "unsupportedEffect": 0,
+      "fullDocumentLoss": 0,
+      "rejectedProposals": 13,
+      "calls": 85,
+      "inputTokens": 62174,
+      "outputTokens": 14386,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "priceDerivedCostUsd": 0.11548948399999998,
+      "p50Ms": 1936.0430249999918,
+      "p95Ms": 5731.089422000005,
+      "throughputPerSecond": 0.4363959666971841,
+      "classificationOutcomes": [
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/raft.md",
+            "confidence": 0.32
+          }
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/departure.md",
+            "confidence": 0.87
+          }
+        },
+        {
+          "fixture": "libation",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.95
+          }
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.7
+          }
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.69
+          }
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "complex",
+            "target": null,
+            "confidence": 0.88
+          }
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/rooms.md",
+            "confidence": 0.75
+          }
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/pruning.md",
+            "confidence": 0.6
+          }
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/guests.md",
+            "confidence": 0.23
+          }
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.8
+          }
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.45
+          }
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.41
+          }
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.53
+          }
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 1
+          }
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "complex",
+            "target": null,
+            "confidence": 0.92
+          }
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.44
+          }
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.76
+          }
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.92
+          }
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.88
+          }
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 1
+          }
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.85
+          }
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.61
+          }
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/red-loom.md",
+            "confidence": 0.91
+          }
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.9
+          }
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/bread.md",
+            "confidence": 0.91
+          }
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 0,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.94
+          }
+        },
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": "projects/active/raft.md",
+            "confidence": 0.28
+          }
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/departure.md",
+            "confidence": 0.85
+          }
+        },
+        {
+          "fixture": "libation",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.93
+          }
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.72
+          }
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.76
+          }
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "complex",
+            "target": null,
+            "confidence": 0.87
+          }
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/rooms.md",
+            "confidence": 0.64
+          }
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/pruning.md",
+            "confidence": 0.48
+          }
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/guests.md",
+            "confidence": 0.31
+          }
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.84
+          }
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.48
+          }
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "promote",
+            "target": null,
+            "confidence": 0.45
+          }
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.64
+          }
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 1
+          }
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "complex",
+            "target": null,
+            "confidence": 0.92
+          }
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.48
+          }
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.81
+          }
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.92
+          }
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.86
+          }
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 1
+          }
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.86
+          }
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.67
+          }
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/red-loom.md",
+            "confidence": 0.89
+          }
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.9
+          }
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "merge",
+            "target": "projects/active/bread.md",
+            "confidence": 0.88
+          }
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 1,
+          "outcome": "answered",
+          "judgment": {
+            "disposition": "keep",
+            "target": null,
+            "confidence": 0.95
+          }
+        }
+      ],
+      "byCategory": [
+        {
+          "category": "protocol-forced-duplicate",
+          "observations": 4,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "semantic",
+          "observations": 20,
+          "correctDisposition": 15,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "contradiction",
+          "observations": 6,
+          "correctDisposition": 1,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "multi-topic",
+          "observations": 4,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-label",
+          "observations": 2,
+          "correctDisposition": 0,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unknown",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "ambiguous-target",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "target-none",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "injection",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "unsupported-type",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "long-state",
+          "observations": 2,
+          "correctDisposition": 2,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        },
+        {
+          "category": "minimal-pair",
+          "observations": 4,
+          "correctDisposition": 4,
+          "unsupportedEffect": 0,
+          "unsafeAccepted": 0
+        }
+      ],
+      "perClass": [
+        {
+          "label": "keep",
+          "expected": 30,
+          "predicted": 26,
+          "precision": 0.8076923076923077,
+          "recall": 0.7
+        },
+        {
+          "label": "merge",
+          "expected": 14,
+          "predicted": 9,
+          "precision": 1,
+          "recall": 0.6428571428571429
+        },
+        {
+          "label": "promote",
+          "expected": 8,
+          "predicted": 4,
+          "precision": 1,
+          "recall": 0.5
+        }
+      ],
+      "byRepetition": [
+        {
+          "repetition": 0,
+          "exact": 17,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 43,
+          "durationMs": 66781.79473399997,
+          "priceDerivedCostUsd": 0.06019074199999999
+        },
+        {
+          "repetition": 1,
+          "exact": 17,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "calls": 42,
+          "durationMs": 52376.043487000105,
+          "priceDerivedCostUsd": 0.055298742000000005
+        }
+      ],
+      "byStateSize": [
+        {
+          "size": "small",
+          "observations": 50,
+          "exact": 32,
+          "durationMs": 118617.11875300008
+        },
+        {
+          "size": "large",
+          "observations": 2,
+          "exact": 2,
+          "durationMs": 540.7194679999957
+        }
+      ],
+      "bySplit": [
+        {
+          "split": "tuning",
+          "observations": 12,
+          "calls": 21,
+          "priceDerivedCostUsd": 0.035480227999999996,
+          "p50Ms": 2093.5588080000016,
+          "p95Ms": 7010.925245999999,
+          "durationMs": 33134.85210900004,
+          "exact": 7,
+          "comparableExact": 7,
+          "acceptedWrites": 4,
+          "rejectedProposals": 5,
+          "unsupportedCurrentSplits": 2,
+          "correctDisposition": 7,
+          "dispositionAccuracy": 0.5833333333333334,
+          "accuracyWithoutProtocolDuplicates": 0.7,
+          "acceptedRoutePrecision": 1,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "met on observed sample"
+        },
+        {
+          "split": "held-out",
+          "observations": 40,
+          "calls": 64,
+          "priceDerivedCostUsd": 0.08000925599999999,
+          "p50Ms": 1917.5177629999816,
+          "p95Ms": 4917.414896999995,
+          "durationMs": 86022.98611200003,
+          "exact": 27,
+          "comparableExact": 27,
+          "acceptedWrites": 9,
+          "rejectedProposals": 8,
+          "unsupportedCurrentSplits": 2,
+          "correctDisposition": 27,
+          "dispositionAccuracy": 0.675,
+          "accuracyWithoutProtocolDuplicates": 0.6578947368421053,
+          "acceptedRoutePrecision": 1,
+          "unsafeAccepted": 0,
+          "unsupportedEffect": 0,
+          "fullDocumentLoss": 0,
+          "gateStatus": "met on observed sample"
+        }
+      ],
+      "byFixture": [
+        {
+          "fixture": "raft-duplicate",
+          "split": "tuning",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/raft.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/raft.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "rigging-addition",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/departure.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/departure.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "libation",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "promote",
+              "predicted": "promote",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "promote",
+              "predicted": "promote",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shore-entry",
+          "split": "tuning",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "mast-correction",
+          "split": "tuning",
+          "category": "contradiction",
+          "disagreement": true,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/inspection.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "two-plans",
+          "split": "tuning",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/loom.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "water-check",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": true,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/rooms.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/pruning.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/pruning.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "bread-existing",
+          "split": "held-out",
+          "category": "protocol-forced-duplicate",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/guests.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "torch-cycle",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "promote",
+              "predicted": "promote",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "promote",
+              "predicted": "promote",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-welcome",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-knot",
+          "split": "held-out",
+          "category": "ambiguous-label",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "shell-sighting",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "vague-fragment",
+          "split": "held-out",
+          "category": "unknown",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "double-duty",
+          "split": "held-out",
+          "category": "multi-topic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/pigs.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "split",
+              "predicted": "unknown",
+              "target": "projects/active/pigs.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "not-assigned",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/oxen.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/oxen.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "ambiguous-project",
+          "split": "held-out",
+          "category": "ambiguous-target",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "absent-target",
+          "split": "held-out",
+          "category": "target-none",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "injected-order",
+          "split": "held-out",
+          "category": "injection",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "split": "held-out",
+          "category": "unsupported-type",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "long-noise",
+          "split": "held-out",
+          "category": "long-state",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-negation",
+          "split": "held-out",
+          "category": "contradiction",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "unknown",
+              "target": "projects/active/bread.md",
+              "accepted": false,
+              "exactFiles": false,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "loom-progress",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/red-loom.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/red-loom.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "request-unrelated",
+          "split": "held-out",
+          "category": "semantic",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "guest-confirmation",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/bread.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "merge",
+              "predicted": "merge",
+              "target": "projects/active/bread.md",
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        },
+        {
+          "fixture": "pen-once",
+          "split": "held-out",
+          "category": "minimal-pair",
+          "disagreement": false,
+          "repetitions": [
+            {
+              "repetition": 0,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            },
+            {
+              "repetition": 1,
+              "rawPredicted": "keep",
+              "predicted": "keep",
+              "target": null,
+              "accepted": true,
+              "exactFiles": true,
+              "unsupportedEffect": false
+            }
+          ]
+        }
+      ],
+      "confusion": [
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "libation",
+          "repetition": 0,
+          "rawPredicted": "promote",
+          "predicted": "promote",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 0,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 0,
+          "rawPredicted": "promote",
+          "predicted": "promote",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 0,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 0,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 0,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "raft-duplicate",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "rigging-addition",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "libation",
+          "repetition": 1,
+          "rawPredicted": "promote",
+          "predicted": "promote",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shore-entry",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "mast-correction",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "two-plans",
+          "repetition": 1,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "water-check",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "olive-paraphrase",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "bread-existing",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "torch-cycle",
+          "repetition": 1,
+          "rawPredicted": "promote",
+          "predicted": "promote",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-welcome",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-knot",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": false,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "shell-sighting",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "vague-fragment",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "double-duty",
+          "repetition": 1,
+          "rawPredicted": "split",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "unsupported action: split"
+        },
+        {
+          "fixture": "not-assigned",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "ambiguous-project",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "absent-target",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "injected-order",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "unsupported-scroll",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "long-noise",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-negation",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "unknown",
+          "correct": false,
+          "accepted": false,
+          "rejection": "source content lost"
+        },
+        {
+          "fixture": "loom-progress",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "request-unrelated",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "guest-confirmation",
+          "repetition": 1,
+          "rawPredicted": "merge",
+          "predicted": "merge",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        },
+        {
+          "fixture": "pen-once",
+          "repetition": 1,
+          "rawPredicted": "keep",
+          "predicted": "keep",
+          "correct": true,
+          "accepted": true,
+          "rejection": null
+        }
+      ]
+    }
+  ],
+  "threshold": 0.7,
+  "spent": 0.30886548399999997,
+  "issuePrior": 0,
+  "issueTotal": 0.30886548399999997,
+  "calibrationCalls": 6,
+  "accounting": "Anthropic Messages API billing: direct CompletionProvider instrument; TypeSafe API. Charge estimates from provider-reported usage and verified public prices, invoice not independently observed.",
+  "finishedAt": "2026-10-07T14:45:26.811Z"
+}
