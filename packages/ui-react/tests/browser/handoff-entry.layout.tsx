@@ -64,7 +64,10 @@ beforeAll(async () => {
 afterAll(async () => {
   styles?.remove();
   await page.viewport(viewport.width, viewport.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
+// The outer window is shared across spec files; the first mount records it.
+let outer: { width: number; height: number } | undefined;
 afterEach(() => {
   if (renderer) flushSync(() => renderer!.unmount());
   ui?.dispose();
@@ -89,7 +92,8 @@ async function settle() {
 
 async function mount(width: number, height: number, theme: "dark" | "light", unavailable: typeof THREE) {
   await page.viewport(width, height);
-  await commands.formViewport(width, height);
+  const previous = await commands.formViewport(width, height);
+  outer ??= previous;
   document.documentElement.dataset.theme = theme;
   vi.stubGlobal("WebSocket", FixtureSocket);
   const roster = { providers: PROVIDERS, backends: BACKENDS, unavailable };

@@ -35,9 +35,15 @@ afterEach(async () => {
   host = undefined;
   document.documentElement.dataset.theme = "dark";
   await page.viewport(viewport.width, viewport.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
+  outer = undefined;
 });
+// The outer browser window is shared across spec files: set it for every
+// screenshot and give it back, or a previous file's size scales the capture.
+let outer: { width: number; height: number } | undefined;
 
 async function mount(width: number, theme: string, node: ReactNode, animated = true) {
+  outer = await commands.formViewport(width, 720);
   await page.viewport(width, 720);
   document.documentElement.dataset.theme = theme;
   host = document.createElement("div");
