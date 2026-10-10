@@ -2,10 +2,12 @@
 // Packing, installing and probing for real is the job itself: CI runs it, and
 // `bun run check:pack` runs it locally.
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lockProblems, missingEntries, packPlan, type PackRow } from "../scripts/ci-pack";
+import {
+  BIN_PROBE_NAMES, BIN_PROBES, combinedSpecs, lockProblems, missingEntries, OWN_PROCESS, PACK_TABLE, packPlan, PROBES, type PackRow,
+} from "../scripts/ci-pack";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -78,5 +80,40 @@ describe("React 18 lockfile", () => {
       "@schlessera/brain-palace resolved from 1.0.0, not a packed tarball",
       "@schlessera/brain-palace did not resolve to palace.tgz",
     ]);
+  });
+});
+
+describe("named probes", () => {
+  const rows = Object.values(PACK_TABLE);
+  test("every probe and bin probe runs for some package", () => {
+    // A probe dropped from its row would otherwise stop running with no failure.
+    const used = new Set(rows.flatMap(row => [...(row.bunProbes ?? []), ...(row.nodeProbes ?? [])]));
+    expect(PROBES.filter(name => !used.has(name))).toEqual([]);
+    const bins = new Set(rows.flatMap(row => row.bins ?? []));
+    expect(BIN_PROBE_NAMES.filter(name => !bins.has(name))).toEqual([]);
+  });
+
+  test("the names match the implementations", () => {
+    const source = readFileSync(join(import.meta.dir, "../scripts/ci-pack-probe.mjs"), "utf8");
+    const block = /const PROBES = \{([\s\S]*?)\};/.exec(source)?.[1] ?? "";
+    expect([...block.matchAll(/"([a-z0-9-]+)":/g)].map(m => m[1]).sort()).toEqual([...PROBES].sort());
+    expect(Object.keys(BIN_PROBES).sort()).toEqual([...BIN_PROBE_NAMES].sort());
+  });
+
+  test("own-process probes are Bun probes", () => {
+    for (const row of rows) for (const name of row.nodeProbes ?? []) expect(OWN_PROCESS).not.toContain(name);
+  });
+});
+
+describe("combined passes", () => {
+  test("load every publishable package in one Bun and one Node process", () => {
+    const entries = packPlan(join(import.meta.dir, ".."));
+    const { bun, node } = combinedSpecs(entries);
+    const owner = (specifier: string) => entries.find(({ pkg }) => specifier === pkg.name || specifier.startsWith(`${pkg.name}/`))?.pkg.dir;
+    const all = entries.map(({ pkg }) => pkg.dir).sort();
+    expect([...new Set(bun.imports!.map(owner))].sort()).toEqual(all);
+    expect([...new Set([...node.imports!, ...node.bunOnly!].map(owner))].sort()).toEqual(all);
+    expect(bun.probes).not.toContain("travel-cli");
+    expect(bun.probes!.length + node.probes!.length).toBeGreaterThan(0);
   });
 });

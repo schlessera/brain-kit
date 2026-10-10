@@ -19,7 +19,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
     "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
-    "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts",
+    "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
     "tests/decision-citations.test.ts", "tests/dependency-edges.test.ts",

@@ -18,8 +18,9 @@
  * 1. Workspace pins match the packed manifests (`check-publish-pins.ts`).
  *    Before the consumer, whose `file:` overrides would mask a wrong pin.
  * 2. Pack each package and assert its tarball entries.
- * 3. Install every tarball into one consumer; import and probe each package
- *    under Bun and Node, and run its bins.
+ * 3. Install every tarball into one consumer. Under Bun and under Node, one
+ *    process imports every package and runs the probes together; then one
+ *    process per package imports it alone. Then the bins.
  * 4. The consumer-wide checks in CONSUMER_CHECKS, against that install.
  * 5. Typecheck the published type surface against that install.
  * 6. A second consumer for brain-ui-react on React 18.
@@ -29,10 +30,18 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { listPublishablePackages, type PublishablePackage } from "./publishable-packages";
 
-/** A named probe in scripts/ci-pack-probe.mjs, run inside the consumer. */
-export type Probe = "geo-static-map" | "claude-backend-export" | "core-testing-suites" | "ui-kit-brand" | "travel-cli";
-/** A named bin probe in BIN_PROBES below. */
-export type BinProbe = "brain-version" | "brain-ui-cron-usage";
+/** The named probes in scripts/ci-pack-probe.mjs, run inside the consumer. */
+export const PROBES = ["geo-static-map", "claude-backend-export", "core-testing-suites", "ui-kit-brand", "travel-cli"] as const;
+export type Probe = (typeof PROBES)[number];
+/**
+ * Probes that run in a Bun process of their own, as they always did, rather
+ * than inside the combined Bun pass: the travel CLI fixture spawns the packed
+ * `brain` bin against a scratch brain.
+ */
+export const OWN_PROCESS: readonly Probe[] = ["travel-cli"];
+/** The named bin probes in BIN_PROBES below. */
+export const BIN_PROBE_NAMES = ["brain-version", "brain-ui-cron-usage"] as const;
+export type BinProbe = (typeof BIN_PROBE_NAMES)[number];
 
 export interface PackRow {
   /**
@@ -170,6 +179,32 @@ export const CONSUMER_CHECKS: ReadonlyArray<{ name: string; script: string }> = 
 
 export interface PackEntry { pkg: PublishablePackage; row: PackRow; }
 
+/** What one probe process imports and runs (scripts/ci-pack-probe.mjs). */
+export interface ProbeSpec { label: string; imports?: string[]; bunOnly?: string[]; probes?: Probe[]; }
+
+/**
+ * Every package loaded together, one process per runtime, as a consumer that
+ * depends on all of them does: a duplicate global registration, a singleton
+ * claimed twice or two copies of one dependency only fail when packages share
+ * a process. The per-package passes after it attribute a failure and catch a
+ * package that loads only because another one loaded first.
+ */
+export function combinedSpecs(entries: readonly PackEntry[]): { bun: ProbeSpec; node: ProbeSpec } {
+  return {
+    bun: {
+      label: "every package together",
+      imports: entries.flatMap(({ row }) => row.bun),
+      probes: entries.flatMap(({ row }) => (row.bunProbes ?? []).filter(probe => !OWN_PROCESS.includes(probe))),
+    },
+    node: {
+      label: "every package together",
+      imports: entries.flatMap(({ row }) => (row.node === "bun-only" ? [] : row.node)),
+      bunOnly: entries.flatMap(({ pkg, row }) => (row.node === "bun-only" ? [pkg.name] : [])),
+      probes: entries.flatMap(({ row }) => row.nodeProbes ?? []),
+    },
+  };
+}
+
 /**
  * The publishable packages in publish order, each with its row. Throws on an
  * empty list, a package without a row, a row without a package, or a row that
@@ -257,13 +292,32 @@ export function lockProblems(lock: string, entries: readonly PackEntry[]): strin
 }
 
 const ROOT = resolve(import.meta.dir, "..");
+
+/**
+ * The Node the probes run under, resolved once from the PATH this script was
+ * given — the one check-packages.ts gated and setup-node installed — and used
+ * by absolute path, so nothing added to a child's PATH can substitute another.
+ */
+let resolvedNode: string | undefined;
+async function node(): Promise<string> {
+  if (resolvedNode) return resolvedNode;
+  const found = Bun.which("node");
+  if (!found) throw new Error("The packed Node probes need node on PATH");
+  const release = Bun.spawnSync([found, "-p", "process.release.name + ' ' + process.version"], { stdout: "pipe", stderr: "pipe" });
+  const [name, version] = new TextDecoder().decode(release.stdout).trim().split(" ");
+  if (release.exitCode !== 0 || name !== "node") throw new Error(`${found} is not Node (${name ?? "no release name"})`);
+  console.log(`Node probes run under ${found} ${version}`);
+  return (resolvedNode = found);
+}
 const PROBE = ".brainkit-pack-probe.mjs";
 
 async function run(label: string, argv: string[], cwd: string, capture = false): Promise<{ code: number; output: string }> {
   const child = Bun.spawn(argv, {
     cwd, stdin: "ignore", stdout: capture ? "pipe" : "inherit", stderr: capture ? "pipe" : "inherit",
     // The job's environment: no provider key reaches a packed probe.
-    env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "" },
+    // Appended, not prepended: a bun for bins with an `env bun` shebang, never
+    // a replacement for anything already on PATH.
+    env: { ...process.env, PATH: `${process.env.PATH ?? ""}:${dirname(process.execPath)}`, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "" },
   });
   const [out, err, code] = await Promise.all([
     capture ? new Response(child.stdout as ReadableStream).text() : "",
@@ -286,12 +340,12 @@ async function phase(name: string, body: () => Promise<void>): Promise<void> {
   finally { if (actions) console.log("::endgroup::"); }
 }
 
-async function probe(consumer: string, runtime: "bun" | "node", spec: object): Promise<void> {
-  const label = (spec as { label: string }).label;
-  await run(`${label} under ${runtime}`, [runtime, PROBE, JSON.stringify(spec)], consumer);
+async function probe(consumer: string, runtime: "bun" | "node", spec: ProbeSpec): Promise<void> {
+  const executable = runtime === "bun" ? process.execPath : await node();
+  await run(`${spec.label} under ${runtime}`, [executable, PROBE, JSON.stringify(spec)], consumer);
 }
 
-const BIN_PROBES: Record<BinProbe, (consumer: string) => Promise<void>> = {
+export const BIN_PROBES: Record<BinProbe, (consumer: string) => Promise<void>> = {
   "brain-version": async consumer => { await run("brain --version", ["./node_modules/.bin/brain", "--version"], consumer); },
   "brain-ui-cron-usage": async consumer => {
     const { code, output } = await run("brain-ui-cron", ["./node_modules/.bin/brain-ui-cron"], consumer, true);
@@ -331,13 +385,16 @@ export async function ciPack(root: string, work: string): Promise<void> {
     writeFileSync(join(consumer, "package.json"), JSON.stringify(consumerManifest("brainkit-pack-smoke", entries), null, 2) + "\n");
     await run("consumer install", [bun, "add", ...entries.map(({ pkg }) => join(tarballs, `${pkg.dir}.tgz`)), "react", "react-dom"], consumer);
     cpSync(join(root, "scripts/ci-pack-probe.mjs"), join(consumer, PROBE));
+    const combined = combinedSpecs(entries);
+    await probe(consumer, "bun", combined.bun);
     for (const { pkg, row } of entries) {
-      await probe(consumer, "bun", { label: pkg.dir, imports: row.bun, probes: row.bunProbes ?? [] });
+      const own = (row.bunProbes ?? []).filter(name => OWN_PROCESS.includes(name));
+      if (own.length) await probe(consumer, "bun", { label: `${pkg.dir} ${own.join(", ")}`, probes: own });
     }
+    await probe(consumer, "node", combined.node);
     for (const { pkg, row } of entries) {
-      await probe(consumer, "node", row.node === "bun-only"
-        ? { label: pkg.dir, bunOnly: [pkg.name], probes: row.nodeProbes ?? [] }
-        : { label: pkg.dir, imports: row.node, probes: row.nodeProbes ?? [] });
+      await probe(consumer, "bun", { label: pkg.dir, imports: row.bun });
+      await probe(consumer, "node", row.node === "bun-only" ? { label: pkg.dir, bunOnly: [pkg.name] } : { label: pkg.dir, imports: row.node });
     }
     for (const { row } of entries) for (const bin of row.bins ?? []) await BIN_PROBES[bin](consumer);
   });
