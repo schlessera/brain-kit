@@ -32,7 +32,7 @@ import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/
 
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
-import { computeJson, scanCliArgs, UsageError } from "./io.js";
+import { computeJson, parseArgs, scanCliArgs, UsageError } from "./io.js";
 
 // Commands that must still run when brain.config is missing or invalid — they
 // either report the config problem or operate on core-default taxonomy.
@@ -87,7 +87,7 @@ function beforeTerminator(args: string[]): string[] {
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
-  hygiene: (args) => (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
+  hygiene: (args) => parseArgs(args).args[0] === "next" || (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
   registry: (args) => !args.includes("--check"),
 };
 
@@ -235,7 +235,7 @@ async function main(): Promise<number> {
   }
 
   // An invalid config blocks commands that depend on a correct taxonomy.
-  if (configError && !TOLERATE_CONFIG_ERROR.has(command)) {
+  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !(command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next")) {
     console.error(`Invalid brain.config:\n${configError}`);
     return 1;
   }
