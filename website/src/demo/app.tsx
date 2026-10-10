@@ -133,7 +133,7 @@ class FixtureSocket {
     const frame = JSON.parse(raw);
     if (frame.type === 'ping') this.emit({ type: 'pong', probeId: frame.probeId });
     if (frame.type === 'activity_subscribe') this.emit({ type: 'activity_snapshot', view: frame.view, runId: frame.runId, spans: workSpans, events: [], highWaterSeq: { 'departure-review': 0 } });
-    if (frame.type === 'session_resume') { ui.stores.chat.getState().setActiveSession(frame.sessionId); seed(frame.sessionId === 'raft' ? 'comparison' : frame.sessionId === 'ogygia' ? 'rank' : frame.sessionId, frame.sessionId); }
+    if (frame.type === 'session_resume' && !seeding) { ui.stores.chat.getState().setActiveSession(frame.sessionId); seed(frame.sessionId === 'raft' ? 'comparison' : frame.sessionId === 'ogygia' ? 'rank' : frame.sessionId, frame.sessionId); }
     if (frame.type === 'ask_user_rank_response') {
       const key = frame.sessionId || ui.stores.chat.getState().activeSessionId || 'ogygia';
       if (frame.submissionId) this.emit({ type: 'ask_answer_receipt', requestId: frame.requestId, submissionId: frame.submissionId, sessionId: key, turnId: frame.turnId, state: 'accepted' });
@@ -225,7 +225,19 @@ const scenarioPrompts: Record<string, string> = {
 function archive(key = 'ogygia') {
   ui.stores.chat.getState().requestToolApproval(key, 'archive-checklist', 'brain_archive', { slug: 'raft-supply-checklist' }, 'Archive the completed raft supply checklist. This is a fictional, staged permission request.', 'tool', false);
 }
+// The demo is the host, so a transcript it seeds is the host's history: it is
+// confirmed as such, and a resume the product asks for while the demo is
+// seeding (selecting the session asks for one) is not answered by seeding again.
+let seeding = false;
+function confirmHistory(key: string) {
+  const buffers = ui.stores.chat.getState().buffers; const buffer = buffers[key];
+  if (buffer) ui.stores.chat.setState({ buffers: { ...buffers, [key]: { ...buffer, historyConfirmed: true } as typeof buffer } });
+}
 function seed(next: string, key = 'ogygia'): Promise<void> | void {
+  seeding = true;
+  try { return seedScene(next, key); } finally { seeding = false; confirmHistory(key); }
+}
+function seedScene(next: string, key: string): Promise<void> | void {
   scene = next; generation++;
   // The exterior Reset starts fresh demonstration state, outside product navigation.
   const trackers = (ui.stores as unknown as { trackers?: { setState(state: object): void } }).trackers;

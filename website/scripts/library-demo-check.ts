@@ -29,6 +29,10 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
       await demo.getByText(shows[id], { exact: false }).first().waitFor();
       await overflowFree(`scene ${id}`);
     }
+    // The worker serves a library record's raw text (downloads, the Raw tab),
+    // from the file it fetches on first use rather than its embedded copy.
+    const raw = await demo.evaluate(async (url: string) => { await navigator.serviceWorker.ready; const response = await fetch(url); return `${response.status} ${(await response.text()).slice(0, 40)}`; }, `${origin}${base}demo/api/files/content?raw=1&path=people/anticleia.md`);
+    assert(raw.startsWith('200 ---\ntitle: "Anticleia"'), `Worker did not serve a library record: ${raw}`);
     // Search reaches a record that exists only in the library, through
     // whichever entry point this release draws: the rail item or the phone's
     // search disc. Older releases had neither; that is logged, not passed.
