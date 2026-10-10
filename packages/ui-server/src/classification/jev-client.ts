@@ -55,6 +55,9 @@ export interface JevResult {
   durationMs: number;
   /** HTTP status when there was one. */
   status?: number;
+  /** Provider receipt, never inferred from the requested model. */
+  model?: string;
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 /** The slice of `fetch` the client uses, so a test can hand in one that never resolves. */
@@ -69,6 +72,8 @@ export interface JevClientOptions {
   log?: Logger;
   /** Injected clock for deterministic latency in tests. */
   now?: () => number;
+  /** Accounted autonomous callers own admission/backoff for each physical call. */
+  production?: boolean;
 }
 
 export interface JevClient {
@@ -101,7 +106,7 @@ export function createJevClient(options: JevClientOptions): JevClient {
   async function attempt(
     body: string,
     signal: AbortSignal
-  ): Promise<{ kind: "ok"; answers: ClassificationAnswers } | { kind: "status"; status: number } | { kind: "bad" }> {
+  ): Promise<{ kind: "ok"; answers: ClassificationAnswers; model?: string; usage?: JevResult["usage"] } | { kind: "status"; status: number } | { kind: "bad"; model?: string; usage?: JevResult["usage"] }> {
     const response = await doFetch(endpoint, {
       method: "POST",
       headers: {
@@ -119,6 +124,17 @@ export function createJevClient(options: JevClientOptions): JevClient {
       return { kind: "bad" };
     }
     const answers = (json as { answers?: unknown } | null)?.answers;
+    if (options.production) {
+      // Preserve valid siblings. The production caller validates each answer;
+      // accepting this map never grants trust, tools, priority or paths.
+      const raw = json as { model?: unknown; usage?: { input_tokens?: unknown; output_tokens?: unknown } } | null;
+      const counts = [raw?.usage?.input_tokens, raw?.usage?.output_tokens];
+      const usage = counts.every(n => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)
+        ? { inputTokens: counts[0] as number, outputTokens: counts[1] as number } : undefined;
+      return answers && typeof answers === "object" && !Array.isArray(answers)
+        ? { kind: "ok", answers: answers as ClassificationAnswers, model: typeof raw?.model === "string" ? raw.model : undefined, usage }
+        : { kind: "bad", model: typeof raw?.model === "string" ? raw.model : undefined, usage };
+    }
     return isAnswers(answers) ? { kind: "ok", answers } : { kind: "bad" };
   }
 
@@ -185,12 +201,12 @@ export function createJevClient(options: JevClientOptions): JevClient {
         // reader's, not the vendor's.
         const signal = AbortSignal.timeout(timeoutMs);
         let lastStatus: number | undefined;
-        for (let tries = 0; tries < 2; tries++) {
+        for (let tries = 0; tries < (options.production ? 1 : 2); tries++) {
           if (signal.aborted) break;
           try {
             const outcome = await attempt(body, signal);
-            if (outcome.kind === "ok") return done("answered", outcome.answers);
-            if (outcome.kind === "bad") return done("bad_response", null);
+            if (outcome.kind === "ok") return { ...done("answered", outcome.answers), model: outcome.model, usage: outcome.usage };
+            if (outcome.kind === "bad") return { ...done("bad_response", null), model: outcome.model, usage: outcome.usage };
             lastStatus = outcome.status;
             if (!RETRY_STATUSES.has(outcome.status)) return done("http_error", null, outcome.status);
             // Retry once, immediately: any backoff long enough to matter would
