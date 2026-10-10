@@ -36,9 +36,9 @@ export function GraphEmptyState({
   );
 }
 
-export function Mono({ children }: { children: ReactNode }) {
+export function Mono({ children, nowrap = false }: { children: ReactNode; nowrap?: boolean }) {
   return (
-    <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+    <code style={nowrap ? { whiteSpace: "nowrap" } : undefined} className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] text-foreground">
       {children}
     </code>
   );

@@ -13,14 +13,14 @@ export type LocalDirection = "in" | "out" | "both";
 
 /**
  * How a fetch failed. "unavailable" carries the server's gating reason
- * (schema too old / not yet computed); "unsupported" means the server predates
- * the graph API entirely (404 on /graph/meta).
+ * (core unavailable / schema too old / not yet computed); "unsupported" means
+ * the server predates the graph API entirely (404 on /graph/meta).
  */
 export type GraphErrorKind = "unavailable" | "unsupported" | "network";
 
 interface GraphError {
   kind: GraphErrorKind;
-  reason?: "schema" | "not_computed";
+  reason?: "schema" | "not_computed" | "core_unavailable";
   message: string;
 }
 
@@ -114,6 +114,12 @@ export interface GraphState {
   reset: () => void;
 }
 
+/** A missing server capability affects every mode, including Local. */
+export function graphServerUnavailable(state: Pick<GraphState, "error" | "metaState">): boolean {
+  return state.error?.reason === "core_unavailable" ||
+    (state.metaState === "error" && state.error?.kind === "unsupported");
+}
+
 export function createGraphStore(env: StoreEnvironment) {
   const apiBase = env.apiBase;
   const fetch = env.request;
@@ -172,7 +178,7 @@ export function createGraphStore(env: StoreEnvironment) {
     if (e.status === 503) {
       return {
         kind: "unavailable",
-        reason: e.reason === "schema" ? "schema" : "not_computed",
+        reason: e.reason === "core_unavailable" ? "core_unavailable" : e.reason === "schema" ? "schema" : "not_computed",
         message: e.message || "graph_unavailable",
       };
     }
@@ -252,7 +258,8 @@ export function createGraphStore(env: StoreEnvironment) {
 
     setMode: (mode) => {
       if (mode === get().mode) return;
-      set({ mode, subgraph: null, findings: null, dataState: "idle", error: null, selectedId: null, hoveredId: null, sceneQuery: "" });
+      const error = graphServerUnavailable(get()) ? get().error : null;
+      set({ mode, subgraph: null, findings: null, dataState: "idle", error, selectedId: null, hoveredId: null, sceneQuery: "" });
       void get().fetchScene();
     },
     setLocalParams: (params) => {
@@ -288,16 +295,24 @@ export function createGraphStore(env: StoreEnvironment) {
       try {
         const meta = await fetchGraphJson<GraphMetaResponse>("/meta");
         if (token !== metaRequestToken) return;
-        set({ meta, metaState: "done" });
+        const error = graphServerUnavailable(get()) ? null : get().error;
+        set({ meta, metaState: "done", error });
       } catch (err) {
         if (token !== metaRequestToken) return;
-        set({ metaState: "error", error: toGraphError(err) });
+        const error = toGraphError(err);
+        if (error.reason === "core_unavailable" || error.kind === "unsupported") {
+          ++sceneRequestToken;
+          sceneCache.clear();
+          set({ meta: null, subgraph: null, findings: null, dataState: "idle" });
+        }
+        set({ metaState: "error", error });
       }
     },
 
     fetchScene: async () => {
       if (disposed) return;
       const state = get();
+      if (graphServerUnavailable(state)) return;
       const token = ++sceneRequestToken;
       const req = sceneRequest(state);
       if (!req) {
@@ -333,7 +348,12 @@ export function createGraphStore(env: StoreEnvironment) {
         }
       } catch (err) {
         if (token !== sceneRequestToken) return;
-        set({ dataState: "error", error: toGraphError(err) });
+        const error = toGraphError(err);
+        if (error.reason === "core_unavailable") {
+          sceneCache.clear();
+          set({ subgraph: null, findings: null });
+        }
+        set({ dataState: "error", error });
       }
     },
 
@@ -347,8 +367,16 @@ export function createGraphStore(env: StoreEnvironment) {
         const current = get();
         if (disposed || current.mode !== "local" || !current.subgraph) return;
         set({ subgraph: mergeSubgraphs(current.subgraph, ego) });
-      } catch {
-        // Expansion is additive sugar — a failure leaves the scene as-is.
+      } catch (err) {
+        const current = get();
+        if (disposed || current.mode !== "local" || current.subgraph !== state.subgraph) return;
+        const error = toGraphError(err);
+        if (error.reason === "core_unavailable") {
+          ++sceneRequestToken;
+          sceneCache.clear();
+          set({ subgraph: null, findings: null, dataState: "error", error });
+        }
+        // Other expansion failures leave the scene as-is.
       }
     },
 
