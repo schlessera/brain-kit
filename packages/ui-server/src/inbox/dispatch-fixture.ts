@@ -18,6 +18,8 @@ export interface InboxDispatchFixture {
   /** Keyless classification transport for T1 (a loopback fixture). */
   fetch?: FetchLike;
   classificationKey?: string;
+  /** The fixture supervisor's clock for the drain and dispatcher (lease expiry, backoff). */
+  now?: () => number;
 }
 
 export type InboxDispatchFixtureOptions = { [INBOX_DISPATCH_FIXTURE]?: InboxDispatchFixture };
