@@ -35,6 +35,11 @@ export const Offline = Default.extend({ args: { variant: "offline" } });
 export const FirstRun = Default.extend({ args: { variant: "first-run" } });
 export const Quiet = Default.extend({ args: { variant: "quiet" } });
 
+/** The app's own first run: the logo on a plain tile in place of the icon. */
+export const Brand = Default.extend({
+  args: { variant: "first-run", brand: true, title: "What do you need to know?", body: "Ask in your own words." },
+});
+
 /** Every variant's copy is a fallback, so a caller can say something more
  * specific without losing the glyph or the tone. */
 export const OverriddenCopy = Default.extend({

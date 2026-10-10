@@ -994,6 +994,7 @@ signatures (every public export and the types it is made of)
         secondaryLabel?: string;
         icon?: IconName;
         tone?: EmptyTone;
+        brand?: boolean;
         minHeight?: number;
         pad?: number;
         titleSize?: number;

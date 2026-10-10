@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from "react";
 
+import { BrandMark } from "../primitives/BrandMark.js";
 import { Button } from "../primitives/Button.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { accent, color, font, token } from "../tokens.js";
@@ -32,6 +33,12 @@ export interface EmptyStateProps {
   secondaryLabel?: string;
   icon?: IconName;
   tone?: EmptyTone;
+  /**
+   * Show the brain-kit logo instead of the icon, for the app's own first-run
+   * screen. The logo sits on a plain surface tile rather than the tone's
+   * tint: its amber half must stay on a flat ground (#1423 usage rules).
+   */
+  brand?: boolean;
   /** Vertical centring inside a screen. 0 shrink-wraps. */
   minHeight?: number;
   pad?: number;
@@ -147,11 +154,11 @@ export function EmptyState(p: EmptyStateProps) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: MEDALLION_TINTS[tone] || MEDALLION_TINTS.neutral,
-          border: `1px solid ${MEDALLION_BORDERS[tone] || MEDALLION_BORDERS.neutral}`,
+          background: p.brand ? color.surface : MEDALLION_TINTS[tone] || MEDALLION_TINTS.neutral,
+          border: `1px solid ${p.brand ? color.edge : MEDALLION_BORDERS[tone] || MEDALLION_BORDERS.neutral}`,
         }}
       >
-        <Icon icon={p.icon || v.icon} size={26} color={ink} />
+        {p.brand ? <BrandMark size={32} /> : <Icon icon={p.icon || v.icon} size={26} color={ink} />}
       </span>
       <div
         ref={titleRef}

@@ -361,6 +361,13 @@ mark inside the central 80% circle) and `social-card.png` (1200x630).
 `HTML_ICON_LINKS` the head `<link>`s (`rel`, `href`, optional `type` and
 `sizes`). Every `src` and `href` is a bare brand file name.
 
+## Logo in the empty state (additive, #1426)
+
+`EmptyStateProps` in `@schlessera/brain-ui-kit` gains optional
+`brand?: boolean`. Set, the empty state shows `BrandMark` on a plain surface
+tile in place of its icon medallion; `icon` and the tone's tint are then not
+drawn. An empty state without it renders as before.
+
 ## Consumers
 
 | Consumer | Surfaces used |
