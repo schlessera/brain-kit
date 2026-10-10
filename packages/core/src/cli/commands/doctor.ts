@@ -13,7 +13,8 @@ import {
   embeddingIdentityMatches,
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
 } from "../../lib/db.js";
-import { indexAll, getMarkdownFiles } from "../../lib/indexer.js";
+import { indexAll } from "../../lib/indexer.js";
+import { indexStaleness } from "../../lib/ops/staleness.js";
 import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
 import { measureInstructions } from "../../lib/instructions-weight.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
@@ -315,22 +316,10 @@ function checkDb(cli: CliContext): Check {
     if (schema < EXPECTED_SCHEMA_VERSION) {
       return { id: "db", status: "warn", detail: `schema_version ${schema} < ${EXPECTED_SCHEMA_VERSION}`, fix: "run `brain index --force`" };
     }
-    const rows = db.prepare("SELECT path, indexed_at FROM documents WHERE asset_type = 'markdown'").all() as { path: string; indexed_at: string }[];
-    const indexed = new Map(rows.map((r) => [r.path, Date.parse(r.indexed_at)]));
-    let stale = 0;
-    const seen = new Set<string>();
-    for (const path of getMarkdownFiles(cli.brain.root, cli.brain.taxonomy)) {
-      seen.add(path);
-      const at = indexed.get(path);
-      try {
-        if (at === undefined || statSync(resolve(cli.brain.root, path)).mtimeMs > at) stale++;
-      } catch {
-        /* vanished */
-      }
-    }
-    for (const path of indexed.keys()) if (!seen.has(path)) stale++;
+    // The same staleness the MCP read tools warn about.
+    const { stale, indexed } = indexStaleness(db, cli.brain.root, cli.brain.taxonomy);
     if (stale > 0) return { id: "db", status: "warn", detail: `index is stale (${stale} file(s) newer than the index)`, fix: "run `brain index`" };
-    return { id: "db", status: "pass", detail: `schema v${schema}, ${rows.length} document(s), index fresh` };
+    return { id: "db", status: "pass", detail: `schema v${schema}, ${indexed} document(s), index fresh` };
   } finally {
     db.close();
   }
