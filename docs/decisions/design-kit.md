@@ -6484,6 +6484,63 @@ a developer error in development builds.
 inside the owning dialog. Its pixels do not change. Only the 24 new overlay
 baselines are approved; no existing baseline changes.
 
+### D54 addendum — bounded swipe dismissal for sheets (#1420, maintainer, 2026-10-10)
+
+The grabber D54 drew as decoration becomes a bounded drag handle. Rulings:
+
+1. **Bounded swipe dismissal** applies to the eligible topmost sheet-shaped
+   overlay: a `sheet` at any width, or a `dialog` rendered as a sheet below
+   900px. Only `closedBy="any"` dismisses. That leaves the credential
+   (`closedBy="none"`), a busy handoff and draining dictation protected, as
+   D54 already makes them.
+2. **The header starts it, the body never does.** The drag zone is the top
+   56px of grabber and title, excluding interactive controls. A body gesture
+   never dismisses, even at `scrollTop` zero, so body scrolling stays
+   untouched.
+3. **An ineligible topmost sheet rubber-bands** up to 12px and snaps back. It
+   calls no `onClose`, Stop or Cancel. Lower and inert overlays never respond.
+4. **Touch and pen only.** A mouse drag never moves a sheet.
+
+Mechanics:
+
+- **Initiation.** Tracking starts after 8px of downward, vertically dominant
+  movement. Horizontal-first movement disqualifies the pointer. Capture is
+  taken only after initiation.
+- **Tracking.** Downward movement tracks 1:1. Upward movement resists at 0.2×
+  displacement, capped at 12px. Scrim opacity is
+  `1 - 0.6 * clamp(dy / surfaceHeight, 0, 1)`.
+- **Commit.** On release, a displacement of at least
+  `min(25% of surface height, 120px)` commits the dismissal. So does a
+  downward velocity of at least 0.5px/ms over the final 80ms, with at least
+  24px of displacement.
+- **The reason.** A commit calls `onClose` once with a new
+  `OverlayCloseReason`, `"swipe"`. That adds to the four reasons D54 shipped:
+  `escape`, `scrim`, `close-button` and `close-request`. `open` stays
+  caller-owned. Closing remains instant; if the caller keeps the overlay
+  open, the sheet snaps back.
+- **Cancellation.** Snap-back is 200ms ease-out. The gesture ends without
+  dismissing on pointercancel, a second pointer, lost capture, loss of
+  topmost, or a `closedBy` change away from `any`. Escape ends tracking
+  first, then follows the normal close policy.
+- **Reduced motion and focus.** Direct manipulation stays under reduced
+  motion; the snap-back becomes immediate and the scrim fade is dropped. A
+  drag never moves focus. D54's closing-render `returnFocus` and
+  `onAfterClose` ordering applies unchanged.
+- **Unchanged.** The 44px controls, the keyboard and accessibility close paths,
+  body scrolling, and the resting baselines at 320, 800 and 1280px. There is
+  no exit animation and no new resting visual.
+
+**Dictation.** A swipe while recording means **Stop, with the words kept for
+review**, never Cancel. The dictation sheet maps `"swipe"` the way it already
+maps `"scrim"` (`onClose={reason => reason === "scrim" ? onStop() : onCancel()}`,
+`packages/ui-react/src/components/voice/dictation-sheet.tsx:173`). While
+draining, `closedBy` is `none` and rule 3 applies.
+
+**Contract.** `"swipe"` widens the `OverlayCloseReason` union of a public kit
+export. #1433 implements the gesture, assesses the compatibility of that
+addition, and ships it with a changeset. This record approves no other API
+change. The original proposal and prompt stay as history in the #1420
+comments; none of their alternatives is current guidance.
 
 ## 2026-10-09 — D55: native icon and text actions (#1379)
 
