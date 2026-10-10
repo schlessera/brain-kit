@@ -1,0 +1,13 @@
+{
+  "reservationUsd": 10,
+  "usageDerivedStandardCostUpperUsd": 0.19511000000000003,
+  "knownUsageDerivedStandardCostUpperSubtotalUsd": 0.19511000000000003,
+  "conservativeKnownChargeDebitUpperUsd": 0.44526000000000016,
+  "retainedReservationUpperUsd": 0,
+  "unknownCostAttempts": 0,
+  "missingUsageStop": false,
+  "actualInvoiceUsd": null,
+  "physicalAttempts": 52,
+  "freezeSha": "931f75b3b90c2ec11744d085bd4882e97acbe799fa154f5ebabfcd80856b9711",
+  "admission": "direct: no native review or paid-policy admission"
+}
