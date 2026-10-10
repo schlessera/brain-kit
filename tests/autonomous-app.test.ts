@@ -52,7 +52,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} in the who
     const r = await probe(adapter, "exact");
     pipeline(r);
     expect(r.proposed).toHaveLength(1);
-    expect(r.proposed[0].options.map((o: any) => o.id)).toEqual(["apply", "cancel"]);
+    expect(r.proposed[0].options.map((o: any) => o.id)).toEqual(["apply", "dismiss"]);
     expect(r.errors, "both devices resolve without a refusal").toEqual([]);
     expect(r.executes, "ONE_FOLLOW_UP").toEqual(["done"]);
     expect(r.files.note, "APPLIED_ONCE").toBe("Penelope keeps the loom until Odysseus returns.\n");

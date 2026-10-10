@@ -64,8 +64,9 @@ Every claimed attempt runs one restricted autonomous turn (#676). The roster
 is the backend's read tools plus the hosted application tools; the
 application route auto-allows nothing. An agent-tier turn's proposal of an
 exact Markdown change becomes a [durable decision](inbox-actions.md): the
-checkpoint, an Action whose `apply` option carries that exact operation, and
-the blocked item commit together, and nothing is written. Questions become
+checkpoint, an Action whose `apply` option carries that exact operation (with
+`dismiss` beside it, the one-commit shape the Actions card renders), and the
+blocked item commit together, and nothing is written. Questions become
 choice options; any other out-of-roster call becomes a decision that can only
 be cancelled. A follow-up minted from a resolution runs with its read tools
 and the one approved tool. It may apply exactly the approved tool, input and
@@ -104,6 +105,10 @@ follow-up applies once. A hostile share drives the model to read host secrets,
 write the crew policy and run a shell payload that calls home. No secret
 reaches a model request, the policy bytes and host listener are untouched, and
 each attempt ends as a cancel-only decision.
+`packages/ui-react/tests/browser/dispatch-actions.layout.tsx` drives the same
+decision from two real Chromium pages rendering the Actions page over the
+app's WebSocket: one resolution, one follow-up, an exact receipt on each
+device, and one applied write.
 
 `packages/ui-server/tests/inbox-dispatch-ae.test.ts` composes the design's
 acceptance examples through the dispatcher: AE1–AE5, AE7–AE9 and AE11–AE15.

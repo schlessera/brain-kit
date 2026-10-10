@@ -48,7 +48,7 @@ function proposed(r: any, adapter: string): void {
   expect(r.passes[0].failed).toBeUndefined();
   expect(r.proposed).toHaveLength(1);
   expect(r.proposed[0]).toMatchObject({ type: "approve", status: "pending" });
-  expect(r.proposed[0].options.map((o: any) => o.id)).toEqual(["apply", "cancel"]);
+  expect(r.proposed[0].options.map((o: any) => o.id)).toEqual(["apply", "dismiss"]);
   expect(r.proposed[0].options[0].effect.payload.operation, "STORED_EXACT_OPERATION").toEqual({ toolName: name(adapter, "write_file"),
     input: { operation: "write", path: NOTE, expectedBaseHash: null, content: CONTENT }, targetPath: NOTE });
   expect(r.checkpoints[0]).toEqual([r.proposed[0].options[0].effect.payload.operation]);
