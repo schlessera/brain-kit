@@ -21,7 +21,7 @@ workload until more positive cases per field exist.
 The actual offline native control is a separate manual entry:
 
 ```sh
-rtk proxy python3 scripts/evals/candidate-extraction/offline-launch.py \
+python3 scripts/evals/candidate-extraction/offline-launch.py \
   --bun /path/to/verified/bun --output /fresh/protected/output
 ```
 
