@@ -70,3 +70,20 @@ test("actual native API credential is refused before lifecycle USER and physical
     expect({exit,stdout,stderr}).toMatchObject({exit:0});
   }finally{rmSync(root,{recursive:true,force:true});}
 },30000);
+
+test("lifecycle Root review admits the exact literal formatted proof hash used by its packets",()=>{
+ const root=mkdtempSync(join(tmpdir(),"lifecycle-literal-proof-")),prefix="BRAIN_LIFECYCLE";
+ const names=[`${prefix}_PAID_PROOF`,`${prefix}_PAID_POLICY`,`${prefix}_PAID_POLICY_SHA`,`${prefix}_LEDGER`,`${prefix}_ADMISSION`],saved=names.map(n=>process.env[n]);
+ try{
+  const frozen=lifecyclePaidFreeze(),prompt="Odysseus literal proof control";
+  const proof={freezeSha:frozen.freezeSha,testsExitCode:0,typecheckExitCode:0,lintExitCode:0,originalNativeExitCode:0,paidNativeExitCodes:{"paid-extra":0}};
+  const raw=JSON.stringify(proof,null,2)+"\n",proofSha=digest(raw);expect(proofSha).not.toBe(digest(JSON.stringify(proof)));
+  const synthetic=openLifecyclePaid({output:root,prompt,frozen,offline:true}),binding={...synthetic.evidence.binding,proofSha},nonce=digest(root+"live-format-only");
+  const policy={...synthetic.evidence.policy,...binding,control:"live" as const,grantNonce:nonce,consumedMarkerPath:join(root,nonce+".json")};
+  const policySha=digest(JSON.stringify(policy)),intent={...binding,issue:845,subscriptionWindowOwner:845,extraUsageAuthorized:true,sourceAuditApproved:true,paidPolicySha:policySha,expiresAt:policy.expiresAt};
+  const proofPath=join(root,"proof.json"),policyPath=join(root,"policy.json"),ledgerPath=join(root,"ledger.json"),intentPath=join(root,"intent.json");
+  for(const [path,value]of [[proofPath,raw],[policyPath,JSON.stringify(policy)],[ledgerPath,JSON.stringify({capUsd:150,perIssueCapUsd:15,basis:policy.basis,reservations:{845:15}})],[intentPath,JSON.stringify(intent)]])writeFileSync(path!,value!,{mode:0o600});
+  [proofPath,policyPath,policySha,ledgerPath,intentPath].forEach((v,i)=>process.env[names[i]!]=v);
+  expect(()=>openLifecyclePaid({output:root,prompt,frozen,offline:false,proofSha})).not.toThrow();
+ }finally{names.forEach((n,i)=>{if(saved[i]===undefined)delete process.env[n];else process.env[n]=saved[i];});rmSync(root,{recursive:true,force:true});}
+});

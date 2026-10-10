@@ -26,7 +26,7 @@ export function openLifecyclePaid(options:{output:string;prompt:string;offline:b
     const proof=protectedNativeJson(process.env.BRAIN_LIFECYCLE_PAID_PROOF);
     if(proof.value.freezeSha!==f.freezeSha||proof.value.testsExitCode!==0||proof.value.typecheckExitCode!==0||proof.value.lintExitCode!==0||
       proof.value.originalNativeExitCode!==0||proof.value.paidNativeExitCodes?.["paid-extra"]!==0)throw Error("Exact current lifecycle keyless proof required");
-    proofSha=digest(JSON.stringify(proof.value));if(proofSha!==options.proofSha)throw Error("Root lifecycle proof binding differs");
+    proofSha=proof.sha;if(proofSha!==options.proofSha)throw Error("Root lifecycle proof binding differs");
   }
   const binding={freezeSha:f.freezeSha,inputSha:f.inputSha,protocolSha:f.protocolSha,runtimeSha:digest(JSON.stringify(f.runtime)),proofSha,promptSha:digest(options.prompt)};
   return openNativePaidEntry({issue:845,prefix:"BRAIN_LIFECYCLE",offline:options.offline,purpose:"review",binding,output:options.output,
