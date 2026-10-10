@@ -12,7 +12,12 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_add", "mcp__brain__brain_archive", "mcp__brain__brain_context", "mcp__brain__brain_graph",
     "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(8);
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(12);
+  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action"]) {
+    const tool = capture.request.tools.find(tool => tool.name === `mcp__brain-ui__${name}`);
+    expect(tool?.input_schema).toBeDefined();
+    expect(tool?.defer_loading).not.toBe(true);
+  }
   expect(capture.request.tools.some(tool => tool.name === "Skill")).toBe(true);
   expect(capture.request.tools.some(tool => tool.name === "Read")).toBe(true);
   const text = JSON.stringify(capture.request.messages);
@@ -27,7 +32,7 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
   expect(JSON.stringify(payloads[1]!.body.messages)).not.toContain("mcp__brain__brain_read");
   expect(JSON.stringify(payloads[1]!.body.messages)).toContain("WebFetch");
   expect(JSON.stringify(payloads[2]!.body.messages)).toContain("mcp__brain__brain_read");
-  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(8);
+  expect(payloads[3]!.body.tools.length - payloads[2]!.body.tools.length).toBe(12);
   expect(payloads[4]!.body.tools).toEqual(capture.request.tools);
   expect(payloads[4]!.body.messages).toEqual(capture.request.messages);
   // Missing classification/listing evidence must reject the measurement.
