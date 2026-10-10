@@ -730,6 +730,10 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
+  WORKER_SCRATCH
+  WorkerHostError
+  type WorkerHostProbe
+  type WorkerLaunch
   applyClassification
   archivesDocument
   assertLoadedSdk
@@ -750,20 +754,24 @@ export "./internal" (./src/internal.ts)
   handleRequestImageMask
   handleShowBlock
   hasWebSearchCredential
+  launchAgentWorker
   loadedSdkIdentity
   observeClassification
   parseSubprocessEnvExtra
   piMaskFilename
   piReportedMaskPath
   planClassification
+  probeWorkerHost
   readWebSearchOverride
   readWebSearchRouting
+  requireWorkerHost
   resolveThinkingLevel
   resolveWebSearchConfigPath
   rtkRewriteCommand
   validateExecWrapper
   webSearchBrief
   webSearchProvider
+  workerHostBoundary
   wrapCommand
 
 export "./internal/client" (./src/internal-client.ts)

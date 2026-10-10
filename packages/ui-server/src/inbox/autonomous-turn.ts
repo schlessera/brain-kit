@@ -12,6 +12,7 @@ import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.js";
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
+import { requireWorkerHost, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -35,6 +36,8 @@ export interface AutonomousTurnInput {
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
+  /** Authoritative brain; standalone callers default to their working directory. */
+  brainPath?: string;
   db: Database;
   backend: AgentBackend;
   /** Must commit checkpoint + Action/block intent synchronously or throw. */
@@ -64,6 +67,13 @@ export async function runAutonomousTurn(
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+  try { requireWorkerHost(deps.brainPath ?? process.cwd()); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    deps.emit?.({ type: "error", code: "BACKEND_REQUEST_ERROR", turnId: input.turnId, message,
+      ...(error instanceof WorkerHostError ? { failure: { errorClass: error.errorClass, message } } : {}) });
+    throw error;
+  }
   let lifetime: ReturnType<typeof acquireInboxRunLifetime>;
   try { lifetime = acquireInboxRunLifetime(deps.db, input.turnId); }
   catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous attempt ownership failed."); }

@@ -310,3 +310,17 @@ its own network error. An installed worker missing its cached shell falls back
 to `/offline.html`, or to a 503 carrying the same sentence if that page is also
 missing. Cache or site-data eviction can remove previously available assets.
 The generated files and their precache inventory belong to the hosting template.
+
+## Environment
+
+The worker bootstrap accepts only the server-minted internal launch transport;
+there is no operator switch that disables worker admission.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `BRAIN_WORKER_LAUNCH` | Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override. | **required** |
+
+Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

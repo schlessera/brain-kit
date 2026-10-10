@@ -10,6 +10,7 @@ import type {
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
@@ -310,6 +311,15 @@ async function runRetainedSession(
       turn.draftRef = draftRef;
       turn.work = work;
       next = null;
+
+      // Before transcript/source/failure recording or any runtime initialization.
+      // Every queued interactive or voice turn repeats the actual host check.
+      try { requireWorkerHost(host.brainPath ?? process.cwd()); }
+      catch (error) {
+        emitTurnError(host, turn, error);
+        work?.settle("error", { reason: error instanceof Error ? error.message : String(error) });
+        break;
+      }
 
       const abortController = new AbortController();
       turn.abortController = abortController;
