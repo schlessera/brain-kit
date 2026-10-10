@@ -4,7 +4,13 @@
  * the approval card shows. An entry the parser cannot use must never turn the
  * confirmation off by accident — the safe direction is the shipped defaults.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { registryBrainFixture } from "./helpers/registry-brain";
+
+let brain: ReturnType<typeof registryBrainFixture>;
+beforeEach(() => { brain = registryBrainFixture(); });
+afterEach(() => brain.cleanup());
 
 import { resolveServerConfig } from "../src/config/env";
 import { createBackendRegistry } from "../src/agent/backend";
@@ -45,7 +51,7 @@ describe("BRAIN_UI_CONFIRM_BASH through real backend initialization", () => {
   for (const backendId of ["claude", "pi"]) {
     const registryFor = (value?: string) => {
       const config = resolveServerConfig({
-        NODE_ENV: "test", AGENT_BACKEND: backendId, BRAIN_UI_CONFIRM_BASH: value,
+        NODE_ENV: "test", BRAIN_PATH: brain.root, AGENT_BACKEND: backendId, BRAIN_UI_CONFIRM_BASH: value,
       });
       return createBackendRegistry({
         brainPath: config.brainPath, agent: config.agent,

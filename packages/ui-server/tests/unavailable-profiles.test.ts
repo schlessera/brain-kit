@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { registryBrainFixture } from "./helpers/registry-brain";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createBackendRegistry, createStaticBackendRegistry } from "../src/agent/backend";
 import { resolveServerConfig } from "../src/config/env";
@@ -14,11 +15,14 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 
 const KEY = "BRAIN_UI_TEST_ITHACA_PROXY_TOKEN";
 let saved: string | undefined;
+let brain: ReturnType<typeof registryBrainFixture>;
 beforeEach(() => {
+  brain = registryBrainFixture();
   saved = process.env[KEY];
   delete process.env[KEY];
 });
 afterEach(() => {
+  brain.cleanup();
   if (saved === undefined) delete process.env[KEY];
   else process.env[KEY] = saved;
 });
@@ -26,6 +30,7 @@ afterEach(() => {
 function realRegistry(hidden: string[] = []) {
   const config = resolveServerConfig({
     NODE_ENV: "test",
+    BRAIN_PATH: brain.root,
     BRAIN_UI_CLAUDE_PROFILES: JSON.stringify([
       { id: "ithaca-proxy", label: "Ithaca proxy", baseUrl: "https://proxy.example/api", authTokenEnv: KEY },
     ]),
