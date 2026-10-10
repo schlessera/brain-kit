@@ -80,7 +80,7 @@ Homer's arithmetic**, which does not close either.
 | `sessions.ts` | one working session per tracker state, the pinned age clock, a long title | `SessionStrip`, `ComposerRow` |
 | `follow-ups.ts` | five pending follow-ups in send order, one with a label, and a long prompt | `PendingFollowUps`, `ComposerRow` |
 | `index.ts` | namespace re-exports and the `odyssey` aggregate | a story that composes four modules |
-| `library/` | 400+ whole Markdown records across eight domains, and the twelve ship rosters | the website demo's file tree, search and graph |
+| `library/` | 400+ whole Markdown records and the twelve ship rosters ([README](library/README.md)) | the website demo's file tree, search and graph |
 
 `types.ts` imports `Tone`, `ButtonTone` and `IconName` from `../src` rather
 than restating them, so a fixture cannot name a colour or an icon the
@@ -221,26 +221,6 @@ three notification densities. Each progress `StepList` has exactly one
 - **No IBAN appears anywhere, and none should be added.** ISO 13616 reserves
   no range for testing, so any mod-97-valid IBAN could belong to a live
   account. A world with no bank accounts sidesteps it entirely.
-
-## The library
-
-`library/` is the world at the size of a brain kept for twenty years: voyage
-legs and ship's logs, the crew by ship and by loss, the wider cast, knowledge
-and longer studies, Ithaca as news reaches Ogygia, one journal entry per
-chosen day, decisions with oaths and omens, and seven years of island records
-ending in the raft build. Each record is a `LibraryDocument`
-([`library/types.ts`](library/types.ts)) that the demo turns into a file with
-frontmatter. Each domain owns its path prefixes, and every folder has a hub
-that links up to the goal and down to its records.
-
-Stories and baselines do not render it, so adding records moves no visual
-baseline. Its invariants are asserted in
-[`../tests/library.test.ts`](../tests/library.test.ts): unique paths that never
-collide with a fixture path, links and full-path `[[wiki-links]]` that resolve,
-dates on or before the reference date, `day-N` records dated on day N, ids that
-exist, reserved identifiers only, and twelve ship rosters that close against
-`crewLosses`. Library records name only the existing people and place ids;
-anyone else appears in prose.
 
 ## Hazards when adding to this world
 
