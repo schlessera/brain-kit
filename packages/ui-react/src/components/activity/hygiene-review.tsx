@@ -149,6 +149,24 @@ export function useHygieneReview() {
   }, [items, read]);
   const streamed = read.review.pendingActionId ? items[read.review.pendingActionId] : undefined;
   const action = streamed?.queue === "actions" ? streamed : read.action;
+  // A disposition delta can arrive before CLI selection settles. Completion
+  // changes only the REST review, so keep reading that transient gap on every
+  // connected device. These reads never select or replay the disposition.
+  const selecting = read.review.status === "active" && (!action || action.status !== "pending");
+  useEffect(() => {
+    if (!supported || !online || !selecting) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (!stopped) timer = setTimeout(() => void poll(), 250);
+    };
+    timer = setTimeout(() => void poll(), 250);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [supported, online, selecting, refresh]);
   return {
     read,
     action,

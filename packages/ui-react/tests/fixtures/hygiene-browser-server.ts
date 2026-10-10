@@ -25,6 +25,9 @@ let mode = "",
   fingerprint = "b3241252fd85",
   hold: (() => void) | undefined;
 const calls: string[][] = [];
+let holdNext = false;
+let releaseNext: (() => void) | undefined;
+const reads: Array<{ status: string; pending: boolean }> = [];
 const diff = {
   path: "journeys/return-to-ithaca.md",
   before: "[[Eumaios hut]]",
@@ -120,7 +123,8 @@ const brain = {
     calls.push(args);
     const op = args[0],
       id = args.at(-1);
-    if (op === "next")
+    if (op === "next") {
+      if (holdNext) await new Promise<void>((resolve) => { releaseNext = resolve; });
       return mode === "blocked"
         ? { blocker: { message: 'unknown key "schemaa" (line 3)' } }
         : {
@@ -134,6 +138,7 @@ const brain = {
               informationalNotShown: 3,
             },
           };
+    }
     if (op === "list") return { entries: [{ id: `finding-${remaining}`, fingerprint, state: "open", dueAt: null }] };
     if (op === "resolve" && args.includes("--dry-run")) {
       const input = JSON.parse(args[args.indexOf("--input") + 1]);
@@ -216,11 +221,17 @@ const auth = {
 const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
   c.set("principal", principal as never);
+  if (c.req.method === "GET" && c.req.path === "/api/hygiene/review") {
+    const r = review.read();
+    reads.push({ status: r.review.status, pending: !!r.action });
+  }
   await next();
 });
 app.route("/api", createHygieneReviewRoutes(review));
 app.post("/fixture", async (c) => {
   const p = await c.req.json();
+  if (p.holdNext !== undefined) holdNext = p.holdNext;
+  if (p.releaseNext) { holdNext = false; releaseNext?.(); releaseNext = undefined; }
   if (p.longPreview !== undefined) longPreview = p.longPreview;
   if (p.mode !== undefined) mode = p.mode;
   if (p.category) category = p.category;
@@ -232,7 +243,7 @@ app.post("/fixture", async (c) => {
     hold = undefined;
   }
   if (p.start) await review.command(principal.id, "start");
-  return c.json({ calls, read: review.read() });
+  return c.json({ calls, read: review.read(), reads, selecting: !!releaseNext });
 });
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -263,6 +274,7 @@ const server = Bun.serve({
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
 process.on("SIGTERM", () => {
   hold?.();
+  releaseNext?.();
   stream.close();
   server.stop(true);
   db.close();
