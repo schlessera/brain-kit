@@ -13,8 +13,8 @@
 //   - CI's pack job runs it on every PR (`bun scripts/check-publish-pins.ts`),
 //     where the smoke test's file: overrides would otherwise mask a wrong pin.
 
-import { readFileSync, readdirSync } from "fs";
 import { join, resolve } from "path";
+import { listPublishablePackages } from "./publishable-packages.ts";
 
 interface Manifest {
   name: string;
@@ -30,35 +30,15 @@ export interface PinFinding {
   expected: string;
 }
 
-/** Every non-private package directory under packages/. */
-function publishableDirs(root: string): string[] {
-  const packagesDir = join(root, "packages");
-  return readdirSync(packagesDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .filter((e) => {
-      const manifest = JSON.parse(
-        readFileSync(join(packagesDir, e.name, "package.json"), "utf8")
-      ) as Manifest;
-      return !manifest.private;
-    })
-    .map((e) => e.name);
-}
-
 /**
  * Packs each package with internal deps and returns every pin that does not
  * match the current workspace version. Throws when packing itself fails.
  */
 export function checkPublishPins(root: string): PinFinding[] {
-  const dirs = publishableDirs(root);
-  const manifests = new Map<string, Manifest>();
-  const versions = new Map<string, string>();
-  for (const dir of dirs) {
-    const manifest = JSON.parse(
-      readFileSync(join(root, "packages", dir, "package.json"), "utf8")
-    ) as Manifest;
-    manifests.set(dir, manifest);
-    versions.set(manifest.name, manifest.version);
-  }
+  const publishable = listPublishablePackages(root);
+  const dirs = publishable.map((pkg) => pkg.dir);
+  const manifests = new Map<string, Manifest>(publishable.map((pkg) => [pkg.dir, pkg.manifest]));
+  const versions = new Map<string, string>(publishable.map((pkg) => [pkg.name, pkg.version]));
 
   const findings: PinFinding[] = [];
   for (const dir of dirs) {

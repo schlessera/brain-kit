@@ -7,10 +7,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { pendingChangesetPackageErrors } from "../scripts/check-changeset-packages";
+import {
+  listPublishablePackages,
+  type PublishableManifest as Manifest,
+} from "../scripts/publishable-packages";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
@@ -21,39 +25,7 @@ import {
   templateFilesToPublish,
 } from "../scripts/publish-template";
 
-interface Manifest {
-  name: string;
-  version: string;
-  private?: boolean;
-  scripts?: Record<string, string>;
-  dependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-  bin?: Record<string, string>;
-}
-
-/** Every package directory that is meant to reach npm. */
-function publishablePackages(): { dir: string; manifest: Manifest }[] {
-  return readdirSync(PACKAGES_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => ({
-      dir: e.name,
-      manifest: JSON.parse(
-        readFileSync(join(PACKAGES_DIR, e.name, "package.json"), "utf8")
-      ) as Manifest,
-    }))
-    .filter((p) => !p.manifest.private);
-}
-
-/** The `const packages = [...]` list a script drives its loop from. */
-function scriptPackageList(file: string): string[] {
-  const src = readFileSync(join(ROOT, "scripts", file), "utf8");
-  const block = /const packages = \[([\s\S]*?)\];/.exec(src);
-  if (!block) throw new Error(`could not find a packages list in scripts/${file}`);
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
-
-const packages = publishablePackages();
+const packages = listPublishablePackages(ROOT);
 const names = new Set(packages.map((p) => p.manifest.name));
 const dirs = packages.map((p) => p.dir).sort();
 const sortedNames = [...names].sort();
@@ -64,16 +36,6 @@ function packageNameOf(specifier: string): string {
 }
 
 const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
-
-/** The `for package in \ ... do` loop the pack job drives. */
-function ciPackLoop(): string[] {
-  const block = /for package in([\s\S]*?)\n\s*do\n/.exec(CI_YML);
-  if (!block) throw new Error("could not find the pack job's package loop in ci.yml");
-  return block[1]
-    .split(/\s+/)
-    .map((t) => t.replace(/\\$/, "").trim())
-    .filter(Boolean);
-}
 
 /** A `const <name> = [ ... ]` string list inside one of the smoke-test heredocs. */
 /** The `run:` text of one pack-job step, read from the parsed workflow. */
@@ -187,58 +149,6 @@ describe("release manifests", () => {
     expect(smokeTest).toContain(runLine);
   });
 
-  // Cleanup has no dependency ordering, but additions, removals and duplicate
-  // entries must not leave its explicit inventory out of sync with manifests.
-  test("scripts/clean.ts covers exactly the publishable package directories", () => {
-    expect(scriptPackageList("clean.ts").sort()).toEqual(dirs);
-  });
-
-  // A new package added to packages/ but not to these hardcoded lists is
-  // silently skipped: the release ships dependents that pin a version nobody
-  // published, which is the 0.2.0 uninstallable-package failure in a new guise.
-  for (const script of ["publish.ts", "build.ts"]) {
-    test(`scripts/${script} lists every publishable package`, () => {
-      const listed = scriptPackageList(script);
-      const missing = packages.map((p) => p.dir).filter((d) => !listed.includes(d));
-      expect(missing).toEqual([]);
-    });
-
-    test(`scripts/${script} lists nothing that no longer exists`, () => {
-      const listed = scriptPackageList(script);
-      const dirs = new Set(packages.map((p) => p.dir));
-      expect(listed.filter((d) => !dirs.has(d))).toEqual([]);
-    });
-
-    // The two membership tests above compare sorted, so they are order-blind —
-    // yet the ORDER is the point of these lists: a dependent published before
-    // its dependency is uninstallable in the window between the two `bun
-    // publish` calls, and build.ts promises dependency-first as a tripwire for
-    // resolution changes. Until now that ordering lived only in comments.
-    // Consistency is asserted against the ALLOWED_EDGES table
-    // (tests/allowed-edges.ts) — a superset of the actual manifest edges, which
-    // dependency-edges.test.ts pins — over hard dependencies only: internal
-    // peers are ranged `*`, so no publish order can break them.
-    test(`scripts/${script} lists every package after its internal hard dependencies`, () => {
-      const nameOfDir = new Map(packages.map((p) => [p.dir, p.manifest.name]));
-      const position = new Map<string, number>();
-      scriptPackageList(script).forEach((dir, index) => {
-        const name = nameOfDir.get(dir);
-        if (name) position.set(name, index);
-      });
-      const violations: string[] = [];
-      for (const [name, edges] of Object.entries(ALLOWED_EDGES)) {
-        for (const dep of edges.dependencies) {
-          const nameAt = position.get(name);
-          const depAt = position.get(dep);
-          // Absence from the list is the membership tests' finding, not ours.
-          if (nameAt === undefined || depAt === undefined) continue;
-          if (depAt > nameAt) violations.push(`${name} is listed before its dependency ${dep}`);
-        }
-      }
-      expect(violations).toEqual([]);
-    });
-  }
-
   // The command a developer types INSIDE a package must not flake either: bun's
   // default per-test timeout is 5s, and the CLI-spawning suites tip over it on
   // machine load alone — an intermittent single failure that passes on its own
@@ -300,6 +210,192 @@ describe("release manifests", () => {
     // The fixed group guarantees this after a release; a drift here means a
     // hand-edited manifest and a release that will not do what it appears to.
     expect(new Set(packages.map((p) => p.manifest.version)).size).toBe(1);
+  });
+});
+
+// build, publish, clean and the CI pack job used to carry four hand-maintained
+// copies of the package list, kept aligned by regex-parsing each one. A package
+// missing from one is silently skipped, and the release ships dependents pinned
+// to a version nobody published (the 0.2.0 failure in a new guise). They now
+// all read scripts/publishable-packages.ts, so these tests prove two things:
+// the function finds and orders packages, and every consumer really uses it.
+describe("the publishable package list", () => {
+  function writeManifest(root: string, dir: string, manifest: Record<string, unknown>): void {
+    mkdirSync(join(root, "packages", dir), { recursive: true });
+    writeFileSync(join(root, "packages", dir, "package.json"), JSON.stringify(manifest));
+  }
+
+  /**
+   * A copy of this workspace's manifests plus one package nobody listed
+   * anywhere: an Ithaca module that depends on core, in a directory whose name
+   * sorts before core's dependencies.
+   */
+  function withAddedPackage(run: (root: string) => void): void {
+    const root = mkdtempSync(join(tmpdir(), "publishable-packages-"));
+    try {
+      for (const entry of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
+        const manifest = join(PACKAGES_DIR, entry.name, "package.json");
+        if (!entry.isDirectory() || !existsSync(manifest)) continue;
+        mkdirSync(join(root, "packages", entry.name), { recursive: true });
+        copyFileSync(manifest, join(root, "packages", entry.name, "package.json"));
+      }
+      writeManifest(root, "a-module-ithaca", {
+        name: "@schlessera/brain-module-ithaca",
+        version: packages[0]!.version,
+        dependencies: { "@schlessera/brain": "workspace:*" },
+      });
+      run(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  /** The pack step's shell up to and including the loop's `do` line. */
+  function packLoopHeader(step: string): string | undefined {
+    return /^([\s\S]*?\n\s*for package in\b[\s\S]*?\n\s*do\n)/.exec(step)?.[1];
+  }
+
+  function lines(result: { exitCode: number; stdout: Uint8Array; stderr: Uint8Array }): string[] {
+    const stderr = new TextDecoder().decode(result.stderr);
+    expect(result.exitCode, stderr).toBe(0);
+    return new TextDecoder().decode(result.stdout).split("\n").filter(Boolean);
+  }
+
+  test("the workspace list is every non-private manifest, in dependency order", () => {
+    const fromDisk = readdirSync(PACKAGES_DIR, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && existsSync(join(PACKAGES_DIR, e.name, "package.json")))
+      .filter((e) => !JSON.parse(readFileSync(join(PACKAGES_DIR, e.name, "package.json"), "utf8")).private)
+      .map((e) => e.name)
+      .sort();
+    expect(fromDisk.length).toBeGreaterThan(5);
+    expect(dirs).toEqual(fromDisk);
+  });
+
+  // The order is what keeps a dependent from going out before its dependency.
+  // Asserted against the ALLOWED_EDGES table (tests/allowed-edges.ts) — a
+  // superset of the actual manifest edges, which dependency-edges.test.ts pins
+  // — over hard dependencies only: internal peers are ranged `*`, so no
+  // publish order can break them.
+  test("the workspace list puts every package after its internal hard dependencies", () => {
+    const position = new Map(packages.map((p, index) => [p.name, index]));
+    const violations: string[] = [];
+    let checked = 0;
+    for (const [name, edges] of Object.entries(ALLOWED_EDGES)) {
+      for (const dep of edges.dependencies) {
+        const nameAt = position.get(name);
+        const depAt = position.get(dep);
+        if (nameAt === undefined || depAt === undefined) continue;
+        checked += 1;
+        if (depAt > nameAt) violations.push(`${name} is listed before its dependency ${dep}`);
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
+    expect(violations).toEqual([]);
+  });
+
+  test("orders by hard dependencies, skips private and manifest-less directories, ignores peer and dev edges", () => {
+    const root = mkdtempSync(join(tmpdir(), "publishable-order-"));
+    try {
+      // Alphabetical order would put the app first; its dependency must win.
+      writeManifest(root, "app", {
+        name: "@fixture/app", version: "1.0.0",
+        dependencies: { "@fixture/lib": "workspace:*" },
+        optionalDependencies: { "@fixture/opt": "workspace:*" },
+      });
+      writeManifest(root, "lib", {
+        name: "@fixture/lib", version: "1.0.0",
+        // A dev or peer edge back to the app is not a publish-order constraint.
+        devDependencies: { "@fixture/app": "workspace:*" },
+        peerDependencies: { "@fixture/app": "*" },
+      });
+      writeManifest(root, "opt", { name: "@fixture/opt", version: "1.0.0" });
+      writeManifest(root, "internal", { name: "@fixture/internal", version: "1.0.0", private: true });
+      mkdirSync(join(root, "packages", "notes"));
+      expect(listPublishablePackages(root).map((p) => p.dir)).toEqual(["lib", "opt", "app"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a hard dependency cycle instead of guessing an order", () => {
+    const root = mkdtempSync(join(tmpdir(), "publishable-cycle-"));
+    try {
+      writeManifest(root, "a", { name: "@fixture/a", version: "1.0.0", dependencies: { "@fixture/b": "*" } });
+      writeManifest(root, "b", { name: "@fixture/b", version: "1.0.0", dependencies: { "@fixture/a": "*" } });
+      expect(() => listPublishablePackages(root)).toThrow("form a cycle among @fixture/a, @fixture/b");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an added package directory reaches the build, the release and the CLI with no list edit", () => {
+    withAddedPackage((root) => {
+      const expected = listPublishablePackages(root).map((p) => p.dir);
+      expect(expected).toContain("a-module-ithaca");
+      expect(expected.length).toBe(packages.length + 1);
+      expect(expected.indexOf("a-module-ithaca")).toBeGreaterThan(expected.indexOf("core"));
+
+      const run = (script: string, ...args: string[]) =>
+        Bun.spawnSync([process.execPath, join(ROOT, "scripts", script), ...args], {
+          cwd: ROOT, stdout: "pipe", stderr: "pipe",
+        });
+      expect(lines(run("publishable-packages.ts", root))).toEqual(expected);
+      expect(lines(run("build.ts", "--dry-run", root))).toEqual(
+        expected.map((dir) => `Would build packages/${dir}`)
+      );
+      const byDir = new Map(listPublishablePackages(root).map((p) => [p.dir, p]));
+      expect(lines(run("publish.ts", "--dry-run", root))).toEqual(
+        expected.map((dir) => `Would publish ${byDir.get(dir)!.name}@${byDir.get(dir)!.version} (packages/${dir})`)
+      );
+    });
+  });
+
+  test("an added package directory reaches the CI pack loop with no list edit", () => {
+    // Run the workflow's own step text up to the loop, with the loop body
+    // swapped for an echo, so this exercises the shell that CI runs rather
+    // than a description of it.
+    const step = ciStep("Pack all workspaces");
+    const header = packLoopHeader(step);
+    if (!header) throw new Error("could not find the pack step's `for package in ... do` loop");
+    withAddedPackage((root) => {
+      mkdirSync(join(root, "scripts"));
+      copyFileSync(join(ROOT, "scripts", "publishable-packages.ts"), join(root, "scripts", "publishable-packages.ts"));
+      const runnerTemp = join(root, "runner-temp");
+      mkdirSync(runnerTemp);
+      const result = Bun.spawnSync(["bash", "-c", `${header}echo "PACK $package"\ndone\n`], {
+        cwd: root,
+        env: {
+          PATH: `${resolve(process.execPath, "..")}:${process.env.PATH ?? ""}`,
+          RUNNER_TEMP: runnerTemp,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const packed = lines(result).filter((l) => l.startsWith("PACK ")).map((l) => l.slice(5));
+      expect(packed).toEqual(listPublishablePackages(root).map((p) => p.dir));
+      expect(packed).toContain("a-module-ithaca");
+    });
+  });
+
+  test("the CI pack loop stops when the list cannot be read", () => {
+    // A failing command substitution inside a `for` list loops over nothing
+    // and exits 0. The step must fail instead of packing zero packages.
+    const step = ciStep("Pack all workspaces");
+    const header = packLoopHeader(step);
+    if (!header) throw new Error("could not find the pack step's `for package in ... do` loop");
+    const root = mkdtempSync(join(tmpdir(), "publishable-pack-missing-"));
+    try {
+      const result = Bun.spawnSync(["bash", "-c", `${header}echo "PACK $package"\ndone\n`], {
+        cwd: root,
+        env: { PATH: `${resolve(process.execPath, "..")}:${process.env.PATH ?? ""}`, RUNNER_TEMP: root },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(new TextDecoder().decode(result.stdout)).not.toContain("PACK ");
+      expect(result.exitCode).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -372,12 +468,6 @@ describe("pending changeset package gate", () => {
 // pack check and no consumer-import smoke test, and nothing could notice,
 // because the guard above only reads scripts/*.ts and the docs are prose.
 describe("workspace enumerations", () => {
-  test("the CI pack loop covers exactly the publishable package directories", () => {
-    // A package missing here publishes with no tarball-shape check and no
-    // smoke test; a stale entry fails the job on a directory that is gone.
-    expect(ciPackLoop().sort()).toEqual(dirs);
-  });
-
   test("the CI smoke-test overrides pin a tarball for every publishable package", () => {
     // The overrides map is how the consumer install resolves workspace deps to
     // the packed tarballs. A package absent here resolves from the public

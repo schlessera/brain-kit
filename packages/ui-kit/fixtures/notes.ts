@@ -133,13 +133,13 @@ export const notes: Note[] = [
     path: "oaths/helios.md",
     title: "Oath sworn on Thrinacia",
     kind: "oath",
-    updated: daysBefore(2638),
-    staleDays: 2638,
+    updated: daysBefore(2608),
+    staleDays: 2608,
     tags: ["#gods", "#crew"],
     links: ["decisions/cattle-of-helios.md"],
     people: ["person:eurylochus"],
     places: ["place:thrinacia"],
-    excerpt: "Every man swore not to touch the herds. Twenty-nine days later, every man had.",
+    excerpt: "Every man swore not to touch the herds. Thirty-three days later, every man had.",
   },
   {
     id: "note:journal-today",
@@ -207,7 +207,7 @@ export const notes: Note[] = [
     people: ["person:circe"],
     places: ["place:sirens"],
     excerpt:
-      "Wind dropped to nothing at the right moment, which is the only luck of the whole passage. Fifty-two men rowed past it and not one of them heard a note.",
+      "Wind dropped to nothing at the right moment, which is the only luck of the whole passage. Thirty-seven men rowed past it and not one of them heard a note.",
   },
   {
     id: "note:voyage-strait",
