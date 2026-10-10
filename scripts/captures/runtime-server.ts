@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createApp, createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
+import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import type { ChatSession, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { captureSearchFixture, createFixtureBrain } from "./core-fixture.ts";
 import { hashTree } from "./provenance.ts";
@@ -11,6 +12,10 @@ import { REFERENCE_INSTANT } from "../../packages/ui-kit/fixtures/time.ts";
 
 const root = resolve(import.meta.dir, "../.."), scratch = process.argv[2], kind = process.argv[3];
 if (!scratch || !["capture-search-keyless", "approval-roundtrip"].includes(kind)) throw new Error("Runtime fixture requires an isolated directory and approved ID");
+// This dedicated fixture uses only the scripted backend below in a pinned,
+// network-denied browser container. It proves approval UI/effects, not worker
+// containment. Real host qualification remains in the launcher and gate tests.
+if (kind === "approval-roundtrip") workerHostBoundary.probe = () => ({ ok: true });
 await mkdir(scratch, { recursive: true });
 const brain = resolve(scratch, "brain"), assets = resolve(scratch, "client");
 await mkdir(assets, { recursive: true });
