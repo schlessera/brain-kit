@@ -316,7 +316,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     dispatch: (item: InboxQueueItem, signal: AbortSignal) => dispatcher ? dispatcher.dispatch(item, signal) : Promise.reject(new Error("Dispatcher is not ready")),
   } : {};
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
-    brainRoot: config.brainPath, budget: inboxBudget, now: dispatchFixture?.now, ...engine });
+    brainRoot: config.brainPath, budget: inboxBudget, now: dispatchFixture?.now, afterCleanupRemove: dispatchFixture?.afterCleanupRemove, ...engine });
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }

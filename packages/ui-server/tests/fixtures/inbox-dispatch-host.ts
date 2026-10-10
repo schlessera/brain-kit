@@ -6,7 +6,8 @@
  *
  * argv: <dir> <brain> <db> <hold>. `hold` names where the deterministic model
  * stops and waits to be killed: "claim" (the backend started), "checkpoint"
- * (an escalation committed), "effect" (an approved write applied), or "".
+ * (an escalation committed), "effect" (an approved write applied), "cleanup"
+ * (staging removed, its compensation not yet acknowledged), or "".
  * `<dir>/clock` holds the supervisor's clock offset in milliseconds.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -44,6 +45,7 @@ const backend: AgentBackend = { id: "pi", capabilities: { autonomous: true, rest
     req.bridge.emit({ type: "result", sessionId: "ephemeral", outcome: req.signal.aborted ? "cancelled" : "success", isError: false, durationMs: 1, numTurns: 1 });
   } };
 const fixture: InboxDispatchFixture = { classificationKey: "fixture-classification-key", now,
+  afterCleanupRemove: hold === "cleanup" ? () => reached("cleanup") : undefined,
   fetch: async (_url, init) => {
     const ids = Object.keys((JSON.parse(String(init.body)) as { questions: Record<string, unknown> }).questions);
     return Response.json({ model: "jev-1.13.0", usage: { input_tokens: 100, output_tokens: 10 }, answers: Object.fromEntries(ids.map(id => [id,

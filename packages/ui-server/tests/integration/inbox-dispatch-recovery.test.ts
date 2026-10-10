@@ -219,3 +219,62 @@ test("the daily snapshot restores into an empty installation with its decision, 
   expect(await poke(content, host)).toMatchObject({ claimed: 0 });
   await host.stop();
 }, 90_000);
+
+const staging = (at: Install) => existsSync(join(at.brain, ".brain-ui/inbox"))
+  ? readdirSync(join(at.brain, ".brain-ui/inbox")).filter(name => !name.startsWith(".")) : [];
+const cleanups = (at: Install) => read<{ status: string; attempts: number }>(at,
+  "SELECT status, attempts FROM inbox_items WHERE queue = 'queue' AND type = 'cleanup_pending'");
+
+test("killed inside staging compensation: the restart repeats removal and acknowledges once", async () => {
+  const at = installation();
+  let host = await start(at, "cleanup");
+  await arrive(host);
+  expect(await poke(at, host)).toMatchObject({ claimed: 1 });
+  await resolve(host, pending(at)[0]!.id);
+  expect(await poke(at, host)).toMatchObject({ claimed: 1 });
+  expect(note(at)).toBe(WRITE.content as string);
+  expect(staging(at), "staging is retained until the thread's work is terminal").toHaveLength(1);
+  expect(cleanups(at)).toEqual([{ status: "ready", attempts: 0 }]);
+  // The next pass removes the staging and is killed before acknowledging it.
+  void poke(at, host).catch(() => {});
+  expect(await waitFor(() => existsSync(join(at.dir, "reached-cleanup")))).toBe(true);
+  await host.kill();
+  expect(staging(at)).toEqual([]);
+  expect(cleanups(at), "CLEANUP_UNACKNOWLEDGED").toEqual([{ status: "claimed", attempts: 1 }]);
+
+  host = await start(at);
+  clock(at, 2 * MINUTE);
+  await poke(at, host);
+  clock(at, 5 * MINUTE);
+  await poke(at, host);
+  expect(cleanups(at), "CLEANUP_RECOVERED: repeated removal is acknowledged once").toEqual([{ status: "done", attempts: 2 }]);
+  expect(executes(at)).toEqual([expect.objectContaining({ status: "done" })]);
+  expect(turns(at).filter(t => t.followUp && t.result.ok), "no effect replays").toHaveLength(1);
+  expect(pending(at)).toEqual([]);
+  await host.stop();
+}, 60_000);
+
+test("staging missing after a restore becomes a visible decision, never blind execution", async () => {
+  const at = installation();
+  let host = await start(at);
+  const itemId = await arrive(host);
+  const backup = join(at.dir, "operational-backup.json");
+  const exported = Bun.spawnSync([process.execPath, BIN, "export", "--db", at.db, "--brain-root", at.brain, "--file", backup, "--json"]);
+  expect(exported.exitCode, exported.stderr.toString()).toBe(0);
+  await host.kill();
+  const target = installation();
+  rmSync(target.db, { force: true });
+  const restored = Bun.spawnSync([process.execPath, BIN, "restore", "--db", target.db, "--brain-root", target.brain, "--file", backup, "--json"]);
+  expect(restored.exitCode, restored.stdout.toString() + restored.stderr.toString()).toBe(0);
+  expect(staging(target)).toHaveLength(1);
+  // The staged bytes are lost after the restore.
+  rmSync(join(target.brain, ".brain-ui/inbox"), { recursive: true, force: true });
+  host = await start(target);
+  expect(await poke(target, host)).toMatchObject({ claimed: 0 });
+  expect(item(target, itemId), "MISSING_STAGING_BLOCKED").toMatchObject({ status: "blocked" });
+  const review = read<{ data_json: string }>(target, "SELECT data_json FROM inbox_items WHERE queue = 'actions' AND status = 'pending'");
+  expect(review.map(row => JSON.parse(row.data_json).payload.title), "VISIBLE").toEqual(["A queued arrival needs your review"]);
+  expect(turns(target), "no agent turn ran on missing evidence").toEqual([]);
+  expect(reservations(target).filter(r => r.purpose !== "triage")).toEqual([]);
+  await host.stop();
+}, 60_000);

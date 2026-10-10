@@ -20,6 +20,8 @@ export interface InboxDispatchFixture {
   classificationKey?: string;
   /** The fixture supervisor's clock for the drain and dispatcher (lease expiry, backoff). */
   now?: () => number;
+  /** The fixture supervisor's crash point between staging removal and its acknowledgement. */
+  afterCleanupRemove?: () => Promise<void>;
 }
 
 export type InboxDispatchFixtureOptions = { [INBOX_DISPATCH_FIXTURE]?: InboxDispatchFixture };
