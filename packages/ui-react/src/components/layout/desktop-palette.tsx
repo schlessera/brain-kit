@@ -1,10 +1,12 @@
-import { CommandPalette, type PaletteGroup, type PaletteItem } from "@schlessera/brain-ui-kit";
+import { CommandPalette, Overlay, type PaletteGroup, type PaletteItem } from "@schlessera/brain-ui-kit";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { useBrainUiRoot } from "../../root-context.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
+import { openModal } from "../../lib/destination-start.js";
 import { useDesktopRoutes } from "./desktop-routes.js";
 
 /**
@@ -46,7 +48,9 @@ export function DesktopPalette() {
   const [selected, setSelected] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
   // What held focus when the palette opened, for a close that runs nothing.
-  const returnTo = useRef<HTMLElement | null>(null);
+  const eligible = useMediaQuery("(min-width: 480px)");
+  const [restoreFocus, setRestoreFocus] = useState(true);
+  const afterClose = useRef<(() => void) | undefined>(undefined);
 
   const clearMessages = useChatStore((s) => s.clearMessages);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
@@ -65,7 +69,7 @@ export function DesktopPalette() {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (root.stores.ui.getState().paletteOpen) dismissRef.current();
-        else root.stores.ui.getState().setPaletteOpen(true);
+        else if (window.matchMedia("(min-width: 480px)").matches && !openModal()) root.stores.ui.getState().setPaletteOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -79,22 +83,22 @@ export function DesktopPalette() {
     setSelected(0);
   }, [open]);
 
-  function close() {
-    setPaletteOpen(false);
-  }
-  /** Esc or the scrim: nothing ran, so focus goes back where it was. */
   function dismiss() {
-    const target = returnTo.current;
-    returnTo.current = null;
-    close();
-    if (target?.isConnected) target.focus();
+    setRestoreFocus(true);
+    afterClose.current = undefined;
+    setPaletteOpen(false);
   }
   function run(fn: () => void) {
     return () => {
-      returnTo.current = null;
-      close();
-      fn();
+      setRestoreFocus(false);
+      afterClose.current = fn;
+      setPaletteOpen(false);
     };
+  }
+  function onAfterClose() {
+    const next = afterClose.current;
+    afterClose.current = undefined;
+    next?.();
   }
 
   const jumpTo: PaletteItem[] = [
@@ -134,17 +138,9 @@ export function DesktopPalette() {
     .filter((g) => g.items.length > 0);
   const count = groups.reduce((n, g) => n + g.items.length, 0);
 
-  // The query input takes focus when the palette opens; ↓ from it lands on
-  // the selected row, where the kit's own keys take over. What had focus
-  // before is kept for a dismissal.
   useEffect(() => {
-    if (!open) return;
-    const before = document.activeElement;
-    returnTo.current = before instanceof HTMLElement && before !== document.body ? before : null;
-    boxRef.current?.querySelector<HTMLInputElement>("input")?.focus();
-  }, [open]);
-
-  if (!open) return null;
+    if (open && !eligible) dismissRef.current();
+  }, [open, eligible]);
 
   function onKeyDown(e: ReactKeyboardEvent) {
     const target = e.target as HTMLElement;
@@ -159,16 +155,9 @@ export function DesktopPalette() {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 hidden tablet:block bg-black/60"
-      onMouseDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        // The press's own default would focus the document after the return.
-        e.preventDefault();
-        dismiss();
-      }}
-    >
-      <div ref={boxRef} className="mx-auto mt-[110px] w-[560px] max-w-[calc(100vw-2rem)]" onKeyDown={onKeyDown}>
+    <Overlay open={open && eligible} variant="dialog" placement="top" size="lg" label="Command palette" data-palette=""
+      onClose={dismiss} returnFocus={restoreFocus} onAfterClose={onAfterClose}>
+      <div ref={boxRef} onKeyDown={onKeyDown}>
         <CommandPalette
           query={query}
           onQueryChange={(value) => {
@@ -183,6 +172,6 @@ export function DesktopPalette() {
           onClose={dismiss}
         />
       </div>
-    </div>
+    </Overlay>
   );
 }

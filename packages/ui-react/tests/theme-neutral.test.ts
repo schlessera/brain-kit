@@ -70,7 +70,6 @@ const PALETTE =
 // Solid black or white is allowed only where the ground is not the theme's:
 const SOLID_MONO = /\b(?:[a-z-]+:)*(?:bg|text|border)-(?:black|white)\b(?!\/)/g;
 const SOLID_MONO_ALLOWED: Record<string, string> = {
-  "components/images/mask-editor.tsx": "the controls sit on the photograph, not on a surface",
   "components/files/file-viewer-html.tsx": "an HTML document assumes a white page behind it",
   "components/files/pdf-preview.tsx": "a PDF page is paper: pdf.js draws it on white, and an undrawn page keeps that shape",
 };

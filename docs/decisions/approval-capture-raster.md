@@ -29,7 +29,7 @@ are directly observable in the originals.
 
 The changed pixels lie on the dotted text decoration of the actual
 `.brain-file-link`, not on the kit's `PathRef` border. The relevant CSS starts
-at `.brain-file-link` (`.brain-file-link`, `packages/ui-react/src/theme.css:469-481`).
+at `.brain-file-link` (`.brain-file-link`, `packages/ui-react/src/theme.css:476-488`).
 This locates the visible difference; it does not identify the native paint
 mechanism that produced it.
 

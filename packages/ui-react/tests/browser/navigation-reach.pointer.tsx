@@ -86,7 +86,7 @@ function Shell() {
 }
 
 /** One test's mounted shell. Nothing about it lives at module scope. */
-type Scene = { ui: BrainUiRoot; host: HTMLDivElement; writes: string[]; signal: AbortSignal; width: number };
+type Scene = { ui: BrainUiRoot; host: HTMLDivElement; writes: string[]; signal: AbortSignal; width: number; dispose: () => void };
 
 let styles: HTMLStyleElement | undefined;
 let viewport: { width: number; height: number };
@@ -150,12 +150,16 @@ async function mount(ctx: TestContext, start: Start, opts: { width: number; heig
   const writes: string[] = [];
   const ui = createBrainUiRoot({ storage: null, request: fixtureRequest(writes) });
   const renderer: Root = createRoot(host);
-  const s: Scene = { ui, host, writes, signal: ctx.signal, width };
-  ctx.onTestFinished(() => {
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
     flushSync(() => renderer.unmount());
     ui.dispose();
     host.remove();
-  });
+  };
+  const s: Scene = { ui, host, writes, signal: ctx.signal, width, dispose };
+  ctx.onTestFinished(dispose);
   ui.stores.ui.getState().setTheme(opts.theme ?? "dark");
   const wsStatus = opts.connected === false ? "disconnected" : "connected";
   ui.stores.connection.setState({ wsStatus } as never);
@@ -419,12 +423,17 @@ test("the matrix: every target has a count for every start at every width", () =
 });
 
 for (const width of [320, 390, ...DESKTOP]) for (const theme of ["dark", "light"] as const) {
-  test(`inventory at ${width} (${theme}): the palette's rows are exactly the commands routed here`, async (ctx) => {
+  test(width < 480 ? `inventory at ${width} (${theme}): no phone palette, including programmatic opening`
+    : `inventory at ${width} (${theme}): the palette's rows are exactly the commands routed here`, async (ctx) => {
     pointer();
     const s = await mount(ctx, "occupied", { width, theme });
     ui$(s).setPaletteOpen(true);
     await settle(s);
-    // Below 480 the palette is not drawn, but its rows are the same list.
+    if (width < 480) {
+      expect(ui$(s).paletteOpen, "phone guard clears programmatic opening").toBe(false);
+      expect(s.host.querySelector('[data-palette]'), "no hidden modal below 480").toBeNull();
+      return;
+    }
     const rows = paletteRows(s);
     expect([...rows].sort(), `the palette at ${width} lists the routed commands`).toEqual([...PALETTE_ROWS].sort());
     expect(rows.filter((r) => r === "Sessions"), "Sessions once").toHaveLength(1);
@@ -454,8 +463,8 @@ for (const width of DESKTOP) for (const start of startsAt(width)) for (const [na
 /**
  * Parity: from the same start, the command's dedicated route and its palette
  * row end in the same effect. The palette row is pressed by pointer from 480
- * up. Below 480 there is no palette, so its row's own handler is the
- * reference the phone route is compared with.
+ * up. Below 480 there is no palette; the same actual pointer action at
+ * 480 is the reference the phone route is compared with.
  */
 const PHONE_PATHS: Record<string, Step[]> = {
   Chat: [tab("Chat")], Sessions: [tab("Sessions")], Actions: [tab("Actions")], Files: [tab("Files")],
@@ -471,22 +480,15 @@ for (const width of [320, 390, ...DESKTOP]) for (const [name, target] of Object.
     const mode = pointer();
     const theme = width % 2 ? "light" : "dark";
     const reference = await (async () => {
-      const s = await mount(ctx, start, { width, theme });
+      const s = await mount(ctx, start, { width: Math.max(480, width), theme });
       s.writes.length = 0;
-      if (width < 480) {
-        ui$(s).setPaletteOpen(true);
-        await settle(s);
-        const row = [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')]
-          .find((o) => (o.textContent ?? "").startsWith(target.palette!))!;
-        expect(row, `${target.palette} is a palette row`).toBeTruthy();
-        // Not drawn below 480: the row's handler, not a press, is the reference.
-        row.click();
-      } else {
-        await walk(s, palette(target.palette!), mode, `${name} by the palette`);
-      }
+      await walk(s, palette(target.palette!), mode, `${name} by the visible palette`);
       await expect.poll(() => target.reached(s), { message: `${name} by the palette row` }).toBe(true);
       await settle(s);
-      return effect(s);
+      const reference = effect(s);
+      // Native modals from the reference must close before another root is tested.
+      s.dispose();
+      return reference;
     })();
     const s = await mount(ctx, start, { width, theme });
     s.writes.length = 0;
@@ -544,12 +546,16 @@ async function mountHandoff(ctx: TestContext, width: number, theme: "dark" | "li
   };
   const ui = createBrainUiRoot({ storage: null, request });
   const renderer: Root = createRoot(host);
-  const s: Scene = { ui, host, writes, signal: ctx.signal, width };
-  ctx.onTestFinished(() => {
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
     flushSync(() => renderer.unmount());
     ui.dispose();
     host.remove();
-  });
+  };
+  const s: Scene = { ui, host, writes, signal: ctx.signal, width, dispose };
+  ctx.onTestFinished(dispose);
   ui.stores.ui.getState().setTheme(theme);
   const roster = { available: providers as never, unavailable: [] as never, backends, pinnedId: "claude", loaded: true };
   ui.stores.provider.setState(roster);
@@ -576,23 +582,20 @@ for (const width of [320, 390, ...DESKTOP]) {
     const mode = pointer();
     const theme = width % 2 ? "light" : "dark";
     const reference = await (async () => {
-      const s = await mountHandoff(ctx, width, theme);
+      // At phone widths the parity reference intentionally mounts at 480:
+      // the palette has no phone surface, so its first visible width is the reference.
+      const s = await mountHandoff(ctx, Math.max(480, width), theme);
       ui$(s).setPaletteOpen(true);
       await settle(s);
       expect([...paletteRows(s)].sort(), "the palette lists the routed commands and the handoff").toEqual([...PALETTE_ROWS, HANDOFF].sort());
-      if (width < 480) {
-        const row = [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')]
-          .find((o) => (o.textContent ?? "").startsWith(HANDOFF))!;
-        // Not drawn below 480: the row's handler, not a press, is the reference.
-        row.click();
-      } else {
-        ui$(s).setPaletteOpen(false);
-        await settle(s);
-        await walk(s, palette(HANDOFF), mode, `${HANDOFF} by the palette`);
-      }
+      ui$(s).setPaletteOpen(false);
+      await settle(s);
+      await walk(s, palette(HANDOFF), mode, `${HANDOFF} by the visible palette`);
       await expect.poll(() => handoffOpen(s), { message: `${HANDOFF} by the palette row` }).toBe(ITHACA.id);
       await settle(s);
-      return { ...effect(s), review: handoffOpen(s) };
+      const reference = { ...effect(s), review: handoffOpen(s) };
+      s.dispose();
+      return reference;
     })();
     expect(reference.review, "the palette row opened a review").toBe(ITHACA.id);
     const s = await mountHandoff(ctx, width, theme);

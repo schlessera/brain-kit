@@ -1,4 +1,4 @@
-import { useId, type ChangeEvent, type CSSProperties, type KeyboardEvent } from "react";
+import { useId, useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from "react";
 
 import { warnOnce } from "../internal/dev.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -167,6 +167,7 @@ const ENABLED_OPTION = '[role="option"]:not([aria-disabled="true"])';
 export function CommandPalette(p: CommandPaletteProps) {
   if (p.groups && !Array.isArray(p.groups)) warnOnce("CommandPalette: `groups` is not an array; no rows will render.");
   const src = p.groups || FALLBACK;
+  const root = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const listId = `${baseId}-list`;
   const editable = Boolean(p.onQueryChange);
@@ -216,7 +217,7 @@ export function CommandPalette(p: CommandPaletteProps) {
     const edge = event.key === "Home" ? "first" : event.key === "End" ? "last" : null;
     if (delta === 0 && !edge) return;
     event.preventDefault();
-    const box = event.currentTarget.closest('[role="dialog"]');
+    const box = root.current;
     const rows = [...(box?.querySelectorAll<HTMLElement>(ENABLED_OPTION) ?? [])];
     const here = rows.indexOf(event.currentTarget);
     if (here === -1 || rows.length < 2) return;
@@ -269,7 +270,7 @@ export function CommandPalette(p: CommandPaletteProps) {
   let idx = -1;
 
   return (
-    <div style={box} role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onDialogKeyDown}>
+    <div ref={root} style={box} role="group" aria-label="Command palette" onKeyDown={onDialogKeyDown}>
       <div
         style={{
           display: "flex",

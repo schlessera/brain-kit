@@ -27,6 +27,18 @@ accessibility gate — is in `docs/decisions/design-kit.md`, and the measured
 design divergences several components ship on purpose are in
 `docs/decisions/design-feedback.md`.
 
+## Overlays
+
+`Overlay` adds one chrome primitive with sheet, dialog, fullscreen and panel
+variants. Modal variants use native dialogs and the top layer; destination
+panels keep marked navigation live. The caller owns `open` and receives close
+reasons. `surfaceRef` lets app adapters reset destination scroll and heading focus.
+Initial focus prefers body controls before the header close button. Focus returns
+after the React commit; `onAfterClose` runs only when the caller sets `open` false.
+Acts that focus background content belong in that callback. `CommandPalette` no
+longer carries dialog semantics; wrap it in `Overlay`. Load the mandatory kit stylesheet for geometry,
+scrims, scroll lock and motion. `z` and `LAYERS` name the six document layers.
+
 ## Loading
 
 Loading is blurred ghost text in the replaced content's type role, with one

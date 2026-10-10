@@ -141,12 +141,14 @@ async function failedCapture(s: Scene, provider: "deepgram" | "webspeech", retai
   } else if (retained) ScriptedRecognition.last!.hear(words, true);
   const field = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
   field.focus();
+  if (innerWidth < 900) expect(document.activeElement, "modal capture keeps background field inert").not.toBe(field);
   if (provider === "deepgram") s.net.socket(SPEECH)!.finish(1006, "odysseus-untrusted", false);
   else { ScriptedRecognition.last!.onerror?.({ error: code }); ScriptedRecognition.last!.onend?.(); }
   await expect.poll(() => notice(s)?.textContent ?? "", { message: "visible explanation survives the sheet closing" }).toContain("Dictation stopped");
   await frame();
-  // Desktop sheet has its existing focus return; the notice never takes it.
-  expect(document.activeElement).toBe(innerWidth >= 900 ? dictate(s) : field);
+  // Both capture surfaces return to the mic. The modal phone sheet prevents
+  // the old background-field focus attempt; the notice never takes focus.
+  expect(document.activeElement, "capture close returns to the mic, not the notice").toBe(dictate(s));
 }
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (const provider of ["deepgram", "webspeech"] as const) for (const retained of [true, false]) {
@@ -347,4 +349,22 @@ test("keyboard Dismiss falls back to the field when the microphone is unavailabl
   expect(document.activeElement).toBe(s.host.querySelector("textarea[data-composer]"));
   expect(s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
   expect(s.ui.stores.voice.getState().reviewText).toBe(words);
+});
+
+test("desktop Escape from the composer cancels dictation, while draining refuses it", async ctx => {
+  // Mutation: scope Escape to the popover instead of the document.
+  await viewport(ctx, 1280, "dark");
+  vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
+  const s = await mount(ctx, "webspeech");
+  await startDictating(s);
+  const composer = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
+  expect(composer, "real composer exists").not.toBeNull();
+  flushSync(() => s.ui.stores.voice.setState({ draining: true }));
+  composer.focus(); await userEvent.keyboard("{Escape}");
+  expect(s.ui.stores.voice.getState().mode, "draining refuses composer Escape").toBe("dictate");
+  flushSync(() => s.ui.stores.voice.setState({ draining: false }));
+  composer.focus(); await userEvent.keyboard("{Escape}");
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "composer Escape cancels desktop dictation" }).toBe("idle");
+  expect(s.host.querySelector('[aria-label="Dictation"]')).toBeNull();
+  expect(s.ui.stores.voice.getState().reviewText).toBe("");
 });

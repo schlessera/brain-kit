@@ -115,7 +115,7 @@ for (const c of cases) {
     const { dialog } = await mount(c.width, c.height, c.theme);
     const to = dialog.querySelector("select")!;
     expect(document.activeElement, "focus goes to the To select").toBe(to);
-    const panel = (c.width >= 900 ? dialog.firstElementChild! : dialog).getBoundingClientRect();
+    const panel = dialog.querySelector(".bk-overlay-surface")!.getBoundingClientRect();
     expect(panel.left, "no horizontal overflow, left").toBeGreaterThanOrEqual(0);
     expect(panel.height, "the measured surface is the sheet itself").toBeGreaterThan(300);
     expect(panel.top, "the sheet starts on screen").toBeGreaterThanOrEqual(0);
@@ -157,5 +157,25 @@ for (const c of cases) {
     await nextFrame();
     expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+}
+
+for (const width of [1280, 320]) {
+  test(`created handoff at ${width}: desktop focuses the destination and phone keeps the keyboard down`, async () => {
+    const { opener } = await mount(width, width === 320 ? 640 : 800, "dark");
+    ui!.stores.chat.getState().setSessionBackend("ogygia", "pi");
+    ui!.stores.chat.getState().addUserMessage("ogygia", "Review the mast and yard on Ogygia.", "typed");
+    flushSync(() => ui!.stores.handoff.getState().noteCreated("h-ithaca-layout-0001", "ogygia", true));
+    await expect.poll(() => ui!.stores.chat.getState().activeSessionId).toBe("ogygia");
+    await nextFrame();
+    expect(document.querySelector('[role="dialog"][aria-modal="true"]'), "created handoff closes").toBeNull();
+    const composer = host!.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
+    expect(composer, "destination composer exists").not.toBeNull();
+    if (width >= 900) expect(document.activeElement, "created desktop handoff focuses destination composer").toBe(composer);
+    else {
+      expect(document.activeElement, "created phone handoff does not restore source opener").not.toBe(opener);
+      expect(document.activeElement, "created phone handoff keeps keyboard down").not.toBe(composer);
+      expect(document.activeElement, "created phone handoff focus is body").toBe(document.body);
+    }
   });
 }

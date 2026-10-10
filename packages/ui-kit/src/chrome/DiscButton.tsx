@@ -6,9 +6,9 @@ import { color, font } from "../tokens.js";
 /**
  * The overlay disc: a 32px paint inside a 44px button (D52 §7).
  *
- * It draws exactly three controls, all of them over the transcript: the phone
- * Search disc, New chat below 1280, and scroll-to-latest. It is not for rail
- * rows, pills or chips, which have their own components.
+ * It draws transcript controls (Search, New chat and scroll-to-latest) and
+ * overlay dismissal controls. Rail rows, pills and chips have their own
+ * components.
  *
  * **The paint is not the target.** The button is a 44px box; the disc is
  * painted inside it. `anchor="end"` (the default) puts the paint against the

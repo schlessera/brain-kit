@@ -29,6 +29,13 @@
  * wants them declares their own `@theme` over `--bk-*`.
  */
 @theme static {
+  --z-index-raised: var(--bk-z-raised);
+  --z-index-popover: var(--bk-z-popover);
+  --z-index-nav: var(--bk-z-nav);
+  --z-index-panel: var(--bk-z-panel);
+  --z-index-banner: var(--bk-z-banner);
+  --z-index-modal: var(--bk-z-modal);
+
   --color-canvas: var(--bk-color-canvas);
   --color-surface: var(--bk-color-surface);
   --color-raised: var(--bk-color-raised);

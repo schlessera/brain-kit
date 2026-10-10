@@ -139,6 +139,20 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+**`Overlay`, document layers and palette semantics (#1378; pre-1.0 minor).** `@schlessera/brain-ui-kit`
+exports `Overlay`, `OverlayProps`, `OverlayVariant`, `OverlayCloseReason`, `z`
+and `LAYERS`. The controlled primitive supplies sheet, dialog, fullscreen and
+panel variants with dismissal reasons, focus management and inert background.
+Its optional `surfaceRef` lets adapters reset destination scroll and focus;
+non-modal titled panels expose a script-focusable destination heading. Panels
+keep their header X under `closedBy="none"`; that value suppresses Escape,
+native close requests and scrim taps. Sheets and dialogs remove their drawn
+close control under `none`.
+`BottomSheet` optionally draws a dismissal control. CommandPalette no longer
+carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in
+`Overlay` to supply modal semantics and focus management. It now renders a
+named group; its pixels and callbacks are unchanged.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.

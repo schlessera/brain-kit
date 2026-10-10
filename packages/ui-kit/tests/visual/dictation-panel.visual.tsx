@@ -110,7 +110,17 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
 }
 
 const done = () => [...host!.querySelectorAll<HTMLButtonElement>("button")].find(el => /^(Done|Finalizing…)$/u.test(el.textContent?.trim() ?? ""))!;
-const panel = () => done().parentElement!.parentElement!;
+// The shared content now lives inside Overlay's body. Measure the surface,
+// and assert semantics on the owning dialog rather than a content wrapper.
+const panel = () => done().closest<HTMLElement>(".bk-overlay-surface, [role='dialog']")!;
+const dialog = () => done().closest<HTMLElement>("[role='dialog'], dialog")!;
+const rootOverflow = () => getComputedStyle(document.documentElement).overflow;
+
+/** Let Chromium commit a seek to the top-layer surface before sampling pixels. */
+async function seekEntrance(animation: Animation, time: number) {
+  animation.currentTime = time;
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+}
 
 /** Wait until the sheet's entrance, if any, has finished playing. */
 async function expectEntranceSettled(sheet = panel()) {
@@ -198,7 +208,7 @@ test("dictation desktop: Enter on Cancel cancels rather than committing", async 
 });
 
 const transcript = () => panel().querySelector<HTMLElement>("[data-dictation-transcript], .flex-1.overflow-y-auto")!;
-const backdrop = () => host!.querySelector<HTMLElement>(".backdrop-blur-sm")!;
+const backdrop = () => host!.querySelector<HTMLElement>(".bk-overlay-scrim")!;
 
 for (const theme of ["dark", "light"]) {
   test(`dictation phone ${theme}: baseline sheet geometry, animation and backdrop-to-stop`, async () => {
@@ -210,7 +220,11 @@ for (const theme of ["dark", "light"]) {
     expect(rect.height).toBeGreaterThanOrEqual(320);
     await expectSettledHeightCap(480);
     const css = getComputedStyle(panel());
-    expect(css.position).toBe("fixed");
+    expect(css.position).toBe("absolute");
+    expect(getComputedStyle(dialog()).position).toBe("fixed");
+    expect(dialog().matches("dialog:modal")).toBe(true);
+    expect(dialog().getAttribute("aria-modal")).toBe("true");
+    expect(rootOverflow()).toBe("hidden");
     expect(css.animationName, "phone entrance is supplied by shipped CSS").not.toBe("none");
     expect(css.animationDuration).toBe("0.2s");
     expect(backdrop().getBoundingClientRect().width).toBe(320);
@@ -225,6 +239,14 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
+
+test("dictation tall phone: the short transcript keeps the viewport height floor", async () => {
+  const { listen } = await mount(320, 1080);
+  await listen("Keep the phone transcript");
+  await expectEntranceSettled();
+  expect(panel().getBoundingClientRect().height, "existing 40vh floor on a tall phone").toBeGreaterThanOrEqual(432);
+  await expectSettledHeightCap(648);
+});
 
 // Exercise both supported CSS entry points on the real composer/ASR/review flow.
 for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["dark", "light"]) {
@@ -241,15 +263,17 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
         const entrance = sheet.getAnimations().find(animation => animation instanceof CSSAnimation && animation.animationName === css.animationName);
         expect(entrance, "browser created the sheet's own animation").toBeDefined();
         entrance!.pause();
-        entrance!.currentTime = 0;
+        await entrance!.ready;
+        await seekEntrance(entrance!, 0);
+        expect(dialog().scrollTop, "focus must not scroll the modal viewport during entrance").toBe(0);
         const start = sheet.getBoundingClientRect();
         expect(start.bottom, "starts one sheet height below rest").toBeCloseTo(800 + start.height, 1);
-        entrance!.currentTime = 100;
+        await seekEntrance(entrance!, 100);
         const midway = sheet.getBoundingClientRect();
         expect(midway.bottom, "moves upward before the end").toBeLessThan(start.bottom);
         expect(midway.bottom, "still approaching rest at 100ms").toBeGreaterThan(800);
         if (cssEntry === "precompiled" && action === "Done") await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/motion-${theme}-midpoint.png` });
-        entrance!.currentTime = 200;
+        await seekEntrance(entrance!, 200);
         expect(sheet.getBoundingClientRect().bottom, "settles at the viewport bottom").toBeCloseTo(800, 1);
         expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity, "no remaining translation at rest").toBe(true);
         entrance!.finish();
@@ -261,6 +285,9 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
       }
       expect(sheet.getBoundingClientRect().width).toBe(320);
       await listen("Keep the nonempty phone voyage transcript");
+      expect(panel(), "ASR updates retain the open surface").toBe(sheet);
+      expect(sheet.getAnimations(), "entrance runs on open only").toHaveLength(0);
+      expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity).toBe(true);
       if (cssEntry === "precompiled" && action === "Done") await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/motion-${theme}-${preference}-rest.png` });
       if (action === "Done") {
         await userEvent.click(done());
@@ -281,7 +308,7 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
     test(`dictation motion ${cssEntry} ${theme} ${preference}: desktop stays stationary`, async () => {
       await commands.dictationMotion(preference);
       await mount(1280, 800, theme, cssEntry);
-      expect(panel().getAttribute("role")).toBe("dialog");
+      expect(dialog().getAttribute("role")).toBe("dialog");
       expect(getComputedStyle(panel()).animationName).toBe("none");
       expect(getComputedStyle(panel()).transform).toBe("none");
       expect(panel().getAnimations()).toHaveLength(0);
@@ -313,14 +340,15 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
 test("dictation cap waits for translated entrance before exact rendered measurement", async () => {
   await commands.dictationMotion("no-preference");
   const { listen } = await mount(320, 800);
-  await listen("Odysseus remembers the harbour. ".repeat(200));
-  expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
   const sheet = panel();
   const animation = sheet.getAnimations()[0];
   expect(animation).toBeDefined();
   animation.pause();
+  await animation.ready;
+  await listen("Odysseus remembers the harbour. ".repeat(200));
+  expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
   // Replay the translating frame measured in #973's pinned Chromium diagnosis.
-  animation.currentTime = 99.98599999342117;
+  await seekEntrance(animation, 99.98599999342117);
   expect(getComputedStyle(sheet).height).toBe("480px");
   expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity).toBe(false);
   animation.play();
@@ -347,7 +375,9 @@ for (const width of [320, 1280]) for (const phase of ["connecting", "listening",
     const { client, listen, mic } = await mount(width);
     if (phase !== "connecting") await listen();
     expect(panel().textContent).toContain(phase === "connecting" ? "Connecting…" : "Listening");
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe(previousOverflow);
+    expect(rootOverflow()).toBe(width < 900 ? "hidden" : "visible");
+    expect(dialog().matches("dialog:modal")).toBe(width < 900);
     if (phase === "draining") {
       // The phone sheet is still entering here. Under load two animation
       // frames can share a timestamp, which passes Playwright's stability
@@ -361,39 +391,64 @@ for (const width of [320, 1280]) for (const phase of ["connecting", "listening",
       expect(client.drained).toBe(1);
     }
     await userEvent.keyboard("{Escape}");
+    if (phase === "draining") {
+      // The ruling's closedBy=none protects the in-flight drain.
+      expect(ui!.stores.voice.getState().mode).toBe("dictate");
+      expect(ui!.stores.voice.getState().draining).toBe(true);
+      expect(client.stopped).toBe(0);
+      expect(client.drained).toBe(1);
+      expect(rootOverflow()).toBe(width < 900 ? "hidden" : "visible");
+      client.finish();
+      await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Remember the harbour");
+      await expect.poll(() => ui!.stores.voice.getState().mode).toBe("idle");
+      expect(rootOverflow()).toBe("visible");
+      expect(document.body.style.overflow).toBe("auto");
+      await expect.poll(() => document.activeElement).toBe(mic());
+      return;
+    }
     expect(ui!.stores.voice.getState().mode).toBe("idle");
     expect(document.body.style.overflow).toBe("auto");
+    expect(rootOverflow()).toBe("visible");
     expect(ui!.stores.voice.getState().reviewText).toBe("");
-    if (phase !== "draining") expect(client.stopped).toBe(1);
+    expect(client.stopped).toBe(1);
     if (width >= 900) expect(document.activeElement).toBe(mic());
     // Finish the already-started promise, so no asynchronous drain escapes cleanup.
-    if (phase === "draining") { client.finish(); await expect.poll(() => ui!.stores.voice.getState().draining).toBe(false); }
     if (phase === "connecting") { client.open(); await expect.poll(() => client.stopped).toBe(2); }
   });
 }
 
 for (const width of [320, 1280]) {
-  test(`dictation unmount ${width}: body lock and live capture are released`, async () => {
+  test(`dictation unmount ${width}: modal lock and live capture are released`, async () => {
     document.body.style.overflow = "scroll";
     const { client, listen } = await mount(width); await listen();
-    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe(previousOverflow);
+    expect(rootOverflow()).toBe(width < 900 ? "hidden" : "visible");
+    expect(dialog().matches("dialog:modal")).toBe(width < 900);
     flushSync(() => renderer!.unmount()); renderer = undefined;
     expect(client.stopped).toBe(1);
     expect(document.body.style.overflow).toBe("scroll");
+    expect(rootOverflow()).toBe("visible");
   });
 }
 
 test("dictation breakpoint: a live capture moves between 899 and 900 without stopping", async () => {
   const { frame, client, listen } = await mount(899); await listen();
   expect(backdrop()).not.toBeNull();
+  expect(dialog().matches("dialog:modal")).toBe(true);
+  expect(rootOverflow()).toBe("hidden");
   await page.viewport(900, 800); await commands.formViewport(900, 800);
   host!.style.width = "900px";
-  await expect.poll(() => panel().getAttribute("role")).toBe("dialog");
+  await expect.poll(() => dialog().getAttribute("aria-modal")).toBe("false");
+  expect(dialog().getAttribute("role")).toBe("dialog");
   expect(backdrop()).toBeNull();
+  expect(dialog().getAttribute("aria-modal")).toBe("false");
+  expect(rootOverflow()).toBe("visible");
   expect(panel().getBoundingClientRect().width).toBeCloseTo(frame.getBoundingClientRect().width, 1);
   expect(document.activeElement).toBe(done());
   await page.viewport(899, 800); await commands.formViewport(899, 800); host!.style.width = "899px";
   await expect.poll(() => backdrop()).not.toBeNull();
+  expect(dialog().matches("dialog:modal")).toBe(true);
+  expect(rootOverflow()).toBe("hidden");
   expect(client.stopped).toBe(0); expect(client.drained).toBe(0);
   expect(ui!.stores.voice.getState().mode).toBe("dictate");
 });
@@ -405,7 +460,11 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280, 1920]) {
     await listen("Remember the harbour crossing and the names of the winds.");
     flushSync(() => ui!.stores.voice.getState().setProviderId("webspeech"));
     if (width >= 900) expect(panel().textContent).toContain("Enter on Done");
-    if (width === 320) await expect.poll(() => panel().getBoundingClientRect().bottom).toBeCloseTo(800, 1);
+    if (width === 320) {
+      await expect.poll(() => panel().getBoundingClientRect().bottom).toBeCloseTo(800, 1);
+      // Native modal focus can leave the pointer over Done. Review its neutral pixels.
+      await userEvent.hover(backdrop());
+    }
     await page.screenshot({ element: host!, path: `../../.vitest-attachments/dictation/${width}-${theme}.png` });
   });
 }
@@ -443,6 +502,7 @@ test("dictation cleanup: renderer failure still releases touch, motion and docum
   await expect(cleanup()).rejects.toThrow("intentional renderer cleanup failure");
   expect(mountedHost.isConnected).toBe(false); expect(mountedStyle.isConnected).toBe(false);
   expect(document.body.style.overflow).toBe(before.overflow);
+  expect(rootOverflow(), "modal lock is released even when unmount throws").toBe("visible");
   expect(document.documentElement.dataset.theme).toBe(before.theme);
   expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(before.reduce);
   expect({ width: innerWidth, height: innerHeight }).toEqual({ width: before.width, height: before.height });
@@ -460,7 +520,7 @@ for (const action of ["Done", "mic", "Cancel"] as const) {
     const { client, listen, mic } = await mount(); await listen();
     expect(matchMedia("(any-pointer: fine)").matches).toBe(false);
     expect(matchMedia("(pointer: coarse)").matches).toBe(true);
-    expect(panel().getAttribute("role")).toBe("dialog");
+    expect(dialog().getAttribute("role")).toBe("dialog");
     expect(backdrop()).toBeNull();
     expect(panel().textContent).toContain("Tap Done or the mic to stop");
     expect(panel().textContent).not.toContain("Enter");

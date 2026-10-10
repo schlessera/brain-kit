@@ -1302,3 +1302,14 @@ export const canvas = {
  * Not exported from the package root; `src/brand.ts` publishes it.
  */
 export const BRAND_ICON_GROUND = "#0c1417" as const;
+
+/** Named document layers. Native modal dialogs use the browser top layer. */
+export const LAYERS = { raised: 10, popover: 20, nav: 30, panel: 40, banner: 50, modal: 60 } as const;
+export const z = {
+  raised: "var(--bk-z-raised)",
+  popover: "var(--bk-z-popover)",
+  nav: "var(--bk-z-nav)",
+  panel: "var(--bk-z-panel)",
+  banner: "var(--bk-z-banner)",
+  modal: "var(--bk-z-modal)",
+} as const;

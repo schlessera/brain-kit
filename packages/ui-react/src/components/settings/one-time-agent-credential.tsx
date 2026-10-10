@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
+import { Overlay } from "@schlessera/brain-ui-kit";
 import { Check, Copy } from "lucide-react";
 import type { MintedAgent } from "../../lib/api-client.js";
 import { usePrincipalStore } from "../../stores/principal-store.js";
 
-/** App-level portal for the unrecoverable value returned by an agent mint. */
+/** App-level dialog for the unrecoverable value returned by an agent mint. */
 export function OneTimeAgentCredentialDialog() {
   const credential = usePrincipalStore((state) => state.oneTimeCredential);
   const acknowledge = usePrincipalStore(
@@ -30,35 +30,9 @@ function OneTimeCredential({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copyError, setCopyError] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const keepDialogOpen = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled])'
-        ) ?? []
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", keepDialogOpen, true);
-    return () => window.removeEventListener("keydown", keepDialogOpen, true);
-  }, []);
+  const copyRef = useRef<HTMLButtonElement>(null);
+  const shell = useRef<Document | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   async function copyCredential() {
     try {
@@ -70,17 +44,22 @@ function OneTimeCredential({
     }
   }
 
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="one-time-credential-title"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
-    >
-      <div
-        ref={dialogRef}
-        className="w-full max-w-md rounded-xl border border-border bg-surface p-5 shadow-[0_16px_48px_rgba(0,0,0,0.5)]"
-      >
+  return (
+    <Overlay open variant="dialog" role="alertdialog" size="md" closedBy="none"
+      labelledBy="one-time-credential-title" initialFocus={copyRef} onClose={() => {}}
+      surfaceRef={node => {
+        if (!node) return;
+        if (!shell.current) opener.current = node.ownerDocument.activeElement as HTMLElement | null;
+        shell.current = node.ownerDocument;
+      }}
+      returnFocus={() => {
+        if (opener.current?.isConnected && !opener.current.matches(":disabled")) return opener.current;
+        // Mint clears the label and disables its submit, so that opener may
+        // no longer take focus. The selected Settings tab remains a live stop.
+        const settings = shell.current?.querySelector<HTMLElement>('[data-panel="Settings"], section[aria-label="Settings"]');
+        return settings?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? null;
+      }}>
+      <div>
         <h3 id="one-time-credential-title" className="text-base font-semibold text-foreground">
           Save this credential now
         </h3>
@@ -94,7 +73,7 @@ function OneTimeCredential({
           <code className="block break-all text-xs text-foreground">{credential.cookie}</code>
         </div>
         <button
-          autoFocus
+          ref={copyRef}
           type="button"
           onClick={() => void copyCredential()}
           className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary"
@@ -107,7 +86,7 @@ function OneTimeCredential({
             Copy failed. Select the value above and copy it manually.
           </p>
         ) : null}
-        <label className="mt-4 flex items-start gap-2 text-xs text-foreground">
+        <label className="mt-4 flex min-h-11 items-center gap-2 text-xs text-foreground">
           <input
             type="checkbox"
             checked={saved}
@@ -125,7 +104,6 @@ function OneTimeCredential({
           Done
         </button>
       </div>
-    </div>,
-    document.body
+    </Overlay>
   );
 }

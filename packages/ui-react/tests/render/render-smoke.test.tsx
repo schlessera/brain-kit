@@ -34,6 +34,12 @@ import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
 import { WebSearchSection } from "../../src/components/settings/web-search-settings.js";
 import { WebSearchChain } from "../../src/components/settings/web-search-chain.js";
+import { overlayGeometry } from "./overlay-geometry.js";
+
+let restoreGeometry: () => void;
+beforeEach(() => { restoreGeometry = overlayGeometry(); });
+afterEach(() => restoreGeometry());
+
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, cleanup, fireEvent, render as renderDom, renderHook as renderHookDom, waitFor, within, type RenderOptions } from "@testing-library/react";
 import { createElement, forwardRef, StrictMode, useEffect, useState, type ReactNode } from "react";
@@ -2208,13 +2214,14 @@ describe("AskUserCard", () => {
 describe("ZoomViewer", () => {
   test("mounts its content in a portal and closes from the toolbar", () => {
     let closed = 0;
-    const { getByText, getByTitle } = render(
+    const { container, getByText, getByRole } = render(
       <ZoomViewer onClose={() => closed++}>
         <div>zoomed content</div>
       </ZoomViewer>
     );
     expect(getByText("zoomed content")).toBeTruthy();
-    fireEvent.click(getByTitle("Close"));
+    expect(container.contains(getByText("zoomed content")), "zoom content is portalled outside its inline caller").toBe(false);
+    fireEvent.click(getByRole("button", { name: "Close" }));
     expect(closed).toBe(1);
   });
 });
@@ -2357,6 +2364,8 @@ function StoreSettingsHarness() {
   );
 }
 
+const dialogEscapeTarget = (page: ReturnType<typeof render>) => page.getByRole("alertdialog");
+
 describe("DevicesAgentsTab", () => {
   test("renders active rows with every timestamp, marks this device, and has an empty state", async () => {
     const now = Date.UTC(2026, 8, 14, 12);
@@ -2470,7 +2479,7 @@ describe("DevicesAgentsTab", () => {
     fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
     await act(flushPromises);
 
-    expect(page.getByRole("dialog")).toBeTruthy();
+    expect(page.getByRole("alertdialog")).toBeTruthy();
     expect(page.getByText("This is the only time you will see this value.")).toBeTruthy();
     expect(page.getByText("one-time-secret-value")).toBeTruthy();
     expect(page.getByRole("button", { name: "Done" }).hasAttribute("disabled")).toBe(true);
@@ -2479,7 +2488,7 @@ describe("DevicesAgentsTab", () => {
       bubbles: true,
       cancelable: true,
     });
-    window.dispatchEvent(escape);
+    dialogEscapeTarget(page).dispatchEvent(escape);
     expect(escape.defaultPrevented).toBe(true);
     expect(page.getByText("one-time-secret-value")).toBeTruthy();
 
@@ -2506,7 +2515,7 @@ describe("DevicesAgentsTab", () => {
     expect(requests.some(({ init }) => init?.body === JSON.stringify({ label: "Release helper", ttlDays: 7 }))).toBe(true);
   });
 
-  test("portals the one-time value, which outlives the panel's own close control", async () => {
+  test("mounts the one-time value at the shell, which outlives the panel's own close control", async () => {
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         return Response.json({
@@ -2526,8 +2535,9 @@ describe("DevicesAgentsTab", () => {
     fireEvent.click(page.getByRole("button", { name: "Create agent credential" }));
     await act(flushPromises);
 
-    const dialog = page.getByRole("dialog");
-    expect(dialog.parentElement).toBe(document.body);
+    const dialog = page.getByRole("alertdialog");
+    expect(page.container.contains(dialog), "credential belongs to the app shell").toBe(true);
+    expect(dialog.closest('[data-panel="Settings"], section[aria-label="Settings"]'), "credential outlives the Settings subtree").toBeNull();
     expect(page.getByText("protected-one-time-value")).toBeTruthy();
     // The test DOM takes the desktop pane (its window is 1024px wide), whose
     // Close control is live even while the credential is unacknowledged: the
@@ -2540,7 +2550,7 @@ describe("DevicesAgentsTab", () => {
 
     fireEvent.click(page.getByRole("checkbox"));
     fireEvent.click(page.getByRole("button", { name: "Done" }));
-    expect(page.queryByRole("dialog")).toBeNull();
+    expect(page.queryByRole("alertdialog")).toBeNull();
     expect(usePrincipalStore.getState().oneTimeCredential).toBeNull();
   });
 
@@ -2630,7 +2640,7 @@ describe("DevicesAgentsTab", () => {
       await flushPromises();
     });
 
-    expect(page.getByRole("dialog")).toBeTruthy();
+    expect(page.getByRole("alertdialog")).toBeTruthy();
     expect(page.getByText("sidebar-one-time-value")).toBeTruthy();
     fireEvent.click(page.getByRole("checkbox"));
     fireEvent.click(page.getByRole("button", { name: "Done" }));
@@ -3879,7 +3889,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     useActivityStore.setState({ inbox: [] });
   });
 
-  test("a slot switches the view, and More is the kit sheet with Settings, Graph and the acts", () => {
+  test("a slot switches the view, and More is the kit sheet with Settings, Graph and the acts", async () => {
     useUIStore.getState().setActiveView("chat");
     const view = render(<MobileTabBar />);
     const selected = () => view.getAllByRole("tab").map((t) => t.getAttribute("aria-selected") === "true" ? t.textContent : null).filter(Boolean);
@@ -3920,6 +3930,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     // While the sheet is open, More is the amber slot.
     expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(sheet.querySelector('[role="button"]')!);
+    await act(flushPromises);
     expect(useUIStore.getState().settingsPanelOpen).toBe(true);
     expect(view.queryByRole("dialog")).toBeNull();
     // Settings lives in More, so More stays amber while it is open.
@@ -3927,6 +3938,7 @@ describe("MobileTabBar on the kit TabBar", () => {
 
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     fireEvent.click(view.getByRole("button", { name: /^Graph/ }));
+    await act(flushPromises);
     expect(useUIStore.getState().activeView).toBe("graph");
     expect(useUIStore.getState().settingsPanelOpen, "Graph replaces Settings").toBe(false);
     expect(selected()).toEqual(["More"]);
@@ -3937,14 +3949,15 @@ describe("MobileTabBar on the kit TabBar", () => {
 
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+    await act(flushPromises);
     expect(view.queryByRole("dialog")).toBeNull();
     expect(document.activeElement, "Esc returns focus to the More slot").toBe(view.getByRole("tab", { name: "More" }));
     view.unmount();
     useUIStore.getState().setActiveView("chat");
   });
 
-  test("Escape over an open destination dismisses only More", () => {
+  test("Escape over an open destination dismisses only More", async () => {
     useUIStore.getState().setActiveView("chat");
     useUIStore.getState().openPanel("files");
     // A drawer's own Escape, registered the way SlidePanel and FilePanel do.
@@ -3953,18 +3966,20 @@ describe("MobileTabBar on the kit TabBar", () => {
     const view = render(<MobileTabBar />);
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     expect(view.getByRole("dialog", { name: "More" })).toBeTruthy();
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+    await act(flushPromises);
     expect(view.queryByRole("dialog"), "More closes").toBeNull();
     expect(useUIStore.getState().filePanelOpen, "the drawer under More stays open").toBe(true);
     // With More closed, Escape reaches the drawer again.
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+    await act(flushPromises);
     expect(useUIStore.getState().filePanelOpen).toBe(false);
     document.removeEventListener("keydown", drawerEscape);
     view.unmount();
     useUIStore.getState().setActiveView("chat");
   });
 
-  test("a Settings page that refuses to be left keeps every slot and More act from running behind it", () => {
+  test("a Settings page that refuses to be left keeps every slot and More act from running behind it", async () => {
     useUIStore.getState().setActiveView("chat");
     useUIStore.getState().openPanel("settings");
     let pending: (() => void) | null = null;
@@ -3974,6 +3989,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     expect(useUIStore.getState().filePanelOpen, "Files waits for the guard").toBe(false);
     fireEvent.click(view.getByRole("tab", { name: "More" }));
     fireEvent.click(view.getByRole("button", { name: /^Add a note/ }));
+    await act(flushPromises);
     expect(useUIStore.getState().addPanelOpen, "Add waits for the guard").toBe(false);
     expect(useUIStore.getState().settingsPanelOpen).toBe(true);
     // Consent: the guard clears itself and the latest navigation runs.
@@ -3985,7 +4001,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     useUIStore.getState().setActiveView("chat");
   });
 
-  test("More prints the reason that applies: offline, or a running turn", () => {
+  test("More prints the reason that applies: offline, or a running turn", async () => {
     useUIStore.getState().setActiveView("chat");
     useConnectionStore.setState({ wsStatus: "connected" });
     const view = render(<MobileTabBar />);
@@ -3999,6 +4015,7 @@ describe("MobileTabBar on the kit TabBar", () => {
       "Brain statisticsDocuments and software versions",
     ]);
     fireEvent.click(view.getByRole("button", { name: /^Add a note/ }));
+    await act(flushPromises);
     expect(useUIStore.getState().addPanelOpen, "opening Add opens the form").toBe(true);
     act(() => { useChatStore.getState().addUserMessage(null, "Raft supplies"); useChatStore.getState().startAssistantMessage(null); });
     fireEvent.click(view.getByRole("tab", { name: "More" }));
@@ -4200,7 +4217,7 @@ describe("SideRail on the kit SideRail", () => {
     view.unmount();
   });
 
-  test("All commands opens its own root's palette and no other mounted root's", () => {
+  test("All commands opens its own root's palette and no other mounted root's", async () => {
     const a = createBrainUiRoot({ storage: null });
     const b = createBrainUiRoot({ storage: null });
     const view = render(
@@ -4222,7 +4239,7 @@ describe("SideRail on the kit SideRail", () => {
     expect(document.activeElement).toBe(dialogs[0]!.querySelector("input"));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(view.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(allA);
+    await waitFor(() => expect(document.activeElement).toBe(allA));
     view.unmount();
     a.dispose();
     b.dispose();
@@ -4230,7 +4247,7 @@ describe("SideRail on the kit SideRail", () => {
 });
 
 describe("DesktopPalette on the kit CommandPalette", () => {
-  test("⌘K opens it with the query focused, typing filters, ⏎ runs the selected row and closes, esc closes", () => {
+  test("⌘K opens it with the query focused, typing filters, ⏎ runs the selected row and closes, esc closes", async () => {
     const view = render(<DesktopPalette />);
     expect(view.queryByRole("dialog")).toBeNull();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
@@ -4260,7 +4277,7 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     changeControlledInput(input, "gr");
     expect(view.getAllByRole("option").map((o) => o.textContent)).toEqual(["Graph⏎"]);
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(useUIStore.getState().activeView).toBe("graph");
+    await waitFor(() => expect(useUIStore.getState().activeView).toBe("graph"));
     expect(view.queryByRole("dialog")).toBeNull();
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -4271,7 +4288,7 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     view.unmount();
   });
 
-  test("⌘K again, or a click on the scrim, closes it and hands focus back to what held it", () => {
+  test("⌘K again, or a click on the scrim, closes it and hands focus back to what held it", async () => {
     const view = render(<div><button type="button">before</button><DesktopPalette /></div>);
     const before = view.getByRole("button", { name: "before" });
     before.focus();
@@ -4279,16 +4296,16 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     expect(document.activeElement).toBe(view.getByRole("combobox"));
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(view.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(before);
+    await waitFor(() => expect(document.activeElement).toBe(before));
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    const scrim = view.getByRole("dialog").closest(".fixed")!;
-    fireEvent.mouseDown(scrim);
+    const scrim = view.getByRole("dialog").querySelector(".bk-overlay-scrim")!;
+    fireEvent.pointerDown(scrim);
     expect(view.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(before);
+    await waitFor(() => expect(document.activeElement).toBe(before));
     view.unmount();
   });
 
-  test("with the socket live and no turn streaming, Sync carries its effect chip in its name", () => {
+  test("with the socket live and no turn streaming, Sync carries its effect chip in its name", async () => {
     useConnectionStore.setState({ wsStatus: "connected" });
     // Both halves of the precondition, stated. `why` in desktop-routes.ts
     // needs `connected` AND `!isStreaming`, and this test used to set only the
@@ -4301,7 +4318,7 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     expect(view.getByRole("option", { name: "Sync the brain, sync" }).getAttribute("aria-disabled")).not.toBe("true");
     expect(view.getByRole("option", { name: /Daily briefing/ }).textContent).toContain("spends");
     fireEvent.click(view.getByRole("option", { name: /Daily briefing/ }));
-    expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
+    await waitFor(() => expect(useUIStore.getState().whatsupPanelOpen).toBe(true));
     expect(view.queryByRole("dialog")).toBeNull();
     view.unmount();
   });
@@ -4713,7 +4730,7 @@ describe("desktop panes (D37)", () => {
     globalThis.fetch = (async () => Response.json({ entries: [] })) as unknown as typeof fetch;
     const view = render(<FilePanel open onClose={onClose} />);
     await act(flushPromises);
-    const pane = view.getByRole("dialog", { name: "Files" });
+    const pane = view.getByRole("region", { name: "Files" });
     expect(pane.textContent).toContain("Files");
     expect(pane.textContent).toContain("j / k move · ← → fold · ⏎ open");
     // The design's backlinks and provenance have no data behind them: not drawn.

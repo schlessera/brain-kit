@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 import { ArrowLeft, Bot, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
@@ -31,8 +31,10 @@ import { SpanPayload, SpanStatusDot, spanToolLabel } from "../activity/span-bits
 export function SubagentView({
   spanId,
   onApproval,
+  backRef,
 }: {
   spanId: string;
+  backRef?: Ref<HTMLButtonElement>;
   onApproval?: (toolUseId: string, approved: boolean, always?: boolean) => void;
 }) {
   const popSubagentView = useUIStore((s) => s.popSubagentView);
@@ -56,7 +58,7 @@ export function SubagentView({
   if (!span) {
     return (
       <div className="flex flex-col gap-3 p-4">
-        <BackButton onClick={popSubagentView} />
+        <BackButton backRef={backRef} onClick={popSubagentView} />
         <p className="text-sm text-muted-foreground">
           No recorded activity for this subagent — it may have been pruned.
         </p>
@@ -78,7 +80,7 @@ export function SubagentView({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <BackButton onClick={popSubagentView} />
+        <BackButton backRef={backRef} onClick={popSubagentView} />
         <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
@@ -139,12 +141,13 @@ export function SubagentView({
   );
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
+function BackButton({ onClick, backRef }: { onClick: () => void; backRef?: Ref<HTMLButtonElement> }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
+      ref={backRef}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
       aria-label="Back"
     >
       <ArrowLeft className="h-4 w-4" />

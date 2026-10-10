@@ -170,9 +170,10 @@ describe("design tokens", () => {
     expect(declarations[0]!.index).toBeLessThan(reduced);
     expect(declarations[1]!.index).toBeGreaterThan(reduced);
 
-    // Exactly one reduced-motion block, for the same reason there is one
+    // Exactly one reduce override block, for the same reason there is one
     // keyframe: a second one is where the two answers start disagreeing.
-    expect([...css.matchAll(/@media \(prefers-reduced-motion/g)]).toHaveLength(1);
+    expect([...css.matchAll(/@media \(prefers-reduced-motion: reduce\)/g)]).toHaveLength(1);
+    expect(css.match(/@media \(prefers-reduced-motion: no-preference\)/g), "one no-preference block").toHaveLength(1);
   });
 
   test("the reduced-motion keyframe settles at the REST state, not the trough", () => {
