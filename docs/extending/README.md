@@ -223,8 +223,8 @@ maintainer is one person. A promoted provider becomes:
 - **A package that versions in lockstep.** A backend is its own package,
   `@schlessera/brain-backend-<vendor>`: an optional `*`-ranged peer of
   `@schlessera/brain-ui-server`, an entry in `FIRST_PARTY_BACKENDS` with its
-  own profile plumbing in `packages/ui-server/src/config/env.ts`, a line in
-  `scripts/publish.ts` and `scripts/build.ts` in dependency order, a member of
+  own profile plumbing in `packages/ui-server/src/config/env.ts`, a manifest
+  that `scripts/publishable-packages.ts` orders after its dependencies, a member of
   the changesets `fixed` group, and a row in every enumeration
   `tests/release-manifest.test.ts` asserts. It then ships in every release,
   changed or not.

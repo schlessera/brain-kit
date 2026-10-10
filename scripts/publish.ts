@@ -3,32 +3,7 @@ import { resolve } from "path";
 import { assertPublishArtifacts } from "./check-dist.js";
 import { assertPublishPins } from "./check-publish-pins.js";
 import { publishTemplate } from "./publish-template.js";
-
-const packages = [
-  "geo",
-  // Ahead of core and ui-server, both of which depend on it: publishing a
-  // dependent before its dependency leaves the dependent uninstallable in the
-  // window between the two `bun publish` calls.
-  "render-template",
-  "core",
-  // Ahead of ui-sdk, whose `show_block` handler classifies links with the
-  // kit's `./links` export (#43), and of ui-react, which renders the kit.
-  "ui-kit",
-  "ui-sdk",
-  "ui-backend-claude",
-  "ui-backend-pi",
-  "ui-render-puppeteer",
-  // Ahead of module-jobs and module-travel, which depend on it.
-  "scrape",
-  "ui-server",
-  "ui-react",
-  "module-finance",
-  "module-images",
-  "module-video",
-  "module-jobs",
-  "module-speaking",
-  "module-travel",
-];
+import { listPublishablePackages } from "./publishable-packages.ts";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -81,7 +56,7 @@ export interface ReleaseStep extends ReleaseEntry {
  *
  * npm refuses to publish over an existing version, so a resumed release used to
  * die with a 403 on the first package the previous run got out — the operator
- * had to comment names out of the list above by hand and remember to restore
+ * had to comment names out of the package list by hand and remember to restore
  * them. Asking the registry first makes the run idempotent instead: whatever is
  * already live is skipped, and only the tail still publishes. The 0.32.0 release
  * needed exactly this (five packages live, the sixth's confirmation timed out).
@@ -154,22 +129,41 @@ export async function awaitPublished(
   }
 }
 
+/**
+ * What a release publishes, in order: every non-private workspace package,
+ * dependencies first (scripts/publishable-packages.ts). Publishing a dependent
+ * before its dependency leaves the dependent uninstallable in the window
+ * between the two `bun publish` calls. The npm name comes from each manifest —
+ * directory names and package names diverge (core → @schlessera/brain).
+ */
+export function releaseEntries(packagesRoot: string = root): ReleaseEntry[] {
+  return listPublishablePackages(packagesRoot).map(({ dir, name, version }) => ({
+    dir,
+    name,
+    version,
+  }));
+}
+
 async function main(): Promise<void> {
-  // Check every package before publishing any of them, avoiding a partial
-  // release when a required artifact is missing. The npm name comes from each
-  // manifest — directory names and package names diverge (core →
-  // @schlessera/brain).
-  const entries: ReleaseEntry[] = [];
-  for (const packageDir of packages) {
-    const dir = resolve(root, "packages", packageDir);
-    const manifest = (await Bun.file(resolve(dir, "package.json")).json()) as {
-      name?: string;
-      version: string;
-    };
-    const name = manifest.name ?? packageDir;
-    entries.push({ dir: packageDir, name, version: manifest.version });
-    assertPublishArtifacts(dir, name);
+  // `bun run release -- --dry-run [root]` prints what would be published, in
+  // order, and stops: no artifact checks, no registry, no publish, no tag.
+  const args = process.argv.slice(2);
+  if (args.includes("--dry-run")) {
+    const dryRoot = resolve(args.find((arg) => arg !== "--dry-run") ?? root);
+    for (const entry of releaseEntries(dryRoot)) {
+      console.log(`Would publish ${entry.name}@${entry.version} (packages/${entry.dir})`);
+    }
+    process.exit(0);
   }
+  if (args.length > 0) {
+    console.error(`Release refused: unexpected arguments ${args.join(" ")} (only --dry-run [root] is accepted).`);
+    process.exit(1);
+  }
+
+  // Check every package before publishing any of them, avoiding a partial
+  // release when a required artifact is missing.
+  const entries = releaseEntries();
+  for (const entry of entries) assertPublishArtifacts(resolve(root, "packages", entry.dir), entry.name);
 
   // Second pre-flight: verify what `bun publish` will actually write for the
   // workspace:* cross-dependencies (the 0.2.0 stale-lockfile failure). The probe
