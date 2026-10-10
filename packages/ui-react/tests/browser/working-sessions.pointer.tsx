@@ -415,8 +415,9 @@ for (const width of [320, 480, 1279, 1440] as const) {
     s.socket.deliver({ type: "tool_approval_request", sessionId: RAFT.id, turnId: "raft-turn", toolUseId: "tool-raft", toolName: "Write", input: { file_path: "voyage/raft-lashings.md", content: "Lash the beams." } });
     // The resume ends as the host ends it: the turn waiting on the approval is still running.
     s.socket.deliver({ type: "status", sessionId: RAFT.id, status: "thinking", detail: "Session in progress", turnId: "raft-turn" });
-    const control = () => s.host.querySelector<HTMLElement>("[data-approval-card] button");
+    const control = () => s.host.querySelector<HTMLElement>('[data-approval-card] [data-kit-approval-actions] [role="button"]');
     await expect.poll(() => control(), { message: "the card is drawn" }).not.toBeNull();
+    expect(control()?.getAttribute("aria-label") ?? control()?.textContent, "the first permission decision is Allow").toMatch(/^Allow(?:$| )/);
     // A waiting card takes focus at every width, the phone included.
     await expect.poll(() => document.activeElement, { message: "focus is on the card's first control" }).toBe(control());
     expect(views(s).find((v) => v.sessionId === RAFT.id)?.state, "still waiting on the reader").toBe("needs_you");

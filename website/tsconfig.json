@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["src/demo/**/*.tsx", "src/demo/**/*.ts", "src/scripts/**/*.ts", "scripts/**/*.ts", "../packages/ui-react/src/lib/pdfjs-worker.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}

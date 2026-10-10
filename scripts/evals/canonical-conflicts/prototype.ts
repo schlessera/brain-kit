@@ -64,6 +64,11 @@ function read(root: string, taxonomy: Taxonomy, path: string, asOf: string, cano
   } catch { return null; }
 }
 
+/** Private evaluation reader shared by baseline-output provenance checks. */
+export function eligibleSnapshot(root: string, taxonomy: Taxonomy, path: string, asOf: string, canonical: boolean) {
+  return read(root, taxonomy, path, asOf, canonical);
+}
+
 export function pairs(root: string, taxonomy: Taxonomy, asOf: string): Pair[] {
   const out: Pair[] = []; const paths = getMarkdownFiles(root, taxonomy);
   const canonicalPaths = new Set(Object.keys(taxonomy.canonical).map(k => taxonomy.canonicalPath(k)).filter(Boolean));
@@ -90,6 +95,34 @@ function provenance(root: string, pair: Pair): boolean {
       extract(s.raw).some(x => JSON.stringify(x) === JSON.stringify(span)));
 }
 
+/** Narrow experiment-only arithmetic premise, taken from explicit source lines.
+ * Different numbers/dates are not conflicts without one shared single-valued
+ * attribute at one observation time and event. This is no production schema.
+ */
+function arithmeticScope(snapshot: Snapshot, span: Span, asOf: string): string | null {
+  const offset = frontmatterLength(snapshot.raw), body = snapshot.raw.slice(offset);
+  const lines = topLevelBlocks(body).filter(b => b.type === "paragraph")
+    .flatMap(b => body.slice(b.start, b.end).split(/\r?\n/));
+  const labels = ["Subject", "Attribute", "Observation date", "Event scope", "Cardinality"];
+  const values: string[] = [];
+  for (const label of labels) {
+    const matches = lines.filter(line => line.startsWith(`${label}: `));
+    if (matches.length !== 1) return null;
+    const value = matches[0]!.slice(label.length + 2);
+    if (!value.trim() || value !== value.trim() || /[`<>]/.test(value)) return null;
+    values.push(value);
+  }
+  const subject = span.text.includes(" | ") ? span.text.split(" | ")[0] : span.text.split(": ")[0];
+  const observed = day(values[2]), now = day(asOf);
+  if (values[0] !== subject || values[4] !== "single-valued" || observed === null || now === null || observed > now) return null;
+  return JSON.stringify(values);
+}
+
+function commonArithmeticScope(pair: Pair, asOf: string): boolean {
+  const left = arithmeticScope(pair.canonical, pair.anchor, asOf);
+  return left !== null && left === arithmeticScope(pair.secondary, pair.restatement, asOf);
+}
+
 /** Both orientations affirm the subject; code owns literal value comparisons and authority. */
 export async function inspect(root: string, taxonomy: Taxonomy, pair: Pair, asOf: string, judge: Judge) {
   if (taxonomy.canonicalPath(pair.key) !== pair.canonical.path) return null;
@@ -103,11 +136,14 @@ export async function inspect(root: string, taxonomy: Taxonomy, pair: Pair, asOf
     const forward = answer.safeParse(await judge(a, b)); const reverse = answer.safeParse(await judge(b, a));
     if (!forward.success || !reverse.success) return null;
     if (forward.data.sameSubject !== "yes" || reverse.data.sameSubject !== "yes") return null;
-    // Exact numeric/calendar differences belong to code; judgments cannot override them.
+    // Exact numeric/calendar differences belong to code after a common literal
+    // attribute/time/event and single-valued premise; same entity is insufficient.
     if (pair.anchor.field === "Count") {
+      if (!commonArithmeticScope(pair, asOf)) return null;
       const a = decimal(pair.anchor.value), b = decimal(pair.restatement.value);
       if (a === null || b === null || a === b) return null;
     } else if (pair.anchor.field === "Date") {
+      if (!commonArithmeticScope(pair, asOf)) return null;
       const a = day(pair.anchor.value), b = day(pair.restatement.value);
       if (a === null || b === null || a === b) return null;
     } else if (forward.data.contradiction !== "yes" || reverse.data.contradiction !== "yes") return null;

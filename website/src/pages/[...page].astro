@@ -1,0 +1,51 @@
+---
+import { getCollection, render } from 'astro:content';
+import Page from '../layouts/Page.astro';
+import ExternalLink from '../components/ExternalLink.astro';
+import { publications, chapters } from '../../publication.mjs';
+import retiredDocs from '../../retired-docs.json';
+import { href, sourceUrl, docNavigation, documentTitle } from '../../model.mjs';
+import '../styles/docs.css';
+export async function getStaticPaths() {
+  const entries = await getCollection('docs');
+  return [...entries.map(entry => ({ params: { page: publications[entry.id] }, props: { entry } })),
+    ...Object.entries(retiredDocs).map(([route, source]) => ({ params: { page: route }, props: { retiredSource: source } }))];
+}
+const { entry, retiredSource } = Astro.props;
+const Content = entry ? (await render(entry)).Content : null;
+const title = entry ? documentTitle(entry.id) : 'Project reference';
+const readingOrder = [{ source: 'docs/handbook/README.md', route: 'docs', title: 'The brain-kit handbook' }, ...chapters];
+const position = readingOrder.findIndex(item => item.source === entry?.id);
+const previous = readingOrder[position - 1];
+const next = position >= 0 ? readingOrder[position + 1] : readingOrder[0];
+---
+<Page title={`${title} — brain-kit`} description={`The brain-kit handbook: ${title}.`} noIndex={Boolean(retiredSource)}>
+  <main id="main" class="docs-layout">
+    <details class="docs-menu" open>
+      <summary class="docs-menu-toggle">Browse documentation<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>
+      <nav class="docs-nav" aria-label="Documentation">
+      <a href={href('docs/')} class="docs-home" aria-current={entry?.id === 'docs/handbook/README.md' ? 'page' : undefined}>Handbook</a>
+      {docNavigation.filter(group => group.items.length).map((group, index) => <details open={index === 0 || group.items.some(item => item.source === entry?.id)} data-current={group.items.some(item => item.source === entry?.id) || undefined}><summary>{group.title}</summary><ul>{group.items.map(item => <li><a href={href(`${item.route}/`)} aria-current={item.source === entry?.id ? 'page' : undefined}>{item.title}</a></li>)}</ul></details>)}
+      </nav>
+    </details>
+    <script is:inline>
+      const docsMenu = document.querySelector('.docs-menu');
+      const compactDocs = matchMedia('(max-width: 900px)');
+      function fitDocsNavigation() { docsMenu.open = !compactDocs.matches; }
+      fitDocsNavigation();
+      compactDocs.addEventListener('change', fitDocsNavigation);
+    </script>
+    <article class="prose">
+      {Content ? <Content/> : <>
+        <h1>Project reference</h1>
+        <p>This reference is maintained in the GitHub repository. The handbook focuses on learning and using brain-kit; technical records and engineering references stay alongside the source.</p>
+        <p><ExternalLink href={sourceUrl(retiredSource, 'blob', 'c577320cb4b9e3224a84a374e975ef5910db1edd')}>Read the reference on GitHub</ExternalLink></p>
+      </>}
+      <nav class="chapter-navigation" aria-label="Reading order">
+        {previous && <a href={href(`${previous.route}/`)}><span>Previous</span>{previous.title}</a>}
+        {next && <a class="next-chapter" href={href(`${next.route}/`)}><span>{entry ? 'Next' : 'Start reading'}</span>{next.title}</a>}
+      </nav>
+      {entry && <footer class="source-links"><ExternalLink href={sourceUrl(entry.id)} data-source-link>View Markdown source</ExternalLink><ExternalLink href={sourceUrl(entry.id, 'blob', 'main')} data-source-link>Edit on GitHub</ExternalLink></footer>}
+    </article>
+  </main>
+</Page>

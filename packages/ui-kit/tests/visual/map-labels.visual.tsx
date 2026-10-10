@@ -1,16 +1,16 @@
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { afterEach, beforeAll, expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
 import "../../src/styles.css";
 import { MapView, mapViewBounds, mercY, type MapViewProps } from "../../src/blocks/MapView.js";
 import { gozoMap, voyageMap } from "../../fixtures/places.js";
-let root: Root | undefined, host: HTMLDivElement | undefined, fonts: HTMLStyleElement;
+let root: Root | undefined, host: HTMLDivElement | undefined;
 beforeAll(async () => {
- await page.viewport(1440,1000); fonts=document.createElement("style"); fonts.textContent=await commands.rankFooterFonts();document.head.append(fonts);
+ await page.viewport(1440,1000);
  for(const face of ['500 10px "JetBrains Mono"','500 9px "JetBrains Mono"']) {await document.fonts.load(face);expect(document.fonts.check(face)).toBe(true);} await document.fonts.ready;
 });
-afterEach(()=>{if(root)flushSync(()=>root!.unmount());host?.remove();root=undefined;host=undefined;});afterAll(()=>fonts.remove());
+afterEach(()=>{if(root)flushSync(()=>root!.unmount());host?.remove();root=undefined;host=undefined;});
 async function mount(width:number, theme:string, props:MapViewProps) {
  host=document.createElement("div");host.style.width=`${width}px`;host.dataset.theme=theme;document.body.append(host);root=createRoot(host);
  flushSync(()=>root!.render(<MapView {...props} maxWidth={width} />));

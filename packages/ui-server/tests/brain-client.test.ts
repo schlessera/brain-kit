@@ -15,7 +15,7 @@ import { join, resolve } from "path";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createApp } from "../src/app";
 import { createBrainClient, probeBrainCliVersion } from "../src/brain/client";
-import { resolveServerConfig } from "../src/config/env";
+import { resolveServerConfig, type ServerConfig } from "../src/config/env";
 import { createRecordingObservability } from "../src/observability/index";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createBrainRoutes } from "../src/routes/brain";
@@ -74,7 +74,7 @@ describe("brain CLI invocation", () => {
     const stats = (await brain.stats()) as unknown as Record<string, unknown>;
     expect(stats.embeddings).toBeNull();
 
-    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
     const response = await app.request("/brain/stats");
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
@@ -97,7 +97,7 @@ describe("brain CLI invocation", () => {
         `health: { orphans: [null, 1] } }));\n`
     );
     const brain = createBrainClient({ brainPath: root });
-    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
 
     const response = await app.request("/brain/stats/history");
     expect(response.status).toBe(200);
@@ -205,7 +205,7 @@ describe("search cancellation and deadlines", () => {
   test("HTTP search deadlines return 504 and reap the stalled process", async () => {
     const { root, pidPath } = stalledBrain();
     const brain = createBrainClient({ brainPath: root, searchTimeoutMs: 1_500 });
-    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
     const response = await app.request("/brain/search?q=query");
     expect(response.status).toBe(504);
     expect(await response.json()).toHaveProperty("error", expect.stringContaining("timed out"));
@@ -217,7 +217,7 @@ describe("search cancellation and deadlines", () => {
   test("a real HTTP disconnect propagates through Hono to the search process", async () => {
     const { root, pidPath } = stalledBrain();
     const brain = createBrainClient({ brainPath: root });
-    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 } });
+    const app = createBrainRoutes({ brain, brainPath: root, keyterms: { brainPath: root, cacheDir: root, limit: 10 }, exec: {} });
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch });
     const controller = new AbortController();
     const response = fetch(`http://127.0.0.1:${server.port}/brain/search?q=query`, { signal: controller.signal })
@@ -488,6 +488,82 @@ describe("the exec wrapper covers the shared CLI client", () => {
     expect(argv).toContain("search");
   }, 30_000);
 
+  /**
+   * A brain whose CLI answers --version, search and sync, and two logging
+   * wrappers: `ambient`, named by the process environment, and `configured`.
+   * Boots an app on `config(configured wrapper)`, searches and syncs, and
+   * returns the argv lines each wrapper saw.
+   */
+  async function wrappersSeenByApp(config: (root: string, configured: string) => ServerConfig) {
+    const root = temporaryBrain();
+    installBrainCli(
+      root,
+      `const args = process.argv.slice(2);\n` +
+        `if (args.includes("--version")) console.log("0.40.0");\n` +
+        `else if (args.includes("search")) console.log(JSON.stringify({ results: [], warnings: [] }));\n` +
+        `else console.log("synced");\n`
+    );
+    const wrapperAt = (name: string) => {
+      const wrapper = join(root, `${name}.sh`);
+      writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${join(root, `${name}.log`)}'\nexec "$@"\n`);
+      chmodSync(wrapper, 0o755);
+      return { wrapper, log: join(root, `${name}.log`) };
+    };
+    const configured = wrapperAt("configured");
+    const ambient = wrapperAt("ambient");
+    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+    process.env.BRAIN_UI_EXEC_WRAPPER = ambient.wrapper;
+
+    const app = await createApp({
+      config: config(root, configured.wrapper),
+      observability: createRecordingObservability(),
+      registry: registry(),
+    });
+    try {
+      const search = await app.fetch(new Request("http://localhost/api/brain/search?q=anything"));
+      expect(search.status).toBe(200);
+      const sync = await app.fetch(new Request("http://localhost/api/brain/sync", { method: "POST" }));
+      expect(await sync.text()).toContain("synced");
+    } finally {
+      await app.close();
+    }
+    const lines = (log: string) => (existsSync(log) ? readFileSync(log, "utf-8").split("\n") : []);
+    return { configured: lines(configured.log), ambient: lines(ambient.log) };
+  }
+
+  const wrapperConfig = (root: string, wrapper: string) =>
+    resolveServerConfig({
+      AUTH_MODE: "none",
+      HOST: "127.0.0.1",
+      DB_PATH: ":memory:",
+      BRAIN_PATH: root,
+      BRAIN_UI_PRICING_DISCOVERY: "0",
+      BRAIN_UI_EXEC_WRAPPER: wrapper,
+    });
+
+  test("an app spawns through its configured wrapper, not the ambient one (#1363)", async () => {
+    // Two apps in one process must not share a privilege boundary: the
+    // wrapper comes from the config handed to createApp, even while the
+    // process environment names a different one.
+    const seen = await wrappersSeenByApp(wrapperConfig);
+    expect(seen.configured).toContain("--version");
+    expect(seen.configured).toContain("search");
+    expect(seen.configured).toContain("sync");
+    expect(seen.ambient).toEqual([]);
+  }, 30_000);
+
+  test("a config without exec keeps the ambient wrapper rather than spawning unwrapped", async () => {
+    // A configuration built before `ServerConfig.exec` existed must not lose
+    // its wrapper: createApp resolves the ambient one at the edge.
+    const seen = await wrappersSeenByApp((root, wrapper) => {
+      const { exec: _omitted, ...legacy } = wrapperConfig(root, wrapper);
+      return legacy;
+    });
+    expect(seen.ambient).toContain("search");
+    expect(seen.ambient).toContain("sync");
+    expect(seen.configured).toEqual([]);
+  }, 30_000);
+
   test("with no wrapper configured the CLI is launched directly", async () => {
     const root = temporaryBrain();
     installBrainCli(root, `console.log(JSON.stringify({ results: [], warnings: [] }));\n`);
@@ -516,12 +592,9 @@ describe("the exec wrapper covers the shared CLI client", () => {
       { mode: 0o755 }
     );
     chmodSync(wrapper, 0o755);
-    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
-    process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
-
     // Times out after 5s, logs a warning, and continues — the probe is
     // advisory. What must not survive it is the child.
-    await probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+    await probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper } });
 
     const childPid = Number(readFileSync(childPidFile, "utf-8").trim());
     const deadline = Date.now() + 10_000;
@@ -543,10 +616,8 @@ describe("the exec wrapper covers the shared CLI client", () => {
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.36.0");\n`);
     const log = installWrapper(root);
-    previous = process.env.BRAIN_UI_EXEC_WRAPPER;
-    process.env.BRAIN_UI_EXEC_WRAPPER = join(root, "wrapper.sh");
 
-    await probeBrainCliVersion(root, createRecordingObservability().logger("test"));
+    await probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper: join(root, "wrapper.sh") } });
 
     expect(readFileSync(log, "utf-8")).toContain("--version");
   }, 30_000);

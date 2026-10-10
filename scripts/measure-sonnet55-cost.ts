@@ -1,7 +1,17 @@
 /** Sonnet 5.5 API-price equivalent from usage, independent of SDK fallback prices.
- * Rates verified 2026-10-07: https://platform.claude.com/docs/en/models/sonnet-5-5/overview
  * This prices tokens; it is not a subscription billing receipt.
  */
+
+/**
+ * Sonnet 5.5 Standard list rates in USD per million tokens, verified
+ * 2026-10-10 at https://platform.claude.com/docs/en/about-claude/pricing#model-pricing
+ * and https://platform.claude.com/docs/en/build-with-claude/prompt-caching#pricing.
+ * Cache reads are 0.05x input. On 2026-10-07 the model table still showed
+ * $0.20/M for reads while the caching section said $0.10/M (#1239). Amounts
+ * stored before this change used $0.20/M; they are historical diagnostics,
+ * not current list prices, and are not recomputed.
+ */
+export const SONNET55_USD_PER_MTOK = { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 2.5, cacheWrite1h: 4 } as const;
 export interface Sonnet55Price {
   lowerUsd: number;
   upperUsd: number;
@@ -34,7 +44,8 @@ export function priceSonnet55Usage(result: {
   const oneHour = tokens(ttl?.ephemeral_1h_input_tokens ?? 0, "1h cache creation");
   if (fiveMinutes + oneHour > creation) throw new Error("Cache TTL counts exceed aggregate creation usage");
   const unknownCacheTokens = creation - fiveMinutes - oneHour;
-  const known = (input * 2 + output * 10 + read * 0.2 + fiveMinutes * 2.5 + oneHour * 4) / 1_000_000;
-  return { lowerUsd: known + unknownCacheTokens * 2.5 / 1_000_000,
-    upperUsd: known + unknownCacheTokens * 4 / 1_000_000, unknownCacheTokens };
+  const r = SONNET55_USD_PER_MTOK;
+  const known = (input * r.input + output * r.output + read * r.cacheRead + fiveMinutes * r.cacheWrite5m + oneHour * r.cacheWrite1h) / 1_000_000;
+  return { lowerUsd: known + unknownCacheTokens * r.cacheWrite5m / 1_000_000,
+    upperUsd: known + unknownCacheTokens * r.cacheWrite1h / 1_000_000, unknownCacheTokens };
 }

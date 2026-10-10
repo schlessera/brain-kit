@@ -23,11 +23,12 @@
  * entry rather than a fresh request to a shared service.
  */
 
-import { MapView, type MapLand, type MapPath } from "@schlessera/brain-ui-kit";
+import { MapView, type MapLand } from "@schlessera/brain-ui-kit";
 import type { LocationPayload } from "@schlessera/brain-ui-sdk/client";
 import { useEffect, useState } from "react";
 import { useBrainApi } from "../../../root-context.js";
 import type { CoastlineGeometry } from "../../../lib/api-client.js";
+import { geometryPaths } from "../../../lib/geometry-paths.js";
 
 /** 4 decimal places is ~11 m — finer than any browser fix is honest about. */
 function coord(value: number): string {
@@ -81,15 +82,6 @@ export function viewBox(lat: number, lon: number, spanKm: number): [number, numb
   const south = Math.max(-89, lat - degLat / 2);
   const north = Math.min(89, lat + degLat / 2);
   return [west, south, east, north];
-}
-
-/** The server's tiers as `MapView` paths, at the kit fixtures' weights. */
-export function geometryPaths(geo: CoastlineGeometry): MapPath[] {
-  return [
-    ...geo.coastline.map((coords) => ({ coords, tone: "neutral" as const, width: 1 })),
-    ...geo.roads.map((coords) => ({ coords, tone: "neutral" as const, width: 0.6 })),
-    ...geo.streets.map((coords) => ({ coords, tone: "neutral" as const, width: 0.35 })),
-  ];
 }
 
 export function LocationResultCard({

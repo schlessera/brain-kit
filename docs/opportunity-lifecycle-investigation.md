@@ -212,3 +212,110 @@ Any incompatible existing-field/skill behavior also needs the maintainer's
 breaking-change ruling before implementation. No MCP tool, calendar/outreach
 integration, criteria settings UI or generic lifecycle seam is part of this
 prototype. This investigation is not a binding production adoption decision.
+
+## Independent preparation on 2026-10-08
+
+The later #838 rulings already authorize canonical `claude-sonnet-5-5`, optional
+`jev-1.13.0` and $15 additional billed charges for this issue within the $150
+aggregate cap. API-price equivalents are diagnostics, not that cap. The present
+Claude subscription hold prevents complementary input review and inference;
+this preparation requests no repeated access or model permission.
+
+The previously described uncommitted sixteen-brain preparation was absent from
+the recovered tree. The newly authored `fresh-corpus.ts` has its own provenance:
+sixteen complete brains, four tuning and twelve held-out, with twenty-four
+checkpoints. It contains distinct round orderings, two contacts, rebooking,
+last-call cancellation then closure, legacy closure, offer retirement of a
+sibling deadline and unknown offer details. Eight clarification cases cover
+timezone, contact, offset, round, target, duplicate focus ownership, incomplete
+prior preparation and a deadline without an offer next step. These are proposed
+semantic goldens authored independently of the prototype's output. Their full
+reference Markdown maps use a different layout; they are not independent
+semantic approval. Native output must be judged against the facts and complete
+preserved prose, without requiring the prototype's private generated regions or
+event ledger. The original seeded twenty-four checkpoints and 120 observations
+remain separate controls, and their existing report is unchanged.
+
+The fresh fixture factory reads the complete actual disk configuration, resolves
+the enabled jobs module and module directory fallback, and captures configuration
+bytes in every sealed plan. It refuses disabled modules and changed configuration
+before writes. A newly exposed private-prototype limitation is corrected: after
+the last call's cancellation retires the target focus row, explicit closure may
+leave focus untouched only with prior event ownership and zero remaining rows
+for that target. Existing or ambiguous target rows still require exact selection.
+The actual source write and complete focus bytes/metadata are tested.
+
+All twenty-four fresh checkpoints execute actual file effects. Sixteen applied
+checkpoints run the source CLI's config/module resolution, pipeline regeneration,
+forced index rebuild, all-deadline SQLite query and briefing, followed by exact
+event replay with zero byte or metadata changes. Eight ambiguous checkpoints
+produce clarification with no fixture effects. The observer covers hidden,
+binary and ordinary files, modes, members, directory metadata, symlink targets
+and nanosecond mtimes without following links. Only the documented disposable
+root `brain.db`, WAL and SHM are excluded. No unexpected-file or same-byte-touch
+exception is used. The child CLI clock is pinned to July 12; native SDK and
+performance clocks remain real. Candidate timing and verification/replay timing
+are recorded separately and establish no agent savings.
+
+The installed SDK 0.3.293 and native CLI 2.1.293 execute a scripted loopback
+Messages fixture in separate user, network and PID namespaces. The source and
+owned dependencies are read-only; homes and brains are disposable; the launcher
+inherits no credentials. Ten scripted tools use real Read/Write/Bash, including
+two outside-file denials. Eleven fixture model requests have retained exact
+request/response text, native stdout bytes and stderr. Actual config, pipeline,
+index and briefing commands execute and expected source edits occur. The native
+child closes and its stdout flushes. This uses explicit SDK `permissionMode:
+default` and an exact fixture allowlist: it is a runtime/observer control, not
+current-core permission policy, model quality or performance evidence.
+
+The tee retains split UTF-8, a final frame without a newline, failed terminal
+usage and stderr even when the SDK reader fails. It reads final all-model usage,
+never provisional assistant output counters. Unknown auxiliary models, missing
+named counters, multiple native results or forced termination cannot produce a
+complete receipt; failed raw diagnostics remain available. Invoice cost is
+unknown. Native stdout alone cannot establish every physical HTTP attempt. The
+future live collector still needs complete actual auxiliary/request accounting;
+the cache-price ambiguity tracked in #1239 must remain explicit in diagnostic
+estimates.
+
+The scored current-core baseline is blocked by #1275: omitted core permission
+mode inherits native auto in the observed supported runtime, whose classifier
+route and full auxiliary accounting are unresolved. A manual-mode override or
+the successful scripted SDK control cannot be renamed current-core performance.
+`protocol.ts` therefore keeps dispatch disabled. It declares three complete
+reset repetitions, counterbalanced arms, per-checkpoint destructive/ownership
+vetoes, unknown-fact clarification and full native/effects/accounting gates.
+`prepare.ts` exports every new input, full proposed reference document, current
+skill prompt, schema, protocol and complete source/installed-runtime closure to a
+fresh owned artifact directory. Complementary exact-hash review remains required
+before admission when the hold lifts. No optional natural-language mapping,
+current-agent comparison, savings, production adoption or durable restart/race
+safety is claimed. Signed preparation alone does not close #845.
+
+The first new byte-only freeze is retained as superseded after independent audit:
+it omitted executable/directory modes and resolved link identity. Its replacement
+binds all physical files and directories, modes, device/inode identities, mtimes,
+sizes and content, plus literal links constrained to the owned tree, their resolved
+identities and target subtree bytes. All seventeen workspace roots/manifests and
+owned installed dependencies participate; only root Git administration is excluded.
+Real chmod and same-byte link retargeting change the digest, and omitting mode or
+resolved-path binding fails the intended assertions. Copies need their own literal
+identity freeze; a matching filename or literal symlink text is insufficient.
+
+A later inode audit found installed dependency files still shared with external
+package caches. Only this worktree's physical dependency entries were replaced
+with independent byte copies, preserving modes and relative symlinks. All 59,489
+regular dependency file hashes match the earlier runtime snapshot. The closure
+now compares kernel link counts with every owned device/inode occurrence and
+refuses files shared outside the tree before native fixture dispatch; links
+entirely inside the owned tree are permitted. A real outside-hardlink fixture
+and restored guard-removal mutation exercise this admission boundary.
+
+The full reference renderer was also corrected to preserve legacy status and
+existing preparation titles/frontmatter and retired header dates as history.
+These proposed reference bytes changed, and receive a new semantic input hash;
+they are not a transport-only amendment. Actual candidate controls now compare
+complete unowned frontmatter and check retired original dates in source history.
+Mutating an actual title write or dropping prior-step history fails those
+specific assertions. Complementary review remains pending for the corrected
+full-file expectations.

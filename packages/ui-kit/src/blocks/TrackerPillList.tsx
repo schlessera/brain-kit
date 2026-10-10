@@ -296,7 +296,10 @@ function Pill({ row, item, isStatic }: { row: TrackerRow; item: TrackerItem; isS
             title's basis is 0, so it gives way first, and the qualifier's
             ellipsis is the last resort that keeps `↗` inside the pill when a
             16-character qualifier and a four-digit PR fill a 288px line. */}
-        <span data-tracker-action="" style={{ ...mono11, flex: "0 1 auto", minWidth: 0, display: "flex", gap: "1ch", color: accent[tone].ink }}>
+        {/* The qualifier's zero minimum track keeps its full text out of
+            min-content sizing in an auto-minimum flex parent. Its max-content
+            limit still reserves the whole qualifier before the title grows. */}
+        <span data-tracker-action="" style={{ ...mono11, flex: "0 1 auto", minWidth: 0, display: "grid", gridTemplateColumns: qualifier ? "max-content minmax(0, max-content)" : "max-content", gap: "1ch", color: accent[tone].ink }}>
           <span style={{ flex: "none" }}>{event.action}</span>
           {qualifier ? " " : null}
           {qualifier ? (

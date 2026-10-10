@@ -1,0 +1,14 @@
+---
+import Arrow from './Arrow.astro';
+import { href } from '../../model.mjs';
+const { side, scene, theme = 'light', caption, title, device = 'phone', width = 390, height = 844, lazy = false, zoomable = true } = Astro.props;
+---
+<figure class:list={['demo-device', `${device}-stage`]} data-device={device}>
+  <figcaption><span id={`${side}-caption`}>{caption}</span>{zoomable && <button class="device-zoom" type="button" data-open={side} aria-label={`Expand ${caption.toLowerCase()} demonstration`} aria-expanded="false"><Arrow diagonal/><svg class="collapse-icon" aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m6 6 12 12M18 6 6 18"/></svg></button>}</figcaption>
+  <div class:list={['device-body', device === 'phone' ? 'phone' : device === 'desktop' ? 'desktop-frame' : 'capture-phone']}>
+    {device === 'desktop' && <div class="device-chrome" aria-hidden="true"><span>Brain</span><svg width="32" height="8" viewBox="0 0 32 8" fill="currentColor"><circle cx="4" cy="4" r="2"/><circle cx="16" cy="4" r="2"/><circle cx="28" cy="4" r="2"/></svg></div>}
+    <div class="device-screen" style={`--screen-ratio:${width}/${height}`} data-width={width} data-height={height}>
+      <iframe data-demo data-side={side} title={title} src={href(`demo/${scene}/?theme=${theme}`)} sandbox="allow-scripts allow-same-origin allow-downloads" allow="web-share; clipboard-write; microphone 'none'; camera 'none'; geolocation 'none'" loading={lazy ? 'lazy' : 'eager'} referrerpolicy="no-referrer"></iframe>
+    </div>
+  </div>
+</figure>

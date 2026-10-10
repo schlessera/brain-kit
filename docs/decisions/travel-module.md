@@ -228,3 +228,63 @@ intended field/filename assertion rather than a load error. The original
 implementation was restored before the verification suite. These receipts
 protect selected naming/provenance semantics; existing atomic publication and
 containment guards remain the writers' responsibility.
+
+## Registries and logging workflows — 2026-10-09
+
+[#569](https://github.com/schlessera/brain-kit/issues/569) completes the
+approved scope with `brain travel sync` and the `trip-log` and `places`
+skills. The registries are views in core generated regions, the same mechanism
+finance and `brain registry` use. They are named `travel-trips` and
+`travel-places`, so a travel registry and a `brain registry` table can share
+one `_index.md` without either rewriting the other. The trips index keeps its
+choosing rules outside the region: those are the user's conclusions, and sync
+never derives a preference.
+
+Sync reads the whole canonical corpus, renders both regions and writes only
+when every record validates and both regions locate cleanly. A bad trip must
+not leave one registry fresh and the other stale, so planning and writing are
+separate steps and the caller writes nothing while any issue remains
+(`planTravelSync`, `packages/module-travel/src/sync.ts:199-232`). Planning
+also refuses a symlinked registry, because the root-containment resolver
+follows a final link and the write would land in whatever file it names, and
+trip and place types configured into one directory, which would plan two
+writes to one file. A registry edited, created or relinked after planning is
+detected before the first write and refuses the whole run
+(`applyTravelSync`, `packages/module-travel/src/sync.ts:239-249`). An edit
+landing between that check and the write is not detected; like every
+path-based writer here, sync does not lock the file.
+
+Place rows reuse `summarizePlaceVisits`. Countries need a rollup that the
+place summary does not define: a country is visited when it or any place
+within it was. The rollup unions the visits of every place whose ancestry
+reaches that country and keys them by document path and visit ID, so a visit
+linked from a spot, its town and the country counts once
+(`renderPlaces`, `packages/module-travel/src/sync.ts:89-166`). Keeping the
+place row as the place's own visits preserves the foundation's documented
+summary; the region says which number is which. Bounds follow the same rule
+for trips, places and countries: one undated visit makes first/last unknown
+(`bounds`, `packages/module-travel/src/sync.ts:32-36`).
+
+Rows sort by root-relative path in code-unit order, not locale or title, so
+two machines produce identical bytes. A trip's distance and ascent are the
+stored values from its primary route, which the route command computed; sync
+never opens a GPX file.
+
+A missing index is created rather than skipped. Finance only rewrites an
+existing dashboard, but a new brain following the skills would otherwise
+need a hand-written scaffold before its first sync, and that scaffold is
+deterministic work. Creation is a no-op on the next run like any other write.
+
+The real CLI test runs one flow: a speaking-only party migration, a conference
+linking its journey, proposed trips, a route import with alternatives, a
+reduced photo used as visit photo and cover, two visits, a dismissal and two
+syncs, the second writing nothing. Each of these mutations failed at its
+intended assertion before the implementation was restored: keying the country
+rollup per place (the exact places region differed), dropping the invalid-record
+refusal (exit `0` instead of `1`), ignoring undated visits in bounds (a known
+date instead of `unknown`), regenerating the scaffold instead of the existing
+file (prose not preserved), writing under `--check` (snapshot changed) and
+writing while one region was malformed (exit `0` instead of `1`). Review
+found the symlink, shared-directory and parenthesis cases; each has a real
+CLI test, and the no-op step also asserts unchanged registry modification
+times, so a same-bytes rewrite would fail it.

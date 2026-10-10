@@ -6,9 +6,10 @@ import { brainConfigSchema } from "../../../packages/core/src/lib/config";
 import { buildTaxonomy } from "../../../packages/core/src/lib/taxonomy";
 import { openDatabase } from "../../../packages/core/src/lib/db";
 import { indexAll, getMarkdownFiles } from "../../../packages/core/src/lib/indexer";
-import { detectCandidates, reconcile } from "../../../packages/core/src/lib/hygiene";
+import { detectCandidates, reconcile, replaceIfUnchanged } from "../../../packages/core/src/lib/hygiene";
 import { loadAuditDocs } from "../../../packages/core/src/lib/auditor";
 import { apply, capture, plan } from "./prototype";
+import { actualWriteDayUTC, assertWriteDayUTC } from "./write-day";
 
 export const NOW = new Date("2026-07-12T12:00:00Z");
 export const TODAY = "2026-07-12";
@@ -54,18 +55,21 @@ export const fixtures: Fixture[] = [
 ];
 export const fixtureSha256 = createHash("sha256").update(JSON.stringify(fixtures)).digest("hex");
 
-export function prepare(fixture: Fixture, filler = 0) {
+export function prepare(fixture: Fixture, filler = 0, writeDayUTC = actualWriteDayUTC()) {
+  assertWriteDayUTC(writeDayUTC);
   const root = mkdtempSync(join(tmpdir(), "brain-mechanical-hygiene-"));
   const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: { types: { note: { dir: fixture.inbox ?? "notes", inbox: true } } } }) });
   const brain = { root, taxonomy, modules: [] };
   for (const [path, raw] of Object.entries(fixture.files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
+    assertWriteDayUTC(writeDayUTC);
     writeFileSync(join(root, path), raw);
     utimesSync(join(root, path), new Date(fixture.mtime ?? MTIME), new Date(fixture.mtime ?? MTIME));
   }
   for (let i = 0; i < filler; i++) {
     const path = join(root, "context", `unchanged-${i}.md`);
     mkdirSync(dirname(path), { recursive: true });
+    assertWriteDayUTC(writeDayUTC);
     writeFileSync(path, document(`Sail inspection ${i}`, TODAY, TODAY, `Odysseus checks rope ${i}.`));
     utimesSync(path, MTIME, MTIME);
   }
@@ -74,7 +78,7 @@ export function prepare(fixture: Fixture, filler = 0) {
     await indexAll(db, { root, taxonomy, quiet: true, embeddings: false });
     return detectCandidates(db, brain, NOW);
   };
-  return { root, brain, db, detect, close() { db.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, brain, db, detect, writeDayUTC, close() { db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
 export function snapshot(root: string, taxonomy: ReturnType<typeof buildTaxonomy>) {
@@ -83,23 +87,33 @@ export function snapshot(root: string, taxonomy: ReturnType<typeof buildTaxonomy
 
 /** Real index/detection, private planning/application, then the existing log reconciler. */
 export async function cycle(env: ReturnType<typeof prepare>, dryRun = false) {
+  assertWriteDayUTC(env.writeDayUTC);
+  const write = (path: string, text: string, expected: string | null) => {
+    assertWriteDayUTC(env.writeDayUTC);
+    replaceIfUnchanged(path, text, expected, () => assertWriteDayUTC(env.writeDayUTC));
+  };
   const inputs = capture(env.root, env.brain.taxonomy);
   const detection = await env.detect();
   const proposal = plan(inputs, env.brain.taxonomy, detection, TODAY);
   const currentDocs = new Map(loadAuditDocs(env.db).map(d => [d.path, d]));
-  reconcile(env.root, detection.candidates, currentDocs, { now: NOW, dryRun: true, failedChecks: detection.failedChecks });
-  const applied = apply(env.root, proposal, dryRun);
+  reconcile(env.root, detection.candidates, currentDocs, { now: NOW, dryRun: true, failedChecks: detection.failedChecks, write });
+  assertWriteDayUTC(env.writeDayUTC);
+  const applied = apply(env.root, proposal, dryRun, env.writeDayUTC);
   const after = await env.detect();
   const docs = new Map(loadAuditDocs(env.db).map(d => [d.path, d]));
+  assertWriteDayUTC(env.writeDayUTC);
   const log = reconcile(env.root, after.candidates, docs, {
-    now: NOW, dryRun, failedChecks: after.failedChecks,
+    now: NOW, dryRun, failedChecks: after.failedChecks, write,
     fixed: applied.written.map(path => ({ path, fix: "Mechanical prototype repair" })),
   });
-  return { detection, proposal, applied, after, log };
+  assertWriteDayUTC(env.writeDayUTC);
+  return { detection, proposal, applied, after, log, writeDayUTC: env.writeDayUTC, physicalWriteDayUTC: actualWriteDayUTC(), wallMtimeFindingsAreHarnessEffects: true };
 }
 
 export async function existingCycle(env: ReturnType<typeof prepare>) {
+  assertWriteDayUTC(env.writeDayUTC);
   const detection = await env.detect();
   const docs = new Map(loadAuditDocs(env.db).map(d => [d.path, d]));
-  return reconcile(env.root, detection.candidates, docs, { now: NOW, failedChecks: detection.failedChecks });
+  const result=reconcile(env.root, detection.candidates, docs, { now: NOW, failedChecks: detection.failedChecks, write(path,text,expected) { assertWriteDayUTC(env.writeDayUTC);replaceIfUnchanged(path,text,expected,()=>assertWriteDayUTC(env.writeDayUTC)); } });
+  assertWriteDayUTC(env.writeDayUTC);return result;
 }

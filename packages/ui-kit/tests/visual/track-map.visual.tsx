@@ -11,12 +11,7 @@ for (const theme of ["dark", "light"]) {
       const width = name === "desktop-loop" ? 1440 : 390;
       const outer = await commands.formViewport(width, 1600);
       await page.viewport(width, 1600);
-      // The image's unbundled mono fallback changes after other subjects run.
-      // Reuse the receipt/form tests' conservative local face for these new
-      // snapshots, then remove it without changing incumbent baselines.
-      const face = new FontFace("JetBrains Mono", 'local("Liberation Mono"), local("LiberationMono")', { weight: "400 600" });
       try {
-        document.fonts.add(await face.load());
         await (story as unknown as Story).run({ globals: { theme } });
         const card = document.querySelector<HTMLElement>("[data-track-map]");
         expect(card).not.toBeNull();
@@ -55,7 +50,6 @@ for (const theme of ["dark", "light"]) {
         }
         await expect(page.elementLocator(card!)).toMatchScreenshot(`track-${name}-${theme}`);
       } finally {
-        document.fonts.delete(face);
         await page.viewport(before.width, before.height);
         await commands.formViewport(outer.width - 100, outer.height - 120);
       }

@@ -145,6 +145,9 @@ Maintain **exactly one `type:`**, at least one applicable `area:` and **one
 `priority:` for each issue in this requested pass**. Replace obsolete/wrong
 values with manifest labels; preserve unrelated meta labels, milestones and
 genuine release commitments. Do not apply a milestone to invent a schedule.
+At merge, a milestone is required for the PR and delivered issues; follow
+the GitHub skill's release-attribution procedure. Preserve initial shipped
+milestones when later verification or an epic follow-up closes.
 
 - Type follows the deliverable: `fix` restores promised behavior; `feat`
   changes it; `refactor` preserves it; `test` supplies proof; `docs` changes

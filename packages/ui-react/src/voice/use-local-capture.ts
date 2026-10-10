@@ -50,6 +50,7 @@ export function useLocalCapture({ store, allowLocked = false }: { store?: Record
     if (!options || voice.local !== "idle" || (!allowLocked && root.authLock.state.getState().phase !== "active")) return;
     const gen = ++genRef.current;
     recordingRef.current = null;
+    voice.dismissDictationNotice();
     voice.setLocalNotice(null);
     voice.setLocal("opening");
     const opening = new AbortController();

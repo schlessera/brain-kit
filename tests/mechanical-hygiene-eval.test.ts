@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { actualWriteDayUTC, previousWriteDayUTC } from "../scripts/evals/mechanical-hygiene/write-day";
 import { apply, capture, plan } from "../scripts/evals/mechanical-hygiene/prototype";
 import { cycle, fixtures, prepare, snapshot, TODAY } from "../scripts/evals/mechanical-hygiene/fixture";
 import { hygieneId, readHygieneLog, reconcile } from "../packages/core/src/lib/hygiene";
@@ -165,4 +166,17 @@ describe("mechanical hygiene offline runtime", () => {
       expect(applied.stale).toHaveLength(1);
     } finally { env.close(); }
   });
+});
+
+
+test("actual prototype mismatched UTC write day vetoes a nonempty repair before its first write",async()=>{
+  const env=prepare(fixtures[0]);
+  try {
+    const proposal=plan(capture(env.root,env.brain.taxonomy),env.brain.taxonomy,await env.detect(),TODAY);
+    expect(proposal.edits).toHaveLength(1);const before=snapshot(env.root,env.brain.taxonomy);
+    let failure:unknown;try {apply(env.root,proposal,false,previousWriteDayUTC());}catch(error){failure=error;}
+    expect(snapshot(env.root,env.brain.taxonomy)).toEqual(before);
+    expect(String(failure)).toContain("Actual UTC fixture write day");
+    expect(apply(env.root,proposal,false,actualWriteDayUTC()).written).toHaveLength(1);
+  } finally {env.close();}
 });

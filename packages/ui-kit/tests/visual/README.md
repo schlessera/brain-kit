@@ -6,14 +6,29 @@
 a host run. See `tests/visual/subjects.visual.tsx` for why, and which stories are
 in the set.
 
-The ranking-footer regression renders the real five-item story with the three
-preview font families from `scripts/captures/font-lock.json`. `scripts/visual.mjs`
+Every browser project loads the three design font families from
+`scripts/captures/font-lock.json` through `design-font-setup.ts` before rendering.
+The shared setup waits for every locked weight/style, then checks Chromium's
+actual painted glyph faces through CDP. Before and after each test it checks
+that the verified stylesheet and registered face manifest remain intact: local
+aliases and duplicate font stylesheets are rejected. RecordingRow additionally
+checks the actual timestamp/status faces before each screenshot.
+
+`scripts/visual.mjs`
 prepares the pinned public font files and original notices outside the browser,
 then mounts that checksum-verified cache read-only. CI prepares the same inputs
 before `--inside`; tests never download them. Direct offline container invocations
 must mount the cache prepared by `bun run capture:fonts` under the same
-`/tmp/brain-kit-feature-capture-fonts/` path. Existing subjects retain their font
-setup; the ranking-footer test removes its font stylesheet afterward.
+`/tmp/brain-kit-feature-capture-fonts/` path. Tests use no installed-font stand-ins.
+The host's mono source supplies weights 400–600; weight 700 uses Chromium's
+synthesis from that real face, matching the existing preview source.
+
+Regenerate the complete affected matrix with `node scripts/visual.mjs --update`.
+`bun run visual:update` selects only `visual` and `subjects`; isolated dictation,
+module Settings, ranking touch and mixed-pointer rail snapshots must also be
+included when their font inputs change. Keep existing viewport/pointer/theme
+matrices, baseline names and tolerances. See
+[the font decision](../../../../docs/decisions/visual-fonts.md).
 
 The named readability assertion measures each complete keyboard phrase's text
 rectangles after a real fine-pointer reorder. It also checks Reset/Undo and
@@ -31,6 +46,11 @@ CI include this project; scoped direct invocations use `--project=visual` plus
 `--project=rank-footer-touch`. Separate contexts keep touch media queries from
 changing the fine-pointer hint cases.
 
+The `module-settings` project writes its review captures to
+`.vitest-attachments/module-settings/` at the repository root. These PNGs cover
+the module list, editors and lifecycle states in both themes and viewport sizes;
+they are review artifacts rather than visual baseline inputs.
+
 `track-intake.visual.tsx` gives each mixed picker its own `navigator.onLine`
 descriptor and restores the previous descriptor in `finally`. Connected cases
 start from a deliberately offline sentinel; separate offline cases retain a
@@ -41,6 +61,40 @@ assertions. Original File references are saved before Composer clears the live
 picker FileList, so offline input evidence remains available after processing.
 Review captures stay in `.vitest-attachments/track-intake/`; no
 product connectivity policy or matrix-wide online override is involved.
+
+The staged-track controls in `session-drafts.pointer.tsx` and
+`parallel-sessions-runtime.test.ts` likewise own an online descriptor only
+around their native file selection and original ready-chip wait. They restore
+every previous property attribute and the ambient connectivity event before
+the existing navigation, removal, send, leave and update checks. A following
+connectivity sentinel and deliberately failing upload control verify cleanup;
+the network-disabled image and browser egress guards remain in use.
+
+Mixed-picker traces record nonempty file metadata, native bitmap/fallback decoding,
+JPEG encoding, FileReader completion, object URL lifecycle, authentication state,
+draft ownership and each original preview poll. Observers delegate to native
+methods and restore them before cleanup. On failure, the trace and original
+assertion are printed before capturing the still-mounted Composer; a capture
+error is recorded without replacing the original assertion. These observations
+help distinguish pending conversion from an absent or rejected draft preview.
+
+The `visual` project's Chromium uses `NoIdleEncodingForWebTests`. Native image
+decoding, JPEG encoding, FileReader and object URLs still execute. This is the
+engine's own web-test mode: it runs encoding on a background thread instead of
+waiting for an idle period. The pinned Chromium's default main-thread PNG/JPEG
+path can wait 1,000ms before forcing a not-started encoder, longer than the
+unchanged preview poll once decoding and callback delivery are included. See
+[the pinned implementation](https://chromium.googlesource.com/chromium/src/+/153.0.8010.12/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc).
+
+The mixed-picker workload control holds native input and consumes short frame
+idle periods with bounded 18ms frame work. It uses the same nonempty picker,
+preview matcher and complete offline/held-send/multipart flow. Removing only
+the encoding feature fails that preview assertion while native encoding waits;
+Chromium's renderer histogram records the forced-encoding fallback. The workload
+stops before subsequent interaction and on every exit. Its captures have a
+separate `-encoding-load` suffix. Other browser projects keep their own launch
+settings; this test-mode selection does not change the product's image policy
+or establish a production image-processing latency guarantee.
 
 The dictation height-cap checks wait for the phone entrance animation to finish
 and require an identity transform before comparing the exact rendered height.
@@ -66,3 +120,13 @@ fine, coarse and mixed pointers under reduced motion. Its pixel baselines are
 taken in `rail-mixed` only; regenerate them with
 `node scripts/visual.mjs --project=rail-mixed --update`. The fine and coarse
 runs write review captures to `.vitest-attachments/session-strip/` instead.
+
+`streaming-handoff.visual.tsx` drives the same populated first-token fixture
+and play function as StreamingAnswer's `LoadingToReady` story. Its 700ms clock
+runs from the committed text/outgoing-ghost layers to actual ghost removal,
+observed through native DOM mutations. Both transition observations are required.
+Input dispatch delays and later polling cannot extend that component interval.
+The controls delay first-token dispatch, delay final observation after removal,
+and retain the native outgoing ghost for 800ms to prove the cap still rejects
+a genuinely slow handoff. Both themes retain the story's layout, geometry,
+nonempty token/tail and rendered-opacity assertions; the approved fade stays 600ms.

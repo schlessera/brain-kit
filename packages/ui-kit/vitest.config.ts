@@ -1,5 +1,6 @@
 import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
+import { MeasuredBrowserSequencer } from "../../scripts/browser-sequencer.ts";
 import { fileURLToPath } from "node:url";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
@@ -17,6 +18,8 @@ import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/vi
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { overlayMouse } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
+import { designFontUsage } from "./tests/visual/design-font-browser.ts";
+import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
 import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
@@ -75,13 +78,13 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     // pointer; they need the consumer stylesheet. Button's hover text
     // contrast (#974) and the palette's reason rows (#1106) are measured
     // under all three pointers as well.
-    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx"],
+    include: ["tests/visual/side-rail-targets.visual.tsx", "tests/visual/button-hover-contrast.visual.tsx", "tests/visual/overlay-targets.visual.tsx", "tests/visual/session-strip.visual.tsx", "tests/visual/pending-follow-ups.visual.tsx", "tests/visual/palette-reasons.visual.tsx", "../ui-react/tests/browser/desktop-navigation.pointer.tsx", "../ui-react/tests/browser/phone-navigation.pointer.tsx", "../ui-react/tests/browser/destination-press.pointer.tsx", "../ui-react/tests/browser/working-sessions.pointer.tsx", "../ui-react/tests/browser/session-drafts.pointer.tsx", "../ui-react/tests/browser/navigation-reach.pointer.tsx", "../ui-react/tests/browser/recordings-tray.offline.tsx", "../ui-react/tests/browser/dictation-notice.pointer.tsx"],
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, buttonPointer, overlayMouse },
+      commands: { rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, buttonPointer, overlayMouse, dictationMotion },
       provider: playwright({
-        launchOptions: { args: [`--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
+        launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
       }),
       headless: true,
@@ -93,7 +96,19 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    // The story addon inserts preview-head.html into its runner HTML. Its
+    // network font links would compete with the shared locked offline faces.
+    plugins: [{
+      name: "locked-preview-fonts",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html) => html.replace(/<link\b[^>]*href="https:\/\/fonts\.(?:googleapis|gstatic)\.com(?:\/[^\"]*)?"[^>]*>/g, ""),
+      },
+    }],
     test: {
+      sequence: { sequencer: MeasuredBrowserSequencer },
+      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,
@@ -139,8 +154,10 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace },
-              provider: playwright({}),
+              commands: { startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad },
+              // Chromium's own web-test mode retains native encoding without
+              // waiting for idle periods that can exceed a functional poll (#940).
+              provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),
               headless: true,
               instances: [{ browser: "chromium" }],
             },

@@ -254,7 +254,7 @@ describe("the container cron wrapper reads the sync job's result", () => {
       jobName,
       command: [...command],
       dbPath,
-      childEnv: { PATH: `${brain.bin}:${process.env.PATH}` },
+      childEnv: { PATH: `${brain.bin}:${process.env.PATH}` }, exec: {},
       stdout: stdout.sink,
       stderr: stderr.sink,
     });
@@ -339,7 +339,7 @@ describe("/api/status shows the sync runtime beside chat's", () => {
         jobName: "sync",
         command: [...SYNC_JOB_COMMAND],
         dbPath: t.dbPath,
-        childEnv: { PATH: `${brain.bin}:${process.env.PATH}` },
+        childEnv: { PATH: `${brain.bin}:${process.env.PATH}` }, exec: {},
         stdout: { write() {} },
         stderr: { write() {} },
       });
