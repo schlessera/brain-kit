@@ -41,7 +41,7 @@ Bun.serve({
   maxRequestBodySize:
     Math.max(MAX_ARCHIVE_BYTES, SHARE_MAX_TOTAL_BYTES) +
     MULTIPART_HEADROOM_BYTES,
-  // SSE sync/whatsup streams may be quiet while nested processes work. This
+  // SSE sync streams may be quiet while nested processes work. This
   // is Bun's maximum idle timeout.
   idleTimeout: 255,
   fetch: app.fetch,
@@ -261,7 +261,7 @@ brain repository.
   terminal settlement and conservative crash recovery. The default is $5/day
   with zero admitted operations until configured. See
   [accounting and configuration](../../docs/inbox-budget.md).
-- **Brain routes** — search/briefing/stats/list/add plus SSE sync/whatsup,
+- **Brain routes** — search/briefing/stats/list/add plus SSE sync,
   spawning the `brain` CLI from `BRAIN_PATH`.
 - **Activity routes** (`/api/activity/*`, behind the auth guard) — the run
   list and drill-in, per-day/job/session rollups, the digest, the inbox, and

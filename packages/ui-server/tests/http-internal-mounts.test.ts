@@ -38,3 +38,40 @@ for (const operation of ["POST /api/track-upload", "GET /api/tracks"]) test(`mou
     expect(t.app.db.query("SELECT count(*) AS n FROM inbox_threads").get()).toEqual({ n: 0 });
   } finally { await t.close(); }
 });
+
+import { generateSignedCookie } from "hono/cookie";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createPrincipal } from "../src/db/principals";
+
+// #1391 retired the daily briefing's script route. The proof has to stand
+// behind a live owner cookie: without one the auth guard answers 401 for any
+// path, routed or not. Both legacy script paths are planted and would leave a
+// marker if anything ran them.
+test("retired POST /api/brain/whatsup is absent behind authentication and runs no repo-local script", async () => {
+  const secret = "http-retired-fixture-secret-0123456789";
+  expect(documentedRoutes.some((r) => r.path === "/api/brain/whatsup")).toBe(false);
+  const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: secret, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
+  try {
+    const marker = join(t.root, "whatsup-ran");
+    for (const rel of ["private", "scripts"]) {
+      mkdirSync(join(t.brainPath, rel), { recursive: true });
+      writeFileSync(join(t.brainPath, rel, "whatsup.ts"), `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
+    }
+    const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 3600 });
+    const cookie = (await generateSignedCookie("brain_ui_session", owner.id, secret)).split(";")[0]!;
+    const headers = { cookie, origin: "http://localhost", host: "localhost" };
+
+    expect((await t.fetch("/api/brain/whatsup", { method: "POST", headers: { origin: "http://localhost", host: "localhost" } })).status).toBe(401);
+    // The same cookie reaches the briefing the panel now reads.
+    const briefing = await t.fetch("/api/brain/briefing", { headers });
+    expect(briefing.status).toBe(200);
+    expect(await briefing.json()).toEqual({ content: "Arrival: Odysseus reaches the harbor.\n" });
+
+    const retired = await t.fetch("/api/brain/whatsup", { method: "POST", headers });
+    expect(retired.status).toBe(404);
+    expect(retired.headers.get("content-type") ?? "").not.toContain("text/event-stream");
+    expect(t.routes.some((r) => r.path === "/api/brain/whatsup")).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(existsSync(marker)).toBe(false);
+  } finally { await t.close(); }
+});

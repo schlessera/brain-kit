@@ -3,7 +3,7 @@
 // `send` strands the client. The failure forced here is the real one: a
 // configured exec wrapper that does not exist makes `Bun.spawn` itself throw.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBrainRoutes } from "../src/routes/brain";
@@ -41,10 +41,6 @@ describe("SSE brain jobs end on a done frame when the spawn throws", () => {
     });
 
   for (const [route, setup] of [
-    ["/brain/whatsup", () => {
-      mkdirSync(join(root, "scripts"));
-      writeFileSync(join(root, "scripts/whatsup.ts"), "console.log('unreached');\n");
-    }],
     ["/brain/sync", () => {}],
   ] as const) {
     test(`${route}: a failed done frame carrying the error`, async () => {
@@ -57,11 +53,6 @@ describe("SSE brain jobs end on a done frame when the spawn throws", () => {
       expect(last?.success).toBe(false);
       expect(last?.text).toContain(MISSING_WRAPPER);
       expect(sent.filter((f) => f.type === "done")).toHaveLength(1);
-      // The briefing panel draws only progress text, so the reason has to be
-      // one; the sync log already prints the done frame's text.
-      if (route === "/brain/whatsup") {
-        expect(sent.some((f) => f.type === "progress" && f.text?.includes(MISSING_WRAPPER))).toBe(true);
-      }
     });
   }
 });
