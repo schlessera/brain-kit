@@ -64,7 +64,7 @@ Planning parses complete child metadata (`planRegistry`,
 `packages/core/src/lib/index-registry.ts:210-262`).
 
 Tag migration is real code (`applyTagChanges`,
-`packages/core/src/lib/tags-apply.ts:436-500`): configured alias chains and
+`packages/core/src/lib/tags-apply.ts:435-497`): configured alias chains and
 eligible variant groups determine the plan; raw tag entries are changed while
 other bytes, including `updated`, remain. The CLI opens its index before writes,
 then reindexes and accepts only the exact rewritten bytes. Literal configured

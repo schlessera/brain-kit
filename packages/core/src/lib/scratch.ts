@@ -40,7 +40,7 @@ import {
 import type { Dirent, Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
-import { WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
+import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
 
 /** Repo-relative scratch directory. Every mechanism that needs it reads this. */
 export const SCRATCH_DIR = ".brain/scratch";
@@ -301,19 +301,19 @@ export function writeScratchFile(
   const before = lstatSync(abs, { throwIfNoEntry: false });
   const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
   // A replaced regular file keeps its mode; see `writeExclusive`.
-  writeExclusive(tmp, data, replace ? before : undefined);
+  writeExclusive(tmp, data, replace ? modeOf(before) : undefined);
   try {
     if (!genuineDir(root, dir, parent)) throw swapped();
     const entry = lstatSync(abs, { throwIfNoEntry: false });
     if (entry?.isSymbolicLink()) throw new ScratchRedirectedError(`${rel} is a symlink`);
     if (entry?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${rel} is a directory`);
-    if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${rel} already exists`);
+    if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${rel} already exists`, "EEXIST");
     if (replace) renameSync(tmp, abs);
     else {
       try { linkSync(tmp, abs); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new WriteRefusedError(`EEXIST: ${rel} already exists`);
+          throw new WriteRefusedError(`EEXIST: ${rel} already exists`, "EEXIST");
         }
         throw error;
       }

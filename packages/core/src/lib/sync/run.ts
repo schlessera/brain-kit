@@ -15,7 +15,7 @@
  * judgment it does not return means the conservative default.
  */
 
-import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from "fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync } from "fs";
 import { dirname, resolve } from "path";
 
 import type { MediaPolicy } from "../media.js";
@@ -28,6 +28,7 @@ import {
   type IgnoreCommit,
   type IgnoreReason,
 } from "./artifacts.js";
+import { inCanonicalDir, writeFileSafely } from "../safe-path.js";
 import { matchesAnyPattern } from "../tool-leftovers.js";
 import {
   ARTIFACT_PATTERNS,
@@ -340,7 +341,7 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
     if (outcome.content === null) {
       staged = git(root, ["--literal-pathspecs", "rm", "-q", "-f", "--", input.path]);
     } else {
-      writeFileSync(target, outcome.content, "utf-8");
+      writeFileSafely(inCanonicalDir(target), outcome.content);
       staged = git(root, ["--literal-pathspecs", "add", "--", input.path]);
     }
     if (staged.code !== 0) {
@@ -349,7 +350,7 @@ export async function resolveConflicts(env: SyncEnv): Promise<ResolveEnvelope> {
     }
     for (const extra of outcome.extraFiles) {
       mkdirSync(dirname(resolve(root, extra.path)), { recursive: true });
-      writeFileSync(resolve(root, extra.path), extra.content, "utf-8");
+      writeFileSafely(inCanonicalDir(resolve(root, extra.path)), extra.content);
       const added = git(root, ["--literal-pathspecs", "add", "--", extra.path]);
       if (added.code !== 0) {
         envelope.unresolved.push({ path: input.path, strategy, reason: `could not stage ${extra.path}: ${added.stderr || added.stdout}` });

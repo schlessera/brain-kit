@@ -163,6 +163,60 @@ describe("writeFileSafely", () => {
     expect(fs.readdirSync(root).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
 
+  test("a write that fails part way leaves the target whole and no temporary sibling (#1355)", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.md");
+    fs.writeFileSync(target, "Odysseus's original log");
+    const original = fs.writeSync;
+    let partial = false;
+    // The first chunk lands, then the disk fills: the way a full disk fails a write.
+    // writeExclusive calls the (fd, buffer, offset, length) form.
+    const spy = spyOn(fs, "writeSync").mockImplementation(((fd: number, buffer: Uint8Array, offset: number, length: number) => {
+      if (partial) throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+      partial = true;
+      return original(fd, buffer, offset, Math.min(length, 4));
+    }) as typeof fs.writeSync);
+    let error: unknown;
+    try { writeFileSafely(target, "a replacement longer than four bytes"); }
+    catch (caught) { error = caught; }
+    finally { spy.mockRestore(); }
+    expect(partial).toBe(true);
+    expect((error as NodeJS.ErrnoException).code).toBe("ENOSPC");
+    expect(fs.readFileSync(target, "utf8")).toBe("Odysseus's original log");
+    expect(fs.readdirSync(directory)).toEqual(["ithaca.md"]);
+  });
+
+  test("beforePublish runs after staging and a throw from it abandons the write", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.md");
+    fs.writeFileSync(target, "before");
+    let staged: string[] = [];
+    expect(() => writeFileSafely(target, "after", {
+      beforePublish: () => {
+        staged = fs.readdirSync(directory).filter((f) => f.endsWith(".tmp"));
+        throw new Error("changed meanwhile");
+      },
+    })).toThrow("changed meanwhile");
+    expect(fs.readFileSync(target, "utf8")).toBe("before");
+    expect(fs.readdirSync(directory)).toEqual(["ithaca.md"]);
+    expect(staged.length).toBe(1);
+  });
+
+  test("mode sets the written file's exact bits, past the umask", () => {
+    const directory = makeRoot(), target = join(directory, "archive.md");
+    const bits = 0o666 & ~process.umask() ^ 0o020; // differs from the default either way
+    writeFileSafely(target, "archived", { replace: false, mode: bits });
+    expect(mode(target)).toBe(bits);
+    expect(mode(target)).not.toBe(0o666 & ~process.umask());
+  });
+
+  test("an existing name under replace:false is refused with code EEXIST", () => {
+    const directory = makeRoot(), target = join(directory, "ithaca.md");
+    fs.writeFileSync(target, "taken");
+    let error: unknown;
+    try { writeFileSafely(target, "x", { replace: false }); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(WriteRefusedError);
+    expect((error as WriteRefusedError).code).toBe("EEXIST");
+  });
+
   test("a symlink at the name is a refusal by design, typed as one", () => {
     fs.writeFileSync(join(root, "target.txt"), "keep me");
     fs.symlinkSync("target.txt", join(root, "link.txt"));

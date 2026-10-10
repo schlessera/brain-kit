@@ -27,7 +27,7 @@ ignores captures touching code and respects each document's `facts_ignore` keys
 (`findFactDrift`, `packages/core/src/lib/auditor.ts:419-477`). That path is not
 replaced by this experiment. The existing hygiene reconciliation accepts extra
 `{category, path, evidence, message}` candidates and owns their Markdown state
-(`reconcile`, `packages/core/src/lib/hygiene.ts:1170-1193`).
+(`reconcile`, `packages/core/src/lib/hygiene.ts:1166-1189`).
 
 A separate keyless source control found that keyed numeric comparison can collapse
 two distinct quoted values beyond JavaScript's integer precision. The actual

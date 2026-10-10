@@ -1,9 +1,9 @@
-import { readFileSync, statSync, writeFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
 
 import { stringifyDocument } from "../../lib/frontmatter.js";
-import { safeResolve } from "../../lib/safe-path.js";
+import { safeResolve, writeFileSafely } from "../../lib/safe-path.js";
 import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
@@ -62,7 +62,7 @@ export const importCommand: CoreCommand = {
           status: "draft",
           tags: [] as string[],
         };
-        writeFileSync(full, stringifyDocument(`\n${raw.trim()}\n`, frontmatter), "utf-8");
+        writeFileSafely(full, stringifyDocument(`\n${raw.trim()}\n`, frontmatter));
         stamped.push(rel);
       } catch (e) {
         errors.push({ file: rel, message: (e as Error).message });

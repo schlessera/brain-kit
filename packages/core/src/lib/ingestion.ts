@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { parseFrontmatter } from "./frontmatter-parse.js";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync } from "fs";
-import { dirname, relative } from "path";
+import { readFileSync, existsSync, realpathSync } from "fs";
+import { relative } from "path";
 
 import type { DocumentType, IngestInput } from "./types.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { stringifyDocument } from "./frontmatter.js";
 import { updateDocument } from "./frontmatter-edit.js";
-import { safeResolve } from "./safe-path.js";
+import { safeResolve, WriteRefusedError, writeFileSafely } from "./safe-path.js";
 
 export interface IngestOutcome {
   action: "created" | "appended";
@@ -210,7 +210,7 @@ export async function ingest(
       if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
         // Only `updated` changes in the frontmatter; its other bytes stay as written.
         const section = `## ${today()} Update\n\n${content.trim()}`;
-        writeFileSync(fullPath, updateDocument(raw, { updated: today() }, section), "utf-8");
+        writeFileSafely(fullPath, updateDocument(raw, { updated: today() }, section));
         return {
           action: "appended",
           path: relative(canonicalRoot, fullPath),
@@ -239,14 +239,14 @@ export async function ingest(
   for (let suffix = 1; ; suffix++) {
     const candidate = input.path || `${dir}/${slug}${suffix === 1 ? "" : `-${suffix}`}.md`;
     const fullPath = resolvePath(candidate);
-    mkdirSync(dirname(fullPath), { recursive: true });
     try {
-      // Exclusive creation also handles concurrent captures of the same title.
-      writeFileSync(fullPath, output, { encoding: "utf-8", flag: "wx" });
+      // Exclusive creation also handles concurrent captures of the same title:
+      // the complete file is published with a no-clobber link.
+      writeFileSafely(fullPath, output, { replace: false });
       relativePath = relative(canonicalRoot, fullPath);
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (!(error instanceof WriteRefusedError && error.code === "EEXIST")) throw error;
       if (input.path) throw new Error(`Capture destination already exists: ${input.path}`);
     }
   }

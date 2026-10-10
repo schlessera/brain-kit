@@ -100,53 +100,63 @@ export function resolveWritable(root: string, relOrAbs: string): string | null {
  * a write throws (ENOSPC, EACCES, ...) is an internal failure and stays one.
  */
 export class WriteRefusedError extends Error {
-  constructor(message: string) {
+  /** `EEXIST` when the name is taken and may not be replaced. */
+  readonly code: "EEXIST" | undefined;
+  constructor(message: string, code?: "EEXIST") {
     super(message);
     this.name = "WriteRefusedError";
+    this.code = code;
   }
 }
 
-/**
- * Create `tmp` exclusively and fill it. When it is to replace `existing`, a
- * regular file, it takes that file's exact mode first (opened with the mode,
- * then `fchmod` past the umask) so the bytes are never readable more widely
- * than the file they replace; a new file keeps the default mode.
- */
-export function writeExclusive(tmp: string, data: string | Uint8Array, existing: Stats | undefined): void {
-  const mode = existing?.isFile() ? existing.mode & 0o7777 : undefined;
+/** The mode a replaced regular file keeps. */
+export function modeOf(existing: Stats | undefined): number | undefined {
+  return existing?.isFile() ? existing.mode & 0o7777 : undefined;
+}
+
+/** Create and fill `tmp`, exactly `mode` (past the umask); a failed write removes it. */
+export function writeExclusive(tmp: string, data: string | Uint8Array, mode: number | undefined): void {
   const fd = openSync(tmp, "wx", mode);
   try {
     if (mode !== undefined) fchmodSync(fd, mode);
     const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : data;
     let offset = 0;
     while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset, bytes.byteLength - offset);
-  } finally {
+  } catch (error) {
     closeSync(fd);
+    rmSync(tmp, { force: true });
+    throw error;
   }
+  closeSync(fd);
+}
+
+/** `abs` under its directory's `realpath`. */
+export function inCanonicalDir(abs: string): string {
+  return join(realpathSync(dirname(abs)), basename(abs));
+}
+
+/** `beforePublish` runs after staging; a throw abandons the write. */
+export interface WriteFileSafelyOptions {
+  replace?: boolean;
+  mode?: number;
+  beforePublish?: () => void;
 }
 
 /**
- * Write a file whose directory the caller has already resolved (canonical,
- * contained) without ever writing through a link or into an inode a hard
- * link shares: the target's own entry may not be a symlink or a directory,
- * and the bytes go to a random temporary sibling created exclusively, then
- * published onto the name once the directory is re-verified to be exactly
- * itself (`realpath` equal, a directory, not a link put in its place). A
- * replacement rename changes the entry rather than writing through it. A
- * replaced regular file keeps its mode (`writeExclusive`).
- * `replace: false` publishes the completed sibling with a hard link, which
- * atomically refuses every existing destination entry (EEXIST), then removes
- * the temporary name. It never replaces an entry arriving after the check.
- * The directory can still change between verification and publication, as
- * it can for any path-based write in Node. The scratch area has its own
- * primitive on top of the same shape (`writeScratchFile`); this is for every
- * other write of caller-given
- * output (`render --out`, `image --out`, the OKF export).
+ * Write into a directory the caller resolved (canonical, contained), never
+ * through a link or into a hard-linked inode: the entry may not be a symlink
+ * or directory; the bytes go to an exclusive random sibling, published once
+ * the directory is re-verified as itself. The target is untouched or wholly
+ * replaced, keeping its mode unless `mode` is given. `replace: false` links
+ * the sibling (refusing any existing entry, EEXIST), then removes it. The
+ * directory can still change before publication, as for any path-based
+ * write. Scratch has `writeScratchFile`; every other user document or
+ * caller-given output uses this (`tests/document-writes.test.ts`).
  */
 export function writeFileSafely(
   abs: string,
   data: string | Uint8Array,
-  { replace = true }: { replace?: boolean } = {},
+  { replace = true, mode, beforePublish }: WriteFileSafelyOptions = {},
 ): void {
   const parent = dirname(abs);
   mkdirSync(parent, { recursive: true });
@@ -163,23 +173,22 @@ export function writeFileSafely(
   const entry = lstatSync(abs, { throwIfNoEntry: false });
   if (entry?.isSymbolicLink()) throw new WriteRefusedError(`${abs} is a symlink; refusing to write through it`);
   if (entry?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${abs} is a directory`);
-  if (entry && !replace) throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
+  const taken = () => new WriteRefusedError(`EEXIST: ${abs} already exists`, "EEXIST");
+  if (entry && !replace) throw taken();
   const tmp = join(parent, `.${basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
-  writeExclusive(tmp, data, replace ? entry : undefined);
+  writeExclusive(tmp, data, mode ?? (replace ? modeOf(entry) : undefined));
   try {
+    beforePublish?.();
     if (!genuine()) throw swapped();
     const now = lstatSync(abs, { throwIfNoEntry: false });
     if (now?.isSymbolicLink()) throw new WriteRefusedError(`${abs} is a symlink; refusing to write through it`);
     if (now?.isDirectory()) throw new WriteRefusedError(`EISDIR: ${abs} is a directory`);
-    if (now && !replace) throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
+    if (now && !replace) throw taken();
     if (replace) renameSync(tmp, abs);
     else {
       try { linkSync(tmp, abs); }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new WriteRefusedError(`EEXIST: ${abs} already exists`);
-        }
-        throw error;
+        throw (error as NodeJS.ErrnoException).code === "EEXIST" ? taken() : error;
       }
       rmSync(tmp, { force: true });
     }

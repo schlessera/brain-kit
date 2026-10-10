@@ -13,11 +13,12 @@
 
 import { parseFrontmatter } from "./frontmatter-parse.js";
 import { createHash } from "crypto";
-import { chmodSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 
 import { frontmatterLength } from "./document-parts.js";
 import { getMarkdownFiles, indexAll } from "./indexer.js";
+import { inCanonicalDir, writeFileSafely } from "./safe-path.js";
 import type { Database } from "bun:sqlite";
 
 import type { TagsConfig } from "./config.js";
@@ -407,22 +408,20 @@ function commitIfUnchanged(
   text: string,
   beforeRename?: () => void
 ): boolean {
-  const temp = `${fullPath}.brain-tags-${process.pid}.tmp`;
+  let changed = false;
   try {
-    writeFileSync(temp, text, "utf-8");
-    chmodSync(temp, statSync(fullPath).mode);
-    beforeRename?.();
-    if (contentHash(readFileSync(fullPath, "utf-8")) !== expectedHash) {
-      unlinkSync(temp);
-      return false;
-    }
-    renameSync(temp, fullPath);
+    // The staged sibling keeps the file's mode; a throw here removes it.
+    writeFileSafely(inCanonicalDir(fullPath), text, {
+      beforePublish: () => {
+        beforeRename?.();
+        if (contentHash(readFileSync(fullPath, "utf-8")) !== expectedHash) {
+          changed = true;
+          throw new Error("changed during apply");
+        }
+      },
+    });
   } catch (e) {
-    try {
-      unlinkSync(temp);
-    } catch {
-      // Nothing was left behind.
-    }
+    if (changed) return false;
     throw e;
   }
   return true;
