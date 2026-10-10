@@ -6,7 +6,7 @@ import { cases, commandOutput, detect, capabilityArm, prepareBenchmark, DETECTIO
 import { MODEL, protocol } from "./protocol";
 import { runtimeFreeze, sha } from "./freeze";
 import { parserDiagnostic } from "./parser-diagnostics";
-import { buildReviewPacket, combinedReview, reviewPlan } from "./review-packets";
+import { buildReviewPacket, buildReviewPlan, combinedReview } from "./review-packets";
 import { validPaidPolicy, type RootPaidPolicy } from "./review-policy";
 import { assertSourceEffect, sourceSnapshot } from "./effects";
 import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
@@ -176,11 +176,13 @@ export async function main() {
   const out = process.argv[2], reviewPath = process.argv[3], expectedPath = process.argv[4], proofPath = process.argv[5], policiesPath = process.argv[6];
   if (!out || existsSync(out) || !reviewPath || !expectedPath || !proofPath || !policiesPath) throw Error("Fresh protected output, exact review/detected/proof inputs and independent policy map required");
   const policies: Record<string, RootPaidPolicy> = JSON.parse(readFileSync(policiesPath, "utf8"));
-  if (!policies || typeof policies !== "object" || Array.isArray(policies) || Object.keys(policies).length !== reviewPlan.length) throw Error("Independent packet paid policy map must name all eight packets");
+  if (!policies || typeof policies !== "object" || Array.isArray(policies)) throw Error("Independent packet paid policy map must name all planned packets");
   const frozen = runtimeFreeze(); const review = JSON.parse(readFileSync(reviewPath, "utf8"));
   if (review.freezeSha !== frozen.freezeSha || review.approval !== "APPROVED" || review.model !== MODEL || review.packetCaseIds?.length !== cases.length) throw Error("No complete exact-frozen complementary semantic approval");
   const expectedRaw = readFileSync(expectedPath, "utf8"), expected = JSON.parse(expectedRaw);
   const proofRaw = readFileSync(proofPath, "utf8");
+  const { reviewPlan } = buildReviewPlan(frozen, expectedRaw, proofRaw);
+  if (Object.keys(policies).length !== reviewPlan.length || Object.keys(policies).some(key => !reviewPlan.some(packet => packet.key === key))) throw Error("Independent packet paid policy map must name exactly all planned packets");
   const runtime = { sdk: frozen.binaries.claude.sdkVersion, nativeSha: frozen.binaries.claude.sha256, nativeMode: frozen.binaries.claude.mode, bunSha: frozen.binaries.bun.sha256, bunVersion: frozen.binaries.bun.version, bunMode: frozen.binaries.bun.mode };
   for (const packet of reviewPlan) {
     const p = Object.hasOwn(policies, packet.key) ? policies[packet.key] : undefined;

@@ -239,13 +239,20 @@ The fictional writer date remains `2026-07-12`. The earlier whole-input review
 failed at the native context limit; it supplied no semantic approval. Its missing
 final invoice remains unknown.
 
-Eight lossless review packets partition all 26 complete cases and every direct
-behavioral source file: four complete-source subsets and four disjoint complete
+Lossless review packets partition all 26 complete cases and every direct
+behavioral source file: N complete-source subsets (N ≥ 4) and four disjoint complete
 case subsets, each with the complete canonical fictional-world documents, common
 protocol, rubric and verification hashes.
 The 150,000-byte envelope is an operational bound, not proof of native context
-fit. No source file or authored case is truncated. Scored admission rebuilds
-every payload from disk and requires all eight native approvals on the same
+fit. The planner uses the smallest feasible source-packet count for the complete
+serialized payloads, including repeated manifests, shared policy, prompt text and
+verification summary. Deterministic largest-first balancing is followed by exact
+whole-file capacity search when needed before increasing N. Case groups stay
+unchanged. The [2026-10-10 maintainer ruling on #1443](https://github.com/schlessera/brain-kit/issues/1443)
+changes the plan and prompt bindings: previous approvals cannot approve the new
+freeze, plan or prompts, and fresh preparation and independent review are required.
+No source file or authored case is truncated. Scored admission rebuilds
+every payload from disk and requires all planned native approvals on the same
 source, detected-input, prompt and verification hashes, complete raw usage,
 inactive reported overage, successful native result and actual child close.
 The private reviewer forcibly terminates an owned child that misses its drain
@@ -282,8 +289,8 @@ earlier providers and attempts under the unchanged actual-charge caps.
 
 The scored entry takes a separate coordinator policy-map file after its output,
 combined-review, detected-input and verification arguments. It requires exactly
-the eight packet keys and validates their existing paid-policy schema against
-the exact source, runtime, proof and rebuilt prompts before replay. Receipt
+the planned packet keys and validates their existing paid-policy schema against
+the source, runtime, proof and rebuilt prompts before replay. Receipt
 metadata cannot supply this expected authority. Completed policies may have
 expired since issuance: the original validator still checks their literal
 grant and recorded admission time. Loading the map consumes no new grant,
@@ -301,7 +308,7 @@ unaccounted attempts. These diagnostics do not validate or repair the shipped
 suggestion parser.
 
 
-The eight-packet review collector binds literal native stdin, stdout and stderr
+The variable-count review collector binds literal native stdin, stdout and stderr
 and each physical request/SSE/error response in a protected hash manifest.
 Admission independently reparses prompt, initialization, account and effective
 settings, model, terminal counters, cache/rate events, natural EOF and actual
