@@ -130,11 +130,14 @@ export "." (./src/index.ts)
   HATCH_GLYPH
   ICONS
   Icon
+  IconButton
+  type IconButtonProps
   type IconName
   type IconProps
   type InkTone
   InlineToast
   type InlineToastProps
+  LAYERS
   Label
   type LabelProps
   type LabelTone
@@ -165,6 +168,10 @@ export "." (./src/index.ts)
   NotificationCard
   type NotificationCardProps
   type OrbitAgent
+  Overlay
+  type OverlayCloseReason
+  type OverlayProps
+  type OverlayVariant
   type PaletteGroup
   type PaletteItem
   PathRef
@@ -241,6 +248,8 @@ export "." (./src/index.ts)
   TabBar
   type TabBarProps
   type TabItem
+  TextButton
+  type TextButtonProps
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -275,6 +284,7 @@ export "." (./src/index.ts)
   effectLineCount
   followUpLabel
   font
+  z
 
 export "./brand" (./src/brand.ts)
   BRAND_ASSET_SPECIFIER
@@ -625,6 +635,9 @@ signatures (every public export and the types it is made of)
   BottomSheetProps (packages/ui-kit/src/chrome/BottomSheet.tsx)
     export interface BottomSheetProps {
         title?: string;
+        titleId?: string;
+        onDismiss?: () => void;
+        closeLabel?: string;
         subtitle?: string;
         meta?: string;
         icon?: IconName;
@@ -847,6 +860,10 @@ signatures (every public export and the types it is made of)
     export type ContactKind = "person" | "company" | "project";
   ContactTone (packages/ui-kit/src/types.ts)
     export type ContactTone = "teal" | "blue" | "purple" | "amber" | "neutral";
+  DataAttributes (packages/ui-kit/src/chrome/Overlay.tsx)
+    type DataAttributes = {
+        [key: `data-${string}`]: string | number | boolean | undefined;
+    };
   DataTable (packages/ui-kit/src/evidence/DataTable.tsx)
     export function DataTable(p: DataTableProps): import("react").JSX.Element;
   DataTableCell (packages/ui-kit/src/evidence/DataTable.tsx)
@@ -994,6 +1011,7 @@ signatures (every public export and the types it is made of)
         secondaryLabel?: string;
         icon?: IconName;
         tone?: EmptyTone;
+        brand?: boolean;
         minHeight?: number;
         pad?: number;
         titleSize?: number;
@@ -1246,6 +1264,24 @@ signatures (every public export and the types it is made of)
     };
   Icon (packages/ui-kit/src/primitives/Icon.tsx)
     export function Icon({ icon = "brain", size = 16, color, strokeWidth = 2 }: IconProps): import("react").JSX.Element;
+  IconButton (packages/ui-kit/src/primitives/IconButton.tsx)
+    const IconButton: import("react").ForwardRefExoticComponent<IconButtonProps & import("react").RefAttributes<HTMLButtonElement>>;
+  IconButtonProps (packages/ui-kit/src/primitives/IconButton.tsx)
+    export interface IconButtonProps {
+        name: string;
+        icon?: IconName;
+        glyph?: ReactNode;
+        tone?: "mute" | "danger" | "overlay";
+        size?: "md" | "sm";
+        disabled?: boolean;
+        expanded?: boolean;
+        haspopup?: "menu" | "dialog";
+        controls?: string;
+        tabIndex?: number;
+        onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+        style?: CSSProperties;
+        [data: `data-${string}`]: string | undefined;
+    }
   IconName (packages/ui-kit/src/primitives/Icon.tsx)
     export type IconName = keyof typeof ICONS;
   IconProps (packages/ui-kit/src/primitives/Icon.tsx)
@@ -1271,6 +1307,15 @@ signatures (every public export and the types it is made of)
         onUndo?: () => void;
         announce?: boolean;
     }
+  LAYERS (packages/ui-kit/src/tokens.ts)
+    const LAYERS: {
+        readonly banner: 50;
+        readonly modal: 60;
+        readonly nav: 30;
+        readonly panel: 40;
+        readonly popover: 20;
+        readonly raised: 10;
+    };
   LINK_URL_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   Label (packages/ui-kit/src/primitives/Label.tsx)
     export function Label(p: LabelProps): import("react").JSX.Element;
@@ -1515,6 +1560,46 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         tone?: Tone;
     }
+  Overlay (packages/ui-kit/src/chrome/Overlay.tsx)
+    export function Overlay(p: OverlayProps): import("react").JSX.Element | null;
+  OverlayCloseReason (packages/ui-kit/src/chrome/Overlay.tsx)
+    export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request";
+  OverlayName (packages/ui-kit/src/chrome/Overlay.tsx)
+    type OverlayName = {
+        title: string;
+        subtitle?: string;
+        label?: never;
+        labelledBy?: never;
+    } | {
+        label: string;
+        title?: never;
+        labelledBy?: never;
+    } | {
+        labelledBy: string;
+        title?: never;
+        label?: never;
+    };
+  OverlayProps (packages/ui-kit/src/chrome/Overlay.tsx)
+    export type OverlayProps = OverlayName & {
+        open: boolean;
+        onClose: (reason: OverlayCloseReason) => void;
+        variant: OverlayVariant;
+        size?: "sm" | "md" | "lg" | "xl";
+        closedBy?: "any" | "closerequest" | "none";
+        role?: "dialog" | "alertdialog";
+        modal?: boolean;
+        placement?: "center" | "top";
+        initialFocus?: RefObject<HTMLElement | null>;
+        surfaceRef?: Ref<HTMLElement>;
+        returnFocus?: boolean | (() => HTMLElement | null);
+        onAfterClose?: () => void;
+        theme?: string;
+        keepLive?: string;
+        closeLabel?: string;
+        children: ReactNode;
+    } & DataAttributes;
+  OverlayVariant (packages/ui-kit/src/chrome/Overlay.tsx)
+    export type OverlayVariant = "sheet" | "dialog" | "fullscreen" | "panel";
   PaletteGroup (packages/ui-kit/src/desktop/CommandPalette.tsx)
     export interface PaletteGroup {
         label: string;
@@ -1980,6 +2065,25 @@ signatures (every public export and the types it is made of)
         badge?: string;
         onClick?: () => void;
     }
+  TextButton (packages/ui-kit/src/primitives/TextButton.tsx)
+    const TextButton: import("react").ForwardRefExoticComponent<TextButtonProps & import("react").RefAttributes<HTMLButtonElement>>;
+  TextButtonProps (packages/ui-kit/src/primitives/TextButton.tsx)
+    export interface TextButtonProps {
+        label: string;
+        tone?: "link" | "meta" | "inherit";
+        inline?: boolean;
+        icon?: IconName;
+        glyph?: ReactNode;
+        iconEnd?: IconName;
+        ariaLabel?: string;
+        disabled?: boolean;
+        expanded?: boolean;
+        haspopup?: "menu" | "dialog";
+        controls?: string;
+        onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+        style?: CSSProperties;
+        [data: `data-${string}`]: string | undefined;
+    }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
         time: string;
@@ -2194,3 +2298,12 @@ signatures (every public export and the types it is made of)
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  z (packages/ui-kit/src/tokens.ts)
+    const z: {
+        readonly banner: "var(--bk-z-banner)";
+        readonly modal: "var(--bk-z-modal)";
+        readonly nav: "var(--bk-z-nav)";
+        readonly panel: "var(--bk-z-panel)";
+        readonly popover: "var(--bk-z-popover)";
+        readonly raised: "var(--bk-z-raised)";
+    };

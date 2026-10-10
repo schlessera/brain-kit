@@ -1,5 +1,5 @@
 import { isAbsolute, join, normalize } from "node:path";
-import { BRAIN_LOCK_KEY, bashLockKey } from "@schlessera/brain-ui-sdk/internal";
+import { BRAIN_LOCK_KEY, bashLockKey } from "@schlessera/brain-ui-sdk/server";
 import { bashCommand } from "@schlessera/brain-ui-sdk/internal";
 
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -21,7 +21,7 @@ const BRAIN_MCP_PREFIX = "mcp__brain__";
  * as a mutating tool, AND gated on one input shape by the PreToolUse hook.
  * Three places that must agree.
  */
-export const BRAIN_UPDATE_TOOL = `${BRAIN_MCP_PREFIX}brain_update`;
+export const BRAIN_UPDATE_TOOL = "mcp__brain-ui__brain_update";
 
 export const DEFAULT_ALLOWED_TOOLS = [
   "Bash",
@@ -72,8 +72,12 @@ export const DEFAULT_ALLOWED_TOOLS = [
   `${BRAIN_MCP_PREFIX}brain_read`,
   `${BRAIN_MCP_PREFIX}brain_list`,
   `${BRAIN_MCP_PREFIX}brain_graph`,
-  `${BRAIN_MCP_PREFIX}brain_add`,
+  "mcp__brain-ui__brain_add",
   BRAIN_UPDATE_TOOL,
+  // Direct backend consumers without a hosted application bridge retain
+  // the original project MCP auto-allow posture. Hosted options shadow it.
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  `${BRAIN_MCP_PREFIX}brain_update`,
   // Read-only jobs queue; chat already allows its CLI spelling through Bash.
   `${BRAIN_MCP_PREFIX}jobs_review`,
 ];
@@ -128,7 +132,7 @@ export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
   `${BRAIN_MCP_PREFIX}jobs_review`,
   // Capture, the most valuable eyes-free action. A create destroys nothing:
   // the worst case is an unwanted document, visible in Files and removable.
-  `${BRAIN_MCP_PREFIX}brain_add`,
+  "mcp__brain-ui__brain_add",
   // "Add this to my note about X". It never rewrites the body, only appends to
   // it, so no prose is lost. It can overwrite the six frontmatter fields, and
   // those are recoverable only if the document was committed.
@@ -167,8 +171,11 @@ export const MUTATING_TOOLS = new Set([
   "Edit",
   "Write",
   "NotebookEdit",
-  `${BRAIN_MCP_PREFIX}brain_add`,
+  "mcp__brain-ui__brain_add",
   BRAIN_UPDATE_TOOL,
+  "mcp__brain-ui__brain_archive",
+  `${BRAIN_MCP_PREFIX}brain_add`,
+  `${BRAIN_MCP_PREFIX}brain_update`,
   `${BRAIN_MCP_PREFIX}brain_archive`,
 ]);
 
@@ -242,7 +249,8 @@ export function lockKeyForTool(
     if (!command) return null;
     return bashLockKey(command);
   }
-  if (toolName.startsWith(BRAIN_MCP_PREFIX) && !BRAIN_READ_TOOLS.has(toolName)) {
+  if ((toolName.startsWith(BRAIN_MCP_PREFIX) && !BRAIN_READ_TOOLS.has(toolName)) ||
+      (toolName.startsWith("mcp__brain-ui__") && MUTATING_TOOLS.has(toolName))) {
     return BRAIN_LOCK_KEY;
   }
   if (toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit") {

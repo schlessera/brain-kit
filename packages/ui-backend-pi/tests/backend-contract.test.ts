@@ -8,7 +8,7 @@ import {
   createKeyedLock,
   type AgentBackend,
 } from "@schlessera/brain-ui-sdk/server";
-import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 import {
   API_FAILURE_DETAIL,
   runBackendContract,

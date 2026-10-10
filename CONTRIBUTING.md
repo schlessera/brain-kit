@@ -319,7 +319,7 @@ with a standard XML parser and inspect its testcase names and counts.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all seventeen packages, including packages whose own code did
+   `fixed` group: all eighteen packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line
@@ -332,16 +332,13 @@ the first release of unchanged shipped behavior. Read back these assignments
 before merge and after closure. See [Milestones](docs/process/github.md#milestones)
 for historical attribution and epic follow-ups.
 
-Frontmatter is parsed only through `parseFrontmatter`, whose canonical copy is
-`packages/core/src/lib/frontmatter-parse.ts`. A package that needs to parse
-frontmatter copies that file in verbatim, the same way the `env-core.ts` files
-are shared. `tests/frontmatter-parse-sync.test.ts` holds the copies identical,
-and `scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any
-other import of gray-matter. The reason is in
+Frontmatter is parsed only through `parseFrontmatter`, from
+`@schlessera/brain-common/internal/frontmatter`, and every package's env
+chokepoint builds on `@schlessera/brain-common/internal/env`. That package is
+internal: no compatibility promise, valid only at the same lockstep version.
+`scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any other
+import of gray-matter. The reason is in
 [docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
-
-The header of `tests/env-core-sync.test.ts` records why the `env-core.ts` files
-remain synchronized copies instead of moving into a shared package.
 
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs

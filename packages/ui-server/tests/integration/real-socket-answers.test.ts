@@ -9,6 +9,9 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Socket, TCPSocketListener } from "bun";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { BrainUiClient, type LivenessEvent, type ServerMessage } from "@schlessera/brain-ui-sdk/client";
 
@@ -24,6 +27,8 @@ afterEach(async () => {
 });
 
 async function start() {
+  const brain = await mkdtemp(join(tmpdir(), "odysseus-real-socket-"));
+  cleanups.push(() => rm(brain, { recursive: true, force: true }));
   const settled: unknown[] = [];
   const backend = makeFakeBackend({
     id: "fake",
@@ -50,7 +55,7 @@ async function start() {
       AUTH_MODE: "none",
       HOST: "127.0.0.1",
       DB_PATH: ":memory:",
-      BRAIN_PATH: "/tmp/brain-real-socket-answers",
+      BRAIN_PATH: brain,
       BRAIN_UI_PRICING_DISCOVERY: "0",
     }),
     dbPath: ":memory:",

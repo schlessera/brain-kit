@@ -6,7 +6,8 @@ import { join } from "path";
 
 import { resolveCronConfig } from "../config/env.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
+import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import { runDigest } from "../cron/digest.js";
 import {
   emitCrontab,

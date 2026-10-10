@@ -13,9 +13,13 @@ import { readEnvVar } from "../config/env.js";
 import { buildPathMatcher, envRerankMode, isRerankMode, RERANK_MODES } from "./reranker.js";
 import { jevReranker, JEV_API_KEY_ENV, type JevRerankerConfig } from "../providers/rerankers/jev.js";
 
-import { geminiEmbeddings, type GeminiEmbeddingConfig } from "../providers/embeddings/gemini.js";
-import { geminiCompletions } from "../providers/completions/gemini.js";
-import { anthropicCompletions } from "../providers/completions/anthropic.js";
+import {
+  geminiEmbeddings,
+  GEMINI_EMBEDDINGS_KEY_ENV,
+  type GeminiEmbeddingConfig,
+} from "../providers/embeddings/gemini.js";
+import { geminiCompletions, GEMINI_COMPLETIONS_KEY_ENV } from "../providers/completions/gemini.js";
+import { anthropicCompletions, ANTHROPIC_KEY_ENV } from "../providers/completions/anthropic.js";
 import {
   claudeRunner,
   codexRunner,
@@ -32,19 +36,22 @@ type RerankerSettings = NonNullable<BrainConfig["reranker"]>;
 // Registries (string → factory)
 // ---------------------------------------------------------------------------
 
-export const EMBEDDING_PROVIDERS: Record<
-  string,
-  (config: GeminiEmbeddingConfig) => EmbeddingProvider
-> = {
-  gemini: (config) => geminiEmbeddings(config),
+/** A keyed built-in: its factory, and the env var it reads its key from by default. */
+export interface KeyedBuiltin<C, P> {
+  keyEnv: string;
+  create: (config: C) => P;
+}
+
+export const DEFAULT_EMBEDDING_PROVIDER = "gemini";
+export const DEFAULT_COMPLETION_PROVIDER = "gemini-flash";
+
+export const EMBEDDING_PROVIDERS: Record<string, KeyedBuiltin<GeminiEmbeddingConfig, EmbeddingProvider>> = {
+  gemini: { keyEnv: GEMINI_EMBEDDINGS_KEY_ENV, create: (config) => geminiEmbeddings(config) },
 };
 
-export const COMPLETION_PROVIDERS: Record<
-  string,
-  (config: { apiKeyEnv?: string }) => CompletionProvider
-> = {
-  "gemini-flash": (config) => geminiCompletions(config),
-  "anthropic-haiku": (config) => anthropicCompletions(config),
+export const COMPLETION_PROVIDERS: Record<string, KeyedBuiltin<{ apiKeyEnv?: string }, CompletionProvider>> = {
+  "gemini-flash": { keyEnv: GEMINI_COMPLETIONS_KEY_ENV, create: (config) => geminiCompletions(config) },
+  "anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV, create: (config) => anthropicCompletions(config) },
 };
 
 /**
@@ -87,16 +94,14 @@ function unknownMessage(
 
 /** Default built-in when no embeddings config is present. */
 export function resolveEmbeddingProvider(config?: EmbeddingsConfig): EmbeddingProvider {
-  if (!config) return geminiEmbeddings();
-
-  const { provider, model, apiKeyEnv, dimensions } = config;
+  const { provider, model, apiKeyEnv, dimensions } = config ?? { provider: DEFAULT_EMBEDDING_PROVIDER };
   if (typeof provider !== "string") return provider; // custom value, used as-is
 
-  const factory = EMBEDDING_PROVIDERS[provider];
-  if (!factory) {
+  const builtin = Object.hasOwn(EMBEDDING_PROVIDERS, provider) ? EMBEDDING_PROVIDERS[provider] : undefined;
+  if (!builtin) {
     throw new Error(unknownMessage("embedding provider", provider, EMBEDDING_PROVIDERS, "EmbeddingProvider"));
   }
-  return factory({ model, apiKeyEnv, dimensions });
+  return builtin.create({ model, apiKeyEnv, dimensions });
 }
 
 function resolveCompletionEntry(
@@ -105,11 +110,11 @@ function resolveCompletionEntry(
 ): CompletionProvider {
   if (typeof entry !== "string") return entry; // custom value, used as-is
 
-  const factory = COMPLETION_PROVIDERS[entry];
-  if (!factory) {
+  const builtin = Object.hasOwn(COMPLETION_PROVIDERS, entry) ? COMPLETION_PROVIDERS[entry] : undefined;
+  if (!builtin) {
     throw new Error(unknownMessage("completion provider", entry, COMPLETION_PROVIDERS, "CompletionProvider"));
   }
-  return factory(apiKeyEnv ? { apiKeyEnv } : {});
+  return builtin.create(apiKeyEnv ? { apiKeyEnv } : {});
 }
 
 /**
@@ -138,7 +143,7 @@ function withFallback(
 
 /** Default built-in is "gemini-flash"; a configured fallback wraps the primary. */
 export function resolveCompletionProvider(config?: CompletionsConfig): CompletionProvider {
-  const primary = resolveCompletionEntry(config?.provider ?? "gemini-flash", config?.apiKeyEnv);
+  const primary = resolveCompletionEntry(config?.provider ?? DEFAULT_COMPLETION_PROVIDER, config?.apiKeyEnv);
   if (config?.fallback === undefined) return primary;
   return withFallback(primary, resolveCompletionEntry(config.fallback, config.fallbackApiKeyEnv));
 }
@@ -153,6 +158,69 @@ export function resolveAgentRunner(config?: AgentRunnerConfig): AgentRunner {
     throw new Error(unknownMessage("agent runner", entry, AGENT_RUNNERS, "AgentRunner"));
   }
   return factory();
+}
+
+// ---------------------------------------------------------------------------
+// Availability: decided here, once, for the CLI, the MCP server and doctor
+// ---------------------------------------------------------------------------
+
+/**
+ * The unset env var that keeps a configured entry off, or undefined when it
+ * may be resolved: a custom value, a built-in whose key is set, or an unknown
+ * name, which the resolver reports.
+ */
+function unsetKey(
+  registry: Record<string, KeyedBuiltin<never, unknown>>,
+  entry: unknown,
+  apiKeyEnv: string | undefined
+): string | undefined {
+  if (typeof entry !== "string") return undefined;
+  const env = apiKeyEnv ?? (Object.hasOwn(registry, entry) ? registry[entry].keyEnv : undefined);
+  return env !== undefined && !readEnvVar(env) ? env : undefined;
+}
+
+/** The unset key variable that keeps the configured embedding provider off. */
+export function missingEmbeddingKey(config?: EmbeddingsConfig): string | undefined {
+  return unsetKey(EMBEDDING_PROVIDERS, config ? config.provider : DEFAULT_EMBEDDING_PROVIDER, config?.apiKeyEnv);
+}
+
+export interface ResolvedProviders {
+  embeddings?: EmbeddingProvider;
+  completions?: CompletionProvider;
+  agentRunner?: AgentRunner;
+  /** Why a seam could not be resolved, by seam, for each host to report its own way. */
+  warnings: { embeddings?: string; completions?: string; agentRunner?: string };
+}
+
+/**
+ * Resolve the providers a host runs with. A built-in is left undefined when
+ * its key is absent, so search, index and enrichment degrade to keyless
+ * behaviour; a completion config is available when its primary or its
+ * fallback is. A resolution error (an unknown built-in name) leaves the seam
+ * undefined with a warning instead of throwing.
+ */
+export function resolveProviders(config?: BrainConfig | null): ResolvedProviders {
+  const resolved: ResolvedProviders = { warnings: {} };
+  try {
+    if (!missingEmbeddingKey(config?.embeddings)) resolved.embeddings = resolveEmbeddingProvider(config?.embeddings);
+  } catch (e) {
+    resolved.warnings.embeddings = `embedding provider unavailable — ${(e as Error).message}`;
+  }
+  try {
+    const cfg = config?.completions;
+    const available =
+      !unsetKey(COMPLETION_PROVIDERS, cfg?.provider ?? DEFAULT_COMPLETION_PROVIDER, cfg?.apiKeyEnv) ||
+      (cfg?.fallback !== undefined && !unsetKey(COMPLETION_PROVIDERS, cfg.fallback, cfg.fallbackApiKeyEnv));
+    if (available) resolved.completions = resolveCompletionProvider(cfg);
+  } catch (e) {
+    resolved.warnings.completions = `completion provider unavailable — ${(e as Error).message}`;
+  }
+  try {
+    resolved.agentRunner = resolveAgentRunner(config?.agentRunner);
+  } catch (e) {
+    resolved.warnings.agentRunner = `agent runner unavailable — ${(e as Error).message}`;
+  }
+  return resolved;
 }
 
 /** Env var the built-in jev reranker reads its key from, honouring config. */

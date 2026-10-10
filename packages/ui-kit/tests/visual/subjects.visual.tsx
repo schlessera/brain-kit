@@ -105,6 +105,8 @@ import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
 import * as commandPalette from "../../stories/desktop/CommandPalette.stories.js";
 import * as sideRail from "../../stories/desktop/SideRail.stories.js";
+import * as iconButton from "../../stories/primitives/IconButton.stories.js";
+import * as textButton from "../../stories/primitives/TextButton.stories.js";
 import * as meter from "../../stories/primitives/Meter.stories.js";
 import * as actionsTriage from "../../stories/screens/ActionsTriage.stories.js";
 import * as chatAnswer from "../../stories/screens/ChatAnswer.stories.js";
@@ -539,4 +541,13 @@ for (const light of [false, true]) {
       ? looksRightOnPaper(suggestionChips.Disabled, "conversation-chips-disabled")
       : looksRight(suggestionChips.Disabled, "conversation-chips-disabled"));
   });
+}
+
+// D55: new native primitives, new baselines only, at the design's 320px width.
+for (const light of [false, true]) {
+  for (const [story, name] of [[iconButton.TonesBySize, "primitives-icon-button"], [textButton.TonesBySize, "primitives-text-button"]] as const) {
+    test(`${name}${light ? ", light" : ""}`, async () => {
+      await inViewport(320, 320, () => light ? looksRightOnPaper(story, name) : looksRight(story, name));
+    });
+  }
 }

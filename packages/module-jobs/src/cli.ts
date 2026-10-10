@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ZodError } from "zod";
 import type { CommandContext, CommandModule, Taxonomy } from "@schlessera/brain";
-import { runRegistry, safeResolve } from "@schlessera/brain/internal";
+import { runRegistry, safeResolve } from "@schlessera/brain/module";
 
 import { openDatabase } from "./db.js";
 import { reviewJobs } from "./review-operation.js";

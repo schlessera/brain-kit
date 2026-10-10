@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { readFileSync, existsSync, realpathSync } from "fs";
 import { relative } from "path";
 
@@ -23,6 +23,8 @@ export interface IngestOutcome {
 export interface IngestContext {
   root: string;
   taxonomy: Taxonomy;
+  /** Hosted planning validates descriptor-anchored reads before opening a candidate. */
+  readDocument?: (path: string) => string | null;
 }
 
 // Stop words excluded from tag extraction
@@ -165,11 +167,11 @@ async function reindex(
  *
  * Handles classification, frontmatter generation, and file creation/append.
  */
-export async function ingest(
+export function prepareIngest(
   input: IngestInput,
   db: Database,
   ctx: IngestContext
-): Promise<IngestOutcome> {
+): { path: string; content: string; baseContent: string | null; outcome: Omit<IngestOutcome, "indexed" | "indexError"> } {
   const { content } = input;
   const { root, taxonomy } = ctx;
 
@@ -204,20 +206,20 @@ export async function ingest(
   // caller may have overridden its title/type.
   if (classification.path && !input.path && !input.type && title.toLowerCase() === classification.title?.toLowerCase()) {
     const fullPath = resolvePath(classification.path);
-    if (existsSync(fullPath)) {
-      const raw = readFileSync(fullPath, "utf-8");
+    const raw = ctx.readDocument ? ctx.readDocument(classification.path) :
+      (existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : null);
+    if (raw !== null) {
       const parsed = parseFrontmatter(raw);
       if (String(parsed.data.title).toLowerCase() === title.toLowerCase() && parsed.data.type === type) {
         // Only `updated` changes in the frontmatter; its other bytes stay as written.
         const section = `## ${today()} Update\n\n${content.trim()}`;
-        writeFileSafely(fullPath, updateDocument(raw, { updated: today() }, section));
-        return {
+        return { path: relative(canonicalRoot, fullPath),
+          content: updateDocument(raw, { updated: today() }, section), baseContent: raw, outcome: {
           action: "appended",
           path: relative(canonicalRoot, fullPath),
           title: String(parsed.data.title),
           type,
-          ...(await reindex(db, ctx)),
-        };
+        } };
       }
     }
   }
@@ -235,28 +237,30 @@ export async function ingest(
   const body = "\n" + content.trim() + "\n";
   const output = stringifyDocument(body, frontmatter);
   const dir = taxonomy.dirForType(type) ?? ".";
-  let relativePath: string;
   for (let suffix = 1; ; suffix++) {
     const candidate = input.path || `${dir}/${slug}${suffix === 1 ? "" : `-${suffix}`}.md`;
     const fullPath = resolvePath(candidate);
-    try {
-      // Exclusive creation also handles concurrent captures of the same title:
-      // the complete file is published with a no-clobber link.
-      writeFileSafely(fullPath, output, { replace: false });
-      relativePath = relative(canonicalRoot, fullPath);
-      break;
-    } catch (error) {
-      if (!(error instanceof WriteRefusedError && error.code === "EEXIST")) throw error;
+    if (ctx.readDocument ? ctx.readDocument(candidate) !== null : existsSync(fullPath)) {
       if (input.path) throw new Error(`Capture destination already exists: ${input.path}`);
+      continue;
     }
+    const path = relative(canonicalRoot, fullPath);
+    return { path, content: output, baseContent: null, outcome: { action: "created", path, title, type } };
   }
+}
 
-  // Re-index
-  return {
-    action: "created",
-    path: relativePath,
-    title,
-    type,
-    ...(await reindex(db, ctx)),
-  };
+/** Terminal ingestion retains exclusive creation and the same deterministic plan. */
+export async function ingest(input: IngestInput, db: Database, ctx: IngestContext): Promise<IngestOutcome> {
+  for (;;) {
+    const plan = prepareIngest(input, db, ctx);
+    const fullPath = safeResolve(ctx.root, plan.path);
+    if (!fullPath) throw new Error(`Path escapes the brain root: ${plan.path}`);
+    try {
+      writeFileSafely(fullPath, plan.content, { replace: plan.baseContent !== null });
+    } catch (error) {
+      if (plan.baseContent === null && !input.path && error instanceof WriteRefusedError && error.code === "EEXIST") continue;
+      throw error;
+    }
+    return { ...plan.outcome, ...(await reindex(db, ctx)) };
+  }
 }

@@ -295,3 +295,11 @@ describe("every other update stays silent", () => {
     expect(permissionCalls).toEqual([]);
   });
 });
+
+// Hosted names must not loosen the unchanged direct/project MCP posture.
+test("a non-hosted project update still confirms archiving", async () => {
+  const { output, permissionCalls } = await preToolUse("mcp__brain__brain_update", { path: "notes/raft.md", status: "archived" });
+  expect(permissionCalls).toHaveLength(1);
+  expect(permissionCalls[0]!.kind).toBe("command");
+  expect(output).toBeDefined();
+});

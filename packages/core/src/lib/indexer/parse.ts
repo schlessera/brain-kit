@@ -17,7 +17,7 @@
  */
 import { createHash } from "crypto";
 import { readFileSync, statSync } from "fs";
-import { parseFrontmatter } from "../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { resolve } from "path";
 
 import { CHUNKER_VERSION } from "../chunker.js";

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "fs";
 import { join } from "path";
-import { safeResolve, writeFileSafely } from "@schlessera/brain/internal";
+import { safeResolve, writeFileSafely } from "@schlessera/brain/module";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { readTravelCorpus } from "./content.js";
 import type { TravelConfig } from "./module.js";

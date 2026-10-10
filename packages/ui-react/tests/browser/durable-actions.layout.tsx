@@ -11,7 +11,7 @@
  * Numbers in test names are the approved design's browser checks.
  */
 import { afterEach, beforeAll, afterAll, describe, expect, test, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import axe from "axe-core";
@@ -83,8 +83,10 @@ let server: InboxFixtureServer;
 const devices: Array<{ device: Device; renderer: Root }> = [];
 let styles: HTMLStyleElement;
 let viewport: { width: number; height: number };
+let initialHash: string;
 
 beforeAll(async () => {
+  initialHash = window.location.hash;
   viewport = { width: window.innerWidth, height: window.innerHeight };
   styles = document.createElement("style");
   styles.textContent = await commands.formConsumerStyles();
@@ -100,6 +102,7 @@ afterEach(() => {
     device.ui.dispose();
     device.host.remove();
   }
+  window.history.replaceState(null, "", window.location.pathname + window.location.search + initialHash);
   document.documentElement.dataset.theme = "dark";
   vi.unstubAllGlobals();
 });
@@ -112,9 +115,10 @@ const settle = async (n = 4) => {
 };
 
 /** Routes the Actions page asks for; every one is keyless fixture data. */
-function api(notices: unknown[] = [], runs: Record<string, unknown> = {}) {
+function api(notices: unknown[] = [], runs: Record<string, unknown> = {}, stale = false) {
   return async (url: string) => {
     const path = new URL(url, "http://fixture.invalid").pathname;
+    if (path.endsWith("/models/pricing")) return Response.json({ enabled: true, fetchedAt: T0 - DAY, stale, source: "snapshot", ...(stale ? { error: "pricing unavailable" } : {}) });
     if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
     if (path.endsWith("/activity/inbox")) return Response.json({ intents: notices });
     const run = /\/activity\/runs?\/([^/]+)$/.exec(path);
@@ -123,7 +127,7 @@ function api(notices: unknown[] = [], runs: Record<string, unknown> = {}) {
   };
 }
 
-async function device(id: string, opts: { width?: number; height?: number; theme?: string; notices?: unknown[]; runs?: Record<string, unknown>; approval?: boolean } = {}): Promise<Device> {
+async function device(id: string, opts: { width?: number; height?: number; theme?: string; notices?: unknown[]; runs?: Record<string, unknown>; approval?: boolean; stale?: boolean } = {}): Promise<Device> {
   vi.stubGlobal("WebSocket", FixtureSocket);
   await page.viewport(opts.width ?? 320, opts.height ?? 800);
   document.documentElement.dataset.theme = opts.theme ?? "dark";
@@ -135,7 +139,7 @@ async function device(id: string, opts: { width?: number; height?: number; theme
   // The app's own ground: translucent tints are measured against it.
   host.className = "bg-background text-foreground";
   document.body.append(host);
-  const ui = createBrainUiRoot({ storage: null, request: api(opts.notices, opts.runs) });
+  const ui = createBrainUiRoot({ storage: null, request: api(opts.notices, opts.runs, opts.stale) });
   ui.stores.connection.setState({ wsStatus: "connected" } as never);
   const client = server.connect(id, (msg: ServerMessage) => ui.connection.handleServerMessage(msg));
   ui.connection.send = (msg: ClientMessage) => server.receive(id, msg);
@@ -554,7 +558,7 @@ describe("durable Actions", () => {
     expect(d.ui.stores.inbox.getState().items["a-urgent"]).toBeDefined();
     expect(cards(d).map((c) => c.dataset.decisionId)).toEqual(before);
     expect(d.host.querySelector("[data-decision-fresh]")!.textContent).toBe("1 new · show");
-    await click(d.host.querySelector<HTMLElement>("[data-decision-fresh]")!);
+    await page.getByRole("button", { name: "1 new · show", exact: true }).click();
     expect(cards(d)[0]!.dataset.decisionId).toBe("a-urgent");
   });
 
@@ -608,7 +612,7 @@ describe("durable Actions", () => {
     expect(d.host.querySelector("[data-queue-view]")).not.toBeNull();
     await click(button(d.host, "Back to Actions"));
     await click(button(d.host, /^running /));
-    await click(d.host.querySelector<HTMLElement>("[data-running-queue]")!);
+    await page.getByRole("button", { name: "Queue: 1 ready · 1 blocked · 1 failed", exact: true }).click();
     expect(d.host.querySelector("[data-queue-view]")).not.toBeNull();
     await click(button(d.host, "Back to Actions"));
     await click(button(d.host, /^needs you /));
@@ -696,3 +700,94 @@ describe("durable Actions", () => {
     });
   }
 });
+
+
+// Batch 1 of #1379: the same consumer tests run under the layout browser and
+// the three native pointer scenes (imported by navigation-reach.pointer.tsx).
+const PRICING_NAME = "Pricing refresh is failing — costs may use stale rates. Open Settings";
+const BUTTON_ROWS = [1, 2, 3, 4, 5, 6, 8, 9, 12, 13, 14, 15, 16, 17] as const;
+type ButtonRow = typeof BUTTON_ROWS[number];
+
+async function migrationScene(row: ButtonRow, theme: "dark" | "light", width = 320) {
+  server = createInboxFixtureServer();
+  server.seed(thread("t-harbour"), [
+    decision("a-one", "t-harbour"), decision("a-two", "t-harbour"),
+    blockedWork("q-ready", "t-harbour", "none", { status: "ready", blockedByItemId: undefined, attempts: 0 }),
+    blockedWork("q-run", "t-harbour", "none", { status: "failed", blockedByItemId: undefined, runId: "run-raft" }),
+  ]);
+  const notice = { id: 7, runId: "run-sweep", spanId: null, kind: "failure", tag: "t", title: "Nightly sweep failed", body: "", status: "sent", acknowledged: false, createdAt: T0 };
+  const runs = { "run-raft": { runId: "run-raft", detailPruned: false, highWaterSeq: 0,
+    spans: [{ spanId: "raft-turn", runId: "run-raft", name: "Raft inspection", kind: "turn", origin: "cron", startedAt: T0, endedAt: T0 + 1000, outcome: "success" }], events: [],
+  } };
+  const d = await device("button-scene", { theme, width, stale: true, notices: [notice], runs });
+  const name = row === 1 ? PRICING_NAME : row === 2 ? "Open the queue, 2 items" : row === 3 ? "Refresh"
+    : row === 4 ? "1 new · show" : row === 5 ? "Dismiss all" : row === 6 ? "Queue: 1 ready · 0 blocked · 1 failed"
+    : row === 8 ? "Back" : row === 9 ? "Raw trace" : row === 12 ? "Queue ▸"
+    : row === 13 ? `Details: ${decision("a-one", "t-harbour").payload.title}`
+    : row === 14 ? "Don't ask again" : row === 17 ? "Back to Queue" : "Back to Actions";
+  if (row === 4) {
+    server.stall();
+    await click(button(card(d, "a-one"), "Approve: Edit finances/ithaca-port.md"));
+    server.putThread(thread("t-urgent", { stakes: 3, deadline: Date.now() + 3_600_000 }));
+    server.putItem(decision("a-urgent", "t-urgent"));
+    await settle();
+  } else if (row === 6) {
+    await click(button(d.host, /^running /));
+  } else if (row === 12) {
+    await click(button(card(d, "a-one"), "Approve: Edit finances/ithaca-port.md"));
+  } else if (row === 14) {
+    await click(button(card(d, "a-one"), /^Dismiss: /));
+  } else if (row === 15) {
+    await click(button(card(d, "a-one"), /^Details: /));
+  } else if ([8, 9, 16, 17].includes(row)) {
+    await click(button(d.host, "Open the queue, 2 items"));
+    if (row === 17) await page.getByRole("button", { name: /triage · share-q-ready/ }).click();
+    if (row === 8 || row === 9) await page.getByRole("button", { name: /triage · share-q-run/ }).click();
+  }
+  await settle();
+  return { d, name, locator: page.getByRole("button", { name, exact: true }) };
+}
+
+for (const theme of ["dark", "light"] as const) {
+  for (const row of BUTTON_ROWS) {
+    test(`activity button row ${row} ${theme}: accessible name`, async () => {
+      const { locator } = await migrationScene(row, theme);
+      // The fixture frames have settled; this named role query observes the
+      // browser's computed accessible name without waiting for another update.
+      await expect.element(locator, { message: `row ${row} accessible name`, timeout: 500 }).toBeVisible();
+    });
+    test(`activity button row ${row} ${theme}: pointer target`, async () => {
+      const { locator } = await migrationScene(row, theme);
+      const el = locator.element() as HTMLElement;
+      const box = el.getBoundingClientRect();
+      const small = [3, 8].includes(row) && !matchMedia("(any-pointer: coarse)").matches;
+      const floor = small ? 28 : 44;
+      expect({ width: box.width >= floor, height: box.height >= floor }, `row ${row} target at least ${floor}px`).toEqual({ width: true, height: true });
+    });
+    test(`activity button row ${row} ${theme}: keyboard focus ring`, async () => {
+      const { locator } = await migrationScene(row, theme);
+      await userEvent.keyboard("{Tab}");
+      const el = locator.element() as HTMLElement;
+      el.focus();
+      const css = getComputedStyle(el);
+      expect({ active: document.activeElement === el, width: css.outlineWidth, style: css.outlineStyle, offset: css.outlineOffset }, `row ${row} keyboard focus ring`).toEqual({ active: true, width: "2px", style: "solid", offset: [6, 14].includes(row) ? "-2px" : "2px" });
+    });
+  }
+  for (const width of [320, 1280]) {
+    test(`activity pricing status ${theme} at ${width}px: visible label and header fit`, async () => {
+      const { locator } = await migrationScene(1, theme, width);
+      const pricing = locator.element() as HTMLElement;
+      const label = [...pricing.querySelectorAll("span")].find((el) => el.textContent === "Pricing stale")!;
+      expect(label.getClientRects().length > 0 && getComputedStyle(label).visibility !== "hidden", "pricing label prints at every width").toBe(true);
+      const header = pricing.closest("section")!.firstElementChild as HTMLElement;
+      expect(header.scrollWidth <= header.clientWidth + 1 && document.documentElement.scrollWidth <= width + 1, "activity header fits without hiding pricing state").toBe(true);
+      await page.screenshot({ element: header, path: `../../.vitest-attachments/activity-buttons/header-${theme}-${width}.png` });
+    });
+  }
+  test(`activity raw trace ${theme}: expanded state follows disclosure`, async () => {
+    const { locator } = await migrationScene(9, theme);
+    expect(locator.element().getAttribute("aria-expanded"), "raw trace starts collapsed").toBe("false");
+    await locator.click();
+    expect(locator.element().getAttribute("aria-expanded"), "raw trace announces expanded").toBe("true");
+  });
+}

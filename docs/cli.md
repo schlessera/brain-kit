@@ -152,7 +152,7 @@ when its artifact is null.
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker/broken-link/repeated-text/duplicate-title audit | `{issues, errors, warnings, infos, mustFix, informational}`; module hygiene checks appended. TODO and VERIFY markers are one `info` finding per document and kind, with `count` and the first three as `examples`; `verification: unverified` in the frontmatter is one `verify` finding on its own. An unresolved wiki-link is a `broken-link` warning, resolved exactly as `validate` resolves it. `mustFix` is errors plus warnings, `informational` is infos |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |
 | `tags` ⚖ | Tag hygiene report: variant groups with a proposed canonical tag, tags that repeat the document's type or directory, alias hits, out-of-vocabulary tags | read-only; reads frontmatter, not the index; configure with [`taxonomy.tags`](configuration.md#taxonomytags). `--apply` migrates the tags: every `aliases` entry and every variant group whose canonical is in `vocabulary` (`--groups`: all of them; `--redundant`: also drop redundant tags; `--only <old>`: one tag; `--dry-run`: report only). It edits only the `tags:` entries on the raw text, never bumps `updated`, reindexes, and accepts the touched files' mtimes. A file edited while it runs is skipped, and `--only` merges only the collisions its own rename causes |
-| `hygiene reconcile\|list\|next\|dismiss\|snooze` ⚖ | The content-hygiene log under `context/hygiene/`: `reconcile` refreshes the index, detects issues (audit checks, `brain validate`'s corpus checks, silent edits, index table rows, `--extra` candidates), joins reports of one problem into one finding with a stable ID, its sources and an evidence fingerprint, applies the open/snoozed/dismissed/resolved state machine and writes only the files that change; `list` reads the log; `next` reconciles and selects one open finding by severity, explicit urgency, age and ID with a structured priority reason and end-state counts (informational findings are counted but not shown); `dismiss` and `snooze` record a disposition that holds until its evidence fingerprint changes (or, for a snooze, it comes due). Wiki-link rows use indexed targets, including aliases and configured directory anchors; ambiguous/unresolved rows are skipped | `reconcile --fixed <file>` records the skill's auto-fixes in `last-run.md`; `reconcile --dry-run` writes no log file (the index is still refreshed); `list --state open\|snoozed\|dismissed\|resolved`; `dismiss <id> --expect-fingerprint <fp> [--reason <text>]`; `snooze <id> --until <date\|date-time> --expect-fingerprint <fp>`. A stale fingerprint is refused with exit `1` and nothing written; `brain validate` still reports what is dismissed. Sections of the log it does not own are kept as written, each file is replaced atomically, and while a check cannot run (a module's check throws, fact-drift cannot read a canonical file) nothing that was not detected again is resolved. `next --json` exits `1` with a structured configuration blocker before any indexing or log writes when the config is invalid. See [selection mappings](integration-contract.md#hygiene-selection-additive-1026). The `content-hygiene` skill orchestrates reconciliation |
+| `hygiene reconcile\|list\|next\|dismiss\|snooze\|resolve\|undo\|check` ⚖ | The content-hygiene log under `context/hygiene/`: `reconcile` refreshes the index, detects issues (audit checks, `brain validate`'s corpus checks, silent edits, index table rows, `--extra` candidates), joins reports of one problem into one finding with a stable ID, its sources and an evidence fingerprint, applies the open/snoozed/dismissed/resolved state machine and writes only the files that change; `list` reads the log; `next` reconciles and selects one open finding by severity, explicit urgency, age and ID with a structured priority reason and end-state counts (informational findings are counted but not shown); `dismiss` and `snooze` record a disposition that holds until its evidence fingerprint changes (or, for a snooze, it comes due). Wiki-link rows use indexed targets, including aliases and configured directory anchors; ambiguous/unresolved rows are skipped | `reconcile --fixed <file>` records the skill's auto-fixes in `last-run.md`; `reconcile --dry-run` writes no log file (the index is still refreshed); `list --state open\|snoozed\|dismissed\|resolved`; `dismiss <id> --expect-fingerprint <fp> [--reason <text>]`; `snooze <id> --until <date\|date-time> --expect-fingerprint <fp>`. A stale fingerprint is refused with exit `1` and nothing written; `brain validate` still reports what is dismissed. Sections of the log it does not own are kept as written, each file is replaced atomically, and while a check cannot run (a module's check throws, fact-drift cannot read a canonical file) nothing that was not detected again is resolved. `next --json` exits `1` with a structured configuration blocker before any indexing or log writes when the config is invalid. See [selection mappings](integration-contract.md#hygiene-selection-additive-1026). The `content-hygiene` skill orchestrates reconciliation |
 | `registry` ⚖ | Regenerate the registry table of every `_index.md` with a `registry:` frontmatter block, from its children's frontmatter, between `<!-- brain:generated:registry -->` markers | `--check` writes nothing and lists stale indexes (exit 1), and is the only form that runs in an uninitialized directory; an index or child that cannot be read or parsed is reported under `invalid` and left as it is; `updated` is bumped only on a file whose table changed; `{indexes, written, stale, invalid}` |
 | `maintain` | Routine maintenance sequence: registry tables (as `brain registry`), incremental index, vector compaction (only when fewer than half the vector slots are live), audit snapshot (the same counts as `brain audit`, module hygiene checks included, with its must-fix and informational totals), stats recording (0.40.0+), tag report (counts only), git packing, scratch prune | exit 2 if any step failed (the tag report never fails it); the hosting container runs it daily. The git step runs git's non-destructive `loose-objects`, `incremental-repack` and `pack-refs` maintenance tasks when the brain is a git work tree (git's own gc counts loose objects, not bytes, so a content repo's large blobs can stay loose indefinitely); it never deletes a ref or expires a reflog; `--no-git` skips it. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
 | `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune it to 7 days and 1 GB | `{action, removed: [{path, bytes, reason}], failed: [{path, reason}], bytes, files}`; exit 2 when a file could not be removed; `render`, `image`, `okf export` and the UI's mask tool prune after writing there, and the chat server prunes hourly |
@@ -373,3 +373,39 @@ credential cannot reconcile. Reopening never replays the unknown occurrence,
 and a one-off with nothing left to run ends `expired`.
 The credential file and transport rules are the same as `brain queue`'s.
 See the [schedule contract](integration-contract.md#scheduled-tasks-additive-914).
+
+
+### Preview and confirm a hygiene repair
+
+Use `brain hygiene next --json` to discover the selected finding's complete
+`handlers` array, including each choice's input schema, effect and post-check.
+Broken links offer a note picker and text-only choice, plus a suggestion only
+when exactly one deterministic match exists. Required fields expose the
+configured type enum, string, date or string-array schema; unsupported findings
+expose a manual descriptor with file, line and explanation. The legacy
+`finding.handler: "manual"` remains for compatibility. Discovery does not apply
+a repair or disposition; `next` retains its existing indexing/reconciliation.
+
+Use the finding's ID and fingerprint to preview a supported bounded repair.
+For example, remove a broken link while
+keeping its display text:
+
+```sh
+brain hygiene resolve <id> --handler link-text --input null --expect-fingerprint <fp> --dry-run --json
+brain hygiene resolve <id> --handler link-text --input null --expect-fingerprint <fp> --expect-preview <previewToken> --json
+```
+
+The preview returns exact before/after text and each replacement. `link-note`
+accepts a JSON string containing a brain-relative Markdown path;
+`link-suggested` is offered only for one deterministic slug/alias/title match.
+`required-field` accepts the field's string, taxonomy enum, date or tag array.
+Unsupported categories offer a manual edit and `brain hygiene check <id> --json`.
+Checking a still-detected finding writes nothing. A successful check resolves
+only that finding with `resolved-by: check`.
+
+A failed post-check leaves the effect written and the finding open. Inspect
+`brain hygiene undo <undoToken> --dry-run --json`, then explicitly confirm with
+`brain hygiene undo <undoToken> --json`. Undo refuses if any file bytes changed.
+`brain hygiene check configuration-blocker --json` reports `blocked` or `ready`
+even with invalid configuration and never writes. See [the contract](integration-contract.md#bounded-hygiene-repair-operations-additive-1025)
+for inputs, results and the publication limitation.

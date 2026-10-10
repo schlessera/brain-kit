@@ -10,7 +10,7 @@ import * as fs from "fs";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { bindContentIndexQueries } from "../../core/src/queries/bound";
 import { openDatabase } from "../src/db";

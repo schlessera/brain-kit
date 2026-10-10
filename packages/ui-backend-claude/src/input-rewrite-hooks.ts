@@ -1,5 +1,5 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { rtkRewriteCommand } from "@schlessera/brain-ui-sdk/internal";
+import { rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
 import { bashCommand } from "@schlessera/brain-ui-sdk/internal";
 
 /**

@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { BottomSheet, ListRow, TabBar, type TabItem } from "@schlessera/brain-ui-kit";
+import { useRef, useState } from "react";
+import { Overlay, ListRow, TabBar, type TabItem } from "@schlessera/brain-ui-kit";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat, pendingApprovals } from "../../stores/chat-store.js";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useChatCommands } from "../chat/use-chat-commands.js";
-import { cn } from "../../lib/utils.js";
 
 /**
  * The phone's bottom navigation, on the kit's `TabBar` (D52 §1): Chat ·
@@ -49,32 +48,26 @@ export function MobileTabBar() {
   const needsYou = decisionCount + approvalCount;
 
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
+  const [restoreFocus, setRestoreFocus] = useState(true);
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const firstRow = useRef<HTMLElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
-  /** Close the sheet. A dismissal returns focus to the More slot; a row hands it to what it opens. */
-  function closeMore(restore: boolean) {
+  /** The closing render owns focus; acts run once the background is live. */
+  function closeMore(restore: boolean, next?: () => void) {
+    setRestoreFocus(restore);
+    afterClose.current = next;
     setMoreOpen(false);
-    if (!restore) return;
-    const tabs = barRef.current?.querySelectorAll<HTMLElement>('[role="tab"]');
-    tabs?.[tabs.length - 1]?.focus();
   }
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    // More is the topmost layer, and a destination drawer may be open under
-    // it with its own document-level Escape. Escape dismisses only More, so
-    // it is taken in the window's capture phase, before any of those.
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      closeMore(true);
-    }
-    window.addEventListener("keydown", onKey, true);
-    // The sheet's first row takes focus; the More slot gets it back on close.
-    moreRef.current?.querySelector<HTMLElement>('[role="button"]')?.focus();
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [moreOpen]);
+  function lastTab() {
+    const tabs = barRef.current?.querySelectorAll<HTMLElement>('[role="tab"]');
+    return tabs?.[tabs.length - 1] ?? null;
+  }
+  function onAfterClose() {
+    const next = afterClose.current;
+    afterClose.current = undefined;
+    next?.();
+  }
 
   /**
    * An act from the sheet: close it, land on chat, run. The act waits for
@@ -83,18 +76,16 @@ export function MobileTabBar() {
    */
   function act(fn: () => void) {
     return () => {
-      closeMore(false);
-      afterLeavingSettings(() => {
+      closeMore(false, () => afterLeavingSettings(() => {
         setActiveView("chat");
         fn();
-      });
+      }));
     };
   }
   /** A place from the sheet: close it and go there. */
   function go(fn: () => void) {
     return () => {
-      closeMore(false);
-      fn();
+      closeMore(false, fn);
     };
   }
 
@@ -127,35 +118,24 @@ export function MobileTabBar() {
   const statsWhy = isStreaming ? "a turn is running" : undefined;
 
   return (
+    <>
     <nav
       aria-label="Primary"
-      // While More is open the bar's layer rises over an open destination
-      // drawer (z-50), so the sheet and its scrim are drawn above it.
-      className={cn("tablet:hidden fixed bottom-0 inset-x-0 pb-[env(safe-area-inset-bottom)]", moreOpen ? "z-[60]" : "z-30")}
+      data-bk-keep-live=""
+      className="tablet:hidden fixed bottom-0 inset-x-0 z-nav pb-[env(safe-area-inset-bottom)]"
       // The safe-area strip below the bar takes the bar's own ground, from the
       // kit's token so it follows the theme.
       style={{ background: "var(--bk-color-surface)" }}
     >
-      {moreOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60"
-          onMouseDown={(e) => {
-            if (e.target !== e.currentTarget) return;
-            // The press's default would move focus to <body> after the
-            // restore below, so it is cancelled.
-            e.preventDefault();
-            closeMore(true);
-          }}
-        >
-          <div ref={moreRef} role="dialog" aria-label="More" className="absolute inset-x-0 bottom-0 max-h-full overflow-y-auto">
-            {/* In flow, not `docked`: the dialog is the bottom-anchored box,
-                so a viewport shorter than the sheet scrolls it instead of
-                clipping its first rows. */}
-            <BottomSheet title="More" subtitle="Settings, and the things you run rather than visit.">
-
+      <div ref={barRef}>
+        <TabBar items={items} active={active} />
+      </div>
+    </nav>
+      <Overlay open={moreOpen} variant="sheet" title="More" data-overlay-site="more" subtitle="Settings, and the things you run rather than visit."
+        onClose={() => closeMore(true)} initialFocus={firstRow} returnFocus={restoreFocus ? lastTab : false} onAfterClose={onAfterClose}>
               {/* A title-only row is 42px in the kit; every row here is a
                   thumb target, so each is at least 44px. */}
-              <div className="flex flex-col [&>*]:min-h-11">
+              <div ref={node => { firstRow.current = node?.querySelector<HTMLElement>('[role="button"]') ?? null; }} className="flex flex-col [&>*]:min-h-11">
                 <ListRow variant="group" icon="settings" iconTone="neutral" title="Settings" chevron onClick={go(() => press("settings"))} />
                 <ListRow variant="group" icon="graph" iconTone="purple" title="Graph" chevron onClick={go(() => setActiveView("graph"))} />
                 <ListRow variant="group" icon="add" iconTone="teal" title="Add a note" subtitle="Write it down in the brain" onClick={act(() => runCommand("add"))} />
@@ -163,13 +143,7 @@ export function MobileTabBar() {
                 <ListRow variant="group" icon="repeat" iconTone="amber" title="Sync the brain" subtitle={hostWhy ?? "Pull and push the repository"} value="sync" valueTone="amber" onClick={hostWhy ? undefined : act(() => runCommand("sync"))} />
                 <ListRow variant="group" icon="ledger" iconTone="neutral" title="Brain statistics" subtitle={statsWhy ?? "Documents and software versions"} last onClick={statsWhy ? undefined : act(() => runCommand("stats"))} />
               </div>
-            </BottomSheet>
-          </div>
-        </div>
-      )}
-      <div ref={barRef}>
-        <TabBar items={items} active={active} />
-      </div>
-    </nav>
+      </Overlay>
+    </>
   );
 }

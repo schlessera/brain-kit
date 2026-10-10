@@ -18,14 +18,13 @@
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 
-// The descriptor contract, shared with every package's chokepoint through the
-// sync-enforced `env-core.ts` copies (tests/env-core-sync.test.ts). This is a
-// root script, not published code, so it may import the canonical copy
-// directly instead of carrying its own redeclaration.
+// The descriptor contract every package's chokepoint shares through
+// @schlessera/brain-common. This is a root script, not published code, so it
+// imports the file directly instead of carrying its own redeclaration.
 import type {
   DynamicEnvReadSpec,
   EnvVarSpec,
-} from "../packages/core/src/config/env-core.ts";
+} from "../packages/common/src/env-core.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");

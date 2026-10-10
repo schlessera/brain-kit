@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Overlay } from "@schlessera/brain-ui-kit";
 import { Minus, Plus, Maximize2, X } from "lucide-react";
 
 /**
@@ -169,23 +170,13 @@ export function ZoomViewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "+" || e.key === "=") zoomCenter(1.25);
+      if (e.key === "+" || e.key === "=") zoomCenter(1.25);
       else if (e.key === "-" || e.key === "_") zoomCenter(0.8);
       else if (e.key === "0") fit();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, zoomCenter, fit]);
-
-  // Lock body scroll while open.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  }, [zoomCenter, fit]);
 
   // Re-fit on rotation / resize only while the view is untouched, so a resize
   // never yanks content the user has deliberately panned into place.
@@ -292,18 +283,12 @@ export function ZoomViewer({
   };
 
   const btn =
-    "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground";
+    "flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground";
 
-  // Portalled to <body>: message bubbles animate through framer-motion, and a
-  // transformed ancestor becomes the containing block for `fixed`, which would
-  // pin this overlay to the bubble instead of the viewport.
+  // Keep the dialog outside markdown inline content and its image selectors.
   return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm"
-    >
+    <Overlay open variant="fullscreen" label={label} onClose={onClose}>
+      <div className="flex h-full flex-col">
       <div
         className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2"
         style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}
@@ -311,18 +296,18 @@ export function ZoomViewer({
         <span className="px-1 font-[family-name:var(--font-mono)] text-xs tabular-nums text-muted-foreground">
           {Math.round(scale * 100)}%
         </span>
-        <div className="flex items-center gap-1">
-          <button type="button" title="Zoom out" onClick={() => zoomCenter(0.8)} className={btn}>
+        <div className="flex items-center gap-1 [&>div>button]:min-h-11 [&>div>button]:min-w-11">
+          <button type="button" aria-label="Zoom out" onClick={() => zoomCenter(0.8)} className={btn}>
             <Minus className="h-4 w-4" />
           </button>
-          <button type="button" title="Zoom in" onClick={() => zoomCenter(1.25)} className={btn}>
+          <button type="button" aria-label="Zoom in" onClick={() => zoomCenter(1.25)} className={btn}>
             <Plus className="h-4 w-4" />
           </button>
-          <button type="button" title="Fit to screen" onClick={fit} className={btn}>
+          <button type="button" aria-label="Fit to screen" onClick={fit} className={btn}>
             <Maximize2 className="h-4 w-4" />
           </button>
           {actions}
-          <button type="button" title="Close" onClick={onClose} className={btn}>
+          <button type="button" aria-label="Close" onClick={onClose} className={btn}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -348,7 +333,7 @@ export function ZoomViewer({
           {children}
         </div>
       </div>
-    </div>,
-    document.body
+      </div>
+    </Overlay>, document.body
   );
 }

@@ -103,10 +103,10 @@ on, links to or describes them.
   sequences, which never change the runtime value. A raw NUL hides the file
   from grep and ripgrep; a whitespace-trimming editor corrupts a zero-width
   delimiter. `bun run lint` is the invisible-character gate, in CI too.
-- Parse frontmatter with `parseFrontmatter` from the package's
-  `src/lib/frontmatter-parse.ts`, never with gray-matter directly, which
-  shares one cached object between byte-identical documents. `bun run lint`
-  refuses a direct import
+- Parse frontmatter with `parseFrontmatter` from
+  `@schlessera/brain-common/internal/frontmatter`, never with gray-matter
+  directly, which shares one cached object between byte-identical documents.
+  `bun run lint` refuses a direct import
   ([docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md)).
 - Config-driven taxonomy: document types are runtime-validated strings (zod),
   not compile-time unions.
@@ -114,7 +114,7 @@ on, links to or describes them.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`),
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`),
   starting on the anchor's line. **A PR that moves lines under a citation owns
   that citation**, wherever it is recorded; find them with
   `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`

@@ -24,7 +24,7 @@
 import { Unzip, UnzipInflate } from "fflate";
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { parseFrontmatter } from "../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
 export const MAX_INFLATED_BYTES = 250 * 1024 * 1024;

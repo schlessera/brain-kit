@@ -4,7 +4,8 @@ import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { subprocessEnv } from "../config/env.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
+import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 import {
   buildKeyterms,
   writeCache,

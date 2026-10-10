@@ -387,7 +387,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:137,138`, `getInitialState()`,
+`render-smoke.test.tsx:143,144`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -2386,7 +2386,7 @@ Four rules decide what counts, and each of them changed a number:
   frames a subagent produced, and the chat adapter keeps those off the surface.
 - **The turn budget is enforced, not just advertised.** Production aborts a
   turn at `turnTimeoutMs` (`timeoutHandle = setTimeout`,
-  `packages/ui-server/src/ws/run-session.ts:316`), so
+  `packages/ui-server/src/ws/run-session.ts:326`), so
   the harness aborts at the same 180 s. Without it an answer no reader could
   have received still scored: an earlier run had five turns of 190–306 s.
 - **A turn that did not complete is excluded from every rate**, in both
@@ -2545,8 +2545,8 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:264-275`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:277-280`);
+`packages/ui-backend-pi/src/bridge-tools.ts:266-277`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:279-282`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
@@ -3268,7 +3268,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:264` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:266` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -3811,7 +3811,7 @@ config were empty, account credential files were never copied, automatic
 memory was disabled, and no other subscription measurement overlapped.
 The same execution hook bounded Read/Glob/Grep to the staged fixture and
 denied delegation and other tools in every arm (`optionsFor`,
-`scripts/measure-show-block.ts:397-465`). This permission restriction and the
+`scripts/measure-show-block.ts:398-466`). This permission restriction and the
 one-tool MCP server remain measurement divergences from production. The
 actual installed CLI denied a controlled outside Read and admitted an inside
 Read under bypassPermissions; removing its hook exposed the sentinel and
@@ -3994,7 +3994,7 @@ and each closed before the measured runs:
 
 - **The brain has to live outside the operator's home directory, not only
   outside a checkout.** `settingSources: ["project"]`,
-  `packages/ui-backend-claude/src/sdk-options.ts:135`, makes the CLI walk up
+  `packages/ui-backend-claude/src/sdk-options.ts:145`, makes the CLI walk up
   from the cwd, and at every ancestor it reads `.claude/CLAUDE.md`,
   `.claude/skills/` and `.claude/agents/`. A brain anywhere under a home
   directory therefore loads `~/.claude/CLAUDE.md` as *project* instructions,
@@ -4315,7 +4315,7 @@ goes and fetches nothing.
    default-ignorable or bidi-control code point, is refused. Other IDNs are
    not refused wholesale.
 6. **A new package edge: ui-sdk → ui-kit.** The `show_block` handler
-   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:27-50`)
+   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:29-52`)
    has to call `classifyLink`, and the two packages did not depend on each other. ui-sdk
    takes a workspace dependency on ui-kit, and only on its React-free `links`
    export. That gives one implementation and one test suite. The edge goes
@@ -4353,7 +4353,7 @@ or PDF are #558.
 found, and what the ruling did not say:
 
 - **Where each part landed.** The handler throws with the reason
-  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:27-50`).
+  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:29-52`).
   The payload parse on the client stays structural, and the card classifies
   again. The card's link mode calls `classifyLink` itself
   (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and
@@ -4361,7 +4361,7 @@ found, and what the ruling did not say:
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/render-template/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:63`), and ui-kit now
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:70`), and ui-kit now
   builds and publishes ahead of ui-sdk. At that point the kit's own row was unchanged.
   #558 later moved the pure classifier to the template's `./links` leaf and
   added the kit-to-template edge; D13's purity gate still holds.
@@ -4476,7 +4476,7 @@ it found, and what neither said:
 - **Chrome breaks a host at a `-`.** A `<wbr>` after each "." adds break
   opportunities but removes none, and real Chrome at 288px broke
   `harbour-master` at its hyphen. Each label is an inline block, as the
-  card's host is (`.bk-plink-label`, `packages/ui-react/src/theme.css:327-331`),
+  card's host is (`.bk-plink-label`, `packages/ui-react/src/theme.css:334-338`),
   with "(" in the first label and ")" in the last. Only a label wider than
   the line wraps within itself.
 - **A mail address's local part is ASCII `dot-atom`.** The design gave the
@@ -4616,7 +4616,7 @@ does a replayed session show?
 
 **Targets.** A one-line chip paints about 29px. Its target reaches 8px past
 the paint on every side (`.answer-chip::before`,
-`packages/ui-react/src/theme.css:615-619`), and the chips sit 16px apart on
+`packages/ui-react/src/theme.css:622-626`), and the chips sit 16px apart on
 both axes, which is D34's half-the-gap limit. The hairline is an inset shadow,
 not a border, so the reach is measured from the paint.
 `tests/answer-suggestions-targets.test.tsx` lays the row out in real Chrome
@@ -5172,7 +5172,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:258-262`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:264-268`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5627,12 +5627,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:720-728`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:723-731`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:644-651`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:647-654`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
@@ -6403,3 +6403,130 @@ answer and cost defaults. Callers supply facts explicitly; `pulse` selects a
 working pulse or static decision-wait dot. Existing ghost-band and streamed
 text animations retain their implementations. This is an approved exception
 to D30's parity defaults, and no stream/cancellation contract changes.
+
+
+## 2026-10-09 — D54: one overlay primitive (#1378)
+
+The design ruling on #1378 adopts native `showModal()` dialogs for modal
+overlays and a non-modal destination panel that keeps navigation operable.
+`Overlay` owns opening order, dismissal requests, focus entry/wrap/return,
+inertness and entry-only motion. Closing is instant. Entry animations share
+one `no-preference` guard; reduced-motion overrides share the existing
+`reduce` block. Scrims use existing
+`palette-shadow` (dim), half that shadow mixed with transparent (veil), and
+`color-canvas` (opaque); none uses blur.
+
+| Variant | Shape | Modal | Scrim | Used for |
+|---|---|---|---|---|
+| `sheet` | Docked to the bottom at every width. Full width below 480. From 480, `min(560px, 100vw − 32px)` wide and centred horizontally. | yes (top layer) | `dim` | Short pick-lists and live tools that belong at the thumb: More, Attach (phone), Graph options, Dictation (phone and tablet). |
+| `dialog` | **Below 900 it has the sheet's shape.** From 900 it is a centred card, `radius-panel` (18px), at most `85dvh` tall, with the body scrolling. `placement="top"` puts the card 110px from the top and never docks it to the bottom (palette). | yes (top layer) | `dim` | A single decision or a single reading: handoff, the one-time credential (`alertdialog`), the command palette (`placement="top"`). |
+| `fullscreen` | Covers the viewport at every width, `--bk-color-canvas` opaque. The children draw the toolbar. | yes (top layer) | `opaque` | Tools that need the whole screen: the zoom viewer, the mask editor, the subagent drill-in. |
+| `panel` | Right-anchored. Full width below 768. From 768 (`md`), `size` sets the width: 320, 480 or 560. Full height, with a left `edge` hairline and the shadow. | `modal` prop. `true` (default) for act panels, which use the top layer and cover the bar and rail. `false` for destination panels: z-index `panel`, inert only over the content area, bar and rail stay live. | `veil` | The slide-over panels: Sessions, Settings and Files (destination, `modal={false}`); Search, Add, Sync and Whatsup (act, modal). |
+
+
+The document layer scale is fenced separately from the colour-token pipeline;
+`LAYERS` exports its numbers and `z` exports its CSS references. Kit and app
+Tailwind themes map these names to `z-raised` through `z-modal`.
+
+```css
+/* @layers:start */
+:root {
+  --bk-z-raised: 10;   /* sticky headers/footers, floating in-canvas controls */
+  --bk-z-popover: 20;  /* anchored non-modal popovers and menus */
+  --bk-z-nav: 30;      /* phone tab bar; the rail if it is ever positioned */
+  --bk-z-panel: 40;    /* non-modal destination panels + their content scrim; ≥900 panes */
+  --bk-z-banner: 50;   /* the connection banner */
+  --bk-z-modal: 60;    /* fixed modal layers not yet in the top layer (kit SheetDialog, ModelPicker phone) */
+}
+/* @layers:end */
+```
+
+| Case | Winner | Mechanism |
+|---|---|---|
+| More (sheet) opened over the Files or Sessions drawer (destination panel) | More | Top layer > `z-panel`. The nav no longer needs to raise itself. |
+| One-time credential appears while the Settings drawer or pane is open | Credential | Top layer > `z-panel`. Settings stays open underneath, and Done returns focus into it. |
+| Credential appears while another modal is open (e.g. a sheet) | Credential | Opened last, so it is on top of the top layer. The sheet is inert underneath. |
+| ⌘K while a modal is open | Nothing opens | The palette's ⌘K handler toggles only when no other modal is open (`openModal()` in `lib/destination-start.ts`, which already matches `[aria-modal="true"], dialog:modal`). Otherwise a palette could stack over a `closedBy="none"` credential. |
+| Handoff from the ModelPicker's locked action (phone) | Handoff | The picker closes first in the composer. If it ever stays open, the top layer still wins over its `z-modal`. |
+| Zoom viewer opened from inside the subagent drill-in | Zoom viewer | Opened last in the top layer. Escape closes only the viewer. |
+| Palette over the Settings or Files pane (≥900) | Palette | Top layer > `z-panel`. |
+| Connection banner vs a destination panel | Banner | `z-banner` 50 > `z-panel` 40. |
+| Connection banner vs any modal | Modal | The top layer is above the banner, and the banner is inert and dimmed under the scrim. Its live region is not announced while a modal is open. That is accepted: a modal is the current task, and the banner shows again when the modal closes. |
+| Phone tab bar vs destination panel | No overlap | The panel stops above the bar (`bottom: calc(60px + env(safe-area-inset-bottom))`). |
+| Phone tab bar vs act panel (Search, Sync…) | Act panel | Modal panel in the top layer covers the bar, as today ("an act's panel keeps covering them"). |
+| Anchored popover vs a panel | Panel | `z-panel` 40 > `z-popover` 20. A popover inside a panel lives in the panel's own stacking context. |
+| Toasts | n/a | There are no fixed toasts. `InlineToast` is in flow. |
+
+
+The breakpoint is 900px for dialog-to-sheet geometry; `placement="top"`
+stays at 110px at every width. Sheets stay docked at every width, with a
+48px minimum scrim strip and a default 70dvh cap. Panels size at 768px;
+destination panels stop above the 60px phone bar or beside the 60/208px rail.
+
+The native modal uses no z-index. ZoomViewer keeps a body portal to avoid
+markdown inline nesting and prose image styles. Escape bubbles through inner
+controls, then only the topmost overlay requests dismissal. `cancel` is
+prevented when cancelable; an unexpected native close reopens and restores
+initial focus before requesting dismissal (unless `closedBy="none"`).
+A panel keeps its header X under every `closedBy` value; `none` suppresses
+Escape, native close requests and scrim taps only. Sheets and dialogs remove
+their drawn close control under `none`. The adapter may capture the surface
+with `surfaceRef` for destination resets.
+Focus returns according to the closing render, in a microtask after the React
+commit has restored focus and after
+inertness is released and before `onAfterClose`. Destination inert marks
+are ref-counted, follow inserted siblings, exempt active modals and their
+ancestors, and preserve page-owned inert. Hidden modal subtrees close immediately and report
+a developer error in development builds.
+
+`BottomSheet` optionally draws a 44px close control; existing stories omit it.
+`CommandPalette` is a named group, using its own root ref for row traversal,
+inside the owning dialog. Its pixels do not change. Only the 24 new overlay
+baselines are approved; no existing baseline changes.
+
+
+## 2026-10-09 — D55: native icon and text actions (#1379)
+
+The [design ruling](https://github.com/schlessera/brain-kit/issues/1379#issuecomment-6087751547)
+adopts `IconButton` for icon-only controls and `TextButton` for inline text
+actions. Both render native `button type="button"`, forward refs for React 18,
+and pass `data-*` hooks. `Button` retains its existing API and element;
+`DiscButton` remains limited to D52's three transcript discs.
+
+`IconButton` has mute, danger and overlay tones. Its md box is 44px; sm is
+28px with a 14px glyph and grows its paint and target to 44px under
+`any-pointer: coarse`. Mute hovers to the strong veil and ink; danger stays
+red at rest and hover. Overlay uses raised at 80% with ink-dim: ink-mute
+fails over arbitrary media, while ink-dim clears 4.5:1 over both white and
+black in both themes. Expanded mute triggers stay raised and ink.
+
+`TextButton` formalises the existing ask-list text actions: body link text
+uses teal-ink and an underline, mono meta uses ink-mute and lifts to ink-dim
+with an underline on hover, and inherit takes its context's font and colour.
+Underlines are text-decoration (D34). Standalone targets are at least 44px
+tall; inline paint has a 20px minimum box and reaches 12px vertically and 4px
+horizontally, requiring 8px between neighbours. The minimum preserves 44px
+reach even when inherited text has a shorter line height, without changing
+its font. Both primitives retain a 2px focus ring at offset +2,
+a pressed translation, and native disabled behaviour at opacity .45.
+
+Composite hit areas remain raw with a closed reason vocabulary:
+
+| Code | Reason |
+| --- | --- |
+| `row` | Composite full-width list, menu or disclosure content that ListRow cannot draw. |
+| `select` | Selection with its own ARIA role or state; no fitting kit segment/tab control. |
+| `surface` | A kit card or rendered page is the hit area. |
+| `canvas` | Canvas/media tool with that surface's own palette. |
+| `kit` | Already uses kit tokens and bk-control, with a reason the component cannot fit. |
+| `api` | Requires a native capability absent from the kit control; name that capability. |
+| `dev` | Dev-only harness. |
+
+The marker grammar is `raw-button: <code> — <reason>` (a hyphen also separates
+code and reason); the reason has at least 12 characters. Put the comment
+inside the opening tag, as `//` between attributes or `/* */` on one line.
+A marker travels with the element and stays out of the DOM; a file:line
+allowlist drifts and a per-file count cannot explain a second button.
+Row and select sites use bk-row interaction, preserving selected/rest paint.
+The raw-button lint and consumer migrations are separate batches; this
+ruling approves only new primitive baselines for the kit batch.

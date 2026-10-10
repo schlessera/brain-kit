@@ -61,7 +61,7 @@ signatures (every public export and the types it is made of)
     const DEFAULT_PROFILES: InferenceProfile[];
   DYNAMIC_ENV_READS (packages/ui-backend-claude/src/config/env.ts)
     const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
-  DynamicEnvReadSpec (packages/ui-backend-claude/src/config/env-core.ts)
+  DynamicEnvReadSpec (packages/common/src/env-core.ts)
     export interface DynamicEnvReadSpec {
         source: string;
         description: string;
@@ -146,7 +146,7 @@ signatures (every public export and the types it is made of)
     export function createModelSource(options: ModelSourceOptions): ModelSource;
   defineProfiles (packages/ui-backend-claude/src/profiles.ts)
     export function defineProfiles(inputs: InferenceProfileInput[]): InferenceProfile[];
-  readEnvVar (packages/ui-backend-claude/src/config/env-core.ts)
+  readEnvVar (packages/common/src/env-core.ts)
     export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
   resolveEnv (packages/ui-backend-claude/src/config/env.ts)
     export function resolveEnv(env?: NodeJS.ProcessEnv): ClaudeBackendEnv;

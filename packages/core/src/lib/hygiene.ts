@@ -17,7 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "fs";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -1053,6 +1053,8 @@ export interface HygieneFix {
 export interface ReconcileOptions {
   now: Date;
   dryRun?: boolean;
+  /** A successful bounded repair/check updates only this finding. */
+  resolution?: { id: string; by: string };
   /** Findings the skill made itself (canonical conflicts), as candidates. */
   extra?: HygieneCandidate[];
   /** Auto-fixes the skill applied this run; they go into last-run.md. */
@@ -1235,7 +1237,7 @@ export function reconcile(
   const resolve_ = (entry: HygieneEntry): HygieneEntry => ({
     id: entry.id,
     state: "resolved",
-    lines: [...withoutFields(entry.lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]), "- resolved-by: auto-disappeared", `- resolved-on: ${today}`],
+    lines: [...withoutFields(entry.lines, [...DISPOSITION_FIELDS, "resolved-by", "resolved-on"]), `- resolved-by: ${opts.resolution?.id === entry.id ? opts.resolution.by : "auto-disappeared"}`, `- resolved-on: ${today}`],
     section: null,
   });
   // A requested disposition, with the fingerprint it applies to.
@@ -1275,6 +1277,11 @@ export function reconcile(
   for (const state of ["open", "snoozed", "dismissed", "resolved"] as const) {
     for (const entry of parsed[state].entries) {
       if (known.get(entry.id) !== entry) continue;
+      if (opts.resolution && opts.resolution.id !== entry.id) {
+        next[state].push(entry);
+        if (state === "open") counts.stillOpen++;
+        continue;
+      }
       const finding = detected.get(entry.id);
       const request = requested.get(entry.id);
       if (finding && request) {
@@ -1331,7 +1338,7 @@ export function reconcile(
     }
   }
   // New issues, in ID order.
-  const fresh = [...detected.keys()].filter((id) => !known.has(id)).sort();
+  const fresh = [...detected.keys()].filter((id) => !known.has(id) && (!opts.resolution || opts.resolution.id === id)).sort();
   const sameProblemSlot = (id: string, category: string, path: string) =>
     id.length === `${category}-${shortPath(path)}-`.length + 4 && id.startsWith(`${category}-${shortPath(path)}-`);
   for (const id of fresh) {

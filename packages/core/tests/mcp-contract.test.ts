@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -138,8 +138,8 @@ test("read tool descriptions state their defaults and caps", async () => {
   const description = (name: string) => tools.find((t) => t.name === name)?.description ?? "";
   expect(description("brain_search")).toContain(`at most ${MAX_SEARCH_LIMIT} results`);
   expect(description("brain_search")).toContain("defaults to 10");
-  expect(description("brain_list")).toContain(`at most ${MAX_LIST_LIMIT} documents`);
-  expect(description("brain_list")).toContain("defaults to 20");
+  expect(description("brain_list")).toContain(`a whole number from 1 to ${MAX_LIST_LIMIT} and defaults to 20`);
+  expect(description("brain_list")).toContain("rejected, not capped");
   expect(description("brain_graph")).toContain(`capped at ${MAX_GRAPH_DEPTH}`);
   expect(description("brain_graph")).toContain("defaults to 1 hop");
   expect(description("brain_context")).toContain("defaults to 4000");
@@ -274,6 +274,46 @@ describe("brain_list", () => {
     expect(Array.isArray(sc.warnings)).toBe(true);
     expect(sc.documents).toHaveLength(3);
     expect(sc.documents.every((d) => d.type === "health")).toBe(true);
+  });
+
+  // #1351: limit is a whole number from 1 to 100, default 20; nothing is clamped.
+  const list = (args: Record<string, unknown>) => client.callTool({ name: "brain_list", arguments: args });
+  const count = async (args: Record<string, unknown>) => {
+    const res = await list(args);
+    expect(res.isError).toBeFalsy();
+    return (res.structuredContent as { documents: unknown[] }).documents.length;
+  };
+
+  test("limit defaults to 20 and accepts 1 and 100", async () => {
+    // The corpus holds more than the default, so 20 is the limit, not the corpus.
+    const all = await count({ limit: 100 });
+    expect(all).toBeGreaterThan(20);
+    expect(await count({})).toBe(20);
+    expect(await count({ limit: 1 })).toBe(1);
+  });
+
+  const rejected = async (limit: number) => {
+    const res = await list({ limit });
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    return { isError: res.isError, structured: res.structuredContent, text: first?.text ?? "" };
+  };
+
+  test("a fractional limit is rejected as invalid input, not truncated", async () => {
+    for (const limit of [1.5, 20.5]) {
+      const res = await rejected(limit);
+      expect(res).toMatchObject({ isError: true, structured: undefined });
+      expect(res.text).toContain("Input validation error");
+      expect(res.text).toContain("limit");
+    }
+  });
+
+  test("a limit of 0, a negative or 101 is rejected as invalid input, not clamped", async () => {
+    for (const limit of [0, -1, 101]) {
+      const res = await rejected(limit);
+      expect(res).toMatchObject({ isError: true, structured: undefined });
+      expect(res.text).toContain("Input validation error");
+      expect(res.text).toContain("limit");
+    }
   });
 });
 

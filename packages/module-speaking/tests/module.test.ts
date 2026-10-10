@@ -3,7 +3,7 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { type LoadedModule } from "@schlessera/brain";
-import { buildTaxonomy } from "@schlessera/brain/internal";
+import { buildTaxonomy } from "@schlessera/brain/module";
 import { discoverSkills } from "../../core/src/lib/skills/discover.js";
 import { lintSkills } from "../../core/src/lib/skills/lint.js";
 

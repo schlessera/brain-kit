@@ -1,4 +1,4 @@
-import { BottomSheet, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
+import { Overlay, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
 import { TrackChip } from "./track-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
 import { X } from "lucide-react";
@@ -195,24 +195,15 @@ export function ComposerView(p: ComposerViewProps) {
       {/* Capture is a MENU behind the paperclip (D37): a popover on a pointer
           screen, the kit sheet on a phone. */}
       {p.attachMenuOpen && pointer && (
-        <div role="menu" aria-label="Attach" className="absolute bottom-full left-4 z-50 mb-1 w-72 overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl">
+        <div role="menu" aria-label="Attach" className="absolute bottom-full left-4 z-popover mb-1 w-72 overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl">
           {attachMenu}
         </div>
       )}
-      {p.attachMenuOpen && !pointer && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) p.onAttachToggle();
-          }}
-        >
-          <div role="dialog" aria-label="Attach" className="absolute inset-x-0 bottom-0">
-            <BottomSheet title="Attach" subtitle={p.onPickTracks ? "Photo, camera, track files, or paste." : "Photo, camera, or paste."} docked>
-              {attachMenu}
-            </BottomSheet>
-          </div>
-        </div>
-      )}
+      <Overlay open={p.attachMenuOpen && !pointer} variant="sheet" title="Attach" data-overlay-site="attach"
+        subtitle={p.onPickTracks ? "Photo, camera, track files, or paste." : "Photo, camera, or paste."}
+        onClose={p.onAttachToggle}>
+        {attachMenu}
+      </Overlay>
 
       <KitComposer
         variant="send"

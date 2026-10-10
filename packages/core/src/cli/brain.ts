@@ -10,9 +10,8 @@
  */
 
 import { join } from "path";
+import { isReadOnlyBrainMount, readOnlyBrainError } from "./read-only.js";
 import { Console } from "node:console";
-
-import { readEnvVar } from "../config/env.js";
 
 import { buildTaxonomy } from "../lib/taxonomy.js";
 import { resolveRoot } from "../lib/config.js";
@@ -23,12 +22,7 @@ import type { BrainContext } from "../lib/context.js";
 import { createEnrichment } from "../lib/enrichment.js";
 import type { Enrichment } from "../lib/enrichment.js";
 import { packageVersion } from "../package-version.js";
-import {
-  resolveAgentRunner,
-  resolveCompletionProvider,
-  resolveEmbeddingProvider,
-} from "../lib/registry.js";
-import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams.js";
+import { resolveProviders, type ResolvedProviders } from "../lib/registry.js";
 
 import { buildRegistry, helpText } from "./registry.js";
 import type { CliContext } from "./types.js";
@@ -91,68 +85,16 @@ const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   registry: (args) => !args.includes("--check"),
 };
 
-/** Env var holding the API key for a named built-in completion provider. */
-const COMPLETION_KEY_ENV: Record<string, string> = {
-  "gemini-flash": "GEMINI_API_KEY",
-  "anthropic-haiku": "ANTHROPIC_API_KEY",
-};
-
-function completionEntryAvailable(entry: unknown, apiKeyEnv?: string): boolean {
-  if (entry === undefined) return !!readEnvVar(apiKeyEnv ?? "GEMINI_API_KEY"); // default gemini-flash
-  if (typeof entry !== "string") return true; // custom provider value
-  const env = apiKeyEnv ?? COMPLETION_KEY_ENV[entry];
-  return env ? !!readEnvVar(env) : true; // unknown built-in name → let the resolver decide
-}
-
 /**
- * Resolve providers from config. Each is left undefined when its API key is
- * absent, so search/index/enrichment degrade to the same keyless behaviour the
- * reference brain had with no configured key. Resolution errors (bad built-in
- * name) degrade to undefined with a stderr note rather than crashing the CLI.
+ * Providers for a command, with availability decided by the registry. Each
+ * unresolvable seam is reported on stderr rather than crashing the CLI.
  */
-function resolveProviders(brain: BrainContext): {
-  embeddings?: EmbeddingProvider;
-  completions?: CompletionProvider;
-  enrichment?: Enrichment;
-  agentRunner?: AgentRunner;
-} {
-  const config = brain.config;
-
-  let embeddings: EmbeddingProvider | undefined;
-  try {
-    const embCfg = config?.embeddings;
-    const custom = embCfg && typeof embCfg.provider !== "string";
-    if (custom) {
-      embeddings = resolveEmbeddingProvider(embCfg);
-    } else {
-      const keyEnv = embCfg?.apiKeyEnv ?? "GEMINI_API_KEY";
-      if (readEnvVar(keyEnv)) embeddings = resolveEmbeddingProvider(embCfg);
-    }
-  } catch (e) {
-    console.error(`Warning: embedding provider unavailable — ${(e as Error).message}`);
+function cliProviders(brain: BrainContext): Omit<ResolvedProviders, "warnings"> & { enrichment?: Enrichment } {
+  const { warnings, ...providers } = resolveProviders(brain.config);
+  for (const warning of [warnings.embeddings, warnings.completions, warnings.agentRunner]) {
+    if (warning) console.error(`Warning: ${warning}`);
   }
-
-  let completions: CompletionProvider | undefined;
-  try {
-    const cfg = config?.completions;
-    const available = cfg
-      ? completionEntryAvailable(cfg.provider, cfg.apiKeyEnv) ||
-        (cfg.fallback !== undefined && completionEntryAvailable(cfg.fallback, cfg.fallbackApiKeyEnv))
-      : completionEntryAvailable(undefined);
-    if (available) completions = resolveCompletionProvider(cfg);
-  } catch (e) {
-    console.error(`Warning: completion provider unavailable — ${(e as Error).message}`);
-  }
-  const enrichment = completions ? createEnrichment(completions) : undefined;
-
-  let agentRunner: AgentRunner | undefined;
-  try {
-    agentRunner = resolveAgentRunner(config?.agentRunner);
-  } catch (e) {
-    console.error(`Warning: agent runner unavailable — ${(e as Error).message}`);
-  }
-
-  return { embeddings, completions, enrichment, agentRunner };
+  return { ...providers, enrichment: providers.completions ? createEnrichment(providers.completions) : undefined };
 }
 
 function detectConfigPath(root: string): string | null {
@@ -235,16 +177,21 @@ async function main(): Promise<number> {
   }
 
   // Read the actual positional subcommand, including one after `--`.
-  const hygieneNext = command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next";
+  const hygieneArgs = command === "hygiene" ? parseArgs(argv.slice(1)) : null;
+  const hygienePositionals = hygieneArgs?.args ?? [];
+  const hygieneNext = hygienePositionals[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
-  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext) {
+  const configBlockerCheck = hygienePositionals[0] === "check" && hygienePositionals[1] === "configuration-blocker";
+  const hygieneRepairWrite = (["resolve", "undo"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
+    (hygienePositionals[0] === "check" && !configBlockerCheck);
+  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext && !configBlockerCheck) {
     console.error(`Invalid brain.config:\n${configError}`);
     return 1;
   }
 
   // No config found at all → refuse anything that writes.
   const mutatingSub = MUTATING_SUBCOMMAND[command];
-  const mutates = hygieneNext ||
+  const mutates = hygieneNext || hygieneRepairWrite ||
     (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
     (MUTATING_WITH_FLAGS[command]?.(beforeTerminator(argv.slice(1))) ?? false);
   if (brain.configPath === null && mutates) {
@@ -256,11 +203,28 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const providers = resolveProviders(brain);
+  // Refuse known write forms before handlers which intentionally collect
+  // per-file errors; those loops cannot surface EROFS to main's catch.
+  if (mutates && !beforeTerminator(argv.slice(1)).includes("--dry-run") && isReadOnlyBrainMount(brain.root)) {
+    const refusal = readOnlyBrainError(command, { code: "EROFS" })!;
+    if (json) console.log(JSON.stringify(refusal));
+    else console.error(refusal.error.message);
+    return 2;
+  }
+
+  const providers = cliProviders(brain);
   const cli: CliContext = { brain, json, configError, configCause, ...providers };
 
-  const code = await entry.run(argv.slice(1), cli);
-  return typeof code === "number" ? code : 0;
+  try {
+    const code = await entry.run(argv.slice(1), cli);
+    return typeof code === "number" ? code : 0;
+  } catch (error) {
+    const refusal = readOnlyBrainError(command, error);
+    if (!refusal) throw error;
+    if (json) console.log(JSON.stringify(refusal));
+    else console.error(refusal.error.message);
+    return 2;
+  }
 }
 
 // Bun's native console can bypass the stream's pending-write accounting after

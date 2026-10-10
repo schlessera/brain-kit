@@ -366,7 +366,7 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     await settle(s);
     await activate(s, search, mode);
     expect(ui$(s).searchPanelOpen).toBe(true);
-    await expect.poll(() => document.activeElement?.closest('[aria-label="Search"], .fixed')?.textContent?.includes("Search") ?? false,
+    await expect.poll(() => document.activeElement?.closest('[aria-label="Search"], [data-panel="Search"], .fixed')?.textContent?.includes("Search") ?? false,
       { message: "focus moves into the Search panel" }).toBe(true);
     if (width === 320 && height === 640 && mode === "mixed") await page.screenshot({ element: s.host, path: `../../.vitest-attachments/phone-navigation/${theme}-320-occupied.png` });
   });
@@ -398,7 +398,7 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     const s = await mount(ctx, "occupied", { width, height, theme, connected: false });
     const moreTab = must(s, /^More/, "tab");
     await activate(s, moreTab, mode);
-    const sheet = s.host.querySelector<HTMLElement>('[role="dialog"][aria-label="More"]')!;
+    const sheet = s.host.querySelector<HTMLElement>('[data-overlay-site="more"]')!;
     expect(sheet).not.toBeNull();
     const first = sheet.querySelector<HTMLElement>('[role="button"]')!;
     expect(document.activeElement, "More focuses its first row").toBe(first);
@@ -412,19 +412,20 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     expect(rows.map((r) => r.textContent)).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain", "Brain statisticsDocuments and software versions"]);
     for (const row of rows) {
       // A short viewport scrolls the sheet rather than clipping it.
-      row.scrollIntoView({ block: "nearest" });
+      row.scrollIntoView({ block: "center", behavior: "instant" });
+      await settle(s);
       const r = rect(row);
       expect(r.height, `44px row: ${row.textContent}`).toBeGreaterThanOrEqual(44);
       expect(r.bottom <= height && r.top >= 0, `row on screen: ${row.textContent}`).toBe(true);
     }
     await userEvent.keyboard("{Escape}");
     await settle(s);
-    expect(s.host.querySelector('[role="dialog"][aria-label="More"]')).toBeNull();
+    expect(s.host.querySelector('[data-overlay-site="more"]')).toBeNull();
     expect(document.activeElement, "Esc returns focus to the More slot").toBe(must(s, /^More/, "tab"));
     // A press on the scrim dismisses More and returns focus the same way.
     await activate(s, must(s, /^More/, "tab"), mode);
-    const scrim = s.host.querySelector<HTMLElement>('[role="dialog"][aria-label="More"]')!.parentElement!;
-    const above = rect(s.host.querySelector('[role="dialog"][aria-label="More"]')!).top;
+    const scrim = s.host.querySelector<HTMLElement>('[data-overlay-site="more"] .bk-overlay-scrim')!;
+    const above = rect(s.host.querySelector('[data-overlay-site="more"] .bk-overlay-surface')!).top;
     if (above > 8) {
       const point = { x: width / 2, y: above / 2 };
       expect(document.elementFromPoint(point.x, point.y), "the scrim is what is pressed").toBe(scrim);
@@ -432,7 +433,7 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
       if (mode === "fine") await commands.overlayMouse(point);
       else await commands.rankTap(point);
       await settle(s);
-      expect(s.host.querySelector('[role="dialog"][aria-label="More"]'), "the scrim dismisses More").toBeNull();
+      expect(s.host.querySelector('[data-overlay-site="more"]'), "the scrim dismisses More").toBeNull();
       expect(document.activeElement, "a scrim press returns focus to the More slot").toBe(must(s, /^More/, "tab"));
     } else {
       await userEvent.keyboard("{Escape}");
@@ -456,10 +457,10 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     expect(must(s, /^Files/, "tab").getAttribute("aria-selected"), "Files is here").toBe("true");
     // More opens over the drawer, and Escape dismisses only More.
     await activate(s, must(s, /^More/, "tab"), mode);
-    expect(s.host.querySelector('[role="dialog"][aria-label="More"]'), "More opens over Files").not.toBeNull();
+    expect(s.host.querySelector('[data-overlay-site="more"]'), "More opens over Files").not.toBeNull();
     await userEvent.keyboard("{Escape}");
     await settle(s);
-    expect(s.host.querySelector('[role="dialog"][aria-label="More"]')).toBeNull();
+    expect(s.host.querySelector('[data-overlay-site="more"]')).toBeNull();
     expect(ui$(s).filePanelOpen, "Escape leaves Files open under More").toBe(true);
     await activate(s, must(s, /^Chat/, "tab"), mode);
     expect(ui$(s).filePanelOpen, "Chat replaces the panel").toBe(false);

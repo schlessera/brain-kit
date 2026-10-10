@@ -1,6 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Activity as ActivityIcon, AlertTriangle, RefreshCw } from "lucide-react";
+import { Activity as ActivityIcon, RefreshCw } from "lucide-react";
 import type { ActivitySpan, InboxActionItem, InboxQueueItem, SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { useInboxStore, pendingDecisionCount } from "../../stores/inbox-store.js";
 import {
@@ -16,7 +16,7 @@ import {
 } from "./durable-actions.js";
 import { QueueItemReceipt, QueueView, useQueueCounts } from "./queue-view.js";
 import { formatWhen, groupDecisions, priorityTerms } from "./inbox-model.js";
-import { Disclosure } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, ListRow, TextButton, Disclosure } from "@schlessera/brain-ui-kit";
 
 import type {
   ActivityIntent,
@@ -564,49 +564,37 @@ export function ActivityPage() {
       <section
         aria-label="Actions queue"
         className={cn(
-          "min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:flex-none laptop:border-r laptop:border-border-subtle",
+          "@container/activity min-h-0 flex-col overflow-y-auto laptop:flex laptop:w-[360px] laptop:flex-none laptop:border-r laptop:border-border-subtle",
           openDetail ? "hidden" : "flex flex-1"
         )}
       >
         {queueOpen ? (
           <QueueView focusId={queueFocus} onBack={closeQueue} onOpenAction={queueToAction} onOpenItem={openQueueItem} />
         ) : (<>
-        <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-3">
           <ActivityIcon className="h-4 w-4 text-muted-foreground" />
           <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-activity-heading="" data-destination-heading="">Actions</h1>
-          <div className="ml-auto flex items-center gap-2">
-            {pricingStale && (
-              <button
-                type="button"
+          {pricingStale && (
+            <span className="order-last flex basis-full @[480px]/activity:order-none @[480px]/activity:ml-auto @[480px]/activity:basis-auto">
+              <Button
+                tone="suggest" size="sm" icon="attention" label="Pricing stale"
+                ariaLabel="Pricing refresh is failing — costs may use stale rates. Open Settings"
+                block={false} style={{ minHeight: 44 }}
                 onClick={() => openSettings("models")}
-                className="flex items-center gap-1 rounded-md p-1.5 text-primary transition-colors hover:bg-surface-raised hover:text-primary/80"
-                aria-label="Pricing refresh is failing — costs may use stale rates. Open Settings"
-                title="Pricing refresh is failing — costs may use stale rates. Open Settings"
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />
-                <span className="hidden text-[10px] sm:inline">Pricing stale</span>
-              </button>
-            )}
+              />
+            </span>
+          )}
+          <div className={cn("flex items-center gap-2", pricingStale ? "ml-auto @[480px]/activity:ml-0" : "ml-auto")}>
             <PushToggle />
           </div>
           {inboxSupported && (
-            <button
-              type="button"
+            <TextButton
+              tone="meta" label={`Queue · ${queueCounts.total} ▸`}
+              ariaLabel={`Open the queue, ${queueCounts.total} items`}
               onClick={() => openQueue(null)}
-              className="min-h-11 rounded-md px-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-              aria-label={`Open the queue, ${queueCounts.total} items`}
-            >
-              Queue · {queueCounts.total} ▸
-            </button>
+            />
           )}
-          <button
-            type="button"
-            onClick={refresh}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-            aria-label="Refresh"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
+          <IconButton size="sm" name="Refresh" glyph={<RefreshCw />} onClick={refresh} />
         </div>
 
         <div className="mx-auto w-full max-w-3xl space-y-6 p-4 laptop:max-w-none">
@@ -666,9 +654,10 @@ export function ActivityPage() {
                   {(stable.order.length > 0 || stable.fresh > 0) && (
                     <div className="flex flex-col gap-2" data-decision-list="" onKeyDown={onDecisionKeyDown}>
                       {stable.fresh > 0 && (
-                        <button type="button" onClick={stable.show} className="min-h-11 rounded-md border border-border-subtle px-3 text-xs text-muted-foreground hover:text-foreground" data-decision-fresh="">
-                          {stable.fresh} new · show
-                        </button>
+                        <div data-decision-fresh="">
+                          <Button tone="quiet" size="sm" center label={`${stable.fresh} new · show`}
+                            style={{ minHeight: 44 }} onClick={stable.show} />
+                        </div>
                       )}
                       {stable.order.map((id, i) => {
                         const item = inboxItems[id];
@@ -708,13 +697,7 @@ export function ActivityPage() {
                     <section aria-labelledby="notices-heading" className="flex flex-col gap-2">
                       <div className="flex items-center">
                         <h3 id="notices-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notices · {inbox.length}</h3>
-                        <button
-                          type="button"
-                          onClick={dismissAll}
-                          className="ml-auto text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          Dismiss all
-                        </button>
+                        <TextButton tone="meta" label="Dismiss all" style={{ marginLeft: "auto" }} onClick={dismissAll} />
                       </div>
                       <div className="space-y-2" onKeyDown={onInboxKeyDown}>
                         {inbox.map((intent) => (
@@ -781,14 +764,12 @@ export function ActivityPage() {
                 </div>
               )}
               {inboxSupported && (
-                <button
-                  type="button"
-                  onClick={() => openQueue(null)}
-                  className="mt-3 min-h-11 w-full rounded-md border border-border-subtle px-3 text-left font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground hover:text-foreground"
-                  data-running-queue=""
-                >
-                  Queue: {queueCounts.ready} ready · {queueCounts.blocked} blocked · {queueCounts.failed} failed ▸
-                </button>
+                <div className="mt-3 [&>.bk-row]:min-h-11" data-running-queue="">
+                  <ListRow variant="card" mono chevron
+                    title={`Queue: ${queueCounts.ready} ready · ${queueCounts.blocked} blocked · ${queueCounts.failed} failed`}
+                    name={`Queue: ${queueCounts.ready} ready · ${queueCounts.blocked} blocked · ${queueCounts.failed} failed`}
+                    onClick={() => openQueue(null)} />
+                </div>
               )}
             </section>
           )}

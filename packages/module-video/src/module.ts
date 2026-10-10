@@ -1,5 +1,5 @@
 import { defineModule, type ModuleManifest } from "@schlessera/brain";
-import { GEMINI_FLASH_MODEL } from "@schlessera/brain/internal";
+import { GEMINI_FLASH_MODEL } from "@schlessera/brain/module";
 import { z } from "zod";
 
 export const configSchema = z.object({

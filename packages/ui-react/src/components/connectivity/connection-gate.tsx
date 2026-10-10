@@ -293,7 +293,7 @@ function OfflineBanner({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -24 }}
           transition={{ duration: 0.2 }}
-          className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-4 pt-3"
+          className="pointer-events-none fixed inset-x-0 top-0 z-banner flex justify-center px-4 pt-3"
         >
           <div
             role="status"

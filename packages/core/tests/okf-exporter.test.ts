@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
   mkdirSync,
   symlinkSync,

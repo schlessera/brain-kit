@@ -82,6 +82,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
           return { block: true, reason: "This call already completed before yielding; inspect its retained result instead of replaying it." };
+        // The server route rechecks the exact operation, live principal,
+        // membership and approval. Avoid a second runtime approval card.
+        if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) return undefined;
         const approval = decideToolPermission({
           toolName: event.toolName,
           shellToolName: "bash",

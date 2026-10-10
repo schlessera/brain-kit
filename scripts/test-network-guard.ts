@@ -79,8 +79,12 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       // Resource ownership follows children even when a test replaces env or
       // cwd. Existing extra stdio channels keep their original descriptor ids.
       const defaultStderr = key === "spawnSync" ? "pipe" : "inherit";
-      if (Array.isArray(first)) args[1] = inheritWorkspaceLease(args[1] ?? {}, defaultStderr);
-      else args[0] = inheritWorkspaceLease(args[0], defaultStderr);
+      // The trusted worker bootstrap refuses inherited authority. Keep the
+      // actual output owner in its ancestor, never pass its writable lock fd
+      // into a pipe-only boundary. This is test coordination, not a worker flag.
+      const pipeOnly = /\/ui-sdk\/(src|dist)\/server\/worker-entry\.(ts|js)$/.test(cmd[1] ?? "");
+      if (Array.isArray(first)) args[1] = inheritWorkspaceLease(args[1] ?? {}, defaultStderr, pipeOnly);
+      else args[0] = inheritWorkspaceLease(args[0], defaultStderr, pipeOnly);
       const result = Reflect.apply(native, Bun, args);
       return result;
     }) as typeof Bun.spawn & typeof Bun.spawnSync;

@@ -24,7 +24,9 @@ await command(['git', 'archive', '--format=tar', `--output=${archive}`, productS
 await command(['tar', '-xf', archive, '-C', output]);
 await rm(archive);
 // Current editorial/site sources around an independently selected product tree.
-for (const path of ['website', 'docs', 'README.md', 'scripts/captures/font-lock.json', 'scripts/captures/fonts.css', 'tsconfig.json']) {
+// The fixture library is fictional demo data, not product code: it imports only
+// fixture types a release already has, so the site can show it before a release.
+for (const path of ['website', 'docs', 'README.md', 'scripts/captures/font-lock.json', 'scripts/captures/fonts.css', 'tsconfig.json', 'packages/ui-kit/fixtures/library']) {
   await rm(resolve(output, path), { recursive: true, force: true });
   await cp(resolve(repository, path), resolve(output, path), { recursive: true, filter: source => !source.split('/').some(part => ['node_modules', 'dist', '.astro', 'test-results', 'review'].includes(part)) });
 }

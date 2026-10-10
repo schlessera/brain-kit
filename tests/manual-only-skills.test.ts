@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 
 const ROOT = resolve(import.meta.dir, "..");
 

@@ -46,4 +46,7 @@ because it needs the maintainer's claude.ai session:
 3. On a re-sync, send only the files that changed, and keep usage notes or
    README prose that someone edited on the page.
 
+The colour reader excludes the `@layers:start` / `@layers:end` fence: D54's
+numeric document layers are read by the kit's separate layer pipeline.
+Unsupported values outside that fence still fail the colour gate.
 `tests/design-system-tokens.test.ts` covers the token reader.

@@ -124,9 +124,9 @@ call, including when settings or a rewrite could otherwise auto-approve it.
 The backend builds the actual turn options and production permission handlers
 (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:55-160`).
 The explicit ask lives in
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`)
 and is registered under enforcement in
-(`...(enforced ?`, `packages/ui-backend-claude/src/permission-hooks.ts:394-397`).
+(`...(enforced ?`, `packages/ui-backend-claude/src/permission-hooks.ts:399-402`).
 
 `scripts/measure-claude-enforcement.ts` runs `createClaudeBackend().startTurn()`
 and forwards to the SDK resolved from that backend. Its query wrapper only

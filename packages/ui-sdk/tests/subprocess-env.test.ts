@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  SUBPROCESS_ENV,
-  filterSubprocessEnv,
-  parseSubprocessEnvExtra,
-} from "../src/internal";
+import { SUBPROCESS_ENV } from "../src/internal";
+import { filterSubprocessEnv, parseSubprocessEnvExtra } from "../src/server";
 
 describe("subprocess environment descriptor", () => {
   test("server-only entries are filtered behaviorally for every audience", () => {

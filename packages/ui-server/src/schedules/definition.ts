@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 
-import { parseFrontmatter } from "../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { canonicalJson } from "./canonical.js";
 import { canonicalTimeZone, isoInstant, parseCron, parseInstant, ScheduleTimeError } from "./time.js";
 

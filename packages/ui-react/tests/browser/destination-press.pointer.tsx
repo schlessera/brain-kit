@@ -251,7 +251,7 @@ function panel(s: Scene, title: string): HTMLElement | null {
   const pane = s.host.querySelector<HTMLElement>(`section[aria-label="${title}"], [role="dialog"][aria-label="${title}"]`);
   if (pane) return pane;
   const heading = [...s.host.querySelectorAll<HTMLElement>("h2")].find((h) => textOf(h) === title && h.getClientRects().length > 0);
-  return heading?.closest<HTMLElement>(".fixed") ?? null;
+  return heading?.closest<HTMLElement>(".bk-overlay-surface, .fixed") ?? null;
 }
 
 /** What a cell needs to know about its destination. */
@@ -408,7 +408,7 @@ async function press(s: Scene, spec: Spec, how: "pointer" | "chord", mode: strin
   const steps: Array<() => HTMLElement | null> = isPhone(s)
     ? spec.index === 4
       ? [() => [...s.host.querySelectorAll<HTMLElement>(`${PHONE_BAR} [role="tab"]`)][4] ?? null,
-         () => [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="More"] [role="button"]')].find((r) => textOf(r) === "Settings") ?? null]
+         () => [...s.host.querySelectorAll<HTMLElement>('[data-overlay-site="more"] [role="button"]')].find((r) => textOf(r) === "Settings") ?? null]
       : [() => [...s.host.querySelectorAll<HTMLElement>(`${PHONE_BAR} [role="tab"]`)][spec.index] ?? null]
     : [() => [...s.host.querySelectorAll<HTMLElement>(`${RAIL} [role="tab"]`)][spec.index] ?? null];
   for (const find of steps) {

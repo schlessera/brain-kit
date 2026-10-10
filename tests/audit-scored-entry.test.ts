@@ -6,11 +6,12 @@ import { cases, detect, DETECTION_DAY, prepareBenchmark } from "../scripts/evals
 import { runtimeFreeze, sha } from "../scripts/evals/audit-capabilities/freeze";
 import { main } from "../scripts/evals/audit-capabilities/live";
 import { MODEL } from "../scripts/evals/audit-capabilities/protocol";
-import { buildReviewPacket, reviewPlan, reviewPlanSha } from "../scripts/evals/audit-capabilities/review-packets";
+import { buildReviewPacket, buildReviewPlan } from "../scripts/evals/audit-capabilities/review-packets";
 import * as evidence from "../scripts/evals/audit-capabilities/review-evidence";
 import type { RootPaidPolicy } from "../scripts/evals/audit-capabilities/review-policy";
 
 const root = mkdtempSync(join(tmpdir(), "audit-scored-wiring-"));
+let reviewPlan: ReturnType<typeof buildReviewPlan>["reviewPlan"], reviewPlanSha: string;
 let frozen: ReturnType<typeof runtimeFreeze>, detectedRaw: string, proofRaw: string;
 let policies: Record<string, RootPaidPolicy>, review: any, sequence = 0;
 const wiringClock = new Date(DETECTION_DAY + "T12:00:00.000Z");
@@ -22,6 +23,7 @@ beforeAll(async () => {
   detectedRaw = JSON.stringify(rows); frozen = runtimeFreeze();
   proofRaw = JSON.stringify({ freezeSha: frozen.freezeSha, detectedSha: sha(detectedRaw), testsExitCode: 0, typecheckExitCode: 0, lintExitCode: 0, leakageGate: "clean", tests: "synthetic entry wiring only" });
   const runtime = { sdk: frozen.binaries.claude.sdkVersion, nativeSha: frozen.binaries.claude.sha256, nativeMode: frozen.binaries.claude.mode, bunSha: frozen.binaries.bun.sha256, bunVersion: frozen.binaries.bun.version, bunMode: frozen.binaries.bun.mode };
+  ({ reviewPlan, reviewPlanSha } = buildReviewPlan(frozen, detectedRaw, proofRaw));
   policies = Object.fromEntries(reviewPlan.map(packet => {
     const nonce = sha("synthetic Odysseus policy " + packet.key);
     return [packet.key, { version: 1, issue: 841, authorizationUrl: "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737", allowOverage: true, basis: "actual additional billed charges", grantNonce: nonce, consumedMarkerPath: join(root, nonce + ".json"), perIssueCapUsd: 15, aggregateCapUsd: 150, remainingUpperUsd: 15, issuedAt: new Date(Date.now() - 60_000).toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(), freezeSha: frozen.freezeSha, proofSha: sha(proofRaw), detectedSha: sha(detectedRaw), protocolSha: sha(JSON.stringify(frozen.protocol)), runtimeSha: sha(JSON.stringify(runtime)), promptSha: buildReviewPacket(frozen, detectedRaw, proofRaw, packet.key).promptSha, canonicalModel: MODEL, maxPhysicalRequests: 24, contextWindowTokens: 1_000_000, maxInputTokens: 1_000_000, maxInputBytes: 2_000_000, maxOutputTokens: 128_000, inputUsdPerMillionUpper: 8, outputUsdPerMillionUpper: 20, invoiceUsd: null } satisfies RootPaidPolicy];
@@ -56,12 +58,12 @@ async function invoke(raw: string | undefined, stub = true, unreadable = false) 
   return { seen, forwards, failure, outputCreated: existsSync(out) };
 }
 
-test("actual scored entry forwards all eight independently supplied policies through the real combined gate", async () => {
+test("actual scored entry forwards all planned independently supplied policies through the real combined gate", async () => {
   const r = await invoke(JSON.stringify(policies));
   // Mapping is asserted first: removing argument five must fail here, rather
   // than at a loader, empty fixture or later allocation assertion.
   expect(r.seen).toEqual(reviewPlan.map(p => policies[p.key]));
-  expect(r.seen).toHaveLength(8); expect(Object.keys(policies)).toHaveLength(8);
+  expect(r.seen).toHaveLength(reviewPlan.length); expect(Object.keys(policies)).toHaveLength(reviewPlan.length);
   expect(r.failure).toContain("Invalid actual-charge allowance"); expect(r.forwards).toBe(0);
 });
 

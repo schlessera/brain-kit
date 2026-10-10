@@ -13,13 +13,13 @@
  */
 
 // The descriptor contract and readEnvVar are shared across every chokepoint
-// via the sync-enforced copy in ./env-core.ts.
-export { readEnvVar } from "./env-core.js";
+// via @schlessera/brain-common/internal/env.
+export { readEnvVar } from "@schlessera/brain-common/internal/env";
 
 /**
  * One environment variable this package reads.
  *
- * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
  * package's published descriptor shape, and widening it to the shared
  * union would be a breaking change for typed consumers of ENV_VARS.
  */

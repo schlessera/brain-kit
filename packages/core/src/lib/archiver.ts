@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, existsSync, unlinkSync, statSync } from "fs";
 import { resolve } from "path";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
 import { EMBEDDING_DIMENSIONS } from "./models.js";

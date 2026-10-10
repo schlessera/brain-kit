@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { parseFrontmatter } from "../../core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { createBrainAccess } from "../src/brain-access";
 import { makeIndexedBrain, type TempBrain } from "./helpers";

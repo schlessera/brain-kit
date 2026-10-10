@@ -35,7 +35,7 @@ import {
   writeFileSync,
 } from "fs";
 import { join, resolve } from "path";
-import { parseFrontmatter } from "../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 /** Agent Skills standard: lowercase kebab, no traversal, bounded. */
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;

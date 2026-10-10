@@ -140,16 +140,16 @@ export const WritesAreMono = meta.story({
   },
 });
 
-/** A dialog with options inside a listbox. `role="option"` outside a listbox
+/** A named group with options inside a listbox. `role="option"` outside a listbox
  * announces neither the set nor the position in it, and the list element is
  * this component's own — so it renders the container, as `FilterRow` does. */
 export const Roles = meta.story({
   play: async ({ canvas }) => {
-    await expect(await canvas.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
+    await expect(await canvas.findByRole("group", { name: "Command palette" })).toBeTruthy();
     const list = await canvas.findByRole("listbox");
     await expect(list.querySelectorAll('[role="option"]')).toHaveLength(5);
     // Each group announces what kind of result it holds.
-    const groups = await canvas.findAllByRole("group");
+    const groups = [...list.querySelectorAll('[role="group"]')];
     await expect(groups).toHaveLength(3);
     await expect(groups[2]).toHaveAccessibleName("Run");
   },
@@ -233,7 +233,7 @@ export const LongLabelsClip = meta.story({
     ],
   },
   play: async ({ canvasElement }) => {
-    const box = canvasElement.querySelector<HTMLElement>('[role="dialog"]')!;
+    const box = canvasElement.querySelector<HTMLElement>('[role="group"][aria-label="Command palette"]')!;
     await expect(overflowing(box)).toEqual([]);
   },
 });
@@ -248,7 +248,7 @@ export const LongLabelsClip = meta.story({
 export const Static = meta.story({
   args: { groups: GROUPS, onQueryChange: undefined, onSelect: undefined, onClose: undefined },
   play: async ({ canvas, canvasElement }) => {
-    await expect(await canvas.findByRole("dialog")).toBeTruthy();
+    await expect(await canvas.findByRole("group")).toBeTruthy();
     await expect(canvas.queryByRole("listbox")).toBeNull();
     await expect(canvas.queryByRole("option")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
@@ -426,7 +426,7 @@ const REASONS: PaletteGroup[] = [
 export const LongReasonDropsUnderLabel = meta.story({
   args: { groups: REASONS, query: "", selected: 0, maxHeight: 440 },
   play: async ({ canvas, canvasElement }) => {
-    const dialog = canvasElement.querySelector<HTMLElement>('[role="dialog"]')!;
+    const dialog = canvasElement.querySelector<HTMLElement>('[role="group"][aria-label="Command palette"]')!;
     await expect(overflowing(dialog)).toEqual([]);
     const off = (await canvas.findAllByRole("option")).filter((o) => o.getAttribute("aria-disabled") === "true");
     await expect(off).toHaveLength(5);

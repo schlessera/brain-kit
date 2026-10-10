@@ -1,24 +1,19 @@
 import { Suspense, useEffect, useRef, type RefObject } from "react";
-import { Button, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
+import { Button, Overlay, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useFileStore } from "../../stores/file-store.js";
 import { singleKey } from "../../lib/single-key.js";
 import { useUIStore } from "../../stores/ui-store.js";
-import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
-import { ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP, BESIDE_RAIL_DRAWER } from "../layout/slide-panel.js";
 import { formatSize } from "./file-viewer-frame.js";
 import { DisabledToggleRow } from "../graph/graph-form.js";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
-import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
+import { focusFirst, scrollToStart, openModal } from "../../lib/destination-start.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
 import { lazyChunk } from "../../lib/lazy-chunk.js";
-
-/** Matches the `duration-300` slide-out below. */
-const SLIDE_OUT_MS = 300;
 
 /**
  * The `laptop:` breakpoint from `theme.css`. From here up the rail is
@@ -44,13 +39,15 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   const panes = useMediaQuery(PANES_QUERY);
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    if (!open || !panes) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || openModal()) return;
+      event.preventDefault();
+      onClose();
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, panes, onClose]);
 
   // Sync hash route to current file. When the panel closes, strip the
   // `#/files*` segment entirely so a reload doesn't reopen it.
@@ -72,10 +69,8 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     }
   }, [open, currentPath]);
 
-  // The body outlives `open` by the slide-out, then unmounts: a closed panel
-  // was otherwise keeping the whole file tree mounted behind the chat page.
-  const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
-  const showTree = showContent && (!currentPath || treeExpanded);
+  const showContent = open;
+  const showTree = open && (!currentPath || treeExpanded);
 
   // Pressing Files while it is open (D52 N3): the viewer goes to the top of
   // the file (an HTML preview by reloading) and the tree box to its top, and
@@ -99,7 +94,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     focusFirst([
       el('[role="treeitem"][aria-selected="true"]'),
       panes ? null : el("[data-file-title]"),
-      el("[data-files-heading]"),
+      el("[data-destination-heading]"),
     ], keyboard);
   });
 
@@ -108,42 +103,8 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   }
 
   return (
-    <>
-      {open && (
-        <div
-          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP)}
-          onClick={onClose}
-        />
-      )}
-
-      {/* Files is a bar and rail destination: on a phone it stops above the
-          bar, and from 480 it stops beside the rail. */}
-      <div
-        ref={panelRef as RefObject<HTMLDivElement | null>}
-        className={cn(
-          "fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)] md:w-[560px]",
-          "max-tablet:h-auto",
-          ABOVE_PHONE_BAR,
-          BESIDE_RAIL_DRAWER,
-          "transform transition-transform duration-300 ease-out",
-          // A closed drawer casts no shadow and takes no taps, as SlidePanel.
-          open ? "translate-x-0" : "translate-x-full shadow-none pointer-events-none"
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="font-[family-name:var(--font-display)] text-lg text-foreground" tabIndex={-1} data-destination-heading="" data-files-heading="">
-            Files
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close Files"
-            className="rounded-lg p-2.5 md:p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          >
-            <X className="h-5 w-5 md:h-4 md:w-4" />
-          </button>
-        </div>
-
+    <Overlay open={open} variant="panel" modal={false} size="lg" title="Files" data-panel="Files"
+      onClose={onClose} surfaceRef={panelRef}>
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Tree toggle strip — visible when a file is open */}
           {showContent && currentPath && (
@@ -187,8 +148,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           )}
         </div>
-      </div>
-    </>
+    </Overlay>
   );
 }
 
@@ -238,16 +198,15 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
   const stale = modified !== null && modified >= STALE_AFTER_DAYS;
 
   return (
-    <div
-      ref={panelRef as RefObject<HTMLDivElement | null>}
-      role="dialog"
+    <section
+      ref={panelRef}
       aria-label="Files"
-      className="fixed bottom-0 right-0 top-0 z-40 flex bg-surface tablet:left-[60px] laptop:left-[208px]"
+      className="fixed bottom-0 right-0 top-0 z-panel flex bg-surface tablet:left-[60px] laptop:left-[208px]"
     >
       {/* Tree */}
       <aside className="flex w-[300px] shrink-0 flex-col border-r border-border">
         <div className="shrink-0 px-4 pb-2 pt-4">
-          <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground" tabIndex={-1} data-destination-heading="" data-files-heading="">Files</h2>
+          <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground" tabIndex={-1} data-destination-heading="">Files</h2>
         </div>
         {/* Untrusted only (sixth pass §3b): needs the provenance record —
             origin, who, when — which no file carries yet. Drawn, disabled,
@@ -335,6 +294,6 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             (git hash, host, date) here. The app has no API for either yet,
             so neither is drawn: an evidence rail shows what is known. */}
       </aside>
-    </div>
+    </section>
   );
 }

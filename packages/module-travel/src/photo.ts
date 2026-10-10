@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { closeSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "fs";
 import type { Stats } from "fs";
 import { basename, extname, join, relative, resolve, sep } from "path";
-import { safeResolve } from "@schlessera/brain/internal";
+import { safeResolve } from "@schlessera/brain/module";
 import sharp from "sharp";
 import * as exifr from "exifr";
 import { validateOutputNaming } from "./output-naming.js";

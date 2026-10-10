@@ -15,10 +15,9 @@
 
 import { resolve, join, relative } from "path";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
-import { parseFrontmatter } from "./lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
-import { inertGeneratedText, rewriteGeneratedRegion, splitFrontmatterBlock } from "@schlessera/brain/internal";
-import { safeResolve } from "@schlessera/brain/internal";
+import { inertGeneratedText, rewriteGeneratedRegion, safeResolve, splitFrontmatterBlock } from "@schlessera/brain/module";
 
 /** Runtime configuration for the AR engine, threaded through every entry point. */
 export interface FinanceOptions {

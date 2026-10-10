@@ -64,7 +64,10 @@ beforeAll(async () => {
 afterAll(async () => {
   styles?.remove();
   await page.viewport(viewport.width, viewport.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
+// The outer window is shared across spec files; the first mount records it.
+let outer: { width: number; height: number } | undefined;
 afterEach(() => {
   if (renderer) flushSync(() => renderer!.unmount());
   ui?.dispose();
@@ -89,7 +92,8 @@ async function settle() {
 
 async function mount(width: number, height: number, theme: "dark" | "light", unavailable: typeof THREE) {
   await page.viewport(width, height);
-  await commands.formViewport(width, height);
+  const previous = await commands.formViewport(width, height);
+  outer ??= previous;
   document.documentElement.dataset.theme = theme;
   vi.stubGlobal("WebSocket", FixtureSocket);
   const roster = { providers: PROVIDERS, backends: BACKENDS, unavailable };
@@ -237,3 +241,25 @@ for (const c of cases) {
     }
   }
 }
+
+for (const width of [1280, 320]) test(`created handoff entry at ${width}: destination composer focus follows device`, async () => {
+  // Mutations: discard destination returnFocus, or return the source opener on phone.
+  const { ui: root } = await mount(width, width === 320 ? 640 : 800, "dark", THREE);
+  const opener = host!.querySelector<HTMLElement>('[data-model-trigger]')!;
+  expect(opener, "real handoff source opener exists").not.toBeNull();
+  opener.focus();
+  const handoffId = "h-ithaca-entry-0001";
+  flushSync(() => root.stores.handoff.getState().open(SESSION.id, handoffId));
+  await settle();
+  expect(host!.querySelector('[role="dialog"][aria-modal="true"]'), "real handoff review opens").not.toBeNull();
+  root.stores.chat.getState().setSessionBackend("ogygia", "pi");
+  root.stores.chat.getState().addUserMessage("ogygia", "Review the mast and yard.", "typed");
+  flushSync(() => root.stores.handoff.getState().noteCreated(handoffId, "ogygia", true));
+  await settle();
+  expect(root.stores.chat.getState().activeSessionId, "destination session is active").toBe("ogygia");
+  expect(host!.querySelector('[role="dialog"][aria-modal="true"]'), "created review closes").toBeNull();
+  const composer = host!.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
+  expect(composer, "destination composer exists").not.toBeNull();
+  expect(document.activeElement, width >= 900 ? "created desktop focuses destination composer" : "created phone focus is body and keyboard stays down")
+    .toBe(width >= 900 ? composer : document.body);
+});

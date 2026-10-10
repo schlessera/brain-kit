@@ -2,6 +2,7 @@ import type { CSSProperties, KeyboardEvent } from "react";
 
 import { warnOnce } from "../internal/dev.js";
 import { edgeFor, focusEdge, focusSibling, useRoving } from "../internal/roving.js";
+import { BrandMark } from "../primitives/BrandMark.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { Meter } from "../primitives/Meter.js";
 import { accent, color, font, token } from "../tokens.js";
@@ -236,7 +237,7 @@ export function SideRail(p: SideRailProps) {
             border: `1px solid ${color.edge}`,
           }}
         >
-          <Icon icon="brain" size={17} color={accent.amber.ink} />
+          <BrandMark size={20} />
         </span>
         {expanded ? (
           <span

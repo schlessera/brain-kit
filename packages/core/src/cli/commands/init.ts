@@ -6,6 +6,7 @@ import { openDatabase } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { validate } from "../../lib/validate.js";
 import { CORE_TYPES, isPersonalized } from "../../lib/config.js";
+import { COMPLETION_PROVIDERS, DEFAULT_EMBEDDING_PROVIDER, EMBEDDING_PROVIDERS } from "../../lib/registry.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, parseArgs, today, UsageError } from "../io.js";
 
@@ -71,8 +72,8 @@ function preflight(cli: CliContext): Record<string, unknown> {
     config,
     contentDirs: { present, missing },
     keys: {
-      GEMINI_API_KEY: !!readEnvVar("GEMINI_API_KEY"),
-      ANTHROPIC_API_KEY: !!readEnvVar("ANTHROPIC_API_KEY"),
+      GEMINI_API_KEY: !!readEnvVar(EMBEDDING_PROVIDERS[DEFAULT_EMBEDDING_PROVIDER].keyEnv),
+      ANTHROPIC_API_KEY: !!readEnvVar(COMPLETION_PROVIDERS["anthropic-haiku"].keyEnv),
     },
   };
 }

@@ -163,7 +163,7 @@ for (const [name, factory] of Object.entries(RERANKERS)) {
   );
 }
 
-for (const [name, factory] of Object.entries(EMBEDDING_PROVIDERS)) {
+for (const [name, { create: factory }] of Object.entries(EMBEDDING_PROVIDERS)) {
   runEmbeddingProviderContract(
     {
       name,
@@ -180,7 +180,7 @@ for (const [name, factory] of Object.entries(EMBEDDING_PROVIDERS)) {
   );
 }
 
-for (const [name, factory] of Object.entries(COMPLETION_PROVIDERS)) {
+for (const [name, { create: factory }] of Object.entries(COMPLETION_PROVIDERS)) {
   runCompletionProviderContract(
     {
       name,

@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { AuditIssue } from "./types.js";
-import type { TypeSpec } from "./config.js";
+import type { BrainConfig, TypeSpec } from "./config.js";
 import type { ModuleSettings } from "./module-settings-types.js";
 import type { ContentIndexQueries } from "../queries/bound.js";
 
@@ -40,6 +40,14 @@ export interface CommandContext<C = unknown> {
   config: C;
   /** The fully-merged taxonomy (core + user + every loaded module). */
   taxonomy: import("./taxonomy.js").Taxonomy;
+  /**
+   * The brain's `completions` config block as written, absent when none is
+   * configured. A command that calls a model resolves it with
+   * `resolveCompletionProvider` from `@schlessera/brain/module`, so it honors
+   * the configured provider.
+   * @experimental Until 1.0; follows the shared integration contract.
+   */
+  completions?: BrainConfig["completions"];
 }
 
 /** Context for a module tool, with its owning module's validated config.

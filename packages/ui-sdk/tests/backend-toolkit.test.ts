@@ -11,9 +11,19 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 const permissionExports = ["decideToolPermission", "createToolPermissionRequest", "requestToolPermission", "checkEditedApproval", "compileConfirmPatterns"] as const;
-test("ordinary entry points expose the toolkit and exclude bundled implementation policies", () => {
+/** Every helper both shipped backends import is public toolkit (#1399; ruling on #1345). */
+const sharedToolkitExports = [
+  "handleAskUser", "handleAskUserForm", "handleAskUserList", "handleAskUserRank", "handleGetCurrentLocation",
+  "handleQueryActivity", "handleRequestImageMask", "handleShowBlock", "BRIDGE_TOOL_POSTURE",
+  "wrapCommand", "validateExecWrapper", "EXEC_WRAPPER_ENV", "EXEC_KILLER_ENV",
+  "filterSubprocessEnv", "parseSubprocessEnvExtra", "BRAIN_LOCK_KEY", "bashLockKey",
+  "describeRetry", "resolveThinkingLevel", "assertLoadedSdk", "rtkRewriteCommand", "DEFAULT_CONFIRM_BASH_PATTERNS",
+] as const;
+test("ordinary entry points expose the toolkit and exclude single-consumer helpers", () => {
   for (const name of permissionExports) expect(typeof sdk[name], name).toBe("function");
-  for (const name of ["DEFAULT_CONFIRM_BASH_PATTERNS", "ARCHIVING_UPDATE_REASON", "archivesDocument", "bashCommand", "SUBPROCESS_ENV", "filterSubprocessEnv", "parseSubprocessEnvExtra"]) {
+  for (const name of sharedToolkitExports) expect(sdk[name], `SDK /server lacks toolkit ${name}`).toBeDefined();
+  // Helpers only one backend, or the host and one backend, use stay first-party (#1372, #1374).
+  for (const name of ["ARCHIVING_UPDATE_REASON", "archivesDocument", "bashCommand", "SUBPROCESS_ENV", "execWrapperSpawnOptions", "GIT_LOCK_KEY", "canonicalModelId", "loadedSdkIdentity", "VERSION_PROBE_TIMEOUT_MS", "claudeMaskFilename", "piMaskFilename", "webSearchProvider"]) {
     expect(Object.hasOwn(sdk, name), `SDK exposes internal ${name}`).toBe(false);
   }
   expect(typeof claude.createClaudeBackend).toBe("function");
@@ -96,15 +106,14 @@ test("safe edits execute the snapshotted input once", async () => {
   expect(JSON.parse(readFileSync(join(f.root, "executed.json"), "utf8"))).toEqual({ path: "other.md", text: "approved" });
 });
 
-test("internal entries retain the original shared policies and environment operation", async () => {
-  const internal = await import("@schlessera/brain-ui-sdk/internal");
+test("the shared policies and environment operation keep one identity across entries", async () => {
   const claudeInternal = await import("@schlessera/brain-backend-claude/internal");
   const piInternal = await import("@schlessera/brain-backend-pi/internal");
-  expect(internal.DEFAULT_CONFIRM_BASH_PATTERNS.length).toBeGreaterThan(0);
-  expect(claudeInternal.DEFAULT_CONFIRM_BASH_PATTERNS).toBe(internal.DEFAULT_CONFIRM_BASH_PATTERNS);
+  expect(sdk.DEFAULT_CONFIRM_BASH_PATTERNS.length).toBeGreaterThan(0);
+  expect(claudeInternal.DEFAULT_CONFIRM_BASH_PATTERNS).toBe(sdk.DEFAULT_CONFIRM_BASH_PATTERNS);
   expect(claudeInternal.VOICE_ALLOWED_TOOLS.length).toBeGreaterThan(0);
   expect(piInternal.DEFAULT_PI_ALLOWED_TOOLS.length).toBeGreaterThan(0);
   expect(piInternal.TOOL_RISK.write_file).toBe("mutate");
-  expect(internal.filterSubprocessEnv({ PATH: "/bin", COOKIE_SECRET: "fixture", EXTRA: "allowed" }, "agent", ["EXTRA"]))
+  expect(sdk.filterSubprocessEnv({ PATH: "/bin", COOKIE_SECRET: "fixture", EXTRA: "allowed" }, "agent", ["EXTRA"]))
     .toEqual({ PATH: "/bin", EXTRA: "allowed" });
 });

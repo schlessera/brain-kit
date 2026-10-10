@@ -17,7 +17,7 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
-import { parseFrontmatter } from "../../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { SkillEmitter } from "../../seams.js";
 import { CONTRACT_END, CONTRACT_FILE, CONTRACT_START, renderContractBlock } from "./contract-block.js";

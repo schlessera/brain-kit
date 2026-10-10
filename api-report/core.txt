@@ -102,6 +102,7 @@ export "./internal" (./src/internal.ts)
   isWriteRefusal
   loadVecSupport
   openDatabase
+  prepareIngest
   pruneScratch
   readDocumentPart
   relevanceOnArchive
@@ -115,6 +116,36 @@ export "./internal" (./src/internal.ts)
   scratchName
   splitFrontmatterBlock
   updateDocument
+  writeFileSafely
+  writeScratchFile
+
+export "./module" (./src/module.ts)
+  GEMINI_FLASH_MODEL
+  type GeminiCompletionConfig
+  type RegistryProblem
+  type RegistryRun
+  SCRATCH_DIR
+  type ScratchFailure
+  type ScratchRemoval
+  type ScratchReport
+  type ValidationIssue
+  type WriteFileSafelyOptions
+  WriteRefusedError
+  assertScratchWritable
+  buildTaxonomy
+  geminiCompletions
+  getMarkdownFiles
+  inertGeneratedText
+  isInScratch
+  isWriteRefusal
+  pruneScratch
+  resolveCompletionProvider
+  resolveWritable
+  rewriteGeneratedRegion
+  runRegistry
+  safeResolve
+  scratchName
+  splitFrontmatterBlock
   writeFileSafely
   writeScratchFile
 
@@ -270,6 +301,7 @@ signatures (every public export and the types it is made of)
         json: boolean;
         config: C;
         taxonomy: import("./taxonomy.js").Taxonomy;
+        completions?: BrainConfig["completions"];
     }
   CommandModule (packages/core/src/lib/module-types.ts)
     export interface CommandModule<C = unknown> {
@@ -304,6 +336,8 @@ signatures (every public export and the types it is made of)
         name: string;
         answering(text: string): CompletionProvider;
     }
+  CompletionsConfig (packages/core/src/lib/registry.ts)
+    type CompletionsConfig = NonNullable<BrainConfig["completions"]>;
   ContentIndexQueries (packages/core/src/queries/bound.ts)
     export interface ContentIndexQueries {
         readGraphMeta(): QueryResult<GraphMeta>;
@@ -366,7 +400,7 @@ signatures (every public export and the types it is made of)
         path: string;
         updated: string | null;
     }
-  DynamicEnvReadSpec (packages/core/src/config/env-core.ts)
+  DynamicEnvReadSpec (packages/common/src/env-core.ts)
     export interface DynamicEnvReadSpec {
         source: string;
         description: string;
@@ -409,6 +443,13 @@ signatures (every public export and the types it is made of)
     }
   FactRule (packages/core/src/lib/config.ts)
     export type FactRule = z.infer<typeof factRuleSchema>;
+  GEMINI_FLASH_MODEL (packages/core/src/lib/llm-defaults.ts)
+    const GEMINI_FLASH_MODEL: string;
+  GeminiCompletionConfig (packages/core/src/providers/completions/gemini.ts)
+    export interface GeminiCompletionConfig {
+        model?: string;
+        apiKeyEnv?: string;
+    }
   GraphMeta (packages/core/src/queries/types.ts)
     export interface GraphMeta {
         available: boolean;
@@ -652,6 +693,18 @@ signatures (every public export and the types it is made of)
         item: C;
         score: number;
     }
+  RegistryProblem (packages/core/src/lib/index-registry.ts)
+    export interface RegistryProblem {
+        path: string;
+        error: string;
+    }
+  RegistryRun (packages/core/src/lib/index-registry.ts)
+    export interface RegistryRun {
+        indexes: number;
+        written: string[];
+        stale: string[];
+        invalid: RegistryProblem[];
+    }
   RerankCandidate (packages/core/src/lib/seams.ts)
     export interface RerankCandidate {
         id: string;
@@ -712,6 +765,26 @@ signatures (every public export and the types it is made of)
     }
   SCHEMA_VERSION (packages/core/src/lib/db.ts)
     const SCHEMA_VERSION: 15;
+  SCRATCH_DIR (packages/core/src/lib/scratch.ts)
+    const SCRATCH_DIR: ".brain/scratch";
+  ScratchFailure (packages/core/src/lib/scratch.ts)
+    export interface ScratchFailure {
+        path: string;
+        reason: string;
+    }
+  ScratchRemoval (packages/core/src/lib/scratch.ts)
+    export interface ScratchRemoval {
+        path: string;
+        bytes: number;
+        reason: "age" | "size" | "clean";
+    }
+  ScratchReport (packages/core/src/lib/scratch.ts)
+    export interface ScratchReport {
+        removed: ScratchRemoval[];
+        failed: ScratchFailure[];
+        bytes: number;
+        files: number;
+    }
   SearchLanguage (packages/core/src/lib/search-language.ts)
     export type SearchLanguage = "english" | "none";
   SearchMode (packages/core/src/lib/seams.ts)
@@ -907,6 +980,12 @@ signatures (every public export and the types it is made of)
     }
   TypeSpec (packages/core/src/lib/config.ts)
     export type TypeSpec = z.infer<typeof typeSpecSchema>;
+  ValidationIssue (packages/core/src/lib/validate.ts)
+    export interface ValidationIssue {
+        file: string;
+        level: "error" | "warning";
+        message: string;
+    }
   VectorSlots (packages/core/src/lib/indexer/compact.ts)
     export interface VectorSlots {
         live: number | null;
@@ -917,8 +996,21 @@ signatures (every public export and the types it is made of)
         terms: string[];
         extractorVersion: number;
     }
+  WriteFileSafelyOptions (packages/core/src/lib/safe-path.ts)
+    export interface WriteFileSafelyOptions {
+        replace?: boolean;
+        mode?: number;
+        beforePublish?: () => void;
+    }
+  WriteRefusedError (packages/core/src/lib/safe-path.ts)
+    export class WriteRefusedError extends Error {
+        readonly code: "EEXIST" | undefined;
+        constructor(message: string, code?: "EEXIST");
+    }
   assertPermutation (packages/core/src/lib/reranker.ts)
     export function assertPermutation<C extends RerankCandidate>(input: readonly C[], output: readonly Ranked<C>[]): void;
+  assertScratchWritable (packages/core/src/lib/scratch.ts)
+    export function assertScratchWritable(root: string, abs: string): void;
   assetTitleRuleSchema (packages/core/src/lib/config.ts)
     const assetTitleRuleSchema: z.ZodUnion<readonly [z.ZodObject<{
         label: z.ZodString;
@@ -1135,6 +1227,11 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   buildPathMatcher (packages/core/src/lib/reranker.ts)
     export function buildPathMatcher(patterns: readonly string[] | undefined): ((path: string) => boolean) | undefined;
+  buildTaxonomy (packages/core/src/lib/taxonomy.ts)
+    export function buildTaxonomy(opts: {
+        user?: BrainConfig | null;
+        modules?: LoadedModule[];
+    }): Taxonomy;
   candidateKey (packages/core/src/lib/reranker.ts)
     export function candidateKey(c: RerankCandidate): string;
   createEnrichment (packages/core/src/lib/enrichment.ts)
@@ -1172,6 +1269,16 @@ signatures (every public export and the types it is made of)
         excludeStatus?: string;
         pathSuffix?: string;
     }): QueryResult<DocumentCandidate[]>;
+  geminiCompletions (packages/core/src/providers/completions/gemini.ts)
+    export function geminiCompletions(config?: GeminiCompletionConfig): CompletionProvider;
+  getMarkdownFiles (packages/core/src/lib/indexer/scan.ts)
+    export function getMarkdownFiles(root: string, taxonomy: Taxonomy): string[];
+  inertGeneratedText (packages/core/src/lib/generated-regions.ts)
+    export function inertGeneratedText(text: string): string;
+  isInScratch (packages/core/src/lib/scratch.ts)
+    export function isInScratch(root: string, path: string): boolean;
+  isWriteRefusal (packages/core/src/lib/scratch.ts)
+    export function isWriteRefusal(error: unknown): boolean;
   listIndexDocuments (packages/core/src/queries/index.ts)
     export function listIndexDocuments(opts: Root & {
         type?: string;
@@ -1194,6 +1301,11 @@ signatures (every public export and the types it is made of)
         }>>;
         source: z.ZodString;
     }, z.core.$strict>;
+  pruneScratch (packages/core/src/lib/scratch.ts)
+    export function pruneScratch(root: string, now?: number, { ttlMs = SCRATCH_TTL_MS, maxBytes = SCRATCH_MAX_BYTES }?: {
+        ttlMs?: number;
+        maxBytes?: number;
+    }): ScratchReport;
   readGraphClusters (packages/core/src/queries/index.ts)
     export function readGraphClusters(opts: Root & {
         community?: number;
@@ -1230,18 +1342,38 @@ signatures (every public export and the types it is made of)
     }): QueryResult<VoiceVocabulary>;
   repoRelativePathSchema (packages/core/src/lib/config.ts)
     const repoRelativePathSchema: z.ZodString;
+  resolveCompletionProvider (packages/core/src/lib/registry.ts)
+    export function resolveCompletionProvider(config?: CompletionsConfig): CompletionProvider;
   resolveReranker (packages/core/src/lib/registry.ts)
     export function resolveReranker(config?: RerankerSettings): Reranker | undefined;
+  resolveWritable (packages/core/src/lib/safe-path.ts)
+    export function resolveWritable(root: string, relOrAbs: string): string | null;
+  rewriteGeneratedRegion (packages/core/src/lib/generated-regions.ts)
+    export function rewriteGeneratedRegion(raw: string, name: string, content: string, asOf: string): string | null;
   runAgentRunnerContract (packages/core/src/testing/agent-runners.ts)
     export function runAgentRunnerContract(harness: AgentRunnerContractHarness, primitives: ContractTestPrimitives): void;
   runCompletionProviderContract (packages/core/src/testing/completions.ts)
     export function runCompletionProviderContract(harness: CompletionProviderContractHarness, primitives: ContractTestPrimitives): void;
   runEmbeddingProviderContract (packages/core/src/testing/embeddings.ts)
     export function runEmbeddingProviderContract(harness: EmbeddingProviderContractHarness, primitives: ContractTestPrimitives): void;
+  runRegistry (packages/core/src/lib/index-registry.ts)
+    export function runRegistry(root: string, taxonomy: Taxonomy, opts: {
+        check?: boolean;
+        asOf: string;
+    }): RegistryRun;
   runRerankerContract (packages/core/src/testing/rerankers.ts)
     export function runRerankerContract(harness: RerankerContractHarness, primitives: ContractTestPrimitives): void;
   runSkillEmitterContract (packages/core/src/testing/skill-emitters.ts)
     export function runSkillEmitterContract(harness: SkillEmitterContractHarness, primitives: ContractTestPrimitives): void;
+  safeResolve (packages/core/src/lib/safe-path.ts)
+    export function safeResolve(root: string, relPath: string): string | null;
+  scratchName (packages/core/src/lib/scratch.ts)
+    export function scratchName(stem: string, ext: string, now?: Date): string;
+  splitFrontmatterBlock (packages/core/src/lib/generated-regions.ts)
+    export function splitFrontmatterBlock(raw: string): {
+        frontmatter: string;
+        body: string;
+    };
   syncSkills (packages/core/src/lib/skills/sync.ts)
     export function syncSkills(ctx: SkillSources, opts?: SyncOptions): SyncResult;
   tagsConfigSchema (packages/core/src/lib/config.ts)
@@ -1357,3 +1489,9 @@ signatures (every public export and the types it is made of)
             warning: "warning";
         }>>;
     }, z.core.$strict>;
+  writeFileSafely (packages/core/src/lib/safe-path.ts)
+    export function writeFileSafely(abs: string, data: string | Uint8Array, { replace = true, mode, beforePublish }?: WriteFileSafelyOptions): void;
+  writeScratchFile (packages/core/src/lib/scratch.ts)
+    export function writeScratchFile(root: string, target: string, data: string | Uint8Array, { replace = false }?: {
+        replace?: boolean;
+    }): string;

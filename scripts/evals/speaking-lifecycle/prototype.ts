@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { archiveDocument } from "../../../packages/core/src/lib/archiver";
 import { editFrontmatter } from "../../../packages/core/src/lib/frontmatter-edit";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { readGeneratedRegion, rewriteGeneratedRegion } from "../../../packages/core/src/lib/generated-regions";
 import { renderRegistry } from "../../../packages/core/src/lib/index-registry";
 import type { Taxonomy } from "../../../packages/core/src/lib/taxonomy";

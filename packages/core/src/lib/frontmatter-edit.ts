@@ -13,7 +13,7 @@
  * helper replaces whole values.
  */
 
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { frontmatterLength } from "./document-parts.js";
 import { stringifyDocument } from "./frontmatter.js";

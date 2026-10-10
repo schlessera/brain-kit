@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { benchmark, prepareBenchmark, mechanicalProposal, projectFiles, exactFiles, benchmarkSha } from "../scripts/evals/note-disposition/benchmark";
 import { Spend, instrumentedCompletion, classificationRequest, classify, observe, summarize, MODELS, protocolSha, hybridProposal, chooseThreshold } from "../scripts/evals/note-disposition/live";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 import { validateProposal } from "../scripts/evals/note-disposition/guard";
 test("natural benchmark includes every routed class in tuning, competing targets, metadata and disjoint entities/templates", () => {
     const tuning = benchmark.filter(f => f.split === "tuning"), held = benchmark.filter(f => f.split === "held-out");

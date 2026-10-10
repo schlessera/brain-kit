@@ -77,7 +77,7 @@ async function mount(width: number, theme: string) {
     </div>,
   ));
   await document.fonts.ready;
-  const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const dialog = host.querySelector<HTMLElement>('[role="group"][aria-label="Command palette"]')!;
   const rows = [...dialog.querySelectorAll<HTMLElement>('[role="option"]')];
   expect(rows, "every row is an option").toHaveLength(ROWS.length);
   return { dialog, rows, clicks };

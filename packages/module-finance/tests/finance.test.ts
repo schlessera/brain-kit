@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeF
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
-import { buildTaxonomy } from "@schlessera/brain/internal";
+import { buildTaxonomy } from "@schlessera/brain/module";
 import { readGeneratedRegion } from "../../core/src/lib/generated-regions.js";
 import type { LoadedModule } from "@schlessera/brain";
 

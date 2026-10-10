@@ -16,7 +16,7 @@ nothing else does: no HTTP framework, no UI, no model vendor.
 @schlessera/brain-ui-sdk/sw-policy   → default service-worker route/cache policy
 ```
 
-Import the submodules explicitly — the root export carries the protocol only,
+Import the submodules explicitly — the root carries the protocol and `ENV_VARS` descriptors,
 so server bundles never touch client code (and the `react` peer dependency is
 only exercised by `./client`).
 
@@ -104,9 +104,15 @@ and `compileConfirmPatterns`, with their signature types. Use the
 [authoring workflow](../../docs/extending/agent-backends.md#the-public-permission-toolkit)
 to gate execution and check approved edits. The toolkit is experimental until
 1.0; its documented behavior and reachable types are included in the supported
-surface. Bundled defaults and subprocess-policy helpers moved to `/internal`,
-which has no compatibility guarantee. The
-[classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
+surface. The helpers both shipped backends share (the bridge-tool handlers
+and `BRIDGE_TOOL_POSTURE`, the exec wrapper, the subprocess environment filter,
+lock keys, `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`,
+`rtkRewriteCommand` and `DEFAULT_CONFIRM_BASH_PATTERNS`) are public on
+`./server` too, `@experimental` until 1.0; see the
+[shared backend toolkit](../../docs/extending/agent-backends.md#the-shared-backend-toolkit).
+Helpers with a single consumer stay at `/internal`, which has no compatibility
+guarantee. The
+[classification table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
 names every affected import. Subscription-auth helpers remain protocol API.
 
 The existing coastline geometry helpers/types and `fetchCoastline` under `./server`
@@ -310,3 +316,17 @@ its own network error. An installed worker missing its cached shell falls back
 to `/offline.html`, or to a 503 carrying the same sentence if that page is also
 missing. Cache or site-data eviction can remove previously available assets.
 The generated files and their precache inventory belong to the hosting template.
+
+## Environment
+
+The worker bootstrap accepts only the server-minted internal launch transport;
+there is no operator switch that disables worker admission.
+
+<!-- env:begin -->
+
+| Variable | What it controls | Unset |
+| --- | --- | --- |
+| `BRAIN_WORKER_LAUNCH` | Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override. | **required** — trusted worker bootstrap only |
+
+Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
+<!-- env:end -->

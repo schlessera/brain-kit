@@ -53,10 +53,10 @@ export function workspaceTestAccess() {
 }
 
 /** Preserve the lock's open file description, including replaced child environments. */
-export function inheritWorkspaceLease(options = {}, defaultStderr = "inherit") {
+export function inheritWorkspaceLease(options = {}, defaultStderr = "inherit", pipeOnly = false) {
   const lease = inheritedLease();
   if (!lease) return options;
-  if (!lease.ownsFd) return { ...options, env: { ...(options.env ?? process.env), [MARKER]: JSON.stringify(lease) } };
+  if (!lease.ownsFd || pipeOnly) return { ...options, env: { ...(options.env ?? process.env), [MARKER]: JSON.stringify(lease) } };
   const { stdin, stdout, stderr, ...rest } = options;
   const defaults = ["ignore", "pipe", defaultStderr];
   const stdio = options.stdio ? [...options.stdio] : [stdin === undefined ? defaults[0] : stdin,

@@ -1,3 +1,4 @@
+import { Button, Overlay } from "@schlessera/brain-ui-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eraser, RotateCcw, X } from "lucide-react";
 
@@ -146,11 +147,12 @@ export function MaskEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 backdrop-blur-sm">
-      <div className="flex items-center justify-between gap-3 p-3 text-sm text-white">
+    <Overlay open variant="fullscreen" theme="dark" labelledBy="mask-editor-title" onClose={cancel}>
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between gap-3 p-3 text-sm text-foreground">
         <div className="min-w-0">
-          <div className="font-medium">Mark the area to change</div>
-          <div className="truncate text-white/70">
+          <h2 id="mask-editor-title" className="font-medium">Mark the area to change</h2>
+          <div className="truncate text-muted-foreground">
             {request.instruction ?? request.imagePath}
           </div>
         </div>
@@ -158,7 +160,7 @@ export function MaskEditor({
           type="button"
           onClick={cancel}
           aria-label="Cancel"
-          className="rounded p-2 hover:bg-white/10"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded hover:bg-surface-raised"
         >
           <X className="h-5 w-5" />
         </button>
@@ -213,7 +215,7 @@ export function MaskEditor({
       {error && <div className="px-3 pb-1 text-center text-sm text-destructive-fill">{error}</div>}
 
       <div className="flex items-center gap-3 p-3">
-        <label className="flex flex-1 items-center gap-2 text-xs text-white/80">
+        <label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
           Brush
           <input
             type="range"
@@ -228,7 +230,7 @@ export function MaskEditor({
           type="button"
           onClick={() => setStrokes((prev) => prev.slice(0, -1))}
           disabled={strokes.length === 0}
-          className="rounded p-2 text-white hover:bg-white/10 disabled:opacity-40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
           aria-label="Undo"
         >
           <RotateCcw className="h-5 w-5" />
@@ -237,20 +239,14 @@ export function MaskEditor({
           type="button"
           onClick={() => setStrokes([])}
           disabled={strokes.length === 0}
-          className="rounded p-2 text-white hover:bg-white/10 disabled:opacity-40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
           aria-label="Clear"
         >
           <Eraser className="h-5 w-5" />
         </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!loaded}
-          className="rounded bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
-        >
-          Use this area
-        </button>
+        <Button label="Use this area" onClick={submit} disabled={!loaded} block={false} />
       </div>
     </div>
+    </Overlay>
   );
 }

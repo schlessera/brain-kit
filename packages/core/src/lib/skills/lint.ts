@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { basename, join } from "path";
-import { parseFrontmatter } from "../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { estimateTokens } from "../context-assembler.js";
 import type { SkillManifest } from "../seams.js";

@@ -45,13 +45,16 @@ function toGeminiPart(part: ContentPart): Record<string, unknown> {
   }
 }
 
+/** Env var the Gemini completion provider reads its key from by default. */
+export const GEMINI_COMPLETIONS_KEY_ENV = "GEMINI_API_KEY";
+
 /**
  * Create a Gemini-backed CompletionProvider. Lazy client init: constructing
  * the provider makes no API call; the key is read on first complete().
  */
 export function geminiCompletions(config: GeminiCompletionConfig = {}): CompletionProvider {
   const model = config.model ?? GEMINI_FLASH_MODEL;
-  const apiKeyEnv = config.apiKeyEnv ?? "GEMINI_API_KEY";
+  const apiKeyEnv = config.apiKeyEnv ?? GEMINI_COMPLETIONS_KEY_ENV;
 
   let client: any = null;
 

@@ -17,9 +17,9 @@
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseFrontmatter } from "./lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { type AuditIssue, type HygieneContext } from "@schlessera/brain";
-import { safeResolve, splitFrontmatterBlock, writeFileSafely } from "@schlessera/brain/internal";
+import { safeResolve, splitFrontmatterBlock, writeFileSafely } from "@schlessera/brain/module";
 
 import type { JobsConfig } from "./module.js";
 

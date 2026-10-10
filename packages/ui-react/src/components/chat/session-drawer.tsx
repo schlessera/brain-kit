@@ -156,6 +156,7 @@ export function useSessionListProps({ visible, onResume, onOpenTracker, onLeave 
  * ≥1280 Sessions is the pane beside the transcript instead (`SessionsPane`).
  */
 export function SessionDrawer({
+  returnFocus,
   open,
   onClose,
   onResume,
@@ -166,6 +167,7 @@ export function SessionDrawer({
   onResume: (sessionId: string) => void;
   /** Open a tracked session from its Working row; defaults to `onResume`. */
   onOpenTracker?: (sessionId: string) => void;
+  returnFocus?: boolean;
 }) {
   const props = useSessionListProps({ visible: open, onResume, onOpenTracker: onOpenTracker ?? onResume, onLeave: onClose });
 
@@ -187,7 +189,7 @@ export function SessionDrawer({
   });
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination panelRef={panelRef}>
+    <SlidePanel open={open} onClose={onClose} title="Sessions" wide destination panelRef={panelRef} returnFocus={returnFocus}>
       <SessionList {...props} />
     </SlidePanel>
   );

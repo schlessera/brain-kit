@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
 import { BottomSheet } from "../chrome/BottomSheet.js";
-import { color, token } from "../tokens.js";
+import { color, z, token } from "../tokens.js";
 
 /**
  * The modal bottom sheet a summary pill of the shared row opens (D52 §3): the
@@ -71,7 +71,7 @@ export function SheetDialog(p: SheetDialogProps) {
       data-theme={p.theme}
       // Ink is set here, not inherited: the portal leaves the row's subtree,
       // and the page's foreground may belong to the other theme.
-      style={{ position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow"), color: color.ink }}
+      style={{ position: "fixed", inset: 0, zIndex: z.modal, background: token("palette-shadow"), color: color.ink }}
       onMouseDown={(e) => {
         if (e.target !== e.currentTarget) return;
         // The press would otherwise move focus to whatever is under the scrim

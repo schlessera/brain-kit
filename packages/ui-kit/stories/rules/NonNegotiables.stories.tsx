@@ -221,6 +221,7 @@ export const ReducedMotion = meta.story({
     let ghostStill = false;
     let handoffInstant = false;
     let mediaRules = 0;
+    let entryGuards = 0;
     for (const sheet of document.styleSheets) {
       let rules: CSSRuleList;
       try {
@@ -231,6 +232,12 @@ export const ReducedMotion = meta.story({
       for (const rule of rules) {
         if (!(rule instanceof CSSMediaRule)) continue;
         if (!rule.conditionText.includes("prefers-reduced-motion")) continue;
+        // Entry guards and reduce overrides are distinct policies; each has
+        // exactly one owner. Only the override contains breathe/ghost rules.
+        if (rule.conditionText.includes("no-preference")) {
+          entryGuards += 1;
+          continue;
+        }
         mediaRules += 1;
         for (const inner of rule.cssRules) {
           if (inner instanceof CSSKeyframesRule && inner.name === "breathe") override = inner;
@@ -247,7 +254,8 @@ export const ReducedMotion = meta.story({
       }
     }
 
-    await expect(mediaRules).toBe(1);
+    await expect(mediaRules, "one reduced-motion override").toBe(1);
+    await expect(entryGuards, "one entry-motion guard").toBe(1);
     await expect(override).not.toBeNull();
 
     // One stop, and it is the rest state. Two stops would still animate; a

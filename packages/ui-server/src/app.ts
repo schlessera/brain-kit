@@ -383,6 +383,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     askUserFormLimits: config.askUserFormLimits,
     wsRate: config.wsRate,
     wsMaxConnections: config.wsMaxConnections,
+    isPrincipalAuthorized: (id) => {
+      const current = resolvePrincipal(db, id);
+      return current !== null && isUsablePrincipal(current, Date.now());
+    },
     isPrincipalValid: (principal) => {
       const current = resolvePrincipal(db, principal.id);
       return current !== null && isUsablePrincipal(current, Date.now());

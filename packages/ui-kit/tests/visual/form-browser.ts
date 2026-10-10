@@ -33,8 +33,21 @@ export const htmlPreviewFixture: BrowserCommand<[string | null, string?], void> 
   });
 };
 
+/** Keyless native image request for the mask-editor integration scene. */
+export const overlayImageFixture: BrowserCommand<[boolean], void> = async (ctx, enabled) => {
+  await ctx.page.unroute("**/api/files/content?*");
+  if (!enabled) return;
+  const origin = new URL(ctx.page.url()).origin;
+  await ctx.page.route("**/api/files/content?*", async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin || url.searchParams.get("path") !== "raft.png") { await route.abort(); return; }
+    await route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><rect width="100" height="60" fill="teal"/></svg>' });
+  });
+};
+
 declare module "vitest/browser" {
   interface BrowserCommands {
+    overlayImageFixture(enabled: boolean): Promise<void>;
     htmlPreviewFixture(path: string | null, html?: string): Promise<void>;
     formViewport(
       width: number,

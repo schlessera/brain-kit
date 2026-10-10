@@ -6,11 +6,13 @@ import {
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
 import {
-  BRIDGE_TOOL_POSTURE,
   claudeMaskFilename,
   claudeReportedMaskPath,
-  handleRequestImageMask,
 } from "@schlessera/brain-ui-sdk/internal";
+import {
+  BRIDGE_TOOL_POSTURE,
+  handleRequestImageMask,
+} from "@schlessera/brain-ui-sdk/server";
 
 /** Bridges the tool to the host's mask provider (`BackendBridge.requestMask`). */
 export type MaskHandler = (

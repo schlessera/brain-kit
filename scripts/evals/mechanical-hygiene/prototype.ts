@@ -5,7 +5,7 @@ import { join, posix } from "node:path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { editFrontmatter } from "../../../packages/core/src/lib/frontmatter-edit";
 import { isoDay } from "../../../packages/core/src/lib/auditor";
 import { getMarkdownFiles } from "../../../packages/core/src/lib/indexer";

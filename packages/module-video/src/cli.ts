@@ -1,5 +1,5 @@
 import type { CommandModule } from "@schlessera/brain";
-import { getContext, resolveCompletionProvider, geminiCompletions } from "@schlessera/brain/internal";
+import { resolveCompletionProvider, geminiCompletions } from "@schlessera/brain/module";
 import type { VideoConfig } from "./module.js";
 import { DOCS, DISCLOSURE, seconds, watch } from "./watch.js";
 
@@ -33,7 +33,7 @@ const command: CommandModule<VideoConfig> = {
       }
       if (positional.length !== 1) throw new Error("Expected one video URL or path");
       const clip = { start: flags.start !== undefined ? seconds(flags.start) : null, end: flags.end !== undefined ? seconds(flags.end) : null };
-      const completions = getContext().config?.completions;
+      const completions = ctx.completions;
       // Honor custom/configured providers; only the built-in Gemini model is
       // overridden by this module's model setting. Never replace Anthropic.
       const builtin = !completions?.provider || completions.provider === "gemini-flash";

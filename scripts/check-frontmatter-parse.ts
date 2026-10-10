@@ -7,7 +7,8 @@
 // answered from the cache as an empty success; and the cache never evicts.
 // Passing any options object skips the cache. Rather than make every call site
 // remember that, parsing goes through `parseFrontmatter`
-// (`packages/*/src/lib/frontmatter-parse.ts`), which always passes one. The
+// (`@schlessera/brain-common/internal/frontmatter`, the one file
+// `packages/common/src/frontmatter-parse.ts`), which always passes one. The
 // decision record is docs/decisions/frontmatter-parsing.md.
 //
 // Two rules, over every package's src/tests/scripts and the root scripts/ and
@@ -38,10 +39,9 @@ type Role = "helper" | "serializer" | "cache-probe";
 /** The only files that may load gray-matter, and why each one may. */
 export const ALLOWED: ReadonlyArray<{ pattern: RegExp; role: Role; reason: string }> = [
   {
-    pattern: /^packages\/[^/]+\/src\/lib\/frontmatter-parse\.ts$/,
+    pattern: /^packages\/common\/src\/frontmatter-parse\.ts$/,
     role: "helper",
-    reason:
-      "the cache-free parse helper; its copies are held byte-identical by tests/frontmatter-parse-sync.test.ts",
+    reason: "the cache-free parse helper, the one copy every package imports from @schlessera/brain-common",
   },
   {
     pattern: /^packages\/core\/src\/lib\/frontmatter\.ts$/,
@@ -50,7 +50,7 @@ export const ALLOWED: ReadonlyArray<{ pattern: RegExp; role: Role; reason: strin
       "stringifyDocument's matter.stringify; it parses its content argument only with the options it is given, which are always a literal",
   },
   {
-    pattern: /^packages\/core\/tests\/frontmatter-parse\.test\.ts$/,
+    pattern: /^packages\/common\/tests\/frontmatter-parse\.test\.ts$/,
     role: "cache-probe",
     reason: "seeds and reads gray-matter's cache to prove parseFrontmatter neither reads nor grows it",
   },
@@ -115,7 +115,7 @@ export function scanSource(file: string, text: string): Finding[] {
     if (specifier !== undefined && isGrayMatter(specifier)) {
       if (!allowed) {
         record(node, 1, "gray-matter loaded outside its designated files — parse with parseFrontmatter " +
-          "from this package's src/lib/frontmatter-parse.ts, which keeps every parse out of the global cache");
+          "from @schlessera/brain-common/internal/frontmatter, which keeps every parse out of the global cache");
       } else if (ts.isImportDeclaration(node) && specifier === "gray-matter") {
         const clause = node.importClause;
         if (clause?.name) bindings.add(clause.name.text);
@@ -202,8 +202,8 @@ if (import.meta.main) {
     console.error(`  ${relative(root, resolve(root, f.file))}:${f.line}:${f.column}: [rule ${f.rule}] ${f.message}`);
   }
   console.error(
-    `\n${findings.length} finding(s). Parse with parseFrontmatter (src/lib/frontmatter-parse.ts in the ` +
-      "package); see docs/decisions/frontmatter-parsing.md."
+    `\n${findings.length} finding(s). Parse with parseFrontmatter ` +
+      "(@schlessera/brain-common/internal/frontmatter); see docs/decisions/frontmatter-parsing.md."
   );
   process.exit(1);
 }

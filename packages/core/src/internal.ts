@@ -10,7 +10,7 @@ export { archiveDocument } from "./lib/archiver.js";
 export { assembleContext } from "./lib/context-assembler.js";
 export { loadVecSupport, openDatabase } from "./lib/db.js";
 export { indexAll } from "./lib/indexer.js";
-export { ingest } from "./lib/ingestion.js";
+export { ingest, prepareIngest } from "./lib/ingestion.js";
 export { hybridSearch } from "./lib/search-engine.js";
 export { relevanceOnArchive } from "./lib/archiver.js";
 export type { ArchiveResult } from "./lib/archiver.js";

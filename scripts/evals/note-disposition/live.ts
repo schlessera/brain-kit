@@ -9,7 +9,7 @@ import { createJevClient, type JevRequest, type FetchLike, type JevResult } from
 import { processCommand } from "../../../packages/core/src/cli/commands/process";
 import { indexAll } from "../../../packages/core/src/lib/indexer";
 import { openDatabase } from "../../../packages/core/src/lib/db";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
 export const MODELS = { current: "claude-sonnet-5-5", classifier: "jev-1.13.0" } as const;

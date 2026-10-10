@@ -8,7 +8,7 @@ import {
   type LocationFix,
   type ReverseGeocodeConfig,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, handleGetCurrentLocation, type LocationHandlerOptions } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleGetCurrentLocation, type LocationHandlerOptions } from "@schlessera/brain-ui-sdk/server";
 
 import { resolveEnv } from "./config/env.js";
 

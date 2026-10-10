@@ -7,7 +7,7 @@ import {
   type AskUserRankResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, handleAskUserRank } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleAskUserRank } from "@schlessera/brain-ui-sdk/server";
 import { askRequestId } from "./tool-use-id.js";
 
 /** Bridges the tool to the host's ranking provider (`BackendBridge.askUserRank`). */

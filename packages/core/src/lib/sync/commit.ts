@@ -6,7 +6,7 @@
  * `--only`, so anything else already staged stays staged and out of it.
  */
 
-import { parseFrontmatter } from "../frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { lstatSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { z } from "zod";

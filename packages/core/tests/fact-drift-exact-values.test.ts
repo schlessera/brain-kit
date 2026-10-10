@@ -6,7 +6,7 @@ import { audit, findFactDrift, loadAuditDocs } from "../src/lib/auditor";
 import { brainConfigSchema } from "../src/lib/config";
 import { openDatabase } from "../src/lib/db";
 import { indexAll } from "../src/lib/indexer";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 

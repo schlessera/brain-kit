@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 
 /**
  * The chat's empty transcript, on the kit (S7): the design's `1h` first-run
- * `EmptyState` — a medallion, a serif title, one sentence — and the three
+ * `EmptyState` — the logo's tile, a serif title, one sentence — and the three
  * starting points as `SuggestionChips`, "follow-ups phrased as prompts the
  * user could have typed". Already props-only; the chat page routes the
  * action.
@@ -33,7 +33,7 @@ export function WelcomeState({
       >
         <EmptyState
           variant="first-run"
-          icon="brain"
+          brand
           tone="amber"
           title="What do you need to know?"
           body="Ask in your own words. The brain reads its files, cites what it used, and asks before it writes."

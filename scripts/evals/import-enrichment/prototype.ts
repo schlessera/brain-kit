@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { editFrontmatter, type FrontmatterValue } from "../../../packages/core/src/lib/frontmatter-edit";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { replaceIfUnchanged } from "../../../packages/core/src/lib/hygiene";
 import type { CompletionProvider } from "../../../packages/core/src/lib/seams";
 import type { Taxonomy } from "../../../packages/core/src/lib/taxonomy";

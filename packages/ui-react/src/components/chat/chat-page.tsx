@@ -6,6 +6,7 @@ import { ChevronUp } from "lucide-react";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
+import { useActivityStore, spanForTool } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
 import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
@@ -37,7 +38,7 @@ import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
-import { Button, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
+import { Button, Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
 import { UnconfirmedSends } from "./unconfirmed-sends.js";
@@ -112,6 +113,11 @@ export function ChatPage() {
   const sessionPanelOpen = useUIStore((s) => s.sessionPanelOpen);
   const setSessionPanelOpen = useUIStore((s) => s.setSessionPanelOpen);
   const subagentStack = useUIStore((s) => s.subagentStack);
+  const popSubagentView = useUIStore((s) => s.popSubagentView);
+  const subagentId = subagentStack.at(-1);
+  const subagentName = useActivityStore((s) => subagentId ? spanForTool(s, subagentId)?.subagent?.description : undefined);
+  const subagentBack = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => { if (subagentId) subagentBack.current?.focus(); }, [subagentId]);
   const syncPanelOpen = useUIStore((s) => s.syncPanelOpen);
   const setSyncPanelOpen = useUIStore((s) => s.setSyncPanelOpen);
   const whatsupPanelOpen = useUIStore((s) => s.whatsupPanelOpen);
@@ -568,18 +574,15 @@ export function ChatPage() {
 
       {/* Subagent drill-in: an overlay stack — chat is the residence, the
           drill-in opens over it and backs out level by level. */}
-      {subagentStack.length > 0 && (
-        <div className="fixed inset-0 z-40 bg-background">
-          <SubagentView
-            spanId={subagentStack[subagentStack.length - 1]!}
-            onApproval={handleToolApproval}
-          />
-        </div>
-      )}
+      <Overlay open={subagentStack.length > 0} variant="fullscreen" label={subagentName ?? "Subagent"}
+        onClose={popSubagentView} initialFocus={subagentBack}>
+        {subagentId && <SubagentView spanId={subagentId} backRef={subagentBack} onApproval={handleToolApproval} />}
+      </Overlay>
 
       {/* Panels */}
       <SessionDrawer
         open={sessionPanelOpen && !wide}
+        returnFocus={!wide}
         onClose={() => setSessionPanelOpen(false)}
         onResume={handleSessionResume}
         onOpenTracker={openTracker}

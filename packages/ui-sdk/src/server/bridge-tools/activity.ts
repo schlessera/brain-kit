@@ -13,6 +13,11 @@ export function wrapUntrustedData(
   ].join("\n");
 }
 
+/**
+ * Run `query_activity` through the host bridge, wrapped as untrusted data.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleQueryActivity(
   input: QueryActivityInput,
   bridge: BackendBridge

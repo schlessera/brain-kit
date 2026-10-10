@@ -123,6 +123,7 @@ export "." (./src/index.ts)
   type DraftSaveRequest
   type DraftSaveResponse
   type DraftSummary
+  ENV_VARS
   FILE_SIZE_CAP_BYTES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
@@ -712,59 +713,42 @@ export "./client" (./src/client/index.ts)
 
 export "./internal" (./src/internal.ts)
   ARCHIVING_UPDATE_REASON
-  BRAIN_LOCK_KEY
-  BRIDGE_TOOL_POSTURE
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
-  DEFAULT_CONFIRM_BASH_PATTERNS
-  EXEC_KILLER_ENV
-  EXEC_WRAPPER_ENV
   GIT_LOCK_KEY
-  type ImageMaskHandlerOptions
-  type LocationHandlerOptions
   type QuestionObservation
   SUBPROCESS_ENV
-  type SubprocessEnvAudience
   VERSION_PROBE_TIMEOUT_MS
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
+  WORKER_SCRATCH
+  WorkerHostError
+  type WorkerHostProbe
+  type WorkerLaunch
   applyClassification
   archivesDocument
-  assertLoadedSdk
   bashCommand
-  bashLockKey
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
-  describeRetry
   execWrapperSpawnOptions
-  filterSubprocessEnv
-  handleAskUser
-  handleAskUserForm
-  handleAskUserList
-  handleAskUserRank
-  handleGetCurrentLocation
-  handleQueryActivity
-  handleRequestImageMask
-  handleShowBlock
   hasWebSearchCredential
+  launchAgentWorker
   loadedSdkIdentity
   observeClassification
-  parseSubprocessEnvExtra
   piMaskFilename
   piReportedMaskPath
   planClassification
+  probeWorkerHost
   readWebSearchOverride
   readWebSearchRouting
-  resolveThinkingLevel
+  requireWorkerHost
   resolveWebSearchConfigPath
-  rtkRewriteCommand
-  validateExecWrapper
   webSearchBrief
   webSearchProvider
-  wrapCommand
+  workerHostBoundary
 
 export "./internal/client" (./src/internal-client.ts)
   type ShareTargetError
@@ -1297,9 +1281,14 @@ export "./server" (./src/server/index.ts)
   type AutonomousTurnOptions
   type BBox
   BLOCK_SCHEMA
+  BRAIN_APPLICATION_DESCRIPTIONS
+  BRAIN_APPLICATION_MAX_BYTES
+  BRAIN_APPLICATION_TOOLS
+  BRAIN_LOCK_KEY
   BRAIN_UI_SYSTEM_PROMPT_APPEND
   BRIDGE_MCP_PREFIX
   BRIDGE_TOOL_CONTRACTS
+  BRIDGE_TOOL_POSTURE
   type BackendActivityEvent
   type BackendBridge
   BackendBusyError
@@ -1324,6 +1313,10 @@ export "./server" (./src/server/index.ts)
   type BillingMode
   type Block
   type BlockKind
+  type BrainApplicationInput
+  type BrainApplicationOperation
+  type BrainApplicationPolicy
+  type BrainApplicationResult
   type BrainSearchResult
   type BrainStats
   type BridgeToolName
@@ -1396,6 +1389,7 @@ export "./server" (./src/server/index.ts)
   type Coord
   type CreateToolPermissionRequestInput
   type CronJobStatus
+  DEFAULT_CONFIRM_BASH_PATTERNS
   DOWNSCALE_MAX_EDGE
   DRAFT_PREVIEW_CHARS
   type Draft
@@ -1410,6 +1404,8 @@ export "./server" (./src/server/index.ts)
   type DraftSaveRequest
   type DraftSaveResponse
   type DraftSummary
+  EXEC_KILLER_ENV
+  EXEC_WRAPPER_ENV
   type EditedApprovalCheckInput
   type ExecWrapperConfig
   type ExecutionBrief
@@ -1444,6 +1440,7 @@ export "./server" (./src/server/index.ts)
   HANDOFF_REFERENCES_HEADING
   type HandoffRequest
   IMAGE_MASK_PAYLOAD_SCHEMA
+  type ImageMaskHandlerOptions
   type ImageMaskPayload
   type InboxActionItem
   type InboxActionStatus
@@ -1476,6 +1473,7 @@ export "./server" (./src/server/index.ts)
   type LocalAnswer
   type LocalExchange
   type LocationFix
+  type LocationHandlerOptions
   type LocationPayload
   LockBusyError
   MAX_IMAGES_PER_MESSAGE
@@ -1615,6 +1613,7 @@ export "./server" (./src/server/index.ts)
   type SpeechSession
   SpeechTranscriptionError
   type StartTurnRequest
+  type SubprocessEnvAudience
   type SubscriptionAuthAction
   type SurfaceTools
   type SystemStatus
@@ -1656,8 +1655,11 @@ export "./server" (./src/server/index.ts)
   type WriteLock
   assertLiveConversationProvider
   assertLiveConversationSession
+  assertLoadedSdk
   assertTurnPosture
   assertVersionRequirements
+  bashLockKey
+  brainApplicationInput
   bridgeContractForToolName
   buildSystemPromptAppend
   checkEditedApproval
@@ -1676,9 +1678,19 @@ export "./server" (./src/server/index.ts)
   defineSpeechProvider
   defineToolComponentContract
   defineToolContract
+  describeRetry
   detailFor
   fetchCoastline
+  filterSubprocessEnv
   geoConfigSchema
+  handleAskUser
+  handleAskUserForm
+  handleAskUserList
+  handleAskUserRank
+  handleGetCurrentLocation
+  handleQueryActivity
+  handleRequestImageMask
+  handleShowBlock
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
@@ -1688,12 +1700,15 @@ export "./server" (./src/server/index.ts)
   killWrapped
   parseHandoffText
   parseLiveConversationEvent
+  parseSubprocessEnvExtra
   parseToolPayload
   prepare
   prepareLand
   probeVersionCommand
   requestToolPermission
+  resolveThinkingLevel
   reverseGeocode
+  rtkRewriteCommand
   signedArea
   simplify
   stitch
@@ -1702,8 +1717,10 @@ export "./server" (./src/server/index.ts)
   toleranceMetres
   toolBriefLines
   toolInputJsonSchema
+  validateExecWrapper
   validateVersionMinimum
   visibleToolName
+  wrapCommand
 
 export "./share-target" (./src/client/share-target.ts)
   DEFAULT_SHARE_TARGET_PATH
@@ -2529,6 +2546,7 @@ signatures (every public export and the types it is made of)
         capabilities: BackendCapabilities;
         listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
         listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
+        brainApplicationPolicy?(req: Pick<StartTurnRequest, "profileId" | "posture" | "autonomous" | "noGrantSurface" | "enforceAllowedTools">): import("./brain-application.js").BrainApplicationPolicy;
         startTurn(req: StartTurnRequest): Promise<void>;
         followUp?(req: FollowUpRequest): Promise<void>;
         listSessions(): Promise<ChatSession[]>;
@@ -3078,6 +3096,28 @@ signatures (every public export and the types it is made of)
         kind: z.ZodLiteral<"suggestions">;
         label: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>], "kind">;
+  BRAIN_APPLICATION_DESCRIPTIONS (packages/ui-sdk/src/server/brain-application.ts)
+    const BRAIN_APPLICATION_DESCRIPTIONS: Readonly<{
+        add: "Capture into the authoritative brain in one server-validated step, then index. Terminal users use brain add.";
+        archive: "Archive a document and move active projects, then index. Requires confirmation. Read brain_read_base first and pass its expectedBaseHash.";
+        edit: "Replace one exact unique string in the base read from brain_read_base, through server validation.";
+        staged: "Apply only named Markdown files and their exact proposed content, each with its SHA-256 base (null means create). Never executes a command.";
+        update: "Set document frontmatter or append content, then index. Read brain_read_base first and pass its expectedBaseHash. Archiving requires confirmation.";
+        write: "Write exact UTF-8 Markdown through server validation. Existing files require the SHA-256 returned by brain_read_base; null means create only.";
+    }>;
+  BRAIN_APPLICATION_MAX_BYTES (packages/ui-sdk/src/server/brain-application.ts)
+    const BRAIN_APPLICATION_MAX_BYTES: 1048576;
+  BRAIN_APPLICATION_TOOLS (packages/ui-sdk/src/server/brain-application.ts)
+    const BRAIN_APPLICATION_TOOLS: Readonly<{
+        add: "brain_add";
+        archive: "brain_archive";
+        edit: "edit_file";
+        staged: "apply_staged_changes";
+        update: "brain_update";
+        write: "write_file";
+    }>;
+  BRAIN_LOCK_KEY (packages/ui-sdk/src/server/lock-keys.ts)
+    const BRAIN_LOCK_KEY: "brain-docs";
   BRAIN_UI_SYSTEM_PROMPT_APPEND (packages/ui-sdk/src/server/system-prompt.ts)
     const BRAIN_UI_SYSTEM_PROMPT_APPEND: "# Response surface\n\nYour replies render as GitHub-flavored markdown in a chat UI, not in a\nterminal. What that buys you:\n\n- **Diagrams.** A ```mermaid fence renders as a real diagram, themed to match\n  the app. The reader can open it full-screen to pan and zoom, and share it as\n  PNG, PDF or SVG. Reach for one when structure IS the answer — a flow, a\n  sequence, a state machine, a hierarchy, a timeline — instead of describing\n  the shape in prose. Available types include flowchart, sequence, class,\n  state, ER, journey, gantt, pie, quadrant, mindmap, timeline, gitGraph,\n  sankey, xychart, block, requirement, kanban and architecture; most answers\n  that want a picture are not flowcharts. Keep it to what fits on a phone: a\n  handful of nodes with short labels beats one exhaustive diagram. Prose,\n  lists and tables remain the default for everything non-structural.\n- **Do not put a `%%{init}%%` directive in a diagram.** The app themes every\n  diagram itself, and your own directive silently overrides that theme and\n  makes the diagram look foreign. Write plain mermaid.\n- **Diagrams stream.** A partial fence shows as source until it parses, so a\n  diagram mid-answer costs the reader nothing.\n- **Paths and wikilinks are tap targets.** A repo path written plainly\n  (`projects/active/foo.md`) becomes a link into the file viewer, and\n  `[[note]]` / `[[note|Label]]` resolves the same way. Wikilinks are also\n  what the graph view is built from, so when you WRITE a note, link it to its\n  neighbours — an unlinked note is invisible in the graph.\n- **No raw HTML.** The renderer has no HTML pass, so `<b>x</b>` reaches the\n  reader as the literal text `<b>x</b>`, tags and all. Markdown only — the\n  one exception is the share block below.\n- Tables, task lists and footnotes render; code blocks are highlighted and\n  copyable.\n\n# Shareable output\n\nWhen the user asks for something to send onward (\"summarize this for\nWhatsApp\", \"make a one-pager I can email\"), wrap the shareable part:\n\n<share format=\"image\" title=\"Weekly summary\">\nmarkdown body — rendered as a preview and used as the share payload\n</share>\n\n`format` pre-fills the primary button: image | pdf | text | markdown |\nrichtext. Use it only when sharing was actually asked for; every assistant\nmessage already carries its own share button.\n\nThe PNG/PDF renderer runs with no network and no JavaScript, so **remote\nimages do not appear** — inline anything essential as a `data:` URI. Mermaid\ndiagrams are the exception and always render.\n\nOnly files inside the brain repo can be opened, previewed or shared from the\nUI. Anything you write to /tmp or elsewhere is invisible to the reader. For\noutput that is only for now (a preview, a draft, a file to share and forget),\nuse the brain's scratch area, `.brain/scratch/` (`brain render --scratch`,\n`brain image --scratch`). Scratch is hidden from normal file-tree browsing;\ngive the reader a direct chat link to the exact repo-relative output path\nreturned by the command, including its leading dot, for preview or download.\nScratch files are never committed and are pruned after 7 days.\n\n# Working in the open\n\n- **Don't narrate tool use.** Every call is already shown with its inputs,\n  outputs and duration in a timeline the reader can expand. \"Let me read that\n  file\" is noise; the finding is the message.\n- **Approvals cost a tap**, sometimes while the reader is walking. Batch\n  related edits; don't split work into a long chain of small approvals.";
   BRIDGE_MCP_PREFIX (packages/ui-sdk/src/tool-contracts/contract.ts)
@@ -3959,6 +3999,13 @@ signatures (every public export and the types it is made of)
             label: z.ZodOptional<z.ZodString>;
         }, z.core.$strip>], "kind">;
     }, z.core.$strip>>];
+  BRIDGE_TOOL_POSTURE (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const BRIDGE_TOOL_POSTURE: Readonly<{
+        allowedTools(adapter: BridgeToolAdapter): readonly string[];
+        claudePrefix: "mcp__brain-ui__";
+        names: readonly ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block"];
+        visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
+    }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
         kind: "autonomous_identity";
@@ -4014,6 +4061,11 @@ signatures (every public export and the types it is made of)
     };
   BackendBridge (packages/ui-sdk/src/server/backend.ts)
     export interface BackendBridge {
+        readBrainBase?(path: string): Promise<{
+            content: string;
+            expectedBaseHash: string;
+        }>;
+        applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
         emit(msg: ServerMessage): void;
         checkpointPermission?(req: PermissionRequest): void;
         requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
@@ -4203,6 +4255,29 @@ signatures (every public export and the types it is made of)
     export type Block = z.infer<typeof BLOCK_SCHEMA>;
   BlockKind (packages/ui-sdk/src/tool-contracts/blocks.ts)
     export type BlockKind = Block["kind"];
+  BrainApplicationInput (packages/ui-sdk/src/server/brain-application.ts)
+    export type BrainApplicationInput = z.infer<typeof brainApplicationInput>;
+  BrainApplicationOperation (packages/ui-sdk/src/server/brain-application.ts)
+    export type BrainApplicationOperation = BrainApplicationInput["operation"];
+  BrainApplicationPolicy (packages/ui-sdk/src/server/brain-application.ts)
+    export interface BrainApplicationPolicy {
+        autoAllowed: readonly BrainApplicationOperation[];
+        available: readonly BrainApplicationOperation[];
+        enforceAllowedTools?: boolean;
+        lock: Pick<KeyedLock, "withLock">;
+    }
+  BrainApplicationResult (packages/ui-sdk/src/server/brain-application.ts)
+    export interface BrainApplicationResult {
+        ok: boolean;
+        code?: string;
+        message: string;
+        changes: {
+            path: string;
+            contentHash: string | null;
+        }[];
+        outcome?: Record<string, unknown>;
+        indexed?: boolean;
+    }
   BrainSearchResult (packages/ui-sdk/src/protocol.ts)
     export interface BrainSearchResult {
         path: string;
@@ -4785,6 +4860,8 @@ signatures (every public export and the types it is made of)
         lastDurationMs: number | null;
         lastError: string | null;
     }
+  DEFAULT_CONFIRM_BASH_PATTERNS (packages/ui-sdk/src/server/confirm-patterns.ts)
+    const DEFAULT_CONFIRM_BASH_PATTERNS: readonly ConfirmPattern[];
   DEFAULT_SHARE_TARGET_PATH (packages/ui-sdk/src/client/share-target-handler.ts)
     const DEFAULT_SHARE_TARGET_PATH: "/share-target";
   DOWNSCALE_MAX_EDGE (packages/ui-sdk/src/protocol.ts)
@@ -4886,6 +4963,16 @@ signatures (every public export and the types it is made of)
         preview: string;
         attachmentCount: number;
     }
+  ENV_VARS (packages/ui-sdk/src/config/env-vars.ts)
+    const ENV_VARS: readonly [{
+        readonly description: "Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override.";
+        readonly name: "BRAIN_WORKER_LAUNCH";
+        readonly required: "trusted worker bootstrap only";
+    }];
+  EXEC_KILLER_ENV (packages/ui-sdk/src/server/exec-wrapper.ts)
+    const EXEC_KILLER_ENV: "BRAIN_UI_EXEC_KILLER";
+  EXEC_WRAPPER_ENV (packages/ui-sdk/src/server/exec-wrapper.ts)
+    const EXEC_WRAPPER_ENV: "BRAIN_UI_EXEC_WRAPPER";
   EditedApprovalCheckInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface EditedApprovalCheckInput extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
         originalInput: unknown;
@@ -5083,6 +5170,12 @@ signatures (every public export and the types it is made of)
         maskPath: z.ZodString;
         note: z.ZodString;
     }, z.core.$loose>;
+  ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
+    export interface ImageMaskHandlerOptions {
+        brainPath: string;
+        maskFilename(submittedImagePath: string, canonicalImagePath: string): string;
+        reportMaskPath(brainPath: string, maskPath: string, absoluteMaskPath: string, canonicalMaskPath: string): string;
+    }
   ImageMaskPayload (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export interface ImageMaskPayload {
         maskPath: string;
@@ -5363,6 +5456,11 @@ signatures (every public export and the types it is made of)
     export interface LocationFix {
         coords: GeoCoords;
         timestamp: number;
+    }
+  LocationHandlerOptions (packages/ui-sdk/src/server/bridge-tools/location.ts)
+    export interface LocationHandlerOptions {
+        reverseGeocodeConfig: ReverseGeocodeConfig;
+        reverseGeocode?: typeof reverseGeocode;
     }
   LocationPayload (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export interface LocationPayload {
@@ -7910,6 +8008,8 @@ signatures (every public export and the types it is made of)
         url?: string;
         files: File[];
     }
+  SubprocessEnvAudience (packages/ui-sdk/src/server/subprocess-env.ts)
+    export type SubprocessEnvAudience = "cron" | "agent" | "brainCli";
   SubscriptionAuthAction (packages/ui-sdk/src/protocol.ts)
     export type SubscriptionAuthAction = "relogin" | "check_account" | "check_config";
   SurfaceTools (packages/ui-sdk/src/server/system-prompt.ts)
@@ -8192,10 +8292,76 @@ signatures (every public export and the types it is made of)
     export function assertLiveConversationProvider(provider: LiveConversationProvider): void;
   assertLiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
     export function assertLiveConversationSession(session: LiveConversationSession): void;
+  assertLoadedSdk (packages/ui-sdk/src/server/loaded-sdk.ts)
+    export function assertLoadedSdk(options: {
+        owner: string;
+        ownerManifest: URL;
+        name: string;
+        entry: string;
+        minimum?: string;
+        phase: string;
+    }): {
+        name: string;
+        version: string;
+    };
   assertTurnPosture (packages/ui-sdk/src/server/backend.ts)
     export function assertTurnPosture(req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>, supportsAutonomous?: boolean): void;
   assertVersionRequirements (packages/ui-sdk/src/server/version-requirements.ts)
     export function assertVersionRequirements(check: VersionRequirementCheck): void;
+  bashLockKey (packages/ui-sdk/src/server/lock-keys.ts)
+    export function bashLockKey(command: string): string | null;
+  brainApplicationInput (packages/ui-sdk/src/server/brain-application.ts)
+    const brainApplicationInput: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        content: z.ZodString;
+        expectedBaseHash: z.ZodNullable<z.ZodString>;
+        operation: z.ZodLiteral<"write">;
+        path: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        expectedBaseHash: z.ZodNullable<z.ZodString>;
+        new_string: z.ZodString;
+        old_string: z.ZodString;
+        operation: z.ZodLiteral<"edit">;
+        path: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        files: z.ZodArray<z.ZodObject<{
+            content: z.ZodString;
+            expectedBaseHash: z.ZodNullable<z.ZodString>;
+            path: z.ZodString;
+        }, z.core.$strict>>;
+        operation: z.ZodLiteral<"staged">;
+    }, z.core.$strict>, z.ZodObject<{
+        content: z.ZodString;
+        expectedBaseHash: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        operation: z.ZodLiteral<"add">;
+        tags: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        target: z.ZodOptional<z.ZodString>;
+        title: z.ZodOptional<z.ZodString>;
+        type: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>, z.ZodObject<{
+        append_content: z.ZodOptional<z.ZodString>;
+        deadline: z.ZodOptional<z.ZodString>;
+        expectedBaseHash: z.ZodNullable<z.ZodString>;
+        next_review: z.ZodOptional<z.ZodString>;
+        operation: z.ZodLiteral<"update">;
+        path: z.ZodString;
+        relevance: z.ZodOptional<z.ZodEnum<{
+            historical: "historical";
+            primary: "primary";
+            secondary: "secondary";
+        }>>;
+        status: z.ZodOptional<z.ZodEnum<{
+            active: "active";
+            archived: "archived";
+            draft: "draft";
+        }>>;
+        summary: z.ZodOptional<z.ZodString>;
+        tags: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>, z.ZodObject<{
+        dry_run: z.ZodOptional<z.ZodBoolean>;
+        expectedBaseHash: z.ZodNullable<z.ZodString>;
+        operation: z.ZodLiteral<"archive">;
+        path: z.ZodString;
+    }, z.core.$strict>], "operation">;
   bridgeContractForToolName (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export function bridgeContractForToolName(name: string): (typeof BRIDGE_TOOL_CONTRACTS)[number] | undefined;
   buildSystemPromptAppend (packages/ui-sdk/src/server/system-prompt.ts)
@@ -9081,6 +9247,8 @@ signatures (every public export and the types it is made of)
     export function defineToolComponentContract<Name extends string, Input extends z.ZodObject, Payload extends z.ZodType>(contract: ToolComponentContract<Name, Input, Payload>): ToolComponentContract<Name, Input, Payload>;
   defineToolContract (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function defineToolContract<Name extends string, Input extends z.ZodObject>(contract: ToolContract<Name, Input>): ToolContract<Name, Input>;
+  describeRetry (packages/ui-sdk/src/protocol-helpers.ts)
+    export function describeRetry(retry: TurnRetry): string;
   detailFor (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   draftAttachmentSchema (packages/ui-sdk/src/schemas.ts)
     const draftAttachmentSchema: z.ZodObject<{
@@ -9144,9 +9312,27 @@ signatures (every public export and the types it is made of)
         updatedAt: z.ZodNumber;
     }, z.core.$loose>;
   fetchCoastline (packages/geo/src/server/coastline.ts) recorded in api-report/geo.txt
+  filterSubprocessEnv (packages/ui-sdk/src/server/subprocess-env.ts)
+    export function filterSubprocessEnv(env: Readonly<Record<string, string | undefined>>, audience: SubprocessEnvAudience, extraNames?: readonly string[]): Record<string, string | undefined>;
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
+  handleAskUser (packages/ui-sdk/src/server/bridge-tools/ask-user.ts)
+    export function handleAskUser(input: AskUserInput, bridge: BackendBridge, requestId?: string): Promise<AskUserPayload>;
+  handleAskUserForm (packages/ui-sdk/src/server/bridge-tools/ask-user-form.ts)
+    export function handleAskUserForm(input: AskUserFormInput, bridge: BackendBridge, requestId?: string): Promise<AskUserFormPayload>;
+  handleAskUserList (packages/ui-sdk/src/server/bridge-tools/ask-user-list.ts)
+    export function handleAskUserList(input: AskUserListInput, bridge: BackendBridge, requestId?: string): Promise<AskUserListPayload>;
+  handleAskUserRank (packages/ui-sdk/src/server/bridge-tools/ask-user-rank.ts)
+    export function handleAskUserRank(input: AskUserRankInput, bridge: BackendBridge, requestId?: string): Promise<AskUserRankPayload>;
+  handleGetCurrentLocation (packages/ui-sdk/src/server/bridge-tools/location.ts)
+    export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
+  handleQueryActivity (packages/ui-sdk/src/server/bridge-tools/activity.ts)
+    export function handleQueryActivity(input: QueryActivityInput, bridge: BackendBridge): Promise<string>;
+  handleRequestImageMask (packages/ui-sdk/src/server/bridge-tools/mask.ts)
+    export function handleRequestImageMask(input: RequestImageMaskInput, bridge: BackendBridge, options: ImageMaskHandlerOptions): Promise<ImageMaskPayload>;
+  handleShowBlock (packages/ui-sdk/src/server/bridge-tools/show-block.ts)
+    export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload;
   handoffRequestSchema (packages/ui-sdk/src/schemas.ts)
     const handoffRequestSchema: z.ZodObject<{
         handoffId: z.ZodString;
@@ -10626,6 +10812,8 @@ signatures (every public export and the types it is made of)
     };
   parseServerMessage (packages/ui-sdk/src/schemas.ts)
     export function parseServerMessage(raw: string | ArrayBufferView | ArrayBuffer): ParseFrameResult<ServerMessage>;
+  parseSubprocessEnvExtra (packages/ui-sdk/src/server/subprocess-env.ts)
+    export function parseSubprocessEnvExtra(value: string | undefined): string[];
   parseToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function parseToolPayload<Contract extends ToolComponentContract>(contract: Contract, output: string | undefined): ToolPayload<Contract> | null;
   planPlaces (packages/ui-sdk/src/places.ts)
@@ -10720,8 +10908,12 @@ signatures (every public export and the types it is made of)
             prompt: z.ZodString;
         }, z.core.$strict>;
     }, z.core.$strict>], "kind">;
+  resolveThinkingLevel (packages/ui-sdk/src/protocol-helpers.ts)
+    export function resolveThinkingLevel(requested: ThinkingLevel, supported: readonly ThinkingLevel[]): ThinkingLevel | undefined;
   reverseGeocode (packages/ui-sdk/src/server/reverse-geocode.ts)
     export function reverseGeocode(coords: GeoCoords, config: ReverseGeocodeConfig): Promise<ReverseGeocodeResult | null>;
+  rtkRewriteCommand (packages/ui-sdk/src/server/rtk.ts)
+    export function rtkRewriteCommand(command: string, env: NodeJS.ProcessEnv): Promise<string>;
   runAsrClientContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runAsrClientContract(harness: AsrClientContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runBackendContract (packages/ui-sdk/src/testing/index.ts)
@@ -14479,9 +14671,13 @@ signatures (every public export and the types it is made of)
             wrong_call: "wrong_call";
         }>>;
     }, z.core.$strict>], "kind">;
+  validateExecWrapper (packages/ui-sdk/src/server/exec-wrapper.ts)
+    export function validateExecWrapper(raw: string | undefined): string | undefined;
   validateResolutionEffect (packages/ui-sdk/src/schemas.ts)
     export function validateResolutionEffect(value: unknown, allowedOperations: readonly InboxOperation[]): ParseFrameResult<V1ResolutionEffect>;
   validateVersionMinimum (packages/ui-sdk/src/server/version-requirements.ts)
     export function validateVersionMinimum(value: unknown, owner: string, identity: string): string;
   visibleToolName (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function visibleToolName(name: string, adapter: ToolAdapter): string;
+  wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)
+    export function wrapCommand(argv: readonly string[], wrapper?: string): string[];

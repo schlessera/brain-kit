@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
-import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
   buildHtmlDocument,
   DOCUMENT_BLOCKS,

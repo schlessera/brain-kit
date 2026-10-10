@@ -1,51 +1,11 @@
 import { useEffect, type ReactNode, type Ref } from "react";
-import { X } from "lucide-react";
-import { useDeferredUnmount } from "../../hooks/use-deferred-unmount.js";
-import { cn } from "../../lib/utils.js";
+import { openModal } from "../../lib/destination-start.js";
+import { Overlay } from "@schlessera/brain-ui-kit";
 
-/** Matches the `duration-300` slide-out below. */
-const SLIDE_OUT_MS = 300;
-
-/**
- * `drawer` slides in from the right over a backdrop and draws its own header.
- * `pane` (D5, from `laptop:` up) is the design's settings PANE: a fixed layer
- * over the content area, offset by the rail's width, with no backdrop and no
- * header of its own — the children draw the header row, because a pane's
- * chrome is a `ScreenHeader`, not a drawer's title bar. It renders nothing
- * while closed: there is no slide to outlive.
- */
+/** Drawers use Overlay; panes are fixed regions beside the rail. */
 export type SlidePanelMode = "drawer" | "pane";
-
-/**
- * What dismisses the panel besides its own close control, in `<dialog
- * closedby>`'s vocabulary so a later move to the element is a rename-free
- * step. `any` (the default) is light dismiss: a click on the backdrop or
- * Escape — right for a preview you glance at and leave. `closerequest`
- * keeps the backdrop inert but honours Escape — for a panel holding
- * something a stray click must not discard, like a finished log. `none`
- * ignores both — for a panel running a job, where a reflexive Escape would
- * cancel it. The header's X closes the drawer under every value: a rendered
- * close control is never inert.
- */
+/** Native dialog dismissal vocabulary, implemented by Overlay. */
 export type SlidePanelClosedBy = "any" | "closerequest" | "none";
-
-/**
- * Below `tablet:`, a destination's drawer and its backdrop stop at the top of
- * the phone bar (60px plus the safe area, `MobileTabBar`), so every slot stays
- * one tap away while it is open (D52 §2, N1: a panel is not a place). A
- * literal class, so Tailwind's scan finds it.
- */
-export const ABOVE_PHONE_BAR = "max-tablet:bottom-[calc(60px+env(safe-area-inset-bottom))]";
-
-/**
- * From `tablet:` up, the same rule for the rail: a destination's backdrop
- * starts beside it (60px collapsed, 208px expanded from `laptop:`, as
- * `SideRail`) and the drawer never grows over it, so every rail tab stays
- * one press away while the drawer is open (D52 §2, "Panel open: 1"; #1075).
- * Literal classes, so Tailwind's scan finds them.
- */
-export const BESIDE_RAIL_BACKDROP = "tablet:left-[60px] laptop:left-[208px]";
-export const BESIDE_RAIL_DRAWER = "tablet:max-w-[calc(100%-60px)] laptop:max-w-[calc(100%-208px)]";
 
 export function SlidePanel({
   open,
@@ -56,6 +16,7 @@ export function SlidePanel({
   closedBy = "any",
   destination = false,
   panelRef,
+  returnFocus,
   children,
 }: {
   open: boolean;
@@ -76,24 +37,19 @@ export function SlidePanel({
    * and a drawer's heading is the last focus stop.
    */
   panelRef?: Ref<HTMLElement>;
+  returnFocus?: boolean;
   children: ReactNode;
 }) {
   useEffect(() => {
-    if (!open || closedBy === "none") return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    if (!open || mode !== "pane" || closedBy === "none") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || openModal()) return;
+      event.preventDefault();
+      onClose();
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose, closedBy]);
-
-  /**
-   * A closed panel renders nothing. The shell (the sliding frame and its
-   * header) stays mounted so the CSS transform still animates; the contents do
-   * not. Every panel already rebuilds its state when it opens, so a close never
-   * preserved anything worth keeping.
-   */
-  const showContent = useDeferredUnmount(open, SLIDE_OUT_MS);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, mode, closedBy, onClose]);
 
   if (mode === "pane") {
     if (!open) return null;
@@ -101,7 +57,7 @@ export function SlidePanel({
       <section
         ref={panelRef}
         aria-label={title}
-        className="fixed top-0 bottom-0 right-0 tablet:left-[60px] laptop:left-[208px] z-40 flex flex-col overflow-hidden bg-surface"
+        className="fixed top-0 bottom-0 right-0 tablet:left-[60px] laptop:left-[208px] z-panel flex flex-col overflow-hidden bg-surface"
       >
         {children}
       </section>
@@ -109,51 +65,9 @@ export function SlidePanel({
   }
 
   return (
-    <>
-      {/* Backdrop: a click on it dismisses only a light-dismiss drawer. */}
-      {open && (
-        <div
-          className={cn("fixed inset-0 z-40 bg-black/40 transition-opacity md:bg-black/20", destination && [ABOVE_PHONE_BAR, BESIDE_RAIL_BACKDROP])}
-          onClick={closedBy === "any" ? onClose : undefined}
-        />
-      )}
-
-      {/* Panel */}
-      <div
-        ref={panelRef as Ref<HTMLDivElement> | undefined}
-        className={cn(
-          "fixed right-0 top-0 z-50 flex h-full flex-col border-l border-border bg-surface shadow-[0_16px_48px_rgba(0,0,0,0.5)]",
-          destination && ["max-tablet:h-auto", ABOVE_PHONE_BAR, BESIDE_RAIL_DRAWER],
-          "transform transition-[transform,box-shadow] duration-300 ease-out",
-          // A closed drawer sits just past the right edge, and its 48px shadow
-          // would still bleed into the viewport: the shadow fades with the
-          // slide, and a closed drawer takes no clicks.
-          open ? "translate-x-0" : "translate-x-full shadow-none pointer-events-none",
-          wide ? "w-full md:w-[480px]" : "w-full md:w-80"
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          {/* A destination's heading is its last focus stop for a press of
-              itself (D52 N3): script focuses it, Tab never lands on it. */}
-          <h2
-            className="font-[family-name:var(--font-display)] text-lg text-foreground"
-            {...(destination ? { tabIndex: -1, "data-destination-heading": "" } : {})}
-          >
-            {title}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label={`Close ${title}`}
-            className="rounded-lg p-2.5 md:p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          >
-            <X className="h-5 w-5 md:h-4 md:w-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">{showContent ? children : null}</div>
-      </div>
-    </>
+    <Overlay open={open} variant="panel" modal={!destination} size={wide ? "md" : "sm"}
+      title={title} data-panel={title} closedBy={closedBy} onClose={onClose} surfaceRef={panelRef} returnFocus={returnFocus}>
+      <div className="flex-1 overflow-y-auto">{children}</div>
+    </Overlay>
   );
 }

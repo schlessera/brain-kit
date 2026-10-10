@@ -134,7 +134,9 @@ GitHub Actions after source changes merge into main and after stable canonical
 brain-kit release tags. Package verification CI uses the separate ci.yml and contract.yml workflows. Website source
 updates and release updates combine current website/editorial sources with the
 latest stable tagged product tree and its dependency lock in an isolated
-workspace. Record both commits and the exact released version, and verify npm
+workspace. The fictional ui-kit fixture library travels with the website
+sources (maintainer ruling, 2026-10-10, #1432): it is demo data that imports
+only fixture types a release already has, never newer product code. Record both commits and the exact released version, and verify npm
 publication before calling it a release build. A scheduled check every 15
 minutes reconciles bulk tag pushes that GitHub does not emit as tag events,
 skipping builds when the deployed product/version already match. Published GitHub

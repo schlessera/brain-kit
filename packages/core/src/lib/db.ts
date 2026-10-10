@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, constants } from "bun:sqlite";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 import { nameKeys } from "./name-key.js";
 
@@ -51,6 +51,9 @@ export function openDatabase(
 
   if (!options?.readonly) {
     db.run("PRAGMA journal_mode=WAL");
+    // Read-only worker mounts cannot recreate deleted WAL sidecars. Keep them
+    // after the final writer closes; SQLite still checkpoints on clean close.
+    db.fileControl(constants.SQLITE_FCNTL_PERSIST_WAL, 1);
     // NORMAL is durable under WAL (loses at most the last commit on power
     // failure, never corrupts) and avoids an fsync per autocommit write.
     db.run("PRAGMA synchronous=NORMAL");

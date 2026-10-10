@@ -71,6 +71,7 @@ const STROKE = /(border|rail|ring|line|stroke|edge|graticule|scale)/;
 
 /** Values set by hand, each with its reason. Applied before the rules. */
 const OVERRIDES: Record<string, string> = {
+  "icon-button-overlay-bg": WHITE, // Media controls print on the page ground.
   // Rule 3: the two line colours, one step darker than on the paper screen.
   // #ddd6c7 on white is a line a printer drops; these hold at 1px.
   "color-line": "#cbc3b2",

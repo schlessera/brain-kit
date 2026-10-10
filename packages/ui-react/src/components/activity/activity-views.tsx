@@ -38,6 +38,7 @@ export interface LiveRunCardProps {
 export function LiveRunCard(p: LiveRunCardProps) {
   return (
     <button
+      // raw-button: surface — AgentRunCard itself is the full hit area
       type="button"
       onClick={p.onOpen}
       aria-label={`Open run ${p.name}`}

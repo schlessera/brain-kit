@@ -93,7 +93,7 @@ export function SideRail() {
   });
 
   return (
-    <nav aria-label="Primary" className="hidden tablet:flex shrink-0">
+    <nav data-bk-keep-live="" aria-label="Primary" className="hidden tablet:flex shrink-0">
       <KitSideRail
         items={items}
         acts={acts}

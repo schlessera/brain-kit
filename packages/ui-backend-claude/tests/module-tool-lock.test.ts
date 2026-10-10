@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
+import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeBackend } from "../src/backend";
 import { lockKeyForTool } from "../src/tool-policy";
 import { runToolCall } from "./helpers/run-tool-call";

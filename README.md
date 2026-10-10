@@ -1,4 +1,9 @@
-# brain-kit
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/ui-kit/assets/brand/lockup-on-dark.svg">
+    <img src="packages/ui-kit/assets/brand/lockup-on-paper.svg" alt="brain-kit" height="64">
+  </picture>
+</h1>
 
 > This is an early work-in-progress and not officially launched yet. Expect an announcement soon.
 
@@ -124,6 +129,7 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 ## Repository layout
 
 ```
+packages/common              @schlessera/brain-common — internal: env descriptor core, cache-free frontmatter parser
 packages/geo                 @schlessera/brain-geo — shared geo services, track measurements and static maps
 packages/core                @schlessera/brain — CLI, MCP server, search, index, config, skills
 packages/module-video        @schlessera/brain-module-video — Gemini video watching, opt-in

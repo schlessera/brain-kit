@@ -84,6 +84,26 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive: the shared backend toolkit (#1399, ruled on #1345).** What both
+shipped backends need to give the host the same behavior and security posture
+is public on `@schlessera/brain-ui-sdk/server`, each declaration tagged
+`@experimental` until 1.0: the bridge-tool handlers (`handleAskUser`,
+`handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`,
+`handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`,
+`handleShowBlock`, with `ImageMaskHandlerOptions` and
+`LocationHandlerOptions`) and `BRIDGE_TOOL_POSTURE`; the exec wrapper
+(`wrapCommand`, `validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`);
+the subprocess environment filter (`filterSubprocessEnv`,
+`parseSubprocessEnvExtra`, `SubprocessEnvAudience`); the lock keys
+(`BRAIN_LOCK_KEY`, `bashLockKey`); `describeRetry`, `resolveThinkingLevel`,
+`assertLoadedSdk`, `rtkRewriteCommand`; and the bundled
+`DEFAULT_CONFIRM_BASH_PATTERNS`, whose entries may still evolve as a documented
+user-visible change. Their behavior is unchanged; they leave
+`@schlessera/brain-ui-sdk/internal`. Helpers only one backend, or the host and
+one backend, import stay internal (`bashCommand`, `SUBPROCESS_ENV`,
+`execWrapperSpawnOptions`, `GIT_LOCK_KEY`, `canonicalModelId`). The
+[toolkit record](decisions/backend-authoring-toolkit.md) has the inventory.
+
 **Additive: ui-react share and stats exports (#1382).** For shells that
 assemble their own surfaces around ui-react, the `@schlessera/brain-ui-react`
 root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
@@ -97,6 +117,48 @@ from ui-react's source tree.
 hook for tests). A shell wraps its whole tree in it, providers included, so a
 render error outside a page shows a reload screen instead of a blank app. The
 page-level boundary inside `AppShell` needs nothing from the shell.
+
+**Additive: `IconButton` and `TextButton` (#1379).** `@schlessera/brain-ui-kit`
+exports two native `type="button"` primitives and their props. Both forward
+refs and `data-*` hooks, support native disabled and disclosure ARIA, and use
+kit focus/hover paint. `IconButton` supplies mute/danger/overlay tones and
+28px small controls that grow to 44px under a coarse pointer. `TextButton`
+supplies link/meta/inherit tones, with a 44px standalone target or inline reach.
+This is a minor addition; existing button APIs are unchanged.
+**Additive: the module-authoring entry `@schlessera/brain/module` (#1397,
+ruled on #537).** The helpers a module needs to touch the brain's files the
+way core does, `@experimental` until 1.0: path containment and atomic writes
+(`safeResolve`, `resolveWritable`, `writeFileSafely` with
+`WriteFileSafelyOptions`, `WriteRefusedError`, whose `code` is `"EEXIST"` when
+a name may not be replaced); the scratch area (`SCRATCH_DIR`, `scratchName`,
+`writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`,
+`pruneScratch` with `ScratchReport`, `ScratchRemoval` and `ScratchFailure`);
+frontmatter and generated regions (`splitFrontmatterBlock`,
+`rewriteGeneratedRegion`, `inertGeneratedText`); the taxonomy, corpus walk and
+index registry (`buildTaxonomy`, `getMarkdownFiles`, `runRegistry` with
+`RegistryRun` and `RegistryProblem`, and `ValidationIssue`); and completion
+providers (`resolveCompletionProvider`, `geminiCompletions` with
+`GeminiCompletionConfig`, `GEMINI_FLASH_MODEL`). `CommandContext` gains an
+optional `completions`, the brain's `completions` config block as written, so
+a module command resolves the configured provider instead of reading core's
+process context. First-party modules import this entry and never
+`@schlessera/brain/internal`. Index reads stay behind `ctx.queries` and
+`@schlessera/brain/queries`. The `/internal` entry keeps the same names for
+the first-party packages that still import them.
+
+**`Overlay`, document layers and palette semantics (#1378; pre-1.0 minor).** `@schlessera/brain-ui-kit`
+exports `Overlay`, `OverlayProps`, `OverlayVariant`, `OverlayCloseReason`, `z`
+and `LAYERS`. The controlled primitive supplies sheet, dialog, fullscreen and
+panel variants with dismissal reasons, focus management and inert background.
+Its optional `surfaceRef` lets adapters reset destination scroll and focus;
+non-modal titled panels expose a script-focusable destination heading. Panels
+keep their header X under `closedBy="none"`; that value suppresses Escape,
+native close requests and scrim taps. Sheets and dialogs remove their drawn
+close control under `none`.
+`BottomSheet` optionally draws a dismissal control. CommandPalette no longer
+carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in
+`Overlay` to supply modal semantics and focus management. It now renders a
+named group; its pixels and callbacks are unchanged.
 
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
@@ -360,6 +422,13 @@ mark inside the central 80% circle) and `social-card.png` (1200x630).
 `WEB_APP_COLORS` its `theme_color` and `background_color` (`#0c1417`), and
 `HTML_ICON_LINKS` the head `<link>`s (`rel`, `href`, optional `type` and
 `sizes`). Every `src` and `href` is a bare brand file name.
+
+## Logo in the empty state (additive, #1426)
+
+`EmptyStateProps` in `@schlessera/brain-ui-kit` gains optional
+`brand?: boolean`. Set, the empty state shows `BrandMark` on a plain surface
+tile in place of its icon medallion; `icon` and the tone's tint are then not
+drawn. An empty state without it renders as before.
 
 ## Consumers
 
@@ -647,7 +716,7 @@ policy. The rationale and measurements are in
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
 | `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step also carries additive `trends` (see "Recorded corpus trend verdicts"), evaluated before recording. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `audit` step's result is `<errors> error(s), <warnings> warning(s), <infos> info(s); <mustFix> must-fix, <informational> informational`, the totals `brain audit --json` reports for the same run (the must-fix and informational part additive in 0.40.0; the counts follow the grouped `todo`/`verify` issues from 0.40.0). The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
 | `brain registry [--check] --json` | `{ "indexes", "written", "stale", "invalid": [{ "path", "error" }] }` (additive in 0.38.0). Regenerates the registry table of every `_index.md` whose frontmatter has a `registry:` block. `indexes` counts them, valid or not. `written` lists the files rewritten. `stale` lists out-of-date indexes left as they are: all of them under `--check`, which writes nothing, and otherwise one whose file changed between being read and being written (it is regenerated on the next run). `invalid` lists indexes that cannot be generated, which are left untouched: a `registry:` block that does not validate, an index or a child that cannot be read, whose frontmatter does not parse, or whose frontmatter opens and never closes (an `_index.md` whose frontmatter does not parse counts when it has a `registry:` line, quoted or not), or malformed region markers. Exit `1` under `--check` when anything is stale or invalid, `2` without it when anything is invalid, else `0` |
-| `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first, `--limit` default 20. Filters: `--type`, `--tag`, `--status`, `--relevance` |
+| `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first. Filters: `--type`, `--tag`, `--status`, `--relevance`. `--limit` is a whole number from `1` to `100`, default `20`; the whole argument must be an integer literal. Anything else (`abc`, `10abc`, `1.5`, `0`, `-1`, `101`, or `--limit` with no value) is a usage error (exit `1`, a message on stderr, nothing on stdout) in human and JSON modes, and no query runs. **Breaking in 0.41.0 (#1351):** `--limit` used to be read with `parseInt`, so `10abc` listed 10, `1.5` listed 1, `abc` was passed through as `NaN`, and values above 100 were honoured |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | `{ run, agent }` in machine mode (`--json`, or stdout not a TTY); its text report in human mode (`--human`, or a terminal). With no verb, `sync` runs `brain sync run`. When an agent runner is configured and the run needs one (a conflict no strategy merges, an `UNKNOWN` leftover, or a `MEDIA`/`LARGE` leftover with a terminal attached), it then runs the `/sync` skill and exits `0`. Without an agent runner the exit code is `run`'s: `0` complete, `1` failed, `3` something left for judgment: a conflict no strategy merges (left in progress, nothing pushed) or a file holding conflict markers (left uncommitted, never pushed). An agent run that fails exits `2`, its error on stderr. **Machine mode** prints exactly one JSON document on stdout, whatever the agent did, and nothing else: no report, no progress, no agent text beside it. `run` is the envelope `brain sync run --json` prints (its `status` and `report` are contract; its other fields drive the `/sync` skill and are not). `agent` is `{ invoked: false, reason: "not-needed" \| "no-runner" }` — `no-runner` when the run needed an agent and none was available — or `{ invoked: true, runner: string, outcome: "success" \| "failed", runtime: { name: string, version: string \| null } \| null, text: string \| null, error?: string }`. `runtime` is what that agent run reported about itself while it ran, never probed and never taken from another run: `null` when it reported nothing (a runner that does not report, or a run that ended first), `version: null` when it named itself without a version. The built-in `claude` runner reports `{ name: "claude-code", version }` from the Claude Code session's `system`/`init` event (`claude_code_version`), the field chat records as `runtime_observed`. A failed agent run still prints the result, with `outcome: "failed"`, `text: null`, `error`, and any runtime it reported before failing. Not invoking an agent says nothing about model cost: the sync judge and enrichment can call a model without one. **Human mode** prints the report, then the agent's final text when it ran, with tool progress on stderr. **Breaking in 0.40.0 (#290):** bare `sync` printed its text report in every output mode, so a caller that read stdout as text passes `--human`, or reads `run.report` and `agent.text`. **Breaking in 0.39.0:** it used to run the agent unconditionally, print only the agent's text, and exit `1` when no agent runner was available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` is still the bare form, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`run`, `assess`, `group`, `commit`, `stash`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for the `/sync` skill to drive, are not part of this contract |
 | `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
@@ -1366,8 +1435,8 @@ config value cannot add lines of its own. They point to `brain_search`,
 and `brain_update` for writing, and say that `brain.db` is never edited
 (`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
-caps: `brain_search` `limit` at 50, `brain_list` `limit` at 100, and
-`brain_graph` `depth` at 5.
+caps: `brain_search` `limit` at 50 and `brain_graph` `depth` at 5, and
+`brain_list`'s accepted `limit` range of 1 to 100.
 
 The input schemas, as `tools/list` reports them, are pinned in
 [`packages/core/tests/mcp-input-schemas.json`](../packages/core/tests/mcp-input-schemas.json)
@@ -1380,7 +1449,7 @@ applies one:
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
 | `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
-| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (default `20`) |
+| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
 | `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |
 | `brain_update` | `path`, `summary?`, `status?` (`active`\|`archived`\|`draft`), `relevance?` (`primary`\|`secondary`\|`historical`), `tags?` (comma-separated, replaces), `deadline?`, `next_review?` (ISO 8601; `""` removes), `append_content?`. Setting `status: "archived"` applies `brain_archive`'s relevance rule to the effective relevance (the `relevance` passed in the same call, else the document's): a `primary` or missing one becomes `historical` and `"relevance"` is listed in `changes`; an explicit `secondary` or `historical` stays (additive in 0.38.0) |
@@ -1388,6 +1457,77 @@ applies one:
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
+
+### Hosted authoritative application tools
+
+Hosted turns route authoritative Markdown through the server-owned application
+boundary. Standalone terminal `brain mcp` names and schemas above are unchanged.
+Claude registers the tools below under `mcp__brain-ui__`; pi uses the unprefixed
+names. Hosted Claude disallows project `mcp__brain__brain_add`,
+`mcp__brain__brain_update` and `mcp__brain__brain_archive`, plus built-in raw
+writers; its server tools apply the validated effects instead.
+
+| Tool | Exact input (unknown keys refuse) |
+| --- | --- |
+| `brain_read_base` | `{ path: string }`; returns `{ content: string, expectedBaseHash: string }` |
+| `brain_add` | `{ content: string, type?: string, title?: string, tags?: string[], target?: string, expectedBaseHash?: string \| null }`; deterministic server capture plans and validates its current base when absent |
+| `brain_update` | `{ path: string, expectedBaseHash: string \| null, summary?: string, status?: "active" \| "archived" \| "draft", relevance?: "primary" \| "secondary" \| "historical", tags?: string[], deadline?: string, next_review?: string, append_content?: string }` |
+| `brain_archive` | `{ path: string, expectedBaseHash: string \| null, dry_run?: boolean }` |
+| `write_file` | `{ path: string, expectedBaseHash: string \| null, content: string }` |
+| `edit_file` | `{ path: string, expectedBaseHash: string \| null, old_string: string, new_string: string }`; nonempty old string must occur exactly once |
+| `apply_staged_changes` | `{ files: [{ path: string, expectedBaseHash: string \| null, content: string }] }`; 1–32 unique named files, no command field |
+
+Hashes are lowercase SHA-256 of complete UTF-8 bytes; `null` means exclusive
+creation. Pi may omit a tool's base hash only when a preceding read in the same
+turn supplied it; a write with no read is create-only. The server application
+request is `{ principalId, turnId, input: { operation, ...toolInput } }`;
+identity is bound by the trusted host, never taken from tool arguments. Operations
+are `add`, `update`, `archive`, `write`, `edit` and `staged` only. No command replay,
+filesystem handle, policy-derived authority or standing grant is accepted.
+
+The request and combined proposed Markdown each have a 1,048,576-byte UTF-8 bound.
+Only ordinary UTF-8 `.md` files are supported. Paths are exact root-relative names,
+up to 1,024 characters: no traversal, hidden path components, backslashes or
+control characters. Policy paths and ancestors (including case/Unicode variants),
+symlinks, multiple-link files and changed directory topology refuse. Existing
+content must match the exact stated base, including after approval/lock admission.
+Unsupported hosts refuse; descriptor-anchored I/O currently requires Linux procfs.
+
+Every call rechecks current principal/turn authority and operation membership.
+Archive and an update setting `status: "archived"` retain their explicit permission;
+ordinary permitted writes/edits add no confirmation. Voice retains capture and
+append/update, excludes archive/raw/staged writes, and cannot grant. Unattended
+rosters supply no new authoritative grant. Direct backend calls without an
+application bridge retain their existing enforced roster, permission checkpoints
+and writer-yield behavior. Hosted routing begins when the host binds that bridge.
+Cancellation before commit changes no
+Markdown; the synchronous commit burst completes before cancellation can interleave.
+All effects actually reaching Markdown are recorded, including a partial I/O
+failure. Disposable-index failure after commit does not report the write as absent.
+The in-process lock does not coordinate external terminal writers.
+
+Application results are `{ ok: boolean, message: string, changes:
+[{ path: string, contentHash: string | null }], code?: string,
+indexed?: boolean, outcome?: object }`. A null result hash denotes a removed
+source. `changes` names only committed effects. A refused result is visible to
+the agent and recorded as a server-authored `brain_application` activity event;
+policy denial, alias denial, topology change, stale base, revoked authority,
+membership, permission, invalid request, unsupported kind/host, payload and
+cancellation errors never silently merge or replay. Error codes are additive;
+consumers tolerate unknown codes. Claude wraps the result in MCP text with
+`isError: !ok`; pi returns successful results as text/details and throws refused
+results through its existing tool-error path.
+
+CLI commands encountering `EROFS` exit 2. On Linux, known write forms also
+refuse a read-only brain mount before entering handlers which collect per-file
+errors; dry-run forms and read-only commands remain available. Machine mode emits
+`{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
+tool: string } }`. The message states that the brain is read-only here and names
+`brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
+hosted effect, including the Claude spelling. Nothing is staged or replayed;
+read-only commands continue to work. Writable index connections retain SQLite WAL
+sidecars after clean close, so a read-only mount can read the checkpointed index
+without recreating sidecars. Human mode prints the same message to stderr.
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
@@ -1978,7 +2118,9 @@ query APIs. This scoped classification added the internal entry and migrated
 pi's imports; the [export curation](#package-entry-points) removed these
 helpers from the ordinary `@schlessera/brain` entry, and moved the other
 helpers pi and the modules share (path safety, scratch, generated regions,
-taxonomy, context and write helpers) to the same internal entry.
+taxonomy, context and write helpers) to the same internal entry. Modules now
+take theirs from the supported `@schlessera/brain/module` entry
+([package entry points](#package-entry-points)).
 Existing direct-SQL guarantees remain binding until the explicit retirement.
 
 ### UI server optional core peer (breaking host migration, #697)
@@ -2614,7 +2756,11 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
 - **`errorClass`** uses the Claude Agent SDK's class names
   (`authentication_failed`, `rate_limit`, `overloaded`, `invalid_request`,
   `model_not_found`, `server_error`, …), plus `subscription_required` for a
-  turn the backend refused before sending it. It is free-form, so a new value
+  turn the backend refused before sending it. `worker_host_unsupported` means
+  the host refused before runtime initialization because its required worker
+  boundary probe failed; the message names the requirement and the verified
+  Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
   unknown, not "no status". **`message`** is the runtime's own text.
@@ -3821,10 +3967,23 @@ The finding retains `id`, `category`, `path`, stable `evidence`, `message`,
 It adds a plain `title`, `line` (1-based in the actual file, or null), `field`
 (for field findings, or null), `excerpt` (one line, at most 60 Unicode code
 points around the first literal evidence occurrence, or null when absent or
-unreadable), `handler` (`manual` until a repair handler is delivered),
+unreadable), `handler` (the legacy `manual` compatibility marker),
 `firstSeen`, and the log's `invalidation` receipt, if present. Reads for excerpts
 stay inside the brain root. Missing fields are located by field name rather
 than an invented line. Selection performs no content repair.
+
+Additive in #1475: every selected finding also carries `handlers: RepairHandler[]`
+from the existing fixed repair registry (see [bounded repair descriptors](#bounded-hygiene-repair-operations-additive-1025)).
+Broken links offer `link-note` and `link-text`, plus `link-suggested` only for
+exactly one deterministic slug, alias or exact-title match. Required fields
+carry their typed input schema, including configured type enum values and
+string-array tags. Unsupported findings carry the manual descriptor with its
+file, line and explanation. This is the complete supported discovery projection;
+`check` still returns only its existing single descriptor. Discovery adds no
+content, repair-receipt or disposition write beyond `next`'s existing index
+refresh and reconciliation. Identity, fingerprint, ordering, reason and counts
+are unchanged. Empty-backlog and configuration/check-blocker envelopes are
+unchanged and do not carry a handler array.
 
 Ordering is lexicographic: severity rank, urgency rank, oldest `firstSeen`,
 then canonical ID in code-unit order. Ranks are ordinals, never weighted scores.
@@ -5476,3 +5635,75 @@ Video requests do not use configured completion fallback. Uploads created by
 a request are deleted after success or failure; failed cleanup throws.
 See [the module README](../packages/module-video/README.md) for defaults,
 source restrictions and privacy disclosure. These are additive minor changes.
+
+### Bounded hygiene repair operations (additive, #1025)
+
+These operations require valid configuration, except the read-only
+`check configuration-blocker`. They use #1024's canonical IDs/fingerprints.
+Confirmed resolve/Undo and ordinary check require an initialized brain; flags
+before the subcommand or positional arguments after `--` cannot bypass that
+write guard. Repair previews and the configuration-blocker recheck remain read-only.
+CLI invocation confirms an effect; server principal authorization and durable
+Action execution remain the server's responsibility. No inference runs.
+
+| Operation | Input | JSON result / exit |
+| --- | --- | --- |
+| `hygiene resolve <id> --handler <name> --input <json> --expect-fingerprint <fp> --dry-run` | Handler and its typed JSON input | `status: "preview"`, `id`, `handler`, `diff`, `previewToken`; exit 0. No brain file, index or log is written. |
+| `hygiene resolve <id> --handler <name> --input <json> --expect-fingerprint <fp> --expect-preview <token>` | The same input and the preview's opaque premise token | `status: "fixed"`, `id`, `changedFiles`; exit 0, only after real file validation and detection succeed. `stale`, `refused`, `check_failed` exit 1. |
+| `hygiene undo <undoToken> --dry-run` | Opaque receipt token from a failed post-check | `status: "preview"`, `id`, inverse `diff`; exit 0, writes nothing. |
+| `hygiene undo <undoToken>` | Confirm that inverse effect | `status: "undone"`, `id`, `changedFiles`; exit 0. `stale` or `refused` exit 1 and writes no content. |
+| `hygiene check <id>` | A logged finding ID | `status: "still_detected"`, `id`, `handler`, or `status: "not_detected"`, `id`, `changedFiles`; exit 0. `check_failed` or `refused` exit 1. Still detected and failed checks write no brain file or log. |
+| `hygiene check configuration-blocker` | Reserved configuration blocker identity | `status: "blocked"` (exit 1) or `"ready"` (exit 0), `id`, `handler`; blocked also has `reason` (loader diagnostic). Both are read-only. Other hygiene commands still refuse invalid configuration. |
+
+A `diff` carries `path` (brain-relative), `before` and `after` (complete exact
+UTF-8 text), and `changes: [{before, after, line}]` (every bounded replacement,
+1-based line). A `handler` carries `name`, `category`, `kind` (`choice`, `field`,
+`manual`, `blocker`), `input: {type, values?, example?}`, `effect`, `postCheck`,
+`path`, `line`, `explanation`, and optional `suggestedPath`. `input.type` is
+`none`, `path`, `string`, `enum`, `date` or `strings`.
+
+The fixed handler set is:
+
+- `link-suggested`: input `null`; available only for exactly one contained
+  note matching the target's slug, alias or exact title. No fuzzy match.
+- `link-note`: input a brain-relative path to an existing, included Markdown
+  document inside the brain. Outside paths, symlink escapes, symlink documents,
+  excluded/non-document/missing targets and unrepresentable link paths refuse.
+- `link-text`: input `null`; remove this target's link tokens, keeping each
+  display label (the original target when unlabelled). Code and frontmatter
+  tokens are preserved. Link-to-note effects retain labels and heading suffixes.
+- `required-field`: typed input for the field named by the finding: `title`
+  (non-empty string), `type` (configured taxonomy enum), `created`/`updated`
+  (real calendar date `YYYY-MM-DD`), `tags` (non-empty string array of lowercase,
+  hyphenated tags). Only that key is edited; a minimal-editor refusal never
+  falls back to serializing frontmatter. Other validation categories are manual.
+- `manual`: no content effect; file/line and explanation for an explicit edit,
+  then `check`. `blocker`: reload configuration before starting review.
+
+Content effects refuse non-UTF-8 source files (`reason: "not-utf8"`) rather than
+normalizing unrelated bytes. Refusals carry `reason`; invalid field input additionally carries
+`fieldError: {field, message}` with format/enum guidance. Stale results carry
+`reason` and write no content or log. The fingerprint binds category evidence;
+`previewToken` additionally binds the handler, input and exact replacement
+bytes (including repeated token multiplicity), excluding unrelated file bytes.
+An unrelated edit after preview is preserved. An apply without a preview token
+is a usage error (exit 1). Neither token is an authority grant.
+
+`check_failed` carries `code`, `undoToken`, `changedFiles`; the written effect
+remains, the finding stays open and nothing rolls back automatically. Undo
+requires the complete file to still match the effect's written bytes, offers
+its own inverse preview, and restores the exact pre-effect bytes only upon
+explicit invocation. Repeated Undo becomes stale. Repair receipts are Markdown
+under `context/hygiene/repairs/<opaque-token>.md`; they hold the before/after
+text and handler with standard valid frontmatter drawn from the configured
+taxonomy, with no authoritative state in `brain.db`.
+
+Only a successful repair records `resolved-by: handler:<name>`; a successful
+manual recheck records `resolved-by: check`. Other findings keep their state
+and evidence. Reconciliation still reopens a resolved finding detected again.
+File validation failure, detector failure or unavailable resolution recording
+cannot report `fixed`. Unexpected storage/publication errors use the standard
+internal-error exit 2; an interrupted receipt requires recheck/reconciliation,
+not blind replay of a content write. The compare-then-rename writer retains its existing
+last-read-to-rename race limitation; these commands supply no multi-file
+transaction or server-level replay/authorization guarantee.

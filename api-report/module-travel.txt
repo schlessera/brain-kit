@@ -57,12 +57,6 @@ signatures (every public export and the types it is made of)
     export type TravelDocument = Journey | Trip | Place;
   Trip (packages/module-travel/src/content.ts)
     export type Trip = z.infer<typeof tripSchema>;
-  ValidationIssue (packages/core/src/lib/validate.ts)
-    export interface ValidationIssue {
-        file: string;
-        level: "error" | "warning";
-        message: string;
-    }
   configSchema (packages/module-travel/src/module.ts)
     const configSchema: z.ZodObject<{
         travelParty: z.ZodDefault<z.ZodArray<z.ZodObject<{

@@ -58,6 +58,13 @@
  * rgb literal, only `var(--bk-*)` or a `color-mix()` of one.
  */
 @theme inline {
+  --z-index-raised: var(--bk-z-raised);
+  --z-index-popover: var(--bk-z-popover);
+  --z-index-nav: var(--bk-z-nav);
+  --z-index-panel: var(--bk-z-panel);
+  --z-index-banner: var(--bk-z-banner);
+  --z-index-modal: var(--bk-z-modal);
+
   /* Surfaces, from the canvas up */
   --color-background: var(--bk-color-canvas);
   --color-surface: var(--bk-color-surface);
@@ -660,20 +667,6 @@ a.bk-plink:focus-visible {
   .turn-diagnostic-dialog { margin: auto 0 0; border-radius: 26px 26px 0 0; }
 }
 
-/* The phone sheet enters from below its final, fixed position. The source
- * theme and precompiled entry share this rule; desktop uses another class.
- * Reduced motion keeps the default visible, stationary sheet. */
-@media (prefers-reduced-motion: no-preference) {
-  .dictation-sheet-phone {
-    animation: dictation-sheet-in 200ms ease-out both;
-  }
-}
-
-@keyframes dictation-sheet-in {
-  from { transform: translateY(100%); }
-  to { transform: none; }
-}
-
 /* D52 N3: the headings a press of the current destination may focus. They
  * are script-only stops (`tabIndex=-1`), so they draw the kit's 2px ink ring
  * only when the browser judges focus visible, inset like a full-width row,
@@ -726,3 +719,31 @@ a.bk-plink:focus-visible {
 }
 
 .local-work-dialog [role="checkbox"] { min-height: 44px; min-width: 44px; }
+
+/* App panels assemble full-height content; their children own content gutters.
+ * The palette's kit box likewise owns its padding (D54 preserves its pixels). */
+.bk-overlay[data-panel] .bk-overlay-body {
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bk-overlay[data-palette] .bk-overlay-body { padding: 0; }
+
+/* Dictation keeps its measured 40–60vh sheet and internally scrolling
+ * transcript. Its controls already own their gutters; the overlay owns motion.
+ * Focusing a translated control must not scroll the modal viewport itself. */
+.bk-overlay[data-dictation] { overflow: clip; }
+.bk-overlay[data-dictation] .bk-overlay-surface {
+  min-height: 40vh;
+  max-height: 60vh;
+}
+.bk-overlay[data-dictation] .bk-overlay-body {
+  padding: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}

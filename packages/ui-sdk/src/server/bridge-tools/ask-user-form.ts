@@ -6,6 +6,11 @@ import {
 } from "../../tool-contracts/form.js";
 import type { BackendBridge } from "../backend.js";
 
+/**
+ * Run `ask_user_form` through the host bridge within the host's form limits.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleAskUserForm(
   input: AskUserFormInput,
   bridge: BackendBridge,

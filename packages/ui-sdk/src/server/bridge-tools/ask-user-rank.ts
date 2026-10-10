@@ -24,6 +24,11 @@ export function askUserRankPayload(spec: AskUserRankSpec, result: AskUserRankRes
   return { order: [...result.order], unchanged: ids.every((id, index) => id === result.order[index]) };
 }
 
+/**
+ * Run `ask_user_rank` through the host bridge and check the returned order.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleAskUserRank(
   input: AskUserRankInput,
   bridge: BackendBridge,

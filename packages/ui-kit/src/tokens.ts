@@ -184,6 +184,9 @@ export const TOKENS = {
   "button-hover-bg-suggest": "rgba(224,159,62,0.12)",
   "button-hover-border-suggest": "rgba(224,159,62,0.5)",
   "button-hover-fg-suggest": "var(--bk-amber-ink)",
+  "icon-button-overlay-bg": "rgba(26,29,34,0.8)",
+  "icon-button-hover-bg-mute": "var(--bk-hover-veil-strong)",
+  "icon-button-hover-fg-mute": "var(--bk-color-ink)",
   "hover-border": "#3a3e47",
   "focus-ring": "var(--bk-color-ink)",
   "hover-veil-soft": "rgba(255,255,255,0.03)",
@@ -573,6 +576,9 @@ export const LIGHT_TOKENS: Record<TokenName, string> = {
   "button-hover-bg-suggest": "rgba(224,159,62,0.16)",
   "button-hover-border-suggest": "rgba(127,76,8,0.55)",
   "button-hover-fg-suggest": "var(--bk-amber-ink)",
+  "icon-button-overlay-bg": "rgba(255,254,250,0.8)",
+  "icon-button-hover-bg-mute": "var(--bk-hover-veil-strong)",
+  "icon-button-hover-fg-mute": "var(--bk-color-ink)",
   "hover-border": "#b5ab96",
   "focus-ring": "var(--bk-color-ink)",
   "hover-veil-soft": "rgba(35,31,26,0.03)",
@@ -942,6 +948,9 @@ export const PRINT_TOKENS: Record<TokenName, string> = {
   "button-hover-bg-suggest": "transparent",
   "button-hover-border-suggest": "transparent",
   "button-hover-fg-suggest": "var(--bk-amber-ink)",
+  "icon-button-overlay-bg": "#ffffff",
+  "icon-button-hover-bg-mute": "var(--bk-hover-veil-strong)",
+  "icon-button-hover-fg-mute": "var(--bk-color-ink)",
   "hover-border": "#b5ab96",
   "focus-ring": "var(--bk-color-ink)",
   "hover-veil-soft": "transparent",
@@ -1302,3 +1311,14 @@ export const canvas = {
  * Not exported from the package root; `src/brand.ts` publishes it.
  */
 export const BRAND_ICON_GROUND = "#0c1417" as const;
+
+/** Named document layers. Native modal dialogs use the browser top layer. */
+export const LAYERS = { raised: 10, popover: 20, nav: 30, panel: 40, banner: 50, modal: 60 } as const;
+export const z = {
+  raised: "var(--bk-z-raised)",
+  popover: "var(--bk-z-popover)",
+  nav: "var(--bk-z-nav)",
+  panel: "var(--bk-z-panel)",
+  banner: "var(--bk-z-banner)",
+  modal: "var(--bk-z-modal)",
+} as const;

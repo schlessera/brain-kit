@@ -166,7 +166,7 @@ describe("Files tree keys (sixth pass §8)", () => {
     try {
       const view = render(<FilePanel open onClose={() => {}} />);
       const folder = await view.findByRole("treeitem", { name: /notes/ }, { timeout: 5000 });
-      const pane = view.getByRole("dialog", { name: "Files" });
+      const pane = view.getByRole("region", { name: "Files" });
       expect(pane.textContent).toContain("← → fold · ⏎ open");
       expect(pane.textContent).not.toContain("j / k");
 

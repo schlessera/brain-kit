@@ -23,7 +23,7 @@
  */
 
 /* Tokens and shared unions. */
-export { color, font } from "./tokens.js";
+export { color, font, z, LAYERS } from "./tokens.js";
 // The token tables, their `TokenName` keys and the canvas palettes are
 // first-party only, in `./internal` (#1053): ui-react reads them where there
 // is no document. A consumer references the `--bk-*` custom properties.
@@ -279,3 +279,8 @@ export type { AskUserFormCardProps, AskUserFormSubmission, FormNodeBase, FormNod
 
 export { TrackMap, type TrackMapProps } from "./blocks/TrackMap.js";
 export { RecordingRow, type RecordingRowProps, type RecordingRowState } from "./rows/RecordingRow.js";
+
+export { Overlay, type OverlayProps, type OverlayVariant, type OverlayCloseReason } from "./chrome/Overlay.js";
+
+export { IconButton, type IconButtonProps } from "./primitives/IconButton.js";
+export { TextButton, type TextButtonProps } from "./primitives/TextButton.js";

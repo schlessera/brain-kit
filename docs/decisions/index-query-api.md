@@ -85,7 +85,7 @@ UI-server consumes the supported `@schlessera/brain/queries` entry of
 `peerDependenciesMeta` marking it optional. Hosts explicitly install compatible
 core for graph and index-derived vocabulary; unrelated standalone features boot
 without it. Normal conditional exports resolve source, default JS and declarations
-from one build (`"./queries"`, `packages/core/package.json:45-49`).
+from one build (`"./queries"`, `packages/core/package.json:50-54`).
 
 Resolve/cache functions lazily once per app; core owns short-lived native
 connections and snapshots per operation. The one-way server-to-core edge is

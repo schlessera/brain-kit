@@ -285,6 +285,12 @@
   --bk-button-hover-border-suggest: light-dark(rgba(127,76,8,0.55), rgba(224,159,62,0.5));
   --bk-button-hover-fg-suggest: var(--bk-amber-ink);
 
+  /* Native icon controls (D55): overlay paint follows the themed raised
+   * ground; mute hover aliases the shared veil and ink. */
+  --bk-icon-button-overlay-bg: light-dark(rgba(255,254,250,0.8), rgba(26,29,34,0.8));
+  --bk-icon-button-hover-bg-mute: var(--bk-hover-veil-strong);
+  --bk-icon-button-hover-fg-mute: var(--bk-color-ink);
+
   /* Shared interaction values. The hover surface is `raised` and has no token
    * of its own — a second name for one colour is how two colours start. Focus
    * is ink, not amber or teal, because it says WHERE YOU ARE rather than what a
@@ -995,6 +1001,9 @@
   --bk-button-hover-bg-suggest: transparent;
   --bk-button-hover-border-suggest: transparent;
   --bk-button-hover-fg-suggest: var(--bk-amber-ink);
+  --bk-icon-button-overlay-bg: #ffffff;
+  --bk-icon-button-hover-bg-mute: var(--bk-hover-veil-strong);
+  --bk-icon-button-hover-fg-mute: var(--bk-color-ink);
   --bk-hover-border: #b5ab96;
   --bk-focus-ring: var(--bk-color-ink);
   --bk-hover-veil-soft: transparent;
@@ -1643,6 +1652,92 @@
   outline-offset: -2px;
 }
 
+/* ── Native icon and text actions (D55, #1379) ─────────────────────────── */
+.bk-icon-btn, .bk-text-btn {
+  appearance: none;
+  margin: 0;
+  border: none;
+  padding: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bk-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--bk-color-ink-mute);
+  --hv-bg: var(--bk-icon-button-hover-bg-mute);
+  --hv-fg: var(--bk-icon-button-hover-fg-mute);
+}
+.bk-icon-btn[data-size="sm"] { width: 28px; height: 28px; border-radius: 8px; }
+@media (any-pointer: coarse) {
+  .bk-icon-btn[data-size="sm"] { width: 44px; height: 44px; }
+}
+.bk-icon-btn-glyph { display: inline-flex; width: 16px; height: 16px; }
+.bk-icon-btn[data-size="sm"] .bk-icon-btn-glyph { width: 14px; height: 14px; }
+.bk-icon-btn-glyph > svg, .bk-text-btn-glyph > svg { width: 100%; height: 100%; }
+.bk-icon-btn[data-tone="danger"] {
+  color: var(--bk-red-ink);
+  --hv-bg: var(--bk-button-hover-bg-danger);
+  --hv-fg: var(--bk-button-hover-fg-danger);
+}
+.bk-icon-btn[data-tone="overlay"] {
+  background: var(--bk-icon-button-overlay-bg);
+  color: var(--bk-color-ink-dim);
+  --hv-bg: var(--bk-color-raised);
+  --hv-fg: var(--bk-color-ink);
+}
+.bk-icon-btn[data-tone="mute"][aria-expanded="true"] {
+  background: var(--bk-color-raised);
+  color: var(--bk-color-ink);
+  --hv-bg: var(--bk-color-raised);
+}
+.bk-icon-btn:disabled, .bk-icon-btn:disabled:hover {
+  opacity: .45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--bk-color-ink-mute);
+  transform: none;
+  filter: none;
+}
+.bk-icon-btn[data-tone="danger"]:disabled { color: var(--bk-red-ink); }
+.bk-icon-btn[data-tone="overlay"]:disabled { background: var(--bk-icon-button-overlay-bg); color: var(--bk-color-ink-dim); }
+.bk-icon-btn[data-tone="mute"][aria-expanded="true"]:disabled { background: var(--bk-color-raised); color: var(--bk-color-ink); }
+.bk-text-btn {
+  position: relative;
+  min-height: 44px;
+  padding: 0 4px;
+  gap: 4px;
+  border-radius: 4px;
+  background: transparent;
+  font: 500 12.5px/20px var(--bk-font-body);
+  color: var(--bk-teal-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.bk-text-btn[data-tone="meta"] {
+  font: 400 10.5px/20px var(--bk-font-mono);
+  color: var(--bk-color-ink-mute);
+  text-decoration: none;
+}
+.bk-text-btn[data-tone="inherit"] { font: inherit; font-weight: 500; color: inherit; }
+/* Keep a short inherited line at 44px total reach without changing its font. */
+.bk-text-btn[data-inline="true"] { min-height: 20px; padding: 0; }
+.bk-text-btn[data-inline="true"]::before { content: ""; position: absolute; inset: -12px -4px; }
+.bk-text-btn-glyph { display: inline-flex; width: 12px; height: 12px; }
+.bk-text-btn:hover:not(:disabled) { text-decoration-thickness: 2px; }
+.bk-text-btn[data-tone="meta"]:hover:not(:disabled) { color: var(--bk-color-ink-dim); text-decoration: underline; text-decoration-thickness: 1px; }
+.bk-text-btn:active:not(:disabled) { transform: translateY(1px); }
+.bk-text-btn:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-text-btn:disabled { opacity: .45; cursor: not-allowed; }
+
 /* ── Overlay discs (D52 §7) ────────────────────────────────────────────────
  *
  * `DiscButton`: a 32px paint inside a 44px button. The paint is the rest
@@ -2221,3 +2316,138 @@
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: -2px;
 }
+
+/* @layers:start */
+:root {
+  --bk-z-raised: 10;
+  --bk-z-popover: 20;
+  --bk-z-nav: 30;
+  --bk-z-panel: 40;
+  --bk-z-banner: 50;
+  --bk-z-modal: 60;
+}
+/* @layers:end */
+
+/* Overlay geometry is viewport-based; native dialogs escape containing blocks. */
+html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
+.bk-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bk-color-ink);
+  box-sizing: border-box;
+}
+.bk-overlay::backdrop { background: transparent; }
+.bk-overlay-scrim { position: absolute; inset: 0; }
+.bk-overlay-scrim[data-scrim="dim"] { background: var(--bk-palette-shadow); }
+.bk-overlay-scrim[data-scrim="veil"] { background: color-mix(in srgb, var(--bk-palette-shadow) 50%, transparent); }
+.bk-overlay-scrim[data-scrim="opaque"] { background: var(--bk-color-canvas); }
+.bk-overlay-surface {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-height: min(70dvh, calc(100dvh - 48px - env(safe-area-inset-top)));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-top: 1px solid var(--bk-color-edge);
+  border-radius: 26px 26px 0 0;
+  background: var(--bk-color-surface);
+  box-shadow: 0 24px 60px var(--bk-palette-shadow);
+  overflow: hidden;
+}
+.bk-overlay[data-size="sm"] { --overlay-width: 320px; }
+.bk-overlay[data-size="md"] { --overlay-width: 480px; }
+.bk-overlay[data-size="lg"] { --overlay-width: 560px; }
+.bk-overlay[data-size="xl"] { --overlay-width: 720px; }
+.bk-overlay-body {
+  min-height: 0;
+  padding: 0 18px calc(20px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+/* BottomSheet supplies the unchanged header; Overlay owns body/gutter/shape. */
+.bk-overlay-surface > [data-bk-bottom-sheet] {
+  flex: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding-bottom: 0 !important;
+}
+.bk-overlay-surface > [data-bk-bottom-sheet] > [data-bk-sheet-gutter] { height: 0 !important; }
+.bk-overlay-header { display: flex; align-items: center; gap: 9px; padding: 14px 18px; flex: none; }
+.bk-overlay-header h2 { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; font: 400 18px/1.2 var(--font-display); }
+.bk-overlay[data-bk-overlay="fullscreen"] .bk-overlay-surface {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: var(--bk-color-canvas);
+}
+.bk-overlay[data-bk-overlay="fullscreen"] .bk-overlay-body { padding: 0; height: 100%; }
+.bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface {
+  inset: 0 0 0 auto;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-left: 1px solid var(--bk-color-edge);
+  border-radius: 0;
+}
+.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; }
+.bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface {
+  bottom: auto;
+  top: 110px;
+  width: min(var(--overlay-width), calc(100vw - 32px));
+  max-height: calc(100dvh - 126px);
+  border: 1px solid var(--bk-color-edge);
+  border-radius: 18px;
+}
+.bk-overlay[data-placement="top"] [data-bk-grabber] { display: none; }
+.bk-overlay-sr-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (min-width: 480px) {
+  .bk-overlay-surface { width: min(var(--overlay-width), calc(100vw - 32px)); }
+  .bk-overlay[data-destination] { left: 60px; bottom: 0; width: calc(100% - 60px); }
+  .bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface { width: 100%; }
+}
+@media (min-width: 768px) {
+  .bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface { width: min(var(--overlay-width), 100%); }
+}
+@media (min-width: 900px) {
+  .bk-overlay[data-destination] { left: 208px; width: calc(100% - 208px); }
+  .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface {
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+    max-height: 85dvh;
+    border: 1px solid var(--bk-color-edge);
+    border-radius: 18px;
+  }
+  .bk-overlay[data-bk-overlay="dialog"] [data-bk-grabber] { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes bk-overlay-sheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes bk-overlay-panel { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes bk-overlay-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes bk-overlay-card { from { opacity: 0; scale: .98; } to { opacity: 1; scale: 1; } }
+  .bk-overlay-scrim { animation: bk-overlay-fade 150ms ease-out; }
+  .bk-overlay-surface { animation: bk-overlay-sheet 200ms ease-out; }
+  .bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface { animation: bk-overlay-panel 300ms ease-out; }
+  .bk-overlay[data-bk-overlay="fullscreen"] .bk-overlay-surface { animation: bk-overlay-fade 120ms ease-out; }
+  .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface { animation: bk-overlay-fade 150ms ease-out; }
+  @media (min-width: 900px) {
+    .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface { animation: bk-overlay-card 150ms ease-out; }
+  }
+}
+@media print { .bk-overlay { display: none; } }

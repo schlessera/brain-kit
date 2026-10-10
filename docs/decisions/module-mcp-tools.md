@@ -31,7 +31,7 @@ places.
 
 1. **In a voice turn, by design.** The voice posture removes `Bash` and
    `Skill` (`export const VOICE_ALLOWED_TOOLS`,
-   `packages/ui-backend-claude/src/tool-policy.ts:115-151`), for the reasons
+   `packages/ui-backend-claude/src/tool-policy.ts:119-155`), for the reasons
    in [voice-permission.md](voice-permission.md#the-voice-posture): 192 of
    192 measured approvals came from `Bash`, and a skill without `Bash` fails
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:120-146`).
+`packages/core/src/lib/module-types.ts:128-154`).
 
 ## Alternatives rejected
 
@@ -181,8 +181,8 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
-| `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`const toolWarnings`, `packages/core/src/mcp-server.ts:185-189`). A module never contributes half its tools. |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:488-490`). |
+| `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`toolWarnings: (...warnings)`, `packages/core/src/mcp-server.ts:516-520`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
 One module's bug does not take `brain_search` away from a voice client. That
@@ -222,7 +222,7 @@ catch them.
   error and never a malformed success.
 - A thrown error becomes `{ isError: true, content: [{ type: "text", text:
   "Error: <message>" }] }`, the shape core's `errorResult` returns
-  (`const errorResult`, `packages/core/src/mcp-server.ts:181-184`).
+  (`const errorResult`, `packages/core/src/mcp-server.ts:151-154`).
 - A tool caps its own result size and states the cap in its description, as
   `brain_search` does with `limit`. Core adds no generic cap. The right
   bound depends on the operation, and a silent truncation would be worse
@@ -250,13 +250,13 @@ catch them.
 - **A mutating module tool must be serialized before any backend allows it.**
   The Claude backend's awaited hook covers every `mcp__brain__` name
   (`export const MUTATING_TOOL_MATCHER`,
-  `packages/ui-backend-claude/src/tool-policy.ts:177`).
+  `packages/ui-backend-claude/src/tool-policy.ts:184`).
   Only the five core reads and `jobs_review` are exempt
   (`const BRAIN_READ_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:181-188`).
+  `packages/ui-backend-claude/src/tool-policy.ts:188-195`).
   Every other brain tool takes the core document writers' brain lock
   (`export function lockKeyForTool`,
-  `packages/ui-backend-claude/src/tool-policy.ts:235-256`).
+  `packages/ui-backend-claude/src/tool-policy.ts:242-264`).
   An approved call reacquires that same key after its approval wait. This
   serialization policy does not admit a tool or trust its own annotation.
 - A tool is not an escape from containment. It resolves paths with
@@ -413,7 +413,7 @@ failed.
 
 - **The pi backend.** It does not use `brain mcp`. It builds its brain tools
   in-process with its own names (`export const TOOL_RISK`,
-  `packages/ui-backend-pi/src/tools.ts:210`), and it keeps `bash`, so
+  `packages/ui-backend-pi/src/tools.ts:214`), and it keeps `bash`, so
   `brain jobs review` is reachable there already. Serving module tools on pi
   would need collision rules against pi's flat namespace (`read_file`,
   `ask_user` and `web_search` all parse as `<module>_<local>`). It needs its
