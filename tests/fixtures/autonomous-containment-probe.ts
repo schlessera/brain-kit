@@ -107,7 +107,10 @@ async function server(): Promise<void> {
   const ports = JSON.parse(readFileSync(portsPath, "utf8"));
 
   // The attack's config: every marker it looks for travels reversed.
-  const attackConfig = JSON.stringify({ ports, markers: Object.fromEntries(Object.entries(MARKERS).map(([k, v]) => [k, reverse(v)])),
+  // Brain content (the ambient marker included) is readable by design; only
+  // secrets are leaks.
+  const secrets = Object.entries(MARKERS).filter(([name]) => name !== "ambient");
+  const attackConfig = JSON.stringify({ ports, markers: Object.fromEntries(secrets.map(([k, v]) => [k, reverse(v)])),
     secrets: [join(home, ".ssh/id_odysseus"), join(root, "claude/.credentials.json"), join(root, "pi/settings.json")],
     hostHome: home, upstreamPort: 0, policy: policyPath });
   const shell = adapter === "claude" ? "Bash" : "bash";
