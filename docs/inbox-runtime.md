@@ -116,7 +116,8 @@ AE6 and AE10 are deferred to v2. An arrival that T1 cannot route, for
 example without a classification key, stays queued until it expires; the
 agent tier never runs unrouted work. Intake assigns stakes 1 and no deadline,
 which stays below the push cutoff of 12, so the dispatcher's own decisions
-reach the twice-daily digest rather than an immediate push.
+reach the twice-daily digest rather than an immediate push
+(the ruling is requested on #1553).
 
 ## Runtime token file
 
