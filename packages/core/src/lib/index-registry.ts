@@ -18,7 +18,7 @@
  * depth, other than an `_index.md`.
  */
 import { readFileSync } from "fs";
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { dirname, join, posix } from "path";
 import { z } from "zod";
 

@@ -7,13 +7,13 @@
  * contract the env parity gate diffs against the package's env documentation.
  */
 
-// The descriptor contract is shared across every chokepoint via the
-// sync-enforced copy in ./env-core.ts.
+// The descriptor shape follows the shared env core
+// (@schlessera/brain-common/internal/env); this chokepoint needs nothing from it.
 
 /**
  * One environment variable this package reads.
  *
- * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
  * package's published descriptor shape, and widening it to the shared
  * union would be a breaking change for typed consumers of ENV_VARS.
  */

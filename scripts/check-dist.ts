@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join, resolve } from "path";
 
 const CORE_HOOKS = ["pre-commit", "post-commit", "post-checkout", "post-merge"];
@@ -11,8 +11,28 @@ function requireFile(path: string, packageName: string): void {
   }
 }
 
+/**
+ * The built file behind every export a consumer without the `bun` condition
+ * resolves: each subpath's `default` target, or a bare string target, under
+ * dist/. Read from the manifest, so a package without a root entry (brain-common
+ * exports only `./internal/*`) is checked by what it actually exports.
+ */
+export function exportedDistFiles(packageDir: string): string[] {
+  const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
+    exports?: Record<string, string | Record<string, string>>;
+  };
+  return Object.values(manifest.exports ?? {})
+    .map((target) => (typeof target === "string" ? target : target.default))
+    .filter((target): target is string => typeof target === "string" && /^\.\/dist\/.+\.js$/.test(target))
+    .map((target) => join(packageDir, target));
+}
+
 export function assertPublishArtifacts(packageDir: string, packageName: string): void {
-  requireFile(join(packageDir, "dist", "index.js"), packageName);
+  const exported = exportedDistFiles(packageDir);
+  if (exported.length === 0) {
+    throw new Error(`${packageName} publish refused: its manifest exports no built dist/ entry`);
+  }
+  for (const file of exported) requireFile(file, packageName);
 
   if (packageName === "@schlessera/brain-ui-sdk") {
     for (const entry of [

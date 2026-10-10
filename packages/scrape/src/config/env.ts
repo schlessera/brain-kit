@@ -7,10 +7,10 @@
  * contract the env parity gate diffs against this package's README.
  */
 
-import { envFlag } from "./env-core.js";
+import { envFlag } from "@schlessera/brain-common/internal/env";
 
 // The descriptor contract and the boolean helpers are shared across every
-// chokepoint via the sync-enforced copy in ./env-core.ts.
+// chokepoint via @schlessera/brain-common/internal/env.
 
 /**
  * The default User-Agent, and the reason it is not a browser string.
@@ -32,7 +32,7 @@ export const DEFAULT_USER_AGENT =
 /**
  * One environment variable this package reads.
  *
- * Deliberately LOCAL and narrower than env-core's EnvVarSpec: this is the
+ * Deliberately LOCAL and narrower than the shared EnvVarSpec: this is the
  * package's published descriptor shape, and widening it to the shared
  * union would be a breaking change for typed consumers of ENV_VARS.
  */

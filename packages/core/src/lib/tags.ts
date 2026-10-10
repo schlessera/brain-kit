@@ -8,7 +8,7 @@
  * in brain.config (or a person) decides. Nothing here writes a file.
  */
 
-import { parseFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 

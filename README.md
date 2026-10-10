@@ -129,6 +129,7 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 ## Repository layout
 
 ```
+packages/common              @schlessera/brain-common — internal: env descriptor core, cache-free frontmatter parser
 packages/geo                 @schlessera/brain-geo — shared geo services, track measurements and static maps
 packages/core                @schlessera/brain — CLI, MCP server, search, index, config, skills
 packages/module-video        @schlessera/brain-module-video — Gemini video watching, opt-in

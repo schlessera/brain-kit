@@ -1,5 +1,5 @@
 import { Glob } from "bun";
-import { parseFrontmatter, type ParsedFrontmatter } from "./frontmatter-parse.js";
+import { parseFrontmatter, type ParsedFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
   existsSync,
   mkdirSync,

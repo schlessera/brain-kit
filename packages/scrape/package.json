@@ -51,6 +51,7 @@
     "prepublishOnly": "bun ../../scripts/check-dist.ts"
   },
   "dependencies": {
+    "@schlessera/brain-common": "workspace:*",
     "cheerio": "^1.2.0",
     "robots-parser": "^3.0.1"
   },

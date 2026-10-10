@@ -8,7 +8,7 @@ import { auditCommand } from "../packages/core/src/cli/commands/audit";
 import { audit, auditTotals, auditWithModules } from "../packages/core/src/lib/auditor";
 import { openDatabase } from "../packages/core/src/lib/db";
 import { indexAll } from "../packages/core/src/lib/indexer";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 import { validate } from "../packages/core/src/lib/validate";
 import { tagsCommand } from "../packages/core/src/cli/commands/tags";
 import type { LoadedModule } from "../packages/core/src/lib/module-types";

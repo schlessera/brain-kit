@@ -1,7 +1,7 @@
 // Private #841 controls. This delegates to an existing writer, never ships a repair API.
 import { readFileSync } from "node:fs";
 import { getMarkdownFiles } from "../../../packages/core/src/lib/indexer";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { isAbsolute } from "node:path";
 import { safeResolve } from "../../../packages/core/src/lib/safe-path";
 import { planRegistry, applyRegistry } from "../../../packages/core/src/lib/index-registry";

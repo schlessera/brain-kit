@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { stringifyDocument } from "../src/lib/frontmatter";
 import { parseDoc, type Unit } from "../src/lib/sync/resolve/markdown";

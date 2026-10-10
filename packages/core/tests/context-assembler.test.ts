@@ -11,7 +11,7 @@ import type { Database } from "bun:sqlite";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";

@@ -59,13 +59,13 @@
     "eval:triage:validate": "bun run evals/triage/validate.ts"
   },
   "dependencies": {
+    "@schlessera/brain-common": "workspace:*",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "0.221.0",
     "@schlessera/brain-render-template": "workspace:*",
     "@schlessera/brain-ui-sdk": "workspace:*",
     "@simplewebauthn/server": "^13.3.2",
     "fflate": "^0.8.2",
-    "gray-matter": "^4.0.3",
     "hono": "^4",
     "ignore": "^7.0.5",
     "web-push": "^3.6.7",

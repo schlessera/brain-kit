@@ -125,7 +125,7 @@ describe("config/env resolveCronConfig", () => {
 
 /**
  * Boolean flag parsing in resolveServerConfig — all of it goes through the
- * shared `envFlag` (src/config/env-core.ts), so every flag accepts the same
+ * shared `envFlag` (@schlessera/brain-common/internal/env), so every flag accepts the same
  * token set: 1/true/on/yes vs 0/false/off/no, case-insensitive, trimmed,
  * with unset/unrecognised falling back to the flag's own default.
  */

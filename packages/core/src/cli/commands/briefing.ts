@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { parseFrontmatter } from "../../lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { BrainContext } from "../../lib/context.js";
 import {

@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { archiveDocument } from "../src/lib/archiver";
 import { editFrontmatter, updateDocument } from "../src/lib/frontmatter-edit";

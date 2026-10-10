@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { brainConfigSchema } from "../../../packages/core/src/lib/config";
 import { buildTaxonomy } from "../../../packages/core/src/lib/taxonomy";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import type { Envelope, Proposal } from "./guard";
 export const benchmark = z.array(z.strictObject({
     id: z.string(), split: z.enum(["tuning", "held-out"]), entity: z.string(), template: z.string(), category: z.string(),

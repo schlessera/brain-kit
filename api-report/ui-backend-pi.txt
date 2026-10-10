@@ -45,7 +45,7 @@ signatures (every public export and the types it is made of)
     }
   DYNAMIC_ENV_READS (packages/ui-backend-pi/src/config/env.ts)
     const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[];
-  DynamicEnvReadSpec (packages/ui-backend-pi/src/config/env-core.ts)
+  DynamicEnvReadSpec (packages/common/src/env-core.ts)
     export interface DynamicEnvReadSpec {
         source: string;
         description: string;
@@ -78,7 +78,7 @@ signatures (every public export and the types it is made of)
     const backendModule: BackendModule;
   createPiBackend (packages/ui-backend-pi/src/backend.ts)
     export function createPiBackend(options: CreatePiBackendOptions): AgentBackend;
-  readEnvVar (packages/ui-backend-pi/src/config/env-core.ts)
+  readEnvVar (packages/common/src/env-core.ts)
     export function readEnvVar(name: string, env?: NodeJS.ProcessEnv): string | undefined;
   resolveEnv (packages/ui-backend-pi/src/config/env.ts)
     export function resolveEnv(env?: NodeJS.ProcessEnv): PiBackendEnv;

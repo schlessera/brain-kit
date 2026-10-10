@@ -281,3 +281,11 @@ First-party additions for the video module (#1205):
 `geminiCompletions` and `GEMINI_FLASH_MODEL`. They do not expand the supported
 public API. The video package supports its manifest, schema and config type;
 its watch implementation and CLI remain implementation details.
+
+An internal-only package (#1396): `@schlessera/brain-common` has no root
+entry. Its two entries, `./internal/env` and `./internal/frontmatter`, follow
+the internal-entry rule above. They replace byte-identical copies of
+`env-core.ts` and `frontmatter-parse.ts` that the packages carried. A name a
+public entry re-exports from it, such as core's `DynamicEnvReadSpec` and
+`readEnvVar`, stays part of that package's supported surface and is recorded
+in that package's report.

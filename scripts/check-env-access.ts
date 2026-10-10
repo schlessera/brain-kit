@@ -30,11 +30,11 @@ import { readFileSync } from "fs";
 import { relative, resolve } from "path";
 import ts from "typescript";
 
-// `env.ts` is the per-package chokepoint; `env-core.ts` is the sync-enforced
-// shared copy it is built on (see tests/env-core-sync.test.ts), whose
-// `readEnvVar` defaults its parameter to `process.env`. Both are deliberate
-// chokepoint files; nothing else in a package may touch the environment.
-const CHOKEPOINT = /^packages\/[^/]+\/src\/config\/env(-core)?\.ts$/;
+// `env.ts` is the per-package chokepoint; `env-core.ts` is the shared core
+// they are built on (@schlessera/brain-common), whose `readEnvVar` defaults
+// its parameter to `process.env`. Both are deliberate chokepoint files;
+// nothing else in a package may touch the environment.
+const CHOKEPOINT = /^packages\/(?:[^/]+\/src\/config\/env|common\/src\/env-core)\.ts$/;
 
 interface Finding {
   file: string;

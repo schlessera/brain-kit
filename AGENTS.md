@@ -103,10 +103,10 @@ on, links to or describes them.
   sequences, which never change the runtime value. A raw NUL hides the file
   from grep and ripgrep; a whitespace-trimming editor corrupts a zero-width
   delimiter. `bun run lint` is the invisible-character gate, in CI too.
-- Parse frontmatter with `parseFrontmatter` from the package's
-  `src/lib/frontmatter-parse.ts`, never with gray-matter directly, which
-  shares one cached object between byte-identical documents. `bun run lint`
-  refuses a direct import
+- Parse frontmatter with `parseFrontmatter` from
+  `@schlessera/brain-common/internal/frontmatter`, never with gray-matter
+  directly, which shares one cached object between byte-identical documents.
+  `bun run lint` refuses a direct import
   ([docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md)).
 - Config-driven taxonomy: document types are runtime-validated strings (zod),
   not compile-time unions.

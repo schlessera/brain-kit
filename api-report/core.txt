@@ -366,7 +366,7 @@ signatures (every public export and the types it is made of)
         path: string;
         updated: string | null;
     }
-  DynamicEnvReadSpec (packages/core/src/config/env-core.ts)
+  DynamicEnvReadSpec (packages/common/src/env-core.ts)
     export interface DynamicEnvReadSpec {
         source: string;
         description: string;

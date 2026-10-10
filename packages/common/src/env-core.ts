@@ -1,20 +1,11 @@
 /**
- * Shared core of every package's environment chokepoint — a SYNC-ENFORCED
- * COPY, not a package.
+ * Shared core of every package's environment chokepoint.
  *
- * This file exists byte-identically as `src/config/env-core.ts` in every
- * package that has an env chokepoint (`src/config/env.ts`), and the root test
- * `tests/env-core-sync.test.ts` fails the build when any copy differs. To
- * change it: edit ONE copy, copy the file verbatim into every package that
- * has one (each `src/config/env-core.ts`), and rerun the sync test.
- *
- * Why a copy and not a `@schlessera/brain-env` package: the repo adds a seam
- * only where a second implementation is plausible (docs/extending/README.md),
- * and a new package for four fields and three small functions would churn the
- * release manifest and every dependent's dependency list. Byte-equality
- * enforced by a test gives the same single-source-of-truth guarantee without
- * the edge. (`scripts/env-docs.ts` imports the canonical copy in
- * `packages/core` directly — it is a root script, not published code.)
+ * Internal to brain-kit: reached through `@schlessera/brain-common/internal/env`,
+ * with no compatibility promise (docs/decisions/public-export-boundary.md).
+ * Each package with an env chokepoint (`src/config/env.ts`) imports it from
+ * there; it replaced the byte-identical per-package copies a sync test held
+ * (#1396). `scripts/env-docs.ts` imports this file directly.
  *
  * What belongs here: the descriptor contract the env-docs generator and the
  * env-parity gate consume, the dynamic-read escape hatch, and the boolean

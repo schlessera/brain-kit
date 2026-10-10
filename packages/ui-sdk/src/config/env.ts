@@ -1,5 +1,5 @@
 /** Environment chokepoint for the trusted worker bootstrap's internal transport. */
-import { readEnvVar } from "./env-core.js";
+import { readEnvVar } from "@schlessera/brain-common/internal/env";
 export { ENV_VARS } from "./env-vars.js";
 
 export function workerLaunchPayload(): string | undefined {

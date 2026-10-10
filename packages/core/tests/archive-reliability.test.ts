@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { parseFrontmatter } from "../src/lib/frontmatter-parse";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { archiveDocument } from "../src/lib/archiver";
 
 const roots: string[] = [];

@@ -6,7 +6,7 @@ import { repoRelativePathSchema } from "@schlessera/brain";
 import { buildTaxonomy, getMarkdownFiles, safeResolve } from "@schlessera/brain/internal";
 import type { Taxonomy } from "@schlessera/brain";
 import type { ValidationIssue } from "@schlessera/brain/internal";
-import { parseFrontmatter } from "./lib/frontmatter-parse.js";
+import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 function parseYaml(text: string): object {
   const data = yaml.load(text, { schema: yaml.JSON_SCHEMA });
