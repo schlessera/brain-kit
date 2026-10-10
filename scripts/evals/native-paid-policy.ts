@@ -10,7 +10,7 @@ export const digest=(bytes:string|Uint8Array)=>createHash("sha256").update(bytes
 export interface NativePaidPolicy extends GrantPolicy,ReviewBinding {
   version:1;issue:NativeIssue;control:"live"|"offline";purpose:"review"|"workflow";authorizationUrl:string;allowOverage:true;
   basis:"actual additional billed charges";perIssueCapUsd:15;aggregateCapUsd:150;remainingUpperUsd:number;
-  canonicalModel:typeof NATIVE_MODEL;maxPhysicalRequests:24;maxInputBytes:number;
+  canonicalModel:typeof NATIVE_MODEL;maxPhysicalRequests:24|64;maxInputBytes:number;
   contextWindowTokens:1_000_000;maxOutputTokens:128000;inputUsdPerMillionUpper:8;outputUsdPerMillionUpper:20;invoiceUsd:null;nativeUserContextSha?:string;
 }
 const count=(n:unknown):n is number=>typeof n==="number"&&Number.isSafeInteger(n)&&n>=0;
@@ -20,7 +20,7 @@ export function validateNativePaidPolicy(issue:NativeIssue,control:NativePaidPol
   assertGrantPath(p);
   if(p.version!==1||p.issue!==issue||p.control!==control||!["review","workflow"].includes(p.purpose)||p.authorizationUrl!==PAID_AUTHORIZATION||p.allowOverage!==true||
     p.basis!=="actual additional billed charges"||p.perIssueCapUsd!==15||p.aggregateCapUsd!==150||p.invoiceUsd!==null||
-    p.canonicalModel!==NATIVE_MODEL||p.maxPhysicalRequests!==24||p.contextWindowTokens!==1_000_000||p.maxOutputTokens!==128000||
+    p.canonicalModel!==NATIVE_MODEL||p.maxPhysicalRequests!==(issue===847&&p.purpose==="workflow"?64:24)||p.contextWindowTokens!==1_000_000||p.maxOutputTokens!==128000||
     p.inputUsdPerMillionUpper!==8||p.outputUsdPerMillionUpper!==20||!count(p.maxInputBytes)||!p.maxInputBytes||
     !finite(p.remainingUpperUsd)||p.remainingUpperUsd>15||!validGrantTime(p,now)||
     (p.nativeUserContextSha!==undefined&&(issue===842||!/^[a-f0-9]{64}$/.test(p.nativeUserContextSha)))||
@@ -91,7 +91,7 @@ export class NativeBudget {
   usedUpper(){return this.records.reduce((n,r)=>n+(r.status==="complete"?r.pricedUpperUsd!:r.reservedUpperUsd),0);}
   reserve(bytes:Uint8Array,headers?:Headers){
     validateNativePaidPolicy(this.issue,this.control,this.policy,this.binding,this.clock());
-    if(this.blocked||this.records.some(r=>r.status==="reserved")||this.records.length>=24)throw Error("Prior unknown/inflight native request or physical bound");
+    if(this.blocked||this.records.some(r=>r.status==="reserved")||this.records.length>=this.policy.maxPhysicalRequests)throw Error("Prior unknown/inflight native request or physical bound");
     if(!bytes.byteLength||bytes.byteLength>this.policy.maxInputBytes)throw Error("Native request byte bound");
     const request=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));
     if(request.model!==NATIVE_MODEL||!count(request.max_tokens)||!request.max_tokens||request.max_tokens>128000)throw Error("Native model/output bound before forwarding");
@@ -106,7 +106,7 @@ export class NativeBudget {
       if(this.policy.purpose==="workflow"&&Array.isArray(content)&&content.length&&content.every((b:any)=>b?.type==="tool_result"))continue;
       throw Error("Unreviewed native USER payload before forwarding");
     }
-    if(frozen!==1||(this.policy.purpose==="review"&&(users.length!==1||request.tools?.length||request.output_config?.effort!=="low")))throw Error("Exact frozen native prompt/tool/effort boundary");
+    if(frozen!==1||(this.policy.purpose==="review"&&(users.length!==1||(request.tools!==undefined&&(!Array.isArray(request.tools)||request.tools.length!==0))||request.output_config?.effort!=="low")))throw Error("Exact frozen native prompt/tool/effort boundary");
     // Hidden framing is not bounded by wire bytes. Every physical request reserves full supported context.
     const reservedUpperUsd=(1_000_000*8+request.max_tokens*20)/1e6;
     if(!finite(reservedUpperUsd)||this.usedUpper()+reservedUpperUsd>this.policy.remainingUpperUsd)throw Error("Native reservation exceeds remaining allocation");
