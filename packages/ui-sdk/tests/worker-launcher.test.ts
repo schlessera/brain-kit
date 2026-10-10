@@ -102,9 +102,11 @@ describe("real bubblewrap worker launcher", () => {
         { env: {}, stdout: "pipe", stderr: "pipe" });
       expect(native.exitCode).toBe(0);
       versions["claude-code"] = native.stdout.toString().trim();
+      const mount = Bun.spawnSync([Bun.which("findmnt")!, "--target", f.brain, "--noheadings", "--output", "FSTYPE"]);
+      expect(mount.exitCode).toBe(0);
       const tuple = { architecture: process.arch, kernel: release(), bun: Bun.version,
         bubblewrap: Bun.spawnSync([Bun.which("bwrap")!, "--version"]).stdout.toString().trim(),
-        brainFilesystem: statfsSync(f.brain).type.toString(16), scratchFilesystem: "1021994", versions,
+        brainFilesystem: statfsSync(f.brain).type.toString(16), brainFilesystemName: mount.stdout.toString().trim(), scratchFilesystem: "1021994", versions,
         proof: "launcher escape/stdio/descriptor/scratch tests and actual configured-brain probe; adapters not moved into workers" };
       console.log("worker-host tuple", JSON.stringify(tuple));
       mkdirSync(join(ROOT, "tmp"), { recursive: true });

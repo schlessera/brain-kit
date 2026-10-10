@@ -74,6 +74,8 @@ export async function runAutonomousTurn(
       ...(error instanceof WorkerHostError ? { failure: { errorClass: error.errorClass, message } } : {}) });
     throw error;
   }
+  // The bounded host probe may outlast a principal or an external revocation.
+  if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
   let lifetime: ReturnType<typeof acquireInboxRunLifetime>;
   try { lifetime = acquireInboxRunLifetime(deps.db, input.turnId); }
   catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous attempt ownership failed."); }

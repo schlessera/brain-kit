@@ -3,7 +3,7 @@ import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createUiDb } from "../src/db/client";
-import { createPrincipal } from "../src/db/principals";
+import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createActivityStore } from "../src/activity/store";
 import { createInboxBudget } from "../src/inbox/budget";
 import { createInboxStore } from "../src/inbox/store";
@@ -54,13 +54,24 @@ function missingRequirement(message: string) {
 }
 
 describe("pre-initialization worker host gate", () => {
+  test("an exception in the host probe keeps the same visible supported-host refusal", async () => {
+    const f = setup();
+    probe = spyOn(workerHostBoundary, "probe").mockImplementation(() => { throw new Error("unprivileged user namespaces are disabled"); });
+    try {
+      await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });
+      noRuntime(f);
+      const error = f.frames.find(frame => frame.type === "error") as Extract<ServerMessage, { type: "error" }>;
+      expect(error).toMatchObject({ code: "BACKEND_REQUEST_ERROR", failure: { errorClass: "worker_host_unsupported" } });
+      missingRequirement(error.message);
+    } finally { f.cleanup(); }
+  });
   test.each(["interactive", "voice"] as const)("%s refuses before startTurn, session, transcript or runtime creation", async posture => {
     const f = setup(); unsupported();
     const sources = spyOn(f.catalog, "recordMessageSource");
     const transcript = spyOn(f.backend, "getHistory");
     try {
       await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [],
-        ...(posture === "voice" ? { source: "voice" as const, work: { posture: "voice", started() {}, settle() {} } as never } : {}) });
+        ...(posture === "voice" ? { source: "voice-conversation" as const, work: { posture: "voice", started() {}, settle() {} } as never } : {}) });
       noRuntime(f);
       expect(sources).not.toHaveBeenCalled(); expect(transcript).not.toHaveBeenCalled();
       const error = f.frames.find(frame => frame.type === "error");
@@ -110,5 +121,28 @@ describe("pre-initialization worker host gate", () => {
       expect(draft.state).toBe("failed"); missingRequirement(draft.message!);
       expect(f.host.coordinator.handoffPreparations.size).toBe(0);
     } finally { history.mockRestore(); f.cleanup(); }
+  });
+
+  test("autonomous rechecks principal authority after the bounded host probe", async () => {
+    const f = setup();
+    const now = Date.now();
+    createInboxStore(f.db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus", stagingId: "odysseus",
+      source: "share", stakes: 2, expiresAt: now + 86_400_000 });
+    const budget = createInboxBudget(f.db, { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0,
+      timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => ({ input: 0.003, output: 0.003,
+        cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" }) } });
+    budget.claim("odysseus", { runId: "probe-revocation", principalId: f.principal.id, model: "fixture",
+      billingMode: "subscription", purpose: "execute" }, now + 600_000);
+    probe = spyOn(workerHostBoundary, "probe").mockImplementation(() => {
+      revokePrincipal(f.db, f.principal.id, Date.now());
+      return { ok: true };
+    });
+    try {
+      const rejection = await runAutonomousTurn({ db: f.db, backend: f.backend, store: f.store, checkpoint() {} },
+        { turnId: "probe-revocation", principalId: f.principal.id, prompt: "Odysseus fixture", allowedTools: [],
+          systemPromptAppend: "No effects", signal: new AbortController().signal }).catch(error => error as Error);
+      noRuntime(f);
+      expect((rejection as Error).message).toContain("missing, expired or revoked");
+    } finally { f.cleanup(); }
   });
 });

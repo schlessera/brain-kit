@@ -115,6 +115,12 @@ export function probeWorkerHost(brainPath: string): WorkerHostProbe {
 /** Concrete probe object permits test spies, with no production disable flag. */
 export const workerHostBoundary = { probe: probeWorkerHost };
 export function requireWorkerHost(brainPath: string): void {
-  const result = workerHostBoundary.probe(brainPath);
+  let result: WorkerHostProbe;
+  try {
+    result = workerHostBoundary.probe(brainPath);
+  } catch (error) {
+    if (error instanceof WorkerHostError) throw error;
+    throw new WorkerHostError(error instanceof Error ? error.message : String(error));
+  }
   if (!result.ok) throw new WorkerHostError(result.requirement);
 }
