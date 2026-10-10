@@ -11,6 +11,7 @@ import { copyFileSync, existsSync, readdirSync, readFileSync, mkdtempSync, mkdir
 import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { pendingChangesetPackageErrors } from "../scripts/check-changeset-packages";
+import { consumerManifest, CONSUMER_CHECKS, cronUsageProblems, PACK_TABLE, packPlan } from "../scripts/ci-pack";
 import {
   listPublishablePackages,
   type PublishableManifest as Manifest,
@@ -30,33 +31,15 @@ const names = new Set(packages.map((p) => p.manifest.name));
 const dirs = packages.map((p) => p.dir).sort();
 const sortedNames = [...names].sort();
 
-/** Strips a subpath import down to its package name (`@scope/name/sub` → `@scope/name`). */
-function packageNameOf(specifier: string): string {
-  return specifier.split("/").slice(0, 2).join("/");
-}
-
 const CI_YML = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
 
-/** A `const <name> = [ ... ]` string list inside one of the smoke-test heredocs. */
-/** The `run:` text of one pack-job step, read from the parsed workflow. */
-function ciStep(name: string): string {
-  const workflow = Bun.YAML.parse(CI_YML) as {
-    jobs: { pack: { steps: { name?: string; run?: string }[] } };
-  };
-  const step = workflow.jobs.pack.steps.find((s) => s.name === name);
-  if (!step?.run) throw new Error(`could not find the "${name}" step's run block in ci.yml`);
-  return step.run;
-}
-
-/** The packages a step's `file:` overrides pin to a tarball. */
-function overriddenIn(step: string): string[] {
-  return [...step.matchAll(/"(@schlessera\/[^"]+)":\s*`file:/g)].map((m) => m[1]).sort();
-}
-
-function ciImportList(variable: string): string[] {
-  const block = new RegExp(`const ${variable} = \\[([\\s\\S]*?)\\];`).exec(CI_YML);
-  if (!block) throw new Error(`could not find \`const ${variable} = [...]\` in ci.yml`);
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+/** The packages a consumer manifest's `file:` overrides pin to a tarball. */
+function overriddenIn(manifest: object): string[] {
+  const overrides = (manifest as { overrides: Record<string, string> }).overrides;
+  return Object.entries(overrides)
+    .filter(([, target]) => target.startsWith("file:../brainkit-tarballs/"))
+    .map(([name]) => name)
+    .sort();
 }
 
 describe("release manifests", () => {
@@ -108,11 +91,10 @@ describe("release manifests", () => {
     expect(uiServer.manifest.bin?.["brain-ui-inbox"]).toBe("./dist/bin/brain-ui-inbox.js");
     const source = readFileSync(join(PACKAGES_DIR, uiServer.dir, "src/bin/brain-ui-inbox.ts"), "utf8");
     expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
-    const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
-    expect(workflow).toContain("bun scripts/check-inbox-package.ts --root");
+    expect(CONSUMER_CHECKS.map((check) => check.script)).toContain("check-inbox-package.ts");
   });
 
-  // The packed-install smoke test in CI asserts the bin's usage output. That
+  // The pack job (scripts/ci-pack.ts) asserts the packed bin's usage output. That
   // assertion went stale the moment `crontab` and `environment` were added:
   // it still matched a two-subcommand line, so it failed the build instead of
   // proving anything. Both sides are decidable from files, so check them here
@@ -131,22 +113,23 @@ describe("release manifests", () => {
     const subcommands = [...usage.matchAll(/brain-ui-cron (\w+)/g)].map((m) => m[1]);
     expect(subcommands.length).toBeGreaterThan(1);
 
-    const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
-    const smokeTest = workflow.slice(workflow.indexOf("CRON_USAGE="));
-    expect(smokeTest).not.toBe("");
-    for (const sub of subcommands) {
-      expect(smokeTest.includes(sub)).toBe(true);
+    expect(cronUsageProblems(2, usage)).toEqual([]);
+    expect(cronUsageProblems(0, usage)).not.toEqual([]);
+    // Every usage line is asserted: dropping any one of them fails the probe.
+    const lines = usage.split("\n");
+    for (const [index, line] of lines.entries()) {
+      const without = lines.filter((_, other) => other !== index).join("\n");
+      expect(cronUsageProblems(2, without), line).not.toEqual([]);
     }
 
-    // The subcommand-name check above is too weak on its own, and it was: the
-    // workflow greps the `run` line with `grep -qF`, in full, and
-    // `--subprocess-env-extra` was added to that line by the 0.33.1 allowlist
-    // without the workflow moving. Every name still appeared, so this test
-    // stayed green while the pack job failed on the real string. Assert the
-    // line the workflow actually matches.
-    const runLine = usage.split("\n")[0]!;
+    // A name-only check is too weak on its own, and it was: the probe matches
+    // the `run` line in full, and `--subprocess-env-extra` was added to that
+    // line by the 0.33.1 allowlist without the probe moving. Every name still
+    // appeared, so a name check stayed green while the pack job failed on the
+    // real string. The run line must be asserted verbatim.
+    const runLine = lines[0]!;
     expect(runLine).toContain("brain-ui-cron run");
-    expect(smokeTest).toContain(runLine);
+    expect(cronUsageProblems(2, usage.replace(runLine, runLine.replace(" [--subprocess-env-extra <names>]", "")))).not.toEqual([]);
   });
 
   // The command a developer types INSIDE a package must not flake either: bun's
@@ -250,11 +233,6 @@ describe("the publishable package list", () => {
     }
   }
 
-  /** The pack step's shell up to and including the loop's `do` line. */
-  function packLoopHeader(step: string): string | undefined {
-    return /^([\s\S]*?\n\s*for package in\b[\s\S]*?\n\s*do\n)/.exec(step)?.[1];
-  }
-
   function lines(result: { exitCode: number; stdout: Uint8Array; stderr: Uint8Array }): string[] {
     const stderr = new TextDecoder().decode(result.stderr);
     expect(result.exitCode, stderr).toBe(0);
@@ -350,52 +328,39 @@ describe("the publishable package list", () => {
     });
   });
 
-  test("an added package directory reaches the CI pack loop with no list edit", () => {
-    // Run the workflow's own step text up to the loop, with the loop body
-    // swapped for an echo, so this exercises the shell that CI runs rather
-    // than a description of it.
-    const step = ciStep("Pack all workspaces");
-    const header = packLoopHeader(step);
-    if (!header) throw new Error("could not find the pack step's `for package in ... do` loop");
+  test("an added package directory reaches the CI pack plan, which refuses it until it has a row", () => {
+    // The pack job reads the same list. A package nobody described would ship
+    // with no tarball, import or Node expectation, so the plan names it and
+    // stops; given a row, it is packed after the packages it depends on.
     withAddedPackage((root) => {
-      mkdirSync(join(root, "scripts"));
-      copyFileSync(join(ROOT, "scripts", "publishable-packages.ts"), join(root, "scripts", "publishable-packages.ts"));
-      const runnerTemp = join(root, "runner-temp");
-      mkdirSync(runnerTemp);
-      const result = Bun.spawnSync(["bash", "-c", `${header}echo "PACK $package"\ndone\n`], {
-        cwd: root,
-        env: {
-          PATH: `${resolve(process.execPath, "..")}:${process.env.PATH ?? ""}`,
-          RUNNER_TEMP: runnerTemp,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const packed = lines(result).filter((l) => l.startsWith("PACK ")).map((l) => l.slice(5));
-      expect(packed).toEqual(listPublishablePackages(root).map((p) => p.dir));
-      expect(packed).toContain("a-module-ithaca");
+      expect(() => packPlan(root)).toThrow("packages/a-module-ithaca has no row in the pack table");
+      const row = { files: ["dist/index.js"], bun: ["@schlessera/brain-module-ithaca"], node: "bun-only" as const };
+      const planned = packPlan(root, { ...PACK_TABLE, "a-module-ithaca": row }).map((e) => e.pkg.dir);
+      expect(planned).toEqual(listPublishablePackages(root).map((p) => p.dir));
+      expect(planned.indexOf("a-module-ithaca")).toBeGreaterThan(planned.indexOf("core"));
     });
   });
 
-  test("the CI pack loop stops when the list cannot be read", () => {
-    // A failing command substitution inside a `for` list loops over nothing
-    // and exits 0. The step must fail instead of packing zero packages.
-    const step = ciStep("Pack all workspaces");
-    const header = packLoopHeader(step);
-    if (!header) throw new Error("could not find the pack step's `for package in ... do` loop");
+  test("the CI pack plan stops when the list cannot be read", () => {
+    // Packing zero packages must fail, not pass.
     const root = mkdtempSync(join(tmpdir(), "publishable-pack-missing-"));
     try {
-      const result = Bun.spawnSync(["bash", "-c", `${header}echo "PACK $package"\ndone\n`], {
-        cwd: root,
-        env: { PATH: `${resolve(process.execPath, "..")}:${process.env.PATH ?? ""}`, RUNNER_TEMP: root },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(new TextDecoder().decode(result.stdout)).not.toContain("PACK ");
-      expect(result.exitCode).not.toBe(0);
+      expect(() => packPlan(root)).toThrow();
+      mkdirSync(join(root, "packages"));
+      expect(() => packPlan(root)).toThrow("No publishable packages found");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("the CI pack job runs the table-driven script after the build", () => {
+    const workflow = Bun.YAML.parse(CI_YML) as {
+      jobs: { pack: { steps: { run?: string }[] } };
+    };
+    const commands = workflow.jobs.pack.steps.map((step) => step.run ?? "");
+    const build = commands.indexOf("bun run build");
+    expect(build).toBeGreaterThan(commands.indexOf("bun install --frozen-lockfile"));
+    expect(commands.slice(build + 1)).toEqual(["bun scripts/ci-pack.ts"]);
   });
 });
 
@@ -472,7 +437,7 @@ describe("workspace enumerations", () => {
     // The overrides map is how the consumer install resolves workspace deps to
     // the packed tarballs. A package absent here resolves from the public
     // registry instead, and the smoke test silently tests the PREVIOUS release.
-    expect(overriddenIn(ciStep("Install and smoke-test packed packages"))).toEqual(sortedNames);
+    expect(overriddenIn(consumerManifest("smoke", packPlan(ROOT)))).toEqual(sortedNames);
   });
 
   test("the React 18 smoke test pins every internal package brain-ui-react needs to its tarball", () => {
@@ -493,23 +458,16 @@ describe("workspace enumerations", () => {
     const needed = new Set([react.manifest.name]);
     for (const name of needed) for (const dep of internal(name)) needed.add(dep);
     expect(needed.size).toBeGreaterThan(1);
-    expect(overriddenIn(ciStep("Smoke-test brain-ui-react against React 18"))).toEqual([...needed].sort());
+    const react18 = packPlan(ROOT).filter((e) => e.row.react18);
+    expect(overriddenIn(consumerManifest("react18", react18))).toEqual([...needed].sort());
   });
 
-  test("the CI bun smoke-test import list covers every publishable package", () => {
-    expect(ciImportList("names").map(packageNameOf).sort()).toEqual(sortedNames);
-  });
-
-  test("the CI node smoke-test lists cover every publishable package, once", () => {
-    // Every package must be probed under Node — either it imports cleanly
-    // (nodePackages) or it fails only on its documented bun: dependency
-    // (bunApiPackages). A package in neither list gets no check at all; a
-    // package in both would hide a regression in one of the two expectations.
-    const node = ciImportList("nodePackages").map(packageNameOf);
-    const bunOnly = ciImportList("bunApiPackages").map(packageNameOf);
-    const both = node.filter((n) => bunOnly.includes(n));
-    expect(both).toEqual([]);
-    expect([...new Set([...node, ...bunOnly])].sort()).toEqual(sortedNames);
+  test("the pack table has one valid row per publishable package", () => {
+    // Every package is imported under Bun and has a Node expectation — it
+    // imports cleanly, or it is bun-only and fails only on its documented bun:
+    // dependency. packPlan refuses a package with no row, a stale row, or a
+    // specifier filed under the wrong package.
+    expect(packPlan(ROOT).map((e) => e.pkg.dir)).toEqual(packages.map((p) => p.dir));
   });
 
   test("the README repository layout block enumerates exactly the publishable packages", () => {

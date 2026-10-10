@@ -16,13 +16,14 @@
  * is a broken consumer typecheck and fails the script (and the CI pack job,
  * which runs it right after the build).
  *
- * Consumers come in two flavors, mirrored from ci.yml's smoke-test partition:
- * bunApiPackages document a bun: dependency, so their probe compiles with
- * bun-types (`types: ["bun"]`, the documented consumer setup); nodePackages
- * must typecheck for a consumer WITHOUT @types/bun installed, so their probe
+ * Consumers come in two flavors, read from the pack table's Node column
+ * (PACK_TABLE in scripts/ci-pack.ts): "bun-only" packages document a bun:
+ * dependency, so their probe compiles with bun-types (`types: ["bun"]`, the
+ * documented consumer setup); packages the Node consumer imports must
+ * typecheck for a consumer WITHOUT @types/bun installed, so their probe
  * excludes it — a bun-types reference leaking into one of their declaration
- * graphs fails here. The two lists are read from ci.yml itself and asserted
- * complete against packages/*, so a new package cannot dodge the check.
+ * graphs fails here. The partition is asserted complete against packages/*,
+ * so a new package cannot dodge the check.
  *
  * With skipLibCheck off, tsc also reports defects inside THIRD-PARTY .d.ts
  * (e.g. @anthropic-ai/sdk's speculative ../../node_modules/undici-types
@@ -49,6 +50,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
+import { PACK_TABLE } from "./ci-pack";
 
 const ROOT = resolve(import.meta.dir, "..");
 const PACKAGES_DIR = join(ROOT, "packages");
@@ -88,13 +90,6 @@ function publishablePackages(): { dir: string; manifest: Manifest }[] {
     .filter((p) => !p.manifest.private);
 }
 
-/** A `const <name> = [ ... ]` string list inside ci.yml's node smoke test. */
-function ciImportList(source: string, variable: string): string[] {
-  const block = new RegExp(`const ${variable} = \\[([\\s\\S]*?)\\];`).exec(source);
-  if (!block) throw new Error(`could not find \`const ${variable} = [...]\` in ci.yml`);
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
-
 function packageNameOf(specifier: string): string {
   return specifier.split("/").slice(0, 2).join("/");
 }
@@ -102,9 +97,15 @@ function packageNameOf(specifier: string): string {
 const packages = publishablePackages();
 const allNames = packages.map((p) => p.manifest.name).sort();
 
-const ciYml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
-const nodeNames = new Set(ciImportList(ciYml, "nodePackages").map(packageNameOf));
-const bunNames = new Set(ciImportList(ciYml, "bunApiPackages").map(packageNameOf));
+// The pack table's Node column: imported under Node, or bun-only.
+const nodeNames = new Set(
+  Object.values(PACK_TABLE).flatMap((row) => (row.node === "bun-only" ? [] : row.node)).map(packageNameOf)
+);
+const bunNames = new Set(
+  Object.entries(PACK_TABLE)
+    .filter(([, row]) => row.node === "bun-only")
+    .map(([dir]) => packages.find((p) => p.dir === dir)?.manifest.name ?? `packages/${dir}`)
+);
 
 // Same guarantee tests/release-manifest.test.ts gives the smoke tests: the
 // partition must cover every publishable package exactly once, or a package
@@ -112,12 +113,12 @@ const bunNames = new Set(ciImportList(ciYml, "bunApiPackages").map(packageNameOf
 const union = [...new Set([...nodeNames, ...bunNames])].sort();
 const overlap = [...nodeNames].filter((n) => bunNames.has(n));
 if (overlap.length > 0) {
-  console.error(`ci.yml lists packages as both node and bun consumers: ${overlap.join(", ")}`);
+  console.error(`The pack table lists packages as both node and bun consumers: ${overlap.join(", ")}`);
   process.exit(1);
 }
 if (JSON.stringify(union) !== JSON.stringify(allNames)) {
   console.error(
-    "ci.yml's nodePackages/bunApiPackages lists do not cover packages/* exactly.\n" +
+    "The pack table's node/bun-only partition does not cover packages/* exactly.\n" +
       `  listed:   ${union.join(", ")}\n  expected: ${allNames.join(", ")}`
   );
   process.exit(1);

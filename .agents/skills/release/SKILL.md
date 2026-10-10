@@ -47,9 +47,10 @@ the complete `check:pr --all` proof before the release PR.
    `packages/*/package.json` with each package after its internal hard
    dependencies. `bun run release -- --dry-run` prints that order without
    publishing. The package must still join the `fixed` group in
-   `.changeset/config.json`, the package map in `README.md`, and the smoke-test
-   override and import inventories in `.github/workflows/ci.yml`;
-   `tests/release-manifest.test.ts` enforces all of them.
+   `.changeset/config.json`, the package map in `README.md`, and a row in the
+   pack table (`PACK_TABLE` in `scripts/ci-pack.ts`) saying what its tarball
+   must hold and how Bun and Node consumers import it; the pack job refuses a
+   package without one, and `tests/release-manifest.test.ts` enforces the rest.
    Record the issue-approved internal dependencies in
    `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
    rejects a package without an edge policy.

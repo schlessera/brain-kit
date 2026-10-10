@@ -26,6 +26,20 @@ existing unit/runtime/browser/layout/endurance/editorial category remains
 covered by affected hosted proof under #1326. Focused local behavioral receipts
 remain required; missing runtimes and unrelated failures cannot be called green.
 
+> **2026-10-10 — Implementation context (the declaration guard reading the
+> pack job).** The declaration guard read its Node/Bun partition from the pack
+> job's inline smoke test
+> (`ciImportList` in [`scripts/check-dist-types.ts` at that time](https://github.com/schlessera/brain-kit/blob/9adc62e70b4f5eac9b5e3ef779552cd1858a6bd2/scripts/check-dist-types.ts)).
+> Under #1384 the pack job runs one table-driven script,
+> [`scripts/ci-pack.ts`](../../scripts/ci-pack.ts), and the guard reads that
+> script's `PACK_TABLE`. Local packaging still reads the GitHub pack job. Every
+> probe is kept, some stricter: tarball entries match exactly where they matched
+> a prefix, `dist/hooks/` needs a file under it, Node checks all four core
+> testing suites rather than one, a package without a table row fails, each
+> run wipes its working directories, and children run with the provider keys
+> cleared locally as in CI. Bun and Node still each load every package in one
+> process, now followed by one process per package. This decision still binds.
+
 Forks use `pull_request` with `contents: read` and CI's `actions: read` / `checks: read` for
 bounded immutable proof lookup under #1333, no secrets, no job-level
 permission escalation and no persisted token. Titles and labels reach the
