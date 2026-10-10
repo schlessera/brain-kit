@@ -3847,8 +3847,10 @@ equivalence or bound regressions on other prompts.
 flat $1.3931550, shared $1.3425880, trimmed $1.2856818. The complementary review
 adds $0.079636. These use actual modelUsage tokens and cache-write TTL counts,
 not SDK fallback dollar estimates (`priceSonnet55Usage`,
-`scripts/measure-sonnet55-cost.ts:18-39`), against the
-[official Sonnet 5.5 rates](https://platform.claude.com/docs/en/models/sonnet-5-5/overview).
+`scripts/measure-sonnet55-cost.ts:28-51`), against the
+[official Sonnet 5.5 rates](https://platform.claude.com/docs/en/models/sonnet-5-5/overview)
+as published on 2026-10-07, when the table gave $0.20 per million cache reads;
+the current rate is $0.10 (#1239). These totals are unchanged.
 All scored cache writes had known TTLs. Cache state, output length and retries
 also move these totals; they are diagnostics, not an isolated estimate of the
 schema reduction's dollar effect or a subscription billing receipt.

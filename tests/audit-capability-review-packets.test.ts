@@ -18,6 +18,8 @@ test("eight lossless bounded packets cover every authored case and whole behavio
   expect(reviewPlan).toHaveLength(8);
   const ids = reviewPlan.flatMap(p => p.caseIds), paths = [...COMMON_REVIEW_FILES, ...reviewPlan.flatMap(p => p.sourcePaths)];
   expect(ids.length).toBe(26); expect(new Set(ids).size).toBe(26); expect([...ids].sort()).toEqual(cases.map(f => f.id).sort());
+  // The shared Sonnet 5.5 rates the spend accounting uses are reviewed in full (#1239).
+  expect(paths).toContain("scripts/measure-sonnet55-cost.ts");
   expect(paths.length).toBeGreaterThan(25); expect(new Set(paths).size).toBe(paths.length); expect([...paths].sort()).toEqual([...REVIEW_FILES].sort());
   for (const plan of reviewPlan) {
     const built = buildReviewPacket(frozen, detectedRaw, proofRaw, plan.key);
