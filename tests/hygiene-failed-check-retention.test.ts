@@ -1,25 +1,22 @@
 // The shipped hygiene `reconcile` path keeping an open conflict when its check
 // failed, which the canonical-conflict eval first exercised (#1386 split it
-// from the prototype tests in experiments/canonical-conflict-eval.test.ts).
-// The eval's pair retrieval and scripted judgments only produce the entry.
+// from the prototype tests). The fixture brain and its conflict candidate
+// stand in for a canonical-conflict check that first reports the conflict and
+// then abstains.
 import { expect, test } from "bun:test";
-import { fixtures, prepare, DAY, YES, UNKNOWN } from "../scripts/evals/canonical-conflicts/fixtures";
-import { pairs, inspect } from "../scripts/evals/canonical-conflicts/prototype";
-import { reconcile, readHygieneLog } from "../packages/core/src/lib/hygiene";
+import { conflict, prepare, DAY } from "./fixtures/canonical-conflicts/prepare";
+import { reconcile, readHygieneLog, type HygieneCandidate } from "../packages/core/src/lib/hygiene";
 
-const record = (p: ReturnType<typeof prepare>, result: Awaited<ReturnType<typeof inspect>>, incomplete = false) => {
-  const r = reconcile(p.root, [], new Map(), { now: new Date(DAY), extra: result ? [result.candidate] : [], failedChecks: incomplete ? ["canonical-conflicts"] : [] });
-  return { r, entries: readHygieneLog(p.root).filter(e => e.id.startsWith("conflict-")) };
+const record = (root: string, extra: HygieneCandidate[], incomplete = false) => {
+  const r = reconcile(root, [], new Map(), { now: new Date(DAY), extra, failedChecks: incomplete ? ["canonical-conflicts"] : [] });
+  return { r, entries: readHygieneLog(root).filter(e => e.id.startsWith("conflict-")) };
 };
 
-test("abstention retains an existing conflict through the real failed-check reconciliation path", async () => {
-  const p = prepare(fixtures[0]!);
+test("abstention retains an existing conflict through the real failed-check reconciliation path", () => {
+  const p = prepare();
   try {
-    const pair = pairs(p.root, p.taxonomy, DAY)[0]!;
-    expect(record(p, await inspect(p.root, p.taxonomy, pair, DAY, async () => YES)).entries).toHaveLength(1);
-    const abstained = await inspect(p.root, p.taxonomy, pair, DAY, async () => UNKNOWN);
-    expect(abstained).toBeNull();
-    const retained = record(p, abstained, true);
+    expect(record(p.root, [conflict]).entries).toHaveLength(1);
+    const retained = record(p.root, [], true);
     expect(retained.r.resolved).toBe(0);
     expect(retained.r.failedChecks).toEqual(["canonical-conflicts"]);
     expect(retained.entries).toHaveLength(1);

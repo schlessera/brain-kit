@@ -141,6 +141,16 @@ both kinds of assertion.
 
 ### The experiment tier: 125 test files
 
+> **2026-10-10 — #838 spike families removed.** The maintainer ruled the #838
+> evaluation machinery over-built, and its harnesses under `scripts/evals/`
+> were deleted. The eleven families from audit capabilities through tag aliases
+> below (104 files) and `experiments/mechanical-hygiene-offline-source.ts` went
+> with them; read them [at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/experiments).
+> The tier now holds the 21 turn-surface, measurement-script and package files,
+> and its runner and release receipt are unchanged. The product homes in the
+> split table below stay in `tests/`; their eval drivers became local fixtures
+> under `tests/fixtures/`. This decision still binds.
+
 | Family | Files | `experiments/<name>.test.ts` |
 | --- | --- | --- |
 | Audit capabilities | 9 | `audit-api-reservation`, `audit-capability-benchmark`, `audit-capability-controls`, `audit-capability-eval`, `audit-capability-live`, `audit-capability-review-packets`, `audit-review-admission-day`, `audit-review-artifacts`, `audit-scored-entry` |

@@ -1,17 +1,18 @@
 // The shipped `brain process` command, which the note-disposition eval first
 // exercised (#1386 split it from the eval's guard and scorer tests in
-// experiments/note-disposition-eval.test.ts). The eval fixture only builds the
-// brain; the assertions are about what the real command proposes and leaves.
+// experiments/note-disposition-eval.test.ts). tests/fixtures/note-disposition/
+// only builds the brain; the assertions are about what the real command
+// proposes and leaves.
 import { expect, test, spyOn } from "bun:test";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
-import { fixtures, prepare } from "../scripts/evals/note-disposition/fixture";
+import { prepare } from "./fixtures/note-disposition/prepare";
 import { processCommand } from "../packages/core/src/cli/commands/process";
 import { indexAll } from "../packages/core/src/lib/indexer";
 import { openDatabase } from "../packages/core/src/lib/db";
 
 test("actual process command returns proposals without applying, reading full targets, or validating operation paths", async () => {
-  const f = { ...fixtures[0]!, source: "harbor sentinel note", target: `harbor sentinel target\n${"An unrelated voyage detail. ".repeat(200)}TARGET-END-BEYOND-SNIPPET` };
+  const f = { id: "letter-as-is", group: "letter", source: "harbor sentinel note", target: `harbor sentinel target\n${"An unrelated voyage detail. ".repeat(200)}TARGET-END-BEYOND-SNIPPET` };
   const p = prepare(f);
   const dbPath = join(p.env.root, "brain.db");
   const db = openDatabase(dbPath);

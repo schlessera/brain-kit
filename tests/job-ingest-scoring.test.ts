@@ -1,10 +1,10 @@
 // The shipped jobs ingest-to-score chain the job-fit eval first exercised
 // (#1386 split it from the eval's private-assessment tests in
 // experiments/job-fit-eval.test.ts): configured currency rates and hourly
-// ranges normalize before `scoreJob` sees them. The eval's scoring config is
-// the only fixture borrowed.
+// ranges normalize before `scoreJob` sees them. The scoring config lives in
+// tests/fixtures/job-fit/.
 import { expect, test } from "bun:test";
-import { config } from "../scripts/evals/job-fit/fixtures";
+import { config } from "./fixtures/job-fit/config";
 import { scoreJob } from "../packages/module-jobs/src/score";
 import { openDatabase } from "../packages/module-jobs/src/db";
 import { ingestJobs } from "../packages/module-jobs/src/scrape";

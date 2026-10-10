@@ -1,8 +1,8 @@
 // The public backend's exact Agent SDK and bundled Claude CLI pair. This half
 // of the hygiene research-runtime test protects what ships, so it stays in
-// product proof (#1386); the research 0.3.292 / 2.1.292 pair and its
-// independence from this one are checked in
-// experiments/mechanical-hygiene-research-runtime.test.ts.
+// product proof (#1386). The research 0.3.292 / 2.1.292 pair and its
+// independence from this one were checked by the mechanical-hygiene spike
+// harness, removed with the #838 evaluation machinery.
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

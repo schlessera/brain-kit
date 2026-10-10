@@ -1,9 +1,10 @@
+// The real `audit --fix` command and the shipped registry repair gate, on the
+// authored audit-capability cases. The fixture brains and the source observer
+// are local test fixtures in tests/fixtures/audit-fix/.
 import { expect, spyOn, test } from "bun:test";
-import { readFileSync, symlinkSync } from "node:fs";
+import { symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { cases, prepareBenchmark, WRITE_DAY } from "../scripts/evals/audit-capabilities/benchmark";
-import { sourceSnapshot } from "../scripts/evals/audit-capabilities/effects";
-import { fixtures, prepare, DAY } from "../scripts/evals/audit-capabilities/fixtures";
+import { cases, prepare, prepareBenchmark, registryFixture, sourceSnapshot, DAY, WRITE_DAY } from "./fixtures/audit-fix/prepare";
 import { auditCommand } from "../packages/core/src/cli/commands/audit";
 import { auditTotals } from "../packages/core/src/lib/auditor";
 import { suggestAuditFix, type AuditFixResult } from "../packages/core/src/lib/audit-repair";
@@ -20,15 +21,10 @@ async function output(args: string[], cli: Parameters<CoreCommand["run"]>[1]) {
   } finally { log.mockRestore(); }
 }
 
-test("authored benchmark has nine non-empty repairable cases across both splits", () => {
-  const authored = JSON.parse(readFileSync(join(import.meta.dir, "../scripts/evals/audit-capabilities/benchmark.json"), "utf8"));
+test("authored benchmark has 26 cases, nine of them with one repairable registry each, across both splits", () => {
+  expect(cases).toHaveLength(26);
   const available = cases.filter(f => f.expectedAvailablePaths.length > 0);
-  expect(available.length).toBeGreaterThan(0);
   expect(available).toHaveLength(9);
-  expect(available.map(f => [f.id, f.expectedAvailablePaths])).toEqual(
-    authored.filter((f: { expectedAvailablePaths: string[] }) => f.expectedAvailablePaths.length > 0)
-      .map((f: { id: string; expectedAvailablePaths: string[] }) => [f.id, f.expectedAvailablePaths]),
-  );
   expect(new Set(available.map(f => f.split))).toEqual(new Set(["tuning", "held-out"]));
   expect(available.reduce((n, f) => n + f.expectedAvailablePaths.length, 0)).toBe(9);
 });
@@ -81,8 +77,8 @@ for (const f of cases) test(`${f.id}: real audit --fix reports only available re
 });
 
 test("production gate names unavailable premises, rejects escaping paths, and reports a current registry as no-op", () => {
-  const f = fixtures[0]!;
-  const p = prepare(f); const outside = prepare(f);
+  const f = registryFixture;
+  const p = prepare(f.files); const outside = prepare(f.files);
   try {
     for (const path of ["/outside.md", "../outside.md", "(corpus)", "rituals\\_index.md", "rituals//_index.md", ".hidden/_index.md"]) {
       const result = suggestAuditFix(p.root, p.taxonomy, { ...f.finding, path }, DAY);

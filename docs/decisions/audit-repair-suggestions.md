@@ -21,9 +21,15 @@ and is recorded in [`results/2026-10-10/freeze.json`](https://github.com/schless
 The whole [results bundle](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10)
 is on the measurement archive branch ([#1385](https://github.com/schlessera/brain-kit/issues/1385)).
 
+> **2026-10-10 — Harness removed.** Under #838's lean evaluation protocol the
+> harness was deleted; [the `audit-capabilities` harness at `42296758`](https://github.com/schlessera/brain-kit/tree/422967587eedece00631757e6890ee8388072baa/scripts/evals/audit-capabilities)
+> is the code that produced these results. The authored cases moved unchanged to
+> `tests/fixtures/audit-fix/benchmark.json`, where the shipped `audit --fix`
+> tests use them. This decision still binds.
+
 ## What was compared
 
-Twenty-six authored cases (`scripts/evals/audit-capabilities/benchmark.json`):
+Twenty-six authored cases (`tests/fixtures/audit-fix/benchmark.json`):
 six tuning and twenty held-out, two repetitions each, run through the actual
 audit command boundary.
 
@@ -39,7 +45,7 @@ matched it before that case's arms ran.
 
 Correctness was judged by gpt-6.1-sol, a different model family from the arm
 under test, against the category rubric in
-`scripts/evals/audit-capabilities/protocol.ts`, with the complete fixture
+[`protocol.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/audit-capabilities/protocol.ts), with the complete fixture
 sources in front of it. Each of the 112 distinct suggestions (per case and per
 input visibility) got one verdict, broadcast to every identical occurrence, so
 repeated outputs cannot disagree. Where identical suggestion text on the same
@@ -58,7 +64,7 @@ The judge was also told that repair flags are scored separately:
 
 The [prompt](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/judge/prompt.md),
 inputs, raw reports and member map are kept in [`results/2026-10-10/judge/`](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/judge).
-[`analyze.ts`](../../scripts/evals/audit-capabilities/analyze.ts) scores the
+[`analyze.ts`](https://github.com/schlessera/brain-kit/blob/422967587eedece00631757e6890ee8388072baa/scripts/evals/audit-capabilities/analyze.ts) scores the
 [observations](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/observations.json)
 from the [annotations](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/annotations.json).
 

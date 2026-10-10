@@ -40,7 +40,6 @@ debug-storybook.log
 /scripts/evals/opportunity-lifecycle/keyless-report.json
 /scripts/evals/opportunity-lifecycle/fresh-preparation-controls.json
 /packages/ui-server/evals/triage/experiment/results/*
-!/packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json
 /docs/decisions/design-kit-schema-forms-*.json
 /scripts/site-model-spike/
 /scripts/policy-boundary-spike/

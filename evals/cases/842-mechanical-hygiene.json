@@ -1,0 +1,633 @@
+{
+  "issue": 842,
+  "source": "scripts/evals/mechanical-hygiene@422967587eedece00631757e6890ee8388072baa",
+  "notes": "Fixed now 2026-07-12T12:00:00Z (today 2026-07-12). Every input file gets the case's mtime (atime and mtime); fixture.ts defaults it to 2026-07-11T23:30:00Z. inboxDir is the configured inbox note type dir (default notes). expected is the full file map after one hygiene cycle; expected equal to files means no write. Set regression = fixture.ts fixtures (24 regression goldens); set workload = workload.ts authored workload, with timezone the zone the case simulates.",
+  "cases": [
+    {
+      "set": "regression",
+      "id": "date-mtime-later",
+      "split": "tuning",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-11 # keep this comment\nupdated: '2026-07-11'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "date-created-later",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-08T12:00:00Z",
+      "files": {
+        "context/mast.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/mast.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "equal-dates",
+      "split": "tuning",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "invalid-date",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-02-30 # keep this comment\nupdated: '2026-02-01'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-02-30 # keep this comment\nupdated: '2026-02-01'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "timestamp-not-date",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10T23:30:00-10:00 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/sail.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10T23:30:00-10:00 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "inbox",
+      "split": "tuning",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "notes/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "notes/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "configured-inbox",
+      "split": "held-out",
+      "inboxDir": "capture",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "capture/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "capture/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "archived-directory",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/archived/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/archived/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "archived-status",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: archived\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/raft.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: archived\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "hygiene-log",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/hygiene/observation.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      },
+      "expected": {
+        "context/hygiene/observation.md": "---\ntype: context\ntitle: 'Odysseus prepares the raft'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nThe mast stays tied.\n\n[VERIFY: inspect the rope]\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "single-status-column",
+      "split": "tuning",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | active | 2026-07-10 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "multiple-columns",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Old raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Old raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "unknown-column",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Owner |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Owner |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "updated-only",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | active | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | active | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "duplicate-target",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n| [Second raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n| [Second raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "generated-markers",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n<!-- brain:generated:registry -->\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n<!-- /brain:generated:registry -->\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n<!-- brain:generated:registry -->\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n<!-- /brain:generated:registry -->\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "registry-metadata",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\nregistry:\n  columns: [link, status, updated]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\nregistry:\n  columns: [link, status, updated]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "excluded-detail",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: archived\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: archived\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "code-fence-table",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n```md\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n```\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n```md\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n```\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "duplicate-column",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Status |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Status |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "invalid-detail-status",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: unknown\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: unknown\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "ambiguous-wiki-link",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [[raft]] | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [[raft]] | draft | 2026-07-01 | Raft |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "mixed-safe-and-ambiguous-rows",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n| [Mast](mast.md) | draft | 2026-07-01 | Wrong mast title |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n",
+        "context/mast.md": "---\ntype: context\ntitle: 'Mast'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus ties the mast.\n"
+      },
+      "expected": {
+        "context/_index.md": "---\ntype: index\ntitle: 'Voyage registry'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft](raft.md) | draft | 2026-07-01 | Raft |\n| [Mast](mast.md) | draft | 2026-07-01 | Wrong mast title |\n",
+        "context/raft.md": "---\ntype: context\ntitle: 'Raft'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the sail.\n",
+        "context/mast.md": "---\ntype: context\ntitle: 'Mast'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus ties the mast.\n"
+      }
+    },
+    {
+      "set": "regression",
+      "id": "crlf-date",
+      "split": "held-out",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/rigging.md": "---\r\ntype: context\r\ntitle: 'Odysseus prepares the raft'\r\nstatus: active\r\ncreated: 2026-07-10 # keep this comment\r\nupdated: '2026-07-09'\r\ntags: [voyage]\r\n---\r\n\r\nThe mast stays tied.\r\n\r\n[VERIFY: inspect the rope]\r\n"
+      },
+      "expected": {
+        "context/rigging.md": "---\r\ntype: context\r\ntitle: 'Odysseus prepares the raft'\r\nstatus: active\r\ncreated: 2026-07-11 # keep this comment\r\nupdated: '2026-07-11'\r\ntags: [voyage]\r\n---\r\n\r\nThe mast stays tied.\r\n\r\n[VERIFY: inspect the rope]\r\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-mtime-day",
+      "split": "tuning",
+      "category": "date-order",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T12:00:00Z",
+      "files": {
+        "context/ogygia/mast.md": "---\ntype: context\ntitle: 'Mast inspection'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nOdysseus keeps the mast tied.\n"
+      },
+      "expected": {
+        "context/ogygia/mast.md": "---\ntype: context\ntitle: 'Mast inspection'\nstatus: active\ncreated: 2026-07-11 # keep this comment\nupdated: '2026-07-11'\ntags: [voyage]\n---\n\nOdysseus keeps the mast tied.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-created-day",
+      "split": "tuning",
+      "category": "date-order",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-08T12:00:00Z",
+      "files": {
+        "context/ogygia/rope.md": "---\ntype: context\ntitle: 'Rope inspection'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nOdysseus checks the rope.\n"
+      },
+      "expected": {
+        "context/ogygia/rope.md": "---\ntype: context\ntitle: 'Rope inspection'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the rope.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-raft-status",
+      "split": "tuning",
+      "category": "status-column",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ogygia/raft/_index.md": "---\ntype: index\ntitle: 'Raft checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft checks](detail.md) | draft | 2026-07-03 | Raft checks |\n\nThe council keeps this surrounding prose.\n",
+        "context/ogygia/raft/detail.md": "---\ntype: context\ntitle: 'Raft checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n"
+      },
+      "expected": {
+        "context/ogygia/raft/_index.md": "---\ntype: index\ntitle: 'Raft checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft checks](detail.md) | active | 2026-07-10 | Raft checks |\n\nThe council keeps this surrounding prose.\n",
+        "context/ogygia/raft/detail.md": "---\ntype: context\ntitle: 'Raft checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-equal-days",
+      "split": "tuning",
+      "category": "equal-dates",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ogygia/sail.md": "---\ntype: context\ntitle: 'Sail checks'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus inspects the sail.\n"
+      },
+      "expected": {
+        "context/ogygia/sail.md": "---\ntype: context\ntitle: 'Sail checks'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus inspects the sail.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-ambiguous-title",
+      "split": "tuning",
+      "category": "multiple-columns",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ogygia/raft/_index.md": "---\ntype: index\ntitle: 'Raft checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft checks](detail.md) | draft | 2026-07-03 | Unconfirmed raft title |\n\nThe council keeps this surrounding prose.\n",
+        "context/ogygia/raft/detail.md": "---\ntype: context\ntitle: 'Raft checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n"
+      },
+      "expected": {
+        "context/ogygia/raft/_index.md": "---\ntype: index\ntitle: 'Raft checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n\n| Link | Status | Updated | Title |\n| --- | --- | --- | --- |\n| [Raft checks](detail.md) | draft | 2026-07-03 | Unconfirmed raft title |\n\nThe council keeps this surrounding prose.\n",
+        "context/ogygia/raft/detail.md": "---\ntype: context\ntitle: 'Raft checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nOdysseus checks the tied mast.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ogygia-inbox",
+      "split": "tuning",
+      "category": "excluded",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "notes/ogygia-capture.md": "---\ntype: context\ntitle: 'Raft thought'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nOdysseus keeps an unprocessed thought.\n"
+      },
+      "expected": {
+        "notes/ogygia-capture.md": "---\ntype: context\ntitle: 'Raft thought'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nOdysseus keeps an unprocessed thought.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ithaca-east-midnight",
+      "split": "held-out",
+      "category": "date-order",
+      "timezone": "Pacific/Kiritimati",
+      "inboxDir": "notes",
+      "mtime": "2026-07-12T00:30:00+14:00",
+      "files": {
+        "context/ithaca/thread.md": "---\ntype: context\ntitle: 'Thread inspection'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nPenelope retains the woven pattern.\n"
+      },
+      "expected": {
+        "context/ithaca/thread.md": "---\ntype: context\ntitle: 'Thread inspection'\nstatus: active\ncreated: 2026-07-11 # keep this comment\nupdated: '2026-07-11'\ntags: [voyage]\n---\n\nPenelope retains the woven pattern.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "pylos-west-midnight",
+      "split": "held-out",
+      "category": "date-order",
+      "timezone": "Pacific/Honolulu",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00-10:00",
+      "files": {
+        "context/pylos/tablet.md": "---\ntype: context\ntitle: 'Tablet inspection'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nNestor retains the council record.\n"
+      },
+      "expected": {
+        "context/pylos/tablet.md": "---\ntype: context\ntitle: 'Tablet inspection'\nstatus: active\ncreated: 2026-07-12 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\nNestor retains the council record.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ithaca-loom-status",
+      "split": "held-out",
+      "category": "status-column",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ithaca/loom/_index.md": "---\ntype: index\ntitle: 'Loom checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n\n| Link | Title | Updated | Status |\n| --- | --- | --- | --- |\n| [Loom checks](detail.md) | Loom checks | 2026-07-03 | draft |\n\nThe council keeps this surrounding prose.\n",
+        "context/ithaca/loom/detail.md": "---\ntype: context\ntitle: 'Loom checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n"
+      },
+      "expected": {
+        "context/ithaca/loom/_index.md": "---\ntype: index\ntitle: 'Loom checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n\n| Link | Title | Updated | Status |\n| --- | --- | --- | --- |\n| [Loom checks](detail.md) | Loom checks | 2026-07-10 | active |\n\nThe council keeps this surrounding prose.\n",
+        "context/ithaca/loom/detail.md": "---\ntype: context\ntitle: 'Loom checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "pylos-council-status",
+      "split": "held-out",
+      "category": "status-column",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/pylos/council/_index.md": "---\ntype: index\ntitle: 'Council record index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n\n| Link | Updated | Status | Title |\n| --- | --- | --- | --- |\n| [Council record](detail.md) | 2026-07-03 | draft | Council record |\n\nThe council keeps this surrounding prose.\n",
+        "context/pylos/council/detail.md": "---\ntype: context\ntitle: 'Council record'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n"
+      },
+      "expected": {
+        "context/pylos/council/_index.md": "---\ntype: index\ntitle: 'Council record index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n\n| Link | Updated | Status | Title |\n| --- | --- | --- | --- |\n| [Council record](detail.md) | 2026-07-10 | active | Council record |\n\nThe council keeps this surrounding prose.\n",
+        "context/pylos/council/detail.md": "---\ntype: context\ntitle: 'Council record'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "sparta-visit-status",
+      "split": "held-out",
+      "category": "status-column",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sparta/visit/_index.md": "---\ntype: index\ntitle: 'Visit notes index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n\n| Link | Status | Title | Updated |\n| --- | --- | --- | --- |\n| [Visit notes](detail.md) | draft | Visit notes | 2026-07-03 |\n\nThe council keeps this surrounding prose.\n",
+        "context/sparta/visit/detail.md": "---\ntype: context\ntitle: 'Visit notes'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n"
+      },
+      "expected": {
+        "context/sparta/visit/_index.md": "---\ntype: index\ntitle: 'Visit notes index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-12'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n\n| Link | Status | Title | Updated |\n| --- | --- | --- | --- |\n| [Visit notes](detail.md) | active | Visit notes | 2026-07-10 |\n\nThe council keeps this surrounding prose.\n",
+        "context/sparta/visit/detail.md": "---\ntype: context\ntitle: 'Visit notes'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ithaca-equal-days",
+      "split": "held-out",
+      "category": "equal-dates",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ithaca/shuttle.md": "---\ntype: context\ntitle: 'Shuttle checks'\nstatus: active\ncreated: 2026-07-11 # keep this comment\nupdated: '2026-07-11'\ntags: [voyage]\n---\n\nPenelope keeps the shuttle ready.\n"
+      },
+      "expected": {
+        "context/ithaca/shuttle.md": "---\ntype: context\ntitle: 'Shuttle checks'\nstatus: active\ncreated: 2026-07-11 # keep this comment\nupdated: '2026-07-11'\ntags: [voyage]\n---\n\nPenelope keeps the shuttle ready.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "pylos-invalid-calendar",
+      "split": "held-out",
+      "category": "invalid-date",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/pylos/account.md": "---\ntype: context\ntitle: 'Account date'\nstatus: active\ncreated: 2026-02-30 # keep this comment\nupdated: '2026-02-01'\ntags: [voyage]\n---\n\nNestor leaves this uncertain date for review.\n"
+      },
+      "expected": {
+        "context/pylos/account.md": "---\ntype: context\ntitle: 'Account date'\nstatus: active\ncreated: 2026-02-30 # keep this comment\nupdated: '2026-02-01'\ntags: [voyage]\n---\n\nNestor leaves this uncertain date for review.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "sparta-timestamp",
+      "split": "held-out",
+      "category": "unsupported-date",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sparta/arrival.md": "---\ntype: context\ntitle: 'Arrival note'\nstatus: active\ncreated: 2026-07-10T23:30:00-10:00 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nTelemachus retains the recorded arrival time.\n"
+      },
+      "expected": {
+        "context/sparta/arrival.md": "---\ntype: context\ntitle: 'Arrival note'\nstatus: active\ncreated: 2026-07-10T23:30:00-10:00 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nTelemachus retains the recorded arrival time.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ithaca-archived",
+      "split": "held-out",
+      "category": "excluded",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ithaca/archived/thread.md": "---\ntype: context\ntitle: 'Archived thread'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nPenelope keeps this archived record.\n"
+      },
+      "expected": {
+        "context/ithaca/archived/thread.md": "---\ntype: context\ntitle: 'Archived thread'\nstatus: active\ncreated: 2026-07-10 # keep this comment\nupdated: '2026-07-09'\ntags: [voyage]\n---\n\nPenelope keeps this archived record.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "ithaca-generated-table",
+      "split": "held-out",
+      "category": "generated-ownership",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/ithaca/loom/_index.md": "---\ntype: index\ntitle: 'Loom checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n\n| Link <!-- brain:generated:registry -->\n| Title | Updated | Status |\n| --- | --- | --- | --- |\n| [Loom checks](detail.md) | Loom checks | 2026-07-03 | draft |\n\nThe council keeps this surrounding prose.\n\n<!-- /brain:generated:registry -->\n",
+        "context/ithaca/loom/detail.md": "---\ntype: context\ntitle: 'Loom checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n"
+      },
+      "expected": {
+        "context/ithaca/loom/_index.md": "---\ntype: index\ntitle: 'Loom checks index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n\n| Link <!-- brain:generated:registry -->\n| Title | Updated | Status |\n| --- | --- | --- | --- |\n| [Loom checks](detail.md) | Loom checks | 2026-07-03 | draft |\n\nThe council keeps this surrounding prose.\n\n<!-- /brain:generated:registry -->\n",
+        "context/ithaca/loom/detail.md": "---\ntype: context\ntitle: 'Loom checks'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nPenelope checks the loom threads.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "pylos-archived-detail",
+      "split": "held-out",
+      "category": "excluded-detail",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/pylos/council/_index.md": "---\ntype: index\ntitle: 'Council record index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n\n| Link | Updated | Status | Title |\n| --- | --- | --- | --- |\n| [Council record](detail.md) | 2026-07-03 | draft | Council record |\n\nThe council keeps this surrounding prose.\n",
+        "context/pylos/council/detail.md": "---\ntype: context\ntitle: 'Council record'\nstatus: archived\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n"
+      },
+      "expected": {
+        "context/pylos/council/_index.md": "---\ntype: index\ntitle: 'Council record index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n\n| Link | Updated | Status | Title |\n| --- | --- | --- | --- |\n| [Council record](detail.md) | 2026-07-03 | draft | Council record |\n\nThe council keeps this surrounding prose.\n",
+        "context/pylos/council/detail.md": "---\ntype: context\ntitle: 'Council record'\nstatus: archived\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nNestor keeps the council account.\n"
+      }
+    },
+    {
+      "set": "workload",
+      "id": "sparta-multiple-columns",
+      "split": "held-out",
+      "category": "multiple-columns",
+      "timezone": "UTC",
+      "inboxDir": "notes",
+      "mtime": "2026-07-11T23:30:00Z",
+      "files": {
+        "context/sparta/visit/_index.md": "---\ntype: index\ntitle: 'Visit notes index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n\n| Link | Status | Title | Updated |\n| --- | --- | --- | --- |\n| [Visit notes](detail.md) | draft | Unconfirmed visit | 2026-07-03 |\n\nThe council keeps this surrounding prose.\n",
+        "context/sparta/visit/detail.md": "---\ntype: context\ntitle: 'Visit notes'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n"
+      },
+      "expected": {
+        "context/sparta/visit/_index.md": "---\ntype: index\ntitle: 'Visit notes index'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-01'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n\n| Link | Status | Title | Updated |\n| --- | --- | --- | --- |\n| [Visit notes](detail.md) | draft | Unconfirmed visit | 2026-07-03 |\n\nThe council keeps this surrounding prose.\n",
+        "context/sparta/visit/detail.md": "---\ntype: context\ntitle: 'Visit notes'\nstatus: active\ncreated: 2026-07-01 # keep this comment\nupdated: '2026-07-10'\ntags: [voyage]\n---\n\nMenelaus hosts Telemachus in Sparta.\n"
+      }
+    }
+  ]
+}
