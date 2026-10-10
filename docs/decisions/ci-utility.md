@@ -52,7 +52,15 @@ The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
 `scripts/unit-shard-observation.json` update underestimated weights; unfinished
 files are not passing proof. Four partitions retain the deadlines and reduce
-that measured critical path. Browser sharding uses the committed per-project/
+that measured critical path. After #1298 added the pinned native evaluation
+controls, run38045497058/attempt1 again exhausted the outer20-minute cap in
+three progressing unit partitions; the fourth finished in908.46seconds.
+Completed-file observations refresh the same cost table, while unfinished
+SDK groups retain explicit lower bounds without being passing proof. #1485
+raises only the bounded outer unit-job capacity to30minutes, preserving
+four partitions, every discovered test, all per-test/native deadlines and
+browser/product budgets. Queue, cancellation and elapsed evidence remain in
+the observation record. Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly

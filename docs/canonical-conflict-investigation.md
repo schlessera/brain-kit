@@ -99,11 +99,12 @@ bun run test tests/canonical-conflict-eval.test.ts
 bun scripts/evals/canonical-conflicts/run.ts
 ```
 
-Twenty-one draft Odysseus pair cases cover paraphrase, different subjects,
+Twenty-three draft Odysseus pair cases cover paraphrase, different subjects,
 changed roles/status, historical metadata and text, negation, numeric equivalence
 and differences, dates, unset/keyed anchors, small/reversed recency gaps,
-unknowns, malicious evidence/output, order disagreement, inbox and fenced text.
-Three tuning cases use a pipe grammar; eighteen held-out cases use other groups
+unknowns, malicious evidence/output, order disagreement, inbox, fenced text,
+coexisting roles and unspecified role scope.
+Three tuning cases use a pipe grammar; twenty held-out cases use other groups
 and the colon grammar or deliberately unsupported prose. Both splits share
 Odysseus and the configured schema; they are not independently reviewed or a
 complete held-out semantic benchmark. Live preparation must expand and freeze
@@ -115,6 +116,17 @@ coverage ceiling, not a measured production retrieval recall. Control expectatio
 matches and scripted-call counts say nothing about live precision, coverage,
 subgroup errors, calibration or total inference savings. Those metrics remain
 null; adoption is unmeasured and replacement is not proposed.
+
+The deterministic arm is the one arm that runs without a key, and `run.ts`
+scores it on the twenty-four authored semantic cases through the same collector
+and reconciliation path the paid arms will use. It reports three true positives
+(`t-count-conflict`, `h-numeric-conflict`, `h-date-conflict`), no false
+positive, and misses four: every Role/Status positive and the prose case.
+Precision is 1.0 on this corpus; recall is 3/7 overall and 2/5 held-out. That
+is the floor a paid arm has to beat, and it exposes how thin the discriminating
+set is: the hybrid can only gain on three retrievable Role/Status positives, two
+of them held-out, against eleven retrievable negatives. A live pass on that
+set is not evidence of generalisation; widen it before reading one as such.
 
 Real tests carry emitted candidates into existing Markdown reconciliation,
 read the persisted log, verify original content byte-for-byte and repeat without
@@ -157,7 +169,64 @@ disposition. Relevant evidence changes may invalidate a disposition while keepin
 the same stable finding. This experiment implements no dismissal, snooze,
 Actions UI or repair authorization.
 
+The private collector retains each literal physical request and response byte
+sequence before decoding, including HTTP failures and malformed payloads. It
+records complete EOF separately from partial cancellation, response failure and
+owned shutdown. Missing aggregate cache counters prevent a known-price claim;
+missing cache TTL detail yields a price interval rather than invented hits.
+Inactive and explicitly authorized active overage remain route evidence only;
+invoice amounts stay unknown. The private native entry requires the original
+#843 root allocation, a consumed one-use grant and current source/input/protocol/
+runtime/proof/prompt bindings. It binds the exact original fixture instruction
+block separately, reserves the full supported million-token context plus exact
+maximum output before every physical forward, and stops on unknown or in-flight
+usage. Literal native and upstream bytes, all observed pricing fields, the
+original grant, natural EOF and actual reader/child close support admission.
+Offline control provenance cannot become semantic approval by relabelling.
+This correction under #1298 does not complete whole-task empirical accounting.
+
 ## Required comparison and decision
+
+The current private arithmetic control additionally requires explicit source
+lines naming `Subject`, `Attribute`, `Observation date`, `Event scope` and
+`Cardinality: single-valued` in both documents. Duplicate, missing, historical,
+different-event or multiple-valued premises abstain. The date cannot be beyond
+the reference day. This is a narrow experimental grammar, not a proposed
+frontmatter or taxonomy schema: matching a person does not prove two counts or
+dates describe the same fact. Role-positive source claims explicitly constrain
+one exclusive duty; compatible and underspecified roles remain separate cases.
+
+Twenty-three scripted mechanical controls are separate from twenty-four
+author-provisional semantic cases. Eight Odysseus tuning cases and sixteen
+Calypso/Penelope/Telemachus/Nestor held-out cases separate entity, document and
+grammar-family identifiers. They retain uncertain scope, rejected quotations,
+negation, instruction-only text and an ordinary prose retrieval miss. Their
+shared world and repeated task patterns still limit generalization. Provider
+requests contain complete source documents and exact spans, never case labels,
+expected effects or scripted answers. The tuning screen requires a correctly
+admitted positive and no unsupported positive emission; null is the outcome
+when no threshold qualifies. This small screen is not a population safety rate.
+
+The private collector observes every regular/binary file, member kind, symlink
+target, permission mode and non-directory modification time. Inspection changes
+no brain file. Existing reconciliation alone may write its six established
+Markdown destinations; incomplete extraction always retains previous findings.
+The current comparison uses the actual core runner and unchanged skill's
+report-only Phase 2, separately recording raw model candidates and source/code
+admission. It excludes the other skill phases and content replacement, so it is
+not a measurement of the complete production hygiene sweep. A no-candidate
+answer does not expose the current agent's abstention decision; that rate remains
+unknown rather than being inferred from an empty array.
+
+Current core explicitly selects default permissions under #1301. Actual native
+2.1.293 Read, rejected-Write, finding and no-tools review controls retain the
+unchanged fixture hooks and core subscription authentication. The supplemental
+Bash CLI now executes, but its SQLite WAL/SHM files fail the original all-file
+inspection check. That scoring hold remains; complete auxiliary transport and
+accounting have not been established. The private live scoring path continues
+to refuse admission. No-tools semantic review is a distinct scoped task.
+Successful transport, guarded paid admission and clean child drain establish
+neither judgment quality nor a completed measured comparison.
 
 Before any live request, record authorized providers/accounts/exact models,
 credential availability and total spend ceiling on #843. Independently review
@@ -179,3 +248,18 @@ under #597. Any fragment-replacement proposal is a separate, explicitly assessed
 effect with zero wrong-replacement/content-loss tolerance and the full permission,
 premise, post-check and recovery requirements. Add no generic classifier or
 canonical-repair extension seam.
+
+Private complementary-review admission requires actually collected direct native
+execution artifacts at the exact current source/runtime/prompt freeze. It reparses
+literal stdin/stdout, subscription/settings handshake, canonical model/provenance,
+physical requests/responses and raw usage, response EOF and actual child closure.
+Offline scripted execution and injected live transports are refused; metadata
+flags and scripted APPROVED text supply no semantic approval. The private artifact
+verifier is not an invoice or cryptographic proof against a dishonest artifact
+owner. Missing billed charges remain unknown.
+
+The runtime freeze binds source/workspace/dependency modes and native/Bun modes
+as well as bytes and dependency link targets. Actual installed dependency inodes
+whose link counts exceed regular-file occurrences inside the owned dependency
+tree are refused. Real chmod and internal/external hardlink controls verify these
+boundaries without touching another worktree's installation.

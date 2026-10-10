@@ -130,10 +130,11 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
     expect(ci.jobs.verify!.steps.filter(s => s.run).map(s => s.run)).toContain("bun scripts/ci-runner.ts");
-    for (const job of Object.values(ci.jobs)) {
+    for (const [name,job] of Object.entries(ci.jobs)) {
       const bun = job.steps.find(s => s.uses === "oven-sh/setup-bun@v2");
       expect(bun?.with?.["bun-version"]).toBe("1.4.2");
-      expect(job.steps.some(s => s.run === "bun install --frozen-lockfile")).toBe(true);
+      const install=name==="unit"?"bun install --frozen-lockfile --backend=copyfile":"bun install --frozen-lockfile";
+      expect(job.steps.some(s => s.run === install)).toBe(true);
     }
     expect(ci.jobs.changeset!["timeout-minutes"]).toBe(3);
     expect(ci.jobs.verify!["timeout-minutes"]).toBe(3);

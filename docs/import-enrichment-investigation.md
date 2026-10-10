@@ -185,3 +185,98 @@ bypass or body-rewrite capability.
 Independent golden review and approved provider/model/account access plus a total
 spend ceiling must be recorded on #850 before live comparison, following #838.
 Missing measurements are not a passing go/no-go. Ordinary CI remains keyless.
+
+
+## Full-source semantic and protected native controls
+
+The separate source benchmark uses eighteen substantive fictional imports, six
+for tuning and twelve for held-out evaluation. Primary entities, prose families
+and representations are disjoint; the shared world and concepts still limit
+independence. Explicit configured type and controlled-tag definitions distinguish
+adopted conditional decisions from proposals, reference material from completed
+work, and uncertain fragments from supported labels. Existing forced-response
+fixtures remain writer and transport controls. Stamped Markdown is the approved
+input; HTML export text inside Markdown is inert content, while unapproved
+non-Markdown and binary members remain untouched.
+
+Neutral source paths reveal no case or split label. Raw type/tag judgments are
+separate from effective protected owner values. Definitions enter both the
+whole-source request and completion policy; changing definitions or full source
+invalidates completed/cache context. The actual Choice bridge requires confidence
+and selected probability together and refuses an uncalibrated gate before dispatch.
+Unknown types require configured-inbox review rather than completed writes.
+Bad or uncertain tags refuse item completion; known-usage later items and retries
+retain the original partial-failure policy. Unknown model/usage or wire failure
+stops new physical admissions.
+
+The summary rubric binds exact complete source, actual output and case/fact/condition
+identities. Supported paraphrases are acceptable; authored exact sentences are
+writer controls. No author annotation supplies semantic approval. A missing summary
+in classification-only remains a task-output tradeoff. Whole observations retain
+binary membership, link targets, modes and nanosecond clocks. Protection compares
+all nonmutable frontmatter bytes, comments and key membership plus exact body bytes;
+only explicitly written paths, derivative cache/manifest and their immediate
+parent replacement clocks may change. Unchanged completed replay permits no churn.
+These controls do not establish multi-writer durability or race freedom.
+
+The unchanged brain-import skill, actual configuration/import help/index commands
+and installed native runtime are exercised in a networkless namespace with bogus
+credentials. Actual Read, denied Write, combined retained generation, Choice plus
+focused-summary generation and no-tools controls retain literal native and every
+physical request/response/error/usage/EOF/exit/drain artifact. Every generation
+attempt has its own receipt directory, including failures. The private writer's
+requested 400-token completion limit does not prove native SDK token enforcement;
+native requests retain their actual observed limits. Scripted transport quality is
+unmeasured, and a constrained report is not complete ordinary Stage3 orchestration.
+There is no shipped Stage3 executor or manifest implementation to substitute for
+the actual skill-driven baseline. The full current path refuses unresolved
+[implicit-auto auxiliary model/accounting](https://github.com/schlessera/brain-kit/issues/1275)
+without changing its omitted permission mode.
+
+Full source/workspace/dependency/native/Bun bytes and modes are frozen; source
+symlinks without explicit closure and dependency inodes shared outside the owned
+installation refuse admission. Complete complementary packets bind all sources,
+case inputs, expected effects, rubric and protocol. The verifier reparses actual
+literal evidence and rejects offline scripted APPROVED text or self-asserted flags.
+It is not cryptographic proof against a dishonest artifact owner. Inactive overage
+is an observation, never an invoice-zero; unknown cache or billed amounts remain
+null. [#1239](https://github.com/schlessera/brain-kit/issues/1239) concerns
+conflicting Sonnet 5.5 cache-read diagnostic rates, not Jev pricing. The dated
+Sonnet table basis is retained with that caveat. The official
+[Jev model list](https://docs.typesafe.ai/models) gives $0.042/M input tokens
+and free output; this new observer retains usage with optional diagnostic price,
+unreported cache and invoice amounts left null. Existing historical rates are
+not relabelled.
+
+The prospective comparison preserves the original complete current,
+classification-only and classification-plus-summary arms, batch sizes 1/5/20,
+three repetitions, unchanged/changed/interrupted/failed resume states and all
+quality/preservation/cost/latency/throughput criteria. Labels, summary quality,
+thresholds, full current accounting and the measured recommendation remain
+unresolved until exact complementary review and safe provider admission. No
+provider call, production default or adopted cache/contract follows from these
+controls.
+
+The source bodies describe events and leave the label to the reader. An earlier
+draft had them narrate their own classification ("this is a standing inventory,
+not an account of a voyage or a council vote", "this is an adopted conditional
+decision") and carry harness scaffolding ("only the empty summary is approved for
+enrichment", "the configured inbox is entry"). A held-out set written that way
+rewards phrase matching and cannot separate it from judgment, so those sentences
+were removed on 2026-10-09; `tests/import-enrichment-semantic.test.ts` refuses
+their return. The labels are still the author's and still unreviewed.
+
+`score.ts` turns raw classifier replies into per-split type accuracy, a type
+confusion table, controlled-tag precision/recall/F1, abstentions and false
+completions of `unclear` cases. `run-semantic.ts` emits these for the scripted
+arms, where they are 1.0 by construction and check only the scoring path; the
+unit test proves each metric moves under a wrong type, a dropped or spurious
+tag, a completed unclear case and a refusal. A live run scores through the
+same function.
+
+The native fixture installer preserves the materialized per-case `brain.config.json`
+bytes, mode and clock. The private writer builds its taxonomy from that same file.
+A separate networkless custom-inbox control checks the real CLI effective `entry`
+inbox in `incoming`, complete approved paths/definitions/source in the literal
+native request, and unchanged whole fixture effects. This is report-only transport
+evidence, not a measured full Stage3 baseline or semantic approval.

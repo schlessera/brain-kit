@@ -50,9 +50,9 @@ export function runtimeFreeze() {
   visit(join(repo, "packages/core"));
   visit(packageRoot("@anthropic-ai/claude-agent-sdk", repo));
   const platform = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
-  const nativePath = join(packageRoot(platform, repo), "claude");
-  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size, mode: statSync(nativePath).mode };
   const sdkRoot = packageRoot("@anthropic-ai/claude-agent-sdk", repo);
+  const nativePath = join(packageRoot(platform, sdkRoot), "claude");
+  const native = { package: platform, file: "claude", sha256: sha(readFileSync(nativePath)), bytes: statSync(nativePath).size, mode: statSync(nativePath).mode };
   const manifest = JSON.parse(readFileSync(join(sdkRoot, "manifest.json"), "utf8"));
   // Native bytes are checked against both freeze and installed vendor manifest before spawn.
   const entry = manifest.platforms?.[`${process.platform}-${process.arch}`];

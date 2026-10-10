@@ -1,3 +1,4 @@
+import { actualWriteDayUTC, assertWriteDayUTC } from "./write-day";
 /** Private offline prototype for #842; no production command or agent integration. */
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
@@ -149,7 +150,8 @@ export function plan(inputs: Input[], taxonomy: Taxonomy, detected: Detection, t
 export interface ApplyResult { written: string[]; stale: string[]; error?: string }
 
 /** Preflight the complete captured input, including read-only detail files and date mtimes. */
-export function apply(root: string, proposal: Plan, dryRun = false): ApplyResult {
+export function apply(root: string, proposal: Plan, dryRun = false, writeDayUTC = actualWriteDayUTC()): ApplyResult {
+  assertWriteDayUTC(writeDayUTC);
   const stale = proposal.inputs.filter(input => {
     try {
       const full = regularPath(root, input.path);
@@ -160,14 +162,15 @@ export function apply(root: string, proposal: Plan, dryRun = false): ApplyResult
   const written: Edit[] = [];
   try {
     for (const edit of proposal.edits) {
-      replaceIfUnchanged(regularPath(root, edit.path), edit.after, edit.before);
+      assertWriteDayUTC(writeDayUTC);
+      replaceIfUnchanged(regularPath(root, edit.path), edit.after, edit.before, () => assertWriteDayUTC(writeDayUTC));
       written.push(edit);
     }
     return { written: written.map(e => e.path), stale: [] };
   } catch (error) {
     // Best-effort rollback while each file still contains our bytes; this is not a crash-safe transaction.
     for (const edit of written.reverse()) {
-      try { replaceIfUnchanged(regularPath(root, edit.path), edit.before, edit.after); } catch { /* Report surviving writes below. */ }
+      try { assertWriteDayUTC(writeDayUTC); replaceIfUnchanged(regularPath(root, edit.path), edit.before, edit.after, () => assertWriteDayUTC(writeDayUTC)); } catch { /* Report surviving writes below. */ }
     }
     return { written: written.filter(e => readFileSync(join(root, e.path), "utf8") === e.after).map(e => e.path), stale: [], error: String(error) };
   }

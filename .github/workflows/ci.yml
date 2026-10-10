@@ -589,7 +589,8 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.unit == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Retain all native controls; measured full partitions need bounded outer capacity (#1485).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -602,7 +603,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
+      # Native source freezes require dependency inodes owned by this checkout.
+      - run: bun install --frozen-lockfile --backend=copyfile
       - name: Recompute affected proof on the actual checkout
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
