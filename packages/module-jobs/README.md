@@ -85,7 +85,7 @@ schedules are not rewritten.
 Scoring is **not** hard-coded. It is driven by the YAML frontmatter of the
 markdown file named by `criteria` until you explicitly move it to
 `settings/jobs.json.scoring`. The criteria file retains your prose.
-Copy [`docs/criteria-template.md`](docs/criteria-template.md) to that path and
+Copy [`docs/criteria-template.md`](./docs/criteria-template.md) to that path and
 edit the legacy `scoring:` block, or preview and move it with
 `brain module settings jobs --migrate --preview --json` followed by
 `--migrate --revision <preview-revision> --json`. Settings → Modules → Jobs
