@@ -343,5 +343,52 @@
         "tests/candidate-extraction-paid.test.ts": 97.03
       }
     }
+  },
+  "native_instrument_completed_observation": {
+    "run": 38048063143,
+    "attempt": 1,
+    "head": "ec17a6a30503bf5e95e6b08b6bde78bd8a7b8b40",
+    "base": "f341317591aa78d79a6b7db856f5a7d08f82289a",
+    "checkout": "edb159d4bf4091d9ef9ee12490dbd1ba479e2f97",
+    "tree": "a33fb75e7cd6e69213ae75f9f2f7273fdabbc12a",
+    "scope": "All four complete hosted unit shards passed under the corrected outer capacity. Only the two previously local-estimated SDK file weights are refreshed from completed-file timings; historical cancelled/unfinished/local receipts retain their original identities. Measurements predict scheduling and do not prove a later source tree.",
+    "jobs": [
+      {
+        "shard": 1,
+        "job": 114201773761,
+        "conclusion": "success",
+        "elapsedSeconds": 1291.0,
+        "testSeconds": 1258.433743441,
+        "timingsArtifactSha": "0264ff51be70c3c22ce3420aa1ad7c8e3b5df273b80210092886d17fbe3aa9b4"
+      },
+      {
+        "shard": 2,
+        "job": 114201773822,
+        "conclusion": "success",
+        "elapsedSeconds": 998.0,
+        "testSeconds": 961.826853735,
+        "timingsArtifactSha": "85180496f26faeec3a97213ba6a5e0fe43bafd88e039c79cf216c064dddbd940"
+      },
+      {
+        "shard": 3,
+        "job": 114201773835,
+        "conclusion": "success",
+        "elapsedSeconds": 1277.0,
+        "testSeconds": 1238.57545078,
+        "timingsArtifactSha": "ed2382724e3cddb1696e8df3ec618de0ffc9f76b62190a0e4aa66330b0ff93e0"
+      },
+      {
+        "shard": 4,
+        "job": 114201773772,
+        "conclusion": "success",
+        "elapsedSeconds": 1322.0,
+        "testSeconds": 1251.641563889,
+        "timingsArtifactSha": "a7fa60c2046c0726546e1736c48912bcfc41f5ef99d0e20793a51bf2ab2ca737"
+      }
+    ],
+    "updated": {
+      "tests/candidate-extraction-paid.test.ts": 171.603,
+      "tests/opportunity-lifecycle-paid.test.ts": 166.465
+    }
   }
 }
