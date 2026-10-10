@@ -23,7 +23,11 @@
 
 /** Repo-wide key for git staging/history mutations. */
 export const GIT_LOCK_KEY = "repo-git";
-/** Key for brain document writes + reindex (MCP tools and CLI spellings). */
+/**
+ * Key for brain document writes + reindex (MCP tools and CLI spellings).
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export const BRAIN_LOCK_KEY = "brain-docs";
 
 /**
@@ -47,6 +51,8 @@ const BRAIN_CLI_PATTERN = /\bbrain\s+(add|update|archive)\b/;
  * The lock key one bash command must hold while it executes, or null for no
  * lock. This classification IS the serialization policy — shared so both
  * backends stop on the same hazards and parallelize the same reads.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export function bashLockKey(command: string): string | null {
   if (GIT_BASH_PATTERN.test(command) || GIT_BRAIN_CLI_PATTERN.test(command)) {

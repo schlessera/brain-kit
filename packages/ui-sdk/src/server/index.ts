@@ -132,6 +132,31 @@ export {
   requestToolPermission,
 } from "./permission-gate.js";
 
+// The shared backend toolkit (#1399): every helper both shipped backends use
+// to give the host the same behavior and security posture. Each declaration
+// is tagged `@experimental` until 1.0; see
+// docs/decisions/backend-authoring-toolkit.md for the inventory.
+export {
+  handleAskUser,
+  handleAskUserForm,
+  handleAskUserList,
+  handleAskUserRank,
+  handleGetCurrentLocation,
+  handleQueryActivity,
+  handleRequestImageMask,
+  handleShowBlock,
+} from "./bridge-tools/index.js";
+export type { ImageMaskHandlerOptions, LocationHandlerOptions } from "./bridge-tools/index.js";
+export { BRIDGE_TOOL_POSTURE } from "../tool-contracts/bridge.js";
+export { EXEC_KILLER_ENV, EXEC_WRAPPER_ENV, validateExecWrapper, wrapCommand } from "./exec-wrapper.js";
+export type { SubprocessEnvAudience } from "./subprocess-env.js";
+export { filterSubprocessEnv, parseSubprocessEnvExtra } from "./subprocess-env.js";
+export { BRAIN_LOCK_KEY, bashLockKey } from "./lock-keys.js";
+export { DEFAULT_CONFIRM_BASH_PATTERNS } from "./confirm-patterns.js";
+export { describeRetry, resolveThinkingLevel } from "../protocol-helpers.js";
+export { assertLoadedSdk } from "./loaded-sdk.js";
+export { rtkRewriteCommand } from "./rtk.js";
+
 export type { ReverseGeocodeConfig, ReverseGeocodeResult } from "./reverse-geocode.js";
 export { reverseGeocode } from "./reverse-geocode.js";
 export { geoConfigSchema } from "@schlessera/brain-geo";

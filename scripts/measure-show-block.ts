@@ -94,7 +94,8 @@ import {
   type BridgeToolName,
   type ClientEnvironment,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, planClassification } from "@schlessera/brain-ui-sdk/internal";
+import { planClassification } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 
 // The backend's own tool factory and visible name, so the description the
 // model reads here is the one it reads in production rather than a copy that

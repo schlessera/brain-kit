@@ -4,7 +4,7 @@ import {
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME as SHARED_TOOL_NAME,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, handleShowBlock } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleShowBlock } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * `show_block` needs no handler from the host: the block is data the model

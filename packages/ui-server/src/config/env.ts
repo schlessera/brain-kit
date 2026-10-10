@@ -29,12 +29,13 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { validateExecWrapper, WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
+import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
+import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
   parseSubprocessEnvExtra,
   type SubprocessEnvAudience,
-} from "@schlessera/brain-ui-sdk/internal";
+} from "@schlessera/brain-ui-sdk/server";
 
 // --- descriptor -------------------------------------------------------------
 

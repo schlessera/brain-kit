@@ -289,3 +289,15 @@ the internal-entry rule above. They replace byte-identical copies of
 public entry re-exports from it, such as core's `DynamicEnvReadSpec` and
 `readEnvVar`, stays part of that package's supported surface and is recorded
 in that package's report.
+
+Promoted to `@schlessera/brain-ui-sdk/server` by #1399 (the 2026-10-09
+ruling on #1345: a helper both backends import is public toolkit): the
+bridge-tool handlers with `ImageMaskHandlerOptions` and
+`LocationHandlerOptions`, `BRIDGE_TOOL_POSTURE`, `wrapCommand`,
+`validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`,
+`filterSubprocessEnv`, `parseSubprocessEnvExtra`, `SubprocessEnvAudience`,
+`BRAIN_LOCK_KEY`, `bashLockKey`, `describeRetry`, `resolveThinkingLevel`,
+`assertLoadedSdk`, `rtkRewriteCommand` and `DEFAULT_CONFIRM_BASH_PATTERNS`.
+They left `/internal`; `/internal/client` keeps its browser copies of the two
+protocol helpers. The
+[toolkit record](backend-authoring-toolkit.md#inventory) classifies each.

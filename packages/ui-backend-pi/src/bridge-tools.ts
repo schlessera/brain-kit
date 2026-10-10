@@ -32,6 +32,8 @@ import {
 import {
   piMaskFilename,
   piReportedMaskPath,
+} from "@schlessera/brain-ui-sdk/internal";
+import {
   handleAskUser,
   handleAskUserList,
   handleAskUserRank,
@@ -41,7 +43,7 @@ import {
   handleRequestImageMask,
   handleShowBlock,
   type LocationHandlerOptions,
-} from "@schlessera/brain-ui-sdk/internal";
+} from "@schlessera/brain-ui-sdk/server";
 import { z } from "zod";
 
 import { resolveEnv } from "./config/env.js";

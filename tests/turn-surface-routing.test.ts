@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 import { createJevClient } from "../packages/ui-server/src/classification/jev-client.js";
 import { connectSurface, routePreparedTurn, routingRequest, scoreCalls, serializedTurn, type Arm } from "../scripts/turn-surface-routing.js";
 import { connectBrainSurface, createFixture, fixtureTurn, scriptedAnswers } from "../scripts/turn-surface-fixture.js";

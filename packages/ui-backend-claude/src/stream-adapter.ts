@@ -1,5 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { describeRetry } from "@schlessera/brain-ui-sdk/internal";
+import { describeRetry } from "@schlessera/brain-ui-sdk/server";
 import type {
   BackendActivityEvent,
   ServerMessage,

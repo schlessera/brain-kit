@@ -2,6 +2,11 @@ import type { AskUserQuestion } from "../../protocol.js";
 import type { AskUserInput, AskUserPayload } from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
 
+/**
+ * Run `ask_user` through the host bridge and shape its payload.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleAskUser(
   input: AskUserInput,
   bridge: BackendBridge,

@@ -21,8 +21,8 @@ import {
   EXEC_KILLER_ENV,
   EXEC_WRAPPER_ENV,
   validateExecWrapper,
-} from "@schlessera/brain-ui-sdk/internal";
-import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/internal";
+} from "@schlessera/brain-ui-sdk/server";
+import { filterSubprocessEnv, parseSubprocessEnvExtra } from "@schlessera/brain-ui-sdk/server";
 
 // The descriptor contract, readEnvVar and the boolean helpers are shared
 // across every chokepoint via @schlessera/brain-common/internal/env.

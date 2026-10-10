@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { describeRetry } from "@schlessera/brain-ui-sdk/internal";
+import { describeRetry } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage, TurnFailure, TurnRetry } from "@schlessera/brain-ui-sdk/server";
 
 /**

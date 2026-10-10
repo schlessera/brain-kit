@@ -1,4 +1,5 @@
-import { assertLoadedSdk, canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
+import { assertLoadedSdk } from "@schlessera/brain-ui-sdk/server";
 import { assertVersionRequirements, validateVersionMinimum, type BackendVersionRequirements, type VersionRequirement } from "@schlessera/brain-ui-sdk/server";
 
 const OWNER = "@schlessera/brain-backend-claude";

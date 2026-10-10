@@ -9,7 +9,7 @@ import {
   brainApplicationInput, BRAIN_APPLICATION_MAX_BYTES,
   type BrainApplicationInput, type BrainApplicationPolicy, type BrainApplicationResult,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
+import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 
 export const contentHash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
 export interface BrainApplicationRequest {

@@ -2545,8 +2545,8 @@ claim than having reproduced it, and the two should not be confused.
 
 **pi has no deferral.** It registers `show_block` as a plain `ToolDefinition`
 in its own tool list (the `showBlock` definition, `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:264-275`, and the unconditional
-push into `tools`, `const tools: ToolDefinition[]`, `:277-280`);
+`packages/ui-backend-pi/src/bridge-tools.ts:266-277`, and the unconditional
+push into `tools`, `const tools: ToolDefinition[]`, `:279-282`);
 there is no MCP server, no tool search, and no `alwaysLoad` to set, so the tool
 is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
@@ -3268,7 +3268,7 @@ directory. The harness records that set of presences with every run and
 `--report` prints it.
 
 **pi has no deferral, so this is the always-loaded regime.** `const showBlock`,
-`packages/ui-backend-pi/src/bridge-tools.ts:264` registers `show_block` as one
+`packages/ui-backend-pi/src/bridge-tools.ts:266` registers `show_block` as one
 of pi's own `ToolDefinition`s, and pi's `splitDeferredTools` only ever defers a
 name that arrived through a tool-result's `addedToolNames` and has not been
 called since — a statically registered tool can never be deferred. Across all 64
@@ -3811,7 +3811,7 @@ config were empty, account credential files were never copied, automatic
 memory was disabled, and no other subscription measurement overlapped.
 The same execution hook bounded Read/Glob/Grep to the staged fixture and
 denied delegation and other tools in every arm (`optionsFor`,
-`scripts/measure-show-block.ts:397-465`). This permission restriction and the
+`scripts/measure-show-block.ts:398-466`). This permission restriction and the
 one-tool MCP server remain measurement divergences from production. The
 actual installed CLI denied a controlled outside Read and admitted an inside
 Read under bypassPermissions; removing its hook exposed the sentinel and
@@ -4315,7 +4315,7 @@ goes and fetches nothing.
    default-ignorable or bidi-control code point, is refused. Other IDNs are
    not refused wholesale.
 6. **A new package edge: ui-sdk → ui-kit.** The `show_block` handler
-   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:27-50`)
+   (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:29-52`)
    has to call `classifyLink`, and the two packages did not depend on each other. ui-sdk
    takes a workspace dependency on ui-kit, and only on its React-free `links`
    export. That gives one implementation and one test suite. The edge goes
@@ -4353,7 +4353,7 @@ or PDF are #558.
 found, and what the ruling did not say:
 
 - **Where each part landed.** The handler throws with the reason
-  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:27-50`).
+  (`handleShowBlock`, `packages/ui-sdk/src/server/bridge-tools/show-block.ts:29-52`).
   The payload parse on the client stays structural, and the card classifies
   again. The card's link mode calls `classifyLink` itself
   (`LinkCard`, `packages/ui-kit/src/blocks/LinkPreviewCard.tsx:294-512`), and

@@ -17,7 +17,7 @@ import {
   type BackendBridge,
   type BackendModelSource,
 } from "@schlessera/brain-ui-sdk/server";
-import { filterSubprocessEnv } from "@schlessera/brain-ui-sdk/internal";
+import { filterSubprocessEnv } from "@schlessera/brain-ui-sdk/server";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import {

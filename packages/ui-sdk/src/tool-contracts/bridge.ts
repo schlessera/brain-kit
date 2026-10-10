@@ -466,7 +466,11 @@ const names = [
   SHOW_BLOCK_CONTRACT.name,
 ] as const;
 
-/** The auto-allowed bridge tools and the names each backend exposes. */
+/**
+ * The auto-allowed bridge tools and the names each backend exposes.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export const BRIDGE_TOOL_POSTURE = Object.freeze({
   names,
   claudePrefix: "mcp__brain-ui__" as const,

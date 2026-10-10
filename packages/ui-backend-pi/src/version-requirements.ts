@@ -1,4 +1,4 @@
-import { assertLoadedSdk } from "@schlessera/brain-ui-sdk/internal";
+import { assertLoadedSdk } from "@schlessera/brain-ui-sdk/server";
 import { assertVersionRequirements, type BackendVersionRequirements } from "@schlessera/brain-ui-sdk/server";
 
 const OWNER = "@schlessera/brain-backend-pi";

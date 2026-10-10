@@ -7,7 +7,7 @@ import {
   type ActivityQueryResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, handleQueryActivity } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleQueryActivity } from "@schlessera/brain-ui-sdk/server";
 
 export type ActivityQueryHandler = (
   query: ActivityQuery

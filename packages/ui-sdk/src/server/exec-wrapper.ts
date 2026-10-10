@@ -31,7 +31,11 @@
  */
 import { isAbsolute } from "node:path";
 
-/** The environment variable each package's chokepoint reads this from. */
+/**
+ * The environment variable each package's chokepoint reads this from.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export const EXEC_WRAPPER_ENV = "BRAIN_UI_EXEC_WRAPPER";
 
 /**
@@ -50,6 +54,8 @@ export const EXEC_WRAPPER_ENV = "BRAIN_UI_EXEC_WRAPPER";
  * neither ships one nor requires one: with no killer configured the group
  * signal is attempted directly, which is correct whenever the wrapper has not
  * changed uid.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export const EXEC_KILLER_ENV = "BRAIN_UI_EXEC_KILLER";
 
@@ -64,6 +70,8 @@ export const EXEC_KILLER_ENV = "BRAIN_UI_EXEC_KILLER";
  * @throws if the value is set but unusable. Failing at configuration time is
  * the point: a wrapper that silently does not apply is a privilege boundary
  * that silently does not exist.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export function validateExecWrapper(raw: string | undefined): string | undefined {
   const value = raw?.trim();
@@ -97,6 +105,8 @@ export function validateExecWrapper(raw: string | undefined): string | undefined
  * @throws when a wrapper is configured and the program cannot be resolved.
  * Failing here beats handing a helper something it will refuse for reasons the
  * operator then has to guess at.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export function wrapCommand(argv: readonly string[], wrapper?: string): string[] {
   if (!wrapper) return [...argv];

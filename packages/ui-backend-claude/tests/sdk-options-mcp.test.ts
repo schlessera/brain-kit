@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 

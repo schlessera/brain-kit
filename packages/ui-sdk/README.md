@@ -104,9 +104,15 @@ and `compileConfirmPatterns`, with their signature types. Use the
 [authoring workflow](../../docs/extending/agent-backends.md#the-public-permission-toolkit)
 to gate execution and check approved edits. The toolkit is experimental until
 1.0; its documented behavior and reachable types are included in the supported
-surface. Bundled defaults and subprocess-policy helpers moved to `/internal`,
-which has no compatibility guarantee. The
-[classification and migration table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
+surface. The helpers both shipped backends share (the bridge-tool handlers
+and `BRIDGE_TOOL_POSTURE`, the exec wrapper, the subprocess environment filter,
+lock keys, `describeRetry`, `resolveThinkingLevel`, `assertLoadedSdk`,
+`rtkRewriteCommand` and `DEFAULT_CONFIRM_BASH_PATTERNS`) are public on
+`./server` too, `@experimental` until 1.0; see the
+[shared backend toolkit](../../docs/extending/agent-backends.md#the-shared-backend-toolkit).
+Helpers with a single consumer stay at `/internal`, which has no compatibility
+guarantee. The
+[classification table](../../docs/decisions/backend-authoring-toolkit.md#inventory)
 names every affected import. Subscription-auth helpers remain protocol API.
 
 The existing coastline geometry helpers/types and `fetchCoastline` under `./server`

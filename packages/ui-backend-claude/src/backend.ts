@@ -12,7 +12,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
-import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
@@ -27,7 +27,8 @@ const BACKEND_ID = "claude";
 // public surface stay identical after the factory split.
 export type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 export { lockKeyForTool } from "./tool-policy.js";
-export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
+export { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
+export { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Bash commands that raise a confirmation card before they run.
@@ -40,10 +41,11 @@ export { GIT_LOCK_KEY, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal"
  * documentation steers away from.
  *
  * The pattern list itself is backend-independent policy and lives in
- * `@schlessera/brain-ui-sdk/internal` (shared with the pi backend's tool_call
- * gate); available through the package's internal entry for first-party sharing.
+ * `@schlessera/brain-ui-sdk/server` (shared with the pi backend's tool_call
+ * gate, and part of the SDK's backend toolkit); this package re-exports it
+ * through its internal entry only.
  */
-export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * Build an AgentBackend backed by the Claude Agent SDK. The SDK owns session

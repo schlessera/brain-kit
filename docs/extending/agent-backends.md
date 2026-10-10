@@ -431,12 +431,53 @@ source formats and explicit-empty behavior are supported; bundled default
 entries may evolve with documented user-visible changes, while preserving the
 permission guarantees. No default-policy update excuses a breaking behavior.
 
-Bundled lists, command-inspection helpers and subprocess policy tables moved
-to explicitly unsupported `/internal` paths. External authors configure their
+Command-inspection helpers and the subprocess descriptor table live at
+explicitly unsupported `/internal` paths. External authors configure their
 own policy through the public formats. See the
-[migration inventory](../decisions/backend-authoring-toolkit.md#inventory) for
-the removed names and their first-party destinations. Subscription-auth
-mapping and instruction helpers remain public under the wire contract.
+[inventory](../decisions/backend-authoring-toolkit.md#inventory) for each
+name's classification. Subscription-auth mapping and instruction helpers
+remain public under the wire contract.
+
+## The shared backend toolkit
+
+Everything both shipped backends use to give the host the same behavior and
+security posture is public on `@schlessera/brain-ui-sdk/server`, tagged
+`@experimental` until 1.0 (#1399). A third-party backend imports the same
+names; reimplementing them would drift from, or weaken, what the host
+promises.
+
+- **Bridge tools.** `handleAskUser`, `handleAskUserList`, `handleAskUserRank`,
+  `handleAskUserForm`, `handleGetCurrentLocation` (with
+  `LocationHandlerOptions`), `handleRequestImageMask` (with
+  `ImageMaskHandlerOptions`), `handleQueryActivity` and `handleShowBlock` run
+  one bridge tool each against the turn's `BackendBridge`. Pair them with the
+  public contracts (`BRIDGE_TOOL_CONTRACTS`, the input schemas and briefs)
+  for the tool definitions, and auto-allow them from
+  `BRIDGE_TOOL_POSTURE.allowedTools(adapter)`, never from a local list. A
+  handler throws when the host lacks the capability or the input is refused;
+  turn that into your runtime's tool error. The mask filename is yours:
+  `ImageMaskHandlerOptions.maskFilename` and `reportMaskPath` decide it, and
+  the handler keeps the write inside the brain.
+- **Subprocesses.** Read the wrapper with `validateExecWrapper` from
+  `EXEC_WRAPPER_ENV` (the killer from `EXEC_KILLER_ENV`), launch through
+  `wrapCommand`, and cancel with `killWrapped`. Build every child environment
+  with `filterSubprocessEnv(env, audience, extraNames)`, taking operator
+  additions from `parseSubprocessEnvExtra`; nothing passes unless an audience
+  or an explicit name admits it.
+- **Shell commands.** `bashLockKey` picks the lock a command must hold
+  (`BRAIN_LOCK_KEY` for document writes), `rtkRewriteCommand` applies the
+  optional rtk rewrite, and `DEFAULT_CONFIRM_BASH_PATTERNS` is the bundled
+  confirmation policy for when configuration is missing. Its entries may
+  evolve between releases; compile it with `compileConfirmPatterns` like any
+  other source.
+- **Runtime wording and checks.** `describeRetry` words a retry for
+  `ServerStatus.detail`, `resolveThinkingLevel` maps requested effort onto
+  what a model supports, and `assertLoadedSdk` checks the runtime SDK your
+  package actually loaded against its declared range.
+
+`packages/ui-sdk/tests/backend-conformance.test.ts` builds a backend from
+these public names alone and runs every bridge tool through it; use it as a
+worked example.
 
 ## The bridge
 

@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { EXEC_KILLER_ENV, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
+import { EXEC_KILLER_ENV, wrapCommand } from "@schlessera/brain-ui-sdk/server";
 
 /**
  * How much of the child's stderr to keep. Bounded on purpose: this hook

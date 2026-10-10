@@ -77,6 +77,11 @@ export function askUserListPayload(
   };
 }
 
+/**
+ * Run `ask_user_list` through the host bridge and shape its payload.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleAskUserList(
   input: AskUserListInput,
   bridge: BackendBridge,

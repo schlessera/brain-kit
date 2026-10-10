@@ -45,6 +45,12 @@ export type CompiledConfirmPattern = RegExp & { readonly effect?: string };
  *
  * Matched case-insensitively against the whole command string, so a pattern
  * fires wherever it appears in a pipeline.
+ *
+ * The bundled selection: its entries, order and wording may evolve in any
+ * release as a documented user-visible change. The pattern format and the
+ * permission guarantees around it do not.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export const DEFAULT_CONFIRM_BASH_PATTERNS: readonly ConfirmPattern[] = [
   // Archiving is a VISIBILITY change, and that is the reason to confirm it —

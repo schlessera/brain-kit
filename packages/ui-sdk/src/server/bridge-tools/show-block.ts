@@ -23,6 +23,8 @@ import {
  * A `tracker` block's events get the same check, each `url` on its own, and
  * the rejection names the event by its position so the model can fix that
  * one (#1001). The pill list draws a refused one that reaches it as withheld.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload {
   const payload = SHOW_BLOCK_INPUT_SCHEMA.parse(input);

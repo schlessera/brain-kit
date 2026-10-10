@@ -6,7 +6,7 @@ list whose entries cannot compile. Previously both backend constructors
 accepted such a list as an empty policy, so a regex typo disabled confirmation.
 
 The rule lives in the shared helper (`compileConfirmPatterns`,
-`packages/ui-sdk/src/server/confirm-patterns.ts:91-128`), which both
+`packages/ui-sdk/src/server/confirm-patterns.ts:97-134`), which both
 constructors call before creating their runtime. It also covers programmatic
 consumers of the helper. The error names `confirmBashPatterns` and
 `BRAIN_UI_CONFIRM_BASH`, includes the invalid sources and compiler diagnostics,

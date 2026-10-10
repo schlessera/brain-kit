@@ -18,7 +18,7 @@
 
 import { join } from "node:path";
 
-import { handleShowBlock } from "@schlessera/brain-ui-sdk/internal";
+import { handleShowBlock } from "@schlessera/brain-ui-sdk/server";
 import {
   SHOW_BLOCK_DESCRIPTION,
   SHOW_BLOCK_TOOL_NAME,

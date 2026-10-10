@@ -26,7 +26,7 @@ import {
   compileConfirmPatterns,
   createKeyedLock,
 } from "@schlessera/brain-ui-sdk/server";
-import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 import { assertPiSdks } from "./version-requirements.js";
 
 import type { CreatePiBackendOptions } from "./backend-options.js";
