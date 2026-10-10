@@ -188,6 +188,10 @@ export interface SurfaceTools {
   mask?: string | false;
   /** Name of the activity-record query tool, or false when absent. */
   activity?: string | false;
+  inboxList?: string | false;
+  inboxGet?: string | false;
+  inboxAdd?: string | false;
+  resolveAction?: string | false;
   /** Name of the inline answer-block tool, or false when absent. */
   block?: string | false;
 }
@@ -198,6 +202,7 @@ export interface SurfaceTools {
  * error rather than a tool that silently never reaches the prompt.
  */
 const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
+  inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
   [ASK_USER_CONTRACT.name]: "askUser",
   [ASK_USER_LIST_CONTRACT.name]: "askUserList",
   [ASK_USER_RANK_CONTRACT.name]: "askUserRank",

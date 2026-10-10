@@ -1,3 +1,4 @@
+import { registerInboxTools } from "./inbox-tools.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createAskUserFormTool, type AskUserFormHandler } from "./ask-user-form-tool.js";
@@ -90,6 +91,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  * `show_block` needs none, so it is always registered.
  */
 export function createBrainUiMcpServer(handlers: {
+  inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
@@ -137,6 +139,7 @@ export function createBrainUiMcpServer(handlers: {
     // MEASURED_RUNTIME names by scripts/measure-claude-runtime.ts.
     alwaysLoad: true,
   });
+  if (handlers.inbox) registerInboxTools(server.instance, handlers.inbox);
   if (handlers.application?.applyBrain) registerBrainApplicationTools(server.instance, handlers.application);
   return server;
 }

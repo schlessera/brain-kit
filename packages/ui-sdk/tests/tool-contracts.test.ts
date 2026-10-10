@@ -7,6 +7,7 @@ import {
   ASK_USER_RANK_CONTRACT,
   ASK_USER_FORM_CONTRACT,
   BRIDGE_TOOL_CONTRACTS,
+  INBOX_TOOL_CONTRACTS,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
@@ -49,6 +50,7 @@ describe("the contract list is the single source", () => {
         location: GET_CURRENT_LOCATION_CONTRACT.name,
         mask: REQUEST_IMAGE_MASK_CONTRACT.name,
         activity: QUERY_ACTIVITY_CONTRACT.name,
+        inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action",
         block: SHOW_BLOCK_CONTRACT.name,
       },
     });
@@ -77,6 +79,7 @@ describe("the contract list is the single source", () => {
       contract === QUERY_ACTIVITY_CONTRACT ? false : contract.name
     );
     expect(lines).toEqual([
+      ...INBOX_TOOL_CONTRACTS.map(contract => contract.brief(contract.name)),
       ASK_USER_CONTRACT.brief(ASK_USER_CONTRACT.name),
       ASK_USER_LIST_CONTRACT.brief(ASK_USER_LIST_CONTRACT.name),
       ASK_USER_RANK_CONTRACT.brief(ASK_USER_RANK_CONTRACT.name),

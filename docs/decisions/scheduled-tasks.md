@@ -23,11 +23,11 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:186-187`).
   The runtime ticks every minute (`INBOX_TICK_MS`, `packages/ui-server/src/inbox/runtime.ts:11-13`).
 - Production app wiring supplies recovery and budgets, without a dispatcher
-  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:298-303`).
+  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:299-304`).
   A scripted nonempty ready-item test still reports no claim, attempt or
   Activity root. That proves disabled wiring, not safe execution of a schedule.
 - Headless plumbing checks backend support, a usable principal, lifetime and
-  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:57-87`).
+  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:60-90`).
   Capability flags and these checks do not prove credential/configuration,
   filesystem or egress containment at the actual backend boundary.
 - The generic core runner has a different interface

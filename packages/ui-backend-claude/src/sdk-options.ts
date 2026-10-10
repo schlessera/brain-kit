@@ -12,6 +12,7 @@ import type {
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
+import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -126,6 +127,8 @@ function assembleClaudeSdkTurn(
     // Read-only over the host's own record — strictly narrower than the
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
+    if (req.bridge.inboxList) allowed.push(visibleToolName("inbox_list", "claude"), visibleToolName("inbox_get", "claude"));
+    if (req.bridge.inboxList && !req.noGrantSurface && req.posture !== "voice") allowed.push(visibleToolName("inbox_add", "claude"), visibleToolName("resolve_action", "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -143,6 +146,7 @@ function assembleClaudeSdkTurn(
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
       activity: Boolean(queryActivity),
+      inbox: Boolean(req.bridge.inboxList),
       block: true,
     },
     req.turnBudgetMs
@@ -237,6 +241,7 @@ function assembleClaudeSdkTurn(
       getLocation,
       requestMask,
       queryActivity,
+      ...(req.bridge.inboxList ? { inbox: req.bridge } : {}),
       brainPath: backend.brainPath,
     }),
   };
@@ -279,6 +284,7 @@ function buildAppend(
     location: boolean;
     mask: boolean;
     activity: boolean;
+    inbox: boolean;
     block: boolean;
   },
   turnBudgetMs: number | undefined
@@ -298,6 +304,10 @@ function buildAppend(
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,
+        inboxList: tools.inbox && visibleToolName("inbox_list", "claude"),
+        inboxGet: tools.inbox && visibleToolName("inbox_get", "claude"),
+        inboxAdd: tools.inbox && visibleToolName("inbox_add", "claude"),
+        resolveAction: tools.inbox && visibleToolName("resolve_action", "claude"),
         block: tools.block && SHOW_BLOCK_TOOL_NAME,
       },
     })

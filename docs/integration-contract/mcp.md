@@ -633,3 +633,42 @@ module's contained `dbPath`. A missing database returns `{ jobs: [] }`
 without creating it; an existing database may undergo the same schema
 initialization/migration as the CLI. Annotations are `readOnlyHint: true` and
 `openWorldHint: false`, with backend admission governed separately.
+
+## Durable inbox bridge tools (additive, #685)
+
+Both first-party backends attach `inbox_list`, `inbox_get`, `inbox_add` and
+`resolve_action` to their existing UI bridge. Claude names them
+`mcp__brain-ui__<name>` and loads their schemas and executors eagerly; pi
+attaches plain names to its session toolkit. Shared contracts are exported
+from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
+
+| Tool | Input | Result inside a nonce-delimited, data-only inbox record |
+| --- | --- | --- |
+| `inbox_list` | `view`: `queue` or `actions`; optional `threadId`; integer `limit` 1–100, default 50 | `{ items, threads }`, in store priority order, capped by `limit` |
+| `inbox_get` | `itemId` | `{ item, thread }` |
+| `inbox_add` | `text` (1–32000 characters); `idempotencyKey` | `{ created, threadId, itemId }` |
+| `resolve_action` | `sessionId`, `itemId`, `optionId`, positive integer `expectedVersion` | `{ replay, followUpId? }` |
+
+IDs and keys are nonempty strings of at most 256 characters. Inputs are strict
+objects; origin, principal, trust, policy and effects are never tool arguments.
+Intake still enforces its byte and staging limits. Tool failures reject in pi
+and return an MCP error in Claude.
+
+Every executor rechecks the durable principal and current turn. Interactive
+reads use the authenticated UI's scope; autonomous reads are restricted to the
+server-selected origin thread and cannot widen it with a tool argument.
+`inbox_add` reuses compensated CLI intake for authenticated interactive
+origins, and refuses an untrusted origin thread. Its key is scoped to principal
+and turn: retries with identical text return the same item; different text
+under that key refuses. It stages triage work and grants no operation authority.
+Voice and restricted memberships allow reads and refuse both mutations.
+Autonomous rosters remain exact server-selected authority.
+
+Resolution requires a server-held approval bound to the live session, Action,
+option, original version and exact stored effect. It reuses the UI resolver's
+fresh operation authorization and deterministic replay transaction; it calls
+no inference and creates at most one follow-up. V1 never mints a discuss
+binding: ordinary and autonomous sessions refuse `resolve_action`. Deferred
+`open_session`/`write_policy` and hygiene's separate UI preview are unavailable
+through this tool. A future bound flow must supply an explicit exact approval;
+the tool name or an extra permission tap alone cannot establish that binding.

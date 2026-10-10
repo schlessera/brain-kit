@@ -441,7 +441,10 @@ export const QUERY_ACTIVITY_CONTRACT = defineToolContract({
  * section, the auto-allow posture and the renderer pack all walk this list, so
  * a new bridge tool is registered everywhere by being added here once.
  */
+import { INBOX_TOOL_CONTRACTS } from "./inbox.js";
+
 export const BRIDGE_TOOL_CONTRACTS = [
+  ...INBOX_TOOL_CONTRACTS,
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
   ASK_USER_RANK_CONTRACT,
@@ -456,6 +459,7 @@ export type BridgeToolAdapter = ToolAdapter;
 export type BridgeToolName = (typeof BRIDGE_TOOL_CONTRACTS)[number]["name"];
 
 const names = [
+  ...INBOX_TOOL_CONTRACTS.map(contract => contract.name),
   ASK_USER_CONTRACT.name,
   ASK_USER_LIST_CONTRACT.name,
   ASK_USER_RANK_CONTRACT.name,

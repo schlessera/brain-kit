@@ -54,6 +54,7 @@ describe("the SDK options a turn is built with", () => {
         getLocation: unreachable,
         requestMask: unreachable,
         queryActivity: unreachable,
+        inboxList: unreachable, inboxGet: unreachable, inboxAdd: unreachable, resolveAction: unreachable,
       });
       const server = options.mcpServers?.["brain-ui"];
       expect(server).toBeDefined();

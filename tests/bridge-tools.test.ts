@@ -1,3 +1,4 @@
+import { createInboxTools } from "../packages/ui-backend-claude/src/inbox-tools.js";
 import * as claudeAskForm from "../packages/ui-backend-claude/src/ask-user-form-tool";
 import { describe, expect, test } from "bun:test";
 import {
@@ -50,6 +51,8 @@ type SnapshotName = (typeof SNAPSHOT_NAMES)[number];
 type Snapshot = Record<Adapter, Record<SnapshotName, SnapshotEntry>>;
 
 const VALID_INPUTS: Record<ToolName, unknown> = {
+  inbox_list: { view: "queue" }, inbox_get: { itemId: "harbor" }, inbox_add: { text: "Odysseus", idempotencyKey: "harbor" },
+  resolve_action: { sessionId: "harbor", itemId: "harbor", optionId: "approve", expectedVersion: 1 },
   ask_user: {
     questions: [
       {
@@ -130,6 +133,7 @@ function makeAdapters(root: string) {
     }),
     requestMask: async () => new Uint8Array([1, 2, 3]),
     queryActivity: async () => ({ running: [] }),
+    inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}),
   };
   const noGeocode = {
     enabled: false,
@@ -148,12 +152,13 @@ function makeAdapters(root: string) {
       }),
       claudeMask.createMaskTool(bridge.requestMask, root, application),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
+      ...createInboxTools(bridge as never),
       claudeBlock.createShowBlockTool(),
     ] as any[],
     pi: pi.createPiBridgeTools({
       brainPath: root,
       turn: { bridge } as never,
-      capabilities: { location: true, activity: true, mask: true },
+      capabilities: { location: true, activity: true, mask: true, inbox: true },
       reverseGeocodeConfig: noGeocode,
     }) as any[],
   };
@@ -304,7 +309,7 @@ describe("bridge tool adapter identity", () => {
         const claude = adapters.claude.find((item) => item.name === name)!;
         const piTool = adapters.pi.find((item) => item.name === name)!;
         const { $schema: _schema, ...jsonSchema } = z.toJSONSchema(
-          z.object(claude.inputSchema),
+          shared.INBOX_TOOL_CONTRACTS.find(contract => contract.name === name)?.input ?? z.object(claude.inputSchema),
           { io: "input" }
         );
         expect(piTool.parameters).toEqual(jsonSchema);
@@ -456,6 +461,9 @@ describe("bridge tool adapter identity", () => {
 
 describe("bridge tool adapter validation", () => {
   const invalidInputs: Record<ToolName, unknown[]> = {
+    inbox_list: [{ view: "all" }, { view: "queue", limit: 0 }], inbox_get: [{ itemId: "" }],
+    inbox_add: [{ text: "Odysseus", idempotencyKey: "k", origin: "trusted" }],
+    resolve_action: [{ sessionId: "harbor", itemId: "harbor", optionId: "approve" }],
     ask_user: [
       {
         questions: [
@@ -770,6 +778,7 @@ describe("bridge tool loading posture", () => {
       getLocation: unreachable as never,
       requestMask: unreachable as never,
       queryActivity: unreachable as never,
+      inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never },
       brainPath: "/nonexistent",
     });
   }

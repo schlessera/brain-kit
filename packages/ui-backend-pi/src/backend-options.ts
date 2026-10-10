@@ -160,6 +160,7 @@ export interface SessionCaps {
   askUserForm?: boolean;
   location: boolean;
   activity: boolean;
+  inbox?: boolean;
   mask: boolean;
 }
 
@@ -179,6 +180,7 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     askUserForm: Boolean(bridge.askUserForm),
     location: Boolean(bridge.getLocation),
     activity: Boolean(bridge.queryActivity),
+    inbox: Boolean(bridge.inboxList),
     mask: Boolean(bridge.requestMask),
   };
 }

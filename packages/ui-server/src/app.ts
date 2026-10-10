@@ -53,6 +53,7 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
+import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
 import { createHygieneReviewRoutes } from "./routes/hygiene-review.js";
@@ -366,6 +367,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     catalog: createSessionCatalog(() => db, dbLog),
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
+    inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver),
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       hygieneReview.resolver),
     classifier,
