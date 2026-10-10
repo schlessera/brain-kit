@@ -3,13 +3,15 @@
 // would write plus the blocks it would show, built from the same records the
 // file tree, search and graph serve, so an answer never states a figure the
 // records do not hold.
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { library, shipRecords, type LibraryDocument } from '../../../packages/ui-kit/fixtures/library/index.ts';
 import { crewLosses, estateBars, estateDays, estateGuests } from '../../../packages/ui-kit/fixtures/money.ts';
 import { notes } from '../../../packages/ui-kit/fixtures/notes.ts';
 import { people } from '../../../packages/ui-kit/fixtures/people.ts';
 import { goal, projects } from '../../../packages/ui-kit/fixtures/projects.ts';
 import { sceneIndex, type SceneId } from './scene-index.ts';
-import { BLOCK_SCHEMA, type Block } from '../../../packages/ui-sdk/src/tool-contracts/blocks.ts';
+import { BLOCK_SCHEMA, type Block } from '@schlessera/brain-ui-sdk/tool-contracts';
 
 // Typed here, not from `Block`: an older release's block union has no `files`.
 type FilesBlock = { kind: 'files'; items: { path: string; reason?: string }[] };

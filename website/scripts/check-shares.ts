@@ -4,8 +4,10 @@ import { resolve } from 'node:path';
 import { exportRecipeHash, repository } from './export-recipe.ts';
 import { demoDocuments, documentByPath, resolveWikilink } from '../src/demo/corpus.ts';
 import { knowledgeResponse } from '../src/demo/knowledge.ts';
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { knownIssues, library } from '../../packages/ui-kit/fixtures/library/index.ts';
-import { splitFrontmatter } from '../../packages/ui-react/src/lib/frontmatter.ts';
+import { splitFrontmatter } from '@schlessera/brain-ui-react';
 import { exportKey } from '../src/demo/export-key.ts';
 
 // The whole library is browsable, graphed and searchable, not only staged.

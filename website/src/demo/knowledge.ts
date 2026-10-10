@@ -3,10 +3,8 @@
 // communities, PageRank and ForceAtlas2 layout over the links as written,
 // including the ones that resolve to nothing.
 import Graph from 'graphology';
-import { computeMetrics } from '../../../packages/core/src/lib/graph/metrics.ts';
-import { computeClusterLayout } from '../../../packages/core/src/lib/graph/layout.ts';
-import { communityTopTerms, type TermIndex } from '../../../packages/core/src/lib/graph/labels.ts';
-import type { GraphBrokenLink, GraphNodePayload } from '../../../packages/ui-sdk/src/protocol.ts';
+import { communityTopTerms, computeClusterLayout, computeMetrics, type TermIndex } from '@schlessera/brain/internal/graph';
+import type { GraphBrokenLink, GraphNodePayload } from '@schlessera/brain-ui-sdk/protocol';
 import { demoDocuments, documentByPath, resolveWikilink } from './corpus.ts';
 import { referenceNow, type DemoDocument } from './odyssey.ts';
 

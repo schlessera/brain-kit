@@ -4,6 +4,8 @@
 // and almost no links, because a briefing is read, not clicked through.
 // The wording is staged like the demo's other answers; every figure in it is
 // read from the records, so a changed record changes the briefing.
+// The Odysseus fixtures are the shared example corpus (docs/decisions/example-corpus.md),
+// read from source on purpose: they are test and demo data, not package API (#1382).
 import { library } from '../../../packages/ui-kit/fixtures/library/index.ts';
 import { estateDays, estateGuests, estateStores } from '../../../packages/ui-kit/fixtures/money.ts';
 import { REFERENCE_DATE } from '../../../packages/ui-kit/fixtures/time.ts';
