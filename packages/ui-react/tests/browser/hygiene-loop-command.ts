@@ -71,7 +71,13 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     const item = await poll(active, Boolean, "server selects pending Action");
     await poll(() => page.locator(`[data-hygiene-id="${item.id}"]`).count(), n => n > 0, "browser receives selected Action");
     const open = page.getByRole("button", { name: /^Open finding:/ });
-    if (width >= 900 && await open.count()) await open.last().click();
+    if (width >= 900 && await open.count()) {
+      await open.last().click();
+      // REST can publish the compact card before the reconnect snapshot reaches
+      // the inbox store used by the detail pane. Observe the same Action there
+      // before reading its evidence or operating its controls.
+      await page.locator(`[data-hygiene-detail] [data-hygiene-id="${item.id}"]`).waitFor({ state: "visible" });
+    }
     return item;
   }
   async function choose(page: Page) {
