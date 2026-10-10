@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
 import { sceneIndex, type SceneId } from '../src/demo/scene-index.ts';
+import { knowledgeResponse } from '../src/demo/knowledge.ts';
+import { corpusStats } from '../src/demo/stats.ts';
+
+const corpus = corpusStats();
+
+const meta = await knowledgeResponse(new URL('https://demo.invalid/api/graph/meta'))!.json() as { communities: { label: string | null; size: number }[] };
+const topLabels = meta.communities.filter(community => community.label).sort((a, b) => b.size - a.size).slice(0, 3).map(community => community.label!);
 
 // What each library scene must show: a value only its own block holds.
 const shows: Record<SceneId, string> = {
@@ -48,10 +55,29 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
       await demo.getByText('More', { exact: true }).last().waitFor();
       if (!await demo.getByText('Graph', { exact: true }).first().isVisible()) await demo.getByText('More', { exact: true }).last().click();
       await demo.getByText('Graph', { exact: true }).first().click();
-      for (const folder of ['ithaca', 'journal', 'ogygia', 'crew']) await demo.getByText(folder, { exact: true }).first().waitFor();
+      // Louvain's communities, labelled as the indexer labels them; the largest are listed.
+      for (const label of topLabels) await demo.getByText(label, { exact: true }).first().waitFor();
       await overflowFree('graph');
+      // Brain statistics are measured from the same files: the document count
+      // and its daily trend render from the demo's stats endpoints.
+      // Statistics wait for a finished turn; a scene answer finishes, the rank question does not.
+      await demo.goto(`${origin}${base}demo/rank/?scene=ships&theme=${theme}`, { waitUntil: 'domcontentloaded' });
+      await demo.getByText('Ship 12', { exact: true }).first().waitFor();
+      await demo.getByText('More', { exact: true }).last().click();
+      await demo.getByText('Brain statistics', { exact: true }).first().click();
+      await demo.getByText(/^documents · \d+ snapshots$/).first().waitFor();
+      await demo.getByText(String(corpus.documents), { exact: true }).first().waitFor();
+      await overflowFree('stats');
+      // The daily briefing streams from the same files, line by line, like a host's whatsup run.
+      await demo.goto(`${origin}${base}demo/rank/?scene=ships&theme=${theme}`, { waitUntil: 'domcontentloaded' });
+      await demo.getByText('Ship 12', { exact: true }).first().waitFor();
+      await demo.getByText('More', { exact: true }).last().click();
+      await demo.getByText('Daily briefing', { exact: true }).first().click();
+      await demo.getByText('Before you push off', { exact: false }).first().waitFor();
+      await demo.getByText('The brain itself', { exact: true }).first().waitFor();
+      await overflowFree('briefing');
     }
     await context.close();
   }
-  console.log(`Library demo proof passed: ${Object.keys(sceneIndex).length} scenes at 320 and 1280 and the graph at 320, in both themes; search in ${searched} of 4 layouts.`);
+  console.log(`Library demo proof passed: ${Object.keys(sceneIndex).length} scenes at 320 and 1280, the graph, brain statistics and the daily briefing at 320, in both themes; search in ${searched} of 4 layouts.`);
 }

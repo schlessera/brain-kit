@@ -14,7 +14,13 @@ real file viewer; Sessions offers additional staged conversations. Keyword
 search and the graph operate on these same fictional records, including the
 400+ records of the ui-kit fixture library
 ([`packages/ui-kit/fixtures/library/`](../packages/ui-kit/fixtures/library/)),
-which the graph lays out as one cluster per top-level folder.
+whose graph is what brain-kit's indexer would compute for these files:
+core's own Louvain communities, PageRank and ForceAtlas2 layout over the links
+as written, so the library's deliberate broken links, orphans and unreachable
+notes show up in the maintenance view. Brain statistics answer from the same
+files: document, type, tag and link counts, health ratios and six weeks of
+daily snapshots are measured from the records and their dates; only the
+agent's run and spend figures are written as fiction.
 
 Sharing uses the product's actual menus and share helpers. PNG and PDF targets
 are prepared with the production renderer and committed under

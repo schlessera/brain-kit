@@ -10,6 +10,9 @@ import type { ActivitySpan } from '../../../packages/ui-sdk/src/protocol.ts';
 import { binaryDocuments, corpusBlocks, departureDiagram, referenceNow, supportingFilesBlock } from './odyssey.ts';
 import { exportKey, type ExportCatalogue } from './export-key.ts';
 import { sceneIndex, type SceneId } from './scene-index.ts';
+import uiPackage from '../../../packages/ui-react/package.json';
+
+const DEMO_SOURCE_COMMIT = 'fictional-demo';
 
 const ActivityPage = lazy(() => import('../../../packages/ui-react/src/components/activity/activity-page.tsx').then(m => ({ default: m.ActivityPage })));
 const GraphPage = lazy(() => import('../../../packages/ui-react/src/components/graph/graph-page.tsx').then(m => ({ default: m.GraphPage })));
@@ -99,6 +102,18 @@ async function request(input: string | URL | Request, init?: RequestInit) {
     return Response.json({ path: selected, exists, type: directory ? 'dir' : 'file', ancestors });
   }
   if (path.endsWith('/files/wikilinks')) return Response.json({ generatedAt: referenceNow, count: Object.keys(wikilinks).length, slugs: wikilinks });
+  // The daily briefing, gathered from the demo brain's files on first use.
+  if (path.endsWith('/brain/whatsup')) return (await import('./briefing.ts')).briefingStream();
+  if (path.endsWith('/brain/briefing')) return Response.json({ content: (await import('./briefing.ts')).briefingMarkdown() });
+  // `brain stats`, measured from the demo brain's own files on first use.
+  if (/\/brain\/stats(\/history)?$|\/activity\/stats$/.test(path)) {
+    const stats = await import('./stats.ts');
+    if (path.endsWith('/brain/stats/history')) return Response.json(stats.corpusStatsHistory());
+    if (path.endsWith('/brain/stats')) return Response.json(stats.corpusStats());
+    return Response.json(stats.activityStats(Number(url.searchParams.get('days')) || 30));
+  }
+  // The fictional host runs the build the page loaded, so client and server agree.
+  if (path.endsWith('/status')) return Response.json({ software: { release: uiPackage.version, sourceCommit: DEMO_SOURCE_COMMIT }, version: uiPackage.version, healthy: true, uptime: 3 * 86_400, cronJobs: [], activeSession: false });
   // Unsupported services are honest failures; they never fall through to fetch.
   return Response.json({ error: 'This service is outside the fictional demonstration.' }, { status: 404 });
 }
@@ -162,7 +177,7 @@ class FixtureSocket {
 Object.assign(window, { WebSocket: FixtureSocket });
 // Secondary UI paths use the same closed transport boundary.
 window.fetch = request as typeof fetch;
-const ui = createBrainUiRoot({ storage: null, request: request as typeof fetch, config: { appName: 'Brain', assistantName: 'Brain', backendUrl: `${location.origin}${siteBase}demo`, composerPlaceholder: 'Try: plan, crew ledger, Scylla, or files', sourceCommit: 'fictional-demo' } });
+const ui = createBrainUiRoot({ storage: null, request: request as typeof fetch, config: { appName: 'Brain', assistantName: 'Brain', backendUrl: `${location.origin}${siteBase}demo`, composerPlaceholder: 'Try: plan, crew ledger, Scylla, or files', sourceCommit: DEMO_SOURCE_COMMIT } });
 ui.stores.file.setState({ frontmatterCollapsed: true });
 ui.stores.ui.getState().setTheme(params.get('theme') === 'dark' ? 'dark' : 'light');
 ui.stores.chat.getState().setActiveSession('ogygia');
