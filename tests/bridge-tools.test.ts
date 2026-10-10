@@ -767,7 +767,7 @@ describe("bridge tool loading posture", () => {
     return (await client.listTools()).tools;
   }
 
-  /** Every handler supplied, so the full eight-tool roster is registered. */
+  /** Every handler supplied, so the full twelve-tool roster is registered. */
   function fullServer() {
     const unreachable = () => Promise.reject(new Error("not called in this test"));
     return claudeAsk.createBrainUiMcpServer({

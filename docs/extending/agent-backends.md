@@ -468,7 +468,11 @@ promises.
   handler throws when the host lacks the capability or the input is refused;
   turn that into your runtime's tool error. The mask filename is yours:
   `ImageMaskHandlerOptions.maskFilename` and `reportMaskPath` decide it, and
-  the handler keeps the write inside the brain.
+  the handler keeps the write inside the brain. `handleInboxTool` uses the
+  four `INBOX_TOOL_CONTRACTS` to dispatch durable inbox calls through the same
+  host bridge. Its host must derive trust, scope and current authority, and
+  require an exact approved session/Action binding for resolution; an
+  auto-allowed tool name supplies none of that authority.
 - **Subprocesses.** Read the wrapper with `validateExecWrapper` from
   `EXEC_WRAPPER_ENV` (the killer from `EXEC_KILLER_ENV`), launch through
   `wrapCommand`, and cancel with `killWrapped`. Build every child environment

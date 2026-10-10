@@ -75,7 +75,8 @@ export async function fixtureTurn(root: string, prompt: string, posture: "normal
   const bridge: BackendBridge = { emit: () => {}, checkpointPermission: () => {}, requestPermission: never,
     askUser: async () => { askUserCalls++; return { answers: { Harbour: "Ithaca" } }; },
     askUserList: never, askUserRank: never, askUserForm: never,
-    getLocation: never, requestMask: never, queryActivity: never, ...control?.bridge };
+    getLocation: never, requestMask: never, queryActivity: never,
+    inboxList: never, inboxGet: never, inboxAdd: never, resolveAction: never, ...control?.bridge };
   const abortController = new AbortController();
   const req: StartTurnRequest = {
     prompt, attachments, bridge, turnBudgetMs: 180_000, noGrantSurface: posture !== "normal",

@@ -51,7 +51,7 @@ project emission is (`claudeEmitter`, `packages/core/src/lib/skills/emitters/cla
 The probe connects the returned production server instance through
 (`connectSurface`, `scripts/turn-surface-routing.ts:19-32`), rather than
 asserting the factory alone. Core inventory starts its real source entry
-through (`connectBrainSurface`, `scripts/turn-surface-fixture.ts:112-128`).
+through (`connectBrainSurface`, `scripts/turn-surface-fixture.ts:113-129`).
 Inventory uses a separate production turn instance; returned turns retain
 their fresh MCP transport. Fallback tests connect and inspect the actual
 returned entry, so the inventory cannot occupy that transport unnoticed.

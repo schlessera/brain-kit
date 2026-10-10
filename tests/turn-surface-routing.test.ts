@@ -110,7 +110,7 @@ for (const arm of ["hint", "load-set", "hard-prune"] as Arm[]) {
         if (!original || typeof original === "string" || Array.isArray(original) || original.type !== "preset" || !altered || typeof altered === "string" || Array.isArray(altered) || altered.type !== "preset") throw new Error("preset missing");
         expect(altered.append!.startsWith(original.append!)).toBe(true);
       }
-      expect(peer.tools.length).toBe(arm === "hard-prune" ? 1 : 8);
+      expect(peer.tools.length).toBe(arm === "hard-prune" ? 1 : 12);
       expect(peer.tools.find(tool => tool.id === BLOCK)?.inputSchema).toEqual(prepared.peer.tools.find(tool => tool.id === BLOCK)!.inputSchema);
       const response = await peer.client.callTool({ name: "show_block", arguments: quote });
       expect(response.isError).not.toBe(true);
@@ -155,7 +155,7 @@ for (const posture of ["no-grant", "autonomous"] as const) test(`successful sele
     const server = result.turn.options.mcpServers!["brain-ui"];
     if (server.type !== "sdk") throw new Error("missing SDK server");
     routed = await connectSurface("brain-ui", server);
-    expect(routed.tools.map(tool => tool.name).sort()).toEqual(["ask_user", "get_current_location", "query_activity", "show_block"]);
+    expect(routed.tools.map(tool => tool.name).sort()).toEqual(["ask_user", "get_current_location", "inbox_add", "inbox_get", "inbox_list", "query_activity", "resolve_action", "show_block"]);
     expect(result.turn.options.allowedTools).toEqual(prepared.turn.options.allowedTools);
     if (posture === "autonomous") expect(result.turn.options.allowedTools).toEqual(["Read"]);
     expect(result.turn.options.canUseTool).toBe(prepared.turn.options.canUseTool);
@@ -168,12 +168,12 @@ test("request uses bounded real descriptions, separate absolute gates and only t
   try {
     const request = routingRequest("Use voyage planning.", "obsolete context" + "x".repeat(1000), prepared.peer.tools, fixture.skills);
     expect(request.state).toEqual({ request: "Use voyage planning.", previous_assistant_tail: "x".repeat(1000) });
-    expect(Object.keys(request.questions)).toHaveLength(15);
+    expect(Object.keys(request.questions)).toHaveLength(19);
     expect(request.questions.needs_tool.type).toBe("noul");
     expect(request.questions.needs_skill.type).toBe("noul");
     const choices = request.questions.tool;
     if (choices.type !== "choice") throw new Error("missing tool choice");
-    expect(Object.keys(choices.criteria)).toHaveLength(8);
+    expect(Object.keys(choices.criteria)).toHaveLength(12);
     expect(Object.values(choices.criteria).every(description => description.length > 0 && description.length <= 300)).toBe(true);
     expect(request.questions[`fits_tool:${BLOCK}`].instructions).toContain(prepared.peer.tools.find(tool => tool.id === BLOCK)!.description!);
     expect(() => routingRequest("request", "", [], fixture.skills)).toThrow("nonempty");
