@@ -353,7 +353,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Palette opening: [`function onKey(e: KeyboardEvent) {`](https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L52-L59), before #946 moved the open state into the root's UI store.
 
-- Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:101-174`).
+- Phone destinations/More: (`const items: TabItem[] = [`, `packages/ui-react/src/components/layout/mobile-tab-bar.tsx:92-148`).
 
 - Command availability/effects: (`export function useChatCommands(): (command: string) => void {`, `packages/ui-react/src/components/chat/use-chat-commands.ts:18-56`).
 
@@ -361,9 +361,9 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Welcome alternatives: (`label="Start with"`, `packages/ui-react/src/components/chat/welcome-state.tsx:46-55`).
 
-- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:436-443`).
+- Session selection: (`const handleSessionResume = useCallback(`, `packages/ui-react/src/components/chat/chat-page.tsx:442-449`).
 
-- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:644-651`).
+- New chat: (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:647-654`).
 
 - Buffer eviction: (`function evictStale(`, `packages/ui-react/src/stores/chat-state.ts:972-988`).
 

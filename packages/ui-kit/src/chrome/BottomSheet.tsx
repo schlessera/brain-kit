@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
+import { DiscButton } from "./DiscButton.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { color, font, accent } from "../tokens.js";
 
@@ -19,6 +20,11 @@ import { color, font, accent } from "../tokens.js";
  */
 export interface BottomSheetProps {
   title?: string;
+  /** Id for an overlay’s accessible heading. */
+  titleId?: string;
+  /** Optional 44px dismissal control; existing surfaces omit it. */
+  onDismiss?: () => void;
+  closeLabel?: string;
   /** The sentence under the title. Its presence tightens the title's margin. */
   subtitle?: string;
   /** Mono, right-aligned on the title row. */
@@ -46,14 +52,15 @@ export function BottomSheet(p: BottomSheetProps) {
   };
 
   return (
-    <div style={sheet}>
-      <div style={{ width: 44, height: 4, borderRadius: 99, background: color.edge, margin: "0 auto 14px" }} />
-      {p.title ? (
+    <div data-bk-bottom-sheet="" style={sheet}>
+      <div data-bk-grabber="" aria-hidden="true" style={{ width: 44, height: 4, borderRadius: 99, background: color.edge, margin: "0 auto 14px" }} />
+      {p.title || p.onDismiss ? (
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: p.subtitle ? 4 : 12 }}>
           {p.icon ? <Icon icon={p.icon} size={17} color={accent.amber.ink} /> : null}
-          <span style={{ font: `400 ${Number(p.titleSize) || 18}px/1.2 ${font.display}`, flex: 1, minWidth: 0 }}>
+          <span id={p.titleId} style={{ font: `400 ${Number(p.titleSize) || 18}px/1.2 ${font.display}`, flex: 1, minWidth: 0 }}>
             {p.title}
           </span>
+          {p.onDismiss ? <DiscButton icon="dismiss" name={p.closeLabel ?? (p.title ? `Close ${p.title}` : "Close")} onClick={p.onDismiss} /> : null}
           {p.meta ? (
             <span style={{ flex: "none", font: `400 10px/1 ${font.mono}`, color: color.inkMute }}>{p.meta}</span>
           ) : null}
@@ -66,7 +73,7 @@ export function BottomSheet(p: BottomSheetProps) {
       {/* The home-indicator gutter. A fixed 20px rather than `env(safe-area-
        * inset-bottom)`, because the design draws a device mock at a fixed size
        * and a real viewport inset would make the mock disagree with itself. */}
-      <div style={{ height: 20 }} />
+      <div data-bk-sheet-gutter="" style={{ height: 20 }} />
     </div>
   );
 }

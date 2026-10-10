@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { BottomSheet, Label } from "@schlessera/brain-ui-kit";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Overlay, Label } from "@schlessera/brain-ui-kit";
 import {
   composeHandoffText,
   HANDOFF_DRAFT_MESSAGES,
@@ -91,9 +91,8 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   const titleId = useId();
   const pointer = useMediaQuery("(min-width: 900px)");
   const openSession = useOpenSession();
-  const dialogRef = useRef<HTMLDivElement>(null);
   const toRef = useRef<HTMLSelectElement>(null);
-  const returnFocus = useRef<HTMLElement | null>(typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null));
+
 
   const handoff = useHandoffStore((s) => s);
   const connected = useConnectionStore((s) => s.wsStatus === "connected");
@@ -233,15 +232,6 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     if (running.current) send({ type: "handoff_prepare_cancel", handoffId: running.current });
   }, [send]);
 
-  // --- Focus: the To select on open; trapped while open; back to the opener on close.
-  useEffect(() => {
-    (toRef.current ?? dialogRef.current?.querySelector<HTMLElement>("textarea"))?.focus();
-    return () => {
-      const opener = returnFocus.current;
-      if (opener && opener.isConnected) opener.focus();
-    };
-  }, []);
-
   // --- Created: open the destination; the source is untouched.
   const created = handoff.created;
   useEffect(() => {
@@ -262,10 +252,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     } else {
       openSession(created.sessionId);
     }
-    returnFocus.current = null;
     store.close();
-    // Desktop: the destination's composer. A phone keeps the keyboard down.
-    if (pointer) setTimeout(() => document.querySelector<HTMLTextAreaElement>("[data-composer] textarea")?.focus(), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [created]);
 
@@ -338,18 +325,6 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     root.stores.handoff.getState().close();
   }
 
-  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); return; }
-    if (e.key !== "Tab") return;
-    const stops = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex="0"]'
-    ) ?? [])];
-    const first = stops[0];
-    const last = stops.at(-1);
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-  }
-
   const draftLabel = historyError && !snapshot
     ? "Couldn't load this chat's history. Write the handoff yourself."
     : draft.state === "running"
@@ -362,19 +337,9 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
   const draftNote = draft.state === "failed" && draft.message && origin !== "model" ? `No summary: ${draft.message}` : null;
 
   const body = (
-    <div ref={dialogRef} onKeyDown={onKeyDown} className="flex flex-col" style={{ maxHeight: pointer ? "min(86vh, 760px)" : "calc(92dvh - 132px)" }}>
+    <div className="flex flex-col" style={{ maxHeight: pointer ? "min(86vh, 760px)" : "calc(92dvh - 132px)" }}>
       {/* Everything that can grow scrolls; the outcome and the actions stay in view. */}
       <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1 pb-1">
-      {!pointer ? null : (
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 id={titleId} className="font-[family-name:var(--font-display)] text-lg text-foreground">Continue on another backend</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Starts a new linked chat. This one stays as it is.</p>
-          </div>
-          <button type="button" className={cn(GHOST, "w-11 px-0")} aria-label="Cancel handoff" onClick={cancel} disabled={busy}>×</button>
-        </div>
-      )}
-
       {/* To */}
       <div className="flex flex-col gap-1.5">
         <label htmlFor={`${titleId}-to`}><Label text="To" /></label>
@@ -550,28 +515,12 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
     </div>
   );
 
-  const surface = pointer ? (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}
-    >
-      <div className="w-[480px] max-w-full rounded-xl border border-border bg-surface p-5 shadow-[0_16px_48px_rgba(0,0,0,0.5)]">{body}</div>
-    </div>
-  ) : (
-    <div
-      className="fixed inset-0 z-[60] bg-black/60"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}
-    >
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="absolute inset-x-0 bottom-0">
-        <BottomSheet title="Continue on another backend" subtitle="Starts a new linked chat. This one stays as it is.">
-          <span id={titleId} className="sr-only">Continue on another backend</span>
-          {body}
-        </BottomSheet>
-      </div>
-    </div>
+  return (
+    <Overlay open variant="dialog" size="md" title="Continue on another backend"
+      subtitle="Starts a new linked chat. This one stays as it is." closeLabel="Cancel handoff"
+      closedBy={busy ? "none" : "any"} initialFocus={toRef} onClose={cancel}
+      returnFocus={created ? () => pointer ? document.querySelector<HTMLTextAreaElement>("[data-composer] textarea") : null : true}>
+      {body}
+    </Overlay>
   );
-  return surface;
 }

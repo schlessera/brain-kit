@@ -387,7 +387,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:137,138`, `getInitialState()`,
+`render-smoke.test.tsx:143,144`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -4476,7 +4476,7 @@ it found, and what neither said:
 - **Chrome breaks a host at a `-`.** A `<wbr>` after each "." adds break
   opportunities but removes none, and real Chrome at 288px broke
   `harbour-master` at its hyphen. Each label is an inline block, as the
-  card's host is (`.bk-plink-label`, `packages/ui-react/src/theme.css:327-331`),
+  card's host is (`.bk-plink-label`, `packages/ui-react/src/theme.css:334-338`),
   with "(" in the first label and ")" in the last. Only a label wider than
   the line wraps within itself.
 - **A mail address's local part is ASCII `dot-atom`.** The design gave the
@@ -4616,7 +4616,7 @@ does a replayed session show?
 
 **Targets.** A one-line chip paints about 29px. Its target reaches 8px past
 the paint on every side (`.answer-chip::before`,
-`packages/ui-react/src/theme.css:615-619`), and the chips sit 16px apart on
+`packages/ui-react/src/theme.css:622-626`), and the chips sit 16px apart on
 both axes, which is D34's half-the-gap limit. The hairline is an inset shadow,
 not a border, so the reach is measured from the paint.
 `tests/answer-suggestions-targets.test.tsx` lays the row out in real Chrome
@@ -5172,7 +5172,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:258-262`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:264-268`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -5627,12 +5627,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:720-728`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:723-731`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:644-651`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:647-654`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears
@@ -6403,3 +6403,83 @@ answer and cost defaults. Callers supply facts explicitly; `pulse` selects a
 working pulse or static decision-wait dot. Existing ghost-band and streamed
 text animations retain their implementations. This is an approved exception
 to D30's parity defaults, and no stream/cancellation contract changes.
+
+
+## 2026-10-09 — D54: one overlay primitive (#1378)
+
+The design ruling on #1378 adopts native `showModal()` dialogs for modal
+overlays and a non-modal destination panel that keeps navigation operable.
+`Overlay` owns opening order, dismissal requests, focus entry/wrap/return,
+inertness and entry-only motion. Closing is instant. Entry animations share
+one `no-preference` guard; reduced-motion overrides share the existing
+`reduce` block. Scrims use existing
+`palette-shadow` (dim), half that shadow mixed with transparent (veil), and
+`color-canvas` (opaque); none uses blur.
+
+| Variant | Shape | Modal | Scrim | Used for |
+|---|---|---|---|---|
+| `sheet` | Docked to the bottom at every width. Full width below 480. From 480, `min(560px, 100vw − 32px)` wide and centred horizontally. | yes (top layer) | `dim` | Short pick-lists and live tools that belong at the thumb: More, Attach (phone), Graph options, Dictation (phone and tablet). |
+| `dialog` | **Below 900 it has the sheet's shape.** From 900 it is a centred card, `radius-panel` (18px), at most `85dvh` tall, with the body scrolling. `placement="top"` puts the card 110px from the top and never docks it to the bottom (palette). | yes (top layer) | `dim` | A single decision or a single reading: handoff, the one-time credential (`alertdialog`), the command palette (`placement="top"`). |
+| `fullscreen` | Covers the viewport at every width, `--bk-color-canvas` opaque. The children draw the toolbar. | yes (top layer) | `opaque` | Tools that need the whole screen: the zoom viewer, the mask editor, the subagent drill-in. |
+| `panel` | Right-anchored. Full width below 768. From 768 (`md`), `size` sets the width: 320, 480 or 560. Full height, with a left `edge` hairline and the shadow. | `modal` prop. `true` (default) for act panels, which use the top layer and cover the bar and rail. `false` for destination panels: z-index `panel`, inert only over the content area, bar and rail stay live. | `veil` | The slide-over panels: Sessions, Settings and Files (destination, `modal={false}`); Search, Add, Sync and Whatsup (act, modal). |
+
+
+The document layer scale is fenced separately from the colour-token pipeline;
+`LAYERS` exports its numbers and `z` exports its CSS references. Kit and app
+Tailwind themes map these names to `z-raised` through `z-modal`.
+
+```css
+/* @layers:start */
+:root {
+  --bk-z-raised: 10;   /* sticky headers/footers, floating in-canvas controls */
+  --bk-z-popover: 20;  /* anchored non-modal popovers and menus */
+  --bk-z-nav: 30;      /* phone tab bar; the rail if it is ever positioned */
+  --bk-z-panel: 40;    /* non-modal destination panels + their content scrim; ≥900 panes */
+  --bk-z-banner: 50;   /* the connection banner */
+  --bk-z-modal: 60;    /* fixed modal layers not yet in the top layer (kit SheetDialog, ModelPicker phone) */
+}
+/* @layers:end */
+```
+
+| Case | Winner | Mechanism |
+|---|---|---|
+| More (sheet) opened over the Files or Sessions drawer (destination panel) | More | Top layer > `z-panel`. The nav no longer needs to raise itself. |
+| One-time credential appears while the Settings drawer or pane is open | Credential | Top layer > `z-panel`. Settings stays open underneath, and Done returns focus into it. |
+| Credential appears while another modal is open (e.g. a sheet) | Credential | Opened last, so it is on top of the top layer. The sheet is inert underneath. |
+| ⌘K while a modal is open | Nothing opens | The palette's ⌘K handler toggles only when no other modal is open (`openModal()` in `lib/destination-start.ts`, which already matches `[aria-modal="true"], dialog:modal`). Otherwise a palette could stack over a `closedBy="none"` credential. |
+| Handoff from the ModelPicker's locked action (phone) | Handoff | The picker closes first in the composer. If it ever stays open, the top layer still wins over its `z-modal`. |
+| Zoom viewer opened from inside the subagent drill-in | Zoom viewer | Opened last in the top layer. Escape closes only the viewer. |
+| Palette over the Settings or Files pane (≥900) | Palette | Top layer > `z-panel`. |
+| Connection banner vs a destination panel | Banner | `z-banner` 50 > `z-panel` 40. |
+| Connection banner vs any modal | Modal | The top layer is above the banner, and the banner is inert and dimmed under the scrim. Its live region is not announced while a modal is open. That is accepted: a modal is the current task, and the banner shows again when the modal closes. |
+| Phone tab bar vs destination panel | No overlap | The panel stops above the bar (`bottom: calc(60px + env(safe-area-inset-bottom))`). |
+| Phone tab bar vs act panel (Search, Sync…) | Act panel | Modal panel in the top layer covers the bar, as today ("an act's panel keeps covering them"). |
+| Anchored popover vs a panel | Panel | `z-panel` 40 > `z-popover` 20. A popover inside a panel lives in the panel's own stacking context. |
+| Toasts | n/a | There are no fixed toasts. `InlineToast` is in flow. |
+
+
+The breakpoint is 900px for dialog-to-sheet geometry; `placement="top"`
+stays at 110px at every width. Sheets stay docked at every width, with a
+48px minimum scrim strip and a default 70dvh cap. Panels size at 768px;
+destination panels stop above the 60px phone bar or beside the 60/208px rail.
+
+The native modal uses no z-index. ZoomViewer keeps a body portal to avoid
+markdown inline nesting and prose image styles. Escape bubbles through inner
+controls, then only the topmost overlay requests dismissal. `cancel` is
+prevented when cancelable; an unexpected native close reopens and restores
+initial focus before requesting dismissal (unless `closedBy="none"`).
+A panel keeps its header X under every `closedBy` value; `none` suppresses
+Escape, native close requests and scrim taps only. Sheets and dialogs remove
+their drawn close control under `none`. The adapter may capture the surface
+with `surfaceRef` for destination resets.
+Focus returns according to the closing render, in a microtask after the React
+commit has restored focus and after
+inertness is released and before `onAfterClose`. Destination inert marks
+are ref-counted, follow inserted siblings, exempt active modals and their
+ancestors, and preserve page-owned inert. Hidden modal subtrees close immediately and report
+a developer error in development builds.
+
+`BottomSheet` optionally draws a 44px close control; existing stories omit it.
+`CommandPalette` is a named group, using its own root ref for row traversal,
+inside the owning dialog. Its pixels do not change. Only the 24 new overlay
+baselines are approved; no existing baseline changes.

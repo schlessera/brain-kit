@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
 import { BottomSheet } from "./BottomSheet.js";
-import { accent, color, font, token } from "../tokens.js";
+import { accent, color, z, font, token } from "../tokens.js";
 
 export interface ModelPickerProps {
   id?: string;
@@ -94,8 +94,8 @@ export function ModelPicker(p: ModelPickerProps) {
     </> : null}
   </div>;
   return <div ref={p.containerRef} style={p.phone
-    ? { position: "fixed", inset: 0, zIndex: 50, background: token("palette-shadow") }
-    : { position: "absolute", bottom: "100%", left: 14, zIndex: 50, width: 320, maxWidth: "calc(100vw - 48px)", borderRadius: 12, padding: 8, background: color.raised, boxShadow: `0 12px 36px ${token("palette-shadow")}`, maxHeight: "80vh", overflowY: "auto" }}
+    ? { position: "fixed", inset: 0, zIndex: z.modal, background: token("palette-shadow") }
+    : { position: "absolute", bottom: "100%", left: 14, zIndex: z.popover, width: 320, maxWidth: "calc(100vw - 48px)", borderRadius: 12, padding: 8, background: color.raised, boxShadow: `0 12px 36px ${token("palette-shadow")}`, maxHeight: "80vh", overflowY: "auto" }}
     onMouseDown={(e) => { if (p.phone && e.target === e.currentTarget) p.onDismiss(); }}>
     {p.phone ? <BottomSheet title="Model and effort" docked>{content}</BottomSheet> : content}
   </div>;

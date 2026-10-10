@@ -309,17 +309,18 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     void loadProviders();
   }, [loadProviders]);
 
-  // Dismiss the provider popover and the attach menu on outside-click / Escape.
+  // The provider and desktop attach popovers keep their outside-click dismissal.
+  // Phone Attach owns Escape and scrim dismissal through Overlay.
   useEffect(() => {
     if (!providerMenuOpen && !attachMenuOpen) return;
     const onDocClick = (e: MouseEvent) => {
       if (!providerMenuRef.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest?.("[data-model-trigger]")) setProviderMenuOpen(false);
-      if (!(e.target as HTMLElement).closest?.('[role="menu"][aria-label="Attach"], [role="dialog"][aria-label="Attach"]')) setAttachMenuOpen(false);
+      if (window.matchMedia("(min-width: 900px)").matches && !(e.target as HTMLElement).closest?.('[role="menu"][aria-label="Attach"]')) setAttachMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setProviderMenuOpen(false);
-        setAttachMenuOpen(false);
+        if (window.matchMedia("(min-width: 900px)").matches) setAttachMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", onDocClick);

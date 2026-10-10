@@ -660,7 +660,7 @@ test("1279 ↔ 1280: an open Sessions drawer becomes the pane with focus in it, 
   const sessionsTab = [...s.host.querySelectorAll<HTMLElement>('nav[aria-label="Primary"] [role="tab"]')][1]!;
   await press(s, sessionsTab, mode);
   await expect.poll(() => s.ui.stores.ui.getState().sessionPanelOpen, { message: "the drawer opens below 1280" }).toBe(true);
-  await expect.poll(() => workingRows(s.host.querySelector("h2")?.closest(".fixed") ?? null).length, { message: "Working in the drawer" }).toBe(1);
+  await expect.poll(() => workingRows(s.host.querySelector("h2")?.closest(".bk-overlay-surface, .fixed") ?? null).length, { message: "Working in the drawer" }).toBe(1);
   await expect.poll(() => !moving(), { interval: 16, message: "the drawer has settled" }).toBe(true);
   await resize(1280, 720);
   s.host.style.width = "1280px";

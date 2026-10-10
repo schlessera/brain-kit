@@ -39,9 +39,9 @@ import { CONTROL_RING, ROW_RING, ring, stage } from "../_stage.js";
  *      `Surface`. The wrong offset gives a ring that is present in the
  *      stylesheet, correct in the computed style, and invisible on screen.
  *
- * `CommandPalette` is not in the walk. It is a `role="dialog"` that traps its
- * own focus and closes on Escape, so it belongs to a different tab order by
- * construction; `CommandPalette.stories` is where that is asserted.
+ * `CommandPalette` is not in the walk. It is a named group inside an owning
+ * `Overlay` dialog, which contains focus and owns Escape dismissal. Its
+ * separate keyboard traversal is asserted in `CommandPalette.stories`.
  */
 const meta = preview.meta({
   title: "Rules/Keyboard reachability",

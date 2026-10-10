@@ -11,6 +11,7 @@
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
 
+import { splitLayersBlock } from "../tools/theme/layers.js";
 import { splitPrintBlock } from "../tools/theme/derive-print.js";
 
 export const PACKAGE_ROOT = resolve(import.meta.dir, "..");
@@ -45,5 +46,5 @@ export function parseDeclaration(raw: string): Declared {
 
 /** Declarations, not uses: `--bk-x: …` at the start of a declaration. */
 export const DECLARED = new Map<string, Declared>(
-  [...splitPrintBlock(theme).outside.matchAll(/^\s*(--bk-[\w-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1]!, parseDeclaration(m[2]!.trim())]),
+  [...splitLayersBlock(splitPrintBlock(theme).outside).outside.matchAll(/^\s*(--bk-[\w-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1]!, parseDeclaration(m[2]!.trim())]),
 );

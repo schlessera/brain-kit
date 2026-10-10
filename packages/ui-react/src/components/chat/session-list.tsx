@@ -340,7 +340,7 @@ function SessionOverflow({ title, why, tabStop, onHandoff }: { title: string; wh
           aria-label={`Actions for ${title}`}
           onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); close(); } }}
           onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && e.relatedTarget !== trigger.current) setOpen(false); }}
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface-raised shadow-2xl"
+          className="absolute right-0 top-full z-popover mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface-raised shadow-2xl"
         >
           <button
             ref={item}

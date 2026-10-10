@@ -1,3 +1,4 @@
+import { Overlay } from "@schlessera/brain-ui-kit";
 import { useEffect, useRef, type RefObject } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
@@ -49,26 +50,6 @@ export function DictationSheet({
     if (el) el.scrollTop = el.scrollHeight;
   }, [finalText, partial, open, desktop]);
 
-  // Lock body scroll while open
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // Escape cancels
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    document.addEventListener("keydown", h);
-    return () => document.removeEventListener("keydown", h);
-  }, [open, onCancel]);
-
   useEffect(() => {
     if (!open || !desktop) return;
     const composer = composerRef?.current;
@@ -78,30 +59,19 @@ export function DictationSheet({
     };
   }, [open, desktop, composerRef]);
 
-  if (!open) return null;
+  useEffect(() => {
+    if (!open || !desktop || draining) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, desktop, draining, onCancel]);
 
-  return (
-    <>
-      {/* Backdrop — tap-to-stop is intentional: huge target. Disabled while
-          draining so a stray tap doesn't double-trigger. */}
-      {!desktop && <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-        onClick={() => { if (!draining) onStop(); }}
-      />}
-
-      {/* The desktop panel shares the content and effects with the phone sheet. */}
-      <div
-        className={cn(
-          desktop
-            ? "absolute inset-x-0 bottom-full z-50 mb-2 flex max-h-[min(60vh,32rem)] flex-col overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl transition-none"
-            : "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-border bg-surface shadow-[0_-16px_48px_rgba(0,0,0,0.5)] max-h-[60vh] min-h-[40vh] dictation-sheet-phone"
-        )}
-        role={desktop ? "dialog" : undefined}
-        aria-modal={desktop ? false : undefined}
-        aria-label={desktop ? "Dictation" : undefined}
-        // Don't propagate to backdrop
-        onClick={(e) => e.stopPropagation()}
-      >
+  const content = (
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className={desktop ? "flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5" : "flex items-center justify-between border-b border-border/50 px-5 py-3"}>
           <div role={desktop ? "status" : undefined} className="flex items-center gap-2">
             <span className="relative inline-flex h-2 w-2">
@@ -200,7 +170,19 @@ export function DictationSheet({
           </p>
         </div>
       </div>
-    </>
+  );
+  if (desktop) return open ? (
+    <div role="dialog" aria-modal={false} aria-label="Dictation"
+      className="absolute inset-x-0 bottom-full z-popover mb-2 flex max-h-[min(60vh,32rem)] flex-col overflow-hidden rounded-xl border border-[var(--bk-color-edge)] bg-[var(--bk-color-raised)] shadow-2xl transition-none">
+      {content}
+    </div>
+  ) : null;
+  return (
+    <Overlay open={open} variant="sheet" label="Dictation" closedBy={draining ? "none" : "any"}
+      onClose={reason => reason === "scrim" ? onStop() : onCancel()}
+      returnFocus={() => composerRef?.current?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]') ?? null}>
+      {content}
+    </Overlay>
   );
 }
 

@@ -108,6 +108,7 @@ async function mount(width: number, height: number, theme: "dark" | "light", con
   await document.fonts.ready;
   expect(document.documentElement.dataset.theme, "theme applied").toBe(theme);
   const rail = host.querySelector<HTMLElement>('nav[aria-label="Primary"].tablet\\:flex')!;
+  expect(rail.parentElement?.tagName, "rail has no extra aside landmark").not.toBe("ASIDE");
   return { rail, ui };
 }
 
@@ -229,11 +230,10 @@ for (const theme of ["dark", "light"] as const) {
     test(`no rail and no palette below 480: ${theme}, ${width}`, async () => {
       pointerScene();
       const { rail, ui } = await mount(width, 640, theme);
-      expect(getComputedStyle(rail).display, "rail hidden on a phone").toBe("none");
+      expect(rail.getClientRects().length, "rail hidden on a phone").toBe(0);
       ui.stores.ui.getState().setPaletteOpen(true);
-      await expect.poll(() => host!.querySelector('[role="dialog"][aria-label="Command palette"]')).not.toBeNull();
-      const scrim = host!.querySelector('[role="dialog"]')!.closest(".fixed")!;
-      expect(getComputedStyle(scrim).display, "palette is a desktop surface").toBe("none");
+      await expect.poll(() => ui.stores.ui.getState().paletteOpen, { message: "phone guard clears even a programmatic opening" }).toBe(false);
+      expect(host!.querySelector('[data-palette]'), "no hidden modal palette below 480").toBeNull();
     });
   }
 
@@ -331,7 +331,7 @@ for (const theme of ["dark", "light"] as const) {
       // the browser's own mousedown focus must not undo the return.
       await userEvent.keyboard("{Enter}");
       await expect.poll(dialog, { message: "reopens" }).not.toBeNull();
-      const scrim = dialog()!.closest<HTMLElement>(".fixed")!;
+      const scrim = dialog()!.querySelector<HTMLElement>(".bk-overlay-scrim")!;
       const corner = { x: 12, y: innerHeight - 12 };
       expect(document.elementFromPoint(corner.x, corner.y), "the corner is the scrim").toBe(scrim);
       if (mode === "fine") {

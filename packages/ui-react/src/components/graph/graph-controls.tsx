@@ -1,3 +1,4 @@
+import { Overlay } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
@@ -42,27 +43,9 @@ export function GraphControls() {
         <SlidersHorizontal className="h-4.5 w-4.5" />
       </button>
 
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40">
-          <div
-            className="absolute inset-0 bg-background/60"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="absolute inset-x-0 bottom-0 max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-foreground">Graph options</h3>
-              <button
-                onClick={() => setMobileOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground"
-                title="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <ControlsBody />
-          </div>
-        </div>
-      )}
+      <Overlay open={mobileOpen} variant="sheet" title="Graph options" onClose={() => setMobileOpen(false)}>
+        <ControlsBody />
+      </Overlay>
     </>
   );
 }

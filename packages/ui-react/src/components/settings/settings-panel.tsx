@@ -88,7 +88,8 @@ export function SettingsPanel({
   const pane = useMediaQuery(PANE_QUERY);
   // While a mint is in flight or its one-time value is unacknowledged, the
   // panel does not light-dismiss: a stray click or Escape must not hide the
-  // surface the credential is about to land on. Its close control stays live.
+  // surface the credential is about to land on. The panel header X stays live
+  // under closedBy="none"; the credential dialog itself has no X.
   const closedBy = credentialProtected || settingsProtected ? "none" : "any";
 
   function select(id: SettingsTab) {

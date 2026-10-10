@@ -237,3 +237,25 @@ for (const c of cases) {
     }
   }
 }
+
+for (const width of [1280, 320]) test(`created handoff entry at ${width}: destination composer focus follows device`, async () => {
+  // Mutations: discard destination returnFocus, or return the source opener on phone.
+  const { ui: root } = await mount(width, width === 320 ? 640 : 800, "dark", THREE);
+  const opener = host!.querySelector<HTMLElement>('[data-model-trigger]')!;
+  expect(opener, "real handoff source opener exists").not.toBeNull();
+  opener.focus();
+  const handoffId = "h-ithaca-entry-0001";
+  flushSync(() => root.stores.handoff.getState().open(SESSION.id, handoffId));
+  await settle();
+  expect(host!.querySelector('[role="dialog"][aria-modal="true"]'), "real handoff review opens").not.toBeNull();
+  root.stores.chat.getState().setSessionBackend("ogygia", "pi");
+  root.stores.chat.getState().addUserMessage("ogygia", "Review the mast and yard.", "typed");
+  flushSync(() => root.stores.handoff.getState().noteCreated(handoffId, "ogygia", true));
+  await settle();
+  expect(root.stores.chat.getState().activeSessionId, "destination session is active").toBe("ogygia");
+  expect(host!.querySelector('[role="dialog"][aria-modal="true"]'), "created review closes").toBeNull();
+  const composer = host!.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
+  expect(composer, "destination composer exists").not.toBeNull();
+  expect(document.activeElement, width >= 900 ? "created desktop focuses destination composer" : "created phone focus is body and keyboard stays down")
+    .toBe(width >= 900 ? composer : document.body);
+});

@@ -47,7 +47,7 @@ export function toArtifactColor(value: string | undefined): string | undefined {
   return undefined;
 }
 
-/** Every `--bk-*` declared at the top level of `:root`, with its Print override. */
+/** Every colour `--bk-*` in `:root`, outside the separate layer fence, with its Print override. */
 export function parseTokensCss(css: string): { tokens: ParsedToken[]; skipped: string[] } {
   type Raw = { name: string; section: string; dark: string; light: string; print?: string };
   const raw = new Map<string, Raw>();
@@ -55,9 +55,14 @@ export function parseTokensCss(css: string): { tokens: ParsedToken[]; skipped: s
   let block: "root" | "print" | "other" | null = null;
   let depth = 0;
   let inComment = false;
+  let inLayers = false;
 
   for (const source of css.split("\n")) {
     const line = source.trim();
+    // D54's numeric layer scale has its own reader and is not colour data.
+    if (line === "/* @layers:start */") { inLayers = true; continue; }
+    if (line === "/* @layers:end */") { inLayers = false; continue; }
+    if (inLayers) continue;
     if (!inComment && line.startsWith("/*")) {
       inComment = !line.includes("*/");
       const heading = /\/\* ── (.+?) ─/.exec(line);

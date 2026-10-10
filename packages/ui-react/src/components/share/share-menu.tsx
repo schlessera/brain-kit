@@ -122,6 +122,7 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
           onClick={handleTrigger}
           disabled={status === "busy"}
           title={error ?? title}
+          aria-label={title}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground disabled:opacity-50"
         >
           {icon}
@@ -130,7 +131,7 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
       {open && !single && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg"
+          className="absolute right-0 top-full z-popover mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg"
         >
           {options.map((opt) => (
             <button

@@ -5,7 +5,13 @@
 // queries off `render()` and never `screen`.
 import { unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
 
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { overlayGeometry } from "./overlay-geometry.js";
+
+let restoreGeometry: () => void;
+beforeEach(() => { restoreGeometry = overlayGeometry(); });
+afterEach(() => restoreGeometry());
+
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
@@ -48,18 +54,18 @@ function deferred<T>() {
 
 /** The drawer's backdrop: the only fixed full-viewport layer a SlidePanel draws. */
 function backdropOf(view: ReturnType<typeof render>): Element {
-  const backdrop = view.baseElement.querySelector(".fixed.inset-0.z-40");
+  const backdrop = view.baseElement.querySelector(".bk-overlay-scrim");
   if (!backdrop) throw new Error("no backdrop rendered");
   return backdrop;
 }
 
-const escape = () => fireEvent.keyDown(document, { key: "Escape" });
+const escape = () => fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
 
 describe("SlidePanel dismissal (closedBy)", () => {
   test("a drawer light-dismisses by default: the backdrop, Escape and the X all close it", () => {
     const onClose = mock(() => {});
     const view = render(<SlidePanel open onClose={onClose} title="Sessions"><p>list</p></SlidePanel>);
-    fireEvent.click(backdropOf(view));
+    fireEvent.pointerDown(backdropOf(view));
     expect(onClose).toHaveBeenCalledTimes(1);
     escape();
     expect(onClose).toHaveBeenCalledTimes(2);
@@ -71,7 +77,7 @@ describe("SlidePanel dismissal (closedBy)", () => {
   test("closerequest: the backdrop is inert, Escape and the X still close it", () => {
     const onClose = mock(() => {});
     const view = render(<SlidePanel open onClose={onClose} title="Sync" closedBy="closerequest"><p>log</p></SlidePanel>);
-    fireEvent.click(backdropOf(view));
+    fireEvent.pointerDown(backdropOf(view));
     expect(onClose).toHaveBeenCalledTimes(0);
     expect(view.getByText("log")).toBeTruthy();
     escape();
@@ -84,7 +90,7 @@ describe("SlidePanel dismissal (closedBy)", () => {
   test("none: only the X closes it, and the X is never inert", () => {
     const onClose = mock(() => {});
     const view = render(<SlidePanel open onClose={onClose} title="Sync" closedBy="none"><p>log</p></SlidePanel>);
-    fireEvent.click(backdropOf(view));
+    fireEvent.pointerDown(backdropOf(view));
     escape();
     expect(onClose).toHaveBeenCalledTimes(0);
     expect(view.getByText("log")).toBeTruthy();
@@ -125,7 +131,7 @@ describe("StreamingPanel dismissal", () => {
       expect(signal?.aborted).toBe(false);
 
       // Mid-run: neither a stray click nor a reflexive Escape may cancel the job.
-      fireEvent.click(backdropOf(view));
+      fireEvent.pointerDown(backdropOf(view));
       escape();
       expect(onClose).toHaveBeenCalledTimes(0);
       expect(signal?.aborted).toBe(false);
@@ -136,7 +142,7 @@ describe("StreamingPanel dismissal", () => {
       expect(view.getByText("indexed 3 files")).toBeTruthy();
 
       // Finished: the log stays until it is dismissed deliberately.
-      fireEvent.click(backdropOf(view));
+      fireEvent.pointerDown(backdropOf(view));
       expect(onClose).toHaveBeenCalledTimes(0);
       expect(view.getByText("indexed 3 files")).toBeTruthy();
       escape();
@@ -186,7 +192,7 @@ describe("WhatsupPanel dismissal", () => {
       const signal = requests[0]!.init?.signal;
       expect(signal?.aborted).toBe(false);
 
-      fireEvent.click(backdropOf(view));
+      fireEvent.pointerDown(backdropOf(view));
       expect(onClose).toHaveBeenCalledTimes(0);
       escape();
       expect(onClose).toHaveBeenCalledTimes(0);
@@ -209,7 +215,7 @@ describe("WhatsupPanel dismissal", () => {
 
       // A briefing costs a model call, so it goes only when it is dismissed
       // deliberately — Escape is deliberate, a click beside the drawer is not.
-      fireEvent.click(backdropOf(view));
+      fireEvent.pointerDown(backdropOf(view));
       expect(onClose).toHaveBeenCalledTimes(0);
       expect(view.getByText(briefing)).toBeTruthy();
 
@@ -272,7 +278,7 @@ describe("Settings drawer while a credential is protected", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     await act(flushPromises);
-    fireEvent.click(backdropOf(view));
+    fireEvent.pointerDown(backdropOf(view));
     escape();
     expect(onClose).toHaveBeenCalledTimes(0);
     expect(view.getByRole("tab", { name: "Security" }).hasAttribute("disabled")).toBe(true);
@@ -283,7 +289,7 @@ describe("Settings drawer while a credential is protected", () => {
 
     // Acknowledged: the drawer light-dismisses again.
     act(() => usePrincipalStore.setState({ mintPending: false }));
-    fireEvent.click(backdropOf(view));
+    fireEvent.pointerDown(backdropOf(view));
     expect(onClose).toHaveBeenCalledTimes(2);
     view.unmount();
   });

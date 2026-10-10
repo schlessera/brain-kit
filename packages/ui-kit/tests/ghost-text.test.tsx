@@ -118,8 +118,9 @@ describe("the stylesheet", () => {
     // No sweep and no spectrum: plain blurred text in the base colour.
     expect(block).toMatch(/\.bk-ghost\s*\{\s*animation:\s*none;\s*background-image:\s*none;\s*color:\s*var\(--bk-ghost-base\);/);
     expect(block).toMatch(/\.bk-ghost-in,\s*\.bk-ghost-out,\s*\.bk-ghost-tail\s*\{\s*animation-duration:\s*0s;/);
-    // Inside the one reduced-motion block, not a second one.
-    expect(uncommented.match(/@media \(prefers-reduced-motion/g)).toHaveLength(1);
+    // Inside the one reduce override block, not a second one.
+    expect(uncommented.match(/@media \(prefers-reduced-motion: reduce\)/g)).toHaveLength(1);
+    expect(uncommented.match(/@media \(prefers-reduced-motion: no-preference\)/g), "one no-preference block").toHaveLength(1);
   });
 
   test("print hides every ghost and the print theme paints none", () => {
