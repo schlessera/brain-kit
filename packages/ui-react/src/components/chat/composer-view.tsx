@@ -97,6 +97,8 @@ export interface ComposerViewProps {
   onPasteFiles: (files: File[]) => void;
   onRecall: () => void;
   onEscape: () => void;
+  /** Moves the slash palette's active row; absent while it shows none. */
+  onPaletteMove?: (step: 1 | -1) => void;
   onRemoveAttachment: (index: number) => void;
   onDismissErrors: () => void;
   onProviderToggle: () => void;
@@ -109,6 +111,11 @@ export function ComposerView(p: ComposerViewProps) {
   const pickerId = useId();
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if ((e.target as HTMLElement).tagName !== "TEXTAREA") return;
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && p.paletteOpen && p.onPaletteMove) {
+      e.preventDefault();
+      p.onPaletteMove(e.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
     if (e.key === "ArrowUp" && !p.value.trim()) p.onRecall();
     if (e.key === "Escape" && p.paletteOpen) p.onEscape();
   }
