@@ -151,8 +151,8 @@ boundary, the reasons and the file- and assertion-level inventory are in
   discovered without a list.
 - **Running it.** `bun run test:experiments` runs the complete tier offline
   through the same wrapper, preload and timeout as `bun run test`. It needs
-  `python3`, `bwrap`, `unshare`, `setpriv` and `ip` plus permitted namespaces,
-  and refuses to start without them. `bun run test experiments/<file>` runs one
+  `python3`, `bwrap`, `unshare`, `setpriv` and `ip`, permitted namespaces and a
+  built workspace (`bun run build`), and refuses to start without them. `bun run test experiments/<file>` runs one
   file while debugging.
 - **The release gate.** Release preparation runs the tier after
   `bun run version` and before `bun run release` (the

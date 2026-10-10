@@ -110,7 +110,8 @@ bun run test:experiments
 
 Run it after `bun run version` (and after any SDK rollback or other lock edit
 described above), once the post-version build, typecheck and tests pass. It
-runs offline through the same wrapper and network guard as `bun run test`,
+needs that build: the workspace bins in `node_modules/.bin` point into the
+packages' `dist/`, and it refuses to start while they dangle. It runs offline through the same wrapper and network guard as `bun run test`,
 needs `python3`, `bwrap`, `unshare`, `setpriv` and `ip` plus permitted
 user/network namespaces, and takes about ten minutes. A missing tool, a
 failure, a skipped or todo test, a `test.only`, or an inventoried file that

@@ -18,7 +18,7 @@
  * `bun run version`) needs a fresh run.
  */
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { discoverTests } from "./test-shards";
@@ -26,7 +26,6 @@ import { discoverTests } from "./test-shards";
 /** The experiment tier's only root. Outside `DEFAULT_ROOTS` by construction. */
 export const EXPERIMENT_ROOT = "experiments";
 export const RECEIPT_PATH = "tmp/experiment-tier-receipt.json";
-export const JUNIT_PATH = "tmp/experiment-tier-junit.xml";
 export const RECEIPT_SCHEMA = "brain-kit/experiment-tier-receipt@1";
 
 /**
@@ -195,6 +194,20 @@ export function experimentRunArgv(junit: string, bun: string = process.execPath)
     "--reporter=junit", `--reporter-outfile=${junit}`];
 }
 
+/**
+ * Workspace bins whose target does not exist. The workspace packages' bins
+ * point into their `dist/`, so before `bun run build` they dangle, and the
+ * harnesses that hash or copy the installed runtime closure (freezes, owned
+ * offline sources, native receipts) fail on them: 87 failures from a cleaned
+ * tree, none once built. Release preparation builds first anyway.
+ */
+export function danglingBins(root: string): string[] {
+  const dir = join(root, "node_modules/.bin");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((name) => lstatSync(join(dir, name)).isSymbolicLink() && !existsSync(join(dir, name)))
+    .map((name) => `node_modules/.bin/${name}`).sort();
+}
+
 export function missingTools(which: (name: string) => string | null = (name) => Bun.which(name)): string[] {
   return REQUIRED_TOOLS.filter((name) => !which(name));
 }
@@ -206,14 +219,18 @@ async function main(): Promise<number> {
       "To run part of it, use `bun run test experiments/<file>` (no receipt is recorded).");
     return 2;
   }
-  const receiptPath = join(root, RECEIPT_PATH), junitPath = join(root, JUNIT_PATH);
+  const receiptPath = join(root, RECEIPT_PATH);
   mkdirSync(join(root, "tmp"), { recursive: true });
   // A failed or partial run must never leave an earlier receipt in place.
   rmSync(receiptPath, { force: true });
-  rmSync(junitPath, { force: true });
   const missing = missingTools();
   if (missing.length) {
     console.error(`Experiment tier refused: missing ${missing.join(", ")}. These tests need them; none may be skipped.`);
+    return 1;
+  }
+  const dangling = danglingBins(root);
+  if (dangling.length) {
+    console.error(`Experiment tier refused: the workspace is not built (${dangling.join(", ")} dangle). Run \`bun run build\` first.`);
     return 1;
   }
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
@@ -221,6 +238,17 @@ async function main(): Promise<number> {
     console.error("Experiment tier refused: user/network namespaces are not permitted here; the offline launchers need them.");
     return 1;
   }
+  // The JUnit report stays outside the checkout: failure messages carry
+  // absolute local paths, which the whole-tree leakage gate would then flag.
+  const reports = mkdtempSync(join(tmpdir(), "experiment-tier-junit-"));
+  try {
+    return await runTier(root, receiptPath, join(reports, "junit.xml"));
+  } finally {
+    rmSync(reports, { recursive: true, force: true });
+  }
+}
+
+async function runTier(root: string, receiptPath: string, junitPath: string): Promise<number> {
   const before = candidate(root);
   console.log(`Experiment tier: ${before.inventory.files.length} files under ${EXPERIMENT_ROOT}/, tree ${before.tree}, HEAD ${before.head}.`);
   // CI=true makes Bun fail a file containing test.only, which would otherwise

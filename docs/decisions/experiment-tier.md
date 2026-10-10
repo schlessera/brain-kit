@@ -88,8 +88,11 @@ bun run test:experiments
 ```
 
 `scripts/test-experiments.ts` refuses to start unless `python3`, `bwrap`,
-`unshare`, `setpriv`, `ip` and `sh` exist and a user/network namespace can be
-created, so a missing launcher fails the tier instead of becoming a skip. It
+`unshare`, `setpriv`, `ip` and `sh` exist, a user/network namespace can be
+created, and the workspace is built, so a missing launcher fails the tier
+instead of becoming a skip. The build matters because the workspace bins in
+`node_modules/.bin` point into `dist/`: from a cleaned tree, 87 harness tests
+that hash or copy the installed runtime closure fail on the dangling links. It
 runs `./experiments` through `scripts/test.ts`, the same wrapper, explicit
 offline preload and 30-second timeout as `bun run test`, with `CI=true` so a
 `test.only` fails its file instead of hiding the rest. It takes no arguments;

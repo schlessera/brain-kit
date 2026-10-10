@@ -5,13 +5,13 @@
 // scratch Git checkout, so a failing, skipped or partial run, or any later
 // change to the source, lock or inventory, is shown to block the release.
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DEFAULT_ROOTS } from "../scripts/test";
 import { discoverTests } from "../scripts/test-shards";
 import {
-  assertExperimentReceipt, candidate, EXPERIMENT_ROOT, experimentRunArgv, missingTools, readJunit, RECEIPT_PATH,
+  assertExperimentReceipt, candidate, danglingBins, EXPERIMENT_ROOT, experimentRunArgv, missingTools, readJunit, RECEIPT_PATH,
   RECEIPT_SCHEMA, receiptProblems, REQUIRED_TOOLS, runProblems, type Candidate,
 } from "../scripts/test-experiments";
 
@@ -85,6 +85,17 @@ describe("experiment tier discovery", () => {
   test("the command runs the tier through the root wrapper and its offline preload, with the 30s timeout", () => {
     const argv = experimentRunArgv("tmp/x.xml", "bun");
     expect(argv.slice(1, 6)).toEqual([join(ROOT, "scripts/test.ts"), "./experiments", "--timeout", "30000", "--reporter=junit"]);
+  });
+
+  test("an unbuilt workspace (dangling package bins) is detected", () => {
+    const dir = mkdtempSync(join(tmpdir(), "experiment-bins-"));
+    try {
+      mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+      writeFileSync(join(dir, "built.js"), "");
+      symlinkSync("../../built.js", join(dir, "node_modules/.bin/built"));
+      symlinkSync("../@fixture/pkg/dist/cli.js", join(dir, "node_modules/.bin/unbuilt"));
+      expect(danglingBins(dir)).toEqual(["node_modules/.bin/unbuilt"]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   test("a missing namespace or launcher tool refuses the tier rather than skipping", () => {
@@ -196,8 +207,20 @@ describe("the experiment command and the release gate, run for real", () => {
       expect(run.output).toContain(message);
       // The earlier passing receipt is gone, not merely stale.
       expect(refusal(dir)).toContain("no experiment-tier receipt");
+      // Failure reports carry absolute local paths; none is left in the
+      // checkout for the whole-tree leakage gate to find.
+      expect(readdirSync(join(dir, "tmp")).filter((name) => name.endsWith(".xml"))).toEqual([]);
     }));
   }
+
+  test("an unbuilt workspace refuses the tier before running anything", () => checkout(async (dir) => {
+    mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+    symlinkSync("../@fixture/pkg/dist/cli.js", join(dir, "node_modules/.bin/unbuilt"));
+    const run = await runTier(dir);
+    expect(run.code).not.toBe(0);
+    expect(run.output).toContain("the workspace is not built (node_modules/.bin/unbuilt dangle)");
+    expect(refusal(dir)).toContain("no experiment-tier receipt");
+  }));
 
   test("arguments are refused: a partial run can never record a receipt", () => checkout(async (dir) => {
     const proc = Bun.spawnSync([process.execPath, join(dir, "scripts/test-experiments.ts"), "experiments/harness.test.ts"], { cwd: dir, stdout: "pipe", stderr: "pipe" });
