@@ -1,8 +1,9 @@
 # Bounded production triage
 
 The concrete UI-server triage engine implements T0 and T1 routing for #680.
-The server's drain does not invoke it yet: #689 owns production dispatch and
-the complete autonomous system gate. Triage never applies a knowledge-base
+The [gated production dispatcher](inbox-runtime.md#the-production-dispatcher-gated)
+invokes it before each pass's claims; `createApp` enables no dispatcher, so
+the shipped drain does not run it. #689 owns the complete autonomous system gate. Triage never applies a knowledge-base
 write, selects a backend profile, or grants an operation. Markdown remains
 content authority. Routing receipts and checkpoints use the existing UI
 operational store and its backup/recovery path.

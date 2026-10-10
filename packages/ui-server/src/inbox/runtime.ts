@@ -26,7 +26,7 @@ interface DrainResult {
   failed?: boolean;
 }
 
-/** Concrete internal lifecycle; createApp deliberately supplies no dispatcher yet. */
+/** Concrete internal lifecycle; createApp supplies no production dispatcher (#689 gate). */
 export function createInboxRuntime(db: Database, deps: {
   log: Logger;
   now?: () => number;
@@ -37,6 +37,10 @@ export function createInboxRuntime(db: Database, deps: {
   budget?: Omit<Parameters<typeof createInboxBudget>[1], "now">;
   /** Server-selected bounds/billing for each concrete model-bearing operation. */
   operation?: (item: InboxQueueItem) => InboxBudgetOperation;
+  /** Engine routing before claims (T0/T1 triage admits its own batches). */
+  route?: (signal: AbortSignal) => Promise<void>;
+  /** Engine eligibility: ready work this dispatcher may claim now. */
+  claimable?: (item: InboxQueueItem) => boolean;
 }) {
   assertInboxRecoveryReady(db);
   const now = deps.now ?? Date.now;
@@ -91,6 +95,7 @@ export function createInboxRuntime(db: Database, deps: {
       const at = now();
       for (const { item } of store.orderedItems()) {
         if (item.queue !== "queue" || !eligible(item, at) || seen.has(item.id)) continue;
+        if (deps.claimable && !deps.claimable(item)) continue;
         seen.add(item.id);
         const admitted = budget!.claim(item.id, deps.operation!(item), at + LEASE_MS);
         if (admitted) return admitted.items[0]!;
@@ -109,6 +114,9 @@ export function createInboxRuntime(db: Database, deps: {
       sweepInboxLifecycle(db, now());
       await cleanup?.sweep();
       heartbeat();
+      // Routing owns its own admission and leases; it runs only when the
+      // whole engine is wired, never for the recovery-only app.
+      if (dispatchEnabled && deps.route) await deps.route(controller.signal);
       const at = now();
       const { count } = db.query(
         "SELECT COUNT(*) AS count FROM inbox_items WHERE deleted_at IS NULL AND queue = 'queue' AND type != 'cleanup_pending' AND status = 'ready' AND expires_at > ? AND (wait_until IS NULL OR wait_until <= ?) AND attempts < max_attempts"
