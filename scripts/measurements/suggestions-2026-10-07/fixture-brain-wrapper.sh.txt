@@ -1,3 +1,0 @@
-#!/bin/sh
-export NODE_PATH="${BRAIN_MEASUREMENT_CHECKOUT:?}/node_modules"
-exec "${BRAIN_MEASUREMENT_RTK:?}" proxy "${BRAIN_MEASUREMENT_BUN:?}" "${BRAIN_MEASUREMENT_CHECKOUT:?}/packages/core/src/cli/brain.ts" "$@"

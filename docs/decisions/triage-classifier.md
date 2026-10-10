@@ -33,7 +33,7 @@ over the held-out ten alone. A Jev answer below the floor, or an unknown answer,
 takes the safe route `needs_user` and counts as a false escalation if the gold
 route was something else.
 
-The three-family [label panel](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-panel.json)
+The three-family [label panel](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09-panel.json)
 (Sonnet 5.5, gpt-6.1-sol, Gemini 3.8 Flash, three repetitions each) endorses 39
 of 40 labels unanimously, including all twenty new ones. Donor item `h1b` is
 contested 2–1: Sonnet 5.5 and gpt-6.1-sol vote `needs_user`, its stored label,
@@ -49,7 +49,7 @@ record which rows were lost.
 
 ## Results
 
-[Jev runs](../../packages/ui-server/evals/triage/experiment/results/2026-10-09.json),
+[Jev runs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09.json),
 three repetitions per configuration. The [raw answers and per-call
 measurements](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json)
 behind them are kept separately:
@@ -63,7 +63,7 @@ behind them are kept separately:
 | **choice, batch 1** | **0.4** | **pass ×3** | **0** | **0** | 2 | **0.062** | 268–321 ms |
 | choice, batch 8 | 0.4 | pass ×3 | 0 | 0–1 | 3–4 | 0.018 | 287–294 ms |
 
-[Baseline](../../packages/ui-server/evals/triage/experiment/results/2026-10-09-baseline.json),
+[Baseline](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09-baseline.json),
 four repetitions: recall 95.8%, two missed escalations, no false escalations,
 100% filing and agent accuracy, five lost rows, $1.548 per 1,000 items, about
 3.2 s per call. **It fails the gate.** Repetitions 1, 3 and 4 pass. In

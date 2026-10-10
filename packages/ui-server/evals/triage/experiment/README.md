@@ -7,7 +7,12 @@ The answer goes to #680 as a go/no-go. Nothing here is imported by production.
 **Result (2026-10-09): go for `choice` at a 0.4 floor, no-go for
 `ordered-noul` as worded.** The numbers, the calibration and the limits are in
 [`docs/decisions/triage-classifier.md`](../../../../../docs/decisions/triage-classifier.md);
-the reports are in `results/`.
+the raw answers `calibrate.ts` reads are in `results/`. The other reports
+(the [Jev runs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09.json),
+the [baseline](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09-baseline.json)
+and the [label panel](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/packages/ui-server/evals/triage/experiment/results/2026-10-09-panel.json))
+are on the measurement archive branch
+([#1385](https://github.com/schlessera/brain-kit/issues/1385)).
 
 ## Arms
 

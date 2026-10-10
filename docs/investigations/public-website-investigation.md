@@ -6,8 +6,11 @@ The maintainer selected Astro static output and repository-controlled GitHub
 Pages on 2026-10-01. The binding [decision record](../decisions/public-website.md)
 captures both rulings, alternatives and implementation requirements. This
 report preserves the comparison and dated measurements; it does not authorize
-publication. The repeatable [local experiment](../../scripts/site-model-spike/README.md)
-provides the evidence.
+publication. The repeatable [local experiment](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/README.md)
+provides the evidence. It now lives on the
+[measurement archive](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/README.md#reproducing-the-spikes)
+([#1385](https://github.com/schlessera/brain-kit/issues/1385)), which records
+the Node, Astro and Chrome it needs.
 
 ## Recommendation and alternatives
 

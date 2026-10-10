@@ -28,7 +28,7 @@ Only Astro was installed and executed; the alternatives were checked against
 their primary documentation, not measured builds. This is a fit decision,
 not a comparative speed or accessibility claim.
 
-The [bounded local experiment](../../scripts/site-model-spike/README.md) pins
+The [bounded local experiment](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/README.md) pins
 Astro 7.3.5 and `@astrojs/markdown-remark` 7.3.1. It reads seven unmodified
 documentation files directly and one Odysseus sample. Cold builds at `/` and
 `/brain-kit/` produced eight pages. Real Chrome checks followed nested links

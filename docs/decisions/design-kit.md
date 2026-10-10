@@ -3866,7 +3866,7 @@ two missing tails and an unknown aggregate. No final provider bill is asserted
 for those interruptions. Unknown SDK price provenance is tracked in #1206;
 missing error-result accounting is #1191.
 
-**Evidence and consequence.** The [sanitized per-turn artifact](design-kit-schema-forms-2026-10-07.json)
+**Evidence and consequence.** The [sanitized per-turn artifact](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/docs/decisions/design-kit-schema-forms-2026-10-07.json)
 retains all 81 cells, token columns, verified prices, rate flags, isolation
 verdicts and frozen source/schema/corpus identities. Claude accepted both
 reductions, and the counted saving is real. This result does not switch the
@@ -3952,8 +3952,8 @@ counter or a general saving. The small Claude sample also does not establish
 equivalence on other prompts. These limits qualify the selected representation;
 they do not change any accepted input or infer a new API/runtime/model adoption.
 
-The [sanitized six-request artifact](../../scripts/measurements/pi-schema-2026-10-08/results.json)
-and [executed-input hashes](../../scripts/measurements/pi-schema-2026-10-08/executed-inputs.json)
+The [sanitized six-request artifact](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/measurements/pi-schema-2026-10-08/results.json)
+and [executed-input hashes](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/measurements/pi-schema-2026-10-08/executed-inputs.json)
 bind the exact remaining-arms admission `a46ca0ba…`, historical `3d58bf7c…`
 and original prefix. They retain all failures, raw usage, schemas and accepted
 handler evidence without account identities, credit balances or quota details.
@@ -4743,7 +4743,7 @@ This supports a small observed Pi benefit and no demonstrated Claude benefit.
 The fixed arm order, three repeated answer prompts, backend/tool differences
 and Pi API-key route limit generalization. No brief, variant, runtime filter
 or payload change follows. The
-[full report](../../scripts/measurements/suggestions-2026-10-07/report.md)
+[full report](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/measurements/suggestions-2026-10-07/report.md)
 retains all transcripts, item judgments, exact models/runtime versions,
 reviewed input hashes, private-data isolation limits, usage and billing
 provenance, and parameterized reproduction sources.

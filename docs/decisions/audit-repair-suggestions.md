@@ -17,7 +17,9 @@ Measured on 2026-10-10, the UTC detection day, on main
 `7e398dc207f2c4725f6c364331c3cd5d3112954d` plus this branch's `measure.ts` and
 its pointer edit to `docs/audit-capability-investigation.md`.
 The freeze is `a19c26bd155c89d73a973af17c1e1d3f013535f89c33332905f2c0e5145c6661`
-and is recorded in `results/2026-10-10/freeze.json`.
+and is recorded in [`results/2026-10-10/freeze.json`](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/freeze.json).
+The whole [results bundle](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10)
+is on the measurement archive branch ([#1385](https://github.com/schlessera/brain-kit/issues/1385)).
 
 ## What was compared
 
@@ -31,7 +33,7 @@ audit command boundary.
 | `actual-providerless` | Today's `brain audit --fix` with no provider: the audit's own suggestion text, marked manual. |
 | `capability-backed-registry` | The prototype: one suggestion per finding, built from the actual registry plan, type membership, validation and safe-path checks. It writes only when the case authorizes it. |
 
-The [keyless proof](../../scripts/evals/audit-capabilities/results/2026-10-10/keyless-proof.json)
+The [keyless proof](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/keyless-proof.json)
 taken the same day passed every check on all 26 cases. Each case's detection
 matched it before that case's arms ran.
 
@@ -54,15 +56,15 @@ The judge was also told that repair flags are scored separately:
 - A repair that is marked available but left unexecuted because it is not
   authorized is correct.
 
-The [prompt](../../scripts/evals/audit-capabilities/results/2026-10-10/judge/prompt.md),
-inputs, raw reports and member map are kept in `results/2026-10-10/judge/`.
+The [prompt](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/judge/prompt.md),
+inputs, raw reports and member map are kept in [`results/2026-10-10/judge/`](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/judge).
 [`analyze.ts`](../../scripts/evals/audit-capabilities/analyze.ts) scores the
-[observations](../../scripts/evals/audit-capabilities/results/2026-10-10/observations.json)
-from the [annotations](../../scripts/evals/audit-capabilities/results/2026-10-10/annotations.json).
+[observations](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/observations.json)
+from the [annotations](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/annotations.json).
 
 ## Results
 
-[Analysis](../../scripts/evals/audit-capabilities/results/2026-10-10/analysis.json)
+[Analysis](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/analysis.json)
 of the held-out split (20 cases × 2 repetitions, 40 findings). Latency is arm
 time after fixture preparation and detection.
 
@@ -101,7 +103,7 @@ the wrong frontmatter for an unclosed quote. Those two `penelope-scalar-tags`
 findings are the capability arm's only misses.
 
 Spend: 52 paid calls, $0.185 at list price
-(`results/2026-10-10/billing.json`). There was no unknown-usage attempt and no
+([`results/2026-10-10/billing.json`](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/audit-capabilities/results/2026-10-10/billing.json)). There was no unknown-usage attempt and no
 invoice was observed. The spend guard's conservative debit is $0.426 for the
 whole run, between $0.004 and $0.017 per call.
 

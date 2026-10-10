@@ -973,7 +973,7 @@ now `^0.3.292`, with the lockfile selecting this measured pair. No separate
 runtime download or updater is introduced. Successful earlier-pair experiments
 retain their recorded identities and evidence.
 
-The [sanitized native receipts](../../scripts/measurements/claude-runtime-2026-10-07/)
+The [sanitized native receipts](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/measurements/claude-runtime-2026-10-07)
 record Linux x64, Bun 1.4.2, bogus credentials, fresh homes and config, and a
 network namespace containing only loopback. The omitted-mode candidate again
 failed the command-shape, settings-rule and rewrite callback cases: a denied
@@ -1022,7 +1022,7 @@ checksum and actual native init agree. External CLI overrides remain supported;
 a Haiku 5.5 selection adds the evidenced 2.1.293 minimum to the host's own
 minimum on both start and resume. Other profiles gain no blanket minimum.
 
-The [sanitized receipts](../../scripts/measurements/claude-runtime-2026-10-08/)
+The [sanitized receipts](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/measurements/claude-runtime-2026-10-08)
 record all twelve raw permission cases and five credential controls passing,
 all fifteen production enforcement arms passing, both foreground delegation
 controls passing, and the native outside-Read isolation control passing.

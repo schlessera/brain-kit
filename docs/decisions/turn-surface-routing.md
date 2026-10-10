@@ -14,14 +14,14 @@ measured; analogous listing controls would need proof in its own runtime.
 
 ## Evidence and frozen comparison
 
-The [complete observations](../../scripts/fixtures/turn-surface-live-2026-10-07/results.json)
+The [complete observations](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/results.json)
 retain every scored call, answer, round-trip counter, router outcome, physical
-Jev response and native exit. The [recomputed table](../../scripts/fixtures/turn-surface-live-2026-10-07/summary.json)
+Jev response and native exit. The [recomputed table](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/summary.json)
 contains each case's three-repetition spread; the
-[protocol](../../scripts/fixtures/turn-surface-live-2026-10-07/protocol.json),
-[manifest](../../scripts/fixtures/turn-surface-live-2026-10-07/manifest.json),
-[full review input](../../scripts/fixtures/turn-surface-live-2026-10-07/review-input.json)
-and [successful complementary review](../../scripts/fixtures/turn-surface-live-2026-10-07/review.json)
+[protocol](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/protocol.json),
+[manifest](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/manifest.json),
+[full review input](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/review-input.json)
+and [successful complementary review](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/review.json)
 preserve the exact experiment boundary. Complete raw native transport,
 initialization, account and error receipts remain private; published account
 fields describe only the selected routing mechanism.
@@ -65,7 +65,7 @@ does not establish behavior coverage for each bridge handler.
 
 Five free `count_tokens` requests measured ordered cumulative marginals of
 one actual native serialized request. They do not independently tokenize
-fragments and add them. The [counting receipts](../../scripts/fixtures/turn-surface-live-2026-10-07/token-budget.json)
+fragments and add them. The [counting receipts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/token-budget.json)
 retain the observed request digest and cumulative counts.
 
 | Input group | Marginal tokens |
@@ -209,7 +209,7 @@ scored Claude API-price equivalents are $1.3999944 baseline, $1.2537792 hint,
 $1.2303918 load-set and $1.2078262 hard-prune, totaling $5.0919916. Three
 complementary reviews add $2.024732, including the failed initial review and
 the approval of the earlier fixture representation. Their
-[selected receipts](../../scripts/fixtures/turn-surface-live-2026-10-07/reviews.json)
+[selected receipts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07/reviews.json)
 preserve those boundaries. Equivalent diagnostics are not additional
 subscription billing; the final subscription bill remains unknown. All
 inference used verified first-party OAuth, with API inference credentials
@@ -237,9 +237,14 @@ each fails its named assertion before restoration.
 
 ## Reproduction
 
-Recompute the public table without credentials or provider calls:
+Recompute the public table without credentials or provider calls. The
+artifacts moved to the [measurement archive](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-live-2026-10-07)
+([#1385](https://github.com/schlessera/brain-kit/issues/1385)); restore them at
+their original paths first:
 
 ```sh
+git fetch origin 48227b09076b350d70d9d20b8492ffcfb5b95771
+git restore --source 48227b09076b350d70d9d20b8492ffcfb5b95771 -- scripts/fixtures/turn-surface-live-2026-10-07
 bun scripts/measure-turn-surface-report.ts \
   --results scripts/fixtures/turn-surface-live-2026-10-07/results.json \
   --tokens scripts/fixtures/turn-surface-live-2026-10-07/token-budget.json \
@@ -247,7 +252,7 @@ bun scripts/measure-turn-surface-report.ts \
 ```
 
 For a provider rerun, use the measured source commit and its frozen lockfile;
-the manifest refuses source/runtime/catalogue drift. Make the committed
+the manifest refuses source/runtime/catalogue drift. Make the archived
 artifact directory available as `$SURFACE_EVIDENCE`, supply an authorized
 `CLAUDE_CODE_OAUTH_TOKEN` and `TYPESAFE_API_KEY` through the environment, keep
 API inference credentials absent, and reserve the subscription window. The

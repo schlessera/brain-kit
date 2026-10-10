@@ -53,13 +53,21 @@ indirection as accepted write-lock exposure (`A Bash command the classifier miss
 
 ## Executable evidence
 
-The private experiment is [probe.py](../../scripts/policy-boundary-spike/probe.py)
-with [worker.ts](../../scripts/policy-boundary-spike/worker.ts). It creates and
+The private experiment is [probe.py](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/probe.py)
+with [worker.ts](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike/worker.ts). It creates and
 destroys its own fictional Odysseus files; it never opens a content repository,
-uses provider credentials, or makes an inference request. Run from the repository
+uses provider credentials, or makes an inference request. Both files now live
+on the [measurement archive](https://github.com/schlessera/brain-kit/tree/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/policy-boundary-spike)
+([#1385](https://github.com/schlessera/brain-kit/issues/1385)); the archive's
+README records the historical runtime. `worker.ts` imports repository source,
+so a checkout of `9adc62e70b4f5eac9b5e3ef779552cd1858a6bd2`, the last main
+commit that contains them, is the faithful setting. To try them on another
+checkout, restore them at their original path, then run from the repository
 root after a frozen dependency install:
 
 ```sh
+git fetch origin 48227b09076b350d70d9d20b8492ffcfb5b95771
+git restore --source 48227b09076b350d70d9d20b8492ffcfb5b95771 -- scripts/policy-boundary-spike
 set -o pipefail
 python3 scripts/policy-boundary-spike/probe.py 2>&1 | tee /tmp/policy-boundary-proof.log
 python3 scripts/policy-boundary-spike/probe.py --mutation 2>&1 | tee /tmp/policy-boundary-mutation.log

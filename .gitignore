@@ -20,3 +20,27 @@ debug-storybook.log
 # Vitest browser-mode failure artefacts: the actual and diff images a visual
 # test writes beside its baseline. The BASELINES are committed; these are not.
 .vitest-attachments/
+
+# Historical measurement outputs and spikes live on the archive branch
+# (docs/decisions/measurement-archive.md, #1385). Keep new local runs, and
+# files restored from the archive to reproduce something, out of these paths.
+# Active fixtures and goldens beside them stay tracked: the ! lines below.
+# Adding a new active golden, fixture or executable input under one of these
+# paths? Add a matching ! exception line here, or git will ignore the file.
+/scripts/measurements/*
+!/scripts/measurements/suggestions-2026-10-07/
+/scripts/measurements/suggestions-2026-10-07/*
+!/scripts/measurements/suggestions-2026-10-07/executed-manifest.json
+!/scripts/measurements/suggestions-2026-10-07/input-review-snapshot.json
+!/scripts/measurements/suggestions-2026-10-07/review-receipt.json
+!/scripts/measurements/suggestions-2026-10-07/shared-corpus-review-receipt.json
+/scripts/fixtures/turn-surface-live-*/
+/scripts/fixtures/turn-surface-mechanics.json
+/scripts/evals/*/results/
+/scripts/evals/opportunity-lifecycle/keyless-report.json
+/scripts/evals/opportunity-lifecycle/fresh-preparation-controls.json
+/packages/ui-server/evals/triage/experiment/results/*
+!/packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json
+/docs/decisions/design-kit-schema-forms-*.json
+/scripts/site-model-spike/
+/scripts/policy-boundary-spike/
