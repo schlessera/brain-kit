@@ -68,13 +68,12 @@ export async function verifyLibraryDemo(page: Page, origin: string, base: string
       await demo.getByText(/^documents · \d+ snapshots$/).first().waitFor();
       await demo.getByText(String(corpus.documents), { exact: true }).first().waitFor();
       await overflowFree('stats');
-      // The daily briefing streams from the same files, line by line, like a host's whatsup run.
+      // The daily briefing is `brain briefing`'s keyless output for the same files.
       await demo.goto(`${origin}${base}demo/rank/?scene=ships&theme=${theme}`, { waitUntil: 'domcontentloaded' });
       await demo.getByText('Ship 12', { exact: true }).first().waitFor();
       await demo.getByText('More', { exact: true }).last().click();
       await demo.getByText('Daily briefing', { exact: true }).first().click();
-      await demo.getByText('Before you push off', { exact: false }).first().waitFor();
-      await demo.getByText('The brain itself', { exact: true }).first().waitFor();
+      for (const heading of ['Current Focus', 'Upcoming Deadlines', 'Upkeep', 'Stale Documents']) await demo.getByRole('heading', { name: heading, exact: true }).first().waitFor();
       await overflowFree('briefing');
     }
     await context.close();
