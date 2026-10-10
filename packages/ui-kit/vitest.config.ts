@@ -10,7 +10,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 
 import { requestLog, startRequestLog } from "./tests/visual/request-log.ts";
 import { grantMicrophone } from "./tests/visual/microphone-permission.ts";
-import { formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
+import { formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, codeHighlightFailure, codeHighlightFailureCount } from "./tests/visual/form-browser.ts";
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
@@ -84,7 +84,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode },
     browser: {
       enabled: true,
-      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, buttonPointer, overlayMouse, dictationMotion },
+      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, overlayMouse, dictationMotion },
       provider: playwright({
         launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
