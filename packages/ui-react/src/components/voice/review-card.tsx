@@ -1,4 +1,5 @@
-import { Mic, Pencil, Send, X } from "lucide-react";
+import { Button } from "@schlessera/brain-ui-kit";
+import { Mic } from "lucide-react";
 
 export function ReviewCard({
   text,
@@ -22,44 +23,13 @@ export function ReviewCard({
           {text}
         </p>
       </div>
-      <div className="flex items-center justify-between border-t border-border/40 px-2 py-2">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onDiscard}
-            title="Discard"
-            className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-destructive"
-          >
-            <X className="h-3.5 w-3.5" />
-            Discard
-          </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Edit"
-            className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={onAppend}
-            title="Append more voice"
-            className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-          >
-            <Mic className="h-3.5 w-3.5" />
-            Add
-          </button>
+      <div className="flex items-center justify-between gap-2 border-t border-border/40 px-2 py-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          <Button tone="quiet" size="sm" icon="dismiss" label="Discard" block={false} style={{ minHeight: 44 }} onClick={onDiscard} />
+          <Button tone="quiet" size="sm" icon="edit" label="Edit" block={false} style={{ minHeight: 44 }} onClick={onEdit} />
+          <Button tone="quiet" size="sm" icon="mic" label="Add" ariaLabel="Append more voice" block={false} style={{ minHeight: 44 }} onClick={onAppend} />
         </div>
-        <button
-          type="button"
-          onClick={onSend}
-          className="flex h-10 items-center gap-2 rounded-xl bg-primary-fill px-5 text-sm font-semibold text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.98]"
-        >
-          <Send className="h-4 w-4" />
-          Send
-        </button>
+        <Button tone="primary" size="md" icon="send" label="Send" block={false} style={{ minHeight: 44, flexShrink: 0 }} onClick={onSend} />
       </div>
     </div>
   );

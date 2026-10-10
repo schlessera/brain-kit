@@ -1,7 +1,7 @@
 /// <reference types="@vitest/browser-playwright" />
 import { afterAll, afterEach, beforeAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
-import { useState } from "react";
+import { createRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -12,6 +12,19 @@ import { ShareMenu } from "../../src/components/share/share-menu.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 import { OneTimeAgentCredentialDialog } from "../../src/components/settings/one-time-agent-credential.js";
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
+import { FileViewerRaw } from "../../src/components/files/file-viewer-raw.js";
+import { CopyButton } from "../../src/components/chat/copy-button.js";
+import { MarkdownPre } from "../../src/components/chat/brain-markdown-code.js";
+import { MermaidBlock } from "../../src/components/chat/mermaid-block.js";
+import { ZoomableImage } from "../../src/components/images/zoomable-image.js";
+import { SubagentView } from "../../src/components/chat/subagent-view.js";
+import { TrackChip } from "../../src/components/chat/track-chip.js";
+import { CommandPalette } from "../../src/components/chat/command-palette.js";
+import { ToolCallTimeline, ToolCallTimelineCell } from "../../src/components/chat/tool-call-timeline.js";
+import { ClampedPre, ToolOutputView } from "../../src/components/chat/tool-views.js";
+import { CONTROL_RING, ROW_RING, ring } from "../../../ui-kit/stories/_stage.js";
+import type { ToolCall } from "../../src/stores/chat-store.js";
+import type { PendingTrack } from "../../src/lib/track-uploads.js";
 
 // Actual migrated components and shell; only transports and host data are fixtures.
 class FixtureSocket {
@@ -362,3 +375,76 @@ test("credential focus fallback finds Settings outside its own parent", async ct
   expect(selected, "selected Settings tab exists").not.toBeNull();
   expect(document.activeElement, "credential fallback finds Settings through ownerDocument").toBe(selected);
 });
+
+
+// #1379 batch 3: measure the actual consumer controls in all native pointer scenes.
+
+
+const output = Array.from({ length: 20 }, (_, i) => `Ithaca provision ${i}`).join("\n");
+const tool: ToolCall = { id: "rigging", name: "Read", input: { file_path: "ithaca/rigging.md" }, inputJson: "{}", output, status: "complete" };
+const failedTrack = { id: "route", name: "ithaca.gpx", file: new File(["route"], "ithaca.gpx"), state: "failed", error: "Try again" } satisfies PendingTrack;
+const noop = () => {};
+const controls: { site: string; name: string | RegExp; view: ReactNode; row?: boolean; sm?: boolean; reveal?: boolean; expand?: boolean; openTool?: boolean; coarseReveal?: boolean }[] = [
+  { site: "default copy", name: "Copy", view: <div className="group/copy relative p-16"><CopyButton getText={() => output} /></div>, sm: true, reveal: true, coarseReveal: true },
+  { site: "labelled copy", name: "Copy file content", view: <FileViewerRaw content={output} fileName="ithaca-rigging.md" /> },
+  { site: "code head copy", name: "Copy", view: <MarkdownPre><code>{output}</code></MarkdownPre> },
+  { site: "image expand", name: "Open image", view: <ZoomableImage src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'/%3E" alt="Ithaca route" />, sm: true, reveal: true },
+  ...["Open diagram", "Share diagram", "Show source", "Copy"].map(name => ({ site: `diagram ${name}`, name, view: <MermaidBlock source="graph LR; Troy-->Ithaca" />, sm: true, reveal: true })),
+  { site: "subagent back", name: "Back", view: <SubagentView spanId="rigging" backRef={createRef<HTMLButtonElement>()} />, sm: true },
+  { site: "track retry", name: "Retry ithaca.gpx", view: <TrackChip track={failedTrack} onRetry={noop} onRemove={noop} /> },
+  { site: "track remove", name: "Remove ithaca.gpx", view: <TrackChip track={failedTrack} onRetry={noop} onRemove={noop} /> },
+  { site: "command row", name: /\/sync Sync brain repository/, view: <div className="relative mt-24"><CommandPalette filter="sync" onSelect={noop} /></div>, row: true },
+  { site: "timeline summary", name: /1 step/, view: <ToolCallTimeline toolCalls={[tool]} onApproval={noop} />, row: true },
+  { site: "timeline header", name: /Read/, view: <ToolCallTimeline toolCalls={[tool]} onApproval={noop} live />, row: true },
+  { site: "timeline subagent row", name: /^Inspect rigging/, view: <ToolCallTimeline toolCalls={[{ ...tool, id: "rigging-agent", name: "Agent", input: { description: "Inspect rigging" } }]} onApproval={noop} live />, row: true },
+  { site: "timeline output copy", name: "Copy output", view: <ToolCallTimeline toolCalls={[tool]} onApproval={noop} live />, sm: true, openTool: true },
+  { site: "timeline hide", name: "Hide steps", view: <ToolCallTimeline toolCalls={[tool]} onApproval={noop} />, expand: true },
+  { site: "timeline cell hide", name: "Hide steps", view: <ToolCallTimelineCell toolCalls={[tool]} toolIndex={0} live={false} collapsed={false} onCollapse={noop} onExpand={noop} onApproval={noop} /> },
+  { site: "clamped output", name: "Show all (20 lines)", view: <ClampedPre text={output} /> },
+  { site: "clamped prose", name: "Show all (20 lines)", view: <ToolOutputView tool={{ ...tool, name: "Agent" }} /> },
+  { site: "read disclosure", name: "20 lines read", view: <ToolOutputView tool={tool} /> },
+];
+for (const theme of ["dark", "light"]) for (const control of controls) for (const property of (control.row ? ["name", "focus"] : ["name", "target", "focus"]) as ("name" | "target" | "focus")[]) {
+  test(`batch 3 ${theme} ${control.site}: ${property}`, async ctx => {
+    const beforeTheme = document.documentElement.dataset.theme;
+    const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
+    const span = { spanId: "rigging-agent", runId: "crossing", kind: "subagent" as const, origin: "session" as const, name: "Agent", startedAt: Date.UTC(2026, 6, 12, 9, 42), endedAt: Date.UTC(2026, 6, 12, 9, 42, 1), outcome: "success" as const, subagent: { description: "Inspect rigging" } };
+    ui.stores.activity.setState({ spans: { crossing: { "rigging-agent": span } }, spanRun: { "rigging-agent": "crossing" } });
+    const host = document.createElement("div");
+    host.style.cssText = "position:relative;width:280px;margin:24px;padding:8px;background:var(--bk-color-surface);color:var(--bk-color-ink)";
+    document.body.append(host);
+    const renderer = createRoot(host);
+    ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); ui.dispose(); host.remove(); document.documentElement.dataset.theme = beforeTheme; });
+    document.documentElement.dataset.theme = theme;
+    flushSync(() => renderer.render(<BrainUiProvider root={ui}>{control.view}</BrainUiProvider>));
+    if (control.openTool) await userEvent.click(page.getByRole("button", { name: /Read/ }));
+    if (control.expand) await userEvent.click(page.getByRole("button", { name: /1 step/ }));
+    const query = page.getByRole("button", { name: control.name, exact: typeof control.name === "string" });
+    await expect.element(query).toBeInTheDocument();
+    const button = query.element() as HTMLButtonElement;
+    if (property === "target" && !control.row) {
+      const box = button.getBoundingClientRect();
+      const expected = control.sm && !matchMedia("(any-pointer: coarse)").matches ? 28 : 44;
+      expect(box.height, "consumer control target height").toBeGreaterThanOrEqual(expected);
+      if (control.sm || control.site.startsWith("track")) expect(box.width, "consumer icon target width").toBeGreaterThanOrEqual(expected);
+      if (control.reveal && matchMedia("(pointer: coarse)").matches) {
+        await userEvent.hover(document.body, { position: { x: 1, y: 1 } });
+        const wrapper = button.closest<HTMLElement>(".opacity-0")!;
+        if (control.coarseReveal) expect(getComputedStyle(wrapper).opacity, "coarse copy wrapper reveals control").toBe("1");
+        else {
+          await expect.poll(() => getComputedStyle(wrapper).opacity, { message: "media toolbar stays concealed at rest" }).toBe("0");
+          button.focus(); await userEvent.keyboard("{ArrowRight}");
+          await expect.poll(() => getComputedStyle(wrapper).opacity, { message: "coarse keyboard focus reveals media control" }).toBe("1");
+        }
+        const reach = button.getBoundingClientRect();
+        expect(button.contains(document.elementFromPoint(reach.x + reach.width / 2, reach.y + reach.height / 2)), "coarse target is reachable").toBe(true);
+      }
+    }
+    if (property === "focus") {
+      if (control.reveal) await userEvent.hover(document.body, { position: { x: 1, y: 1 } });
+      button.focus(); await userEvent.keyboard("{ArrowRight}");
+      expect(ring(button), "consumer keyboard focus ring").toEqual(control.row ? ROW_RING : CONTROL_RING);
+      if (control.reveal) await expect.poll(() => getComputedStyle(button.closest<HTMLElement>(".opacity-0")!).opacity, { message: "focus-within reveals media control" }).toBe("1");
+    }
+  });
+}

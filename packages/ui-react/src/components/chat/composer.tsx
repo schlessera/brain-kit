@@ -3,7 +3,7 @@ import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type ClientMessage, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
-import { useChatStore, activeChat } from "../../stores/chat-store.js";
+import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { deriveConnectionIssue } from "../../lib/connection-issue.js";
 import { useProviderStore } from "../../stores/provider-store.js";
@@ -79,6 +79,9 @@ export interface ComposerHandle {
 export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
   const sessionId = useChatStore((s) => s.activeSessionId);
+  // The selected session's history has not arrived (#1328): the draft stays
+  // editable, and nothing is sent into a conversation the reader cannot see.
+  const restorePhase = useChatStore((s) => restorationOf(s)?.phase ?? null);
   // The draft this view shows (D52 §5): its session's, or the new chat's.
   const draftId = useRootStore("drafts", (s) => s.idFor(sessionId));
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
@@ -418,6 +421,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const currentTracks = trackUploads.files;
     const hasAttachments = attachments.length > 0 || currentTracks.length > 0;
     if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting) return;
+    if (restorationOf(root.stores.chat.getState())) return;
 
     if (currentTracks.some(track => track.state === "failed")) {
       setHeldSend(false);
@@ -673,7 +677,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
-  const canSend = hasDraft && wsStatus === "connected" && !waiting;
+  const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null;
 
   // Provider picker: locked to the pinned combo once a session is live.
   // Lock while streaming too: the first send of a new conversation pins the
@@ -754,6 +758,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           state={
             voiceMode === "dictate"
               ? "dictating"
+              : wsStatus === "connected" && restorePhase !== null
+              // The kit's disabled send, with its own reason (#1328).
+              ? "offline"
               : wsStatus === "connected"
               ? isStreaming
                 ? "streaming"
@@ -763,7 +770,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                 : "offline"
           }
           placeholder={
-            voiceMode === "dictate" ? "Dictating…" : wsStatus !== "connected"
+            voiceMode === "dictate" ? "Dictating…" : wsStatus === "connected" && restorePhase !== null
+              ? "Sending waits until this conversation is restored"
+              : wsStatus !== "connected"
               ? connectionIssue === "capacity"
                 ? "Server connection limit reached"
                 : connectionIssue === "refused"
@@ -773,7 +782,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           }
           hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · esc or the stop button ends the run` : undefined}
           blockedWhy={
-            wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
+            wsStatus === "connected" && restorePhase !== null
+              ? `${restorePhase === "failed" ? "this conversation could not be restored" : "restoring this conversation"} · your draft is kept`
+              : wsStatus === "connected" ? undefined : `${connectionIssue === "capacity" ? "the host is full" : connectionIssue === "refused" ? "the host refused the connection" : "needs the host"} · your draft is kept`
           }
           paletteOpen={showCommandPalette}
           palette={showCommandPalette ? <CommandPalette filter={input.slice(1)} onSelect={handleCommand} /> : null}

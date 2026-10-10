@@ -179,7 +179,7 @@ function PdfPage({
   }, [doc, pageNumber, width, near]);
 
   return (
-    <button
+    <button /* raw-button: surface — The rendered PDF page is the hit area. */
       ref={boxRef}
       type="button"
       onClick={onOpen}

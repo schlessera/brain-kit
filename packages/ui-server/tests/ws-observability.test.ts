@@ -496,6 +496,37 @@ describe("turn lifecycle is observable", () => {
     const [failed] = observability.logs.find({ body: "turn failed" });
     expect(failed.attributes["session.id"]).toBe("gone");
     expect(failed.attributes.error).toBe("transcript unreadable");
+    // #1328: the resume itself is one line, with its outcome.
+    const resumes = observability.logs.find({ body: "session resume" });
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]!.attributes).toMatchObject({ "session.id": "gone", outcome: "error", error: "transcript unreadable" });
+  });
+
+  test("a loaded session resume logs one line with its session and outcome (#1328)", async () => {
+    const db = createUiDb(":memory:");
+    close = () => db.close();
+    const observability = createRecordingObservability();
+    const backend = makeFakeBackend({ id: "fake" });
+    backend.getHistory = async () => [
+      { role: "user", content: "Is the raft lashed?", toolCalls: [] },
+      { role: "assistant", content: "Calypso checked every knot.", toolCalls: [] },
+    ];
+    const host = new WsHost({
+      registry: createStaticBackendRegistry([backend], backend.id),
+      catalog: createSessionCatalog(() => db),
+      observability,
+    });
+    const socket = fakeSocket();
+    createWsHandlers(host).onMessage(
+      { data: JSON.stringify({ type: "session_resume", sessionId: "ogygia" }) } as MessageEvent,
+      socket
+    );
+
+    await until(() => socket.sent.some((raw) => JSON.parse(raw).type === "status"));
+    const resumes = observability.logs.find({ body: "session resume" });
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]!.severity).toBe("INFO");
+    expect(resumes[0]!.attributes).toMatchObject({ "session.id": "ogygia", outcome: "loaded", "history.messages": 2 });
   });
 });
 

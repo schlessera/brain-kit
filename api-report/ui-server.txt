@@ -227,6 +227,7 @@ signatures (every public export and the types it is made of)
     }
   BrainClient (packages/ui-server/src/brain/client.ts)
     export interface BrainClient {
+        hygiene?(args: readonly string[]): Promise<unknown>;
         cliCommand(): string[];
         modules?(): Promise<{
             enabled: ConfiguredModule[];

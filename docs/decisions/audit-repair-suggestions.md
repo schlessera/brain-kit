@@ -27,7 +27,7 @@ audit command boundary.
 
 | arm | what runs |
 | --- | --- |
-| `actual-current-message-only` | Today's `brain audit --fix` with a completion provider: `claude-sonnet-5-5`, Standard tier, 2,000-token limit, the shipped prompt unchanged. The model sees only the finding list (`suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-68`). |
+| `actual-current-message-only` | Today's `brain audit --fix` with a completion provider: `claude-sonnet-5-5`, Standard tier, 2,000-token limit, the shipped prompt unchanged. The model saw only the finding list ([`suggestFixes` as measured](https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26-L68), removed by #1408). |
 | `actual-providerless` | Today's `brain audit --fix` with no provider: the audit's own suggestion text, marked manual. |
 | `capability-backed-registry` | The prototype: one suggestion per finding, built from the actual registry plan, type membership, validation and safe-path checks. It writes only when the case authorizes it. |
 

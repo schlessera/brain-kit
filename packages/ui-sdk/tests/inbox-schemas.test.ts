@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   inboxActionStatusSchema, inboxQueueStatusSchema, inboxWorkPayloadSchema, inboxOptionSchema,
   resolutionEffectSchema, v1ResolutionEffectSchema, validateResolutionEffect,
-  parseClientMessage, parseServerMessage,
+  clientInboxResolveSchema, parseClientMessage, parseServerMessage,
 } from "../src/schemas.js";
 import type { ClientMessage, ClientInboxResolve, InboxChange, InboxDismissReason, InboxSnapshot, InboxDelta, ServerHello } from "../src/protocol.js";
 import { actionItem, effects, operation, queueItem, thread } from "./inbox-fixtures.js";
@@ -188,4 +188,14 @@ describe("durable inbox server projections", () => {
     for (const cursor of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) expect(parseServer({ ...snapshot, cursor }).ok).toBe(false);
     expect(parseServer({ ...snapshot, highWaterSeq: { ithaca: -1 } }).ok).toBe(false);
   });
+});
+
+test("hygiene is strict review data and generic model effect validation cannot admit it", () => {
+  const effect = { kind: "hygiene", operation: "resolve", findingId: "broken-link-ithaca", fingerprint: "0123456789ab", handler: "link-text", input: null, previewToken: "preview" };
+  expect(v1ResolutionEffectSchema.safeParse(effect).success).toBe(true);
+  expect(validateResolutionEffect(effect, []).ok).toBe(false);
+  expect(validateResolutionEffect(effect, [], { hygiene: true }).ok).toBe(true);
+  expect(v1ResolutionEffectSchema.safeParse({ ...effect, principalId: "wide" }).success).toBe(false);
+  expect(clientInboxResolveSchema.safeParse({ type: "inbox_resolve", itemId: "ithaca", optionId: "repair", input: { grant: "wide" } }).success).toBe(false);
+  expect(clientInboxResolveSchema.safeParse({ type: "inbox_resolve", itemId: "ithaca", optionId: "repair", input: ["voyage"] }).success).toBe(true);
 });

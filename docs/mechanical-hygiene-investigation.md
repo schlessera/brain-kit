@@ -15,7 +15,7 @@ production command, changes no skill, and selects no adoption policy.
 | Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:1168-1477` | Reuse the existing reconciler after repair and retain its manual-state tests. |
 | Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:288-317` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
 | Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:94-121` | Still agent file edits. These are the two prototype operations. |
-| Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-67` | Suggestions only; this is not a mechanical repair handler. |
+| Completion-based audit suggestions | [historical `suggestFixes`](https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26-L67) (removed by #1408) | Suggestions only; this is not a mechanical repair handler. |
 
 Neither current hygiene detection nor validation detects the `updated < created`
 ordering itself. Validation checks the presence of the fields (`if (!data.created)`,

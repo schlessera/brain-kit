@@ -228,6 +228,12 @@ severity counts, and every count is of findings, so a research file with forty
 markers counts once per kind. The reasoning is in
 [decisions/audit-markers.md](decisions/audit-markers.md).
 
+`brain audit --fix` reports deterministic repair availability without calling a
+completion provider or changing files. Only a stale opted-in registry that passes
+path, type and validation checks can carry `canAutoFix: true` and `repair`
+metadata. Availability grants no permission to run the repair; other findings
+remain manual.
+
 Skills (`audit`, `content-hygiene`) sit on top: they triage findings, apply the
 mechanically-safe fixes, and propose the judgment calls to you.
 

@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:95-128`).
+(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:98-131`).
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -62,6 +62,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/health` | `mounted supported handler: GET /api/health` | H |
+| `GET /api/hygiene/review` | `mounted supported handler: GET /api/hygiene/review` | HY |
+| `POST /api/hygiene/review` | `mounted supported handler: POST /api/hygiene/review` | HY |
+| `POST /api/hygiene/review/preview` | `mounted supported handler: POST /api/hygiene/review/preview` | HY |
 | `POST /api/internal/inbox/poke` | `mounted supported handler: POST /api/internal/inbox/poke` | I |
 | `GET /api/models` | `mounted supported handler: GET /api/models` | M |
 | `PUT /api/models/hidden` | `mounted supported handler: PUT /api/models/hidden` | M, V |
@@ -97,6 +100,12 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /ws` | Real upgrade and server_hello | W |
 
 ## Named behavior checks
+
+**HY — Human-started hygiene review.**
+
+- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:231-253`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
+- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:147-156`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+
 
 **H — Liveness.**
 

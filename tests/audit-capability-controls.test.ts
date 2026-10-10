@@ -13,29 +13,30 @@ import { observeArm } from "../scripts/evals/audit-capabilities/live";
 import { assertSourceEffect, sourceSnapshot } from "../scripts/evals/audit-capabilities/effects";
 import { drainReviewChild } from "../scripts/evals/audit-capabilities/review-drain";
 
-test("actual current command binary write stops before the next arm admission", async () => {
+test("actual current command never admits a provider binary write across measured arms", async () => {
   const f = cases.find(f => f.id === "menelaus-quoted-order")!; const p = await prepareBenchmark(f);
   let physical = 0, admitted = 0;
   try {
     const detected = await detect(p);
-    await expect((async () => {
-      for (const arm of ["actual-current-message-only", "actual-providerless"] as const) {
-        admitted++;
-        await observeArm(p, f, arm, detected, { id: "offline-observed-command", capabilities: { vision: false }, async complete() { physical++; writeFileSync(join(p.root, "unexpected.bin"), Buffer.from([0, 255, 128])); return "[]"; } });
-      }
-    })()).rejects.toThrow("Unexpected source file membership");
-    expect(physical).toBe(1); expect(admitted).toBe(1);
+    const before = sourceSnapshot(p.root);
+    for (const arm of ["actual-current-message-only", "actual-providerless"] as const) {
+      admitted++;
+      await observeArm(p, f, arm, detected, { id: "offline-observed-command", capabilities: { vision: false }, async complete() { physical++; writeFileSync(join(p.root, "unexpected.bin"), Buffer.from([0, 255, 128])); return "[]"; } });
+    }
+    expect(physical).toBe(0); expect(admitted).toBe(2);
+    expect(sourceSnapshot(p.root)).toEqual(before);
   } finally { p.close(); }
 });
 
-test("all-file observer refuses preserved-byte timestamp/mode changes, new directories and SQL symlinks", async () => {
-  for (const change of ["mtime", "mode", "directory", "symlink"] as const) {
+test("all-file observer refuses preserved-byte timestamp/mode changes, new directories, binary files and SQL symlinks", async () => {
+  for (const change of ["mtime", "mode", "directory", "binary", "symlink"] as const) {
     const f = cases[0]!; const p = await prepareBenchmark(f);
     try {
       const before = sourceSnapshot(p.root); const path = Object.keys(f.files)[0]!;
       if (change === "mtime") utimesSync(join(p.root, path), 1, 1);
       if (change === "mode") chmodSync(join(p.root, path), 0o600);
       if (change === "directory") mkdirSync(join(p.root, "unexpected-empty"));
+      if (change === "binary") writeFileSync(join(p.root, "unexpected.bin"), Buffer.from([0, 255, 128]));
       if (change === "symlink") { rmSync(join(p.root, "brain.db-shm"), { force: true }); symlinkSync(path, join(p.root, "brain.db-shm")); }
       expect(() => assertSourceEffect(before, sourceSnapshot(p.root), f.files)).toThrow("Unexpected source");
     } finally { p.close(); }

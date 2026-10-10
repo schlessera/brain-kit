@@ -1,4 +1,5 @@
-import { Overlay } from "@schlessera/brain-ui-kit";
+import type { CSSProperties } from "react";
+import { IconButton, Overlay, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
@@ -35,7 +36,7 @@ export function GraphControls() {
 
   return (
     <>
-      <button
+      <button /* raw-button: canvas — Floating graph canvas options control. */
         onClick={() => setMobileOpen(true)}
         className="absolute right-3 top-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg"
         title="Graph options"
@@ -43,7 +44,7 @@ export function GraphControls() {
         <SlidersHorizontal className="h-4.5 w-4.5" />
       </button>
 
-      <Overlay open={mobileOpen} variant="sheet" title="Graph options" onClose={() => setMobileOpen(false)}>
+      <Overlay open={mobileOpen} variant="sheet" title="Graph options" closeLabel="Close graph options" onClose={() => setMobileOpen(false)}>
         <ControlsBody />
       </Overlay>
     </>
@@ -106,13 +107,7 @@ function SceneSearch() {
         spellCheck={false}
       />
       {sceneQuery && (
-        <button
-          onClick={() => setSceneQuery("")}
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-          title="Clear"
-        >
-          <X className="h-3 w-3" />
-        </button>
+        <IconButton size="sm" name="Clear search" glyph={<X className="h-3 w-3" />} onClick={() => setSceneQuery("")} />
       )}
     </label>
   );
@@ -169,12 +164,7 @@ function DiscoveryControls() {
           onPick={(path) => setDiscoveryParams({ root: path })}
         />
         {discovery.root && defaultRoot && (
-          <button
-            onClick={() => setDiscoveryParams({ root: null })}
-            className="mt-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            Reset to default root
-          </button>
+          <TextButton tone="meta" label="Reset to default root" onClick={() => setDiscoveryParams({ root: null })} />
         )}
       </Field>
       <Field label={`Max depth: ${discovery.maxDepth}`}>
@@ -354,14 +344,14 @@ function NotePicker({
       {editing && results.length > 0 && (
         <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-surface-overlay shadow-2xl">
           {results.map((hit) => (
-            <button
+            <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Composite search result keeps focus in the field. */
               key={hit.path}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onPick(hit.path);
                 setEditing(false);
               }}
-              className="flex w-full flex-col px-3 py-2 text-left transition-colors hover:bg-surface-raised"
+              className="bk-row flex w-full flex-col px-3 py-2 text-left transition-colors"
             >
               <span className="truncate text-xs text-foreground">
                 {hit.title || hit.path}

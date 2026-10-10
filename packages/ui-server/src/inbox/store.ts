@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite";
 import type {
+  HygieneAction,
+  InboxOption,
+  InboxActionItem,
   BillingMode,
   InboxActionStatus,
   InboxChange,
@@ -12,6 +15,7 @@ import type {
   InboxThread,
 } from "@schlessera/brain-ui-sdk/protocol";
 import {
+  hygieneActionSchema,
   inboxChangeSchema,
   inboxDismissReasonSchema,
   inboxItemSchema,
@@ -68,6 +72,7 @@ export interface InboxReservation {
   reservedTurns: number;
 }
 export type InboxMutation =
+  | { kind: "hygiene_update"; itemId: string; expectedVersion: number; hygiene: HygieneAction; options: InboxOption[] }
   | { kind: "item"; item: InboxItem }
   | { kind: "retain_block"; itemId: string; expectedVersion: number; expiresAt: number }
   | {
@@ -166,6 +171,9 @@ const EMPTY_FACTS: InboxCheckpointFacts = {
   questions: [],
 };
 const TABLES = [
+  "hygiene_review",
+  "hygiene_action_revisions",
+  "hygiene_effect_attempts",
   "inbox_threads",
   "inbox_items",
   "inbox_thread_sequences",
@@ -290,7 +298,7 @@ function validateItem(value: InboxItem): InboxItem {
           "leaseUntil",
           "blockedByItemId",
         ]
-      : ["options"]),
+      : ["options", "hygiene"]),
   ]);
   if (Object.keys(value).some((key) => !allowed.has(key)))
     throw new Error("Unexpected inbox item field");
@@ -303,6 +311,7 @@ function validateItem(value: InboxItem): InboxItem {
   )
     throw new Error("Unexpected staging payload field");
   if (item.queue === "actions") {
+    if (item.hygiene) hygieneActionSchema.parse(item.hygiene);
     if (
       Object.keys(item.payload).some(
         (key) => key !== "title" && key !== "detail"
@@ -460,6 +469,14 @@ export class InboxStore {
     this.insertItem(input.item);
   }
 
+  /** Human review owns a trusted operational thread, without agent work. */
+  openReviewThread(id: string): void {
+    assertId(id);
+    const now = this.now();
+    this.db.query("INSERT INTO inbox_threads (id, trust_class, source, status, stakes, created_at, last_seen_at) VALUES (?, 'trusted', 'cli', 'open', 1, ?, ?)").run(id, now, now);
+    this.threadChange(this.threadRow(id));
+  }
+
   /** Source is supplied by authenticated intake code; trust is derived, never supplied. */
   ingest(input: {
     threadId: string;
@@ -615,6 +632,17 @@ export class InboxStore {
     const now = this.now();
     assertTime(now);
     switch (mutation.kind) {
+      case "hygiene_update": {
+        const row = this.itemRow(mutation.itemId), item = wireItem(row);
+        if (row.deleted_at !== null || item.queue !== "actions" || !item.hygiene || item.version !== mutation.expectedVersion || !["pending", "snoozed"].includes(item.status))
+          throw new Error("Inbox version conflict");
+        const next: InboxActionItem = { ...item, hygiene: mutation.hygiene, options: mutation.options, version: item.version + 1, updatedAt: now };
+        validateItem(next);
+        this.db.query("INSERT INTO hygiene_action_revisions (item_id, version, options_json) VALUES (?, ?, ?)").run(next.id, next.version, JSON.stringify(next.options));
+        this.db.query("UPDATE inbox_items SET version = ?, data_json = ? WHERE id = ?").run(next.version, JSON.stringify(next), next.id);
+        this.change(next.threadId, { kind: "upsert_item", itemId: next.id, item: next });
+        return;
+      }
       case "item":
         this.insertItem(mutation.item);
         return;

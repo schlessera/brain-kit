@@ -112,6 +112,7 @@ export function viewOption(option: InboxOption, blockedSubject: string | null): 
       return { role: "dismiss", option };
     case "snooze":
       return { role: "later", option };
+    case "hygiene":
     case "write_policy":
     case "open_session":
       return {

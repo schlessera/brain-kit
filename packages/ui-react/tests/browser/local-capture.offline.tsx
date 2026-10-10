@@ -14,7 +14,7 @@
  * ends, and nothing is pressed before entrances settle (#992).
  */
 import { afterEach, beforeAll, afterAll, expect, test, vi, type TestContext } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
 import { createRoot, type Root } from "react-dom/client";
@@ -409,7 +409,7 @@ test("Add on a dictated review never starts dictation beside a recording on the 
   await settle(s);
   await recordOffline(s);
   await reconnect(s);
-  const add = s.host.querySelector<HTMLButtonElement>('button[title="Append more voice"]');
+  const add = page.elementLocator(s.host).getByRole("button", { name: "Append more voice", exact: true }).query() as HTMLButtonElement | null;
   expect(add, "the review card offers Add").toBeTruthy();
   await userEvent.click(add!);
   await settle(s);

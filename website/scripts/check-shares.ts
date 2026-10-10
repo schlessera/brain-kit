@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { exportRecipeHash, repository } from './export-recipe.ts';
-import { demoDocuments, documentByPath, wikilinks } from '../src/demo/corpus.ts';
+import { demoDocuments, documentByPath, resolveWikilink } from '../src/demo/corpus.ts';
 import { knowledgeResponse } from '../src/demo/knowledge.ts';
-import { library } from '../../packages/ui-kit/fixtures/library/index.ts';
+import { knownIssues, library } from '../../packages/ui-kit/fixtures/library/index.ts';
 import { splitFrontmatter } from '../../packages/ui-react/src/lib/frontmatter.ts';
 import { exportKey } from '../src/demo/export-key.ts';
 
@@ -15,8 +15,10 @@ assert(library.length >= 400 && library.every(record => documentByPath[record.pa
 const meta = await knowledgeResponse(new URL('https://demo.invalid/api/graph/meta'))!.json();
 assert.equal(meta.nodeCount, markdown.length, 'Graph omits demo records');
 const reach = await knowledgeResponse(new URL('https://demo.invalid/api/graph/maintenance'))!.json();
-const libraryPaths = new Set(library.map(record => record.path));
-assert.deepEqual(reach.unreachable.map((node: { path: string }) => node.path).filter((path: string) => libraryPaths.has(path)), [], 'Library records unreachable from the goal');
+// The demo's maintenance view reports the library's declared mess, and only that.
+const declared = new Set(knownIssues.unresolved.map(([from, to]) => `${from} -> ${to}`));
+assert.deepEqual(reach.brokenLinks.map((link: { sourcePath: string; target: string }) => `${link.sourcePath} -> ${resolveWikilink(link.target) ?? link.target}`).sort(), [...declared].sort(), 'Maintenance broken links differ from the declared ones');
+assert.deepEqual(reach.orphans.map((node: { path: string }) => node.path).sort(), [...knownIssues.orphans].sort(), 'Maintenance orphans differ from the declared ones');
 for (const record of library) {
   const results = (await knowledgeResponse(new URL(`https://demo.invalid/api/brain/search?limit=500&q=${encodeURIComponent(record.title)}`))!.json()).results;
   assert(results.some((result: { path: string }) => result.path === record.path), `Search cannot find ${record.path} by its title`);
@@ -38,11 +40,11 @@ for (const [key, formats] of Object.entries(index.exports) as [string, Record<st
   assert.equal(provenance.assets[asset].format, format, `Share target has the wrong format: ${asset}`);
 }
 for (const record of demoDocuments) {
-  for (const link of record.links) assert(documentByPath[link], `Unresolved fictional link: ${record.path} -> ${link}`);
+  for (const link of record.links) assert(documentByPath[link] || declared.has(`${record.path} -> ${link}`), `Unresolved fictional link: ${record.path} -> ${link}`);
   if (record.kind === 'text') continue;
   const { fields, body } = splitFrontmatter(record.content);
   if (record.kind === 'markdown') assert(fields.some(field => field.key === 'type') && fields.some(field => field.key === 'updated'), `Missing file metadata: ${record.path}`);
-  if (record.kind === 'markdown') for (const [, slug] of body.matchAll(/\[\[([^\]|#]+)/g)) assert(wikilinks[slug.trim().toLowerCase()] || documentByPath[slug.trim()], `Unresolved wiki-link: ${record.path} -> [[${slug}]]`);
+  if (record.kind === 'markdown') for (const [, raw] of body.matchAll(/\[\[([^[\]\n]+?)\]\]/g)) { const to = resolveWikilink(raw); assert((to && documentByPath[to]) || declared.has(`${record.path} -> ${to ?? raw}`), `Unresolved wiki-link: ${record.path} -> [[${raw}]]`); }
   // Library records share as text formats; only featured records carry PNG/PDF.
   if (!record.featured) continue;
   const key = await exportKey({ content: record.kind === 'markdown' ? body : record.content, contentType: record.kind, format: 'png', title: record.path.split('/').at(-1) });

@@ -167,11 +167,11 @@ describe("ClampedPre", () => {
 
 test("the overlay control reveals on hover, and is always visible on a coarse pointer", () => {
   const view = render(<ClampedPre text="short" />);
-  const classes = view.getByRole("button", { name: "Copy output" }).className.split(" ");
+  const classes = view.getByRole("button", { name: "Copy output" }).parentElement!.className.split(" ");
   expect(classes).toContain("opacity-0");
   expect(classes).toContain("group-hover/copy:opacity-100");
   // The variant is compiled by Tailwind; tests/copy-button-css.test.ts checks
   // it becomes a `(pointer: coarse)` rule.
   expect(classes).toContain("pointer-coarse:opacity-100");
-  expect(view.getByRole("button", { name: "Copy output" }).className).toBe(COPY_OVERLAY_CLASS);
+  expect(view.getByRole("button", { name: "Copy output" }).parentElement!.className).toBe(COPY_OVERLAY_CLASS);
 });

@@ -8,20 +8,20 @@ audit command, skill, severity or JSON contract.
 
 **Measured result (2026-10-10):** see
 [`docs/decisions/audit-repair-suggestions.md`](decisions/audit-repair-suggestions.md).
+#1408 then made `brain audit --fix` deterministic. The "current boundary" below
+describes the command as it was measured, before that change.
 
 ## The current boundary
 
 `audit --fix` sends severity, path, finding message and existing suggestion to
 one completion; it supplies neither document contents nor configured taxonomy.
 The returned array's paths, membership, booleans and replacements are not
-validated against findings or available handlers (`suggestFixes`,
-`packages/core/src/cli/commands/audit.ts:26-67`). Missing provider, invalid JSON
+validated against findings or available handlers ([`suggestFixes` before #1408](https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26-L67)). Missing provider, invalid JSON
 and completion exceptions fall back to the existing suggestions with
 `canAutoFix: false`. A parsed empty array can omit every finding; a parsed
 replacement or `canAutoFix` claim establishes no executable repair.
 
-The command prints suggestions and never applies them (`auditCommand`,
-`packages/core/src/cli/commands/audit.ts:70-125`). Its real indexed-file control
+The command prints suggestions and never applies them ([`auditCommand` before #1408](https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L70-L125)). Its real indexed-file control
 accepts an invented `../outside.md` replacement from a scripted provider while
 leaving all document bytes and the ordinary audit report unchanged. The prompt
 contains the unresolved target but omits the source body's identifying text.

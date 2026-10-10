@@ -44,6 +44,11 @@ function busy() {
   socket.deliver({ type: "session_history", sessionId: S, messages: [{ role: "user", content: "Chart the way home", toolCalls: [] }] });
   socket.deliver({ type: "session_info", sessionId: S, isNew: false, turnId: "turn-1" });
   socket.deliver({ type: "text_delta", sessionId: S, turnId: "turn-1", text: "Plotting the course" });
+  // Selecting the session asked for its history (#1328), which the replay
+  // above answered. The tests below count the reads that come after it.
+  const opened = socket.sent.filter((raw) => JSON.parse(raw).type === "session_resume");
+  expect(opened.map((raw) => JSON.parse(raw))).toEqual([{ type: "session_resume", sessionId: S }]);
+  socket.sent.splice(socket.sent.indexOf(opened[0]!), 1);
   return { root, socket };
 }
 const messages = (root: BrainUiRoot) => root.stores.chat.getState().buffers[S]!.messages;

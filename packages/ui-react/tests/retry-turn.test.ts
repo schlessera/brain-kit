@@ -106,6 +106,7 @@ test("reload with an unacknowledged send queries delivery and cannot blindly res
   expect(b.socket.frames().filter(f => f.type === "retry_status")).toEqual([{ type: "retry_status", sessionId: "s1", requestId: original.requestId }]);
   b.socket.deliver({ type: "retry_receipt", sessionId: "s1", requestId: original.requestId, state: "accepted" });
   expect(b.root.stores.chat.getState().turnRetries.s1).toBeUndefined();
-  expect(b.socket.frames().filter(f => f.type === "session_resume")).toEqual([{ type: "session_resume", sessionId: "s1" }]);
+  // Selecting s1 read its history (#1328); the recovered receipt heals from history once more.
+  expect(b.socket.frames().filter(f => f.type === "session_resume")).toEqual([{ type: "session_resume", sessionId: "s1" }, { type: "session_resume", sessionId: "s1" }]);
   expect([...data.values()].join("\n")).not.toContain("Original");
 });

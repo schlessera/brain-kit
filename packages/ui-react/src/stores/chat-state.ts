@@ -303,7 +303,33 @@ export interface SessionChat {
    * chunk is reconciled against the same transcript the first one was.
    */
   replay?: { base: Pick<SessionChat, "messages" | "isStreaming">; received: ChatMessage[] };
+  /**
+   * @internal This client holds the session's whole transcript (#1328): the host's
+   * history for it arrived (an empty one counts), or the buffer is the one
+   * this client started the conversation in. A buffer opened for a stored or
+   * selected session before its history comes back is not, however empty.
+   */
+  historyConfirmed?: true;
 }
+
+/**
+ * Why a selected session's history could not be restored (#1328): the host
+ * reported a load error, or nothing answered within the bound.
+ */
+export interface RestoreFailure {
+  reason: "error" | "timeout";
+  message?: string;
+}
+
+/**
+ * The selected session whose transcript this client has not yet received
+ * (#1328), or null. Until its history arrives the view must not read as a new
+ * chat, and nothing may be sent into it: the reader cannot see what the agent
+ * would answer from.
+ */
+export type Restoration =
+  | { sessionId: string; phase: "restoring" }
+  | { sessionId: string; phase: "failed"; failure: RestoreFailure };
 
 /**
  * Buffer key: a server sessionId, or null for the DRAFT buffer — the new
@@ -371,6 +397,12 @@ export interface ChatState {
   withdrawSend: (key: ChatKey, requestId: string) => void;
   /** The session in view; null = the draft / new-chat view. */
   activeSessionId: string | null;
+  /** Sessions whose history restoration failed, until history for them arrives (#1328). */
+  restoreFailures: Record<string, RestoreFailure>;
+  /** Record that a session's history could not be restored. */
+  failRestore: (sessionId: string, failure: RestoreFailure) => void;
+  /** Retry: the session's restoration is waiting on the host again. */
+  clearRestoreFailure: (sessionId: string) => void;
 
   /**
    * Live run-state per session id, for the session-list badges. Maintained for
@@ -869,6 +901,18 @@ const EMPTY_CHAT: SessionChat = Object.freeze({
   lastTouched: 0,
 });
 
+/**
+ * The selected session's restoration (#1328): null when nothing is selected
+ * or its transcript is confirmed. Derived from the buffer, so a session whose
+ * buffer was evicted is restoring again when it is selected again.
+ */
+export function restorationOf(state: Pick<ChatState, "activeSessionId" | "buffers" | "restoreFailures">): Restoration | null {
+  const sessionId = state.activeSessionId;
+  if (!sessionId || state.buffers[sessionId]?.historyConfirmed) return null;
+  const failure = state.restoreFailures[sessionId];
+  return failure ? { sessionId, phase: "failed", failure } : { sessionId, phase: "restoring" };
+}
+
 /** The buffer currently in view (draft when no session is bound). */
 export function activeChat(state: ChatShellState): SessionChat {
   if (state.activeSessionId) return state.buffers[state.activeSessionId] ?? EMPTY_CHAT;
@@ -1027,6 +1071,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
     } catch { return {}; }
   }
 
+  const persistedSessionId = readPersistedSessionId();
   return createStore<ChatState>((set, get) => {
     /**
      * Immutably update one buffer. Draft mutations (key null) create the draft
@@ -1135,14 +1180,29 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         set({ turnRetries });
       },
       setRetryHandle: (key, retryOfTurnId) => mutateLastAssistant(key, last => ({ ...last, retryOfTurnId })),
-      buffers: {},
+      // The stored selection gets its (empty, unconfirmed) buffer, as any
+      // selection does, so the session's own frames land while its history
+      // is restored (#1328).
+      buffers: persistedSessionId ? { [persistedSessionId]: emptyChat() } : {},
       draft: null,
       pendingDraftId: null,
       detachedDrafts: {},
       // localStorage (not sessionStorage) so the active session id survives the
       // PWA process being killed on mobile — that durability is what lets a cold
       // relaunch re-request the full transcript instead of showing nothing.
-      activeSessionId: readPersistedSessionId(),
+      activeSessionId: persistedSessionId,
+      restoreFailures: {},
+      failRestore: (sessionId, failure) =>
+        set((state) => (state.buffers[sessionId]?.historyConfirmed
+          ? state
+          : { restoreFailures: { ...state.restoreFailures, [sessionId]: failure } })),
+      clearRestoreFailure: (sessionId) =>
+        set((state) => {
+          if (!state.restoreFailures[sessionId]) return state;
+          const restoreFailures = { ...state.restoreFailures };
+          delete restoreFailures[sessionId];
+          return { restoreFailures };
+        }),
       runStates: {},
       queueNotes: {},
       backendIds: {},
@@ -1701,13 +1761,17 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           const base = existing ? { messages: existing.messages, isStreaming: existing.isStreaming } : null;
           const drawn = base ? keepDrawnMessages(withKnownTurns(messages, base.messages), base) : { messages, isStreaming: false };
           if (existing) revokeAttachmentUrls(existing.messages, drawn.messages);
+          // The first chunk of the host's history: whatever it holds, even
+          // nothing, the transcript is the host's now (#1328).
           const buffers = {
             ...state.buffers,
             [key]: base
-              ? { ...emptyChat(), ...drawn, replay: { base, received: messages } }
-              : { ...emptyChat(), messages },
+              ? { ...emptyChat(), ...drawn, replay: { base, received: messages }, historyConfirmed: true as const }
+              : { ...emptyChat(), messages, historyConfirmed: true as const },
           };
-          return { buffers: evictStale(buffers, state.activeSessionId) };
+          const restoreFailures = { ...state.restoreFailures };
+          delete restoreFailures[key];
+          return { buffers: evictStale(buffers, state.activeSessionId), restoreFailures };
         }),
 
       appendMessages: (key, messages) =>
@@ -1783,7 +1847,8 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         set((state) => {
           const adopted = state.buffers[sessionId] ?? state.draft ?? emptyChat();
           const buffers = evictStale(
-            { ...state.buffers, [sessionId]: { ...adopted, lastTouched: Date.now() } },
+            // This client started the conversation: it holds all of it.
+            { ...state.buffers, [sessionId]: { ...adopted, lastTouched: Date.now(), historyConfirmed: true } },
             sessionId
           );
           const followView = state.activeSessionId === null;
@@ -1804,7 +1869,13 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           const buffers = existing
             ? state.buffers
             : evictStale({ ...state.buffers, [sessionId]: emptyChat() }, sessionId);
-          return { activeSessionId: sessionId, buffers };
+          // Selecting a session again is a new attempt at restoring it (#1328).
+          let restoreFailures = state.restoreFailures;
+          if (sessionId !== state.activeSessionId && restoreFailures[sessionId]) {
+            restoreFailures = { ...restoreFailures };
+            delete restoreFailures[sessionId];
+          }
+          return { activeSessionId: sessionId, buffers, restoreFailures };
         }),
 
       setRunState: (sessionId, runState, note) =>
@@ -1866,7 +1937,7 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           return {
             detachedDrafts,
             buffers: evictStale(
-              { ...state.buffers, [sessionId]: existing ?? { ...adopted, lastTouched: Date.now() } },
+              { ...state.buffers, [sessionId]: existing ?? { ...adopted, lastTouched: Date.now(), historyConfirmed: true } },
               state.activeSessionId ?? sessionId
             ),
           };

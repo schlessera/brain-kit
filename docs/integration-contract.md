@@ -707,7 +707,7 @@ policy. The rationale and measurements are in
 | Command | Shape |
 |---------|-------|
 | `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
-| `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. With `--fix` the command prints fix suggestions instead, in a shape that is not part of this contract |
+| `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. **Additive in 0.41.0:** `brain audit --fix --json` returns `AuditFixResult[]`, one result per finding in finding order: `{ path, issue, suggestion, canAutoFix, fix?, repair? }`. `path` is the finding path, `issue` its message, and `suggestion` its own advice (or "Manual review needed."); an unavailable `index-stale` instead names the failed repair premise, or says no registry content change is required. `canAutoFix` is true only for an actually available deterministic registry repair: safe contained path, valid opted-in registry with a content change, configured child types and no validation errors under the index directory. Available results also carry `repair: { capability: "registry", path: <index path> }`; all other categories and failed premises are manual with no `repair`. `repair` describes availability, grants no permission, and applies nothing. Optional `fix` means exact replacement text; this command never emits it. No completion provider is called, even if configured |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM) |
@@ -2451,11 +2451,12 @@ Each option carries a closed `ResolutionEffect`:
 | `cancel_blocked` | No additional fields | v1 |
 | `snooze` | No additional fields; timing is server-derived | v1 |
 | `dismiss` | Optional `reason` | v1 |
+| `hygiene` | Finding/fingerprint-bound operation and optional confirmed input/preview; see [human review](#human-started-hygiene-review-additive-1027) | v1, human coordinator only |
 | `write_policy` | `policy { slug, content }` | Deferred v2 data only |
 | `open_session` | `seed { prompt }` | Deferred v2 data only |
 
 `V1ResolutionEffect` and `v1ResolutionEffectSchema` exclude both deferred
-kinds. `resolutionEffectSchema` describes all six kinds as data; it is not
+kinds. `resolutionEffectSchema` describes all seven kinds as data; it is not
 an execution validator. `inboxOperationSchema`, `inboxWorkPayloadSchema`,
 `inboxOptionSchema` and effect schemas reject unknown fields, including trust,
 profile, principal and tool-policy injections. Arbitrary tool input is inert
@@ -2467,7 +2468,7 @@ revalidate current principal/thread authority at creation and application;
 this helper neither grants permission nor proves filesystem/egress containment.
 An instruction without an operation remains inside the restricted envelope.
 
-Clients send `inbox_resolve { itemId, optionId, reason? }` to select a stored
+Clients send `inbox_resolve { itemId, optionId, reason?, input? }` to select a stored
 option, or `inbox_snooze { itemId }` to request deterministic snooze. They cannot
 submit effects, scheduling overrides or authority. Reasons are optional
 `dont_ask_again | wrong_call | need_more_info | no_longer_relevant` feedback,
@@ -5741,3 +5742,86 @@ internal-error exit 2; an interrupted receipt requires recheck/reconciliation,
 not blind replay of a content write. The compare-then-rename writer retains its existing
 last-read-to-rename race limitation; these commands supply no multi-file
 transaction or server-level replay/authorization guarantee.
+
+### Human-started hygiene review (additive, #1027)
+
+The authenticated host exposes `GET /api/hygiene/review` and
+`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" }`.
+Both return `{ "review": HygieneReviewState, "action": InboxActionItem | null }`.
+The read is operational state; start/resume select through the supported
+`brain hygiene next --json` boundary without inference. Owner and ambient
+principals may operate the review; delegated agent and system principals cannot.
+The normal auth/origin/body limits apply. Missing auth is 401, narrower authority
+refusal is 403, malformed commands are 400 and unavailable/failed CLI reads are
+`review_failed` (500). No new WebSocket capability is implied: clients discover
+these HTTP operations through this contract; Actions use existing inbox replication.
+
+`HygieneReviewState` has `version: 1`, `status` (`idle`, `active`, `paused`,
+`complete`, `blocked`), nonnegative `position`, `fixed`, `dismissed`, `snoozed`,
+optional `pendingActionId`, optional C2 `counts` and optional CLI `blocker`.
+Position counts presentations in this durable review, including a due snooze's
+return. The three counters count confirmed review dispositions; C2 counts retain
+their distinct backlog meaning. A reload or another device reads the same state.
+Pause neither disposes the finding nor changes its pending Action. Start/resume
+returns an existing pending Action. An empty selection returns deferred counts
+without an Action; a configuration/check blocker returns the CLI blocker instead.
+
+An Action may carry optional `hygiene`:
+`{ findingId, fingerprint, finding, outcome? }`. `finding` retains the supported
+C2/C3 projection, including the complete `handlers` descriptors, priority reason,
+provenance, presentation and invalidation receipt. `outcome` is
+`{ version: 1, status, reason?, code?, undoToken?, fieldError? }`; its statuses are
+`applying`, `fixed`, `stale`, `refused`, `check_failed`, `still_detected`,
+`not_detected`, `undone`, `dismissed`, `snoozed`. The Action's ordinary `version`
+advances whenever its outcome or confirmed options change, emitting the existing
+upsert delta. Failed/uncertain outcomes survive restart and stay pending.
+
+Stored options may carry `input` (the CLI descriptor: `type` is `none`, `string`,
+`enum`, `date`, `strings` or `path`, plus optional `values`/`example`) and
+`preview` (`{ path, before, after, changes: [{ before, after, line }] }`).
+A new v1 `hygiene` resolution effect carries `operation` (`resolve`, `check`,
+`undo`, `dismiss`, `snooze`), `findingId`, `fingerprint`, and optional `handler`,
+`input`, `previewToken`, `undoToken`. This kind is admitted only by the concrete
+human-review coordinator, never generic model escalation. Strict validation
+rejects extra authority fields. All existing effect kinds retain their meaning.
+
+`POST /api/hygiene/review/preview` takes strict
+`{ itemId, optionId, expectedVersion, input }`, where input is null, a string
+(maximum 4096 characters), or at most 128 strings (maximum 256 characters each).
+It runs C3's read-only dry-run, validates the current principal and item version
+again after I/O, then stores a new immutable option revision and publishes the
+updated Action. A successful response is that Action; failed handler validation
+is a persisted refused/stale outcome on the pending Action. Missing auth is 401,
+authority refusal 403, malformed data 400 and stale/unavailable preview
+`preview_refused` (409). Diff before/after/replacement strings follow
+`MAX_PROMPT_CHARS`; changes are bounded to 1024. Oversized previews are refused,
+never truncated into a confirmation. Input-free repairs are previewed at start;
+field/picker repairs require this endpoint before confirmation.
+
+`inbox_resolve` adds optional `input` with those same bounds. It must equal the
+value bound to the stored preview; it never supplies an effect, fingerprint or
+new authority. Resolution uses the existing principal/option/frozen-revision
+checks and its generic refusal envelope. A content repair requires both the
+stored fingerprint and preview token, passed to C3. Only `fixed` completes a
+repair; `stale`, `refused`, `check_failed` and `still_detected` never advance.
+`Done, check again` completes only on `not_detected`. `check_failed` with an
+undo token adds a separate `Undo change` option with C3's inverse preview;
+confirmed Undo remains pending and invalidates forward previews. Nothing applies
+Undo automatically. Generic `inbox_snooze` refuses hygiene Actions: select their
+stored `later` option so the shared server calendar time reaches both Action
+`waitUntil` and markdown `until:` (CLI `list.dueAt` is the instant, while legacy
+`list.until` remains the day). Optional dismissal feedback uses existing `reason`.
+
+A confirmed fixed/dismissed/snoozed disposition admits at most one next Action
+while active. Identical replays create no next item and run no second repair;
+conflicting terminal responses are refused. Due hygiene snoozes remain in Later
+until C2 selects them; the generic sweep cannot create a second pending hygiene
+card beside the current one. This review does not enqueue agent work.
+
+The operational database journals confirmed dispatch before CLI I/O. Boot, or
+an explicit check after an unknown receipt, recovers interrupted repairs by
+reading the recorded finding/fingerprint and invoking `check`, never by replaying
+`resolve`. A `not_detected` recovery records fixed; a changed fingerprint stays
+stale. Interrupted dispositions are verified against CLI log state and their
+exact due instant. An uncertain inverse remains `check_failed`; it is not
+reapplied. Neither leaving nor disconnecting stops an already confirmed effect.

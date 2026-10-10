@@ -200,7 +200,9 @@ for (const stop of ["Done", "mic", "Enter", "Space", "mic Enter", "mic Space"] a
 
 test("dictation desktop: Enter on Cancel cancels rather than committing", async () => {
   const { client, listen } = await mount(); await listen();
-  const cancel = host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!;
+  const namedCancel = page.getByRole("button", { name: "Cancel dictation", exact: true });
+  expect(namedCancel.query(), "dictation cancel has its explicit accessible name").not.toBeNull();
+  const cancel = namedCancel.element() as HTMLButtonElement;
   cancel.focus(); await userEvent.keyboard("{Enter}");
   expect(client.stopped).toBe(1); expect(client.drained).toBe(0);
   expect(ui!.stores.voice.getState().reviewText).toBe("");
@@ -295,7 +297,7 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
         client.finish();
         await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the nonempty phone voyage transcript");
       } else {
-        await userEvent.click(host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!);
+        await userEvent.click(page.getByRole("button", { name: "Cancel dictation", exact: true }));
         expect(client.stopped).toBe(1);
         expect(client.drained).toBe(0);
         expect(ui!.stores.voice.getState().reviewText).toBe("");
@@ -524,7 +526,7 @@ for (const action of ["Done", "mic", "Cancel"] as const) {
     expect(backdrop()).toBeNull();
     expect(panel().textContent).toContain("Tap Done or the mic to stop");
     expect(panel().textContent).not.toContain("Enter");
-    const target = action === "Done" ? done() : action === "mic" ? mic() : host!.querySelector<HTMLButtonElement>('button[title="Cancel"]')!;
+    const target = action === "Done" ? done() : action === "mic" ? mic() : page.getByRole("button", { name: "Cancel dictation", exact: true }).element() as HTMLButtonElement;
     for (const control of [target, mic()]) {
       expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
       expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);

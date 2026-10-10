@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useEffect } from "react";
 import { useUIStore, type ThemePreference } from "../../stores/ui-store.js";
 import { cn } from "../../lib/utils.js";
@@ -45,7 +46,7 @@ export function ThemeToggle() {
       className="flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5"
     >
       {OPTIONS.map((o) => (
-        <button
+        <button style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties} /* raw-button: select — Radiogroup theme segment keeps its checked state. */
           key={o.id}
           type="button"
           role="radio"
@@ -53,10 +54,10 @@ export function ThemeToggle() {
           title={o.hint}
           onClick={() => setTheme(o.id)}
           className={cn(
-            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "bk-row rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
             theme === o.id
               ? "bg-surface-raised text-foreground"
-              : "text-muted-foreground hover:text-foreground",
+              : "text-muted-foreground",
           )}
         >
           {o.label}

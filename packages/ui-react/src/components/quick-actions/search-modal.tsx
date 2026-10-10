@@ -1,3 +1,4 @@
+import { Button, IconButton } from "@schlessera/brain-ui-kit";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Loader2, Search, X, AlertTriangle } from "lucide-react";
 import { SlidePanel } from "../layout/slide-panel.js";
@@ -183,16 +184,7 @@ export function SearchPanel({
               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
             )}
             {query && state !== "loading" && (
-              <button
-                onClick={() => {
-                  changeQuery("");
-                  inputRef.current?.focus();
-                }}
-                className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                title="Clear"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <IconButton size="sm" name="Clear search" glyph={<X className="h-3.5 w-3.5" />} onClick={() => { changeQuery(""); inputRef.current?.focus(); }} />
             )}
           </div>
         </div>
@@ -246,12 +238,7 @@ export function SearchPanel({
               ? `${results.length}${results.length === LIMIT ? "+" : ""} result${results.length === 1 ? "" : "s"}`
               : ""}
           </span>
-          <button
-            onClick={onClose}
-            className="rounded-lg bg-surface-raised px-4 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-overlay"
-          >
-            Close
-          </button>
+          <Button tone="quiet" size="sm" label="Close" block={false} style={{ minHeight: 44 }} onClick={onClose} />
         </div>
       </div>
     </SlidePanel>

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import type {
   GraphNodePayload,
@@ -278,14 +279,14 @@ function FindingRows({
   return (
     <div className="divide-y divide-border/40 overflow-hidden rounded-lg border border-border bg-surface">
       {rows.map((row) => (
-        <button
+        <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Composite maintenance row supports double-click. */
           key={row.key}
           data-node-id={row.nodeId}
           onClick={row.onClick}
           onDoubleClick={row.onDoubleClick}
           className={cn(
-            "flex min-h-11 w-full flex-col justify-center px-3 py-2 text-left transition-colors",
-            row.active ? "bg-surface-raised" : "hover:bg-surface-raised/60"
+            "bk-row flex min-h-11 w-full flex-col justify-center px-3 py-2 text-left transition-colors",
+            row.active ? "bg-surface-raised" : ""
           )}
         >
           <span className="truncate text-xs text-foreground">{row.title}</span>

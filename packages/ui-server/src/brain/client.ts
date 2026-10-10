@@ -41,6 +41,8 @@ export class BrainSyncError extends Error {
  * environment, so two clients against different repos can coexist.
  */
 export interface BrainClient {
+  /** Deterministic hygiene CLI; business outcomes may accompany exit 1. */
+  hygiene?(args: readonly string[]): Promise<unknown>;
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
   /** Additive settings support; older injected clients may omit it. */
@@ -276,6 +278,7 @@ export function createBrainClient(opts: {
         args.push("--action", options.action);
       }
       const result = await execBrain(args, undefined, (operation === "save" || operation === "validate") ? JSON.stringify(options.values) : undefined);
+      if (![0, 1].includes(result.exitCode)) throw new Error(`brain hygiene failed (exit ${result.exitCode}): ${result.stderr}`);
       let parsed: unknown;
       try { parsed = JSON.parse(result.stdout); } catch { return parseJsonOutput(result); }
       if (result.exitCode !== 0 && !(parsed && typeof parsed === "object" && "status" in parsed)) return parseJsonOutput(result);
@@ -337,6 +340,16 @@ export function createBrainClient(opts: {
 
       const result = await execBrain(args);
       return parseJsonOutput(result);
+    },
+
+    async hygiene(args) {
+      const result = await execBrain(["hygiene", "--json", ...args]);
+      if (![0, 1].includes(result.exitCode)) throw new Error(`brain hygiene failed (exit ${result.exitCode}): ${result.stderr}`);
+      let parsed: unknown;
+      try { parsed = JSON.parse(result.stdout); } catch { throw new Error(`brain hygiene returned unreadable output (exit ${result.exitCode}): ${result.stderr}`); }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error(`brain hygiene failed (exit ${result.exitCode}): ${result.stderr}`);
+      return parsed;
     },
 
     async read(path) {

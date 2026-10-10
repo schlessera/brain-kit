@@ -5574,6 +5574,7 @@ describe("one-message composer effort", () => {
       act(() => {
         const chat = h.root.stores.chat.getState();
         chat.setActiveSession("effort-ui");
+        chat.setMessages("effort-ui", []);
         chat.startAssistantMessage("effort-ui", "running-turn");
         chat.setRunState("effort-ui", "streaming");
         h.root.stores.provider.getState().setPinned("claude");
@@ -5597,7 +5598,7 @@ describe("one-message composer effort", () => {
   test("queue acknowledgement consumes the sent override and preserves a newly chosen effort and edited draft", async () => {
     const h = await mounted();
     try {
-      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.chat.getState().setMessages("effort-ui", []); h.root.stores.provider.getState().setPinned("claude"); });
       h.choose("high"); h.type("queued"); h.send();
       expect(h.sent).toHaveLength(1);
       h.choose("max"); h.type("another message");
@@ -5630,7 +5631,7 @@ describe("one-message composer effort", () => {
   test("a held send accepted after Send again consumes the effort it carried", async () => {
     const h = await mounted();
     try {
-      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.chat.getState().setMessages("effort-ui", []); h.root.stores.provider.getState().setPinned("claude"); });
       h.choose("high"); h.type("queued"); h.send();
       act(() => h.root.stores.connection.getState().setWsStatus("disconnected"));
       act(() => h.root.stores.connection.getState().setWsStatus("connected"));
@@ -5645,7 +5646,7 @@ describe("one-message composer effort", () => {
   test("an acknowledgement that empties the session's draft keeps an effort chosen meanwhile", async () => {
     const h = await mounted();
     try {
-      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.provider.getState().setPinned("claude"); });
+      act(() => { h.root.stores.chat.getState().setActiveSession("effort-ui"); h.root.stores.chat.getState().setMessages("effort-ui", []); h.root.stores.provider.getState().setPinned("claude"); });
       h.choose("high"); h.type("queued"); h.send();
       h.choose("max");
       // Nothing typed since: acceptance forgets the emptied draft, and the

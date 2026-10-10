@@ -1,5 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@schlessera/brain-ui-kit";
 import { Code, ChartNetwork, Expand } from "lucide-react";
 import { peekMermaidSvg, renderMermaidSvg } from "../../lib/mermaid.js";
 import { useColorScheme } from "../../hooks/use-color-scheme.js";
@@ -56,9 +57,6 @@ export function MermaidBlock({ source }: { source: string }) {
   const diagramReady = svg !== null;
   const showDiagram = diagramReady && !showSource;
 
-  const iconBtn =
-    "flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground transition-all hover:bg-surface-overlay hover:text-foreground";
-
   return (
     // No `overflow-hidden` here: the share menu drops out of the toolbar and a
     // clipping ancestor would cut off its lower entries on a short diagram.
@@ -79,32 +77,27 @@ export function MermaidBlock({ source }: { source: string }) {
       )}
       <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-all focus-within:opacity-100 group-hover:opacity-100">
         {showDiagram && (
-          <button type="button" title="Open diagram" onClick={() => setZoomed(true)} className={iconBtn}>
-            <Expand className="h-3.5 w-3.5" />
-          </button>
+          <IconButton size="sm" tone="overlay" name="Open diagram" glyph={<Expand />} onClick={() => setZoomed(true)} />
         )}
         {diagramReady && (
           <ShareMenu
             options={buildDiagramShareOptions(root, source)}
             title="Share diagram"
             renderTrigger={({ onClick, busy, icon }) => (
-              <button type="button" title="Share diagram" onClick={onClick} disabled={busy} className={iconBtn}>
-                {icon}
-              </button>
+              <IconButton size="sm" tone="overlay" name="Share diagram" glyph={icon} haspopup="menu" onClick={onClick} disabled={busy} />
             )}
           />
         )}
         {diagramReady && (
-          <button
-            type="button"
-            title={showDiagram ? "Show source" : "Show diagram"}
+          <IconButton
+            size="sm"
+            tone="overlay"
+            name={showDiagram ? "Show source" : "Show diagram"}
             onClick={() => setShowSource((s) => !s)}
-            className={iconBtn}
-          >
-            {showDiagram ? <Code className="h-3.5 w-3.5" /> : <ChartNetwork className="h-3.5 w-3.5" />}
-          </button>
+            glyph={showDiagram ? <Code /> : <ChartNetwork />}
+          />
         )}
-        <CopyButton getText={() => source} className={iconBtn} />
+        <CopyButton getText={() => source} size="sm" tone="overlay" />
       </div>
       {zoomed && svg && (
         <MermaidViewer svg={svg} source={source} onClose={() => setZoomed(false)} />

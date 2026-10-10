@@ -177,6 +177,8 @@ describe("/stats in an existing session", () => {
     try {
       const socket = connected(root);
       root.stores.chat.getState().setActiveSession("s1");
+      // Its history is here: nothing is recorded into a session still restoring (#1328).
+      act(() => { socket.deliver({ type: "session_history", sessionId: "s1", messages: [] }); socket.deliver({ type: "status", sessionId: "s1", status: "idle" }); });
       await runStats(root, "s1");
       const frame = sentFrames(socket).find((f) => f.type === "local_exchange");
       if (frame?.type !== "local_exchange") throw new Error("no local_exchange sent");
@@ -216,6 +218,8 @@ describe("/stats in an existing session", () => {
     try {
       const socket = connected(root);
       root.stores.chat.getState().setActiveSession("s1");
+      // Its history is here: nothing is recorded into a session still restoring (#1328).
+      act(() => { socket.deliver({ type: "session_history", sessionId: "s1", messages: [] }); socket.deliver({ type: "status", sessionId: "s1", status: "idle" }); });
       await runStats(root, "s1");
       const frame = sentFrames(socket).find((f) => f.type === "local_exchange");
       if (frame?.type !== "local_exchange") throw new Error("no local_exchange sent");
@@ -243,6 +247,8 @@ describe("a replayed /stats exchange", () => {
     try {
       const socket = connected(root);
       root.stores.chat.getState().setActiveSession("s1");
+      // Its history is here: nothing is recorded into a session still restoring (#1328).
+      act(() => { socket.deliver({ type: "session_history", sessionId: "s1", messages: [] }); socket.deliver({ type: "status", sessionId: "s1", status: "idle" }); });
       await runStats(root, "s1");
       const live = root.stores.chat.getState().buffers.s1!.messages.at(-1)!;
       const messages: SessionHistoryMessage[] = [

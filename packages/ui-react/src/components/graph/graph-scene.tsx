@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+import { Button, IconButton, ListRow } from "@schlessera/brain-ui-kit";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
@@ -216,7 +218,7 @@ export function SceneBody() {
       )}
 
       {/* Accessible / mobile-friendly node list — the canvas itself is aria-hidden */}
-      <button
+      <button /* raw-button: canvas — Floating graph canvas node-list control. */
         onClick={() => setListOpen((v) => !v)}
         className="absolute bottom-3 right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg"
         title="Node list"
@@ -252,9 +254,9 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
 
   return (
     <div className="absolute left-3 top-3 z-10 w-56 max-w-[calc(100vw-5rem)] rounded-xl border border-border bg-surface-overlay/95 shadow-xl backdrop-blur">
-      <button
+      <button style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties} /* raw-button: row — Full-width Topics disclosure with trailing chevron. */
         onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-foreground"
+        className="bk-row flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-foreground"
         aria-expanded={!collapsed}
       >
         Topics
@@ -269,14 +271,14 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
           {shown.map((c) => {
             const active = clusters.community === c.community;
             return (
-              <button
+              <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: select — Selectable topic row with a colour swatch. */
                 key={c.community}
                 onClick={() =>
                   setClustersParams({ community: active ? null : c.community })
                 }
                 className={cn(
-                  "flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors",
-                  active ? "bg-surface-raised" : "hover:bg-surface-raised/60"
+                  "bk-row flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors",
+                  active ? "bg-surface-raised" : ""
                 )}
                 title={
                   active
@@ -309,13 +311,7 @@ function ClusterLegend({ palette }: { palette: CanvasPalette }) {
             </div>
           )}
           {clusters.community !== null && (
-            <button
-              onClick={() => setClustersParams({ community: null })}
-              className="mx-2 mt-1 flex min-h-8 items-center gap-1 rounded-lg bg-surface-raised px-2 py-1 text-[11px] text-foreground hover:bg-surface"
-            >
-              <X className="h-3 w-3" />
-              Clear topic filter
-            </button>
+            <Button tone="quiet" size="sm" icon="dismiss" label="Clear topic filter" block={false} style={{ minHeight: 44, margin: "4px 8px 0" }} onClick={() => setClustersParams({ community: null })} />
           )}
         </div>
       )}
@@ -541,13 +537,13 @@ function UnreachableTray({ count }: { count: number | undefined }) {
           {isDefaultRoot && (
             <div className="flex-1 overflow-y-auto">
               {(nodes ?? []).map((node) => (
-                <button
+                <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Unreachable note list entry on the graph. */
                   key={node.id}
                   onClick={() => {
                     setFilePanelOpen(true);
                     void openFile(node.path);
                   }}
-                  className="flex min-h-9 w-full flex-col justify-center px-3 py-1 text-left hover:bg-surface-raised/60"
+                  className="bk-row flex min-h-9 w-full flex-col justify-center px-3 py-1 text-left "
                 >
                   <span className="truncate text-xs text-foreground">
                     {node.title || node.path}
@@ -563,7 +559,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
           )}
         </div>
       )}
-      <button
+      <button /* raw-button: canvas — Floating graph canvas unreachable-count control. */
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-surface-overlay px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg transition-colors hover:text-foreground"
@@ -635,18 +631,7 @@ export function DiscoveryStart() {
           ) : (
             <div className="flex flex-col gap-1.5">
               {candidates.map((c) => (
-                <button
-                  key={c.path}
-                  onClick={() => setDiscoveryParams({ root: c.path })}
-                  className="flex min-h-10 flex-col justify-center rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-left transition-colors hover:border-primary/40"
-                >
-                  <span className="truncate text-xs text-foreground">
-                    {c.title}
-                  </span>
-                  <span className="truncate font-mono text-[10px] text-muted-foreground/60">
-                    {c.path}
-                  </span>
-                </button>
+                <ListRow key={c.path} variant="card" title={c.title} subtitle={c.path} subMono onClick={() => setDiscoveryParams({ root: c.path })} />
               ))}
             </div>
           )}
@@ -683,24 +668,18 @@ function NodeList({ onClose }: { onClose: () => void }) {
         <span className="text-xs font-medium text-foreground">
           {sorted.length} note{sorted.length === 1 ? "" : "s"}
         </span>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-muted-foreground hover:text-foreground"
-          title="Close list"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <IconButton size="sm" name="Close list" glyph={<X className="h-3.5 w-3.5" />} onClick={onClose} />
       </div>
       <div className="flex-1 overflow-y-auto">
         {sorted.map((node) => (
-          <button
+          <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Two-line node list entry with selected paint. */
             key={node.id}
             onClick={() => select(node.id)}
             className={cn(
-              "flex min-h-11 w-full flex-col justify-center px-3 py-1.5 text-left transition-colors",
+              "bk-row flex min-h-11 w-full flex-col justify-center px-3 py-1.5 text-left transition-colors",
               node.id === selectedId
                 ? "bg-surface-raised"
-                : "hover:bg-surface-raised/60"
+                : ""
             )}
           >
             <span className="truncate text-xs text-foreground">

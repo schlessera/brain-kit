@@ -1,4 +1,4 @@
-import { Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
 import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -11,9 +11,8 @@ import type { ReactNode } from "react";
  *
  * The Preview / Raw switch is the kit's `FilterRow`: two pills, one
  * selected, activation following focus, which is what a mode switch is.
- * The reveal and copy controls stay native icon buttons (titled; the kit
- * has no icon-only button), as does the HTML "Open in new tab" link, and the
- * share menu arrives rendered.
+ * The reveal and copy controls use the kit IconButton. The HTML "Open in
+ * new tab" link stays native, and the share menu arrives rendered.
  */
 export type ViewMode = "preview" | "raw";
 
@@ -40,14 +39,7 @@ export interface ViewerToolbarProps {
 export function ViewerToolbar(p: ViewerToolbarProps) {
   return (
     <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
-      <button
-        type="button"
-        onClick={p.onReveal}
-        title="Reveal in tree"
-        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-      </button>
+      <IconButton size="sm" name="Reveal in tree" glyph={<FolderOpen className="h-3.5 w-3.5" />} onClick={p.onReveal} />
       <div className="min-w-0 flex-1">
         {/* The reading pane's title: where a press of Files puts focus while
             the drawer's tree is hidden (D52 N3). A script-only stop. */}
@@ -59,14 +51,7 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
           {p.size !== undefined && <span className="ml-2">· {formatSize(p.size)}</span>}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={p.onCopyPath}
-        title="Copy path"
-        className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-      >
-        {p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
+      <IconButton size="sm" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
       {p.openInTab && (
         <a
           href={p.openInTab}
