@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
+import { Overlay } from "./Overlay.js";
 import { BottomSheet } from "./BottomSheet.js";
 import { accent, color, z, font, token } from "../tokens.js";
 
@@ -37,9 +38,10 @@ export function ModelPicker(p: ModelPickerProps) {
   const previewEffort = preview.base === selected ? preview.level : selected;
   const currentEffort = previewEffort === null || p.effortLevels?.includes(previewEffort) ? previewEffort : selected;
   useEffect(() => {
+    if (p.phone) return;
     (panel.current?.querySelector<HTMLElement>('input[data-model]:checked:not(:disabled), input[data-effort]:checked')
       ?? panel.current?.querySelector<HTMLElement>("button[data-locked-action]"))?.focus();
-  }, []);
+  }, [p.phone]);
   function keys(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); p.onDismiss(); }
     if (e.key !== "Tab") return;
@@ -52,7 +54,7 @@ export function ModelPicker(p: ModelPickerProps) {
   const row: CSSProperties = { display: "flex", alignItems: "center", gap: 10, minHeight: 44, padding: "0 8px", cursor: "pointer", font: `400 12px/1.5 ${font.body}`, color: color.ink };
   const group: CSSProperties = { margin: 0, padding: 0, border: 0, minWidth: 0 };
   const heading: CSSProperties = { padding: "10px 8px 4px", font: `500 11px/1.5 ${font.mono}`, color: color.inkDim };
-  const content = <div ref={panel} id={p.id} role="dialog" aria-label="Model and effort" aria-modal={p.phone || undefined} onKeyDown={keys}
+  const content = <div ref={panel} id={p.id} role={p.phone ? undefined : "dialog"} aria-label={p.phone ? undefined : "Model and effort"} onKeyDown={p.phone ? undefined : keys}
     style={{ maxHeight: p.phone ? "calc(85vh - 90px)" : "72vh", overflowY: "auto" }}>
     <fieldset style={group}>
       <legend style={heading}>Model{p.modelLocked ? " · fixed for this conversation" : ""}</legend>
@@ -93,10 +95,13 @@ export function ModelPicker(p: ModelPickerProps) {
       <p style={{ margin: "10px 8px 4px", font: `400 11px/1.55 ${font.body}`, color: color.inkDim }}>After sending, effort returns to the default.</p>
     </> : null}
   </div>;
-  return <div ref={p.containerRef} style={p.phone
-    ? { position: "fixed", inset: 0, zIndex: z.modal, background: token("palette-shadow") }
-    : { position: "absolute", bottom: "100%", left: 14, zIndex: z.popover, width: 320, maxWidth: "calc(100vw - 48px)", borderRadius: 12, padding: 8, background: color.raised, boxShadow: `0 12px 36px ${token("palette-shadow")}`, maxHeight: "80vh", overflowY: "auto" }}
-    onMouseDown={(e) => { if (p.phone && e.target === e.currentTarget) p.onDismiss(); }}>
-    {p.phone ? <BottomSheet title="Model and effort" docked>{content}</BottomSheet> : content}
+  if (p.phone) return <div ref={p.containerRef}>
+    <Overlay open variant="sheet" label="Model and effort" data-bk-sheet-adapter="model" onClose={p.onDismiss}>
+      <BottomSheet title="Model and effort">{content}</BottomSheet>
+    </Overlay>
+  </div>;
+  return <div ref={p.containerRef}
+    style={{ position: "absolute", bottom: "100%", left: 14, zIndex: z.popover, width: 320, maxWidth: "calc(100vw - 48px)", borderRadius: 12, padding: 8, background: color.raised, boxShadow: `0 12px 36px ${token("palette-shadow")}`, maxHeight: "80vh", overflowY: "auto" }}>
+    {content}
   </div>;
 }

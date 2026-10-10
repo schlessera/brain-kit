@@ -2377,6 +2377,16 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   overscroll-behavior: contain;
   overflow-wrap: anywhere;
 }
+/* Legacy kit sheets retain their existing surface and gutter. Overlay owns
+ * only their top-layer coordination; #1418 does not redesign these sheets. */
+.bk-overlay[data-bk-sheet-adapter] .bk-overlay-surface {
+  border: 0;
+  box-shadow: none;
+  max-height: none;
+  width: 100%;
+}
+.bk-overlay[data-bk-sheet-adapter="summary"] .bk-overlay-surface { max-width: 720px; }
+.bk-overlay[data-bk-sheet-adapter] .bk-overlay-body { padding: 0; }
 /* BottomSheet supplies the unchanged header; Overlay owns body/gutter/shape. */
 .bk-overlay-surface > [data-bk-bottom-sheet] {
   flex: none;

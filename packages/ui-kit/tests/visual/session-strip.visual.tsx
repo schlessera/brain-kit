@@ -430,7 +430,7 @@ for (const theme of ["dark", "light"]) {
     await expect.poll(() => sheet(), { message: "Esc still reaches the dialog" }).toBeNull();
   });
 
-  test(`the sheet keeps a subtree theme past the portal: ${theme} page`, async () => {
+  test(`the sheet inherits its subtree theme in the top layer: ${theme} page`, async () => {
     pointerScene();
     const other = theme === "dark" ? "light" : "dark";
     await mountDriven(five, theme, other);
@@ -438,8 +438,8 @@ for (const theme of ["dark", "light"]) {
     items()[1]!.focus();
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => sheet()).not.toBeNull();
-    expect(document.body.querySelector<HTMLElement>("[data-working-scrim]")!.dataset.theme).toBe(other);
-    const panel = sheet()!.querySelector<HTMLElement>(":scope > div")!;
+    expect(sheet()!.closest<HTMLElement>("[data-theme]")!.dataset.theme, "theme inherits without a portal").toBe(other);
+    const panel = sheet()!.querySelector<HTMLElement>("[data-bk-bottom-sheet]")!;
     expect(getComputedStyle(panel).backgroundColor, "the sheet's surface is the strip's theme").toBe(surfaceIn);
     const inkIn = getComputedStyle(host!.querySelector<HTMLElement>("[data-pill-title]")!).color;
     const title = [...panel.querySelectorAll<HTMLElement>("span")].find((el) => el.textContent === "Working")!;

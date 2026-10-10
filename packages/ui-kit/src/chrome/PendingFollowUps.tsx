@@ -52,7 +52,6 @@ type Reveal = { id: string; via: "hover" | "focus" | "tap" } | null;
 interface OpenSheet {
   returnTo: HTMLElement | null;
   selection: [number, number] | null;
-  theme?: string;
 }
 
 /**
@@ -191,11 +190,10 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
     else focusSibling(from, delta, ITEM, "[data-pending-follow-ups]");
   }
 
-  const themeOf = (el: HTMLElement) => el.closest<HTMLElement>("[data-theme]")?.dataset.theme;
   const holdFocus = (e: MouseEvent<HTMLButtonElement>) => e.preventDefault();
   function openFromSummary(el: HTMLElement) {
     setReveal(null);
-    setSheet({ returnTo: el, selection: null, theme: themeOf(el) });
+    setSheet({ returnTo: el, selection: null });
   }
   // The composer still holds focus: note it and its caret, then blur it so
   // the soft keyboard drops.
@@ -210,7 +208,7 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
       }
       active.blur();
     }
-    setSheet({ returnTo, selection, theme: themeOf(el) });
+    setSheet({ returnTo, selection });
   }
   function dismiss() {
     restore.current = sheet;
@@ -344,13 +342,12 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
         {items}
       </div>
       {live}
-      {sheet ? createPortal(
+      {sheet ? (
         <SheetDialog
           title="Pending follow-ups"
           subtitle="Not yet received by the agent."
           stops="[data-pending-row]"
           itemsKey={p.followUps.map((f) => f.id).join("\n")}
-          theme={sheet.theme}
           onDismiss={dismiss}
           scrimAttr="data-pending-scrim"
           sheetAttr="data-pending-sheet"
@@ -364,8 +361,7 @@ export function PendingFollowUps(p: PendingFollowUpsProps) {
               </li>
             ))}
           </ol>
-        </SheetDialog>,
-        document.body,
+        </SheetDialog>
       ) : null}
     </>
   );
