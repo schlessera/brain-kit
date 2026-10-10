@@ -145,6 +145,18 @@ carries dialog semantics (`role="dialog"` and `aria-modal`); wrap it in
 `Overlay` to supply modal semantics and focus management. It now renders a
 named group; its pixels and callbacks are unchanged.
 
+**Additive: bounded sheet swipe dismissal (#1433).** `OverlayCloseReason` gains
+`"swipe"`. Callers branching on the close reason must handle `"swipe"`.
+Existing reasons keep their meaning and all props are unchanged, so this is a
+minor addition. Touch and pen can dismiss the topmost sheet (or a centred
+dialog below 900px) from its non-interactive top 56px, only under
+`closedBy="any"`. Body and mouse gestures never dismiss. The D54
+[gesture ruling](../decisions/design-kit/overlays.md) defines thresholds,
+bounded resistance, cancellation and reduced motion. `onClose` requests
+dismissal once; the caller still owns `open` and the focus policy. Ineligible
+sheets rubber-band at most 12px without requesting dismissal. Dictation maps a
+swipe to Stop, keeping the words for review; draining blocks it.
+
 Before 1.0, the versioning rules above apply. From 1.0, removing, renaming or
 retyping an ordinary export or a type its signatures reach, or changing its
 documented behavior, requires a major version; additions ship in minors.
