@@ -19,7 +19,6 @@ import { readFileSync, existsSync, statSync } from "fs";
 import { resolve } from "path";
 import { Glob } from "bun";
 
-import { readEnvVar } from "./config/env.js";
 import { initContext } from "./lib/context.js";
 import type { BrainContext } from "./lib/context.js";
 import { openDatabase, loadVecSupport } from "./lib/db.js";
@@ -34,10 +33,9 @@ import { indexAll } from "./lib/indexer.js";
 import { updateDocument } from "./lib/frontmatter-edit.js";
 import type { FrontmatterValue } from "./lib/frontmatter-edit.js";
 import { safeResolve, writeFileSafely } from "./lib/safe-path.js";
-import { resolveEmbeddingProvider } from "./lib/registry.js";
+import { resolveProviders } from "./lib/registry.js";
 import { EMBEDDING_DIMENSIONS } from "./lib/models.js";
 import { SEARCH_SORTS, type SearchOptions, type DocumentType } from "./lib/types.js";
-import type { EmbeddingProvider } from "./lib/seams.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
 
@@ -99,18 +97,10 @@ export async function startMcpServer(
     : null;
   const moduleWarnings: string[] = [];
 
-  // Embeddings resolve from config, but only when a key is present — otherwise
-  // vector/hybrid degrade to FTS with a warning (same as keyless CLI).
-  let embeddings: EmbeddingProvider | undefined;
-  const embConfig = brain.config?.embeddings;
-  const embCustom = embConfig && typeof embConfig.provider !== "string";
-  const embKeyEnv = embConfig?.apiKeyEnv ?? "GEMINI_API_KEY";
-  try {
-    if (embCustom) embeddings = resolveEmbeddingProvider(embConfig);
-    else if (readEnvVar(embKeyEnv)) embeddings = resolveEmbeddingProvider(embConfig);
-  } catch (e) {
-    console.error(`brain MCP: embedding provider unavailable — ${(e as Error).message}`);
-  }
+  // Without a usable embedding provider vector/hybrid degrade to FTS with a
+  // warning, as in the CLI; the registry decides availability for both.
+  const { embeddings, warnings } = resolveProviders(brain.config);
+  if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
   const embDims = embeddings?.dimensions ?? dims;
 
   const db = openDatabase(brain.dbPath, { embeddingDimensions: embDims });

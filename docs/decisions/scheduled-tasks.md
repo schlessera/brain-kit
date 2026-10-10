@@ -139,7 +139,7 @@ No YAML tag, frontmatter actor or file permission constitutes approval. Files
 contain immutable definition fields only; creator, approval, enabled/cancelled
 control state, counters, next/last occurrences and outcomes come from the
 operational ledger. The example uses the existing read tool's actual path input
-(`"brain_read"`, `packages/core/src/mcp-server.ts:366-382`):
+(`"brain_read"`, `packages/core/src/mcp-server.ts:356-372`):
 
 ```yaml
 ---

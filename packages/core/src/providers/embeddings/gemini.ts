@@ -41,10 +41,13 @@ export interface GeminiEmbeddingConfig {
  * provider makes no API call, so resolving it without a key is safe — the
  * key is only required when an embed() actually runs.
  */
+/** Env var the Gemini embedding provider reads its key from by default. */
+export const GEMINI_EMBEDDINGS_KEY_ENV = "GEMINI_API_KEY";
+
 export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingProvider {
   const model = config.model ?? EMBEDDING_MODEL;
   const dimensions = config.dimensions ?? EMBEDDING_DIMENSIONS;
-  const apiKeyEnv = config.apiKeyEnv ?? "GEMINI_API_KEY";
+  const apiKeyEnv = config.apiKeyEnv ?? GEMINI_EMBEDDINGS_KEY_ENV;
 
   let client: any = null;
 
