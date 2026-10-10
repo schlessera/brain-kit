@@ -31,7 +31,7 @@ export interface HygieneNextFinding extends HygieneFinding {
   line: number | null;
   field: string | null;
   excerpt: string | null;
-  /** Selection supplies manual review until a repair handler is delivered. */
+  /** Legacy compatibility marker; the CLI adds the registry's handlers array. */
   handler: "manual";
   firstSeen: string | null;
   invalidation: HygieneLogEntry["invalidation"];

@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
+import { brainConfigSchema } from "../src/lib/config";
+import type { BrainContext } from "../src/lib/context";
 import { canonicalFindings, hygieneId, readHygieneLog, reconcile, type HygieneCandidate } from "../src/lib/hygiene";
 import { reviewUrgency, selectHygieneNext } from "../src/lib/hygiene-next";
+import { repairDetection, repairHandlers } from "../src/lib/hygiene-repair";
+import { buildTaxonomy } from "../src/lib/taxonomy";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const NOW = new Date("2026-07-12T12:00:00Z");
@@ -152,6 +156,96 @@ function snapshot(r: string): Record<string, string> {
 }
 
 describe("hygiene next real CLI", () => {
+  const doc = (body: string) => `---\ntitle: Return to Ithaca\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [voyage]\n---\n${body}\n`;
+  function write(r: string, path: string, text: string) {
+    mkdirSync(join(r, path, ".."), { recursive: true });
+    writeFileSync(join(r, path), text);
+  }
+  function context(r: string): BrainContext {
+    return { root: r, dbPath: join(r, "brain.db"), config: null, configPath: join(r, "brain.config.json"), modules: [],
+      taxonomy: buildTaxonomy({ user: brainConfigSchema.parse(JSON.parse(readFileSync(join(r, "brain.config.json"), "utf8"))) }) };
+  }
+
+  test("C4 can discover every available broken-link handler through hygiene next", async () => {
+    const r = root();
+    write(r, "brain.config.json", "{}");
+    write(r, "journeys/return-to-ithaca.md", doc("Odysseus visits [[Eumaios hut]]."));
+    write(r, "places/eumaeus-hut.md", doc("The swineherd's hut.").replace("title: Return to Ithaca", "title: Eumaios hut"));
+    const reconciled = await runCli(r, ["hygiene", "reconcile", "--json"]);
+    expect(reconciled.code).toBe(0);
+    const { findings } = await repairDetection(context(r), new Date());
+    const finding = findings.get(hygieneId("broken-link", "journeys/return-to-ithaca.md", "Eumaios hut"))!;
+    const expected = repairHandlers(context(r), finding);
+    expect(expected.map(h => h.name)).toEqual(["link-suggested", "link-note", "link-text"]);
+    const before = snapshot(r);
+    const result = await runCli(r, ["hygiene", "next", "--json"]);
+    expect(result.code).toBe(0);
+    const out = JSON.parse(result.stdout);
+    expect(Array.isArray(out.finding.handlers)).toBe(true);
+    expect(out.finding.handlers).toEqual(expected);
+    expect(out.finding.handlers[0].suggestedPath).toBe("places/eumaeus-hut.md");
+    const { handlers: _handlers, ...selection } = out.finding;
+    const selected = selectHygieneNext(r, findings, readHygieneLog(r), new Date());
+    expect(selection).toEqual(selected.finding);
+    expect(out.counts).toEqual(selected.counts);
+    expect(selection.handler).toBe("manual");
+    // Index and last-run refresh are existing next behavior. Content, finding
+    // dispositions and repair receipts must not be written by discovery.
+    const durable = (files: Record<string, string>) => Object.fromEntries(Object.entries(files)
+      .filter(([path]) => !path.startsWith("brain.db") && path !== "context/hygiene/last-run.md"));
+    expect(durable(snapshot(r))).toEqual(durable(before));
+  });
+
+  for (const match of ["absent", "ambiguous"]) test(`${match} suggestion keeps both explicit broken-link choices`, async () => {
+    const r = root();
+    write(r, "brain.config.json", "{}");
+    write(r, "journeys/return-to-ithaca.md", doc("Odysseus visits [[Eumaios hut]]."));
+    if (match === "ambiguous") {
+      for (const path of ["places/eumaeus-hut.md", "places/another-hut.md"]) {
+        write(r, path, doc("The swineherd's hut.").replace("title: Return to Ithaca", "title: Eumaios hut"));
+      }
+    }
+    const result = await runCli(r, ["hygiene", "next", "--json"]);
+    expect(result.code).toBe(0);
+    const finding = JSON.parse(result.stdout).finding;
+    expect(finding.category).toBe("broken-link");
+    expect(finding.handlers.map((h: { name: string }) => h.name)).toEqual(["link-note", "link-text"]);
+    expect(finding.handlers).toEqual(repairHandlers(context(r), finding));
+  });
+
+  for (const [field, schema] of [
+    ["title", { type: "string", example: "Return to Ithaca" }],
+    ["type", { type: "enum", values: ["identity", "context", "note", "index", "voyage"] }],
+    ["created", { type: "date", example: "2026-07-12" }],
+    ["updated", { type: "date", example: "2026-07-12" }],
+    ["tags", { type: "strings", example: '["voyage"]' }],
+  ] as const) test(`required ${field} discovery returns the exact typed schema`, async () => {
+    const r = root();
+    write(r, "brain.config.json", JSON.stringify({ taxonomy: { types: { voyage: { dir: "voyages" } } } }));
+    write(r, "notes/return-to-ithaca.md", doc("Odysseus plans the return.").replace(new RegExp(`^${field}:.*\\n`, "m"), ""));
+    const result = await runCli(r, ["hygiene", "next", "--json"]);
+    expect(result.code).toBe(0);
+    const finding = JSON.parse(result.stdout).finding;
+    expect(finding).toMatchObject({ category: "required-field", field });
+    expect(finding.handlers).toEqual(repairHandlers(context(r), finding));
+    expect(finding.handlers).toHaveLength(1);
+    expect(finding.handlers[0]).toMatchObject({ name: "required-field", kind: "field", input: schema });
+  });
+
+  test("manual discovery returns file, line and explanation without a repair", async () => {
+    const r = root();
+    write(r, "brain.config.json", "{}");
+    write(r, "notes/return-to-ithaca.md", doc("Odysseus reviews the route."));
+    write(r, "extra.json", JSON.stringify([{ category: "route-check", path: "notes/return-to-ithaca.md",
+      evidence: "route", message: "Review the route", severity: "warning" }]));
+    const result = await runCli(r, ["hygiene", "next", "--extra", join(r, "extra.json"), "--json"]);
+    expect(result.code).toBe(0);
+    const finding = JSON.parse(result.stdout).finding;
+    expect(finding.handlers).toEqual([{ name: "manual", category: "route-check", kind: "manual", input: { type: "none" },
+      effect: "Open file and edit manually; then check again", postCheck: "detection", path: "notes/return-to-ithaca.md", line: 1,
+      explanation: "This category requires a manual edit. Checking again does not apply a repair." }]);
+  });
+
   test("invalid config returns a structured blocker and preserves existing hygiene and database bytes", async () => {
     const r = root();
     writeFileSync(join(r, "brain.config.json"), JSON.stringify({ schemaa: 1 }));

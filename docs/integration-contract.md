@@ -3967,10 +3967,23 @@ The finding retains `id`, `category`, `path`, stable `evidence`, `message`,
 It adds a plain `title`, `line` (1-based in the actual file, or null), `field`
 (for field findings, or null), `excerpt` (one line, at most 60 Unicode code
 points around the first literal evidence occurrence, or null when absent or
-unreadable), `handler` (`manual` until a repair handler is delivered),
+unreadable), `handler` (the legacy `manual` compatibility marker),
 `firstSeen`, and the log's `invalidation` receipt, if present. Reads for excerpts
 stay inside the brain root. Missing fields are located by field name rather
 than an invented line. Selection performs no content repair.
+
+Additive in #1475: every selected finding also carries `handlers: RepairHandler[]`
+from the existing fixed repair registry (see [bounded repair descriptors](#bounded-hygiene-repair-operations-additive-1025)).
+Broken links offer `link-note` and `link-text`, plus `link-suggested` only for
+exactly one deterministic slug, alias or exact-title match. Required fields
+carry their typed input schema, including configured type enum values and
+string-array tags. Unsupported findings carry the manual descriptor with its
+file, line and explanation. This is the complete supported discovery projection;
+`check` still returns only its existing single descriptor. Discovery adds no
+content, repair-receipt or disposition write beyond `next`'s existing index
+refresh and reconciliation. Identity, fingerprint, ordering, reason and counts
+are unchanged. Empty-backlog and configuration/check-blocker envelopes are
+unchanged and do not carry a handler array.
 
 Ordering is lexicographic: severity rank, urgency rank, oldest `firstSeen`,
 then canonical ID in code-unit order. Ranks are ordinals, never weighted scores.

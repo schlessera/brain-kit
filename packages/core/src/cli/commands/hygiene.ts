@@ -17,7 +17,7 @@ import {
   type ReconcileOptions,
 } from "../../lib/hygiene.js";
 import { selectHygieneNext } from "../../lib/hygiene-next.js";
-import { checkHygiene, CONFIG_BLOCKER_ID, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
+import { checkHygiene, CONFIG_BLOCKER_ID, repairHandlers, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
@@ -44,7 +44,9 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
   next [--extra <file.json>]
       Reconcile and select one eligible canonical finding by severity, known
       urgency, age, then identity. Informational findings are counted but not
-      shown. Returns { "finding", "counts" }; invalid configuration returns
+      shown. The finding's handlers describe every available repair or manual
+      choice; handler remains "manual" for compatibility. Returns
+      { "finding", "counts" }; invalid configuration returns
       { "blocker": { "kind": "configuration", "message", "path", "line", "column" } }
       with exit 1 before any indexing or hygiene writes.
 
@@ -211,7 +213,9 @@ export const hygieneCommand: CoreCommand = {
         emit(cli.json, { blocker: { kind: "checks", failedChecks: result.failedChecks } }, () => console.error(`Review cannot start: checks failed: ${result.failedChecks.join(", ")}`));
         return 1;
       }
-      const payload = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now);
+      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now);
+      const payload = { ...selected, finding: selected.finding
+        ? { ...selected.finding, handlers: repairHandlers(cli.brain, selected.finding) } : null };
       emit(cli.json, payload, () => {
         console.log(payload.finding ? `${payload.finding.id}: ${payload.finding.title}` : "No open findings.");
         console.log(`${payload.counts.eligibleRemaining} eligible, ${payload.counts.fixed} resolved, ${payload.counts.dismissed} dismissed, ${payload.counts.snoozed} snoozed, ${payload.counts.informationalNotShown} informational not shown`);

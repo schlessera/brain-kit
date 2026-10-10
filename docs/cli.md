@@ -377,8 +377,17 @@ See the [schedule contract](integration-contract.md#scheduled-tasks-additive-914
 
 ### Preview and confirm a hygiene repair
 
-After `brain hygiene reconcile --json`, use a finding's ID and fingerprint to
-preview a supported bounded repair. For example, remove a broken link while
+Use `brain hygiene next --json` to discover the selected finding's complete
+`handlers` array, including each choice's input schema, effect and post-check.
+Broken links offer a note picker and text-only choice, plus a suggestion only
+when exactly one deterministic match exists. Required fields expose the
+configured type enum, string, date or string-array schema; unsupported findings
+expose a manual descriptor with file, line and explanation. The legacy
+`finding.handler: "manual"` remains for compatibility. Discovery does not apply
+a repair or disposition; `next` retains its existing indexing/reconciliation.
+
+Use the finding's ID and fingerprint to preview a supported bounded repair.
+For example, remove a broken link while
 keeping its display text:
 
 ```sh
