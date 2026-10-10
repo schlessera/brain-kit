@@ -138,6 +138,25 @@ export function writeExclusive(tmp: string, data: string | Uint8Array, mode: num
 }
 
 /**
+ * `abs` with its directory canonicalized (`realpath`), for a caller that
+ * holds a path under a root it did not canonicalize itself. The final entry
+ * is left as named, so `writeFileSafely` still refuses a link there rather
+ * than writing through it. The directory must exist.
+ */
+export function inCanonicalDir(abs: string): string {
+  return join(realpathSync(dirname(abs)), basename(abs));
+}
+
+export interface WriteFileSafelyOptions {
+  /** Replace an existing regular file (default), or refuse every existing entry with `EEXIST`. */
+  replace?: boolean;
+  /** Permission bits for the written file, instead of the replaced file's own (or the default). */
+  mode?: number;
+  /** Runs after staging, before publication; a throw abandons the write. */
+  beforePublish?: () => void;
+}
+
+/**
  * Write a file whose directory the caller has already resolved (canonical,
  * contained) without ever writing through a link or into an inode a hard
  * link shares: the target's own entry may not be a symlink or a directory,
@@ -163,25 +182,6 @@ export function writeExclusive(tmp: string, data: string | Uint8Array, mode: num
  * output (`render --out`, `image --out`, the OKF export).
  * `tests/document-writes.test.ts` holds core to it.
  */
-/**
- * `abs` with its directory canonicalized (`realpath`), for a caller that
- * holds a path under a root it did not canonicalize itself. The final entry
- * is left as named, so `writeFileSafely` still refuses a link there rather
- * than writing through it. The directory must exist.
- */
-export function inCanonicalDir(abs: string): string {
-  return join(realpathSync(dirname(abs)), basename(abs));
-}
-
-export interface WriteFileSafelyOptions {
-  /** Replace an existing regular file (default), or refuse every existing entry with `EEXIST`. */
-  replace?: boolean;
-  /** Permission bits for the written file, instead of the replaced file's own (or the default). */
-  mode?: number;
-  /** Runs after staging, before publication; a throw abandons the write. */
-  beforePublish?: () => void;
-}
-
 export function writeFileSafely(
   abs: string,
   data: string | Uint8Array,
