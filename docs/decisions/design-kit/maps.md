@@ -163,3 +163,22 @@ Pipeline, for when this is built:
 4 dp. Output is already the shape `MapView`'s `paths` prop accepts, so
 **stroke-only needs no component API change.**
 
+<a id="2026-09-28--the-map-block-the-model-names-places-the-surface-draws-them-44"></a>
+
+## 2026-09-28 — the `map` block: the model names places, the surface draws them (#44)
+
+D41 §2 held agent-authored pins back as "a later variant". This is that
+variant. `show_block` gains `map`: 1 to 30 places with optional
+coordinates. The kit gains `PlaceMap`, which is one frame, two, or none,
+with a numbered list that always carries every place. `MapView` gains a
+numbered pin mode whose merges are lettered. The payload is data only, as
+D41 requires, and it carries nothing that shapes the drawing. The geometry
+ruling, the rules that came with it, the design and the two points the
+build changed are recorded in [map-geometry.md §8](../map-geometry.md#8-places-the-model-names-on-the-same-geometry--2026-09-28-44),
+which is where anything about maps is decided.
+
+The classification pass does not route to `map`. Its figures are
+coordinates, and a coordinate the text does not state is exactly what the
+block must never invent. That is D45's reason for leaving `trend` and `bars`
+to the tool, and it applies here for the same reason.
+
