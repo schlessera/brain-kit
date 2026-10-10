@@ -17,11 +17,12 @@ import {
   type ReconcileOptions,
 } from "../../lib/hygiene.js";
 import { selectHygieneNext } from "../../lib/hygiene-next.js";
+import { checkHygiene, CONFIG_BLOCKER_ID, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|check> — the content-hygiene log under context/hygiene/
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
@@ -65,6 +66,20 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze> — the content
       --json envelope: { "status": "dismissed"|"snoozed", "id", "fingerprint", "until",
       "reason", "changedFiles" }; refused: { "status": "refused", "reason":
       "not-detected"|"stale-fingerprint", "id", "expectedFingerprint", "currentFingerprint" }`;
+
+const REPAIR_HELP = `
+  resolve <id> --handler link-suggested|link-note|link-text|required-field
+      --input <json> --expect-fingerprint <fp> [--dry-run | --expect-preview <token>]
+      Preview exact bytes without writes, then apply that preview's bounded
+      effect after premise revalidation. A failed post-check leaves the finding
+      open and returns an undoToken. No automatic Undo.
+  undo <undoToken> [--dry-run]
+      Preview or confirm the inverse effect. Refuses if the file changed.
+  check <id>
+      Check one finding. Still detected/failed checks write nothing; only a
+      successful check records resolved-by: check. Use configuration-blocker
+      to recheck invalid brain.config without writing anything.
+`;
 
 const STATES: HygieneState[] = ["open", "snoozed", "dismissed", "resolved"];
 const SEVERITIES: HygieneSeverity[] = ["error", "warning", "info"];
@@ -162,7 +177,7 @@ function dispositionRequest(sub: "dismiss" | "snooze", pos: string[], flags: Rec
 
 export const hygieneCommand: CoreCommand = {
   summary: "Reconcile, read and triage the content-hygiene log",
-  helpBlock: HELP,
+  helpBlock: HELP + REPAIR_HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
     const sub = pos[0];
@@ -202,6 +217,33 @@ export const hygieneCommand: CoreCommand = {
         console.log(`${payload.counts.eligibleRemaining} eligible, ${payload.counts.fixed} resolved, ${payload.counts.dismissed} dismissed, ${payload.counts.snoozed} snoozed, ${payload.counts.informationalNotShown} informational not shown`);
       });
       return 0;
+    }
+    if (sub === "check") {
+      if (!pos[1] || pos.length !== 2) throw new UsageError("Usage: brain hygiene check <id>");
+      const blockerReason = cli.configError ?? (cli.brain.configPath === null ? "No brain.config found; configure the brain before review." : undefined);
+      const result = pos[1] === CONFIG_BLOCKER_ID
+        ? { status: blockerReason ? "blocked" : "ready", id: CONFIG_BLOCKER_ID,
+            handler: { name: "blocker", category: "configuration", kind: "blocker", input: { type: "none" }, effect: "No write", postCheck: "configuration-load", path: cli.brain.configPath, line: null, explanation: blockerReason ?? "Configuration loads; review may start." },
+            ...(blockerReason ? { reason: blockerReason } : {}) }
+        : await checkHygiene(cli.brain, pos[1]);
+      emit(cli.json, result, () => console.log(`${result.status}: ${result.id}`));
+      return ["blocked", "check_failed", "refused"].includes(result.status) ? 1 : 0;
+    }
+    if (sub === "resolve" || sub === "undo") {
+      if (!pos[1] || pos.length !== 2) throw new UsageError(`Usage: brain hygiene ${sub} <${sub === "undo" ? "undoToken" : "id"}>`);
+      const dryRun = flags["dry-run"] === true;
+      let result;
+      if (sub === "undo") result = undoHygiene(cli.brain, pos[1], dryRun);
+      else {
+        if (typeof flags.handler !== "string" || typeof flags.input !== "string" || typeof flags["expect-fingerprint"] !== "string") throw new UsageError("resolve needs --handler, --input <json> and --expect-fingerprint");
+        if (!dryRun && typeof flags["expect-preview"] !== "string") throw new UsageError("Preview with --dry-run first, then supply --expect-preview <previewToken>");
+        let input: unknown;
+        try { input = JSON.parse(flags.input); } catch { throw new UsageError("--input must be JSON"); }
+        result = await resolveHygiene(cli.brain, { id: pos[1], handler: flags.handler, input,
+          expectFingerprint: flags["expect-fingerprint"], expectPreview: typeof flags["expect-preview"] === "string" ? flags["expect-preview"] : undefined, dryRun });
+      }
+      emit(cli.json, result, () => console.log(JSON.stringify(result, null, 2)));
+      return ["fixed", "preview", "undone"].includes(result.status) ? 0 : 1;
     }
 
     if (sub === "list") {
@@ -252,7 +294,7 @@ export const hygieneCommand: CoreCommand = {
       }
     }
 
-    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze>");
+    if (sub !== "reconcile") throw new UsageError("Usage: brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|check>");
     if (flags.extra === true) throw new UsageError("--extra needs a file");
     if (flags.fixed === true) throw new UsageError("--fixed needs a file");
     const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];

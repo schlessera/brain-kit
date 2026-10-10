@@ -30,7 +30,7 @@ already carries category, path and stable evidence (`HygieneCandidate`,
 (`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
-(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:163-165`).
+(`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:178-180`).
 
 ## Selection: severity and known urgency, then age and identity
 
@@ -171,7 +171,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1350`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1357`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -185,7 +185,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1324-1327`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1331-1334`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content
@@ -230,8 +230,45 @@ invalidation assertion, rather than an earlier parse/load error.
 
 Interaction design must make evidence, priority reasons, effects, due times and
 stale/failure states understandable under D36–D38 in [the design-kit record](design-kit.md).
-This record chooses no card layout or initial repair-handler set. New CLI/HTTP
+The approved initial repair-handler set is recorded below; this record chooses no card layout. New CLI/HTTP
 schemas and frontmatter/disposition semantics require their own assessment under
 [the integration contract](../integration-contract.md), with contract updates
 and package changesets when implemented. These policies authorize no unspecified
 breaking change and do not establish completion of either tracking epic.
+
+
+## Bounded repairs and confirmed Undo (R1–R3)
+
+The maintainer [approved the interaction design on 2026-10-05](https://github.com/schlessera/brain-kit/issues/597#issuecomment-5998725797).
+R1 selects broken wiki-links (choices) and required frontmatter fields (typed
+inputs) as the first handlers. TODO/VERIFY, index-table lag, silent edits, module
+checks and every other category remain manual: open the file, then check again.
+A still-detected or unavailable check establishes no repair and writes no log.
+A configuration blocker recheck reloads `brain.config` without writing; review
+may start only when it loads.
+
+R2 permits a suggested note only when exactly one existing document matches
+by slug, alias or exact title. Zero or multiple matches omit the suggestion.
+The other choices select an existing contained document or preserve display
+text while removing the link. No fuzzy inference chooses a target. All of the
+broken target's body tokens are shown in the preview; code and frontmatter stay.
+A required-field effect uses the minimal editor for just that key and refuses
+when it cannot retain the other bytes. The table uses the required-field
+categories actually detected by #1024; optional invalid fields remain manual.
+
+Each apply supplies both the category fingerprint and the preview's replacement
+premise token. That second token also binds repeated occurrences, which the
+category's deduplicated token fingerprint does not count. Edits elsewhere in
+the file remain eligible and are preserved. Contained compare-then-rename
+publication precedes actual file validation and fresh detection. Only successful
+checks resolve that finding with the handler named in `resolved-by`.
+
+R3 makes Undo a new explicitly confirmed inverse effect after a failed
+post-check. The failed effect remains written and its finding remains open;
+no automatic rollback occurs. A Markdown receipt holds the exact before/after
+bytes. Undo has an inverse preview and requires the whole file to still match
+the written effect. Any subsequent edit makes it stale. The operations and
+receipt semantics are defined in [the integration contract](../integration-contract.md#bounded-hygiene-repair-operations-additive-1025).
+Server Action identity, principal authorization, write serialization and
+interrupted-effect recovery remain C4 responsibilities; a CLI preview grants
+no additional authority.

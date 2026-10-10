@@ -5558,3 +5558,75 @@ Video requests do not use configured completion fallback. Uploads created by
 a request are deleted after success or failure; failed cleanup throws.
 See [the module README](../packages/module-video/README.md) for defaults,
 source restrictions and privacy disclosure. These are additive minor changes.
+
+### Bounded hygiene repair operations (additive, #1025)
+
+These operations require valid configuration, except the read-only
+`check configuration-blocker`. They use #1024's canonical IDs/fingerprints.
+Confirmed resolve/Undo and ordinary check require an initialized brain; flags
+before the subcommand or positional arguments after `--` cannot bypass that
+write guard. Repair previews and the configuration-blocker recheck remain read-only.
+CLI invocation confirms an effect; server principal authorization and durable
+Action execution remain the server's responsibility. No inference runs.
+
+| Operation | Input | JSON result / exit |
+| --- | --- | --- |
+| `hygiene resolve <id> --handler <name> --input <json> --expect-fingerprint <fp> --dry-run` | Handler and its typed JSON input | `status: "preview"`, `id`, `handler`, `diff`, `previewToken`; exit 0. No brain file, index or log is written. |
+| `hygiene resolve <id> --handler <name> --input <json> --expect-fingerprint <fp> --expect-preview <token>` | The same input and the preview's opaque premise token | `status: "fixed"`, `id`, `changedFiles`; exit 0, only after real file validation and detection succeed. `stale`, `refused`, `check_failed` exit 1. |
+| `hygiene undo <undoToken> --dry-run` | Opaque receipt token from a failed post-check | `status: "preview"`, `id`, inverse `diff`; exit 0, writes nothing. |
+| `hygiene undo <undoToken>` | Confirm that inverse effect | `status: "undone"`, `id`, `changedFiles`; exit 0. `stale` or `refused` exit 1 and writes no content. |
+| `hygiene check <id>` | A logged finding ID | `status: "still_detected"`, `id`, `handler`, or `status: "not_detected"`, `id`, `changedFiles`; exit 0. `check_failed` or `refused` exit 1. Still detected and failed checks write no brain file or log. |
+| `hygiene check configuration-blocker` | Reserved configuration blocker identity | `status: "blocked"` (exit 1) or `"ready"` (exit 0), `id`, `handler`; blocked also has `reason` (loader diagnostic). Both are read-only. Other hygiene commands still refuse invalid configuration. |
+
+A `diff` carries `path` (brain-relative), `before` and `after` (complete exact
+UTF-8 text), and `changes: [{before, after, line}]` (every bounded replacement,
+1-based line). A `handler` carries `name`, `category`, `kind` (`choice`, `field`,
+`manual`, `blocker`), `input: {type, values?, example?}`, `effect`, `postCheck`,
+`path`, `line`, `explanation`, and optional `suggestedPath`. `input.type` is
+`none`, `path`, `string`, `enum`, `date` or `strings`.
+
+The fixed handler set is:
+
+- `link-suggested`: input `null`; available only for exactly one contained
+  note matching the target's slug, alias or exact title. No fuzzy match.
+- `link-note`: input a brain-relative path to an existing, included Markdown
+  document inside the brain. Outside paths, symlink escapes, symlink documents,
+  excluded/non-document/missing targets and unrepresentable link paths refuse.
+- `link-text`: input `null`; remove this target's link tokens, keeping each
+  display label (the original target when unlabelled). Code and frontmatter
+  tokens are preserved. Link-to-note effects retain labels and heading suffixes.
+- `required-field`: typed input for the field named by the finding: `title`
+  (non-empty string), `type` (configured taxonomy enum), `created`/`updated`
+  (real calendar date `YYYY-MM-DD`), `tags` (non-empty string array of lowercase,
+  hyphenated tags). Only that key is edited; a minimal-editor refusal never
+  falls back to serializing frontmatter. Other validation categories are manual.
+- `manual`: no content effect; file/line and explanation for an explicit edit,
+  then `check`. `blocker`: reload configuration before starting review.
+
+Content effects refuse non-UTF-8 source files (`reason: "not-utf8"`) rather than
+normalizing unrelated bytes. Refusals carry `reason`; invalid field input additionally carries
+`fieldError: {field, message}` with format/enum guidance. Stale results carry
+`reason` and write no content or log. The fingerprint binds category evidence;
+`previewToken` additionally binds the handler, input and exact replacement
+bytes (including repeated token multiplicity), excluding unrelated file bytes.
+An unrelated edit after preview is preserved. An apply without a preview token
+is a usage error (exit 1). Neither token is an authority grant.
+
+`check_failed` carries `code`, `undoToken`, `changedFiles`; the written effect
+remains, the finding stays open and nothing rolls back automatically. Undo
+requires the complete file to still match the effect's written bytes, offers
+its own inverse preview, and restores the exact pre-effect bytes only upon
+explicit invocation. Repeated Undo becomes stale. Repair receipts are Markdown
+under `context/hygiene/repairs/<opaque-token>.md`; they hold the before/after
+text and handler with standard valid frontmatter drawn from the configured
+taxonomy, with no authoritative state in `brain.db`.
+
+Only a successful repair records `resolved-by: handler:<name>`; a successful
+manual recheck records `resolved-by: check`. Other findings keep their state
+and evidence. Reconciliation still reopens a resolved finding detected again.
+File validation failure, detector failure or unavailable resolution recording
+cannot report `fixed`. Unexpected storage/publication errors use the standard
+internal-error exit 2; an interrupted receipt requires recheck/reconciliation,
+not blind replay of a content write. The compare-then-rename writer retains its existing
+last-read-to-rename race limitation; these commands supply no multi-file
+transaction or server-level replay/authorization guarantee.
