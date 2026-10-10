@@ -1294,3 +1294,11 @@ export const canvas = {
     text: token("diagram-text"),
   },
 } as const;
+
+/**
+ * The dark ground of the logo's favicon tile and install icons (#1423 §6),
+ * which a web app manifest names as its theme and background colour. A fixed
+ * colour rather than a token: an installed icon is one file in every theme.
+ * Not exported from the package root; `src/brand.ts` publishes it.
+ */
+export const BRAND_ICON_GROUND = "#0c1417" as const;

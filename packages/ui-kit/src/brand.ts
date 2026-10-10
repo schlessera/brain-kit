@@ -9,6 +9,8 @@
  * packed tarball and resolves through the export.
  */
 
+import { BRAND_ICON_GROUND } from "./tokens.js";
+
 /** The prefix every brand file resolves under. */
 export const BRAND_ASSET_SPECIFIER = "@schlessera/brain-ui-kit/brand/";
 
@@ -75,7 +77,7 @@ export const WEB_APP_MANIFEST_ICONS: readonly WebAppManifestIcon[] = [
 ];
 
 /** The manifest's `theme_color` and `background_color`, both the icon tile's dark ground (#1423 §6). */
-export const WEB_APP_COLORS = { theme_color: "#0c1417", background_color: "#0c1417" } as const;
+export const WEB_APP_COLORS = { theme_color: BRAND_ICON_GROUND, background_color: BRAND_ICON_GROUND } as const;
 
 /** One `<link>` a host page declares for its tab and home-screen icons. */
 export interface HtmlIconLink {
