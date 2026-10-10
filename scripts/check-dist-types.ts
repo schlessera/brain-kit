@@ -123,11 +123,15 @@ if (JSON.stringify(union) !== JSON.stringify(allNames)) {
   process.exit(1);
 }
 
-/** Subpath exports worth probing: importable modules, not assets or metadata. */
+/**
+ * Subpath exports worth probing: importable modules, not assets or metadata.
+ * A bare-string export is a module only when it names a script; the rest
+ * (`./package.json`, stylesheets, ui-kit's `./brand/*` logo files) are files.
+ */
 function probeSubpaths(manifest: Manifest): string[] {
-  return Object.keys(manifest.exports ?? { ".": true }).filter(
-    (key) => key !== "./package.json" && !key.endsWith(".css")
-  );
+  return Object.entries(manifest.exports ?? { ".": {} })
+    .filter(([, target]) => typeof target !== "string" || /\.(m?js|ts)$/.test(target))
+    .map(([key]) => key);
 }
 
 /**
