@@ -537,6 +537,8 @@ describe("sends", () => {
     const { ui, socket, drafts } = boot(host);
     const id = drafts().idFor(ITHACA);
     ui.stores.chat.getState().setActiveSession(ITHACA);
+    // Its history is here: a send into a session still restoring is refused (#1328).
+    ui.connection.handleServerMessage({ type: "session_history", sessionId: ITHACA, messages: [] });
     drafts().edit(id, ITHACA, { text: "Ask Aeolus for the west wind" });
     const chat = ui.stores.chat.getState();
     chat.addUserMessage(ITHACA, "Ask Aeolus for the west wind", "typed", undefined, { requestId: "req-1" });

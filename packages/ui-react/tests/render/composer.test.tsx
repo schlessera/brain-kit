@@ -23,6 +23,8 @@ function fixture(ack = true, session: string | null = SESSION) {
   roots.push(root);
   root.stores.connection.setState({ wsStatus: "connected", chatRequestAck: ack });
   root.stores.chat.getState().setActiveSession(session);
+  // The session's history is here: a session still restoring takes no send (#1328).
+  if (session) root.stores.chat.getState().setMessages(session, []);
   return root;
 }
 function mount(root = fixture(), admit = true) {
