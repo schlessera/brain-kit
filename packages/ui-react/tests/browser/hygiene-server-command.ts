@@ -196,10 +196,15 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         await radio.check();
         await apply.click();
       }
-      await a.getByText("Resolved on another device", { exact: true }).first().waitFor({ timeout: 5000 });
       await b.getByText("Another link points to a missing note", { exact: true }).first().waitFor({ timeout: 5000 });
+      if (await b.getByText("Resolved on another device", { exact: true }).count())
+        throw new Error("local successful fix must not display Resolved on another device");
+      await b.getByRole("tab", { name: /^done / }).click();
+      await b.locator("[data-hygiene-fixed]").filter({ hasText: "Fixed · re-checked" }).waitFor({ timeout: 5000 });
+      await b.screenshot({ path: resolve(tmpdir(), `c5-local-receipt-${p.theme}-${p.width}.png`) });
+      await a.getByText("Resolved on another device", { exact: true }).first().waitFor({ timeout: 5000 });
       await a.screenshot({ path: resolve(tmpdir(), `c5-native-${p.theme}-${p.width}.png`) });
-      return { sameAction: true, reload: true, reconnect: true, foreignReceipt: true, touch: p.width === 320 };
+      return { sameAction: true, reload: true, reconnect: true, foreignReceipt: true, localReceipt: true, touch: p.width === 320 };
     } catch (error) {
       for (const page of context.pages()) diagnostics.push((await page.locator("body").innerText()).slice(0, 1000));
       throw new Error(`${String(error)}\n${diagnostics.join("\n")}`);
