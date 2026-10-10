@@ -1,0 +1,256 @@
+{
+  "annotations": [
+    {
+      "key": "sfdd30b37ba65",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md has a valid title-sorted registry and both children have valid metadata. The rubric permits the existing registry command."
+    },
+    {
+      "key": "s4f5e28fc6cf8",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The block-list registry configuration and lantern.md metadata are valid. Regenerating with brain registry and reviewing the diff follows the rubric."
+    },
+    {
+      "key": "sfb88d5dec7d6",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md opts into a valid registry, and lantern.md has valid frontmatter. The existing registry command is acceptable guidance."
+    },
+    {
+      "key": "s77fc8dea1f22",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The actual registry configuration and child metadata are valid, so regeneration can proceed. The suggestion neither invents rows nor changes handwritten prose."
+    },
+    {
+      "key": "s6f9d4b291882",
+      "findingIds": ["broken-link-notes-entry-4bc2"],
+      "correct": true,
+      "reason": "notes/entry.md links to harbor-register, which validation reports as unresolved. The suggestion leaves the repair choice to the person without asserting that a particular target exists."
+    },
+    {
+      "key": "s53b573a24c13",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry configuration and watch.md frontmatter are valid. Regeneration addresses the stale table without claiming to resolve the separate latch TODO."
+    },
+    {
+      "key": "s587eee5ff915",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": false,
+      "reason": "rituals/watch.md says the watch plan awaits a latch inspection. Advising removal when verification cannot be obtained would erase unfinished work, which the TODO rubric forbids."
+    },
+    {
+      "key": "s2c7c72fa5fb9",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md contains a valid opted-in registry and watch.md has valid metadata. The rubric permits brain registry for this finding."
+    },
+    {
+      "key": "sf7153c52f83d",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": true,
+      "reason": "The bronze-latch inspection remains pending in watch.md. Requesting manual review preserves the TODO without claiming completion."
+    },
+    {
+      "key": "sc89d250a746d",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "Both the registry configuration and child frontmatter are valid. The existing registry command and diff review are acceptable under the index-stale rubric."
+    },
+    {
+      "key": "s4c2af51e455b",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": true,
+      "reason": "The suggestion requests human verification of the bronze latch and confirmed information before resolving the marker. Its deletion alternative is conditional on the work becoming irrelevant, rather than merely remaining unverified."
+    },
+    {
+      "key": "s5ba2b4c291f1",
+      "findingIds": ["fixture-required-record-rituals-required-2787"],
+      "correct": true,
+      "reason": "rituals/required.md is absent, and the suggestion asks the owner to supply the unknown record without inventing its contents. The optional placeholder explicitly records pending input and does not claim the requirement is satisfied."
+    },
+    {
+      "key": "se54cd96429dc",
+      "findingIds": ["fixture-required-record-rituals-required-2787"],
+      "correct": true,
+      "reason": "The complete file set contains no rituals/required.md. Asking the owner for the missing record without inventing its contents directly follows the rubric."
+    },
+    {
+      "key": "s931daa6c1cfb",
+      "findingIds": ["fixture-required-record-rituals-required-2787"],
+      "correct": true,
+      "reason": "The required review record is absent. The suggestion requests its contents from the owner and keeps its status pending rather than fabricating a completed review."
+    },
+    {
+      "key": "s0394f5ac9900",
+      "findingIds": ["index-stale-rituals-_index-c252"],
+      "correct": true,
+      "reason": "rituals/_index.md specifies columns: [], and the finding identifies that configuration as invalid. The suggestion correctly requires configuration correction before regeneration."
+    },
+    {
+      "key": "sc162ef633024",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry is valid and sorts the valid Dawn beacon and Evening beacon children by title. Recommending the existing command avoids inventing a replacement table."
+    },
+    {
+      "key": "sb053b591e2c6",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md has a valid registry configuration and both child records have valid metadata. The rubric permits brain registry."
+    },
+    {
+      "key": "s08ef00b7848c",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The actual registry configuration and child frontmatter are valid. Regeneration followed by review is accurate guidance for this stale table."
+    },
+    {
+      "key": "s83c5e64841a0",
+      "findingIds": ["fixture-required-record-rituals-required-2787"],
+      "correct": true,
+      "reason": "rituals/required.md is absent, while notes/entry.md explicitly says the separate requested record is absent. Asking the owner for it without inventing content follows the rubric."
+    },
+    {
+      "key": "sfcf687af4769",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": false,
+      "reason": "notes/entry.md identifies the text as a copied unsigned instruction, not authorization. Requiring the owner to delete it after resolving work or reword it as a real task fails to preserve its actual role as recorded evidence."
+    },
+    {
+      "key": "sa77d5effe66a",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": true,
+      "reason": "The marker occurs in a copied unsigned instruction. Manual review is appropriate and does not execute the quoted command or assert completion."
+    },
+    {
+      "key": "s557fb2ec3eed",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": false,
+      "reason": "notes/entry.md explicitly says the copied instruction is not authorization. Treating it as work to resolve by hand could execute the quoted outside-file replacement, which the TODO rubric forbids."
+    },
+    {
+      "key": "s1ca1952039a8",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": false,
+      "reason": "notes/entry.md says it preserves an example, not a pending task, and places the marker in a code block. Both proposed outcomes remove that example rather than recognizing that it may appropriately remain as documentation."
+    },
+    {
+      "key": "seb5dc7820ad8",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": true,
+      "reason": "The detected marker is a fenced example rather than pending work. Manual review permits checking that context without executing or deleting it."
+    },
+    {
+      "key": "s30cf4ebc1f15",
+      "findingIds": ["todo-notes-entry-9cd0"],
+      "correct": false,
+      "reason": "The source explicitly labels the fenced text as an example, not a pending task. Advising removal or completion of underlying work misclassifies that example and does not offer preserving it in context."
+    },
+    {
+      "key": "s29401dd43b69",
+      "findingIds": ["verify-notes-entry-1ce4"],
+      "correct": true,
+      "reason": "notes/entry.md states that the historical claim is not verified and requires retaining the source until evidence is reviewed. The suggestion preserves that uncertainty and makes removal conditional on review."
+    },
+    {
+      "key": "s709b95c713a4",
+      "findingIds": ["verify-notes-entry-1ce4"],
+      "correct": true,
+      "reason": "The suggestion places verification before marker removal. It does not assert the historical claim is true or rewrite its chronology."
+    },
+    {
+      "key": "s62dac2b3f4fb",
+      "findingIds": ["verify-notes-entry-1ce4"],
+      "correct": true,
+      "reason": "The source instructs reviewers not to infer truth and to retain the source until evidence is reviewed. The suggestion explicitly follows those constraints."
+    },
+    {
+      "key": "s45c1df6e5030",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The valid registry's generated region contains Old entry, while the valid child is titled Loom beam. The existing registry command can update that region while preserving the introduction and separate TODO."
+    },
+    {
+      "key": "s3011d140de5b",
+      "findingIds": ["todo-rituals-_index-9c2f"],
+      "correct": true,
+      "reason": "The introduction retains a TODO to verify the loom beam, and loom.md does not establish that this verification is complete. Manual review avoids deleting unfinished work."
+    },
+    {
+      "key": "s1f6e03e7ba0f",
+      "findingIds": ["broken-link-notes-entry-c5fa"],
+      "correct": true,
+      "reason": "Validation confirms eastern-route is unresolved, and old-route.md describes a different western route. The suggestion offers human repair choices without claiming that the western record is the correct replacement."
+    },
+    {
+      "key": "s7c2264ce1117",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry and beacon.md metadata are valid. Recommending the existing command does not replace the long handwritten observations or invent a mast inspection."
+    },
+    {
+      "key": "sf39061f470c2",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The block-list registry configuration is valid, as is lantern.md frontmatter. The rubric permits the existing registry command and a mechanical repair exists."
+    },
+    {
+      "key": "s995224b92252",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "rituals/entry.md has type: scroll, which validation identifies as invalid. The rubric requires correcting invalid child metadata before regeneration, whereas this advice postpones correction until afterward."
+    },
+    {
+      "key": "sc2b0694f143e",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "The child record's type: scroll is invalid according to validation. Simply running brain registry omits the source correction that the rubric requires first."
+    },
+    {
+      "key": "sf4d3f2cf6885",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": false,
+      "reason": "Validation rejects type: scroll in rituals/entry.md. Recommending regeneration before fixing that metadata reverses the order explicitly required by the index-stale rubric."
+    },
+    {
+      "key": "sfb70e6442544",
+      "findingIds": ["module-hygiene-module-8ab7"],
+      "correct": true,
+      "reason": "The detected finding says fixture-review could not run and supplies no underlying cause. The suggestion investigates configuration and runtime errors and correctly leaves the fixtures unverified."
+    },
+    {
+      "key": "s4c23ea718b0b",
+      "findingIds": ["module-hygiene-module-8ab7"],
+      "correct": true,
+      "reason": "The issue accurately reports the module check's failure. Requesting manual review neither invents content findings nor treats the failed check as resolved."
+    },
+    {
+      "key": "s8dfa5e60d07b",
+      "findingIds": ["module-hygiene-module-8ab7"],
+      "correct": false,
+      "reason": "The finding establishes only that the inspection could not run; neither the files nor the error establish its root cause. The categorical claim that the failure is in tooling rather than knowledge-base content is unsupported, so the stricter verdict applies."
+    },
+    {
+      "key": "s85fa1e335cba",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The valid registry filters for active status, and both children's metadata are valid. The existing command will respect that filter while regenerating the table."
+    },
+    {
+      "key": "sf318b636c759",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "rituals/_index.md has a valid active-only registry configuration and valid child records. The rubric permits brain registry for this stale table."
+    },
+    {
+      "key": "s96f5d0f18203",
+      "findingIds": ["index-stale-rituals-_index-06f6"],
+      "correct": true,
+      "reason": "The registry's active-status filter correctly excludes the draft Second message. The suggestion uses the existing command and asks reviewers to investigate only unexpectedly missing rows."
+    }
+  ]
+}
