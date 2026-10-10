@@ -191,6 +191,8 @@ export function toolLockFromWriteLock(writeLock: WriteLock): ToolLock {
 }
 
 export interface BrainToolDeps {
+  /** Worker shell writes stay in fresh scratch; never a privileged cwd. */
+  shellCwd?: string;
   brain: BrainAccess;
   turn: TurnContext;
   /**
@@ -511,7 +513,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     name: "bash",
     label: "Run bash",
     description:
-      "Run a bash command in the brain repository root. Combined stdout+stderr is " +
+      (deps.shellCwd ? "Run a bash command in writable worker scratch. The authoritative brain is read-only. " : "Run a bash command in the brain repository root. ") + "Combined stdout+stderr is " +
       "returned. Destructive command shapes (recursive delete, history rewrites, " +
       "brain archive) raise a confirmation card before running.",
     parameters: Type.Object({
@@ -534,7 +536,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         const exec = resolveExecConfig();
         const proc = spawn(wrapCommand(["bash", "-lc", cmd], exec.wrapper), {
-          cwd: brain.root,
+          cwd: deps.shellCwd ?? brain.root,
           env: childEnv,
           stdout: "pipe",
           stderr: "pipe",

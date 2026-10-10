@@ -2552,7 +2552,7 @@ is in the prompt on every pi turn by construction. That makes pi's shipping
 configuration the structural equivalent of this record's `--always-load`
 **brief** arm — and only that one. pi has no no-brief arm and no supported way
 to have one: `block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:157` passes the
+`packages/ui-backend-pi/src/session-resources.ts:165` passes the
 block brief unconditionally, where the four lines above it gate their briefs on
 a capability. So pi can corroborate the loaded *rate* and can say nothing at
 all about whether the brief matters; the 77%/77% here and #148's 76%/77% are
@@ -2964,7 +2964,7 @@ Two things stop that residue being read as a like-for-like gap, and both cut
 against reading pi as a second replication of the brief result. pi is on a
 different harness driving the model directly, and — this is the one that matters
 — **pi has no no-brief arm and no supported way to have one.**
-`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:157`
+`block: "show_block"`, `packages/ui-backend-pi/src/session-resources.ts:165`
 passes the block brief into `buildSystemPromptAppend` unconditionally, not
 behind a capability check like `askUser`, `location`, `activity` and `mask` on
 the lines above it. So every pi number was measured with the brief present. The
@@ -3276,7 +3276,7 @@ turns the complete roster the model reached for was `bash`, `show_block`,
 `brain_read`, `grep`, `brain_search`, `read_file`, `brain_list`, `brain_graph`:
 no search-then-load round trip, ever. The brief is in the prompt on every turn
 unconditionally (`block: "show_block"`,
-`packages/ui-backend-pi/src/session-resources.ts:157`, not behind a capability
+`packages/ui-backend-pi/src/session-resources.ts:165`, not behind a capability
 check like the four bridge tools beside it). So pi is the structural twin of
 D43's `--always-load` arm and has never run any other configuration.
 

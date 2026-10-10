@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { registryBrainFixture } from "./helpers/registry-brain";
 import type { ThinkingLevel } from "@schlessera/brain-ui-sdk";
 import {
   defineBackendModule,
@@ -16,6 +17,11 @@ import { createUiDb } from "../src/db/client";
 import { getDefaultModelId, getThinkingOverrides, setDefaultModelId } from "../src/db/settings";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
+
+// Pi's external state requires an actual canonical brain, even for catalogs.
+let fixtureBrain: ReturnType<typeof registryBrainFixture>;
+beforeEach(() => { fixtureBrain = registryBrainFixture(); });
+afterEach(() => fixtureBrain.cleanup());
 
 /**
  * Registries are built from explicit configuration through the real resolver —
@@ -35,7 +41,7 @@ function registryFor(
 ): BackendRegistry {
   // NODE_ENV=test keeps model discovery off by default: a suite that silently
   // depends on network access is flaky by construction.
-  const config = resolveServerConfig({ NODE_ENV: "test", ...env });
+  const config = resolveServerConfig({ NODE_ENV: "test", BRAIN_PATH: fixtureBrain.root, ...env });
   return createBackendRegistry({
     brainPath: config.brainPath,
     agent: config.agent,

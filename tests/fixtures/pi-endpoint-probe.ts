@@ -2,7 +2,6 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPiBackend } from "../../packages/ui-backend-pi/src/backend.js";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import type { AgentBackend, ServerMessage } from "@schlessera/brain-ui-sdk/server";
 
@@ -28,16 +27,6 @@ const refreshedEndpoint = "https://api.refreshed.example.test";
 const attempts: Array<{ url: string; kind: string; model?: string; promptPresent?: boolean; authPresent?: boolean }> = [];
 const received: Array<{ url: string; model: string; promptPresent: boolean; tools: string[] }> = [];
 const nativeAuth: Array<{ provider: string; model: string; source?: string; subscription: boolean; endpoint?: string }> = [];
-// Observe the public native auth operation while delegating once unchanged.
-const getAuth = ModelRuntime.prototype.getAuth;
-ModelRuntime.prototype.getAuth = async function (this: ModelRuntime,
-  model: string | Parameters<ModelRuntime["getAuth"]>[0], overrides?: Parameters<ModelRuntime["getAuth"]>[1]) {
-  const native = getAuth.bind(this);
-  const resolution = typeof model === "string" ? await native(model, overrides) : await native(model, overrides);
-  if (typeof model !== "string" && resolution) nativeAuth.push({ provider: model.provider, model: model.id,
-    source: resolution.source, subscription: this.isUsingSubscription(model.provider), endpoint: resolution.auth.baseUrl });
-  return resolution;
-};
 const frames: ServerMessage[][] = [];
 const refusals: string[] = [];
 const identities: unknown[] = [];
@@ -70,32 +59,17 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return response();
 } });
 const configured = `http://127.0.0.1:${server.port}/configured/path`;
-const actualFetch = globalThis.fetch;
-// Only loopback inference reaches HTTP. OAuth refresh receives synthetic
-// responses at its original URLs; other native-auth destinations are refused.
-// No real credential, remote response or successful remote inference is involved.
-globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-  const request = new Request(input, init);
-  const url = request.url;
-  if (oauth && url === "https://api.github.com/copilot_internal/v2/token") {
-    attempts.push({ url, kind: "refresh" });
-    return Response.json({ token: "tid=fixture;proxy-ep=proxy.refreshed.example.test;", expires_at: Math.floor(Date.now() / 1000) + 7200 });
-  }
-  if (oauth && url === `${refreshedEndpoint}/models`) {
-    attempts.push({ url, kind: "refresh-models" });
-    return Response.json({ data: [{ id: modelId, model_picker_enabled: true, policy: { state: "enabled" },
-      capabilities: { supports: { tool_calls: true } } }] });
-  }
-  const body = await request.clone().json() as { model?: string; messages?: unknown[]; input?: unknown[] };
-  attempts.push({ url, kind: "inference", model: body.model,
-    promptPresent: JSON.stringify(body.messages ?? body.input ?? []).includes("fixture prompt"),
-    authPresent: request.headers.has("authorization") || request.headers.has("x-api-key") });
-  if (new URL(url).origin === server.url.origin) return actualFetch(request);
-  // Seed a persisted native-auth session using a synthetic fixture answer at
-  // the unchanged endpoint, then refuse its resumed inference below.
-  if (allowSeed && url.startsWith(firstEndpoint + "/")) { syntheticInferenceResponses++; return response(); }
-  throw new Error("Fixture refused non-loopback transport");
-}, actualFetch);
+// The native runtime now lives in the worker. Install this transport observer
+// as an ordinary project extension, before the configured ModelRuntime is built.
+const extensionDir = join(brainPath, ".pi/extensions");
+mkdirSync(extensionDir, { recursive: true });
+function installObserver() {
+  const settings = { oauth, provider, modelId, firstEndpoint, refreshedEndpoint,
+    configuredOrigin: server.url.origin, allowSeed };
+  writeFileSync(join(extensionDir, "endpoint-observer.ts"),
+    `import { installEndpointObserver } from ${JSON.stringify(join(import.meta.dir, "pi-endpoint-worker-observer.ts"))};
+export default function(pi) { installEndpointObserver(pi, ${JSON.stringify(settings)}); }`);
+}
 
 function credential(endpoint: string, expired = false) {
   return { type: "oauth", access: `tid=fixture;proxy-ep=${new URL(endpoint).hostname.replace(/^api\./, "proxy.")};`,
@@ -113,11 +87,12 @@ writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {
 } }));
 
 function backend(model = modelId): AgentBackend {
-  return createPiBackend({ brainPath, sessionDir, loadExtensions: false,
+  return createPiBackend({ brainPath, sessionDir, loadExtensions: true,
     profiles: [{ id: "fixture", label: "Fixture", vendor: provider, model, thinkingLevel: "off" }],
   });
 }
 async function turn(adapter: AgentBackend, autonomous = false, sessionId?: string) {
+  installObserver();
   const emitted: ServerMessage[] = [];
   frames.push(emitted);
   try {
@@ -125,7 +100,14 @@ async function turn(adapter: AgentBackend, autonomous = false, sessionId?: strin
       signal: AbortSignal.timeout(10_000),
       ...(autonomous ? { enforceAllowedTools: true, noGrantSurface: true,
         autonomous: { origin: "autonomous" as const, persistence: "none" as const, allowedTools: [], systemPromptAppend: "Fixture task." } } : {}),
-      bridge: { emit: (frame) => emitted.push(frame), requestPermission: async () => ({ behavior: "deny", message: "Fixture" }),
+      bridge: { emit: (frame) => {
+        if (frame.type === "text_delta" && frame.text.startsWith("__pi_fixture_receipt__:")) {
+          const receipt = JSON.parse(frame.text.slice("__pi_fixture_receipt__:".length));
+          if (receipt.kind === "nativeAuth") nativeAuth.push(receipt.value);
+          else if (receipt.kind === "attempt") attempts.push(receipt.value);
+          else if (receipt.kind === "synthetic") syntheticInferenceResponses++;
+        } else emitted.push(frame);
+      }, requestPermission: async () => ({ behavior: "deny", message: "Fixture" }),
         checkpointPermission: () => {}, activity: (event) => identities.push(event) },
     });
   } catch (error) { refusals.push((error as Error).message); }
@@ -177,4 +159,4 @@ try {
     sessions, history, persisted, requestsBeforeRefusal, refreshedCredential, syntheticInferenceResponses,
     configuredInput: JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8")).providers[provider]?.baseUrl ?? null,
   }));
-} finally { ModelRuntime.prototype.getAuth = getAuth; globalThis.fetch = actualFetch; server.stop(true); }
+} finally { server.stop(true); }

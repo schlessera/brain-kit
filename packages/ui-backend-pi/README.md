@@ -49,8 +49,8 @@ existing native endpoint/authentication configuration when adopting the change.
 Model/provider identity and explicit picker profiles stay fixed; no custom-model
 discovery or profile endpoint field is added. Ordinary disk resumes use native
 configured lookup without overriding their saved model and still refuse fallback
-to another model. A resident session retains its runtime; this adds no hot-reload
-promise for edits to `models.json`.
+to another model. Every turn reconstructs its runtime inside a worker; no runtime hot-reload
+promise is added for edits to `models.json`.
 
 Autonomous turns remain nonpersistent with the existing tool authority and
 runtime compatibility checks. Endpoint routing does not enable autonomous
@@ -91,11 +91,11 @@ on the provider's credentials and model availability.
 | `brainPath` | — | Absolute path to the brain repo; the agent's cwd. |
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
 | `profiles` | — | Selectable `{id,label,vendor?,model,thinkingLevel?}` profiles; first is the default for new sessions. |
-| `sessionDir` | `<brainPath>/.brain-kit-ui/sessions` | Where pi stores session JSONL trees. |
+| `sessionDir` | `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions` | Server-owned session JSONL trees outside the brain and its ancestors; aliases into the brain refuse. |
 | `loadExtensions` | `true` | pi extensions (installed pi packages, repo-local extensions) load by default — the `tool_call` gate covers their tools, so e.g. `pi-mcp-adapter` (MCP servers from `.mcp.json`) and `pi-web-access` (web search/fetch) extend the surface safely. Set `false` to pin the surface to the curated tools. Skills + `AGENTS.md`/`CLAUDE.md` context always load — and BOTH cwd context files load when both exist, matching what the Claude backend reads. |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
-| `writeLock` | fresh in-process lock | Serializes mutating tool executions across all sessions of this backend (shared working tree). Inject one to share a lock with another in-process writer. |
+| `writeLock` | fresh keyed lock | Legacy whole-lock serialization for authoritative server applications. Inject one to share a lock with another server writer. Worker scratch is separate per turn. |
 
 ## Reasoning effort
 
@@ -118,7 +118,7 @@ request as separate turns. Legacy messages can still use native `followUp()`.
 
 | Capability | Value | Justification |
 |---|---|---|
-| `resume` | `true` | `SessionManager.open()` reopens any session JSONL by id. |
+| `resume` | `true` | The server reads JSONL by id and reconstructs the worker session with `SessionManager.inMemory`. |
 | `permissions` | `true` | The `tool_call` gate awaits `bridge.requestPermission()` for gated calls (non-allowlisted tools, destructive bash shapes). |
 | `thinking` | `true` | `message_update`'s `thinking_delta` maps to `thinking_delta` frames. |
 | `attachments` | `true` | Image attachments become pi `ImageContent` on `session.prompt({ images })`. |
@@ -127,15 +127,46 @@ request as separate turns. Legacy messages can still use native `followUp()`.
 | `concurrentSessions` | `true` | Busy-ness is per session: turns on different sessions run in parallel; a second turn on a running session rejects `BackendBusyError`. |
 | `followUp` | `true` | `followUp()` injects a mid-turn message into the running turn via `session.prompt(text, { streamingBehavior: "followUp" })`. |
 
+## Isolated turns and session migration
+
+Every ordinary and autonomous turn probes the shared Linux/bubblewrap boundary
+before loading extensions or creating an agent session. Unsupported hosts
+refuse visibly, with no weaker fallback. Extension factories, custom tools and
+shell children see a read-only brain and fresh writable scratch; `BRAIN_ROOT`
+keeps CLI reads rooted in the brain, while CLI writes report the hosted
+read-only diagnostic and name the curated tool. Shell output is never replayed
+by the server.
+
+The server owns permission decisions, bridge handlers and exact Markdown
+applications. Strict bounded messages travel over protocol pipes, never sockets
+or shared writable files. Bridge execution needs the exact server permission
+receipt; applications recheck the live principal and operation in the server
+route. Masks use the shared server-owned PNG operation with Pi’s existing filename
+and result path. It validates exact browser bytes, image/mask bases, policy paths,
+aliases, live authority and cancellation under the application lock. Cancellation kills the worker's PID
+namespace and records any edits that already committed.
+
+**Breaking migration, approved in #674 and #1038:** sessions and native pi state
+must be outside the brain and its ancestors. Move existing JSONL transcripts
+from `<brainPath>/.brain-kit-ui/sessions` into the new default directory, or
+configure an external `sessionDir`. Existing session ids and history envelopes
+are retained. `PI_CODING_AGENT_DIR` must also resolve outside the brain. Native
+auth/model/settings files enter scratch through pipes; refreshed credentials
+return only to the server-selected native auth file, refusing aliases and
+concurrent changes. This filesystem boundary does not establish #676's complete
+credential, ambient-configuration or egress containment, or enable autonomous
+production dispatch. Pi continues to refuse voice turns because it declares no
+voice membership.
+
 ## Parallel sessions
 
 Each pi `AgentSession` is tracked in a per-`sessionId` map with its own
 `TurnContext` and curated toolset — so two sessions' turns never share a bridge.
 Every emitted frame is scoped with its `sessionId` so a multiplexing client can
-demux concurrent sessions. Up to 5 sessions stay resident in memory; beyond that,
-**idle** (not currently running) sessions are disposed least-recently-used-first
-at the end of a turn and reopened from their on-disk JSONL on the next resume.
-Running sessions are never evicted.
+demux concurrent sessions. Each turn owns one isolated worker; it is terminated
+at completion or cancellation. Ordinary JSONL is persisted by the server over
+pipes and reopened on the next turn. Session identities and history shapes stay
+the same; autonomous turns persist nothing.
 
 `followUp({ sessionId, prompt, attachments })` delivers a user message into a
 session's **running** turn — pi's `"followUp"` streaming behaviour queues it
@@ -144,17 +175,12 @@ as opposed to `"steer"`, which interrupts. Frames keep flowing through the runni
 turn's existing subscription. It rejects `BackendRequestError` when the session
 has no running turn (the host then queues the message as the next turn instead).
 
-**Shared-repo safety.** Mutations serialize per CONTENTION KEY (a `KeyedLock`),
-not on one global mutex: file writes lock `path:<abs>` (same file serializes,
-different files run in parallel), the brain document tools share a
-`brain-docs` key (write + reindex bursts), and `bash` locks the repo-wide
-`repo-git` key ONLY when the command touches git staging/history or the brain
-CLI's write path (shared `bashLockKey` policy from ui-sdk — the same
-classification the Claude backend uses). Builds, greps, curls and other
-read-shaped bash run lock-free, so parallel sibling tool calls and parallel
-sessions actually run in parallel. Read-class tools never take a lock. The
-permission round-trip happens in the `tool_call` gate **before** any lock.
-Injecting the legacy `writeLock` option restores whole-lock serialization.
+**Shared-repo safety.** Authoritative applications use the server route's
+contention keys and recheck exact authority under the write lock before writing
+and indexing. The legacy `writeLock` option supplies a shared whole lock to that
+route. Worker tools retain their local contention keys; each turn has separate
+writable scratch, and `bash` cannot stage or mutate the read-only brain.
+Permission decisions precede execution and locking.
 
 ## Curated tools, permissions & risk classes
 
@@ -210,24 +236,22 @@ the gate, so confirm patterns always see the command as the model wrote it.
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
-| `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | `safeResolve`; writes `<image>.mask.png` |
-| `write_file` | mutate | auto-allow | `safeResolve` inside repo |
-| `edit_file` | mutate | auto-allow | `safeResolve`; `old_string` must be unique |
-| `bash` | mutate | auto-allow, **confirm patterns ask** | `cwd` pinned to repo |
-| `brain_add` | mutate | auto-allow | in-process `ingest` (writes markdown + reindex) |
-| `brain_update` | mutate | auto-allow, **`status: "archived"` asks** | `safeResolve`; frontmatter/body update + reindex |
-| `brain_archive` | mutate | **approval** | in-process `archiveDocument` (visibility change) |
+| `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | server PNG application; writes `<image>.mask.png` |
+| `write_file` | mutate | auto-allow | server-validated Markdown application |
+| `edit_file` | mutate | auto-allow | server-validated Markdown application; `old_string` must be unique |
+| `bash` | mutate | auto-allow, **confirm patterns ask** | writable worker scratch; the brain remains read-only |
+| `brain_add` | mutate | auto-allow | server-owned capture (Markdown + reindex) |
+| `brain_update` | mutate | auto-allow, **`status: "archived"` asks** | server-owned frontmatter/body update + reindex |
+| `brain_archive` | mutate | **approval** | server-owned archive (visibility change) |
 
 `get_current_location`, `query_activity` and `request_image_mask` register only
 when the host bridge provides the corresponding seam, and the system-prompt
 brief names them on the same condition.
 
-The brain tools call core in-process: graph and listing reads through the
-supported `@schlessera/brain/queries` API, search, context and writes
-(`hybridSearch` / `ingest` / `archiveDocument`) through the unsupported,
-lockstep-only `@schlessera/brain/internal` entry, rather than shelling
-out to the `brain` CLI or MCP — the same surface the Claude backend reaches
-via the brain repo's `mcp__brain__*` server, without the subprocess. Search
+Read tools call core inside the read-only worker: graph and listing use the
+supported `@schlessera/brain/queries` API, while search/context use the
+lockstep-only `@schlessera/brain/internal` entry. Authoritative writes go only
+through the server application route; a missing route visibly refuses. Search
 degrades to FTS-only when no embedding key is configured (the same keyless
 behaviour the CLI has).
 

@@ -1,28 +1,13 @@
-import {
-  createAgentSession,
-  ModelRuntime,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-
-import type {
-  CreatePiBackendOptions,
-  PiSessionLike,
-  SessionEnv,
-} from "./backend-options.js";
-import { resolveModelSpec, toModel } from "./profiles.js";
+import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import type { TurnContext } from "./turn-context.js";
 import type { createSessionResources } from "./session-resources.js";
+import { openPiWorkerSession } from "./worker-session.js";
+import { resolveModelSpec } from "./profiles.js";
 
 export interface SessionRuntime {
-  newSession(
-    profileId: string | undefined,
-    env: SessionEnv
-  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
-  openSession(
-    sessionId: string,
-    env: SessionEnv
-  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
+  newSession(profileId: string | undefined, env: SessionEnv): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
+  openSession(sessionId: string, env: SessionEnv): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
 }
 
 export function createSessionRuntime(options: {
@@ -30,87 +15,22 @@ export function createSessionRuntime(options: {
   sessionDir: string;
   resources: ReturnType<typeof createSessionResources>;
 }): SessionRuntime {
-  const { backend, sessionDir, resources } = options;
-  const brainPath = backend.brainPath;
-
+  async function acquire(env: SessionEnv, profileId?: string, sessionId?: string) {
+    if (!sessionId) resolveModelSpec(options.backend, profileId);
+    // Internal contract doubles carry no installed SDK/extension writer. The
+    // production path always enters the shared worker boundary.
+    if (options.backend.sessionFactory) {
+      if (env.autonomous) throw new BackendRequestError("Injected session factories do not support nonpersistent turns.");
+      const toolkit = options.resources.buildToolkit(env.caps);
+      const session = sessionId
+        ? await options.backend.sessionFactory.openSession(sessionId, toolkit)
+        : await options.backend.sessionFactory.newSession(profileId, toolkit);
+      return { session, turnContext: toolkit.turnContext };
+    }
+    return openPiWorkerSession(options.backend, options.sessionDir, env, profileId, sessionId);
+  }
   return {
-    async newSession(profileId, env) {
-      // A bad profile throws BackendRequestError before anything is emitted.
-      const spec = resolveModelSpec(backend, profileId);
-      const toolkit = resources.buildToolkit(env.caps);
-      if (backend.sessionFactory) {
-        if (env.autonomous) throw new BackendRequestError("Injected session factories do not support nonpersistent turns.");
-        const session = await backend.sessionFactory.newSession(profileId, toolkit);
-        return { session, turnContext: toolkit.turnContext };
-      }
-      // A declared model missing from the catalog fails instead of falling back.
-      const declaredModel = toModel(spec);
-      const sm = env.autonomous ? SessionManager.inMemory(brainPath) : SessionManager.create(brainPath, sessionDir);
-      const loaded = await resources.build(toolkit, env);
-      // Native discovery owns models/auth/cache paths and per-request auth.
-      // Select from the SAME configured runtime that performs inference.
-      const modelRuntime = await ModelRuntime.create();
-      const model = declaredModel ? modelRuntime.getModel(declaredModel.provider, declaredModel.id) : undefined;
-      if (declaredModel && (!model || model.provider !== declaredModel.provider || model.id !== declaredModel.id)) {
-        throw new BackendRequestError(
-          `Cannot resolve configured model "${declaredModel.provider}/${declaredModel.id}". ` +
-            "Restore the declared built-in model in pi's native configuration."
-        );
-      }
-      const { session } = await createAgentSession({
-        cwd: brainPath,
-        noTools: "builtin",
-        customTools: toolkit.tools,
-        sessionManager: sm,
-        resourceLoader: loaded.loader,
-        settingsManager: loaded.settingsManager,
-        modelRuntime,
-        ...(model ? { model } : {}),
-        ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
-      });
-      return { session, turnContext: toolkit.turnContext };
-    },
-
-    async openSession(sessionId, env) {
-      const toolkit = resources.buildToolkit(env.caps);
-      if (backend.sessionFactory) {
-        const session = await backend.sessionFactory.openSession(sessionId, toolkit);
-        return { session, turnContext: toolkit.turnContext };
-      }
-      const infos = await SessionManager.list(brainPath, sessionDir);
-      const info = infos.find((i) => i.id === sessionId);
-      if (!info) {
-        throw new BackendRequestError(`Cannot resume unknown session: ${sessionId}`);
-      }
-      const sm = SessionManager.open(info.path, sessionDir);
-      const loaded = await resources.build(toolkit, env);
-      const modelRuntime = await ModelRuntime.create();
-      const { session, modelFallbackMessage } = await createAgentSession({
-        cwd: brainPath,
-        noTools: "builtin",
-        customTools: toolkit.tools,
-        sessionManager: sm,
-        resourceLoader: loaded.loader,
-        settingsManager: loaded.settingsManager,
-        modelRuntime,
-      });
-      // Resumed sessions stay pinned to their saved model — no model override.
-      // pi otherwise silently substitutes another configured model when the
-      // saved one is unavailable (catalog change, missing/expired credential).
-      // Refuse: continuing would run on a different model, and possibly a
-      // different provider and billing, under the session's pinned identity.
-      if (modelFallbackMessage) {
-        try {
-          session.dispose();
-        } catch {
-          // Best-effort: the rejection below is the primary signal.
-        }
-        throw new BackendRequestError(
-          `Cannot resume on the session's saved model: ${modelFallbackMessage} ` +
-            "Restore the credential (e.g. `pi login`) or start a new conversation."
-        );
-      }
-      return { session, turnContext: toolkit.turnContext };
-    },
+    newSession: (profileId, env) => acquire(env, profileId),
+    openSession: (sessionId, env) => acquire(env, undefined, sessionId),
   };
 }

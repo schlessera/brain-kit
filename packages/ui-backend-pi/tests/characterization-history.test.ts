@@ -20,9 +20,10 @@ afterEach(() => {
 });
 
 function fixture(): { root: string; sessionDir: string } {
-  const root = mkdtempSync(join(tmpdir(), "pi-history-characterization-"));
-  tempRoots.push(root);
-  const sessionDir = join(root, "sessions");
+  const parent = mkdtempSync(join(tmpdir(), "pi-history-characterization-"));
+  tempRoots.push(parent);
+  const root = join(parent, "brain"); mkdirSync(root);
+  const sessionDir = join(parent, "sessions");
   mkdirSync(sessionDir, { recursive: true });
 
   const entries = [
@@ -119,9 +120,10 @@ describe("createPiBackend history characterization", () => {
   });
 
   test("empty and entirely malformed directories read as no sessions or history", async () => {
-    const root = mkdtempSync(join(tmpdir(), "pi-history-empty-"));
-    tempRoots.push(root);
-    const sessionDir = join(root, "sessions");
+    const parent = mkdtempSync(join(tmpdir(), "pi-history-empty-"));
+    tempRoots.push(parent);
+    const root = join(parent, "brain"); mkdirSync(root);
+    const sessionDir = join(parent, "sessions");
     mkdirSync(sessionDir, { recursive: true });
     writeFileSync(join(sessionDir, "broken.jsonl"), "not-json\n", "utf-8");
     const backend = createPiBackend({ brainPath: root, sessionDir });

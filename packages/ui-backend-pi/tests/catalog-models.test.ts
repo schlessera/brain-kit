@@ -10,7 +10,9 @@ import { createPiBackend } from "../src/backend";
 import { createBrainAccess } from "../src/brain-access";
 import { resolveModelSpec, toModel } from "../src/profiles";
 import { createSessionResources } from "../src/session-resources";
-import { createSessionRuntime } from "../src/session-runtime";
+import { createSessionRuntime } from "../src/native-session-runtime";
+import { randomUUID } from "node:crypto";
+import { WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import { toolLockFromKeyed } from "../src/tools";
 import { makeEmptyBrain } from "./helpers";
 
@@ -76,7 +78,11 @@ describe("pi builtin catalog", () => {
           confirmPatterns: [],
           loadExtensions: false,
         });
-        const runtime = createSessionRuntime({ backend, sessionDir: `${brain.root}/sessions`, resources });
+        // This catalog unit test constructs the worker-local SDK directly.
+        // Ordinary-turn containment and tool transport are proven separately
+        // by pi-worker-runtime's real namespace/inference harness.
+        const runtime = createSessionRuntime({ backend, sessionDir: WORKER_SCRATCH, resources,
+          sessionId: randomUUID(), observeManager: () => {}, modelRuntimeOptions: {} });
         // Construct only: no prompt, credential login, provider request or billing.
         const { session } = await runtime.newSession("configured-sol", { caps });
         try {

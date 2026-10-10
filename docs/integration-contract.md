@@ -1547,7 +1547,8 @@ only the exact bytes returned by that turn's browser editor. No worker-supplied
 identity, arbitrary binary kind, command or destination is accepted.
 
 Only PNG-signature bytes within the cap may replace the submitted existing image's
-Claude mask filename (`raft.png` becomes `raft-mask.png`), beside the source or
+backend mask filename (Claude: `raft-mask.png`; pi: `raft.mask.png` for `raft.png`),
+selected by the server’s backend identity, beside the source or
 under `.brain/scratch`. Image and previous mask hashes are captured before the
 editor opens and rechecked under the application lock and immediately before
 commit. Policy/ancestor paths, traversal, hidden metadata outside scratch,
@@ -3916,6 +3917,27 @@ the adapter or runner outcome. `ok([])` reports diagnostic `unparseable`, not
 confirmed empty. The CLI `{ report }` envelope does not change.
 
 ### AgentBackend conformance baseline
+
+**Breaking pre-1.0 hosted pi execution (#1038, isolated-writer ruling on #674).**
+Each ordinary or autonomous pi turn runs its agent session, resource loader,
+extensions and shell children inside the shared pre-initialization worker
+boundary. The authoritative brain is read-only there; shell writes land in fresh
+scratch. `BRAIN_ROOT` keeps CLI reads rooted in the brain, while CLI writes retain
+the hosted `read_only_brain` refusal. `write_file`, `edit_file` and curated writes
+require the server application route and retain its existing approvals.
+
+The `CreatePiBackendOptions` fields and `AgentBackend`, frame, session-list and
+history shapes are unchanged. The documented `sessionDir` default changes from
+`<brainPath>/.brain-kit-ui/sessions` to
+`~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions`.
+Configured session and native pi agent directories must resolve outside the
+brain and its ancestors; aliases refuse. Move existing session JSONL into the
+new default or an external configured directory to resume the same ids/history.
+The server persists ordinary transcripts over pipes and retains committed edit
+receipts across cancellation; autonomous turns remain nonpersistent. No worker
+pool, new public option or extension seam is added. Pi still refuses voice turns
+because it declares no voice membership. This change does not establish #676's
+complete credential/egress containment or enable autonomous production dispatch.
 
 Every conforming `AgentBackend` must honor a requested
 `StartTurnRequest.enforceAllowedTools` or `StartTurnRequest.noGrantSurface`, or

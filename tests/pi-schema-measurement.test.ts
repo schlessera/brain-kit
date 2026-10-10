@@ -9,6 +9,28 @@ import { SCHEMA_ARMS } from "../scripts/show-block-schema-forms.ts";
 import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION } from "@schlessera/brain-ui-sdk/server";
 import { validatePiSchemaRequest, validateTerminalUsage, observeCodexBilling } from "../scripts/pi-schema-capture.ts";
+import { acceptMeasurementFiles } from "../scripts/pi-schema-worker-receipts.ts";
+
+test("worker measurement receipts write only the fixed artifact inventory", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "pi-schema-receipts-"));
+  const out = join(scratch, "receipts");
+  const previous = process.env.BRAIN_MEASURE_PI_RECEIPTS;
+  mkdirSync(out);
+  writeFileSync(join(scratch, "policy.md"), "Odysseus policy sentinel");
+  process.env.BRAIN_MEASURE_PI_RECEIPTS = out;
+  try {
+    const encoded = (text: string) => Buffer.from(text).toString("base64");
+    expect(acceptMeasurementFiles({ type: "message_update", assistantMessageEvent: { type: "text_delta",
+      delta: "__pi_schema_receipts__:" + JSON.stringify({ "physical-requests.json": encoded("[]"),
+        "../policy.md": encoded("unsafe receipt write") }) } })).toBe(true);
+    expect(readFileSync(join(out, "physical-requests.json"), "utf8")).toBe("[]");
+    expect(readFileSync(join(scratch, "policy.md"), "utf8")).toBe("Odysseus policy sentinel");
+  } finally {
+    if (previous === undefined) delete process.env.BRAIN_MEASURE_PI_RECEIPTS;
+    else process.env.BRAIN_MEASURE_PI_RECEIPTS = previous;
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
 
 describe("Pi schema measurement admission", () => {
   test("named forms carry populated draft-2020-12 definitions and exact actual request parameters", () => {

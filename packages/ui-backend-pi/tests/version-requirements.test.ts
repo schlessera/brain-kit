@@ -62,7 +62,8 @@ for (const name of names.slice(1)) test(`nested ${name} used by coding-agent can
 test("Pi reports primary SDK only, with a satisfied optional minimum", async () => {
   const report = await backendModule.probeRuntime!({ brainPath: "/unused", config: {}, profiles: [], settings: {}, confirmBashPatterns: null, versionRequirements: { sdk: "0.99.1" } });
   expect(report).toEqual({ sdk: { name: names[0], version: "0.99.2" } });
-  expect(createPiBackend({ brainPath: "/unused", versionRequirements: { sdk: "0.99.1" } }).id).toBe("pi");
+  const brainPath = mkdtempSync(join(tmpdir(), "pi-version-brain-")); scratch.push(brainPath);
+  expect(createPiBackend({ brainPath, versionRequirements: { sdk: "0.99.1" } }).id).toBe("pi");
 });
 test("Pi direct factory rejects a conflicting primary floor and an unsupported runtime identity", () => {
   expect(() => createPiBackend({ brainPath: "/unused", versionRequirements: { sdk: "1.0.0" } })).toThrow(/No version satisfies/);

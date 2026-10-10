@@ -1,4 +1,5 @@
 /** Native control, always fake: no provider transport delegates to real fetch. */
+process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE = "1";
 import { writeFileSync,readFileSync } from "node:fs";
 import {plugin} from "bun";
 import { createHash } from "node:crypto";
