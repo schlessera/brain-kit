@@ -82,7 +82,7 @@ Resolve the module lazily when needed and cache its functions once per app.
 Validate the **actual imported package/subpath identity**, its compatible
 version range and required callable operations before use. Graph requires the
 five `readGraph*` operations below; vocabulary requires `readVoiceVocabulary`.
-Core's exported package metadata (`"./package.json"`, `packages/core/package.json:44`)
+Core's exported package metadata (`"./package.json"`, `packages/core/package.json:49`)
 identifies the same resolved installation; a separate `brain` binary on PATH
 cannot establish its identity or capabilities. #697 derives and documents the
 concrete range from releases shipping the required query features, verifies

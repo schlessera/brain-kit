@@ -577,7 +577,7 @@ format: "png" | "pdf", title?: string (max 200) }`. No defaults for the three
 required fields; title defaults to `"share"` for the download name. Limit is
 5,000,000 raw request bytes, including inlined media. No renderer: 501
 `{ error:"render_unavailable", detail }` before body parsing (after media-type
-check). Invalid JSON/schema: 400 `{ error:"invalid_request", detail }`;
+check). Invalid JSON or schema: 400 `{ error:"invalid_request", detail }`;
 common excess body: 413. Renderer failure: 500
 `{ error:"render_failed", detail }`.
 

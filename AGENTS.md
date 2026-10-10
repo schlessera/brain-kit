@@ -1,7 +1,6 @@
 # AGENTS.md — Working in this repo
 
 brain-kit: a file-first personal knowledge base that a coding agent operates.
-This repo is the monorepo behind the `@schlessera/brain-*` packages.
 
 ## Read first
 
@@ -15,9 +14,6 @@ This repo is the monorepo behind the `@schlessera/brain-*` packages.
    decision record for it under [docs/decisions/](docs/decisions/README.md).
 
 ## The five repositories
-
-This is the most important context in this file. Never act on one of these
-repositories without knowing which side of the line it sits on.
 
 **The open-source project** — three public repositories, meant for strangers:
 
@@ -100,9 +96,8 @@ on, links to or describes them.
   `bun` resolves source, `types`/`default` resolve the build. Never force a
   condition in a consumer; all three outputs come from the same source.
 - No raw control or invisible characters in source — spell them as escape
-  sequences, which never change the runtime value. A raw NUL hides the file
-  from grep and ripgrep; a whitespace-trimming editor corrupts a zero-width
-  delimiter. `bun run lint` is the invisible-character gate, in CI too.
+  sequences. Raw NULs hide files from search; trimming corrupts zero-width
+  delimiters. `bun run lint` enforces this locally and in CI.
 - Parse frontmatter with `parseFrontmatter` from
   `@schlessera/brain-common/internal/frontmatter`, never with gray-matter
   directly, which shares one cached object between byte-identical documents.
@@ -118,13 +113,12 @@ on, links to or describes them.
   starting on the anchor's line. **A PR that moves lines under a citation owns
   that citation**, wherever it is recorded; find them with
   `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
-  enforces this for `docs/decisions/`; the rules are in
+  enforces this throughout `docs/`; the rules are in
   [docs/decisions/README.md](docs/decisions/README.md#citing-code).
 
 ## Testing expectations
 
-The full text, with the incidents behind each rule, is
-[docs/process/testing.md](docs/process/testing.md).
+[Full testing rules and incident context](docs/process/testing.md).
 
 - Every library keeps or gains unit tests; contract tests assert the `--json`
   envelopes. Integration tests run against `packages/core/fixtures/corpus/` —
@@ -155,42 +149,26 @@ The full text, with the incidents behind each rule, is
 
 ## CI
 
-GitHub Actions is the only CI provider (`.github/workflows/ci.yml`,
-`contract.yml`, and `project-sync.yml` for the board), forks included. Depot
-CI and the fork fallbacks are retired (#1320); do not restore a second
-provider or copies. A workflow change preserves its gates, versions, pinned
-offline browser image and artifacts ([policy](docs/process/testing.md#github-actions-ci)).
-Green is a claim about a SHA: read checks for the PR's current head — no rows
-is not green, nor is a fork run awaiting approval. After merging, prove the
-squash is on `main`; never push to a merged branch. Commands and receipts:
+GitHub Actions is the only CI provider, forks included; do not restore Depot
+or fallback copies. Preserve workflow gates, versions, the pinned offline browser
+image and artifacts ([policy](docs/process/testing.md#github-actions-ci)).
+Green is a claim about the current SHA; absent or approval-held checks are not green.
+Verify the squash on main and never push to a merged branch; follow
 [CI and merge](.agents/skills/work-issue/references/ci-and-merge.md).
 
 ## Releasing
 
 **Load the [`release` skill](.agents/skills/release/SKILL.md) before versioning,
-publishing or changing what a release ships.** It is the checklist, kept next
-to the guards in `tests/release-manifest.test.ts`. The invariants:
-
-- **`bun run version` refreshes the lockfile** (`rm bun.lock && bun install`).
-  A hand-run `changeset version` does not, and a stale lock publishes
-  `workspace:*` pins to a never-published version — this shipped once, in
-  0.2.0. `scripts/publish.ts` refuses stale pins.
-- **Read the version changesets produced before publishing.** A minor-only
-  changeset has bumped the whole fixed group to a major twice; two config
-  guards, asserted by `tests/release-manifest.test.ts`, now prevent it.
-- **Build, publish, clean and the CI pack loop read the package list from
-  the manifests** (`scripts/publishable-packages.ts`, dependency-first). A new
-  package still joins the `fixed` group and the inventories
-  `tests/release-manifest.test.ts` asserts.
-- Publishing needs interactive auth: the final `bun run release` runs from a
-  human's terminal.
+publishing or changing what a release ships.** Its checklist covers lockfile
+refresh, version changeset review and manifest-derived package inventories,
+enforced by `tests/release-manifest.test.ts`. The final `bun run release` needs
+interactive auth and runs from a human's terminal.
 
 ## Working through GitHub
 
-**Load the [`github` skill](.agents/skills/github/SKILL.md) before filing, triaging,
-picking up or closing work.** It implements
-[docs/process/github.md](docs/process/github.md): labels, milestones, the
-board, the lifecycle and issue routing.
+**Load the [`github` skill](.agents/skills/github/SKILL.md) before tracker work.**
+It implements [docs/process/github.md](docs/process/github.md): labels, milestones,
+the board, lifecycle and issue routing.
 
 - Before writing code against an issue, read it and its epic, check it
   against "What binds future work" in [ROADMAP.md](ROADMAP.md) and the
@@ -217,6 +195,5 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
 
-A skill records what actually works. When one of them is wrong — a command that
-changed, a limit that bit, an API shape that moved — fix it in the same PR that
-found it.
+A skill records what works. Fix any incorrect command, limit or API shape
+in the same PR that found it.

@@ -44,17 +44,14 @@ skill descriptions and defaults are unchanged.
 | Append | The actual turn builder supplies its preset prompt append and `settingSources: ["project"]`. | The preset's full native prompt, project instructions and cache segmentation. |
 | Built-in tools | The turn declares its allowlist, disallowed tools and permission callbacks. | Native CLI tool definitions and their per-request token cost. |
 
-The assembly entry is `createClaudeSdkTurn`
-(`packages/ui-backend-claude/src/sdk-options.ts:56-218`); eager bridge
-registration is `createBrainUiMcpServer`
-(`packages/ui-backend-claude/src/ask-user-tool.ts:93-140`). Skill discovery
-is `discoverSkills` (`packages/core/src/lib/skills/discover.ts:43-81`), and
-project emission is `claudeEmitter`
-(`packages/core/src/lib/skills/emitters/claude.ts:16-52`).
+The assembly entry is [createClaudeSdkTurn at measured source](https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/sdk-options.ts#L54-L216); eager bridge
+registration is [createBrainUiMcpServer at measured source](https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/ask-user-tool.ts#L91-L138). Skill discovery
+is (`discoverSkills`, `packages/core/src/lib/skills/discover.ts:43-81`), and
+project emission is (`claudeEmitter`, `packages/core/src/lib/skills/emitters/claude.ts:16-52`).
 The probe connects the returned production server instance through
-`connectSurface` (`scripts/turn-surface-routing.ts:19-31`), rather than
+(`connectSurface`, `scripts/turn-surface-routing.ts:19-32`), rather than
 asserting the factory alone. Core inventory starts its real source entry
-through `connectBrainSurface` (`scripts/turn-surface-fixture.ts:112-128`).
+through (`connectBrainSurface`, `scripts/turn-surface-fixture.ts:112-128`).
 Inventory uses a separate production turn instance; returned turns retain
 their fresh MCP transport. Fallback tests connect and inspect the actual
 returned entry, so the inventory cannot occupy that transport unnoticed.
@@ -68,11 +65,10 @@ without silently treating absent observations as zero.
 
 ## Private router and comparison controls
 
-`routePreparedTurn` (`scripts/turn-surface-routing.ts:111-150`) is an
+(`routePreparedTurn`, `scripts/turn-surface-routing.ts:111-150`) is an
 unregistered research helper. Routing is disabled unless `enabled` is true.
 It consumes an already assembled turn; it does not start the SDK. The
-existing `createJevClient`
-(`packages/ui-server/src/classification/jev-client.ts:94-209`) retains its
+existing (`createJevClient`, `packages/ui-server/src/classification/jev-client.ts:94-217`) retains its
 HTTP deadline, retry and circuit breaker. A separate assembly deadline
 preserves the baseline even when an injected transport ignores cancellation.
 An overdue answer is discarded. Attachment streams preserve the full turn
@@ -119,7 +115,7 @@ in baseline, hint and load-set, and is absent in hard-prune. Deliberately
 wrong and needless skill suggestions remain visible in the scripted output.
 These are controlled inputs, not measured wrong-load or tool-use rates.
 
-`scoreCalls` (`scripts/turn-surface-routing.ts:166-180`) parses bridge calls
+(`scoreCalls`, `scripts/turn-surface-routing.ts:166-180`) parses bridge calls
 against the shipping contracts, excludes subagent calls and excludes
 incomplete turns. Its controls contain a valid call, an invalid call, a
 delegated call and an incomplete turn. The output reserves live input/cache

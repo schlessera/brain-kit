@@ -18,13 +18,12 @@ It provides no measured model-quality, cost-saving or adoption result.
 | Research skill | Reads criteria and identity, researches company/posting, assesses fit and explains it | Atomic judgments do not replace research, explanation, expertise matching, CV work or the file lifecycle. |
 | JEV client | Choice and Noul with response validation and bounded failure outcomes | Production Score transport is absent. |
 
-These observations come from `groupScore`
-(`packages/module-jobs/src/score.ts:230-242`), `locationScore`
-(`packages/module-jobs/src/score.ts:244-250`), `compensationScore`
-(`packages/module-jobs/src/score.ts:252-263`), `scoreJob`
-(`packages/module-jobs/src/score.ts:277-318`), `## Actions`
-(`packages/module-jobs/skills/research-opportunity/SKILL.md:32-110`), and
-`JevQuestion` (`packages/core/src/lib/jev.ts:70-77`).
+These observations come from (`groupScore`, `packages/module-jobs/src/score.ts:230-242`),
+(`locationScore`, `packages/module-jobs/src/score.ts:244-250`),
+(`compensationScore`, `packages/module-jobs/src/score.ts:252-263`),
+(`scoreJob`, `packages/module-jobs/src/score.ts:277-318`),
+(`## Actions`, `packages/module-jobs/skills/research-opportunity/SKILL.md:32-110`), and
+(`JevQuestion`, `packages/core/src/lib/jev.ts:70`).
 
 The scorer combines title, description, tags and location. Company and
 `remote_type` are available metadata but are not independent semantic fit

@@ -179,15 +179,16 @@ Before merging a change to a file, look for what cites it:
 git grep -n 'permission-hooks.ts:' -- docs packages
 ```
 
-`tests/decision-citations.test.ts` fails when a citation in this directory no
+`tests/decision-citations.test.ts` fails when a citation anywhere under `docs/` no
 longer starts on its anchor, names no anchor, or names a file it cannot find.
 `bun scripts/check-citations.ts` prints the same report on its own, including
 where each drifted anchor now is. What it does **not** check:
 
 - **The end of a range.** A range that grows or shrinks around its first line
   still passes.
-- **Citations outside `docs/decisions/`**, including source comments and other
-  docs. They follow the same convention, and the grep above is the check.
+- **Source comments and repository-root documentation.** They follow the
+  same convention, and the grep above is the check. All Markdown under
+  `docs/`, including plans and historical investigations, is checked.
 - **Citations inside fenced code blocks**, which are examples and command
   output, not pointers.
 - **A line named in words** ("line 12 of `auth.ts`"), or a second line number

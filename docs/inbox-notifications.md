@@ -17,7 +17,7 @@ Persisted instants come from the server clock.
 A waiting episode starts when a decision (`approve` or `choose`) becomes
 pending: a new Action, or an explicit snooze-to-pending reactivation. The store
 records it in the same transaction as that transition
-(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:203-221`);
+(`recordActionEpisode`, `packages/ui-server/src/inbox/notify.ts:206-224`);
 leaving pending ends it. Version changes, retries, restarts and elapsed time
 never start one. Decisions already pending when the migration runs begin their
 first episode then.

@@ -1,8 +1,8 @@
-// Anchored `file:line` citations in the decision records.
+// Anchored `file:line` citations throughout docs/.
 //
 //   bun scripts/check-citations.ts          # report every citation's state
 //
-// A decision record cites code as `path:line`, and a line number goes stale
+// A document cites code as `path:line`, and a line number goes stale
 // silently: after a PR inserts lines above it, the pointer names the
 // neighbouring code and a reader who follows it is told something confidently
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
@@ -406,6 +406,31 @@ export function checkCitation(
 export type CitationException = string | { reason: string; occurrences: number };
 
 export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
+  // Exact historical links verified against their pinned source commits.
+  "docs/investigations/audit-capability-investigation.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26": "verified commit-pinned audit suggestion behavior before #1408 replaced the measured completion-based implementation",
+  "docs/investigations/audit-capability-investigation.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L70": "verified commit-pinned audit suggestion behavior before #1408 replaced the measured completion-based implementation",
+  "docs/investigations/mechanical-hygiene-investigation.md|https://github.com/schlessera/brain-kit/blob/7e398dc207f2c4725f6c364331c3cd5d3112954d/packages/core/src/cli/commands/audit.ts#L26": "verified commit-pinned audit suggestion behavior before #1408 replaced the measured completion-based implementation",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L253": {"reason": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved", "occurrences": 2},
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L542": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L619": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L390": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/voice/keyterm-builder.ts#L257": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/fe5c75162882cd1f67af2cb808de37094ebea38d/packages/ui-backend-pi/src/brain-access.ts#L280": {"reason": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved", "occurrences": 2},
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/module-jobs/src/pipeline.ts#L151": {"reason": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved", "occurrences": 2},
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/core/src/lib/module-types.ts#L12": {"reason": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved", "occurrences": 2},
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L56": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L70": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L33": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
+  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84": "verified commit-pinned palette baseline before #946 moved destinations to desktop-routes.ts and opening state to the root UI store",
+  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L52": "verified commit-pinned palette baseline before #946 moved destinations to desktop-routes.ts and opening state to the root UI store",
+  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62": "verified commit-pinned composer draft and receipt handling before #951 moved them to the draft store and draft client",
+  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L161": "verified commit-pinned composer draft and receipt handling before #951 moved them to the draft store and draft client",
+  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/ea8506b0eb511a3e16dba685d250d34e5340afa4/packages/ui-react/src/components/chat/session-drawer.tsx#L59": "verified commit-pinned single background-session drawer row before #950 replaced it with the Working group",
+  "docs/investigations/turn-surface-routing-investigation.md|https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/sdk-options.ts#L54": "verified source-pinned measured eight-tool assembly before application tools and worker spawn changed the current implementation",
+  "docs/investigations/turn-surface-routing-investigation.md|https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/ask-user-tool.ts#L91": "verified source-pinned measured eight-tool assembly before application tools and worker spawn changed the current implementation",
   // A dependency's installed source, at the version the record measured.
   ...Object.fromEntries(
     [
@@ -569,8 +594,8 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "root exports of bumpSessionsEpoch, which was removed",
 };
 
-/** Every markdown file under `docs/decisions/`, at any depth. */
-export function decisionRecords(): string[] {
+/** Every markdown file under `docs/`, including plans and investigations. */
+export function documentationRecords(): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const name of readdirSync(join(ROOT, dir))) {
@@ -579,7 +604,7 @@ export function decisionRecords(): string[] {
       else if (name.endsWith(".md")) found.push(path);
     }
   };
-  walk("docs/decisions");
+  walk("docs");
   return found.sort();
 }
 
@@ -591,7 +616,7 @@ export interface Report {
 
 /** Every citation in the given records, checked against the tree. */
 export function checkRecords(
-  records: { doc: string; body: string }[] = decisionRecords().map((doc) => ({
+  records: { doc: string; body: string }[] = documentationRecords().map((doc) => ({
     doc,
     body: readFileSync(join(ROOT, doc), "utf8"),
   })),
@@ -699,5 +724,7 @@ export function summarize(
 }
 
 if (import.meta.main) {
-  for (const line of summarize(checkRecords())) console.log(line);
+  const reports = checkRecords();
+  for (const line of summarize(reports)) console.log(line);
+  if (reports.some(failing) || exceptionMismatches(reports).length > 0) process.exitCode = 1;
 }
