@@ -43,6 +43,19 @@ and attribute to "the maintainer".
 - [offline continuity](design-kit/offline-continuity.md).
 - [overlays](design-kit/overlays.md).
 
+## Cross-subject relationships
+
+These links join original rulings and their later amendments; the dated entries
+remain the authority for what each relationship means.
+
+| Later entry | Related earlier ruling |
+| --- | --- |
+| [D20](design-kit/components-and-interactions.md#d20--supersedes-d17-port-the-interaction-states-do-not-defer-them) | [D17](design-kit/storybook-accessibility.md#2026-09-15--viewport-and-the-accessibility-gap-maintainer) |
+| [D22](design-kit/components-and-interactions.md#d22--amends-d16-desktop-comes-into-the-kit) | [D16](design-kit/storybook-accessibility.md#2026-09-15--viewport-and-the-accessibility-gap-maintainer) |
+| [D52](design-kit/sessions-and-drafts.md#2026-10-06--d52-sessions-is-a-destination-work-left-running-is-tracked-until-seen-and-every-session-keeps-its-own-draft-943) | [D37](design-kit/navigation.md#2026-09-19--d37-five-destinations-everywhere-and-the-desktop-is-drawn) and [D22](design-kit/components-and-interactions.md#d22--amends-d16-desktop-comes-into-the-kit) |
+| [D48](design-kit/links.md#2026-09-28--d48-a-model-authored-link-shows-its-destination-and-brain-never-opens-it-43) and [D49](design-kit/links.md#2026-09-28--d49-a-prose-link-goes-through-d48s-classifier-on-every-markdown-surface-and-mailto-stays-live-551) | [D41](design-kit/answer-blocks.md#2026-09-21--d41-the-answer-blocks-reach-the-model-through-one-tool-show_block) and [D46](design-kit/components-and-interactions.md#2026-09-24--d46-a-shared-answer-draws-its-blocks-in-a-print-theme-46) |
+| [D55](design-kit/components-and-interactions.md#2026-10-09--d55-native-icon-and-text-actions-1379) | [D34](design-kit/tokens-and-styles.md#2026-09-18--d34-hit-targets-are-specified-as-reach-past-the-paint-and-the-paint-carries-no-border) and [D52](design-kit/sessions-and-drafts.md#2026-10-06--d52-sessions-is-a-destination-work-left-running-is-tracked-until-seen-and-every-session-keeps-its-own-draft-943) |
+
 ## Original section map
 
 Presentation-only split from `9adc62e70b4f5eac9b5e3ef779552cd1858a6bd2`.
@@ -480,7 +493,7 @@ Original fragment identities remain available at this entry point.
 
 <a id="2026-09-28--the-map-block-the-model-names-places-the-surface-draws-them-44"></a>
 
-- [2026-09-28 — the map block: the model names places, the surface draws them (#44)](design-kit/components-and-interactions.md#2026-09-28--the-map-block-the-model-names-places-the-surface-draws-them-44) (original line 4529).
+- [2026-09-28 — the map block: the model names places, the surface draws them (#44)](design-kit/maps.md#2026-09-28--the-map-block-the-model-names-places-the-surface-draws-them-44) (original line 4529).
 
 <a id="2026-09-28--d50-the-model-may-offer-two-follow-ups-drawn-under-the-answer-that-fill-the-composer-and-never-send-40"></a>
 
