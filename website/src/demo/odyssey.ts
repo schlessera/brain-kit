@@ -7,13 +7,16 @@ import { REFERENCE_DATE, REFERENCE_INSTANT } from '../../../packages/ui-kit/fixt
 import { BLOCK_SCHEMA, type Block } from '../../../packages/ui-sdk/src/tool-contracts/blocks.ts';
 
 export const referenceNow = REFERENCE_INSTANT.getTime();
-export interface DemoDocument { path: string; title: string; kind: 'markdown' | 'html' | 'text'; content: string; links: string[]; updated: string }
-const documents = new Map<string, DemoDocument>();
-function document(path: string, title: string, type: string, body: string, links: string[] = [], updated = REFERENCE_DATE, fields: Record<string, unknown> = {}) {
+// `featured` records are the staged set with prepared PNG/PDF exports. Library
+// records are browsable, searchable and graphed, and share as text formats.
+export interface DemoDocument { path: string; title: string; kind: 'markdown' | 'html' | 'text'; content: string; links: string[]; updated: string; featured: boolean }
+/** The staged records, before the library joins them in `corpus.ts`. */
+export const documents = new Map<string, DemoDocument>();
+export function document(path: string, title: string, type: string, body: string, links: string[] = [], updated = REFERENCE_DATE, fields: Record<string, unknown> = {}, featured = true) {
   const metadata = { title, type, created: updated, updated, ...fields };
   const frontmatter = Object.entries(metadata).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
   const related = links.length ? `\n\n## Related records\n\n${links.map(link => `- [[${link.replace(/\.md$/, '')}]]`).join('\n')}` : '';
-  documents.set(path, { path, title, kind: 'markdown', content: `---\n${frontmatter}\n---\n\n# ${title}\n\n${body}${related}\n`, links, updated });
+  documents.set(path, { path, title, kind: 'markdown', content: `---\n${frontmatter}\n---\n\n# ${title}\n\n${body}${related}\n`, links, updated, featured });
 }
 for (const note of notes) document(note.path, note.title, note.kind, note.excerpt, note.links, note.updated, { tags: note.tags.map(tag => tag.slice(1)), status: 'recorded' });
 for (const person of people) {
@@ -22,7 +25,6 @@ for (const person of people) {
   document(person.path, person.name, 'person', `## Relationship\n\n${person.relationship}\n\n## Last known standing\n\n| Field | Record |\n| --- | --- |\n| Role | ${person.role} |\n| Location | ${location} |\n| Standing | ${person.standing} |\n\n${existing ? `## Latest note\n\n${existing.content.split('\n\n').slice(2, 3).join('\n\n')}` : 'This is a fictional relationship record, not a current communication channel.'}`, [...new Set([...(existing?.links || []), goal.path])], existing?.updated || REFERENCE_DATE, { status: ['person:eurylochus', 'person:elpenor', 'person:teiresias'].includes(person.id) ? 'deceased' : 'recorded', tags: ['people'], aliases: [person.name.toLowerCase()] });
 }
 for (const project of projects) document(project.path, project.title, 'project', `${project.summary}\n\n## Next context\n\n${project.id === 'project:sail-home' ? 'The raft is ready on Ogygia. The passage to Scheria is planned for seventeen days; arrival and help are not guaranteed.' : project.id === 'project:estate' ? 'Penelope holds the household. Telemachus is seeking news in Sparta. Return is the only action Odysseus can take from here.' : project.id === 'project:crew' ? 'The ledger is closed. None of the six hundred crew survived. Odysseus is the sole survivor, and none of the twelve ships returned.' : 'Four days of work are complete. Water and provisions still need a final review before departure.'}`, [goal.path, ...project.people.map(id => people.find(person => person.id === id)!.path)], REFERENCE_DATE, { status: project.status, deadline: project.deadline, tags: ['voyage'] });
-document(goal.path, goal.title, 'goal', `${goal.stated}\n\n## Where things stand\n\nTen years at Troy, then ten years trying to return. Seven of those years were spent on Ogygia. The raft has been built; the crossing and the return to Ithaca are still ahead.\n\n## The work that serves this goal\n\n${projects.map(project => `- **${project.title}:** ${project.summary}`).join('\n')}`, projects.map(project => project.path), REFERENCE_DATE, { status: 'active', tags: ['ithaca', 'route'] });
 
 export const preparationTable = `| Preparation | Current record | Before launch |\n| --- | --- | --- |\n| Raft | Twenty trees; deck, bulwarks and sail complete | Review lashings and ballast |\n| Water | One skin; seventeen days planned | Review the shortfall |\n| Provisions | Bread and wine offered by Calypso | Bring stores aboard |\n| Navigation | Keep the Great Bear on the left | Read the directions once more |`;
 export const crewMarkdown = `| Where | Lost | Cause |\n| --- | ---: | --- |\n${crewLosses.map(loss => `| ${loss.place} | ${loss.lost} | ${loss.cause} |`).join('\n')}\n| **Total** | **600** | **No crew survivors** |`;
@@ -42,28 +44,14 @@ const additional: Record<string, [string, string, string[]]> = {
 };
 for (const [path, [title, body, links]] of Object.entries(additional)) document(path, title, path.split('/')[0] === 'crew' ? 'person' : 'note', body, links, REFERENCE_DATE, { status: path.startsWith('crew/') ? 'closed' : 'recorded', tags: [path.split('/')[0]] });
 document('decisions/cattle-of-helios.md', 'The cattle on Thrinacia', 'decision', 'The crew had sworn not to touch the cattle. After weeks of adverse wind, the remaining men broke the oath while Odysseus slept. The storm that followed destroyed the ship and killed all thirty-one remaining crew.\n\nThe ledger counts six hundred losses across the entire voyage; thirty-one of them occurred here.', ['oaths/helios.md', 'knowledge/teiresias-forecast.md', 'crew/eurylochus.md', 'crew/manifest-0012.md'], REFERENCE_DATE, { status: 'closed', tags: ['crew', 'gods', 'danger'] });
-documents.set('voyage/ogygia/passage.mmd', { path: 'voyage/ogygia/passage.mmd', title: 'Passage sequence', kind: 'text', content: departureDiagram, links: [], updated: REFERENCE_DATE });
+documents.set('voyage/ogygia/passage.mmd', { path: 'voyage/ogygia/passage.mmd', title: 'Passage sequence', kind: 'text', content: departureDiagram, links: [], updated: REFERENCE_DATE, featured: true });
 const briefHtml = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Departure brief</title><style>body{font:18px/1.65 Georgia,serif;background:#f3f0e4;color:#12181b;padding:32px;max-width:680px;margin:auto}h1,h2{line-height:1.2}table{border-collapse:collapse;width:100%}th,td{padding:10px;text-align:left;border-bottom:1px solid #bbb}small{font:14px/1.5 sans-serif}</style></head><body><small>Fictional Odyssey record · 12 July 2026</small><h1>Departure from Ogygia</h1><p>The raft is built. Water and provisions need a final review. Calypso’s directions are to keep the Great Bear on the left.</p><table><tr><th>Departure</th><th>Passage</th><th>Landfall</th></tr><tr><td>12 July</td><td>17 days planned</td><td>Scheria, 29 July planned</td></tr></table><h2>Before launch</h2><ul><li>Bring the water, bread and wine aboard.</li><li>Review lashings and ballast.</li><li>Read the directions once more.</li></ul><p>The crossing is being attempted alone. None of the original crew survived.</p></body></html>';
-documents.set('voyage/ogygia/departure-brief.html', { path: 'voyage/ogygia/departure-brief.html', title: 'Departure brief', kind: 'html', content: briefHtml, links: [], updated: REFERENCE_DATE });
-export const demoDocuments = [...documents.values()].sort((a, b) => a.path.localeCompare(b.path));
-export const documentByPath: Record<string, DemoDocument> = Object.assign(Object.create(null), Object.fromEntries(demoDocuments.map(record => [record.path, record])));
+documents.set('voyage/ogygia/departure-brief.html', { path: 'voyage/ogygia/departure-brief.html', title: 'Departure brief', kind: 'html', content: briefHtml, links: [], updated: REFERENCE_DATE, featured: true });
 export const binaryDocuments = [
   { path: 'voyage/ogygia/departure-plan.png', source: 'voyage/ogygia/departure-plan.md', format: 'png' },
   { path: 'voyage/ogygia/departure-plan.pdf', source: 'voyage/ogygia/departure-plan.md', format: 'pdf' },
   { path: 'crew/manifest-0012.pdf', source: 'crew/manifest-0012.md', format: 'pdf' },
 ] as const;
-const paths = [...demoDocuments.map(record => record.path), ...binaryDocuments.map(record => record.path)];
-export const directories = new Set(['', ...paths.flatMap(path => path.split('/').slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join('/')))]);
-export function treeEntries(directory: string) {
-  const prefix = directory ? `${directory}/` : '';
-  const entries = [...directories].filter(path => path && path.startsWith(prefix) && !path.slice(prefix.length).includes('/')).map(path => ({ path, name: path.slice(prefix.length), type: 'dir' as const }));
-  const files = paths.filter(path => path.startsWith(prefix) && !path.slice(prefix.length).includes('/')).map(path => ({ path, name: path.slice(prefix.length), type: 'file' as const }));
-  return [...entries.sort((a, b) => a.name.localeCompare(b.name)), ...files.sort((a, b) => a.name.localeCompare(b.name))];
-}
-export const wikilinks: Record<string, string> = {};
-for (const record of demoDocuments.filter(record => record.kind === 'markdown')) {
-  for (const slug of [record.path.replace(/\.md$/, ''), record.path.split('/').at(-1)!.replace(/\.md$/, ''), record.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')]) wikilinks[slug.toLowerCase()] = record.path;
-}
 const supportingFiles = { kind: 'files', items: [
   { path: 'voyage/ogygia/departure-plan.md', reason: 'The plan, supplies and open questions.' },
   { path: 'crew/manifest-0012.md', reason: 'The historical crew ledger.' },

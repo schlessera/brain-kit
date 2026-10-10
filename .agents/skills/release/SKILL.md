@@ -41,15 +41,18 @@ the complete `check:pr --all` proof before the release PR.
    automatic CI does not establish release proof. Missing tools or skipped
    runtime checks leave verification unfinished. The `tests/` directory retains
    the release guards; none are removed to save CI minutes.
-3. **New package added this cycle?** It must appear in `scripts/publish.ts`,
-   `scripts/build.ts`, the `fixed` group in `.changeset/config.json`, and the
-   package map in `README.md`. `tests/release-manifest.test.ts` enforces the
-   first three. Include the new package in `scripts/clean.ts` as well.
+3. **New package added this cycle?** Build, publish, clean and the CI pack
+   loop pick it up from its manifest: they all read
+   `scripts/publishable-packages.ts`, which lists every non-private
+   `packages/*/package.json` with each package after its internal hard
+   dependencies. `bun run release -- --dry-run` prints that order without
+   publishing. The package must still join the `fixed` group in
+   `.changeset/config.json`, the package map in `README.md`, and the smoke-test
+   override and import inventories in `.github/workflows/ci.yml`;
+   `tests/release-manifest.test.ts` enforces all of them.
    Record the issue-approved internal dependencies in
    `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
-   rejects a package without an edge policy. Add the package to every pack/import
-   inventory in the authoritative `.github/workflows/ci.yml`. In `publish.ts` and `build.ts`, order matters: a package must
-   be listed **before** anything that depends on it.
+   rejects a package without an edge policy.
 
 ## Versioning
 
