@@ -23,10 +23,10 @@
  *
  * ## Why `.mjs` when every other script in this repo is TypeScript run by bun
  *
- * The Playwright image has node and no bun, and putting bun into it on every
- * run would make the image's own pin a lie about what produced the pixels. This
- * file is the one place in the repo that has to run under both, so it is plain
- * node ESM that bun also runs unchanged.
+ * The pinned Playwright image supplies Node and Chromium. Local proof mounts
+ * the installed Bun for native server fixtures; CI installs its declared Bun
+ * version. This orchestration runs under Node in both environments, so it is
+ * plain node ESM that Bun also runs unchanged.
  *
  * Usage:
  *   node scripts/visual.mjs                    # all ten kit projects, in the container
@@ -39,9 +39,9 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -109,6 +109,16 @@ if (fontStatus !== 0) process.exit(fontStatus);
 const fontHash = createHash("sha256").update(readFileSync(resolve(REPO, "scripts/captures/font-lock.json"))).digest("hex");
 const fontCache = resolve(tmpdir(), "brain-kit-feature-capture-fonts", fontHash);
 
+// C5 layout proof drives the real Bun server inside the offline container.
+// Mount the already installed executable; the pinned Chromium image stays unchanged.
+const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resolve(dir, "bun")).find(path => {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch { return false; }
+});
+if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
+const scratch = tmpdir();
 const status = run("docker", [
   "run",
   "--rm",
@@ -121,6 +131,12 @@ const status = run("docker", [
   `${REPO}:/repo`,
   "-v",
   `${fontCache}:/tmp/brain-kit-feature-capture-fonts/${fontHash}:ro`,
+  "-v",
+  `${realpathSync(bunExecutable)}:/usr/local/bin/bun:ro`,
+  "-v",
+  `${scratch}:${scratch}`,
+  "-e",
+  `TMPDIR=${scratch}`,
   "-w",
   "/repo",
   "-e",

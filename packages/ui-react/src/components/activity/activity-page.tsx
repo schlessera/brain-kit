@@ -1,3 +1,5 @@
+import { HygieneFinding, HygieneReviewStrip, useHygieneReview } from "./hygiene-review.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Activity as ActivityIcon, RefreshCw } from "lucide-react";
@@ -65,6 +67,8 @@ import { focusFirst, scrollToStart } from "../../lib/destination-start.js";
 export type ActionsLens = "needs-you" | "running" | "done";
 export function ActivityPage() {
   const root = useBrainUiRoot();
+  const hygiene = useHygieneReview();
+  const hygieneDesktop = useMediaQuery("(min-width: 900px)");
   const api = root.api;
   const request = useRef(0);
   const supported = useActivityStore((s) => s.supported);
@@ -140,8 +144,8 @@ export function ActivityPage() {
   /** The decision whose confirmation should move focus (D37 §6). */
   const awaitingFocus = useRef<string | null>(null);
   const actions = useMemo(() => Object.values(inboxItems).filter((i): i is InboxActionItem => i.queue === "actions"), [inboxItems]);
-  const openDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && a.status === "pending"), [actions]);
-  const snoozedDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && a.status === "snoozed"), [actions]);
+  const openDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && !a.hygiene && a.status === "pending"), [actions]);
+  const snoozedDecisions = useMemo(() => actions.filter((a) => a.type !== "fyi" && !a.hygiene && a.status === "snoozed"), [actions]);
   const notes = useMemo(() => actions.filter((a) => a.type === "fyi" && a.status === "pending").sort((a, b) => b.createdAt - a.createdAt), [actions]);
   const blockedBy = useMemo(() => {
     const map = new Map<string, InboxQueueItem>();
@@ -161,7 +165,7 @@ export function ActivityPage() {
   // Rows that replace a card in place: an answer's outcome, including a
   // confirmed snooze, whose card has moved under Later.
   const receiptIds = Object.keys(outcomes).filter((id) => {
-    if (inboxItems[id]?.queue === "queue" || openDecisions.some((d) => d.id === id)) return false;
+    if ((inboxItems[id]?.queue === "actions" && (inboxItems[id] as InboxActionItem).hygiene) || inboxItems[id]?.queue === "queue" || openDecisions.some((d) => d.id === id)) return false;
     const o = outcomes[id];
     return !snoozedDecisions.some((d) => d.id === id) || (o?.kind === "receipt" && o.status === "snoozed");
   });
@@ -394,7 +398,7 @@ export function ActivityPage() {
   // A receipt of your own answer is held by the toast above the empty state;
   // any other outcome (resolved elsewhere, not applied) keeps its row.
   const foreignOutcome = receiptIds.some((id) => { const o = outcomes[id]; return !(o?.kind === "receipt" && o.by === "you"); });
-  const hasNeedsYou = needsYouCount > 0 || inbox.length > 0 || snoozedDecisions.length > 0 || foreignOutcome;
+  const hasNeedsYou = needsYouCount > 0 || inbox.length > 0 || snoozedDecisions.length > 0 || foreignOutcome || hygiene.read.review.status !== "idle";
   const runningCount = liveRoots.length + restLive.length;
   const lens: ActionsLens = picked ?? (hasNeedsYou || drained ? "needs-you" : runningCount > 0 ? "running" : "done");
 
@@ -546,6 +550,17 @@ export function ActivityPage() {
       focusFirst([openDetail ? el("[data-actions-detail] [data-destination-heading]") : null, heading], keyboard);
     }
   });
+  useEffect(() => {
+    if (!detailActionId || !inboxItems[detailActionId] || inboxItems[detailActionId]?.queue !== "actions" || !(inboxItems[detailActionId] as InboxActionItem).hygiene) return;
+    const next = hygiene.read.review.pendingActionId;
+    if (next && next !== detailActionId) setDetailActionId(next);
+    else if (hygiene.read.review.status === "complete") setDetailActionId(null);
+  }, [hygiene.read.review.pendingActionId, hygiene.read.review.status, detailActionId, inboxItems]);
+  useEffect(() => {
+    if (detailActionId && (inboxItems[detailActionId] as InboxActionItem | undefined)?.hygiene) requestAnimationFrame(() => {
+      if (!document.activeElement || !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) pageRef.current?.querySelector<HTMLElement>("[data-hygiene-detail] [data-hygiene-title]")?.focus();
+    });
+  }, [detailActionId]);
   const queueReceiptItem = queueReceiptId ? inboxItems[queueReceiptId] : undefined;
   const detailAction = detailActionId ? inboxItems[detailActionId] : undefined;
   const nextBack = snoozedDecisions.reduce<number | null>((min, d) => (d.waitUntil !== undefined && (min === null || d.waitUntil < min) ? d.waitUntil : min), null);
@@ -606,7 +621,7 @@ export function ActivityPage() {
             items={[
               { label: `needs you ${needsYouCount}`, onClick: () => pickLens("needs-you") },
               { label: `running ${runningCount}`, onClick: () => pickLens("running") },
-              { label: `done ${history.length}`, onClick: () => pickLens("done") },
+              { label: `done ${history.length + actions.filter(a => a.hygiene?.outcome?.status === "fixed" || a.hygiene?.outcome?.status === "not_detected").length}`, onClick: () => pickLens("done") },
             ]}
             active={lens === "needs-you" ? 0 : lens === "running" ? 1 : 2}
           />
@@ -619,6 +634,8 @@ export function ActivityPage() {
 
           {lens === "needs-you" && (
             <section aria-labelledby="needs-you-heading">
+              <HygieneReviewStrip controller={hygiene} showEnd={!hygieneDesktop} showBlocker={!hygieneDesktop} onOpen={() => { if (hygiene.action) openAction(hygiene.action.id); }} />
+              {hygiene.action && ["active", "paused"].includes(hygiene.read.review.status) ? <div className="my-3"><HygieneFinding key={hygiene.action.id} item={hygiene.action} controller={hygiene} compact={hygieneDesktop} onOpen={() => openAction(hygiene.action!.id)} /></div> : null}
               <div className="mb-2 flex items-center gap-2">
                 <h2 id="needs-you-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-needs-you-heading="">
                   Needs you
@@ -736,7 +753,7 @@ export function ActivityPage() {
                       </Disclosure>
                     </div>
                   )}
-                  {printKeys && (
+                  {printKeys && (stable.order.length > 0 || inbox.length > 0 || approvals.length > 0) && (
                     <p className="mt-1.5 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/70 laptop:hidden">
                       {stable.order.length > 0 ? "j / k move · a approve · d dismiss · s later · ⏎ details" : `j / k move · d dismiss · ⏎ open${approvals.length > 0 ? " · a allow" : ""}`}
                     </p>
@@ -776,6 +793,7 @@ export function ActivityPage() {
 
           {lens === "done" && (
             <>
+              {actions.filter(a => a.hygiene?.outcome?.status === "fixed" || a.hygiene?.outcome?.status === "not_detected").map(a => <div key={a.id} role="status" className="rounded-[10px] border border-[var(--bk-teal-ink)] p-3 text-xs" data-hygiene-fixed="">Fixed · re-checked · Finding no longer detected in {a.payload.detail}</div>)}
               {notes.length > 0 && (
                 <section aria-labelledby="notes-heading" className="flex flex-col gap-2">
                   <h2 id="notes-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes · {notes.length}</h2>
@@ -818,6 +836,8 @@ export function ActivityPage() {
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", openDetail ? "flex" : "hidden laptop:flex")} data-actions-detail="">
         {detailRunId ? (
           <RunDetail runId={detailRunId} onBack={() => showDetail(null)} embedded onReport={setReport} />
+        ) : detailActionId && detailAction?.queue === "actions" && detailAction.hygiene ? (
+          <div data-hygiene-detail="" className="overflow-y-auto p-4"><TextButton label="Back to Actions" onClick={closeAction} /><HygieneFinding key={detailAction.id} item={detailAction} controller={hygiene} /></div>
         ) : detailActionId ? (
           <DecisionDetail
             item={detailAction?.queue === "actions" ? detailAction : undefined}
@@ -827,6 +847,8 @@ export function ActivityPage() {
             onQueue={(q) => openQueue(q)}
             onDecided={onDecided}
           />
+        ) : hygieneDesktop && ["complete", "blocked"].includes(hygiene.read.review.status) ? (
+          <div className="max-w-2xl overflow-y-auto p-4"><HygieneReviewStrip controller={hygiene} showStart={false} onOpen={() => { if (hygiene.action) openAction(hygiene.action.id); }} /></div>
         ) : queueReceiptItem?.queue === "queue" ? (
           <QueueItemReceipt item={queueReceiptItem} onBack={() => setQueueReceiptId(null)} />
         ) : (

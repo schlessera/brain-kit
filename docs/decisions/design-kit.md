@@ -5924,7 +5924,7 @@ makes its own keys live as a Tab to it would.
 
 **Where it lives.** The store records a press of the destination already
 shown, with no DOM (`pressDestination`,
-`packages/ui-react/src/stores/ui-state.ts:248-259`). The mounted destination
+`packages/ui-react/src/stores/ui-state.ts:255-266`). The mounted destination
 answers it (`useDestinationPress`,
 `packages/ui-react/src/hooks/use-destination-press.ts:18-33`) with the shared
 reveal (`focusFirst`, `packages/ui-react/src/lib/destination-start.ts:46-58`).

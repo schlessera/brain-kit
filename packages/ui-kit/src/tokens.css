@@ -2461,3 +2461,15 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   }
 }
 @media print { .bk-overlay { display: none; } }
+
+/* C5: narrow finding cards give Apply the first row, then Later and Dismiss.
+ * The existing DispositionBar keeps its own layout everywhere else. */
+@container bk-hygiene (max-width: 360px) {
+  [data-hygiene-card] > [data-disposition-bar] > div:first-child {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-hygiene-card] > [data-disposition-bar] > div:first-child > :first-child {
+    grid-column: 1 / -1;
+  }
+}
