@@ -124,9 +124,9 @@ a date.
 
 - **Path:** `scripts/fixtures/turn-surface-mechanics.json`
 - **Role:** historical output (keyless scripted mechanics; no test compares against it).
-- **Consumers before removal:** Linked from `docs/turn-surface-routing-investigation.md`. Output of `scripts/measure-turn-surface-keyless.ts` (stdout); no test or script compares against it.
+- **Consumers before removal:** Linked from `docs/investigations/turn-surface-routing-investigation.md`. Output of `scripts/measure-turn-surface-keyless.ts` (stdout); no test or script compares against it.
 - **Disposition:** archived.
-- **Measured source:** `91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a` (docs/turn-surface-routing-investigation.md (source inspected at)). **Introduced by:** `fec692bbd541`.
+- **Measured source:** `91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a` (docs/investigations/turn-surface-routing-investigation.md (source inspected at)). **Introduced by:** `fec692bbd541`.
 - **Files:** [scripts/fixtures/turn-surface-mechanics.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/fixtures/turn-surface-mechanics.json)
 
 #### Audit repair-capability arms (#841)
@@ -142,7 +142,7 @@ a date.
 
 - **Path:** `scripts/evals/note-disposition/results/2026-10-07/` (7 files)
 - **Role:** historical output (protocol, calibration, observations, physical calls, scorer output, audit, reviews).
-- **Consumers before removal:** Linked from `docs/note-disposition-investigation.md`. No code, test or CI reader; the eval scripts take output directories by argument.
+- **Consumers before removal:** Linked from `docs/investigations/note-disposition-investigation.md`. No code, test or CI reader; the eval scripts take output directories by argument.
 - **Disposition:** archived.
 - **Measured source:** not recorded. **Introduced by:** `fa6fee03b5ce`.
 - **Files:** [audit.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/audit.json), [calibration.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/calibration.json), [observations.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/observations.json), [physical-calls.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/physical-calls.json), [protocol.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/protocol.json), [reviews.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/reviews.json), [summary.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/note-disposition/results/2026-10-07/summary.json)
@@ -151,7 +151,7 @@ a date.
 
 - **Path:** `scripts/evals/opportunity-lifecycle/fresh-preparation-controls.json`, `scripts/evals/opportunity-lifecycle/keyless-report.json`
 - **Role:** historical output (keyless control reports; expected.json, the golden, stays in main).
-- **Consumers before removal:** `keyless-report.json` linked from `docs/opportunity-lifecycle-investigation.md`; `fresh-preparation-controls.json` referenced nowhere. `run.ts` and `fresh-run.ts` print or write to a path given by argument; neither reads these files.
+- **Consumers before removal:** `keyless-report.json` linked from `docs/investigations/opportunity-lifecycle-investigation.md`; `fresh-preparation-controls.json` referenced nowhere. `run.ts` and `fresh-run.ts` print or write to a path given by argument; neither reads these files.
 - **Disposition:** archived.
 - **Measured source:** not recorded. **Introduced by:** `793a9ffeee88`, `b6f7d2e5f21d`.
 - **Files:** [scripts/evals/opportunity-lifecycle/fresh-preparation-controls.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/opportunity-lifecycle/fresh-preparation-controls.json), [scripts/evals/opportunity-lifecycle/keyless-report.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/evals/opportunity-lifecycle/keyless-report.json)
@@ -178,7 +178,7 @@ a date.
 
 - **Path:** `scripts/site-model-spike/` (12 files)
 - **Role:** spike source (standalone npm project with its own lockfile).
-- **Consumers before removal:** Linked from `docs/decisions/public-website.md` and `docs/public-website-investigation.md`; `README.md` listed in `website/retired-docs.json` (pinned commit). Standalone npm project outside the workspaces; nothing imports it. The shipped site uses `website/model.mjs`, maintained separately.
+- **Consumers before removal:** Linked from `docs/decisions/public-website.md` and `docs/investigations/public-website-investigation.md`; `README.md` listed in `website/retired-docs.json` (pinned commit). Standalone npm project outside the workspaces; nothing imports it. The shipped site uses `website/model.mjs`, maintained separately.
 - **Disposition:** archived.
 - **Measured source:** not recorded. **Introduced by:** `0a6389cf3f30`.
 - **Files:** [.gitignore](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/.gitignore), [README.md](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/README.md), [astro.config.mjs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/astro.config.mjs), [clean-cache.mjs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/clean-cache.mjs), [model.mjs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/model.mjs), [package-lock.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/package-lock.json), [package.json](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/package.json), [sample/media/route.svg](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/sample/media/route.svg), [sample/nested/links.md](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/sample/nested/links.md), [src/content.config.mjs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/src/content.config.mjs), [src/pages/\[...page\].astro](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/src/pages/%5B...page%5D.astro), [verify.mjs](https://github.com/schlessera/brain-kit/blob/48227b09076b350d70d9d20b8492ffcfb5b95771/scripts/site-model-spike/verify.mjs)
@@ -211,7 +211,7 @@ the reason it stays.
 | `scripts/evals/note-disposition/benchmark.json` | active fixture | `scripts/evals/note-disposition/benchmark.ts` (tests `note-disposition-*.test.ts`), `review.ts` `REVIEW_PATHS` | retain |
 | `scripts/evals/note-disposition/fixtures.json` | active fixture | `scripts/evals/note-disposition/fixture.ts`, `run.ts` | retain |
 | `scripts/evals/opportunity-lifecycle/expected.json` | golden | `scripts/evals/opportunity-lifecycle/run.ts`, run by `tests/opportunity-lifecycle-eval.test.ts` | retain |
-| `scripts/evals/candidate-extraction/keyless-report.json` | executable input | embedded by `scripts/evals/candidate-extraction/prepare.ts` in its review packet; cited by `docs/candidate-extraction-investigation.md` | retain (borderline) |
+| `scripts/evals/candidate-extraction/keyless-report.json` | executable input | embedded by `scripts/evals/candidate-extraction/prepare.ts` in its review packet; cited by `docs/investigations/candidate-extraction-investigation.md` | retain (borderline) |
 | `scripts/evals/candidate-extraction/README.md` | eval documentation | listed by `prepare.ts`; describes the eval in place | retain |
 | `packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json` | executable input | `packages/ui-server/evals/triage/experiment/calibrate.ts` recomputes the calibration from it offline | retain |
 
@@ -260,10 +260,10 @@ These records now link the archive commit instead of main-tree paths:
 `claude-code-runtime.md`, `design-kit.md` (the schema-forms artifact, the pi
 schema receipts and the suggestions report), `turn-surface-routing.md`,
 `audit-repair-suggestions.md`, `triage-classifier.md`, `public-website.md`,
-`docs/note-disposition-investigation.md`,
-`docs/opportunity-lifecycle-investigation.md`,
-`docs/turn-surface-routing-investigation.md`,
-`docs/public-website-investigation.md`, `docs/plans/policy-write-boundary.md`
+`docs/investigations/note-disposition-investigation.md`,
+`docs/investigations/opportunity-lifecycle-investigation.md`,
+`docs/investigations/turn-surface-routing-investigation.md`,
+`docs/investigations/public-website-investigation.md`, `docs/plans/policy-write-boundary.md`
 and `packages/ui-server/evals/triage/experiment/README.md`. Reproduction
 instructions that need archived bytes now restore them at their original
 paths first:
