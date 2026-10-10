@@ -1,3 +1,4 @@
+import { autonomousSystemPrompt } from "./autonomous-prompt.js";
 import { ASK_USER_FORM_TOOL_NAME } from "./ask-user-form-tool.js";
 import type {
   Options,
@@ -10,7 +11,6 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
-
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
@@ -167,9 +167,9 @@ function assembleClaudeSdkTurn(
     // restricted turn; see below).
     settingSources: ["project"],
     // The brain repo's CLAUDE.md says what the agent is working ON; this says
-    // what it is rendering INTO. Appended to the preset rather than replacing
-    // it, so tool discipline and safety text stay intact.
-    systemPrompt: {
+    // what it is rendering INTO. Interactive turns append to the preset;
+    // restricted turns use the package-owned static prompt and boundary.
+    systemPrompt: envelope ? autonomousSystemPrompt(allowed) : {
       type: "preset",
       preset: "claude_code",
       ...(append ? { append } : {}),
@@ -251,6 +251,9 @@ function assembleClaudeSdkTurn(
     sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env } };
   }
 
+  // The selected relay origin makes the CLI coalesce custom system blocks.
+  // Keep all per-item context in the user message, after the marked prefix.
+  const prompt = envelope ? `${req.autonomous!.systemPromptAppend}\n\n${req.prompt}` : req.prompt;
   return {
     options: sdkOptions,
     subscriptionOnly,
@@ -260,8 +263,8 @@ function assembleClaudeSdkTurn(
       : worker.finish,
     prompt:
       req.attachments && req.attachments.length > 0
-        ? buildAttachmentPrompt(req.prompt, req.attachments)
-        : req.prompt,
+        ? buildAttachmentPrompt(prompt, req.attachments)
+        : prompt,
   };
 }
 

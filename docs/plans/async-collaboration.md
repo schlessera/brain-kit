@@ -1315,10 +1315,13 @@ exists to make, paid only when it would otherwise fail.
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:70-236`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
-**Approach:** a fixed tool roster, `excludeDynamicSections: true` (the SDK preset otherwise
-adds cwd/memory/git sections), a deterministic trusted-instruction render, and an explicit static/dynamic
-boundary. Everything per-item — state projection, item payload, decision, capability,
-remaining budget, attempt metadata — sits **after** the boundary.
+**Approach:** a fixed tool roster, deterministic package-owned trusted instructions,
+and the SDK's explicit static/dynamic boundary. Restricted turns use a custom
+prompt so no preset cwd/memory/git sections enter the prefix; interactive presets
+remain unchanged. The selected CLI coalesces custom system sections at the
+restricted relay's local origin, so per-item state, payload, decision, capability,
+remaining budget and attempt metadata live in the user message, after the marked
+system prefix. See [selected-runtime facts and the opt-in measurement procedure](../hosting/autonomous-prompt-cache.md).
 
 Provider cache behavior is measured, not assumed from one provider's historical
 TTL or token threshold. Verify the selected SDK/provider versions, fixed-prefix

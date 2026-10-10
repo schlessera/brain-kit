@@ -38,7 +38,9 @@ stay private.
 
 The [agent worker host boundary](agent-workers.md) documents the required
 Linux/bubblewrap probe, visible startup refusal and measured launcher profiles.
-Browser clients can use other operating systems.
+Browser clients can use other operating systems. The [restricted autonomous
+prompt guide](autonomous-prompt-cache.md) records the trusted prefix boundary and
+the separately authorized cache measurement procedure.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.33.0.**
 This is not an upgrade note for one release; it is a standing floor, enforced at

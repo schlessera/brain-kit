@@ -309,3 +309,12 @@ of live capacity, account eligibility or billing. The application does not
 infer a price from discovery; Haiku pricing also varies above 100K prompt
 tokens. See the [effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort#recommended-effort-levels-for-claude-haiku-55)
 and [new-pair measurement](../../docs/decisions/claude-code-runtime.md#2026-10-08--haiku-55-and-the-293-runtime-1238).
+
+## Restricted autonomous prompt
+
+Restricted turns use a versioned package instruction prefix and canonical
+server-approved tool membership, followed by the SDK's explicit boundary.
+Per-item server context lives in the user message so the selected runtime cannot
+coalesce it into the static system block. See the [assembly facts and optional
+cache measurement procedure](../../docs/hosting/autonomous-prompt-cache.md).
+Cache savings remain unclaimed without an authorized provider measurement.
