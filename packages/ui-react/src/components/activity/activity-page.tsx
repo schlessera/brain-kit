@@ -553,7 +553,9 @@ export function ActivityPage() {
   useEffect(() => {
     if (!detailActionId || !inboxItems[detailActionId] || inboxItems[detailActionId]?.queue !== "actions" || !(inboxItems[detailActionId] as InboxActionItem).hygiene) return;
     const next = hygiene.read.review.pendingActionId;
-    if (next && next !== detailActionId) setDetailActionId(next);
+    // REST can name the replacement before its inbox delta. Keep the current
+    // detail until the replacement exists, rather than opening a missing item.
+    if (next && next !== detailActionId && inboxItems[next]?.queue === "actions") setDetailActionId(next);
     else if (hygiene.read.review.status === "complete") setDetailActionId(null);
   }, [hygiene.read.review.pendingActionId, hygiene.read.review.status, detailActionId, inboxItems]);
   useEffect(() => {

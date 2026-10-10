@@ -343,6 +343,10 @@ export function HygieneFinding({
   onOpen?: () => void;
 }) {
   const root = useBrainUiRoot();
+  const replicated = useInboxStore((s) => s.items[item.id]);
+  // REST may display a finding before its Action reaches the decision store.
+  // Enable only the same replicated version; delivery never replays a response.
+  const ready = replicated?.queue === "actions" && replicated.version === item.version && replicated.status === item.status;
   const flight = useInboxStore((s) => s.inFlight[item.id]);
   const outcome = useInboxStore((s) => s.outcomes[item.id]);
   const online = useInboxStore((s) => s.online);
@@ -386,9 +390,11 @@ export function HygieneFinding({
   const needsReveal =
     effectLineCount(option?.preview?.changes.map((c) => `− ${c.before}\n+ ${c.after}`).join("\n")) > 12 && !revealed;
   const locked =
-    !online || !!flight || previewing || item.status !== "pending" || item.hygiene?.outcome?.status === "applying";
+    !online || !ready || !!flight || previewing || item.status !== "pending" || item.hygiene?.outcome?.status === "applying";
   const disabledReason = !online
     ? "Reconnect before answering."
+    : !ready
+    ? "Waiting for the current finding…"
     : previewing
     ? "Checking the input…"
     : repairs.length && !hasPreview
@@ -659,8 +665,9 @@ export function HygieneFinding({
       {cardState === "unknown" ? (
         <TextButton
           label="Check again"
-          disabled={!online || (!!flight && flight.state === "applying")}
+          disabled={!online || !ready || (!!flight && flight.state === "applying")}
           onClick={() => {
+            if (!online || !ready) return;
             c.onSent(item.id);
             root.connection.send({ type: "inbox_resolve", itemId: item.id, optionId: "check" });
             root.connection.send({ type: "inbox_subscribe", view: "actions" });
@@ -743,6 +750,7 @@ export function HygieneFinding({
       {item.status === "snoozed" && item.waitUntil ? (
         <Callout tone="neutral" text={`Later · back ${formatWhen(item.waitUntil)}`} />
       ) : null}
+      {compact && !ready ? <Callout tone="neutral" text="Waiting for the current finding…" /> : null}
       <HygieneCard
         title={f.title}
         severity={
@@ -755,7 +763,7 @@ export function HygieneFinding({
         provenance={`${sources.join(" + ") || "hygiene"}${sources.length > 1 ? " · same finding" : ""}`}
         priority={priority}
         compact={compact}
-        onOpen={onOpen}
+        onOpen={ready ? onOpen : undefined}
         whyOpen={why}
         onWhy={() => setWhy(!why)}
         invalidation={invalidation}

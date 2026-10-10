@@ -196,6 +196,11 @@ SKILL.md, a second server queue or a React state machine.
 
 Waiting for a decision retains no live agent turn or approval promise. Repeated
 start/resume returns the pending item; pause preserves it without a disposition.
+REST may display a pending finding before its Action reaches the inbox stream.
+Decision controls and desktop detail entry wait for the same replicated Action;
+stream delivery never replays a disabled response. A subsequent explicit
+confirmation is still required.
+
 Leaving, disconnecting or an arbitrary timeout cannot apply a repair. Shared
 principal authorization, path containment, locks, idempotency and recovery still
 bind concurrent devices, stale evidence and interrupted effects.
