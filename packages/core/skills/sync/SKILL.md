@@ -5,6 +5,28 @@ disable-model-invocation: true
 compatibility: Requires git.
 ---
 
+## Hosted turns and terminal use
+
+In a hosted turn, use `brain_add`, `brain_update`, and `brain_archive`
+(Claude: `mcp__brain-ui__brain_add`, `mcp__brain-ui__brain_update`, and
+`mcp__brain-ui__brain_archive`) for capture, append/frontmatter updates and
+archiving. Read `brain_read_base` (`mcp__brain-ui__brain_read_base` on Claude)
+before updating or archiving and pass its `expectedBaseHash`. Archive retains
+its existing confirmation; voice cannot archive or grant by speech.
+
+For another permitted Markdown change, use `write_file`, `edit_file`, or
+`apply_staged_changes` (Claude: the corresponding `mcp__brain-ui__` name),
+naming exact files, proposed content and base hashes. Never submit a command
+for server replay. For note assimilation, capture the reviewed content with
+`brain_add` and archive the source only after capture succeeds and the existing
+archive approval permits it. The server indexes successful applications.
+
+The CLI examples below are for a writable terminal brain. A CLI write in a
+read-only hosted worker refuses visibly; it is not staged or replayed. Operations
+on configuration, skills, assets, git or other unsupported file kinds require a
+writable terminal. Do not substitute a shell write when a hosted tool refuses.
+
+
 # Sync — Knowledge-Aware Brain Synchronization
 
 `brain sync run` does the whole sync without you: it cleans and commits local changes, pulls,

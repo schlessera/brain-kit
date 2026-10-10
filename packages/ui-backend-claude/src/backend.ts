@@ -11,6 +11,7 @@ import type {
   UnavailableProfile,
 } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
 import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
 
 import { createHistory } from "./history.js";
@@ -84,11 +85,12 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
         `[claude-backend] ${message}`,
         attrs ?? ""
       ));
+  const writeLock = options.writeLock ?? createKeyedLock();
   const { startTurn, followUp } = createClaudeTurnRunner({
     backend: options,
     resolveProfiles,
     confirmPatterns,
-    writeLock: options.writeLock ?? createKeyedLock(),
+    writeLock,
     lockWaitMs: options.lockWaitMs ?? 30_000,
     log,
   });
@@ -119,6 +121,19 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
     },
     listUnavailableProfiles(): UnavailableProfile[] {
       return listUnavailableProfiles(resolveProfiles());
+    },
+    brainApplicationPolicy(req) {
+      const profile = resolveProfiles().find(p => p.id === req.profileId) ?? resolveProfiles()[0];
+      const allowed = new Set(req.autonomous?.allowedTools ??
+        (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
+        profile?.allowedTools ?? options.allowedTools ?? DEFAULT_ALLOWED_TOOLS);
+      const names = { add: ["mcp__brain-ui__brain_add", "mcp__brain__brain_add"],
+        update: ["mcp__brain-ui__brain_update", "mcp__brain__brain_update"],
+        archive: ["mcp__brain-ui__brain_archive", "mcp__brain__brain_archive"],
+        write: ["mcp__brain-ui__write_file", "Write"], edit: ["mcp__brain-ui__edit_file", "Edit"],
+        staged: ["mcp__brain-ui__apply_staged_changes"] };
+      const autoAllowed = (Object.keys(names) as (keyof typeof names)[]).filter(op => names[op].some(n => allowed.has(n)));
+      return { autoAllowed, enforceAllowedTools: req.enforceAllowedTools, available: (req.noGrantSurface || req.autonomous) ? autoAllowed : Object.keys(names) as (keyof typeof names)[], lock: writeLock };
     },
     startTurn,
     followUp,

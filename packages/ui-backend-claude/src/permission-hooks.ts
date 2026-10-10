@@ -47,6 +47,8 @@ export function createPermissionWiring(options: {
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, confirmPatterns, brainPath, turnLock, childEnv, log } = options;
   const allowed = new Set(allowedTools);
+  const updateName = (name: string) => name === "mcp__brain__brain_update" ? name : BRAIN_UPDATE_TOOL;
+  const routed = (name: string) => Boolean(req.bridge.applyBrain) && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].some(tool => name === `mcp__brain-ui__${tool}`);
   // The turn declared its allowlist is a boundary, not merely an auto-allow
   // list (StartTurnRequest.enforceAllowedTools). Everything below that would
   // otherwise admit a tool WITHOUT a permission decision is evaluated against
@@ -139,6 +141,7 @@ export function createPermissionWiring(options: {
   const commandAllowed = new Set(allowed);
   commandAllowed.add("Bash");
   commandAllowed.add(BRAIN_UPDATE_TOOL);
+  commandAllowed.add("mcp__brain__brain_update");
 
   /** Re-run the shared policy on an approval's edited input (#145). */
   const recheckEdit = (
@@ -149,7 +152,7 @@ export function createPermissionWiring(options: {
     const refusal = checkEditedApproval({
       toolName,
       shellToolName: "Bash",
-      updateToolName: BRAIN_UPDATE_TOOL,
+      updateToolName: updateName(toolName),
       confirmPatterns,
       originalInput,
       editedInput,
@@ -169,6 +172,7 @@ export function createPermissionWiring(options: {
   ) => {
     if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
+    if (routed(toolName)) return { behavior: "allow" };
     // The PreToolUse hook below may already hold the write lock for this tool
     // use (it fires before permission evaluation). Don't keep the lock across
     // the (possibly long) approval wait — release it now and re-acquire only
@@ -232,6 +236,7 @@ export function createPermissionWiring(options: {
     if (hookInput.hook_event_name !== "PreToolUse") {
       return { continue: true };
     }
+    if (routed(hookInput.tool_name)) return { continue: true };
     // The registered matcher includes every brain MCP name. The classifier
     // decides the actual key, including null for named read-only tools.
 
@@ -243,7 +248,7 @@ export function createPermissionWiring(options: {
     // one; this is just its runtime binding.
     //
     // Allowlisting is not the only reason it belongs here. This backend loads
-    // the brain repo's project settings (`settingSources`, sdk-options.ts:135),
+    // the brain repo's project settings (`settingSources`, sdk-options.ts:145),
     // and a hook
     // declared in those can answer a call before canUseTool is reached at all
     // — #124 has the measurements. This hook fires either way. None of that
@@ -263,7 +268,7 @@ export function createPermissionWiring(options: {
     const approval = decideToolPermission({
       toolName: hookInput.tool_name,
       shellToolName: "Bash",
-      updateToolName: BRAIN_UPDATE_TOOL,
+      updateToolName: updateName(hookInput.tool_name),
       input: hookInput.tool_input,
       allowedTools: commandAllowed,
       confirmPatterns,

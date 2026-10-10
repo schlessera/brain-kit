@@ -4,6 +4,28 @@ description: Use when something arrived from the system share sheet and is waiti
 compatibility: Requires git, mv, rm and exiftool. Fetching a shared link needs a web-fetch tool; without one, file the link and say it was not fetched.
 ---
 
+## Hosted turns and terminal use
+
+In a hosted turn, use `brain_add`, `brain_update`, and `brain_archive`
+(Claude: `mcp__brain-ui__brain_add`, `mcp__brain-ui__brain_update`, and
+`mcp__brain-ui__brain_archive`) for capture, append/frontmatter updates and
+archiving. Read `brain_read_base` (`mcp__brain-ui__brain_read_base` on Claude)
+before updating or archiving and pass its `expectedBaseHash`. Archive retains
+its existing confirmation; voice cannot archive or grant by speech.
+
+For another permitted Markdown change, use `write_file`, `edit_file`, or
+`apply_staged_changes` (Claude: the corresponding `mcp__brain-ui__` name),
+naming exact files, proposed content and base hashes. Never submit a command
+for server replay. For note assimilation, capture the reviewed content with
+`brain_add` and archive the source only after capture succeeds and the existing
+archive approval permits it. The server indexes successful applications.
+
+The CLI examples below are for a writable terminal brain. A CLI write in a
+read-only hosted worker refuses visibly; it is not staged or replayed. Operations
+on configuration, skills, assets, git or other unsupported file kinds require a
+writable terminal. Do not substitute a shell write when a hosted tool refuses.
+
+
 # Share — File What Arrived From the Share Sheet
 
 A share is a payload the user pushed at the brain from another app: a link they were reading, a

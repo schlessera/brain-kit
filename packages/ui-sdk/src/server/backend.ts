@@ -157,6 +157,9 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** Host-owned, turn-bound application. Absent means no authoritative route. */
+  readBrainBase?(path: string): Promise<{ content: string; expectedBaseHash: string }>;
+  applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
   emit(msg: ServerMessage): void;
   /** Synchronous server checkpoint before a no-grant denial; never an approval promise. */
   checkpointPermission?(req: PermissionRequest): void;
@@ -462,6 +465,8 @@ export interface AgentBackend {
    * are unaffected; the host lists them apart, for presentation only.
    */
   listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
+  /** Resolve configured authority in the trusted host, before any worker initializes. */
+  brainApplicationPolicy?(req: Pick<StartTurnRequest, "profileId" | "posture" | "autonomous" | "noGrantSurface" | "enforceAllowedTools">): import("./brain-application.js").BrainApplicationPolicy;
   startTurn(req: StartTurnRequest): Promise<void>;
   /**
    * Inject a user message into a session's RUNNING turn (only when

@@ -1396,6 +1396,77 @@ applies one:
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
 
+### Hosted authoritative application tools
+
+Hosted turns route authoritative Markdown through the server-owned application
+boundary. Standalone terminal `brain mcp` names and schemas above are unchanged.
+Claude registers the tools below under `mcp__brain-ui__`; pi uses the unprefixed
+names. Hosted Claude disallows project `mcp__brain__brain_add`,
+`mcp__brain__brain_update` and `mcp__brain__brain_archive`, plus built-in raw
+writers; its server tools apply the validated effects instead.
+
+| Tool | Exact input (unknown keys refuse) |
+| --- | --- |
+| `brain_read_base` | `{ path: string }`; returns `{ content: string, expectedBaseHash: string }` |
+| `brain_add` | `{ content: string, type?: string, title?: string, tags?: string[], target?: string, expectedBaseHash?: string \| null }`; deterministic server capture plans and validates its current base when absent |
+| `brain_update` | `{ path: string, expectedBaseHash: string \| null, summary?: string, status?: "active" \| "archived" \| "draft", relevance?: "primary" \| "secondary" \| "historical", tags?: string[], deadline?: string, next_review?: string, append_content?: string }` |
+| `brain_archive` | `{ path: string, expectedBaseHash: string \| null, dry_run?: boolean }` |
+| `write_file` | `{ path: string, expectedBaseHash: string \| null, content: string }` |
+| `edit_file` | `{ path: string, expectedBaseHash: string \| null, old_string: string, new_string: string }`; nonempty old string must occur exactly once |
+| `apply_staged_changes` | `{ files: [{ path: string, expectedBaseHash: string \| null, content: string }] }`; 1–32 unique named files, no command field |
+
+Hashes are lowercase SHA-256 of complete UTF-8 bytes; `null` means exclusive
+creation. Pi may omit a tool's base hash only when a preceding read in the same
+turn supplied it; a write with no read is create-only. The server application
+request is `{ principalId, turnId, input: { operation, ...toolInput } }`;
+identity is bound by the trusted host, never taken from tool arguments. Operations
+are `add`, `update`, `archive`, `write`, `edit` and `staged` only. No command replay,
+filesystem handle, policy-derived authority or standing grant is accepted.
+
+The request and combined proposed Markdown each have a 1,048,576-byte UTF-8 bound.
+Only ordinary UTF-8 `.md` files are supported. Paths are exact root-relative names,
+up to 1,024 characters: no traversal, hidden path components, backslashes or
+control characters. Policy paths and ancestors (including case/Unicode variants),
+symlinks, multiple-link files and changed directory topology refuse. Existing
+content must match the exact stated base, including after approval/lock admission.
+Unsupported hosts refuse; descriptor-anchored I/O currently requires Linux procfs.
+
+Every call rechecks current principal/turn authority and operation membership.
+Archive and an update setting `status: "archived"` retain their explicit permission;
+ordinary permitted writes/edits add no confirmation. Voice retains capture and
+append/update, excludes archive/raw/staged writes, and cannot grant. Unattended
+rosters supply no new authoritative grant. Direct backend calls without an
+application bridge retain their existing enforced roster, permission checkpoints
+and writer-yield behavior. Hosted routing begins when the host binds that bridge.
+Cancellation before commit changes no
+Markdown; the synchronous commit burst completes before cancellation can interleave.
+All effects actually reaching Markdown are recorded, including a partial I/O
+failure. Disposable-index failure after commit does not report the write as absent.
+The in-process lock does not coordinate external terminal writers.
+
+Application results are `{ ok: boolean, message: string, changes:
+[{ path: string, contentHash: string | null }], code?: string,
+indexed?: boolean, outcome?: object }`. A null result hash denotes a removed
+source. `changes` names only committed effects. A refused result is visible to
+the agent and recorded as a server-authored `brain_application` activity event;
+policy denial, alias denial, topology change, stale base, revoked authority,
+membership, permission, invalid request, unsupported kind/host, payload and
+cancellation errors never silently merge or replay. Error codes are additive;
+consumers tolerate unknown codes. Claude wraps the result in MCP text with
+`isError: !ok`; pi returns successful results as text/details and throws refused
+results through its existing tool-error path.
+
+CLI commands encountering `EROFS` exit 2. On Linux, known write forms also
+refuse a read-only brain mount before entering handlers which collect per-file
+errors; dry-run forms and read-only commands remain available. Machine mode emits
+`{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
+tool: string } }`. The message states that the brain is read-only here and names
+`brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
+hosted effect, including the Claude spelling. Nothing is staged or replayed;
+read-only commands continue to work. Writable index connections retain SQLite WAL
+sidecars after clean close, so a read-only mount can read the checkpointed index
+without recreating sidecars. Human mode prints the same message to stderr.
+
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`

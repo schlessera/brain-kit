@@ -1,3 +1,5 @@
+import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import type { BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import type {
   ActivityQuery,
   BackendBridge,
@@ -35,7 +37,8 @@ export function makeBridge(
   onSessionNamed?: (sessionId: string) => void,
   onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void,
   /** The pill label the request already has, read when the session is named (#1004). */
-  promptLabel?: () => string | undefined
+  promptLabel?: () => string | undefined,
+  applicationPolicy?: BrainApplicationPolicy
 ): BackendBridge {
   const { coordinator, catalog } = host;
   // Capture the turn identity at construction: the slot's turnId is re-minted
@@ -62,7 +65,7 @@ export function makeBridge(
   // classification pass that runs after the result (D42). Cheap when no
   // classifier is configured: a few string appends.
   const collector = host.classifier ? new TurnTextCollector() : null;
-  return {
+  const bridge: BackendBridge = {
     // A bridge tool that wrote into the scratch area prunes it through the
     // host's pass (#310), the way the CLI's own writers prune after a write.
     ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),
@@ -405,6 +408,34 @@ export function makeBridge(
       });
     },
   };
+  if (host.brainPath && applicationPolicy) {
+    const principalId = turn.principalId;
+    const authorization = turn.authorization;
+    const signal = turn.abortController.signal;
+    const operationTools = backendId === "claude"
+      ? { add: "mcp__brain-ui__brain_add", update: "mcp__brain-ui__brain_update", archive: "mcp__brain-ui__brain_archive", write: "mcp__brain-ui__write_file", edit: "mcp__brain-ui__edit_file", staged: "mcp__brain-ui__apply_staged_changes" }
+      : { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
+    const apply = createBrainApplication({
+      root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
+      isAuthorized: () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
+        authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId),
+      approve: async (input, destructive) => {
+        if (work?.posture === "voice") return false;
+        const decision = await bridge.requestPermission({ toolUseId: `application-${crypto.randomUUID()}`,
+          toolName: operationTools[input.operation], input: { ...input },
+          kind: destructive ? "command" : "tool", outsideEnforcedAllowlist: applicationPolicy.enforceAllowedTools === true && !applicationPolicy.autoAllowed.includes(input.operation), description: "Apply this exact bounded change to authoritative Markdown." });
+        // An edited proposal must be reissued with its own base and validation.
+        return decision.behavior === "allow" && decision.updatedInput === undefined;
+      },
+      record: result => recorder?.recordApplication?.(result),
+    });
+    bridge.readBrainBase = async path => {
+      if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
+      return readBrainApplicationBase(host.brainPath!, path);
+    };
+    bridge.applyBrain = input => apply({ principalId, turnId, input });
+  }
+  return bridge;
 }
 
 export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): void {

@@ -93,9 +93,10 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
   // including parallel sibling tool calls in one assistant message — actually
   // runs in parallel. An injected legacy WriteLock opts back into whole-lock
   // serialization (a deployment sharing one mutex with another writer).
+  const applicationLock = createKeyedLock();
   const lock = options.writeLock
     ? toolLockFromWriteLock(options.writeLock)
-    : toolLockFromKeyed(createKeyedLock());
+    : toolLockFromKeyed(applicationLock);
   const resources = createSessionResources({
     backend: options,
     brain,
@@ -115,6 +116,12 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     // `listUnavailableProfiles` is deliberately omitted (#1044): pi lists every
     // configured profile and checks its credential when a session starts, so
     // it never leaves a configured profile out and has none to report.
+    brainApplicationPolicy(req) {
+      const allowed = new Set(req.autonomous?.allowedTools ?? [...allowedTools]);
+      const names = { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
+      const autoAllowed = (Object.keys(names) as (keyof typeof names)[]).filter(op => allowed.has(names[op]));
+      return { autoAllowed, enforceAllowedTools: req.enforceAllowedTools, available: (req.noGrantSurface || req.autonomous) ? autoAllowed : Object.keys(names) as (keyof typeof names)[], lock: { withLock: (key, fn, admission) => lock.withKey(key, fn, admission) } };
+    },
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {
       // Follow-up only lands in a RUNNING turn; the host queues it as the

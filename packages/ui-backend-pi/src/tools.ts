@@ -1,3 +1,7 @@
+import { z } from "zod";
+import { createHash } from "node:crypto";
+import { brainApplicationInput, BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import { toPiParameters } from "./bridge-tools.js";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -208,6 +212,8 @@ export interface BrainToolDeps {
 
 /** Static risk-class table (also documented in the package README). */
 export const TOOL_RISK: Record<string, RiskClass> = {
+  brain_read_base: "read",
+  apply_staged_changes: "mutate",
   read_file: "read",
   grep: "read",
   brain_search: "read",
@@ -311,6 +317,16 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     return abs;
   };
 
+  const bases = new WeakMap<BackendBridge, Map<string, string>>();
+  const rememberBase = (path: string, raw: string): string => {
+    const hash = createHash("sha256").update(raw, "utf8").digest("hex");
+    if (turn.bridge?.applyBrain) {
+      let entries = bases.get(turn.bridge);
+      if (!entries) { entries = new Map(); bases.set(turn.bridge, entries); }
+      entries.set(path, hash);
+    }
+    return hash;
+  };
   const read_file = {
     name: "read_file",
     label: "Read file",
@@ -322,7 +338,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     async execute(_id: string, params: { path: string }) {
       const abs = resolveOrThrow(params.path);
       const raw = readFileSync(abs, "utf-8");
-      return textResult(clip(raw, MAX_READ_BYTES), { path: params.path });
+      const hash = rememberBase(params.path, raw);
+      return textResult(clip(raw, MAX_READ_BYTES), { path: params.path, ...(turn.bridge?.applyBrain ? { expectedBaseHash: hash } : {}) });
     },
   } satisfies ToolDefinition;
 
@@ -602,7 +619,9 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // it returns the file untouched, so the default read is unchanged. The
       // byte clip applies to what it selected, so a section past the clip
       // point of the whole file is still reachable.
-      const text = readDocumentPart(readFileSync(abs, "utf-8"), {
+      const raw = readFileSync(abs, "utf-8");
+      rememberBase(params.path, raw);
+      const text = readDocumentPart(raw, {
         section: params.section,
         maxTokens: params.max_tokens,
         sectionHint: 'section: "<heading>"',
@@ -795,5 +814,50 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       capabilities,
     }),
   ];
-  return tools;
+  const routed = brainApplicationInput.options.map(schema => {
+    const operation = schema.shape.operation.value;
+    const name = BRAIN_APPLICATION_TOOLS[operation];
+    const legacy = tools.find(t => t.name === name);
+    const shape = (schema as z.ZodObject).omit({ operation: true });
+    // Existing pi inputs gain an optional base; a preceding read in this
+    // same turn supplies it when absent. No read receipt crosses turns.
+    const parameters = "expectedBaseHash" in shape.shape
+      ? shape.extend({ expectedBaseHash: brainApplicationInput.options[0].shape.expectedBaseHash.optional() }) : shape;
+    return {
+      name, label: legacy?.label ?? "Apply staged changes", description: BRAIN_APPLICATION_DESCRIPTIONS[operation],
+      parameters: toPiParameters(parameters),
+      async execute(id: string, params: Record<string, unknown>, signal, onUpdate, ctx) {
+        const bridge = turn.bridge;
+        if (!bridge?.applyBrain) {
+          if (!legacy) throw new Error("No authoritative server application route is available for this turn.");
+          return legacy.execute(id, params, signal, onUpdate, ctx);
+        }
+        const input = { ...params, operation };
+        if ("expectedBaseHash" in schema.shape && params.expectedBaseHash === undefined && typeof params.path === "string") {
+          const receipt = bases.get(bridge)?.get(params.path);
+          if (receipt === undefined && operation !== "write") throw new Error("Read brain_read_base or read_file first and use that document's exact base hash.");
+          Object.assign(input, { expectedBaseHash: receipt ?? null });
+        }
+        const pending = bridge.applyBrain(input as Parameters<NonNullable<BackendBridge["applyBrain"]>>[0]);
+        turn.pendingMutations?.add(pending);
+        let result;
+        try { result = await pending; }
+        finally { turn.pendingMutations?.delete(pending); }
+        if (!result.ok) throw new Error(JSON.stringify(result));
+        return textResult(JSON.stringify(result), result);
+      },
+    } satisfies ToolDefinition;
+  });
+  const readBase = {
+    name: "brain_read_base", label: "Read document base",
+    description: "Read a Markdown document and its exact SHA-256 base for a hosted edit.",
+    parameters: Type.Object({ path: Type.String() }),
+    async execute(_id: string, params: { path: string }) {
+      if (!turn.bridge?.readBrainBase) throw new Error("No server document-base reader is available.");
+      const base = await turn.bridge.readBrainBase(params.path);
+      rememberBase(params.path, base.content);
+      return textResult(JSON.stringify(base), base);
+    },
+  } satisfies ToolDefinition;
+  return [...tools.filter(t => !routed.some(r => r.name === t.name)), ...routed, readBase];
 }

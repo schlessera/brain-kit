@@ -157,3 +157,24 @@ and a green tool-membership test do not discharge that obligation. Autonomous
 enablement still requires the complete containment and system proofs. #674 must
 assess its implementation's machine-contract and version impact separately;
 this decision changes documentation only.
+
+## Curated operations use server-owned tools — 2026-10-05
+
+The [maintainer ruling](https://github.com/schlessera/brain-kit/issues/674#issuecomment-5999043045)
+selects server-routed structured tools for hosted curated writes in both adapters.
+Capture, update and archive complete in one validated step with existing approvals,
+locking, indexing and current-principal authorization. Hosted Claude turns shadow
+project `brain` MCP write tools. Terminal MCP clients keep their names and schemas.
+Core skills name the hosted tools while retaining terminal CLI instructions.
+
+CLI writes through a read-only worker fail visibly with a read-only diagnostic
+and curated-tool guidance; no command is staged or replayed. New hosted tool names
+and schemas are an additive contract change with a minor changeset. Bubblewrap
+0.9 remains eligible; writable overlays and copied scratch brains are declined.
+The three October 2 rulings, R31, R33, R35 and voice membership are unchanged.
+
+The five implementation children of #51 separately own host setup, this application
+route, each runtime worker, and integrated escape proof. The route does not claim
+worker containment or enable unattended authoritative writes. Current principal
+and exact operation membership are checked again at application time. Supported
+applications are bounded UTF-8 Markdown effects, never commands or file handles.

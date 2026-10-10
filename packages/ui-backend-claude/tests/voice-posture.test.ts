@@ -97,7 +97,7 @@ describe("VOICE_ALLOWED_TOOLS", () => {
     expect(RECORD_EXCLUDED).toContain("mcp__brain-ui__request_image_mask");
     expect(RECORD_ALLOWED).toContain("mcp__brain__jobs_review");
     expect(RECORD_ALLOWED).toHaveLength(17);
-    expect(RECORD_EXCLUDED).toHaveLength(9);
+    expect(RECORD_EXCLUDED).toHaveLength(15);
   });
 
   test("is exactly the decision record's allowed table", () => {
@@ -303,9 +303,9 @@ describe("a turn under the voice posture", () => {
 
   test("allows brain_add and brain_update in that same turn: read-mostly, not read-only", async () => {
     const turn = await duringTurn([
-      call("mcp__brain__brain_add", { type: "note", title: "Garden" }, "add-1"),
+      call("mcp__brain-ui__brain_add", { type: "note", title: "Garden" }, "add-1"),
       call(
-        "mcp__brain__brain_update",
+        "mcp__brain-ui__brain_update",
         { path: "notes/garden.md", append_content: "Planted tomatoes." },
         "update-1"
       ),
@@ -322,7 +322,7 @@ describe("a turn under the voice posture", () => {
 
   test("an archiving brain_update is still denied, not granted by the posture", async () => {
     const turn = await duringTurn([
-      call("mcp__brain__brain_update", { path: "notes/garden.md", status: "archived" }, "archive-1"),
+      call("mcp__brain-ui__brain_update", { path: "notes/garden.md", status: "archived" }, "archive-1"),
     ]);
     expect(turn.value[0]!.executed).toBe(false);
     expect(approvalFrames(turn.frames)).toHaveLength(0);

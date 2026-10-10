@@ -448,7 +448,9 @@ async function runRetainedSession(
             },
         failureRecording.observe,
         // A follow-up's pill label is its turn's request label (#1004).
-        () => current.label
+        () => current.label,
+        backend.brainApplicationPolicy?.({ profileId,
+          ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) })
       );
       const startedAt = Date.now();
       // Handed to the backend now: recovery reads this request as running.

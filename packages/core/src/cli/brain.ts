@@ -10,6 +10,7 @@
  */
 
 import { join } from "path";
+import { isReadOnlyBrainMount, readOnlyBrainError } from "./read-only.js";
 import { Console } from "node:console";
 
 import { readEnvVar } from "../config/env.js";
@@ -256,11 +257,28 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // Refuse known write forms before handlers which intentionally collect
+  // per-file errors; those loops cannot surface EROFS to main's catch.
+  if (mutates && !beforeTerminator(argv.slice(1)).includes("--dry-run") && isReadOnlyBrainMount(brain.root)) {
+    const refusal = readOnlyBrainError(command, { code: "EROFS" })!;
+    if (json) console.log(JSON.stringify(refusal));
+    else console.error(refusal.error.message);
+    return 2;
+  }
+
   const providers = resolveProviders(brain);
   const cli: CliContext = { brain, json, configError, configCause, ...providers };
 
-  const code = await entry.run(argv.slice(1), cli);
-  return typeof code === "number" ? code : 0;
+  try {
+    const code = await entry.run(argv.slice(1), cli);
+    return typeof code === "number" ? code : 0;
+  } catch (error) {
+    const refusal = readOnlyBrainError(command, error);
+    if (!refusal) throw error;
+    if (json) console.log(JSON.stringify(refusal));
+    else console.error(refusal.error.message);
+    return 2;
+  }
 }
 
 // Bun's native console can bypass the stream's pending-write accounting after

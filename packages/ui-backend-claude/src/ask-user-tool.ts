@@ -1,3 +1,4 @@
+import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createAskUserFormTool, type AskUserFormHandler } from "./ask-user-form-tool.js";
 import {
@@ -89,6 +90,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  * `show_block` needs none, so it is always registered.
  */
 export function createBrainUiMcpServer(handlers: {
+  application?: Pick<BackendBridge, "applyBrain" | "readBrainBase">;
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
   askUserRank?: AskUserRankHandler;
@@ -112,7 +114,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.queryActivity) {
     tools.push(createActivityQueryTool(handlers.queryActivity));
   }
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
     tools,
@@ -135,6 +137,8 @@ export function createBrainUiMcpServer(handlers: {
     // MEASURED_RUNTIME names by scripts/measure-claude-runtime.ts.
     alwaysLoad: true,
   });
+  if (handlers.application?.applyBrain) registerBrainApplicationTools(server.instance, handlers.application);
+  return server;
 }
 
 /** The exact MCP-prefixed tool name Claude sees in the stream. */

@@ -3,6 +3,28 @@ name: add
 description: Use when capturing a thought, note, idea, fact, or update into the brain — jotting something down, recording what was just decided, remembering a detail. Also use when a capture landed under the wrong type or path, or when new content should extend an existing document instead of creating a second one.
 ---
 
+## Hosted turns and terminal use
+
+In a hosted turn, use `brain_add`, `brain_update`, and `brain_archive`
+(Claude: `mcp__brain-ui__brain_add`, `mcp__brain-ui__brain_update`, and
+`mcp__brain-ui__brain_archive`) for capture, append/frontmatter updates and
+archiving. Read `brain_read_base` (`mcp__brain-ui__brain_read_base` on Claude)
+before updating or archiving and pass its `expectedBaseHash`. Archive retains
+its existing confirmation; voice cannot archive or grant by speech.
+
+For another permitted Markdown change, use `write_file`, `edit_file`, or
+`apply_staged_changes` (Claude: the corresponding `mcp__brain-ui__` name),
+naming exact files, proposed content and base hashes. Never submit a command
+for server replay. For note assimilation, capture the reviewed content with
+`brain_add` and archive the source only after capture succeeds and the existing
+archive approval permits it. The server indexes successful applications.
+
+The CLI examples below are for a writable terminal brain. A CLI write in a
+read-only hosted worker refuses visibly; it is not staged or replayed. Operations
+on configuration, skills, assets, git or other unsupported file kinds require a
+writable terminal. Do not substitute a shell write when a hosted tool refuses.
+
+
 # Add — Quick Capture
 
 Getting a thought into the brain should be one command. Prefer `brain add` over hand-crafting a
