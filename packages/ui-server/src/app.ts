@@ -69,7 +69,11 @@ import {
   setAutoAllowedTools,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
+import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxRuntime } from "./inbox/runtime.js";
+import { createInboxDispatcher, type InboxDispatcher } from "./inbox/dispatcher.js";
+import { createInboxOperationEnvelope } from "./inbox/envelope.js";
+import { INBOX_DISPATCH_FIXTURE, type InboxDispatchFixtureOptions } from "./inbox/dispatch-fixture.js";
 import { assertInboxRecoveryReady } from "./inbox/recovery-gate.js";
 import { createInboxPokeAuth, createInternalRoutes } from "./routes/internal.js";
 import { readSyncRuntime } from "./activity/sync-runtime.js";
@@ -296,17 +300,30 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ttlMs: config.pricing.ttlMs,
   });
   void pricing.ensureFresh();
-  // Recovery/heartbeat only. Production dispatch is gated by the full-v1
-  // containment, budgets, admission and system proof; no backend is wired here.
+  // Recovery/heartbeat only. Production dispatch stays gated (#689 ruling):
+  // no config, environment or default constructs a dispatcher. Only the
+  // repository's fixture host, through a symbol no package entry exports,
+  // wires the production engine to prove its lifecycle.
+  const dispatchFixture = (options as InboxDispatchFixtureOptions)[INBOX_DISPATCH_FIXTURE];
+  if (dispatchFixture && !config.inbox?.budget) { db.close(); throw new Error("The dispatch fixture requires an inbox budget"); }
+  const inboxBudget = config.inbox?.budget ? { config: config.inbox.budget, pricing,
+    maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined;
+  let dispatcher: InboxDispatcher | undefined;
+  const engine = dispatchFixture ? {
+    route: (signal: AbortSignal) => dispatcher ? dispatcher.route(signal) : Promise.resolve(),
+    claimable: (item: InboxQueueItem) => dispatcher?.claimable(item) ?? false,
+    operation: (item: InboxQueueItem) => { if (!dispatcher) throw new Error("Dispatcher is not ready"); return dispatcher.operation(item); },
+    dispatch: (item: InboxQueueItem, signal: AbortSignal) => dispatcher ? dispatcher.dispatch(item, signal) : Promise.reject(new Error("Dispatcher is not ready")),
+  } : {};
   const inbox = createInboxRuntime(db, { log: observability.logger("inbox"),
-    brainRoot: config.brainPath,
-    budget: config.inbox?.budget ? { config: config.inbox.budget, pricing,
-      maxAutonomousRuns: config.inbox.maxAutonomousRuns } : undefined });
+    brainRoot: config.brainPath, budget: inboxBudget, ...engine });
   prunePrincipals(db, Date.now());
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   try { await inbox.ready; await intake.reconcile(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: observability.logger("brain") });
-  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone });
+  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
+    // Exact-operation approval stays fail-closed unless the gated engine runs.
+    ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
   try { await hygieneReview.recover(); } catch (error) { await inbox.close(); db.close(); throw error; }
   const scratchPrune = startScratchPrune({ brain, log: observability.logger("cron") });
 
@@ -409,6 +426,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       runtime: activity.runtime,
     },
   });
+  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath,
+    select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch,
+    classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
+    store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
   // Scheduled-task definitions and ledger (#914). Storage only: no dispatcher
   // is wired, so every task reports dispatch_disabled until #915/#689.
   const scheduleOrigins = config.schedules?.inferenceOrigins ?? null;

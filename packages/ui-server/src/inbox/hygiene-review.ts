@@ -21,9 +21,11 @@ type Result = z.infer<typeof resultSchema>;
 interface Attempt { id: string; item_id: string; principal_id: string; request_json: string; effect_json: string; wait_until: number | null }
 export class HygieneAuthorityError extends Error {}
 
-export function createHygieneReview(db: Database, deps: { brain: BrainClient; now?: () => number; timeZone?: string }) {
+export function createHygieneReview(db: Database, deps: { brain: BrainClient; now?: () => number; timeZone?: string;
+  /** The gated dispatcher's current exact-operation envelope (#689); default empty. */
+  allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"] }) {
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
-  const resolver = createInboxResolver(db, { now, timeZone: deps.timeZone, allowedOperations: () => [], applyHygiene: apply });
+  const resolver = createInboxResolver(db, { now, timeZone: deps.timeZone, allowedOperations: deps.allowedOperations ?? (() => []), applyHygiene: apply });
   let preparing: Promise<void> | null = null;
   let pauseGeneration = 0;
   const inFlight = new Set<string>();

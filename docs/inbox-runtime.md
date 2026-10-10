@@ -43,12 +43,49 @@ for the active pass before the app closes SQLite.
 
 `createApp` installs no production model dispatcher. It updates heartbeats,
 recovers leases and reconciles cleanup, while leaving nonempty model work
-unclaimed. Internal
-tests use a deterministic dispatcher to prove claims and lifecycle behavior.
-Production execution requires the containment, budgets, admission and complete
-system gates in [the async-collaboration decision](decisions/async-collaboration.md)
-and its implementation issues. This runtime does not select a tool profile,
-backend, credential or model, or make an inference call.
+unclaimed. No configuration key, environment variable or default changes
+that. Production execution requires the containment, budgets, admission and
+complete system gates in [the async-collaboration decision](decisions/async-collaboration.md),
+the generated host's glue and the reserved verification on #689. This runtime
+itself does not select a tool profile, backend, credential or model.
+
+## The production dispatcher (gated)
+
+The dispatcher (`createInboxDispatcher`, `packages/ui-server/src/inbox/dispatcher.ts`)
+composes the shipped engines into one lifecycle and adds no seam. Each drain
+pass first routes ready, unrouted arrivals through [bounded triage](inbox-triage.md),
+grouped by each arrival's authenticated intake principal. It then claims, in
+priority order, triage items routed `rule` or `needs_agent` and validated
+follow-ups. Scheduled work is left to its own admission. A server-selected
+backend, profile and admission bound apply to the pass; without one, nothing
+is claimed.
+
+Every claimed attempt runs one restricted autonomous turn (#676). The roster
+is the backend's read tools plus the hosted application tools; the
+application route auto-allows nothing. An agent-tier turn's proposal of an
+exact Markdown change becomes a [durable decision](inbox-actions.md): the
+checkpoint, an Action whose `apply` option carries that exact operation, and
+the blocked item commit together, and nothing is written. Questions become
+choice options; any other out-of-roster call becomes a decision that can only
+be cancelled. A follow-up minted from a resolution runs with its read tools
+and the one approved tool. It may apply exactly the approved tool, input and
+target once. Any other proposal, including a second application of the same
+change, escalates as a new decision and writes nothing.
+
+The operation envelope is server code (`inboxOperationAllowed`,
+`packages/ui-server/src/inbox/envelope.ts`): one non-destructive single-file
+application (`write`, `edit`, `add` or `update` without archiving), a schema-valid
+input of at most 64 KiB, and a `.md` target named by that input outside
+`context/policies/` and every dot directory. It is checked when the decision
+is created, at resolution and again before the follow-up runs. A principal that
+is no longer usable, a missing selection or an operation outside the envelope
+fails the claim into backoff before any runtime starts. Success completes the
+item and journals staging cleanup; a failure releases it into bounded retry.
+
+Only the repository's fixture host activates the dispatcher in `createApp`,
+through a symbol that no package entry point exports. Its tests drive the
+supported interfaces the generated host will use: authenticated intake, the
+token-file poke below, WebSocket resolution and process restart.
 
 ## Runtime token file
 

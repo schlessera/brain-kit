@@ -1,7 +1,7 @@
 /**
- * Concrete headless turn plumbing. No route, timer or drain dispatches it.
- * Containment/admission/budgets and full-system verification remain gates on
- * production dispatch. U7 supplies the synchronous atomic escalation writer.
+ * Concrete headless turn plumbing, run by the gated production dispatcher
+ * (#689) and scheduled admission. `createApp` enables neither. U7 supplies the
+ * synchronous atomic escalation writer.
  */
 import type { Database } from "bun:sqlite";
 import type { AgentBackend, BackendBridge, PermissionRequest, ServerMessage,
@@ -16,6 +16,9 @@ import { createTurnRecorder, type TurnRecorderDeps } from "../activity/recorder.
 import { checkpointYield, completedCallsForRun, recordCompletedCall, finishYield } from "./yield.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
 import { requireWorkerHost, WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
+import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -36,6 +39,13 @@ export interface AutonomousTurnInput {
   systemPromptAppend: string;
   signal: AbortSignal;
   yieldAfterMs?: number;
+  /**
+   * Server-selected application route (#689). Present, the turn may call the
+   * hosted application tools in its roster; every proposal escalates as a
+   * durable decision unless it is exactly `approved`, which applies at most
+   * once. Absent, no application route exists for the turn.
+   */
+  application?: { approved?: InboxOperation };
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
@@ -212,6 +222,41 @@ async function executeAutonomousTurn(
   };
   const request: StartTurnRequest = { prompt: input.prompt, profileId: input.profileId,
     signal: controller.signal, bridge, autonomous: mode, enforceAllowedTools: true, noGrantSurface: true };
+  const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
+  if (input.application && deps.brainPath && lock) {
+    const root = deps.brainPath, approved = input.application.approved;
+    let consumed = false;
+    const current = (): boolean => !closed && !controller.signal.aborted && checkPrincipal();
+    // The server owns this policy: nothing is auto-allowed, so every
+    // application reaches `approve`, whatever the backend would allow.
+    const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
+      policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
+      isAuthorized: current,
+      approve: async (proposal, destructive) => {
+        const toolName = applicationToolName(deps.backend.id, proposal.operation);
+        const proposed = JSON.parse(JSON.stringify(proposal)) as Record<string, unknown>;
+        // One exact approved operation, applied once, still inside the
+        // current envelope. Anything else is put to the user and not applied.
+        if (!destructive && !consumed && approved && approved.toolName === toolName && canonical(approved.input) === canonical(proposed) &&
+            inboxOperationAllowed(deps.backend.id, approved) && current()) {
+          consumed = true;
+          return true;
+        }
+        try {
+          checkpoint({ kind: "permission", request: { toolUseId: `application-${crypto.randomUUID()}`, toolName, input: proposed,
+            kind: destructive ? "command" : "tool", outsideEnforcedAllowlist: true,
+            description: "Apply this exact bounded change to authoritative Markdown." } });
+        } catch { /* recorded by checkpoint; nothing is applied */ }
+        return false;
+      },
+      record: result => recorder.recordApplication?.(result),
+    });
+    bridge.readBrainBase = async (path) => {
+      if (!current()) throw new Error("This turn no longer has current principal authority.");
+      return readBrainApplicationBase(root, path);
+    };
+    bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
+  }
   const principalCheck = setInterval(checkPrincipal, 100);
   try {
     await deps.backend.startTurn(request);
@@ -238,6 +283,14 @@ async function executeAutonomousTurn(
       if (yielded) finishYield(deps.db, input.turnId);
     }).immediate();
   }
+}
+
+/** Key-order-insensitive JSON identity for exact operation comparison. */
+function canonical(value: unknown): string {
+  const sort = (entry: unknown): unknown => Array.isArray(entry) ? entry.map(sort)
+    : entry && typeof entry === "object" ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, sort(v)]))
+    : entry;
+  return JSON.stringify(sort(value));
 }
 
 function clipUtf8(text: string, limit: number): string {

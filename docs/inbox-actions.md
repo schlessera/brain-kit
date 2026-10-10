@@ -55,9 +55,10 @@ feedback reasons are audit data and confer no authority.
 The existing authenticated WebSocket handles `inbox_resolve` and
 `inbox_snooze`, publishing changes through the existing subscriptions. Refusal
 returns the existing error envelope with `INBOX_DECISION_REFUSED`. Embedded
-hosts without a decision handler return `INBOX_UNAVAILABLE`. Until the full
-autonomous engine supplies current exact-operation authority, `createApp`
-uses an empty operation envelope: operation-bearing approval fails closed.
+hosts without a decision handler return `INBOX_UNAVAILABLE`. The gated
+[production dispatcher](inbox-runtime.md#the-production-dispatcher-gated)
+supplies the current exact-operation envelope. Because `createApp` enables no
+dispatcher, it still uses an empty envelope: operation-bearing approval fails closed.
 Cancel, dismissal and deterministic snooze remain available. The default
 timezone is UTC, or the configured inbox budget timezone.
 
