@@ -1,5 +1,6 @@
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
-import { canonicalModelId, resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal";
+import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
 import type { ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import type { InferenceProfile } from "./profiles.js";
 

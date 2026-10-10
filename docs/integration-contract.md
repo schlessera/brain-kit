@@ -84,6 +84,26 @@ uncertain, follow a maintainer ruling per item:
   `applyExportLinkPolicy` and `protectExportLinkDestinations`; geo's
   `MAX_ROUTE_BYTES`, in the new `@schlessera/brain-geo/internal`.
 
+**Additive: the shared backend toolkit (#1399, ruled on #1345).** What both
+shipped backends need to give the host the same behavior and security posture
+is public on `@schlessera/brain-ui-sdk/server`, each declaration tagged
+`@experimental` until 1.0: the bridge-tool handlers (`handleAskUser`,
+`handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`,
+`handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`,
+`handleShowBlock`, with `ImageMaskHandlerOptions` and
+`LocationHandlerOptions`) and `BRIDGE_TOOL_POSTURE`; the exec wrapper
+(`wrapCommand`, `validateExecWrapper`, `EXEC_WRAPPER_ENV`, `EXEC_KILLER_ENV`);
+the subprocess environment filter (`filterSubprocessEnv`,
+`parseSubprocessEnvExtra`, `SubprocessEnvAudience`); the lock keys
+(`BRAIN_LOCK_KEY`, `bashLockKey`); `describeRetry`, `resolveThinkingLevel`,
+`assertLoadedSdk`, `rtkRewriteCommand`; and the bundled
+`DEFAULT_CONFIRM_BASH_PATTERNS`, whose entries may still evolve as a documented
+user-visible change. Their behavior is unchanged; they leave
+`@schlessera/brain-ui-sdk/internal`. Helpers only one backend, or the host and
+one backend, import stay internal (`bashCommand`, `SUBPROCESS_ENV`,
+`execWrapperSpawnOptions`, `GIT_LOCK_KEY`, `canonicalModelId`). The
+[toolkit record](decisions/backend-authoring-toolkit.md) has the inventory.
+
 **Additive: ui-react share and stats exports (#1382).** For shells that
 assemble their own surfaces around ui-react, the `@schlessera/brain-ui-react`
 root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,

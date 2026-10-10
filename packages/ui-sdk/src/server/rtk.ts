@@ -49,6 +49,8 @@ export function resetRtkProbe(): void {
 /**
  * Rewrite one bash command through rtk, or return it unchanged when rtk is
  * absent, declines, or errors. The result is what should actually execute.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export async function rtkRewriteCommand(
   command: string,

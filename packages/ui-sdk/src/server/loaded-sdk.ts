@@ -42,7 +42,11 @@ export function loadedSdkIdentity(entry: string, name: string): { name: string; 
   }
 }
 
-/** First-party sharing: enforce the owner's manifest range on its actual import. */
+/**
+ * Enforce the owning package's manifest range on the SDK it actually imported.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export function assertLoadedSdk(options: {
   owner: string;
   ownerManifest: URL;

@@ -11,6 +11,11 @@ import type {
 import type { BackendBridge } from "../backend.js";
 import { resolveInRepo } from "./resolve-in-repo.js";
 
+/**
+ * Options for `handleRequestImageMask`; the adapter owns the mask filename.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export interface ImageMaskHandlerOptions {
   brainPath: string;
   maskFilename(
@@ -32,6 +37,8 @@ export interface ImageMaskHandlerOptions {
  * overwrite a file the previous backend left untouched, and an image rollback
  * cannot restore those bytes. Any future unification needs `wx` writes and a
  * collision test as a separate change.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export async function handleRequestImageMask(
   input: RequestImageMaskInput,

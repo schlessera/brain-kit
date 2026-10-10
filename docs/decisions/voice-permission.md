@@ -57,7 +57,7 @@ six bridge tools the backend appends per turn (the `allowed.push` block in
 `createClaudeSdkTurn`, from `const allowed`,
 `packages/ui-backend-claude/src/sdk-options.ts:89-112`)
 and `DEFAULT_CONFIRM_BASH_PATTERNS`
-(`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:49`).
+(`DEFAULT_CONFIRM_BASH_PATTERNS`, `packages/ui-sdk/src/server/confirm-patterns.ts:55`).
 Tools that exist only in the recording harness and have no counterpart in this
 product were excluded from
 the denominator rather than counted as approvals a real session could not raise.
@@ -246,7 +246,7 @@ database retains its schema initialization and migration, as that record's
 | `Skill` | Skills orchestrate and the CLI executes (`AGENTS.md`). A skill without `Bash` fails partway through with side effects already written. |
 | `LSP` | No eyes-free use. Out for want of a reason to be in, not for danger. |
 | `mcp__brain__brain_add`, `mcp__brain__brain_update`, `mcp__brain__brain_archive` | Legacy project MCP writers remain available to direct terminal backend consumers. Hosted turns shadow them and use the server-routed names above; voice never calls these legacy names. |
-| `mcp__brain-ui__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:50-58`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
+| `mcp__brain-ui__brain_archive` | The one visibility change in the brain tool set, deliberately kept off the auto-allow list, and the one action here whose damage is invisible later — an archived document simply stops appearing, with nothing pointing at why (`Archiving is a VISIBILITY change`, `confirm-patterns.ts:56-64`). It keeps its card. Its exclusion here did not by itself close the boundary; see below. |
 
 **The archive boundary leaked, and is now closed.** `brain_archive` is off the
 auto-allow list because archiving is a visibility change. But `brain_update`
@@ -256,7 +256,7 @@ excludes archived documents by default (`include_archived`, `mcp-server.ts:241`)
 — so the visibility change `brain_archive`'s card exists to gate was reachable
 through a tool that is auto-allowed in *every* surface,
 chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closed the `brain archive` CLI
-spelling (`\bbrain\s+archive\b`, `confirm-patterns.ts:56`) and not this one.
+spelling (`\bbrain\s+archive\b`, `confirm-patterns.ts:62`) and not this one.
 
 This was pre-existing product behaviour rather than something the voice posture
 introduced. It was filed as #122 and closed by #144, which took exactly the
@@ -291,7 +291,7 @@ postures are expected to differ.
 
 **The announcement is form B, and it never reads the payload.** It is derived
 from the confirm pattern that matched, which is a closed set of six
-(`DEFAULT_CONFIRM_BASH_PATTERNS`, `confirm-patterns.ts:49-82`),
+(`DEFAULT_CONFIRM_BASH_PATTERNS`, `confirm-patterns.ts:55-88`),
 so each pattern carries the effect it has in words:
 
 | pattern | spoken as |

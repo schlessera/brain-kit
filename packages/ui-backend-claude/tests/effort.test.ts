@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
-import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal";
+import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
 import type { ServerMessage, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../src/backend.js";
 import { backendModule } from "../src/module.js";

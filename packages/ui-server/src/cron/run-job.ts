@@ -13,7 +13,8 @@ import { recordCronRun } from "./scheduler.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
-import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
+import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 
 /** Tail of stderr retained for the cron_runs error row. */
 export const STDERR_TAIL_CHARS = 2_000;

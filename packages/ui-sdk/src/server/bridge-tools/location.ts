@@ -9,11 +9,21 @@ import {
   type ReverseGeocodeResult,
 } from "../reverse-geocode.js";
 
+/**
+ * Options for `handleGetCurrentLocation`.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export interface LocationHandlerOptions {
   reverseGeocodeConfig: ReverseGeocodeConfig;
   reverseGeocode?: typeof reverseGeocode;
 }
 
+/**
+ * Run `get_current_location` through the host bridge, with reverse geocoding.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export async function handleGetCurrentLocation(
   input: GetCurrentLocationInput,
   bridge: BackendBridge,

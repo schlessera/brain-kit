@@ -14,7 +14,7 @@ import {
   type AskUserResult,
   type BackendBridge,
 } from "@schlessera/brain-ui-sdk/server";
-import { BRIDGE_TOOL_POSTURE, handleAskUser } from "@schlessera/brain-ui-sdk/internal";
+import { BRIDGE_TOOL_POSTURE, handleAskUser } from "@schlessera/brain-ui-sdk/server";
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";

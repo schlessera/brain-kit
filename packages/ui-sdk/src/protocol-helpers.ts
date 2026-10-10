@@ -1,8 +1,10 @@
 /**
- * Helpers over protocol values that first-party hosts, backends and the UI
- * share so they word and normalize them identically. They are not part of the
- * wire contract and not a supported API: `./internal` and `./internal/client`
- * re-export them, with no compatibility promise (#1053).
+ * Helpers over protocol values that hosts, backends and the UI share so they
+ * word and normalize them identically. They are not part of the wire
+ * contract. `describeRetry` and `resolveThinkingLevel` are public backend
+ * toolkit on `/server` (#1399); `canonicalModelId` is first-party sharing
+ * only. `./internal/client` re-exports all three for the browser, with no
+ * compatibility promise (#1053).
  */
 import { THINKING_LEVELS, type ThinkingLevel, type TurnRetry } from "./protocol.js";
 
@@ -10,6 +12,8 @@ import { THINKING_LEVELS, type ThinkingLevel, type TurnRetry } from "./protocol.
  * A retry in words, for `ServerStatus.detail`: "Retrying (attempt 2 of 10) in
  * 5s after rate_limit, HTTP 429". One wording for every backend, and only the
  * parts the runtime reported.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
  */
 export function describeRetry(retry: TurnRetry): string {
   const attempt =
@@ -28,7 +32,11 @@ function formatRetryDelay(ms: number): string {
   return seconds < 10 ? `${Math.round(seconds * 10) / 10}s` : `${Math.round(seconds)}s`;
 }
 
-/** Resolve unsupported effort to the nearest lower supported choice, or the lowest. */
+/**
+ * Resolve unsupported effort to the nearest lower supported choice, or the lowest.
+ *
+ * @experimental Backend toolkit (#1399); may change before 1.0.
+ */
 export function resolveThinkingLevel(
   requested: ThinkingLevel,
   supported: readonly ThinkingLevel[]

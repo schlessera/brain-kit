@@ -5,7 +5,7 @@ import { join } from "path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns, createKeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/internal";
+import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { approvalReason, createPermissionGate } from "../src/permission-gate";
