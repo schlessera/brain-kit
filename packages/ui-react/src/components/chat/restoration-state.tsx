@@ -1,5 +1,4 @@
 import { EmptyState } from "@schlessera/brain-ui-kit";
-import { useBrainUiRoot } from "../../root-context.js";
 import { restorationOf, useChatStore } from "../../stores/chat-store.js";
 
 /**
@@ -10,11 +9,15 @@ import { restorationOf, useChatStore } from "../../stores/chat-store.js";
  * bounded failure with Retry and New chat; the draft stays where it is, and
  * nothing is sent when the history comes back.
  *
- * Renders nothing once the history is confirmed.
+ * Renders nothing once the history is confirmed. Retry clears the failure,
+ * and the connection, seeing the session restoring again, asks for its
+ * history again under a new deadline.
  */
 export function RestorationState({ onNewChat }: { onNewChat: () => void }) {
-  const root = useBrainUiRoot();
   const phase = useChatStore((s) => restorationOf(s)?.phase ?? null);
+  const sessionId = useChatStore((s) => restorationOf(s)?.sessionId ?? null);
+  // Retry clears the failure; the connection asks for the history again.
+  const retry = useChatStore((s) => s.clearRestoreFailure);
   const reason = useChatStore((s) => {
     const restoration = restorationOf(s);
     return restoration?.phase === "failed" ? restoration.failure.reason : null;
@@ -42,7 +45,7 @@ export function RestorationState({ onNewChat }: { onNewChat: () => void }) {
           primaryLabel="Retry"
           primaryIcon="retry"
           secondaryLabel="New chat"
-          onPrimary={() => { root.connection.restore.retry(); }}
+          onPrimary={() => { if (sessionId) retry(sessionId); }}
           onSecondary={onNewChat}
         />
       )}

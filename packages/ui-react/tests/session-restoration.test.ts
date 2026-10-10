@@ -164,7 +164,8 @@ describe("a reload that kept the selected session's id", () => {
     expect(typedMessage(root, "Sail tonight?")).toBe(false);
     expect(socket.frames("session_resume"), "a failure does not ask again by itself").toHaveLength(1);
 
-    expect(root.connection.restore.retry()).toBe(true);
+    // Retry, as Chat's button does it.
+    root.stores.chat.getState().clearRestoreFailure(OGYGIA);
     expect(restorationOf(root.stores.chat.getState())?.phase).toBe("restoring");
     expect(socket.frames("session_resume")).toHaveLength(2);
     expect(socket.sent.map((raw) => JSON.parse(raw).type).filter((type) => type !== "session_resume" && type !== "client_hello" && type !== "ping"), "Retry sends nothing else").toEqual([]);
@@ -213,7 +214,7 @@ describe("a reload that kept the selected session's id", () => {
     });
     expect(typedMessage(root, "Sail tonight?")).toBe(false);
     expect(socket.frames("session_resume"), "no automatic loop on the same socket").toHaveLength(1);
-    root.connection.restore.retry();
+    root.stores.chat.getState().clearRestoreFailure(OGYGIA);
     expect(socket.frames("session_resume")).toEqual([{ type: "session_resume", sessionId: OGYGIA }, { type: "session_resume", sessionId: OGYGIA }]);
     socket.deliver({ type: "session_history", sessionId: "aeaea-circe", messages: HISTORY });
     expect(restorationOf(root.stores.chat.getState())?.phase).toBe("restoring");

@@ -727,17 +727,31 @@ export function createWebSocketClient(root: BrainUiServices) {
     return sendClientMessage({ type: "session_resume", sessionId });
   }
 
-  /** Keep the selected session's restoration moving; runs on every store change. */
+  /** The phase the driver saw last, so Retry (failed → restoring) is told apart. */
+  let lastRestoration: { sessionId: string; phase: "restoring" | "failed" } | null = null;
+
+  /**
+   * Keep the selected session's restoration moving; runs on every store
+   * change. Retry is Chat clearing the failure (`clearRestoreFailure`): the
+   * history is asked for again, under a new deadline. It reads only.
+   */
   function driveRestoration(): void {
     if (disposed) return;
     const restoration = restorationOf(root.stores.chat.getState());
+    const last = lastRestoration;
+    lastRestoration = restoration && { sessionId: restoration.sessionId, phase: restoration.phase };
     if (!restoration) {
       endRestoreAttempt();
       restoreAsked = null;
       return;
     }
     const { sessionId } = restoration;
-    if (restoreAttempt?.sessionId !== sessionId) startRestoreAttempt(sessionId);
+    const retried = restoration.phase === "restoring" && last?.sessionId === sessionId && last.phase === "failed";
+    if (retried) {
+      pauseRestoreDeadline();
+      restoreAsked = null;
+    }
+    if (retried || restoreAttempt?.sessionId !== sessionId) startRestoreAttempt(sessionId);
     // Once per socket: a request a closed socket swallowed, or that never
     // left, is asked again on the next connection, also after a failure.
     // A failure keeps its request: only a new socket, or Retry, asks again.
@@ -763,19 +777,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (frameSessionId === null) driveRestoration();
   }
 
-  /**
-   * Retry, from a failed restoration: ask for the selected session's history
-   * again, under a new deadline. Reads only; sends no message.
-   */
-  function retryRestore(): boolean {
-    const restoration = restorationOf(root.stores.chat.getState());
-    if (!restoration) return false;
-    restoreAsked = null;
-    pauseRestoreDeadline();
-    startRestoreAttempt(restoration.sessionId);
-    root.stores.chat.getState().clearRestoreFailure(restoration.sessionId);
-    return restoreAsked !== null || askRestore(restoration.sessionId);
-  }
+
 
   function handleStatusChange(status: "connecting" | "connected" | "disconnected") {
     root.stores.connection.getState().setWsStatus(status);
@@ -965,11 +967,6 @@ export function createWebSocketClient(root: BrainUiServices) {
       edit: (requestId: string) => drafts.edit(requestId),
     },
     handleServerMessage,
-    /** Restoring the selected session's history (#1328). */
-    restore: {
-      /** Ask for its history again after a failure. Reads only. */
-      retry: retryRestore,
-    },
     answers,
     flushChatDeltas,
     dispose() {

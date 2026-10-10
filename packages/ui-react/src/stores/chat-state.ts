@@ -304,7 +304,7 @@ export interface SessionChat {
    */
   replay?: { base: Pick<SessionChat, "messages" | "isStreaming">; received: ChatMessage[] };
   /**
-   * This client holds the session's whole transcript (#1328): the host's
+   * @internal This client holds the session's whole transcript (#1328): the host's
    * history for it arrived (an empty one counts), or the buffer is the one
    * this client started the conversation in. A buffer opened for a stored or
    * selected session before its history comes back is not, however empty.
