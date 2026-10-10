@@ -1,4 +1,5 @@
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
+import { dispatchActions } from "../ui-react/tests/browser/dispatch-actions-command.ts";
 import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
 import { MeasuredBrowserSequencer } from "../../scripts/browser-sequencer.ts";
@@ -122,7 +123,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { hygieneServer, sheetInput, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { hygieneServer, dispatchActions, sheetInput, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

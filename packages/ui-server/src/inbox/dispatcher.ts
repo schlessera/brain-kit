@@ -141,7 +141,11 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
       for (const [index, option] of (question?.options ?? []).slice(0, 4).entries()) options.push({ id: `answer-${index + 1}`, label: clip(option.label, TITLE_CHARS),
         effect: { kind: "enqueue", payload: { instruction: clip(`The person answered "${option.label}" to: ${question!.question}`, DETAIL_CHARS) } } });
     }
-    options.push({ id: "cancel", label: "Cancel this work", effect: { kind: "cancel_blocked" } });
+    // An approval has one commit (the exact operation) plus Dismiss, the
+    // shape the Actions card renders; Later is the card's own snooze. A
+    // choice keeps an explicit cancel among its answers.
+    if (allowed.length) options.push({ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } });
+    else options.push({ id: "cancel", label: "Cancel this work", effect: { kind: "cancel_blocked" } });
     const id = inboxIdentity("decision", item.id, escalation.runId);
     return { allowed, action: { id, dedupKey: id, threadId: item.threadId, queue: "actions", type: allowed.length ? "approve" : "choose",
       status: "pending", version: 1, createdAt: at, updatedAt: at, expiresAt: item.expiresAt,
