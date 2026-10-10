@@ -47,8 +47,8 @@ describe("brand masters", () => {
 });
 
 // The tarball itself is checked by CI's pack job, which packs this package
-// with `bun pm pack`, greps for every brand file and resolves each one from an
-// installed consumer (`.github/workflows/ci.yml`). The test preload cannot run
+// with `bun pm pack` and resolves every brand file from an installed consumer
+// (the `ui-kit-brand` probe, run by `scripts/ci-pack.ts`). The test preload cannot run
 // `bun pm` (it puts `--preload` ahead of the subcommand), so these assertions
 // hold the two manifest fields that job depends on.
 describe("brand files are declared for publishing", () => {
