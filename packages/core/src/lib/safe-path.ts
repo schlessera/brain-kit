@@ -100,7 +100,7 @@ export function resolveWritable(root: string, relOrAbs: string): string | null {
  * a write throws (ENOSPC, EACCES, ...) is an internal failure and stays one.
  */
 export class WriteRefusedError extends Error {
-  /** `EEXIST` when the name is taken and may not be replaced; a caller can tell that refusal from the others. */
+  /** `EEXIST` when the name is taken and may not be replaced. */
   readonly code: "EEXIST" | undefined;
   constructor(message: string, code?: "EEXIST") {
     super(message);
@@ -109,17 +109,15 @@ export class WriteRefusedError extends Error {
   }
 }
 
-/** The permission bits a replacement of `existing` keeps: its own, when it is a regular file. */
+/** The bits a replacement of `existing`, a regular file, keeps. */
 export function modeOf(existing: Stats | undefined): number | undefined {
   return existing?.isFile() ? existing.mode & 0o7777 : undefined;
 }
 
 /**
- * Create `tmp` exclusively and fill it. Given a `mode` (the file it replaces,
- * `modeOf`), it takes that exact mode first (opened with the mode, then
- * `fchmod` past the umask) so the bytes are never readable more widely than
- * the file they replace; without one it keeps the default mode. A failed
- * write removes `tmp` again.
+ * Create `tmp` exclusively and fill it. A `mode` (`modeOf` the replaced file)
+ * is set first, past the umask, so the bytes are never readable more widely
+ * than the file they replace. A failed write removes `tmp`.
  */
 export function writeExclusive(tmp: string, data: string | Uint8Array, mode: number | undefined): void {
   const fd = openSync(tmp, "wx", mode);
@@ -129,7 +127,6 @@ export function writeExclusive(tmp: string, data: string | Uint8Array, mode: num
     let offset = 0;
     while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset, bytes.byteLength - offset);
   } catch (error) {
-    // A write that fails part way (ENOSPC, EFBIG) leaves no partial file behind.
     closeSync(fd);
     rmSync(tmp, { force: true });
     throw error;
@@ -137,20 +134,15 @@ export function writeExclusive(tmp: string, data: string | Uint8Array, mode: num
   closeSync(fd);
 }
 
-/**
- * `abs` with its directory canonicalized (`realpath`), for a caller that
- * holds a path under a root it did not canonicalize itself. The final entry
- * is left as named, so `writeFileSafely` still refuses a link there rather
- * than writing through it. The directory must exist.
- */
+/** `abs` in its existing directory's `realpath`; the final entry stays as named. */
 export function inCanonicalDir(abs: string): string {
   return join(realpathSync(dirname(abs)), basename(abs));
 }
 
 export interface WriteFileSafelyOptions {
-  /** Replace an existing regular file (default), or refuse every existing entry with `EEXIST`. */
+  /** false: refuse every existing entry (`EEXIST`). */
   replace?: boolean;
-  /** Permission bits for the written file, instead of the replaced file's own (or the default). */
+  /** Bits for the written file, instead of the replaced file's. */
   mode?: number;
   /** Runs after staging, before publication; a throw abandons the write. */
   beforePublish?: () => void;
@@ -164,23 +156,16 @@ export interface WriteFileSafelyOptions {
  * published onto the name once the directory is re-verified to be exactly
  * itself (`realpath` equal, a directory, not a link put in its place). A
  * replacement rename changes the entry rather than writing through it. A
- * replaced regular file keeps its mode (`writeExclusive`); `mode` sets the
- * bits instead, for a new name that carries an old file's content (an
- * archive move). `beforePublish` runs once the bytes are staged, before the
- * re-verification and publication; whatever it throws abandons the write and
- * leaves the target as it was (a compare-before-replace check).
- * The target is either untouched or wholly replaced: a write that fails part
- * way (ENOSPC, EFBIG) fails on the temporary sibling, which is removed.
+ * replaced regular file keeps its mode unless `mode` is given. The target is
+ * untouched or wholly replaced: a failed write fails on the sibling.
  * `replace: false` publishes the completed sibling with a hard link, which
  * atomically refuses every existing destination entry (EEXIST), then removes
  * the temporary name. It never replaces an entry arriving after the check.
  * The directory can still change between verification and publication, as
  * it can for any path-based write in Node. The scratch area has its own
  * primitive on top of the same shape (`writeScratchFile`); this is for every
- * other write of a user document (`brain_update`, capture, archive, sync's
- * merges and `updated` bumps, tag and hygiene rewrites) and of caller-given
- * output (`render --out`, `image --out`, the OKF export).
- * `tests/document-writes.test.ts` holds core to it.
+ * other write of a user document or caller-given output
+ * (`tests/document-writes.test.ts`).
  */
 export function writeFileSafely(
   abs: string,
