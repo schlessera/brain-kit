@@ -13,6 +13,7 @@
     "lint": "bun scripts/lint.ts",
     "api-report": "bun scripts/api-report.ts",
     "test": "bun scripts/test.ts --timeout 30000",
+    "test:experiments": "bun scripts/test-experiments.ts",
     "check:pr": "bun scripts/check-pr.ts",
     "check:pack": "bun scripts/check-packages.ts",
     "test:browser": "node scripts/visual.mjs",

@@ -16,10 +16,12 @@ All eighteen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
 The full sequence: changeset → `bun run version` → **read the version it
-produced** → `bun run build && bun run typecheck && bun run test` → commit
-`chore: version packages to X.Y.Z` → push → `bun run release`. The sections
-below are each step's checks; [Before you version](#before-you-version) adds
-the complete `check:pr --all` proof before the release PR.
+produced** → `bun run build && bun run typecheck && bun run test` →
+`bun run test:experiments` → commit `chore: version packages to X.Y.Z` → push →
+`bun run release`. The sections below are each step's checks;
+[Before you version](#before-you-version) adds the complete `check:pr --all`
+proof before the release PR, and
+[The experiment tier](#the-experiment-tier) covers the release-only tests.
 
 ## Before you version
 
@@ -40,7 +42,9 @@ the complete `check:pr --all` proof before the release PR.
    all packed consumer checks. Record head/base, commands and results; fast
    automatic CI does not establish release proof. Missing tools or skipped
    runtime checks leave verification unfinished. The `tests/` directory retains
-   the release guards; none are removed to save CI minutes.
+   the release guards; none are removed to save CI minutes. `--all` does not run
+   the measurement-harness tests under `experiments/`; those are the separate
+   [experiment tier](#the-experiment-tier), run after versioning.
 3. **New package added this cycle?** Build, publish, clean and the CI pack
    loop pick it up from its manifest: they all read
    `scripts/publishable-packages.ts`, which lists every non-private
@@ -93,6 +97,34 @@ the validated SDK 0.3.283 / CLI 2.1.283 pair.
 ```sh
 bun run check:pr --all
 ```
+
+## The experiment tier
+
+Tests that exercise only measurement and eval harnesses live under
+`experiments/`, outside `bun run test`, `check:pr` and hosted CI. Release
+preparation runs every one of them, on the post-version candidate:
+
+```sh
+bun run test:experiments
+```
+
+Run it after `bun run version` (and after any SDK rollback or other lock edit
+described above), once the post-version build, typecheck and tests pass. It
+runs offline through the same wrapper and network guard as `bun run test`,
+needs `python3`, `bwrap`, `unshare`, `setpriv` and `ip` plus permitted
+user/network namespaces, and takes about ten minutes. A missing tool, a
+failure, a skipped or todo test, a `test.only`, or an inventoried file that
+did not run fails it.
+
+Only a complete clean run writes `tmp/experiment-tier-receipt.json`, naming the
+working-tree content, `bun.lock` hash, experiment file inventory and Bun
+version it tested. `bun run release` refuses to publish unless that receipt
+matches the checkout it is publishing (`Release refused: ... experiment-tier
+receipt`). Committing the same tree keeps it valid; any later change to a
+source file, the lock or the inventory needs a fresh run. A failure is a
+finding to fix or file, never a reason to skip the tier: there is no override.
+Debug one file with `bun run test experiments/<file>`; that records nothing.
+`bun run release -- --dry-run` stays a plain listing and is not gated.
 
 ## A cold build tries to download an installed CLI
 
@@ -148,6 +180,10 @@ git push origin main --follow-tags
 
 - **Publishing needs interactive npm auth, so it runs from a human's terminal.**
   An agent should prepare the release, verify it, and stop here.
+- **`Release refused: no experiment-tier receipt`** (or a receipt that "does
+  not cover this candidate") means `bun run test:experiments` has not passed on
+  exactly this tree, lock and inventory. Run it, then `bun run release` again;
+  nothing has been published or read from the registry yet.
 - A dead npm token does not say so plainly: it surfaces as a 404 "version does
   not exist" and then a 403 "cannot publish over <previous>".
 - Publishing is ordered so a failure lands as little as possible, and a partial

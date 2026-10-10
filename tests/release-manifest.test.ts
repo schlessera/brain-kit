@@ -621,3 +621,39 @@ describe("the published template", () => {
     expect(skill).toContain("publish-template.ts");
   });
 });
+
+// Measurement-harness tests run in the experiment tier, outside product proof,
+// and only release preparation runs them (#1386). These pin the wiring that
+// makes that tier a gate rather than a suggestion; tests/experiment-tier.test.ts
+// proves the command and the receipt check behave.
+describe("the experiment tier gates publication", () => {
+  const publish = readFileSync(join(ROOT, "scripts/publish.ts"), "utf8");
+  const main = publish.slice(publish.indexOf("async function main()"));
+
+  test("the root manifest runs the complete tier with a dedicated command", () => {
+    const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Manifest;
+    expect(root.scripts?.["test:experiments"]).toBe("bun scripts/test-experiments.ts");
+    // CI selection never runs it: hosted proof and check:pr reach tests only
+    // through `bun run test` and scripts/ci-proof.ts's product roots.
+    expect(CI_YML).not.toContain("test:experiments");
+    expect(CI_YML).not.toContain("test-experiments");
+  });
+
+  test("a real publish checks the receipt before any registry probe; --dry-run does not", () => {
+    const dryRun = main.indexOf('args.includes("--dry-run")');
+    const gate = main.indexOf("assertExperimentReceipt(root)");
+    expect(dryRun).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(main.indexOf("process.exit(0);", dryRun));
+    expect(gate).toBeLessThan(main.indexOf("assertPublishArtifacts("));
+    expect(gate).toBeLessThan(main.indexOf("planRelease("));
+    expect(gate).toBeLessThan(main.indexOf('"publish", "--access"'));
+  });
+
+  test("the release skill puts the tier after the version lock refresh and before publishing", () => {
+    const skill = readFileSync(join(ROOT, ".agents/skills/release/SKILL.md"), "utf8");
+    const sequence = skill.slice(skill.indexOf("The full sequence:"), skill.indexOf("## Before you version"));
+    expect(sequence.indexOf("`bun run version`")).toBeGreaterThan(-1);
+    expect(sequence.indexOf("`bun run test:experiments`")).toBeGreaterThan(sequence.indexOf("`bun run version`"));
+    expect(sequence.indexOf("`bun run release`")).toBeGreaterThan(sequence.indexOf("`bun run test:experiments`"));
+  });
+});
