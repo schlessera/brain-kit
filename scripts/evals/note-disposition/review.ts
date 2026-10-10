@@ -7,8 +7,11 @@ import { StringDecoder } from "node:string_decoder";
 import { join } from "node:path";
 import { benchmarkSha } from "./benchmark";
 import { MODELS, protocol, protocolSha, sourceHashes } from "./live";
+import { SONNET55_USD_PER_MTOK as RATE } from "../../measure-sonnet55-cost";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS, subscriptionVerdict, settingsRefusal, credentialFields } from "../../../packages/ui-backend-claude/src/subscription";
-/** Verified Sonnet5.5 official rates; missing cache TTL is an interval, never zero or an invented exact charge. */
+/** Every file the reviewer sees in full, including the rates the spend accounting uses. */
+export const REVIEW_PATHS = ["docs/decisions/example-corpus.md", "packages/ui-kit/fixtures/README.md", "scripts/evals/note-disposition/benchmark.json", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts", "scripts/evals/note-disposition/live.ts", "scripts/measure-sonnet55-cost.ts", "packages/core/src/cli/commands/process.ts"];
+/** Sonnet 5.5 list rates (`SONNET55_USD_PER_MTOK`); missing cache TTL is an interval, never zero or an invented exact charge. */
 export function priceReview(result: any): {
     lowerUsd: number;
     upperUsd: number;
@@ -20,13 +23,13 @@ export function priceReview(result: any): {
     const valid = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
     if (![u.inputTokens, u.outputTokens, u.cacheReadInputTokens, u.cacheCreationInputTokens].every(valid) || u.webSearchRequests)
         return null;
-    const base = (u.inputTokens * 2 + u.outputTokens * 10 + u.cacheReadInputTokens * 0.2) / 1e6;
+    const base = (u.inputTokens * RATE.input + u.outputTokens * RATE.output + u.cacheReadInputTokens * RATE.cacheRead) / 1e6;
     const short = result.usage?.cache_creation?.ephemeral_5m_input_tokens, long = result.usage?.cache_creation?.ephemeral_1h_input_tokens;
     if (valid(short) && valid(long) && short + long === u.cacheCreationInputTokens && result.usage?.cache_creation_input_tokens === u.cacheCreationInputTokens) {
-        const cost = base + (short * 2.5 + long * 4) / 1e6;
+        const cost = base + (short * RATE.cacheWrite5m + long * RATE.cacheWrite1h) / 1e6;
         return { lowerUsd: cost, upperUsd: cost };
     }
-    return { lowerUsd: base + u.cacheCreationInputTokens * 2.5 / 1e6, upperUsd: base + u.cacheCreationInputTokens * 4 / 1e6 };
+    return { lowerUsd: base + u.cacheCreationInputTokens * RATE.cacheWrite5m / 1e6, upperUsd: base + u.cacheCreationInputTokens * RATE.cacheWrite1h / 1e6 };
 }
 export function overageState(events: any[]): "active" | "reported inactive" | "unknown" {
     if (events.some(info => info.isUsingOverage === true || info.overageInUse === true))
@@ -87,7 +90,7 @@ async function main() {
     if (typeof token !== "string" || !token.trim())
         throw Error("No protected subscription token available");
     const root = new URL("../../../", import.meta.url).pathname;
-    const paths = ["docs/decisions/example-corpus.md", "packages/ui-kit/fixtures/README.md", "scripts/evals/note-disposition/benchmark.json", "scripts/evals/note-disposition/benchmark.ts", "scripts/evals/note-disposition/guard.ts", "scripts/evals/note-disposition/live.ts", "packages/core/src/cli/commands/process.ts"];
+    const paths = REVIEW_PATHS;
     const proofPath = process.argv[3];
     if (!proofPath) throw Error("Require actual current keyless verification receipt before review");
     const proofRaw = readFileSync(proofPath, "utf8");

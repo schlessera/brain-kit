@@ -59,6 +59,20 @@ describe("config/env subprocessEnv", () => {
   });
 });
 
+describe("config/env exec wrapper (#1363)", () => {
+  test("both resolvers carry the wrapper of the environment they are given", () => {
+    const env = { BRAIN_UI_EXEC_WRAPPER: "/configured/wrapper", BRAIN_UI_EXEC_KILLER: "/configured/killer" };
+    const expected = { wrapper: "/configured/wrapper", killer: "/configured/killer" };
+    expect(resolveServerConfig(env).exec).toEqual(expected);
+    expect(resolveCronConfig(env).exec).toEqual(expected);
+    expect(resolveServerConfig({}).exec).toEqual({ wrapper: undefined, killer: undefined });
+  });
+
+  test("a relative wrapper refuses configuration instead of a later spawn", () => {
+    expect(() => resolveServerConfig({ BRAIN_UI_EXEC_WRAPPER: "wrapper" })).toThrow(/absolute path/);
+  });
+});
+
 describe("config/env resolveCronConfig", () => {
   test("uses the container DB default and allowlists the scheduled-job environment", () => {
     const config = resolveCronConfig({

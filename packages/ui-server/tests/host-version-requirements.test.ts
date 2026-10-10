@@ -178,21 +178,14 @@ describe("explicit probes retain bounded wrapper cleanup", () => {
       const pidFile = join(f.root, "child.pid");
       writeFileSync(wrapper, `#!/bin/sh\nsleep 300 ${timesOut ? "" : ">/dev/null 2>&1 "}&\necho $! > '${pidFile}'\n${timesOut ? "sleep 300" : "exit 4"}\n`);
       chmodSync(wrapper, 0o755);
-      const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
-      process.env.BRAIN_UI_EXEC_WRAPPER = wrapper;
-      try {
-        await expect(probeBrainCliVersion(f.root, f.observability.logger("brain"), { minimumVersion: "0.40.0" })).rejects.toThrow(timesOut ? "within 5 s" : "exited 4");
-        const pid = Number(readFileSync(pidFile, "utf8").trim());
-        expect(pid).toBeGreaterThan(0);
-        const until = Date.now() + 2_000;
-        const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
-        while (alive() && Date.now() < until) await Bun.sleep(10);
-        expect(alive()).toBe(false);
-        expect(f.invocations()).toEqual([]);
-      } finally {
-        if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
-        else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
-      }
+      await expect(probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, minimumVersion: "0.40.0" })).rejects.toThrow(timesOut ? "within 5 s" : "exited 4");
+      const pid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(pid).toBeGreaterThan(0);
+      const until = Date.now() + 2_000;
+      const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      while (alive() && Date.now() < until) await Bun.sleep(10);
+      expect(alive()).toBe(false);
+      expect(f.invocations()).toEqual([]);
     });
   }
 });
@@ -248,6 +241,6 @@ describe("explicit CLI minima on direct clients and probes", () => {
     const f = fixture();
     writeFileSync(f.bin, "#!/bin/sh\nexit 4\n");
     const log = f.observability.logger("brain");
-    await expect(probeBrainCliVersion(f.root, log, { minimumVersion: "0.40.0", phase: "invocation" })).rejects.toThrow(/host versionRequirements.brainCli.*0\.40\.0.*bump the brain repo/);
+    await expect(probeBrainCliVersion(f.root, log, { exec: {}, minimumVersion: "0.40.0", phase: "invocation" })).rejects.toThrow(/host versionRequirements.brainCli.*0\.40\.0.*bump the brain repo/);
   });
 });

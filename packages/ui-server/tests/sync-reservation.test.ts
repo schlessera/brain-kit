@@ -28,7 +28,7 @@ describe("sync reservation", () => {
     symlinkSync(root, link);
     const route = (brainPath: string) => createBrainRoutes({
       brainPath, brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
-      keyterms: { brainPath } as KeytermSettings,
+      keyterms: { brainPath } as KeytermSettings, exec: {},
     });
     const first = route(root);
     const second = route(link);
@@ -63,7 +63,7 @@ describe("sync reservation", () => {
   test("startup failure releases the reservation for a retry", async () => {
     const root = mkdtempSync(join(tmpdir(), "sync-startup-"));
     let calls = 0;
-    const app = createBrainRoutes({ brainPath: root, brain: { cliCommand() { calls++; throw new Error("fixture startup failure"); } } as unknown as BrainClient, keyterms: { brainPath: root } as KeytermSettings });
+    const app = createBrainRoutes({ brainPath: root, brain: { cliCommand() { calls++; throw new Error("fixture startup failure"); } } as unknown as BrainClient, keyterms: { brainPath: root } as KeytermSettings, exec: {} });
     try {
       for (let i = 0; i < 2; i++) {
         const response = await app.request("/brain/sync", { method: "POST" });

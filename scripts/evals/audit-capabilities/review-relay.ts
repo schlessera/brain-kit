@@ -46,7 +46,7 @@ export function startRelay(options: {
     if(stopped||calls.length>=24||calls.some(c=>c.finished&&c.outcome!=="completed"&&c.outcome!=="local-connectivity-control"))return refused("Prior failed physical request or turn request bound",409);
     if(!authenticated)return refused("Subscription OAuth required",403);
     if(json?.model!==MODEL)return refused("Unexpected model",403);
-    try{options.beforeForward?.(json, requestBytes.byteLength);}catch{return refused("Root paid reservation refused",403);}
+    try{options.beforeForward?.(json, requestBytes.byteLength);}catch(error){return refused(`Root paid reservation refused: ${error instanceof Error?error.message:String(error)}`,403);}
     const started = performance.now();
     const call: NativeCall = { startedAtUtc:new Date().toISOString(), authRoute: "subscription-oauth-no-api-key", forwarded:true, upstream: `${upstream.origin}${url.pathname}`, requestMethod: "POST", requestPath: "/v1/messages", requestSha: createHash("sha256").update(requestBytes).digest("hex"), stateBytes: requestBytes.byteLength, requestedModel: json.model,
       servedModel: null, status: null, usage: null, finished: false, outcome: "started", durationMs: 0, firstByteMs:null, apiEquivalent: null, rawUsageEvents: [],
