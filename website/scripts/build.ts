@@ -1,7 +1,8 @@
 import { resolve, dirname } from 'node:path';
 import { mkdir, rm, copyFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { demoDocuments } from '../src/demo/odyssey.ts';
+import { demoDocuments } from '../src/demo/corpus.ts';
+import { documents as stagedDocuments } from '../src/demo/odyssey.ts';
 import { sourceInputHash, snapshotName } from './publication-source.ts';
 import { exportRecipeHash } from './export-recipe.ts';
 
@@ -47,6 +48,9 @@ if (!worker.success) throw new AggregateError(worker.logs, 'Demo file transport 
 // by the demo client's worker. This static route selects only embedded public
 // fixtures; the production viewer keeps its original script-only sandbox.
 const htmlFixtures = Object.fromEntries(demoDocuments.filter(record => record.kind === 'html').map(record => [record.path, record.content]));
+// The worker embeds only the staged records; everything else it serves raw is
+// fetched from this file on first use, so installing it costs no library bytes.
+await Bun.write(resolve(website, 'public/demo/library.json'), JSON.stringify(Object.fromEntries(demoDocuments.filter(record => !stagedDocuments.has(record.path)).map(record => [record.path, { kind: record.kind, content: record.content }]))));
 const embeddedHtml = JSON.stringify(htmlFixtures).replace(/</g, '\\u003c');
 await Bun.write(resolve(website, 'public/demo/api/files/html/index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Brain demo HTML preview</title></head><body><script>const fixtures=${embeddedHtml};const path=new URL(location.href).searchParams.get('path');if(Object.hasOwn(fixtures,path)){document.open();document.write(fixtures[path]);document.close();}else{document.body.textContent='This file is outside the fictional demonstration.'}</script></body></html>`);
 await run([resolve(website, 'node_modules/node/bin/node'), resolve(website, 'node_modules/astro/bin/astro.mjs'), 'build'], website);

@@ -140,24 +140,14 @@ jobs:
           set -euo pipefail
           TARBALL_DIR="$RUNNER_TEMP/brainkit-tarballs"
           mkdir -p "$TARBALL_DIR"
-          for package in \
-            geo \
-            core \
-            ui-sdk \
-            ui-backend-claude \
-            ui-backend-pi \
-            ui-render-puppeteer \
-            scrape \
-            render-template \
-            ui-server \
-            ui-kit \
-            ui-react \
-            module-finance \
-            module-images \
-            module-video \
-            module-jobs \
-            module-speaking \
-            module-travel
+          # The release's own list (scripts/publishable-packages.ts), read from
+          # the manifests in publish order. Assigned first so `set -e` stops the
+          # step if it fails: a failing substitution inside the `for` list would
+          # just loop over nothing.
+          PACKAGES="$(bun scripts/publishable-packages.ts)"
+          test -n "$PACKAGES"
+          echo "Packing:" $PACKAGES
+          for package in $PACKAGES
           do
             (cd "packages/$package" && \
               bun pm pack --filename "$TARBALL_DIR/$package.tgz")

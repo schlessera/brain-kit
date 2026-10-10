@@ -15,6 +15,7 @@ function withCleanFixture(check: (root: string, preserved: Map<string, string>) 
     mkdirSync(join(root, "scripts"));
     cpSync(join(ROOT, "scripts", "clean.ts"), join(root, "scripts", "clean.ts"));
     cpSync(join(ROOT, "scripts", "workspace-lease.mjs"), join(root, "scripts", "workspace-lease.mjs"));
+    cpSync(join(ROOT, "scripts", "publishable-packages.ts"), join(root, "scripts", "publishable-packages.ts"));
     const preserved = new Map<string, string>();
     const keep = (relative: string) => {
       const content = `Keep ${relative}\n`;
@@ -24,6 +25,8 @@ function withCleanFixture(check: (root: string, preserved: Map<string, string>) 
       preserved.set(relative, content);
     };
     for (const dir of workspaceDirs) {
+      // clean.ts finds the workspaces from their manifests, as the build does.
+      cpSync(join(ROOT, "packages", dir, "package.json"), join(root, "packages", dir, "package.json"));
       const dist = join(root, "packages", dir, "dist", "nested");
       mkdirSync(dist, { recursive: true });
       writeFileSync(join(dist, "built.js"), "Stale build\n");
