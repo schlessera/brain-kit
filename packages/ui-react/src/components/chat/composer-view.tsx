@@ -1,4 +1,4 @@
-import { Overlay, Button, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
+import { Overlay, Button, IconButton, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState } from "@schlessera/brain-ui-kit";
 import { TrackChip } from "./track-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
 import { X } from "lucide-react";
@@ -165,15 +165,8 @@ export function ComposerView(p: ComposerViewProps) {
           {p.attachments.map((a, i) => (
             <div key={i} className="relative h-16 w-16 shrink-0">
               <img src={a.previewUrl} alt={a.name} className="h-16 w-16 rounded-lg border border-border object-cover" />
-              <button
-                type="button"
-                onClick={() => p.onRemoveAttachment(i)}
-                title="Remove"
-                aria-label={`Remove ${a.name}`}
-                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground shadow transition-colors hover:text-destructive"
-              >
-                <X className="h-3 w-3" />
-              </button>
+              <IconButton size="sm" tone="overlay" name={`Remove ${a.name}`} glyph={<X />}
+                style={{ position: "absolute", top: -8, right: -8 }} onClick={() => p.onRemoveAttachment(i)} />
             </div>
           ))}
         </div>

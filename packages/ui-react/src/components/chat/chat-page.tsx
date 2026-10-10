@@ -2,7 +2,7 @@ import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { ChevronUp } from "lucide-react";
+import { Button } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
@@ -38,7 +38,7 @@ import type { ChatMessage } from "../../stores/chat-state.js";
 import { useChatCommands } from "./use-chat-commands.js";
 import { useConnectionStore } from "../../stores/connection-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
-import { Button, Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
+import { Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
 import { UnconfirmedSends } from "./unconfirmed-sends.js";
@@ -677,18 +677,18 @@ export function ChatPage() {
                 >
                   {hiddenCount > 0 && (
                     <div className="flex justify-center py-3">
-                      <button
-                        type="button"
-                        onClick={showEarlier}
-                        className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <ChevronUp className="h-3.5 w-3.5" />
-                        Show {Math.min(hiddenCount, WINDOW_STEP)} earlier message
-                        {Math.min(hiddenCount, WINDOW_STEP) === 1 ? "" : "s"}
-                        <span className="text-muted-foreground/50">
-                          ({hiddenCount} hidden)
-                        </span>
-                      </button>
+                      <Button
+                        tone="ghost"
+                        size="sm"
+                        icon="expand"
+                        block={false}
+                        style={{ minHeight: 44 }}
+                        label={
+                          `Show ${Math.min(hiddenCount, WINDOW_STEP)} earlier message${
+                            Math.min(hiddenCount, WINDOW_STEP) === 1 ? "" : "s"
+                          } · ${hiddenCount} hidden`
+                        }
+                        onClick={showEarlier} />
                     </div>
                   )}
                   {visibleMessages.map((msg, index) => (

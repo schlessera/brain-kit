@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon, Label } from "@schlessera/brain-ui-kit";
+import { Label, TextButton } from "@schlessera/brain-ui-kit";
 import { parseHandoffText } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore } from "../../stores/chat-store.js";
 import { useHandoffStore } from "../../stores/handoff-store.js";
@@ -21,9 +21,6 @@ export function useBackendName(): (backendId: string | undefined) => string {
       ?? backendId;
   };
 }
-
-const LINK =
-  "inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-[13px] font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
 
 /**
  * A handoff destination's first user message (#61), drawn as a card rather
@@ -56,14 +53,9 @@ export function HandoffCard({ content }: { content: string }) {
           </div>
         </div>
         {source ? (
-          <button
-            type="button"
-            className={`${LINK} -mr-2 -mt-2 shrink-0`}
-            aria-label={`Open source chat: ${title}`}
-            onClick={() => openSession(source.sessionId)}
-          >
-            Open <Icon icon="next" size={14} />
-          </button>
+          <TextButton tone="link" label="Open" iconEnd="next"
+            style={{ marginRight: -8, marginTop: -8, flexShrink: 0 }}
+            ariaLabel={`Open source chat: ${title}`} onClick={() => openSession(source.sessionId)} />
         ) : null}
       </div>
 
@@ -73,9 +65,8 @@ export function HandoffCard({ content }: { content: string }) {
         {linkifyPaths(summary)}
       </div>
       {long ? (
-        <button type="button" className={`${LINK} -ml-2`} aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "Show less" : "Show all"}
-        </button>
+        <TextButton tone="link" label={expanded ? "Show less" : "Show all"}
+          style={{ marginLeft: -8 }} expanded={expanded} onClick={() => setExpanded((v) => !v)} />
       ) : null}
 
       {references.length > 0 ? (
@@ -105,15 +96,10 @@ export function HandoffMarker({ sessionId, backendId, title }: { sessionId: stri
   return (
     <div role="note" data-handoff-marker="" className="my-2 flex items-center gap-3 text-xs text-muted-foreground">
       <span aria-hidden className="h-px flex-1 bg-border" />
-      <button
-        type="button"
-        className={LINK}
-        aria-label={`Continued in a new chat on ${where}: open`}
-        title={title ?? undefined}
-        onClick={() => openSession(sessionId)}
-      >
-        Continued in a new chat on {where} <Icon icon="next" size={14} />
-      </button>
+      <span title={title ?? undefined}>
+        <TextButton tone="link" label={`Continued in a new chat on ${where}`} iconEnd="next"
+          ariaLabel={`Continued in a new chat on ${where}: open`} onClick={() => openSession(sessionId)} />
+      </span>
       <span aria-hidden className="h-px flex-1 bg-border" />
     </div>
   );

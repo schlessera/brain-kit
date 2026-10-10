@@ -8,6 +8,7 @@ import { IconButton } from "../../src/primitives/IconButton.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
 import { CONTROL_RING, ring } from "../../stories/_stage.js";
 import "../../src/styles.css";
+import { settingsButtonCases } from "../../../ui-react/tests/browser/settings-buttons.cases.js";
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
@@ -29,6 +30,9 @@ function premise() {
   expect(matchMedia("(any-pointer: fine)").matches, "native fine pointer premise").toBe(mode !== "coarse");
   return mode;
 }
+
+// Exercise the actual Settings and Share consumers under each native pointer.
+settingsButtonCases(premise);
 
 async function mount(kind: "icon" | "text", theme: "dark" | "light", props: Record<string, unknown> = {}) {
   premise();

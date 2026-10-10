@@ -82,7 +82,7 @@ async function mount(ctx: TestContext, width = 390) {
 async function trap(dialog: HTMLElement) {
   expect(dialog.contains(document.activeElement), "focus enters migrated overlay").toBe(true);
   const stops = [...dialog.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex="0"]')]
-    .filter(el => el.tabIndex >= 0 && !el.matches(":disabled") && el.getClientRects().length > 0);
+    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled, [aria-disabled="true"]') && el.getClientRects().length > 0);
   expect(stops.length, "real nonempty focus stops").toBeGreaterThan(1);
   stops.at(-1)!.focus();
   await userEvent.keyboard("{Tab}");
@@ -169,8 +169,8 @@ test("Settings mint: credential stays above the drawer, requires acknowledgement
   expect(dialog.matches("dialog:modal"), "credential in top layer").toBe(true);
   expect(document.activeElement?.textContent, "credential initially focuses Copy").toBe("Copy credential");
   await trap(dialog);
-  const done = [...dialog.querySelectorAll("button")].find(el => el.textContent === "Done")!;
-  expect(done.disabled, "Done requires saved acknowledgement").toBe(true);
+  const done = page.getByRole("button", { name: "Done", exact: true }).element() as HTMLElement;
+  expect(done.getAttribute("aria-disabled"), "Done requires saved acknowledgement").toBe("true");
   await userEvent.keyboard("{Escape}"); await frame();
   expect(dialog.isConnected && dialog.matches(":modal"), "locked Escape keeps credential open").toBe(true);
   await userEvent.click(dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
@@ -193,7 +193,7 @@ test("credential arriving over More wins the top layer; Cmd-K cannot cover it", 
   await s.ui.stores.principal.getState().mintAgent("Eumaeus", 7); await frame();
   const dialog = s.overlay('[role="alertdialog"]');
   await trap(dialog);
-  const copy = dialog.querySelector("button")!;
+  const copy = page.getByRole("button", { name: "Copy credential", exact: true }).element();
   const box = copy.getBoundingClientRect();
   expect(copy.contains(document.elementFromPoint(box.x + 5, box.y + 5)), "credential paints over sheet").toBe(true);
   await userEvent.keyboard("{Meta>}k{/Meta}"); await frame();
@@ -201,7 +201,7 @@ test("credential arriving over More wins the top layer; Cmd-K cannot cover it", 
   await userEvent.keyboard("{Escape}"); await frame();
   expect(dialog.matches(":modal"), "credential ignores Escape").toBe(true);
   await userEvent.click(dialog.querySelector("input")!);
-  await userEvent.click([...dialog.querySelectorAll("button")].find(el => el.textContent === "Done")!); await frame();
+  await userEvent.click(page.getByRole("button", { name: "Done", exact: true })); await frame();
   expect(more.matches(":modal"), "sheet stays open after credential").toBe(true);
   expect(more.contains(document.activeElement), "focus returns to sheet").toBe(true);
 });
@@ -356,7 +356,7 @@ test("credential focus fallback finds Settings outside its own parent", async ct
   expect(dialog.parentElement!.querySelector('[aria-label="Settings"]'), "Settings is outside the credential parent").toBeNull();
   opener.disabled = true;
   await userEvent.click(dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
-  await userEvent.click([...dialog.querySelectorAll("button")].find(el => el.textContent === "Done")!);
+  await userEvent.click(page.getByRole("button", { name: "Done", exact: true }));
   await frame();
   const selected = host.querySelector<HTMLElement>('[aria-label="Settings"] [role="tab"][aria-selected="true"]')!;
   expect(selected, "selected Settings tab exists").not.toBeNull();

@@ -158,7 +158,7 @@ describe("opening the review", () => {
     open(root);
     await flush();
     typeInto(textarea(), "x".repeat(4001));
-    expect((start() as HTMLButtonElement).disabled).toBe(true);
+    expect(start().getAttribute("aria-disabled")).toBe("true");
     expect(screen.q.getByText(/shorten the handoff/)).toBeTruthy();
   });
 });
@@ -203,7 +203,7 @@ describe("a configured profile that cannot run (#1044)", () => {
       ["Ithaca proxy · claude — needs credentials", true],
     ]);
     typeInto(textarea(), "Odysseus is sailing home.");
-    expect((start() as HTMLButtonElement).disabled).toBe(true);
+    expect(start().getAttribute("aria-disabled")).toBe("true");
     expect(screen.q.getByText(/Nothing is sent until you start it\. · needs credentials/)).toBeTruthy();
     fireEvent.click(start());
     expect(socket.frames().some((f) => f.type === "chat_message")).toBe(false);
