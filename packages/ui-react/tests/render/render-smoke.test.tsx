@@ -5501,6 +5501,25 @@ describe("chat views", () => {
     expect(onAction).not.toHaveBeenCalled();
     offline.unmount();
   });
+
+  // With no cost chip (#1391) the briefing's reason is the only thing that
+  // makes its chip wrap, so reconnecting changes its style on a rerender. The
+  // chip must not drop a rowGap beside a gap shorthand: React reports that
+  // as a console error, and the capture suite fails on browser faults.
+  test("the briefing chip reconnects without a conflicting-style error", () => {
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => { errors.push(args.map(String).join(" ")); });
+    try {
+      const view = render(<WelcomeState onAction={() => {}} briefingWhy="needs the host" />);
+      expect(view.getAllByRole("button")[0]!.textContent).toContain("needs the host");
+      view.rerender(<WelcomeState onAction={() => {}} />);
+      expect(view.getAllByRole("button")[0]!.textContent).toBe("What's new?");
+      view.rerender(<WelcomeState onAction={() => {}} briefingWhy="a turn is running" />);
+      expect(view.getAllByRole("button")[0]!.textContent).toContain("a turn is running");
+      view.unmount();
+      expect(errors.filter((e) => /style property during rerender/.test(e))).toEqual([]);
+    } finally { spy.mockRestore(); }
+  });
 });
 
 test("the composer picker displays Haiku 5.5 and sends its canonical selection", async () => {
