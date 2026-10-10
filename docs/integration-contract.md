@@ -22,12 +22,12 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 
 ## Authoritative surfaces
 
-- [package api](integration-contract/package-api.md).
-- [cli](integration-contract/cli.md).
-- [frontmatter](integration-contract/frontmatter.md).
-- [mcp](integration-contract/mcp.md).
-- [http](integration-contract/http.md).
-- [wire](integration-contract/wire.md).
+- [Package API and extensions](integration-contract/package-api.md).
+- [CLI](integration-contract/cli.md).
+- [Frontmatter, files and index reads](integration-contract/frontmatter.md).
+- [MCP tools](integration-contract/mcp.md).
+- [HTTP routes](integration-contract/http.md).
+- [Wire protocol](integration-contract/wire.md).
 
 ## Original section map
 

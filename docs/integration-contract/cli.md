@@ -1,4 +1,4 @@
-# Integration contract — cli
+# Integration contract — CLI
 
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.

@@ -1,4 +1,4 @@
-# Design kit — sessions and drafts
+# Design kit — Sessions and drafts
 
 Part of the [design-kit decision record](../design-kit.md). Entries retain their
 original dates and order within this subject; the index maps the complete chronology

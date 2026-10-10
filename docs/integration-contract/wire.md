@@ -1,4 +1,4 @@
-# Integration contract — wire
+# Integration contract — Wire protocol
 
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
