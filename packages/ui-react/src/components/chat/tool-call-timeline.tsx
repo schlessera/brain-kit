@@ -1,5 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useEffect, useRef } from "react";
+import { TextButton } from "@schlessera/brain-ui-kit";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import {
   Check,
   X,
@@ -82,14 +83,7 @@ export function ToolCallTimeline({
   return (
     <div>
       {!live && !hasPending && (
-        <button
-          type="button"
-          onClick={() => setCollapsed(true)}
-          className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground"
-        >
-          <ChevronDown className="h-3 w-3" />
-          Hide steps
-        </button>
+        <TextButton tone="meta" label="Hide steps" glyph={<ChevronDown />} onClick={() => setCollapsed(true)} style={{ marginBottom: 4 }} />
       )}
       <div className="relative ml-1 border-l-2 border-border/40 pl-4 space-y-1.5">
         {toolCalls.map((tool) => (
@@ -130,10 +124,7 @@ export function ToolCallTimelineCell({
     }}>
       {first && effectiveCollapsed && <TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} />}
       {first && !effectiveCollapsed && !live && !hasPending && (
-        <button type="button" onClick={onCollapse} className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground/50 transition-colors hover:text-muted-foreground">
-          <ChevronDown className="h-3 w-3" />
-          Hide steps
-        </button>
+        <TextButton tone="meta" label="Hide steps" glyph={<ChevronDown />} onClick={onCollapse} style={{ marginBottom: 4 }} />
       )}
       <div hidden={effectiveCollapsed} className="relative ml-1 border-l-2 border-border/40 pl-4" style={{ paddingTop: first ? undefined : 6 }}>
         <ToolCallEntry toolCall={toolCalls[toolIndex]!} backendId={backendId} onApproval={onApproval} />
@@ -178,9 +169,11 @@ function TimelineSummaryRow({
 
   return (
     <button
+      // raw-button: row — two-tone timeline summary with failure count and duration
+      style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
       type="button"
       onClick={onExpand}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+      className="bk-row flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
     >
       <Layers className="h-3.5 w-3.5 shrink-0" />
       <span className="font-[family-name:var(--font-mono)]">
@@ -308,9 +301,11 @@ function ToolCallEntryView({
 
       {/* Header row */}
       <button
+        // raw-button: row — tool header with icon, mono label and summary
+        style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+          "bk-row flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
           toolCall.isError
             ? "text-destructive/80 hover:text-destructive"
             : "text-muted-foreground hover:text-foreground"
@@ -391,11 +386,9 @@ function ToolCallEntryView({
               {/* Tool output */}
               {toolCall.output && Output && (
                 <div className="relative">
-                  <CopyButton
-                    label="Copy output"
-                    getText={() => toolCall.output!}
-                    className="absolute right-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-                  />
+                  <span className="absolute right-1 top-1 z-10 flex">
+                    <CopyButton label="Copy output" getText={() => toolCall.output!} size="sm" tone="overlay" />
+                  </span>
                   <EnclosingCopyControl>
                     <Output tool={toolCall} />
                   </EnclosingCopyControl>
@@ -430,9 +423,11 @@ function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
 
   return (
     <button
+      // raw-button: row — subagent entry with status dot, description and mono metadata
+      style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
       type="button"
       onClick={() => pushSubagentView(agentToolUseId)}
-      className="ml-6 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
+      className="bk-row ml-6 flex w-[calc(100%-1.5rem)] items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
     >
       <SpanStatusDot span={span} />
       <span className="truncate">{description}</span>

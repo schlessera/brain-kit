@@ -6,6 +6,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { CSSProperties } from "react";
 import { motion } from "framer-motion";
 
 interface Command {
@@ -48,9 +49,11 @@ export function CommandPalette({
     >
       {filtered.map((cmd) => (
         <button
+          // raw-button: row — composite slash command with icon, mono name and description
           key={cmd.name}
           onClick={() => onSelect(cmd.name)}
-          className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-raised"
+          style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties}
+          className="bk-row flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors"
         >
           <cmd.icon className="h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0">

@@ -20,7 +20,6 @@ export function FileViewerRaw({ content, fileName }: { content: string; fileName
           label="Copy file content"
           showLabel
           getText={() => content}
-          className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
         />
       </div>
       <pre

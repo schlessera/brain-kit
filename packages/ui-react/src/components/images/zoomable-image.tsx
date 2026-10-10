@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconButton } from "@schlessera/brain-ui-kit";
 import { Expand } from "lucide-react";
 import { imageFilenameFromSrc } from "../../lib/image-source.js";
 import { ImageViewer } from "./image-viewer.js";
@@ -69,14 +70,9 @@ export function ZoomableImage({
         className={className}
       />
       {toolbar && (
-        <button
-          type="button"
-          title="Open image"
-          onClick={() => setZoomed(true)}
-          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-surface-raised/80 text-muted-foreground opacity-0 transition-all hover:bg-surface-overlay hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-        >
-          <Expand className="h-3.5 w-3.5" />
-        </button>
+        <span className="absolute right-2 top-2 flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <IconButton size="sm" tone="overlay" name="Open image" glyph={<Expand />} onClick={() => setZoomed(true)} />
+        </span>
       )}
       {zoomed && (
         <ImageViewer
