@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { TriangleAlert } from "lucide-react";
 import { EmptyState, ScreenHeader } from "@schlessera/brain-ui-kit";
 
-import { useGraphStore, type DiscoveryColorBy, type GraphMode } from "../../stores/graph-store.js";
+import { graphServerUnavailable, useGraphStore, type DiscoveryColorBy, type GraphMode } from "../../stores/graph-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { FilePanel } from "../files/file-panel.js";
@@ -38,6 +38,7 @@ export function GraphPage() {
   const subgraph = useGraphStore((s) => s.subgraph);
   const dataState = useGraphStore((s) => s.dataState);
   const stale = useGraphStore((s) => s.meta?.stale ?? false);
+  const unavailable = useGraphStore(graphServerUnavailable);
 
   const filePanelOpen = useUIStore((s) => s.filePanelOpen);
   const setFilePanelOpen = useUIStore((s) => s.setFilePanelOpen);
@@ -110,7 +111,7 @@ export function GraphPage() {
       )}
 
       {/* Stale strip */}
-      {stale && metaState === "done" && (
+      {stale && metaState === "done" && !unavailable && (
         <div className="flex items-center gap-2 border-b border-border bg-surface-raised/50 px-4 py-1.5 text-[11px] text-muted-foreground">
           <TriangleAlert className="h-3 w-3 shrink-0 text-primary" />
           Graph predates the latest index run — run <Mono>brain sync</Mono> to
@@ -120,15 +121,15 @@ export function GraphPage() {
 
       {/* Body: D6's panes from laptop, the canvas alone below */}
       <div className="flex min-h-0 flex-1">
-        {laptop && <GraphControlsColumn />}
+        {laptop && <GraphControlsColumn unavailable={unavailable} />}
         <div className="flex min-w-0 flex-1 flex-col">
           {laptop && <SceneHeader />}
           <div className="relative flex-1 overflow-hidden bg-background">
             <GraphBody modeState={{ mode, metaState, dataState }} />
           </div>
-          {laptop && <CanvasCaption />}
+          {laptop && !unavailable && <CanvasCaption />}
         </div>
-        {wide && <GraphNodeRail />}
+        {wide && !unavailable && <GraphNodeRail />}
       </div>
     </div>
   );
@@ -267,6 +268,21 @@ function GraphBody({
       <GraphEmptyState icon="server" title="Server too old">
         This deployment does not serve the graph API yet — update brain-ui to a
         version with graph support.
+      </GraphEmptyState>
+    );
+  }
+
+  if (error?.kind === "unavailable" && error.reason === "core_unavailable") {
+    return (
+      <GraphEmptyState icon="server" title="Graph unavailable on this server">
+        <p>
+          This server can't read the graph: the <Mono nowrap>@schlessera/brain</Mono>{" "}
+          package it needs is missing or a version it doesn't support. Your notes are not affected.
+        </p>
+        <p className="mt-3">
+          If you run this server, install <Mono nowrap>@schlessera/brain</Mono> at the same version as{" "}
+          <Mono nowrap>@schlessera/brain-ui-server</Mono>, then restart it.
+        </p>
       </GraphEmptyState>
     );
   }

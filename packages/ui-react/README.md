@@ -610,3 +610,16 @@ command effects are preserved. Remembered grants remain eligibility-gated;
 restored closed requests remain read-only. Decisions use the current shared
 request state, so a duplicate view cannot send another reply, and keyboard
 focus moves to a different pending request or the composer.
+
+## Knowledge graph availability
+
+When the server cannot load its optional core peer, every graph mode shows
+“Graph unavailable on this server” with the host installation guidance. Mode
+navigation stays enabled; scene forms and selected-node details stay hidden,
+as they do when the server predates the graph API. A failed metadata capability
+check starts no scene request. After repairing and restarting the server,
+leave the graph view and return to refresh its metadata.
+
+This capability failure is distinct from an old or uncomputed index. See
+[the server installation guidance](../ui-server/README.md#installing-core-for-the-graph-and-voice-vocabulary)
+for the required core package.

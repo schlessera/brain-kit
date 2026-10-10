@@ -16,7 +16,7 @@ export const MODES: { value: GraphMode; label: string }[] = [
  * store already has. The footer is silent until a scene has landed; it
  * never estimates.
  */
-export function GraphControlsColumn() {
+export function GraphControlsColumn({ unavailable = false }: { unavailable?: boolean }) {
   const mode = useGraphStore((s) => s.mode);
   const setMode = useGraphStore((s) => s.setMode);
 
@@ -36,20 +36,20 @@ export function GraphControlsColumn() {
             onChange={(v) => setMode(v as GraphMode)}
           />
         </Field>
-        <ControlsBody />
+        {!unavailable && <ControlsBody />}
         {/* D6's switches, drawn but disabled with their reasons (sixth pass
             §3b, the palette's rule). A scene node carries no `mtime` and no
             provenance record — `GraphNodePayload` has type, degrees,
             community, distance — so neither switch can fire here yet; the
             footer's gold line says the same thing. */}
-        {mode !== "maintenance" && (
+        {!unavailable && mode !== "maintenance" && (
           <Rows>
             <DisabledToggleRow label="Mark stale" reason="needs mtime" tone="amber" />
             <DisabledToggleRow label="Untrusted only" reason="needs provenance" tone="purple" last />
           </Rows>
         )}
       </div>
-      <ColumnFooter />
+      {!unavailable && <ColumnFooter />}
     </aside>
   );
 }
