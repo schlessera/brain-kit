@@ -1535,9 +1535,10 @@
    "findingIds": [
     "tag-noise-corpus-5c2f"
    ],
-   "correct": true,
-   "reason": "The detected distribution contains one valid singleton tag. General guidance to reconsider singleton vocabulary during manual edits addresses that finding without claiming a local migration resolves it.",
-   "distinctSuggestion": "s65919d7c4c88"
+   "correct": false,
+   "reason": "Adjudicated to the stricter verdict given to identical suggestion text on this case (consistency rule): notes/entry.md already contains voyage as a scalar, while _index.md contains [voyage]; validation explains why the former is not counted. Advising broader tags or deletion without reviewing that malformed field misdiagnoses the apparent singleton and omits the corpus-usage review required by the rubric.",
+   "distinctSuggestion": "s65919d7c4c88",
+   "adjudicated": true
   },
   {
    "fixture": "penelope-scalar-tags",
@@ -1547,9 +1548,10 @@
    "findingIds": [
     "tag-noise-corpus-5c2f"
    ],
-   "correct": true,
-   "reason": "The detected distribution contains one valid singleton tag. General guidance to reconsider singleton vocabulary during manual edits addresses that finding without claiming a local migration resolves it.",
-   "distinctSuggestion": "s65919d7c4c88"
+   "correct": false,
+   "reason": "Adjudicated to the stricter verdict given to identical suggestion text on this case (consistency rule): notes/entry.md already contains voyage as a scalar, while _index.md contains [voyage]; validation explains why the former is not counted. Advising broader tags or deletion without reviewing that malformed field misdiagnoses the apparent singleton and omits the corpus-usage review required by the rubric.",
+   "distinctSuggestion": "s65919d7c4c88",
+   "adjudicated": true
   },
   {
    "fixture": "penelope-scalar-tags",
@@ -2023,5 +2025,6 @@
    "reason": "The supplied child metadata is valid, so regeneration can be the first step in this case. Subsequent diff review and conditional metadata investigation do not conflict with the rubric.",
    "distinctSuggestion": "s81517d37f0d8"
   }
- ]
+ ],
+ "adjudication": "Where identical suggestion text (path, issue, suggestion, canAutoFix, fix) on the same case received conflicting verdicts across input-visibility groups, the stricter verdict is applied to every occurrence. Raw judge reports are in judge/."
 }

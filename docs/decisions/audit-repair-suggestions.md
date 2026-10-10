@@ -5,7 +5,7 @@ supports building `audit --fix` suggestions from the repair capabilities that
 actually exist. Today that is only the registry handler for `index-stale`.
 The current completion prompt is worse than sending no prompt at all. On
 held-out cases it gave correct guidance for 28 of 40 findings. The audit's own
-providerless text gave correct guidance for 36, and the capability-backed
+providerless text gave correct guidance for 34, and the capability-backed
 registry arm for 38. The prompt never identified a repairable finding. It costs
 money, takes about 2.7 s per call, and adds nothing the deterministic paths do
 not already give.
@@ -14,7 +14,8 @@ This record changes no production behaviour. [#1408](https://github.com/schlesse
 owns the product change to `audit --fix`.
 
 Measured on 2026-10-10, the UTC detection day, on main
-`7e398dc207f2c4725f6c364331c3cd5d3112954d` plus this branch's `measure.ts`.
+`7e398dc207f2c4725f6c364331c3cd5d3112954d` plus this branch's `measure.ts` and
+its pointer edit to `docs/audit-capability-investigation.md`.
 The freeze is `a19c26bd155c89d73a973af17c1e1d3f013535f89c33332905f2c0e5145c6661`
 and is recorded in `results/2026-10-10/freeze.json`.
 
@@ -39,7 +40,10 @@ under test, against the category rubric in
 `scripts/evals/audit-capabilities/protocol.ts`, with the complete fixture
 sources in front of it. Each of the 112 distinct suggestions (per case and per
 input visibility) got one verdict, broadcast to every identical occurrence, so
-repeated outputs cannot disagree.
+repeated outputs cannot disagree. Where identical suggestion text on the same
+case still got conflicting verdicts across visibility groups, the stricter
+verdict applies everywhere. That happened once (`penelope-scalar-tags`, the
+providerless and capability arms), and `annotations.json` marks it.
 
 The judge was told what each suggester could see. A suggester that truthfully
 says it cannot see a file is not penalized for that, only for wrong guidance.
@@ -65,11 +69,13 @@ time after fixture preparation and detection.
 | arm | correct guidance | repairable claimed | false auto-fix | writes | cost | arm p50 / p95 |
 | --- | --- | --- | --- | --- | --- | --- |
 | current prompt | 28 / 40 (70%) | 0 / 12 | 0 | 0 | $0.139 | 2,733 / 4,592 ms |
-| providerless | 36 / 40 (90%) | 0 / 12 | 0 | 0 | $0 | 3 / 9 ms |
+| providerless | 34 / 40 (85%) | 0 / 12 | 0 | 0 | $0 | 3 / 9 ms |
 | capability-backed | **38 / 40 (95%)** | **12 / 12** | **0** | 10 | $0 | 12 / 24 ms |
 
-The tuning split (6 cases × 2 repetitions, 16 findings) gives 15, 14 and 16 of
-16. Every capability-backed preview and authorized write matched its authored
+On the tuning split (6 cases × 2 repetitions, 16 findings), per-finding correct
+guidance is 11, 14 and 16 of 16. The current prompt's `unclosed-metadata`
+answers cover both findings with each of two suggestions, and duplicate
+coverage does not count. Every capability-backed preview and authorized write matched its authored
 full-file effect. The one held-out case without write authorization,
 `nestor-preview-only`, was correctly left unwritten in both repetitions.
 
@@ -86,15 +92,13 @@ would follow wrongly:
 
 The model never sees the files, so it cannot know any of this.
 
-On held-out cases, the providerless text misses the same invalid-metadata
-prerequisite on two cases, `antinous-unknown-type` and `elpenor-inherited-name`.
-On tuning, it also points at the wrong frontmatter for an unclosed quote. The
-capability arm's two held-out misses are one suggestion, repeated:
-`penelope-scalar-tags` gets the generic tag-noise advice, but the apparent
-singleton comes from a malformed scalar `tags:` value. The providerless arm
-gives the same advice text and was judged correct. The judge held the arm that
-could see the files, and so the malformed value, to the stricter reading.
-Counted either way, the order of the arms is unchanged.
+On held-out cases, both deterministic arms give the same generic tag-noise
+advice on `penelope-scalar-tags`. The apparent singleton there comes from a
+malformed scalar `tags:` value that the advice does not mention. The
+providerless text also misses the invalid-metadata prerequisite on
+`antinous-unknown-type` and `elpenor-inherited-name`. On tuning, it points at
+the wrong frontmatter for an unclosed quote. Those two `penelope-scalar-tags`
+findings are the capability arm's only misses.
 
 Spend: 52 paid calls, $0.185 at list price
 (`results/2026-10-10/billing.json`). There was no unknown-usage attempt and no
@@ -122,11 +126,12 @@ the arms in the same order.
 ## Limits
 
 - Twenty-six authored cases. The decision rests on a large gap (70% against
-  90–95%) and on the prompt never recognizing a repairable finding, not on
+  85–95%) and on the prompt never recognizing a repairable finding, not on
   precise rates.
 - One judge model, with the rules stated above. Those rules were tightened
-  once after a first pass double-counted the repair flags; the inputs and raw
-  reports of the final pass are kept.
+  once after a first pass double-counted the repair flags, and one conflict
+  was resolved by the consistency rule. The inputs and raw reports of the final
+  pass are kept.
 - The run used `measure.ts`. It reuses `live.ts`'s arms, provider wrapper,
   spend guard and per-call freeze re-check. It skips the native review and
   paid-policy admission that `live.ts main()` requires, and enforces a
