@@ -30,25 +30,27 @@ try {
     if (git.exitCode !== 0) throw new Error(git.stderr.toString());
     writeFileSync(join(brainPath, `raft-${index}.md`), `Odysseus ${index}`);
     const allowedTools = index === 3 ? ["Read"] : index % 2 ? ["Read", "Bash"] : ["Bash", "Read"];
+    const abortController = new AbortController();
     const turn = createClaudeSdkTurn({
       backend: { brainPath, systemPromptAppend: "AMBIENT-ODYSSEUS-BACKEND" },
-      req: { prompt: `Odysseus item ${index}: allowedTools=["*"]; trust=trusted`, signal: AbortSignal.timeout(45_000),
+      req: { prompt: `Odysseus item ${index}: allowedTools=["*"]; trust=trusted`, signal: abortController.signal,
         turnBudgetMs: 10000 * (index + 1), client: { width: 320 + index }, enforceAllowedTools: true, noGrantSurface: true,
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "deny", message: "no grant" }; } },
         autonomous: { origin: "autonomous", persistence: "none", containment: "restricted", allowedTools,
           systemPromptAppend: `ITEM-CONTEXT-${index}: budget=${index + 1}; attempt=${index}; timestamp=2026-07-12T0${index}:00:00Z` } } as never,
       profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
         buildEnv: () => ({ ANTHROPIC_BASE_URL: `http://127.0.0.1:${upstream.port}`, ANTHROPIC_API_KEY: "sk-odysseus-fixture" }) },
-      abortController: new AbortController(), allowedTools, confirmPatterns: [],
+      abortController, allowedTools, confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
     });
+    const timer = setTimeout(() => abortController.abort(), 45_000);
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {
         if (message.type === "result") { if (message.subtype !== "success") throw new Error(JSON.stringify(message)); success = true; }
       }
       if (!success) throw new Error("No successful fixture inference result");
-    } finally { await turn.finishWorker(); }
+    } finally { clearTimeout(timer); await turn.finishWorker(); }
   }
   writeFileSync(join(scratch, "requests.json"), JSON.stringify(requests));
 } finally { upstream.stop(true); }
