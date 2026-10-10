@@ -66,7 +66,7 @@ async function cleanup() {
 }
 afterEach(cleanup);
 
-async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "precompiled" | "theme" = "precompiled") {
+async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "precompiled" | "theme" = "precompiled", captureEntrance = false) {
   previousOverflow = document.body.style.overflow;
   outerBefore = await commands.formViewport(width, height);
   await page.viewport(width, height);
@@ -96,11 +96,29 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
   await userEvent.click(frame.querySelector("textarea")!);
   await userEvent.keyboard("Keep the existing draft");
   const mic = () => frame.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]')!;
-  await userEvent.click(mic());
-  await expect.poll(() => clients.length).toBe(1);
+  // Observe the opening commit before yielding to the native click command.
+  // A later getAnimations() lookup can miss the shipped 200ms entrance (#1521).
+  // Flush styles on the actual surface and pause its own CSSAnimation in this
+  // microtask; never replace it or change the animation's stylesheet/timing.
+  let entrance: CSSAnimation | undefined;
+  const opening = captureEntrance ? new MutationObserver(() => {
+    const sheet = host!.querySelector<HTMLElement>(".bk-overlay-surface");
+    if (!sheet) return;
+    const name = getComputedStyle(sheet).animationName;
+    entrance = sheet.getAnimations().find(animation => animation instanceof CSSAnimation && animation.animationName === name) as CSSAnimation | undefined;
+    entrance?.pause();
+    opening!.disconnect();
+  }) : undefined;
+  opening?.observe(host, { childList: true, subtree: true, attributes: true });
+  try {
+    await userEvent.click(mic());
+    await expect.poll(() => clients.length).toBe(1);
+  } finally {
+    opening?.disconnect();
+  }
   expect(ui.stores.voice.getState().connecting).toBe(true);
   const client = clients[0];
-  return { frame, mic, client, send, request,
+  return { frame, mic, client, send, request, entrance,
     async listen(text = "Remember the harbour") {
       client.open();
       await expect.poll(() => ui!.stores.voice.getState().connecting).toBe(false);
@@ -255,17 +273,18 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
   for (const preference of ["no-preference", "reduce"] as const) for (const action of ["Done", "Cancel"] as const) {
     test(`dictation motion ${cssEntry} ${theme} ${preference} ${action}: phone entrance and controls`, async () => {
       await commands.dictationMotion(preference);
-      const { client, listen } = await mount(320, 800, theme, cssEntry);
+      const { client, listen, entrance } = await mount(320, 800, theme, cssEntry, true);
       const sheet = panel();
       const css = getComputedStyle(sheet);
       expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(preference === "reduce");
       if (preference === "no-preference") {
         expect(css.animationName, "real phone entrance animation").not.toBe("none");
         expect(css.animationDuration, "existing 200ms entrance").toBe("0.2s");
-        const entrance = sheet.getAnimations().find(animation => animation instanceof CSSAnimation && animation.animationName === css.animationName);
         expect(entrance, "browser created the sheet's own animation").toBeDefined();
-        entrance!.pause();
+        expect(entrance!.animationName).toBe(css.animationName);
+        expect((entrance!.effect as KeyframeEffect).target, "captured animation belongs to the sheet").toBe(sheet);
         await entrance!.ready;
+        expect(entrance!.playState, "entrance was paused at the opening commit").toBe("paused");
         await seekEntrance(entrance!, 0);
         expect(dialog().scrollTop, "focus must not scroll the modal viewport during entrance").toBe(0);
         const start = sheet.getBoundingClientRect();
@@ -281,6 +300,7 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
         entrance!.finish();
       } else {
         expect(css.animationName, "reduced motion has no sheet entrance").toBe("none");
+        expect(entrance, "reduced motion captures no entrance").toBeUndefined();
         expect(sheet.getAnimations(), "no sheet animation is created").toHaveLength(0);
         expect(css.transform).toBe("none");
         expect(sheet.getBoundingClientRect().bottom).toBeCloseTo(800, 1);
@@ -339,21 +359,38 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
   });
 }
 
+// Advance the real document timeline beyond the entrance duration. This is a
+// latency regression control, not a wait added to make the motion cases pass.
+test("dictation entrance capture survives async fixture latency beyond 200ms", async () => {
+  await commands.dictationMotion("no-preference");
+  const { entrance } = await mount(320, 800, "light", "precompiled", true);
+  expect(entrance, "browser created the sheet's own animation").toBeDefined();
+  await entrance!.ready;
+  const capturedTime = entrance!.currentTime;
+  const started = Number(document.timeline.currentTime);
+  await expect.poll(() => Number(document.timeline.currentTime) - started).toBeGreaterThan(200);
+  expect(entrance!.playState, "opening capture stays paused past the native 200ms duration").toBe("paused");
+  expect(entrance!.currentTime, "async fixture latency cannot consume the captured entrance").toBe(capturedTime);
+  expect(panel().getAnimations()).toContain(entrance);
+  await seekEntrance(entrance!, 0);
+  const rect = panel().getBoundingClientRect();
+  expect(rect.bottom, "captured native entrance still starts a full sheet below rest").toBeCloseTo(800 + rect.height, 1);
+  entrance!.finish();
+});
+
 test("dictation cap waits for translated entrance before exact rendered measurement", async () => {
   await commands.dictationMotion("no-preference");
-  const { listen } = await mount(320, 800);
+  const { listen, entrance: animation } = await mount(320, 800, "dark", "precompiled", true);
   const sheet = panel();
-  const animation = sheet.getAnimations()[0];
   expect(animation).toBeDefined();
-  animation.pause();
-  await animation.ready;
+  await animation!.ready;
   await listen("Odysseus remembers the harbour. ".repeat(200));
   expect(transcript().scrollHeight).toBeGreaterThan(transcript().clientHeight);
   // Replay the translating frame measured in #973's pinned Chromium diagnosis.
-  await seekEntrance(animation, 99.98599999342117);
+  await seekEntrance(animation!, 99.98599999342117);
   expect(getComputedStyle(sheet).height).toBe("480px");
   expect(new DOMMatrix(getComputedStyle(sheet).transform).isIdentity).toBe(false);
-  animation.play();
+  animation!.play();
   await expectSettledHeightCap(480);
 });
 
