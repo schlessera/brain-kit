@@ -17,6 +17,8 @@
  * Phases, in order:
  * 1. Workspace pins match the packed manifests (`check-publish-pins.ts`).
  *    Before the consumer, whose `file:` overrides would mask a wrong pin.
+ *    The built workspace's `bin` targets are executable (`bin-modes.ts`):
+ *    the consumer's install sets tarball modes itself and would mask them.
  * 2. Pack each package and assert its tarball entries.
  * 3. Install every tarball into one consumer. Under Bun and under Node, one
  *    process imports every package and runs the probes together; then one
@@ -28,6 +30,7 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { binModeProblems } from "./bin-modes";
 import { listPublishablePackages, type PublishablePackage } from "./publishable-packages";
 
 /** The named probes in scripts/ci-pack-probe.mjs, run inside the consumer. */
@@ -369,6 +372,10 @@ export async function ciPack(root: string, work: string): Promise<void> {
   // dep to a local tarball and would mask a wrong pin. No registry access.
   await phase("Workspace pins match the packed manifests", async () => {
     await run("check-publish-pins", [bun, join(root, "scripts/check-publish-pins.ts")], root);
+  });
+
+  await phase("Built bin targets are executable in the workspace", async () => {
+    fail("Built bin targets that node_modules/.bin cannot run", binModeProblems(root));
   });
 
   await phase("Pack every publishable package and check its entries", async () => {

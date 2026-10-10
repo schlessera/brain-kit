@@ -1,5 +1,6 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
+import { markBinsExecutable } from "./bin-modes.ts";
 import { listPublishablePackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -37,8 +38,7 @@ if (!bunx) {
   process.exit(1);
 }
 
-const packages = listPublishablePackages(root).map((pkg) => pkg.dir);
-for (const packageName of packages) {
+for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
   rmSync(distDir, { recursive: true, force: true });
@@ -98,5 +98,13 @@ for (const packageName of packages) {
       recursive: true,
       preserveTimestamps: true,
     });
+  }
+
+  // tsc writes the bin targets 0644; node_modules/.bin links straight to them.
+  try {
+    markBinsExecutable(packageDir, manifest);
+  } catch (error) {
+    console.error(`Build failed: packages/${packageName} declares a bin the build did not produce: ${(error as Error).message}`);
+    process.exit(1);
   }
 }
