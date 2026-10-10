@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { launchAgentWorker, probeWorkerHost, workerBootstrap, workerCommand } from "../src/server/worker-launcher";
 import { createWorkerPipes } from "../src/server/worker-pipes";
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
 const PAYLOAD = "Odysseus: scratch writer is functional.\n";
+const ROOT = resolve(import.meta.dir, "../../..");
 
 function fixture() {
-  mkdirSync(join(process.cwd(), "tmp"), { recursive: true });
-  const root = mkdtempSync(join(process.cwd(), "tmp/worker-boundary-"));
+  mkdirSync(join(ROOT, "tmp"), { recursive: true });
+  const root = mkdtempSync(join(ROOT, "tmp/worker-boundary-"));
   const brain = join(root, "brain"), scratch = join(root, "scratch");
   const policies = join(brain, "context/policies"), policy = join(policies, "rule.md");
   mkdirSync(policies, { recursive: true }); mkdirSync(join(brain, "notes")); mkdirSync(scratch);
@@ -96,8 +97,8 @@ describe("real bubblewrap worker launcher", () => {
       expect(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {} })).not.toContain("--overlay");
       const versions = Object.fromEntries(["@anthropic-ai/claude-agent-sdk", "@earendil-works/pi-coding-agent",
         "@schlessera/brain-backend-claude", "@schlessera/brain-backend-pi"].map(name =>
-        [name, JSON.parse(readFileSync(join(process.cwd(), "node_modules", name, "package.json"), "utf8")).version]));
-      const native = Bun.spawnSync([join(process.cwd(), "node_modules", `@anthropic-ai/claude-agent-sdk-linux-${process.arch}`, "claude"), "--version"],
+        [name, JSON.parse(readFileSync(join(ROOT, "node_modules", name, "package.json"), "utf8")).version]));
+      const native = Bun.spawnSync([join(ROOT, "node_modules", `@anthropic-ai/claude-agent-sdk-linux-${process.arch}`, "claude"), "--version"],
         { env: {}, stdout: "pipe", stderr: "pipe" });
       expect(native.exitCode).toBe(0);
       versions["claude-code"] = native.stdout.toString().trim();
@@ -106,8 +107,8 @@ describe("real bubblewrap worker launcher", () => {
         brainFilesystem: statfsSync(f.brain).type.toString(16), scratchFilesystem: "1021994", versions,
         proof: "launcher escape/stdio/descriptor/scratch tests and actual configured-brain probe; adapters not moved into workers" };
       console.log("worker-host tuple", JSON.stringify(tuple));
-      mkdirSync(join(process.cwd(), "tmp"), { recursive: true });
-      writeFileSync(join(process.cwd(), "tmp/worker-host-probe.json"), JSON.stringify(tuple, null, 2) + "\n");
+      mkdirSync(join(ROOT, "tmp"), { recursive: true });
+      writeFileSync(join(ROOT, "tmp/worker-host-probe.json"), JSON.stringify(tuple, null, 2) + "\n");
     } finally { f.cleanup(); }
   });
 
