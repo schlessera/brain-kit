@@ -43,7 +43,7 @@ def completed_flat_snapshot(flat, replay):
     return {"originalExecutionDigest":"3d58bf7c3a491745da47f6a889f62c9cdad760137e261369cbad6a7a97324a9f","files":hashes,"physicalRequests":2,"actualLogicalFlatTurnCompleted":True,"actualParsedHandlerAccepted":True,"historicalStrictTransportGuardPassed":False,"historicalNaturalUpstreamEofKnown":False,"newFlatInferenceAllowed":False,"remainingForms":["shared","shared-trimmed"],"usageCountedOnce":True}
 
 def current(bun, replay=None, completed_flat=None):
-    tracked = subprocess.check_output(["rtk", "proxy", "git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
+    tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
     source = {name: sha((ROOT/name).read_bytes()) for name in sorted(set(tracked).union(OWNED)) if name and (ROOT/name).is_file() and not (ROOT/name).is_symlink()}
     corpus = files_at(ROOT/"packages/core/fixtures/corpus")
     old = json.loads((ROOT/"scripts/measurements/suggestions-2026-10-07/executed-manifest.json").read_text())
