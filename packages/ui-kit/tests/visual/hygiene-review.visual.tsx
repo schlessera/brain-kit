@@ -31,7 +31,12 @@ for (const theme of ["dark", "light"])
           "[data-hygiene-card], [data-hygiene-end], [data-hygiene-blocker]"
         )!;
         expect(content).toBeTruthy();
-        const card = content.hasAttribute("data-hygiene-card") ? content.parentElement! : content;
+        const card = content.hasAttribute("data-hygiene-card") && content.getAttribute("role") !== "status"
+          ? content.parentElement!.parentElement!
+          : content;
+        if (width === 1280) card.parentElement!.style.maxWidth = "none";
+        if (content.getAttribute("role") !== "status" && content.hasAttribute("data-hygiene-card"))
+          expect(card.textContent).toContain(name === "compact" ? "Open finding" : "why this one");
         expect(card.scrollWidth <= card.clientWidth + 1, "card content fits the approved widths").toBe(true);
         await expect(card).toMatchScreenshot(`hygiene-${name}-${theme}-${width}`);
       });

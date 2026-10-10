@@ -344,6 +344,7 @@ test("a multiline change must be fully revealed before Apply can submit", async 
   await scene({ longPreview: true });
   await chooseText();
   const applyButton = page.getByRole("button", { name: "Apply fix", exact: true });
+  await expect.element(page.getByRole("button", { name: /^Show all 21 lines/ })).toBeVisible();
   expect(applyButton.element().getAttribute("aria-disabled"), "hidden preview lines disable Apply").toBe("true");
   expect(frames.filter((f) => f.type === "inbox_resolve")).toHaveLength(0);
   await page.getByRole("button", { name: /^Show all 21 lines/ }).click();

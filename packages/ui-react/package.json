@@ -61,6 +61,7 @@
     "remark-gfm": "^4.0.1",
     "sigma": "^3",
     "tailwind-merge": "^3",
+    "zod": "^4.4.3",
     "zustand": "^5"
   },
   "peerDependencies": {

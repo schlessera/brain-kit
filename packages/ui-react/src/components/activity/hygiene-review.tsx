@@ -517,7 +517,9 @@ export function HygieneFinding({
             ? " (JSON list)"
             : inputType === "enum"
             ? " (choose a value)"
-            : ""}
+            : inputType === "path"
+            ? " (note path)"
+            : " (text)"}
         </label>
         {inputType === "enum" ? (
           <select
