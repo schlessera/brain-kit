@@ -16,6 +16,7 @@ import {
 } from "@schlessera/brain-ui-sdk/testing";
 
 import { createClaudeBackend } from "../src/backend";
+import { DEFAULT_PROFILES } from "../src/profiles";
 import { backendModule } from "../src/module";
 import { runToolCall } from "./helpers/run-tool-call";
 
@@ -156,11 +157,19 @@ function claudeRetriedFailureQuery(script: TurnScript): typeof query {
   })()) as unknown as typeof query;
 }
 
+/**
+ * The built-in profile with an explicit subscription token: an autonomous
+ * turn needs a credential its relay can hold (#676). Interactive turns are
+ * unchanged by it.
+ */
+const CONTRACT_PROFILES = DEFAULT_PROFILES.map(profile => ({ ...profile,
+  buildEnv: () => ({ ...profile.buildEnv(), CLAUDE_CODE_OAUTH_TOKEN: "offline-contract-token" }) }));
+
 const harness: BackendContractHarness = {
   name: "claude",
   permission: claudePermissionProbe,
   scripted: (script) =>
-    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script) }),
+    createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeScriptedQuery(script), profiles: CONTRACT_PROFILES }),
   hanging: () =>
     createClaudeBackend({ brainPath: tempBrain(), queryFn: claudeHangingQuery() }),
   failing: (script) =>

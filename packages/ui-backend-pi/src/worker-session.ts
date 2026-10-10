@@ -7,7 +7,8 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, type BrainApplicationResult,
   createToolPermissionRequest, decideToolPermission, requestToolPermission, checkEditedApproval,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
-import { launchAgentWorker, requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
+import { launchAgentWorker, requireWorkerHost, restrictedReadPaths, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
+import { piAutonomousEnvelope } from "./autonomous-envelope.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
 import { createTurnContext } from "./turn-context.js";
@@ -20,8 +21,9 @@ import { pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from ".
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string) {
-  if (!resumeId) toModel(resolveModelSpec(backend, profileId));
-  requireWorkerHost(backend.brainPath);
+  const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
+  const restricted = env.autonomous?.containment === "restricted";
+  requireWorkerHost(backend.brainPath, { restricted });
   const infos = resumeId ? await SessionManager.list(backend.brainPath, sessionDir) : [];
   const info = infos.find(i => i.id === resumeId);
   if (resumeId && !info) throw new BackendRequestError(`Cannot resume unknown session: ${resumeId}`);
@@ -50,14 +52,27 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   void done.promise.catch(() => {});
   const agentFiles: Record<string, string> = {};
   const agentDir = piSessionDirectory(backend.brainPath, getAgentDir());
-  for (const name of ["auth.json", "models.json", "settings.json"]) {
+  // A restricted autonomous turn copies no native state into the worker: no
+  // stored login, provider override or settings (#676). The relay holds the key.
+  const envelope = restricted ? piAutonomousEnvelope(declared, agentDir) : undefined;
+  if (!envelope) for (const name of ["auth.json", "models.json", "settings.json"]) {
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const child = launchAgentWorker({ brainPath: backend.brainPath,
-    command: [process.execPath, Bun.resolveSync("./worker-entry", import.meta.dir)],
-    env: { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath },
-  });
+  const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
+  let child: ReturnType<typeof launchAgentWorker>;
+  try {
+    child = envelope
+      // The restricted envelope: minimum runtime variables only, the installed
+      // runtime as the explicit read envelope, and the relay as the one route out.
+      ? launchAgentWorker({ brainPath: backend.brainPath, command: [process.execPath, entry],
+          env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath },
+          restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } })
+      : launchAgentWorker({ brainPath: backend.brainPath, command: [process.execPath, entry],
+          env: { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath } });
+  } catch (error) { envelope?.relay.stop(); throw error; }
+  // The relay lives exactly as long as the worker it serves.
+  if (envelope) void child.exited.finally(() => envelope.relay.stop());
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -254,8 +269,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // SDK session is initialized in the privileged process.
   try {
     send({ type: "init", backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
-      loadExtensions: backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
-      resume: Boolean(resumeId), entries, profileId, agentFiles });
+      loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env, sessionId,
+      resume: Boolean(resumeId), entries, profileId, agentFiles, ...(envelope ? { inference: envelope.inference } : {}) });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
   } catch (error) { fail(error); await child.exited; throw error; }

@@ -73,6 +73,14 @@ export interface UnavailableProfile {
 export interface BackendCapabilities {
   /** Explicit nonpersistent turns; does not claim containment or enable dispatch. */
   autonomous?: boolean;
+  /**
+   * Runs `autonomous.containment: "restricted"` turns inside the restricted
+   * envelope (#676): a private network namespace, an explicit read envelope,
+   * no ambient project configuration, and inference only through a
+   * server-owned relay that holds the credential. Hosts dispatch untrusted
+   * autonomous work only to a backend that advertises it.
+   */
+  restrictedAutonomous?: boolean;
   /** Can continue an existing session (startTurn with sessionId). */
   resume: boolean;
   /** Emits tool_approval_request round-trips via bridge.requestPermission. */
@@ -420,6 +428,14 @@ export interface AutonomousTurnOptions {
   /** Server-retained execution receipts, never capability grants. A fresh
    * attempt refuses automatic replay of these exact completed calls. */
   completedToolCalls?: readonly CompletedAutonomousToolCall[];
+  /**
+   * Server-selected: run this turn inside the restricted envelope for
+   * untrusted execution (#676). A backend without
+   * `capabilities.restrictedAutonomous` rejects it with `BackendRequestError`
+   * (`assertTurnPosture`) rather than run it uncontained. Absent, the turn is
+   * nonpersistent and toolless-by-policy only, as a handoff summary is.
+   */
+  containment?: "restricted";
 }
 
 export interface CompletedAutonomousToolCall {
@@ -520,10 +536,14 @@ export class BackendRequestError extends Error {
  */
 export function assertTurnPosture(
   req: Pick<StartTurnRequest, "enforceAllowedTools" | "noGrantSurface" | "autonomous" | "sessionId"> & Partial<Pick<StartTurnRequest, "bridge" | "posture">>,
-  supportsAutonomous: boolean = false
+  supportsAutonomous: boolean = false,
+  supportsRestricted: boolean = false
 ): void {
   if (req.autonomous !== undefined) {
     if (!supportsAutonomous) throw new BackendRequestError("This backend does not support autonomous turns.");
+    if (req.autonomous.containment !== undefined && (req.autonomous.containment !== "restricted" || !supportsRestricted)) {
+      throw new BackendRequestError("This backend cannot run the restricted autonomous envelope.");
+    }
     if (req.sessionId !== undefined || req.autonomous.origin !== "autonomous" ||
         req.autonomous.persistence !== "none" || !Array.isArray(req.autonomous.allowedTools) ||
         !req.autonomous.allowedTools.every((name) => typeof name === "string" && name.length > 0) ||

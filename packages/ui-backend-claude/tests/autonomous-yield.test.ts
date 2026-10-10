@@ -8,6 +8,10 @@ import { createKeyedLock, type StartTurnRequest } from "@schlessera/brain-ui-sdk
 import { createClaudeBackend } from "../src/backend.js";
 import { runToolCall } from "./helpers/run-tool-call.js";
 
+/** An autonomous turn needs a credential its relay can hold (#676). */
+const profiles = [{ id: "fixture", label: "Fixture", billing: "api" as const, requiredEnvKeys: [],
+  buildEnv: () => ({ ANTHROPIC_API_KEY: "offline-fixture" }) }];
+
 test("Claude's actual hook/runner yields a long autonomous write and releases it before interactive denial", async () => {
   const root = mkdtempSync(join(tmpdir(), "brain-claude-yield-"));
   const callbacks = new Map<number, { at: number; fn: () => void }>();
@@ -32,7 +36,7 @@ test("Claude's actual hook/runner yields a long autonomous write and releases it
     }
     yield { type: "result", subtype: "success", session_id: autonomous ? "autonomous" : "interactive", total_cost_usd: 0.3, duration_ms: 1, num_turns: 1 };
   })()) as unknown as typeof query;
-  const backend = createClaudeBackend({ brainPath: root, writeLock: lock, queryFn, log: () => {} });
+  const backend = createClaudeBackend({ brainPath: root, writeLock: lock, queryFn, profiles, log: () => {} });
   const hostAbort = new AbortController();
   const request = { prompt: "Odysseus", signal: hostAbort.signal,
     bridge: { emit: () => {}, checkpointPermission: () => {}, requestPermission: async () => ({ behavior: "deny" as const, message: "No grant surface" }) } };
@@ -77,7 +81,7 @@ for (const toolName of ["Write", "Agent"] as const) test(`Claude refuses a compl
     yield { type: "result", subtype: "success", session_id: "recovered", total_cost_usd: 0, duration_ms: 1, num_turns: 1 };
   })()) as unknown as typeof query;
   try {
-    const backend = createClaudeBackend({ brainPath: root, queryFn, log: () => {} });
+    const backend = createClaudeBackend({ brainPath: root, queryFn, profiles, log: () => {} });
     const req: StartTurnRequest = { prompt: "Resume Odysseus work", signal: new AbortController().signal,
       enforceAllowedTools: true, noGrantSurface: true, bridge: { emit: () => {}, checkpointPermission: () => {}, requestPermission: async () => ({ behavior: "deny", message: "No grant surface" }) },
       autonomous: { origin: "autonomous", persistence: "none", allowedTools: [toolName], systemPromptAppend: "",

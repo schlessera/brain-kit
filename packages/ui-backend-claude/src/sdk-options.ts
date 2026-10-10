@@ -24,6 +24,7 @@ import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
 import { createWorkerSpawn } from "./worker-spawn.js";
+import { claudeAutonomousEnvelope } from "./autonomous-envelope.js";
 import { claudeEffort } from "./effort.js";
 import { CLEARED_API_CREDENTIALS, NEUTRALISED_SETTINGS } from "./subscription.js";
 import type { TurnLockBinding } from "./turn-lock.js";
@@ -36,6 +37,8 @@ export interface ClaudeSdkTurn {
    * released only after the account the CLI selected has been checked.
    */
   subscriptionOnly: boolean;
+  /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
+  pinnedSettingsEnv?: Readonly<Record<string, string>>;
   finishWorker(): Promise<void>;
 }
 
@@ -53,7 +56,7 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
   return env;
 }
 
-export function createClaudeSdkTurn(options: {
+interface ClaudeSdkTurnOptions {
   backend: ClaudeBackendOptions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -62,7 +65,21 @@ export function createClaudeSdkTurn(options: {
   confirmPatterns: readonly RegExp[];
   turnLock: TurnLockBinding;
   log: BackendLogFn;
-}): ClaudeSdkTurn {
+}
+
+export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTurn {
+  // An autonomous turn gets the restricted envelope (#676): only the relay
+  // route out, a placeholder credential and no ambient project configuration.
+  const envelope = options.req.autonomous?.containment === "restricted"
+    ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile)) : undefined;
+  try { return assembleClaudeSdkTurn(options, envelope); }
+  catch (error) { envelope?.relay.stop(); throw error; }
+}
+
+function assembleClaudeSdkTurn(
+  options: ClaudeSdkTurnOptions,
+  envelope: ReturnType<typeof claudeAutonomousEnvelope> | undefined
+): ClaudeSdkTurn {
   const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
   // Only wire ask-user / location tools when the host bridge offers them.
   const askUser = req.bridge.askUser;
@@ -130,10 +147,14 @@ export function createClaudeSdkTurn(options: {
     },
     req.turnBudgetMs
   );
-  const childEnv = turnEnv(profile);
+  const childEnv = envelope?.env ?? turnEnv(profile);
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
     ...(req.autonomous ? { persistSession: false } : {}),
+    // Only the server's own MCP server; no project .mcp.json, user or plugin
+    // server. Tool membership stays the enforced roster, as in every posture:
+    // an out-of-roster call escalates to a durable decision (AE3).
+    ...(envelope ? { strictMcpConfig: true } : {}),
     cwd: backend.brainPath,
     includePartialMessages: true,
     // Forward subagent text/thinking tagged with parent_tool_use_id so
@@ -142,7 +163,8 @@ export function createClaudeSdkTurn(options: {
     // gracefully to activity-only subagent visibility.
     forwardSubagentText: true,
     abortController,
-    // Load CLAUDE.md and project skills from the brain repo.
+    // Load CLAUDE.md and project skills from the brain repo (not for a
+    // restricted turn; see below).
     settingSources: ["project"],
     // The brain repo's CLAUDE.md says what the agent is working ON; this says
     // what it is rendering INTO. Appended to the preset rather than replacing
@@ -197,7 +219,8 @@ export function createClaudeSdkTurn(options: {
   }
   // Every runtime-owned executor enters the worker. An optional host exec
   // wrapper runs inside it and can never replace the filesystem boundary.
-  const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal);
+  const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal,
+    envelope ? { inferenceDir: envelope.relay.dir } : undefined);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (req.sessionId !== undefined) sdkOptions.resume = req.sessionId;
   // The bridge tools are registered only when the bridge provides their
@@ -218,14 +241,23 @@ export function createClaudeSdkTurn(options: {
     }),
   };
   sdkOptions.env = childEnv;
-  if (subscriptionOnly) {
+  if (envelope) {
+    // A restricted turn reads no settings, instructions, skills or hooks from
+    // the brain: its instructions are the server's immutable snapshot (R29).
+    sdkOptions.settingSources = [];
+    // Flag settings outrank every settings file: none can reroute inference.
+    sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
+  } else if (subscriptionOnly) {
     sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env } };
   }
 
   return {
     options: sdkOptions,
     subscriptionOnly,
-    finishWorker: worker.finish,
+    ...(envelope ? { pinnedSettingsEnv: envelope.pinned } : {}),
+    finishWorker: envelope
+      ? () => worker.finish().finally(() => envelope.relay.stop())
+      : worker.finish,
     prompt:
       req.attachments && req.attachments.length > 0
         ? buildAttachmentPrompt(req.prompt, req.attachments)

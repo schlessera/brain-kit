@@ -40,7 +40,7 @@ function setup() {
 test("real backend escalation commits checkpoint, Action and block before abort and settles its run", async () => {
   const f = setup();
   let starts = 0;
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async (req) => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async (req) => {
     starts++;
     req.bridge.emit({ type: "text_delta", text: f.escalation.stateMd });
     const decision = await requestToolPermission(req.bridge, f.escalation.request, { noGrantSurface: true });
@@ -85,7 +85,7 @@ test("a backend question commits its choices and checkpoint before unwinding wit
     id: `choice-${index}`, label: option.label, effect: { kind: "enqueue", payload: { instruction: `Answer the destination question: ${option.label}` } },
   })) };
   let starts = 0;
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: true, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: true, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async req => {
     starts++;
     await expect(req.bridge.askUser!("destination", questions)).rejects.toThrow("Autonomous work stopped for a durable decision.");
     expect(req.signal.aborted).toBe(true);

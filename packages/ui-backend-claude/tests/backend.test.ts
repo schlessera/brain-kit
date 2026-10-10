@@ -292,6 +292,7 @@ describe("createClaudeBackend identity + profiles", () => {
       autonomous: true,
       resume: true,
       permissions: true,
+      restrictedAutonomous: true,
       thinking: true,
       attachments: true,
       askUser: true,

@@ -22,7 +22,7 @@ function setup(startTurn: AgentBackend["startTurn"], autonomous: boolean | undef
   const db = createUiDb(options.dbPath ?? ":memory:");
   const store = createActivityStore(db, { writer: "autonomous-test" });
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous, resume: false, permissions: true,
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous, restrictedAutonomous: autonomous, resume: false, permissions: true,
     thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
     startTurn, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [] };
   const input = { turnId: "run", principalId: principal.id, prompt: "Odysseus fixture", allowedTools: ["read"],
@@ -197,9 +197,13 @@ describe("server-selected autonomous turn", () => {
     const f = setup(async () => { starts++; }, undefined);
     // setup's default enables the capability; make the absent legacy field explicit.
     delete f.backend.capabilities.autonomous;
+    delete f.backend.capabilities.restrictedAutonomous;
     try {
       await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input)).rejects.toBeInstanceOf(BackendRequestError);
       f.backend.capabilities.autonomous = true;
+      // An autonomous backend without the restricted envelope is unsupported too (#676).
+      await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input)).rejects.toThrow("cannot run the restricted autonomous envelope");
+      f.backend.capabilities.restrictedAutonomous = true;
       revokePrincipal(f.db, f.principal.id, Date.now());
       await expect(runAutonomousTurn({ ...f, checkpoint: () => {} }, f.input)).rejects.toBeInstanceOf(BackendRequestError);
       expect(starts).toBe(0);

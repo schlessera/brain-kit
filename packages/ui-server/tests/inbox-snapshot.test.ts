@@ -189,7 +189,7 @@ test("restored resolution replay mints no second follow-up and a fixture dispatc
   expect(resolver.resolve(f.principal.id, { type: "inbox_resolve", itemId: resolved.actionId!, optionId: "approve" }).replay).toBe(true);
   expect(store.exportState()).toEqual(before);
   let starts = 0, writes = 0;
-  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async request => {
+  const backend: AgentBackend = { id: "fixture", capabilities: { autonomous: true, restrictedAutonomous: true, resume: false, permissions: true, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false }, listProfiles: () => [], listSessions: async () => [], getHistory: async () => [], startTurn: async request => {
     starts++;
     if (!isCompletedAutonomousToolCall(request.autonomous, operation.toolName, operation.input)) {
       writes++; writeFileSync(join(target, "duplicate-effect.md"), "An unwanted repeated write.");

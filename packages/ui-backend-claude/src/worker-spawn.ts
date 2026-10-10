@@ -1,24 +1,42 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
 import { EventEmitter } from "node:events";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { launchAgentWorker, requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 import { wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeWorkerState } from "./worker-state.js";
 
-export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal) {
+/**
+ * `restricted` selects the autonomous envelope (#676): a private network
+ * namespace, an explicit read envelope holding only the executable, empty
+ * runtime state, and the relay directory as the one route out.
+ */
+export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
+  restricted?: { inferenceDir: string }) {
   const completions: Promise<void>[] = [];
   return {
     spawn({ command, args, env, signal }: SpawnOptions): SpawnedProcess {
-      requireWorkerHost(brainPath);
+      requireWorkerHost(brainPath, { restricted: Boolean(restricted) });
       immediateSignal.throwIfAborted();
-      const state = createClaudeWorkerState(brainPath, env);
+      const state = createClaudeWorkerState(brainPath, env, { ephemeral: Boolean(restricted) });
       const emitter = new EventEmitter();
       let worker: ReturnType<typeof launchAgentWorker>;
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
         childEnv.CLAUDE_CONFIG_DIR = state.path;
-        worker = launchAgentWorker({ brainPath, statePath: state.path,
-          command: wrapCommand([command, ...args], config.wrapper), env: childEnv });
+        if (restricted) {
+          // No host home exists in the envelope; runtime state is the fresh tmpfs.
+          childEnv.HOME = state.path;
+          // The executable and any script it is handed, and nothing else of the
+          // host. No operator exec wrapper: it is ambient host configuration.
+          const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
+          worker = launchAgentWorker({ brainPath, statePath: state.path, command: [command, ...args], env: childEnv,
+            restricted: { readPaths, inferenceDir: restricted.inferenceDir } });
+        } else {
+          worker = launchAgentWorker({ brainPath, statePath: state.path,
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv });
+        }
       } catch (error) { state.cleanup(); throw error; }
       let killed = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
       let tail = "";
