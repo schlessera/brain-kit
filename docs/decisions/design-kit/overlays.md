@@ -144,4 +144,3 @@ export. #1433 implements the gesture, assesses the compatibility of that
 addition, and ships it with a changeset. This record approves no other API
 change. The original proposal and prompt stay as history in the #1420
 comments; none of their alternatives is current guidance.
-

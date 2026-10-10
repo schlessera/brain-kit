@@ -189,4 +189,3 @@ Scope: `packages/ui-kit/fixtures/` per D18. `packages/core/fixtures/corpus/` and
 its "Alex Example" persona are untouched, so no test churn and no invariant
 breakage. AGENTS.md gains a sentence scoping the two personas — corpus vs kit —
 in the commit that introduces the world.
-

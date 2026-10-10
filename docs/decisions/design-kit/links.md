@@ -274,4 +274,3 @@ does not duplicate labels and source-supplied markers cannot bypass policy.
 The renderer verifies disclosure in the final media mode and finished PDF; HTML attributes alone
 do not prove PDF safety. See the D46 addition above for alternate markup,
 isolation, failure behavior and runtime proof.
-

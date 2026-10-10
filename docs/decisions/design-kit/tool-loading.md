@@ -405,4 +405,3 @@ startup wait set — is now the `d44-always-load-reaches-the-model` case of
 `MEASURED_RUNTIME` names. The latency and rate halves still need a live
 model: `bun scripts/measure-show-block.ts --both-arms` runs both load modes in
 one invocation and records the Claude Code version of every turn.
-

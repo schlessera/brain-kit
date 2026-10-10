@@ -258,4 +258,3 @@ invalid at computed-value time and resets the border to `currentColor`.
 move its border on hover — it has to restate it. `Placeholder`'s retry sets
 `--hv-bd` to its own rest border for exactly this reason, and the reason is
 written next to it, because the code looks like a redundant no-op and is not.
-

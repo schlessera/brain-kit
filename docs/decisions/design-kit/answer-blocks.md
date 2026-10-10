@@ -591,4 +591,3 @@ beside pi (#137)" below. The brain tools were present but deferred, and the
 remaining leak was the CLI's ancestor walk, not the config directory. Two
 turns there still ran a `find /` that the escape rule cannot see, and were
 excluded._
-

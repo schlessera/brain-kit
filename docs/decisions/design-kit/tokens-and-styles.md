@@ -332,4 +332,3 @@ label only after `load`, "mask not rendered" on `error`); and the kit's
 `diffRows` stripped one character from a context line where a unified diff
 carries two, so context rows sat a cell to the right (fixed; a recorded
 divergence from the design's source, which has the same off-by-one).
-

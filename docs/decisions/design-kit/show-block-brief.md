@@ -346,4 +346,3 @@ bun scripts/measure-show-block.ts --always-load --reps 3 --only \
 It is a script and not a test: it needs
 the network and a key, so CI never runs it. Re-run it before changing the brief
 again.
-

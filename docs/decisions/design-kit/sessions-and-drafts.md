@@ -1142,4 +1142,3 @@ run in the kit's `rail-fine`, `rail-coarse` and `rail-mixed` projects.
 > view, the first row and the heading; the single reattachable row is gone.
 > From 1280 the press keeps the 1280 row: Chat stays the destination and
 > focus moves into the pane at the selected row.
-

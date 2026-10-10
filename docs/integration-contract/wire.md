@@ -1325,4 +1325,3 @@ prompt).
   these runs itself; a `WsHost` embedder that builds its own labeller passes
   `createLabeller({ options, activity: { store, onWrite? } })`, and without
   `activity` it records none.
-

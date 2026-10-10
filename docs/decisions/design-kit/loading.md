@@ -168,5 +168,3 @@ answer and cost defaults. Callers supply facts explicitly; `pulse` selects a
 working pulse or static decision-wait dot. Existing ghost-band and streamed
 text animations retain their implementations. This is an approved exception
 to D30's parity defaults, and no stream/cancellation contract changes.
-
-

@@ -633,4 +633,3 @@ module's contained `dbPath`. A missing database returns `{ jobs: [] }`
 without creating it; an existing database may undergo the same schema
 initialization/migration as the CLI. Annotations are `readOnlyHint: true` and
 `openWorldHint: false`, with backend admission governed separately.
-
