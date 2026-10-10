@@ -190,3 +190,43 @@ all four auth modes, actual non-loopback refusals with forged forwarding
 headers, boot rotation and persisted lease recovery. Two processes exercise
 one-winner claims and heartbeat contention under the existing five-second
 SQLite busy timeout; the database transaction covers no model call or staging removal.
+
+## Enablement evidence — checked 2026-10-11, sources only
+
+This records the provider facts that enablement depends on, as published on
+2026-10-11. No paid or real-provider call was made. Re-check every entry when
+enabling; none of it is a measurement, and the historical eval results stay
+historical.
+
+- **T1 classification.** The [TypeSafe model list](https://docs.typesafe.ai/models)
+  lists `jev-1.13.0` under current models (`jev-latest` and `jev-preview`
+  alias it): text input only, 64k tokens per request with 32k for `state` plus
+  the longest question, $0.042 per million input tokens and free output. It
+  documents no effort setting. The bundled price snapshot carries the same
+  input rate. The pin, bounds and the [classifier decision](decisions/triage-classifier.md)
+  are unchanged.
+- **Historical T1 candidates.** The design's earlier generative candidates
+  stay evidence only. `gpt-5.6-luna` is listed by [OpenAI](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+  with reasoning effort `none` to `max` (default `medium`; the recorded `high`
+  setting exists) at $0.20 / $1.20 per million input/output tokens.
+  `claude-sonnet-4-6` is a legacy Claude model, still active, with retirement
+  not sooner than February 17, 2027. It supports `low` effort (the recorded
+  setting) and costs $3 / $15 per million input/output tokens
+  ([models](https://platform.claude.com/docs/en/about-claude/models/overview),
+  [deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations),
+  [effort](https://platform.claude.com/docs/en/build-with-claude/effort),
+  [pricing](https://platform.claude.com/docs/en/about-claude/pricing)).
+  `claude-sonnet-5`, the original planned default, failed the gate and is not
+  restored. None of these has passed the gate on current evidence; enabling
+  one needs a separately authorized run of the U18 harness.
+- **Agent tier.** The dispatcher uses whatever Claude or pi profile the server
+  selects. The current Claude API lineup is `claude-fable-5-1` ($10 / $50),
+  `claude-opus-5-5` ($4 / $20, default effort `medium`), `claude-sonnet-5-5`
+  ($2 / $10) and `claude-haiku-5-5` (from $0.10 / $0.50), all active. The
+  bundled price snapshot has no rate for any model newer than
+  `claude-opus-4-6`, `claude-sonnet-4-5` and `claude-haiku-4-5`. An API-billed
+  agent tier on a current model is therefore charged at the pessimistic
+  unpriced rate, with one suppressed pricing Action, unless the live price
+  catalog resolves it. Subscription billing counts turns and no dollars.
+- **Cache.** Prompt-cache savings remain unclaimed (see the
+  [prompt cache guide](hosting/autonomous-prompt-cache.md)).
