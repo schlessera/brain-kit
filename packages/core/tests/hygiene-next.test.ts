@@ -231,7 +231,7 @@ describe("hygiene next real CLI", () => {
 
   test("no configuration refuses the next indexing path", async () => {
     const r = root();
-    for (const args of [["hygiene", "next", "--json"], ["hygiene", "--json", "next"]]) {
+    for (const args of [["hygiene", "next", "--json"], ["hygiene", "--json", "next"], ["hygiene", "--json", "--", "next"]]) {
       const result = await runCli(r, args);
       expect(result.code).toBe(1);
       expect(result.stderr).toContain("No brain.config");

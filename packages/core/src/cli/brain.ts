@@ -87,7 +87,7 @@ function beforeTerminator(args: string[]): string[] {
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
   geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
-  hygiene: (args) => parseArgs(args).args[0] === "next" || (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
+  hygiene: (args) => (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
   registry: (args) => !args.includes("--check"),
 };
 
@@ -234,15 +234,17 @@ async function main(): Promise<number> {
     return entry.helpExitCode ?? 0;
   }
 
+  // Read the actual positional subcommand, including one after `--`.
+  const hygieneNext = command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
-  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !(command === "hygiene" && parseArgs(argv.slice(1)).args[0] === "next")) {
+  if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext) {
     console.error(`Invalid brain.config:\n${configError}`);
     return 1;
   }
 
   // No config found at all → refuse anything that writes.
   const mutatingSub = MUTATING_SUBCOMMAND[command];
-  const mutates =
+  const mutates = hygieneNext ||
     (MUTATING_COMMANDS.has(command) && (mutatingSub === undefined || argv[1] === mutatingSub)) ||
     (MUTATING_WITH_FLAGS[command]?.(beforeTerminator(argv.slice(1))) ?? false);
   if (brain.configPath === null && mutates) {
