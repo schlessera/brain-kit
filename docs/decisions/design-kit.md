@@ -6483,3 +6483,50 @@ a developer error in development builds.
 `CommandPalette` is a named group, using its own root ref for row traversal,
 inside the owning dialog. Its pixels do not change. Only the 24 new overlay
 baselines are approved; no existing baseline changes.
+
+
+## 2026-10-09 — D55: native icon and text actions (#1379)
+
+The [design ruling](https://github.com/schlessera/brain-kit/issues/1379#issuecomment-6087751547)
+adopts `IconButton` for icon-only controls and `TextButton` for inline text
+actions. Both render native `button type="button"`, forward refs for React 18,
+and pass `data-*` hooks. `Button` retains its existing API and element;
+`DiscButton` remains limited to D52's three transcript discs.
+
+`IconButton` has mute, danger and overlay tones. Its md box is 44px; sm is
+28px with a 14px glyph and grows its paint and target to 44px under
+`any-pointer: coarse`. Mute hovers to the strong veil and ink; danger stays
+red at rest and hover. Overlay uses raised at 80% with ink-dim: ink-mute
+fails over arbitrary media, while ink-dim clears 4.5:1 over both white and
+black in both themes. Expanded mute triggers stay raised and ink.
+
+`TextButton` formalises the existing ask-list text actions: body link text
+uses teal-ink and an underline, mono meta uses ink-mute and lifts to ink-dim
+with an underline on hover, and inherit takes its context's font and colour.
+Underlines are text-decoration (D34). Standalone targets are at least 44px
+tall; inline paint has a 20px minimum box and reaches 12px vertically and 4px
+horizontally, requiring 8px between neighbours. The minimum preserves 44px
+reach even when inherited text has a shorter line height, without changing
+its font. Both primitives retain a 2px focus ring at offset +2,
+a pressed translation, and native disabled behaviour at opacity .45.
+
+Composite hit areas remain raw with a closed reason vocabulary:
+
+| Code | Reason |
+| --- | --- |
+| `row` | Composite full-width list, menu or disclosure content that ListRow cannot draw. |
+| `select` | Selection with its own ARIA role or state; no fitting kit segment/tab control. |
+| `surface` | A kit card or rendered page is the hit area. |
+| `canvas` | Canvas/media tool with that surface's own palette. |
+| `kit` | Already uses kit tokens and bk-control, with a reason the component cannot fit. |
+| `api` | Requires a native capability absent from the kit control; name that capability. |
+| `dev` | Dev-only harness. |
+
+The marker grammar is `raw-button: <code> — <reason>` (a hyphen also separates
+code and reason); the reason has at least 12 characters. Put the comment
+inside the opening tag, as `//` between attributes or `/* */` on one line.
+A marker travels with the element and stays out of the DOM; a file:line
+allowlist drifts and a per-file count cannot explain a second button.
+Row and select sites use bk-row interaction, preserving selected/rest paint.
+The raw-button lint and consumer migrations are separate batches; this
+ruling approves only new primitive baselines for the kit batch.

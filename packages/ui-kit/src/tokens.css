@@ -285,6 +285,12 @@
   --bk-button-hover-border-suggest: light-dark(rgba(127,76,8,0.55), rgba(224,159,62,0.5));
   --bk-button-hover-fg-suggest: var(--bk-amber-ink);
 
+  /* Native icon controls (D55): overlay paint follows the themed raised
+   * ground; mute hover aliases the shared veil and ink. */
+  --bk-icon-button-overlay-bg: light-dark(rgba(255,254,250,0.8), rgba(26,29,34,0.8));
+  --bk-icon-button-hover-bg-mute: var(--bk-hover-veil-strong);
+  --bk-icon-button-hover-fg-mute: var(--bk-color-ink);
+
   /* Shared interaction values. The hover surface is `raised` and has no token
    * of its own — a second name for one colour is how two colours start. Focus
    * is ink, not amber or teal, because it says WHERE YOU ARE rather than what a
@@ -995,6 +1001,9 @@
   --bk-button-hover-bg-suggest: transparent;
   --bk-button-hover-border-suggest: transparent;
   --bk-button-hover-fg-suggest: var(--bk-amber-ink);
+  --bk-icon-button-overlay-bg: #ffffff;
+  --bk-icon-button-hover-bg-mute: var(--bk-hover-veil-strong);
+  --bk-icon-button-hover-fg-mute: var(--bk-color-ink);
   --bk-hover-border: #b5ab96;
   --bk-focus-ring: var(--bk-color-ink);
   --bk-hover-veil-soft: transparent;
@@ -1642,6 +1651,92 @@
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: -2px;
 }
+
+/* ── Native icon and text actions (D55, #1379) ─────────────────────────── */
+.bk-icon-btn, .bk-text-btn {
+  appearance: none;
+  margin: 0;
+  border: none;
+  padding: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bk-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--bk-color-ink-mute);
+  --hv-bg: var(--bk-icon-button-hover-bg-mute);
+  --hv-fg: var(--bk-icon-button-hover-fg-mute);
+}
+.bk-icon-btn[data-size="sm"] { width: 28px; height: 28px; border-radius: 8px; }
+@media (any-pointer: coarse) {
+  .bk-icon-btn[data-size="sm"] { width: 44px; height: 44px; }
+}
+.bk-icon-btn-glyph { display: inline-flex; width: 16px; height: 16px; }
+.bk-icon-btn[data-size="sm"] .bk-icon-btn-glyph { width: 14px; height: 14px; }
+.bk-icon-btn-glyph > svg, .bk-text-btn-glyph > svg { width: 100%; height: 100%; }
+.bk-icon-btn[data-tone="danger"] {
+  color: var(--bk-red-ink);
+  --hv-bg: var(--bk-button-hover-bg-danger);
+  --hv-fg: var(--bk-button-hover-fg-danger);
+}
+.bk-icon-btn[data-tone="overlay"] {
+  background: var(--bk-icon-button-overlay-bg);
+  color: var(--bk-color-ink-dim);
+  --hv-bg: var(--bk-color-raised);
+  --hv-fg: var(--bk-color-ink);
+}
+.bk-icon-btn[data-tone="mute"][aria-expanded="true"] {
+  background: var(--bk-color-raised);
+  color: var(--bk-color-ink);
+  --hv-bg: var(--bk-color-raised);
+}
+.bk-icon-btn:disabled, .bk-icon-btn:disabled:hover {
+  opacity: .45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--bk-color-ink-mute);
+  transform: none;
+  filter: none;
+}
+.bk-icon-btn[data-tone="danger"]:disabled { color: var(--bk-red-ink); }
+.bk-icon-btn[data-tone="overlay"]:disabled { background: var(--bk-icon-button-overlay-bg); color: var(--bk-color-ink-dim); }
+.bk-icon-btn[data-tone="mute"][aria-expanded="true"]:disabled { background: var(--bk-color-raised); color: var(--bk-color-ink); }
+.bk-text-btn {
+  position: relative;
+  min-height: 44px;
+  padding: 0 4px;
+  gap: 4px;
+  border-radius: 4px;
+  background: transparent;
+  font: 500 12.5px/20px var(--bk-font-body);
+  color: var(--bk-teal-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.bk-text-btn[data-tone="meta"] {
+  font: 400 10.5px/20px var(--bk-font-mono);
+  color: var(--bk-color-ink-mute);
+  text-decoration: none;
+}
+.bk-text-btn[data-tone="inherit"] { font: inherit; font-weight: 500; color: inherit; }
+/* Keep a short inherited line at 44px total reach without changing its font. */
+.bk-text-btn[data-inline="true"] { min-height: 20px; padding: 0; }
+.bk-text-btn[data-inline="true"]::before { content: ""; position: absolute; inset: -12px -4px; }
+.bk-text-btn-glyph { display: inline-flex; width: 12px; height: 12px; }
+.bk-text-btn:hover:not(:disabled) { text-decoration-thickness: 2px; }
+.bk-text-btn[data-tone="meta"]:hover:not(:disabled) { color: var(--bk-color-ink-dim); text-decoration: underline; text-decoration-thickness: 1px; }
+.bk-text-btn:active:not(:disabled) { transform: translateY(1px); }
+.bk-text-btn:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-text-btn:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ── Overlay discs (D52 §7) ────────────────────────────────────────────────
  *

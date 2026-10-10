@@ -118,6 +118,13 @@ hook for tests). A shell wraps its whole tree in it, providers included, so a
 render error outside a page shows a reload screen instead of a blank app. The
 page-level boundary inside `AppShell` needs nothing from the shell.
 
+**Additive: `IconButton` and `TextButton` (#1379).** `@schlessera/brain-ui-kit`
+exports two native `type="button"` primitives and their props. Both forward
+refs and `data-*` hooks, support native disabled and disclosure ARIA, and use
+kit focus/hover paint. `IconButton` supplies mute/danger/overlay tones and
+28px small controls that grow to 44px under a coarse pointer. `TextButton`
+supplies link/meta/inherit tones, with a 44px standalone target or inline reach.
+This is a minor addition; existing button APIs are unchanged.
 **Additive: the module-authoring entry `@schlessera/brain/module` (#1397,
 ruled on #537).** The helpers a module needs to touch the brain's files the
 way core does, `@experimental` until 1.0: path containment and atomic writes

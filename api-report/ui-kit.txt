@@ -130,6 +130,8 @@ export "." (./src/index.ts)
   HATCH_GLYPH
   ICONS
   Icon
+  IconButton
+  type IconButtonProps
   type IconName
   type IconProps
   type InkTone
@@ -246,6 +248,8 @@ export "." (./src/index.ts)
   TabBar
   type TabBarProps
   type TabItem
+  TextButton
+  type TextButtonProps
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -1260,6 +1264,24 @@ signatures (every public export and the types it is made of)
     };
   Icon (packages/ui-kit/src/primitives/Icon.tsx)
     export function Icon({ icon = "brain", size = 16, color, strokeWidth = 2 }: IconProps): import("react").JSX.Element;
+  IconButton (packages/ui-kit/src/primitives/IconButton.tsx)
+    const IconButton: import("react").ForwardRefExoticComponent<IconButtonProps & import("react").RefAttributes<HTMLButtonElement>>;
+  IconButtonProps (packages/ui-kit/src/primitives/IconButton.tsx)
+    export interface IconButtonProps {
+        name: string;
+        icon?: IconName;
+        glyph?: ReactNode;
+        tone?: "mute" | "danger" | "overlay";
+        size?: "md" | "sm";
+        disabled?: boolean;
+        expanded?: boolean;
+        haspopup?: "menu" | "dialog";
+        controls?: string;
+        tabIndex?: number;
+        onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+        style?: CSSProperties;
+        [data: `data-${string}`]: string | undefined;
+    }
   IconName (packages/ui-kit/src/primitives/Icon.tsx)
     export type IconName = keyof typeof ICONS;
   IconProps (packages/ui-kit/src/primitives/Icon.tsx)
@@ -2042,6 +2064,25 @@ signatures (every public export and the types it is made of)
         label: string;
         badge?: string;
         onClick?: () => void;
+    }
+  TextButton (packages/ui-kit/src/primitives/TextButton.tsx)
+    const TextButton: import("react").ForwardRefExoticComponent<TextButtonProps & import("react").RefAttributes<HTMLButtonElement>>;
+  TextButtonProps (packages/ui-kit/src/primitives/TextButton.tsx)
+    export interface TextButtonProps {
+        label: string;
+        tone?: "link" | "meta" | "inherit";
+        inline?: boolean;
+        icon?: IconName;
+        glyph?: ReactNode;
+        iconEnd?: IconName;
+        ariaLabel?: string;
+        disabled?: boolean;
+        expanded?: boolean;
+        haspopup?: "menu" | "dialog";
+        controls?: string;
+        onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+        style?: CSSProperties;
+        [data: `data-${string}`]: string | undefined;
     }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
