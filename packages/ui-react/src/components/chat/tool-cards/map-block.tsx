@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { CoastlineGeometry } from "../../../lib/api-client.js";
 import { useBrainApi } from "../../../root-context.js";
-import { geometryPaths } from "./location-card.js";
+import { geometryPaths } from "../../../lib/geometry-paths.js";
 
 type MapBlock = Extract<Block, { kind: "map" }>;
 type FrameGeometry = PlaceMapFrame["geometry"];

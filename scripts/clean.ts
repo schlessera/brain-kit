@@ -1,5 +1,9 @@
 import { rmSync } from "fs";
 import { resolve } from "path";
+import { ensureWorkspaceLease } from "./workspace-lease.mjs";
+
+const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), "write");
+if (coordinated !== undefined) process.exit(coordinated);
 
 const packages = [
   "geo",

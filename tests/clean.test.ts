@@ -14,6 +14,7 @@ function withCleanFixture(check: (root: string, preserved: Map<string, string>) 
   try {
     mkdirSync(join(root, "scripts"));
     cpSync(join(ROOT, "scripts", "clean.ts"), join(root, "scripts", "clean.ts"));
+    cpSync(join(ROOT, "scripts", "workspace-lease.mjs"), join(root, "scripts", "workspace-lease.mjs"));
     const preserved = new Map<string, string>();
     const keep = (relative: string) => {
       const content = `Keep ${relative}\n`;

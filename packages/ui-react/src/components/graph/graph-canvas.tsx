@@ -26,7 +26,7 @@ import {
   nodeSize,
   radialLayout,
   type SizeBy,
-} from "./lib/graph-helpers.js";
+} from "../../lib/graph-helpers.js";
 import { useGraphTheme, type GraphTheme } from "./use-graph-theme.js";
 
 export interface GraphCanvasProps {

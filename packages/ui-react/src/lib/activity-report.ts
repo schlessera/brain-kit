@@ -1,7 +1,7 @@
 import { PROTOCOL_REV, isFailureOutcome, type ActivitySpan, type SystemStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { ActivityRunRollup, ActivityRunSummary } from "./api-client.js";
-import { formatDuration } from "../components/chat/tool-views.js";
+import { formatDuration } from "./duration.js";
 import { INCLUDED_TEXT_CAP, providerMessageInclusion, redactProviderMessage } from "./turn-failure.js";
 
 /**

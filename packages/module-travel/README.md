@@ -305,6 +305,8 @@ they do not supply a missing automatic settings migration.
 - `brain travel route <url|file> --to <dir> [--trim-start-m N]
   [--trim-end-m N] [--name <label>] [--date YYYY-MM-DD] [--json]`: imports GPX or public Komoot geometry and
   writes a new normalized GPX. See [route import](#route-import) below.
+- `brain travel sync [--check] [--json]`: `{sync: {check, files}}`; see
+  [Registries](#registries).
 - `brain travel validate [--json]`: `{validation: {valid, files, issues}}`,
   with issues `{file, level: "error", message}`. Exit 0 means valid, 1 means
   domain errors. `files` counts successfully parsed domain documents.
@@ -318,8 +320,49 @@ they do not supply a missing automatic settings migration.
   `parseTravelDocument`, `readTravelCorpus` and `summarizePlaceVisits` with
   their corresponding types. `./module` supplies the manifest for the loader.
 
-Day-trip/place workflows and generated registries are covered by
-[#569](https://github.com/schlessera/brain-kit/issues/569).
+## Registries
+
+```sh
+brain travel sync --json
+brain travel sync --check --json
+```
+
+Sync regenerates two registries from the canonical records:
+
+- `trips/_index.md`, region `travel-trips`: Done, Proposed and Dismissed
+  tables. Done shows the visit count, first/last visit, primary route with its
+  stored distance and ascent, and the trip's places.
+- `places/_index.md`, region `travel-places`: countries visited, every place
+  with its kind, parent, visit count, first/last visit and coordinates, and the
+  places reached in each year, newest first, then an "Unknown date" list.
+
+A place's numbers are `summarizePlaceVisits`. A country's row in "Countries
+visited" adds the visits of every place within it; a visit linked from the
+country, its city and its spot still counts once. First/last are `unknown`
+when any included visit is undated, and missing coordinates render as
+`unknown`. Rows sort by document path, independent of locale.
+
+The directories follow the `trip` and `place` taxonomy. A missing index is
+created with `type: index` frontmatter; the trips index starts with a
+`## Choosing rules` section. Everything outside the generated region belongs
+to its author and keeps its bytes: put choosing rules, notes and links there.
+`updated` changes only when a region changed, so an unchanged brain writes
+nothing and reports `files: []`. Sync never writes a stored count, date,
+preference or coordinate back into a record.
+
+Sync reads every journey, trip and place first. Any `brain travel validate`
+error, malformed region markers, a symlinked registry, or trip and place types
+sharing one directory exit `1` with the problems on stderr, and neither
+registry is written. A registry edited, created or replaced since sync read
+it is detected before the first write and refuses the run the same way; an
+edit landing during the write itself is not detected. `--check` writes
+nothing and exits `1` when a registry is stale. Both registries can share an
+`_index.md` with a `brain registry` table, whose region is named `registry`.
+
+The `trip-log` skill proposes, records and dismisses day trips and keeps the
+choosing rules, which it adds only with the user's agreement; `places` records
+visited places; `plan-travel` records a completed journey's visit. All three
+leave photo, route and registry work to these commands.
 
 ## Route import
 

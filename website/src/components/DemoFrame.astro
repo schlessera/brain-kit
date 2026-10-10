@@ -1,0 +1,26 @@
+---
+import { href } from '../../model.mjs';
+const { scene = 'rank' } = Astro.props;
+const previews = {
+  rank: ['hero-decision-paper.png', 'Fictional Brain conversation with a ranked question about final preparations.'],
+  rich: ['hero-plan-dark.png', 'Fictional Brain departure plan with headline figures and a map.'],
+  work: ['demo-work-desktop-paper.png', 'Brain Actions showing a fictional departure review, recorded agent work.'],
+  voice: ['actual-voice-light-390.png', 'Brain dictation review with staged text and review controls.'],
+};
+const preview = previews[scene] || previews.rank;
+const version = process.env.DEMO_BUILD_ID;
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Brain — fictional interactive demonstration</title><link rel="stylesheet" href={href('assets/fonts.css')}/><link rel="stylesheet" href={`${href('assets/product.css')}?v=${version}`}/><style is:global>
+    html,body,#app{height:100%;margin:0;overflow:hidden}
+    #demo-preview{width:100%;height:100%;object-fit:contain;display:block}
+    /* Keep the production review controls reachable in the narrow demo frame. */
+    @media(max-width:340px){
+      #app div:has(>div>button[title="Discard"]){flex-wrap:wrap;gap:8px}
+      #app div:has(>div>button[title="Discard"])>button{margin-left:auto;min-height:44px}
+      #app button[title="Discard"],#app button[title="Edit"],#app button[title="Append more voice"]{min-height:44px}
+    }
+  </style></head>
+  <body><div id="app"><img id="demo-preview" src={`${href(`assets/previews/${preview[0]}`)}?v=${version}`} alt={preview[1]}/></div><noscript>This is a real product capture. Enable JavaScript to try the staged interactions.</noscript><script is:inline type="module" src={`${href('assets/demo/app.js')}?v=${version}`}></script></body>
+</html>

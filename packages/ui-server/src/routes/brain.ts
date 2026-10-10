@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
 import type { Logger } from "@opentelemetry/api-logs";
-import { execConfig, subprocessEnv } from "../config/env.js";
+import { subprocessEnv } from "../config/env.js";
+import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
 import {
   buildKeyterms,
@@ -23,6 +24,8 @@ export interface BrainRoutesDeps {
   brain: BrainClient;
   brainPath: string;
   keyterms: KeytermSettings;
+  /** The app's configured exec wrapper; whatsup and streaming sync spawn through it. */
+  exec: ExecWrapperConfig;
 }
 
 /**
@@ -125,7 +128,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // Through the exec wrapper like every other child: this one runs a
         // script that lives IN the brain repository, which makes it the least
         // appropriate spawn in the package to leave unwrapped.
-        const whatsup = execConfig();
+        const whatsup = deps.exec;
         const proc = Bun.spawn(wrapCommand(["bun", script, "--gemini"], whatsup.wrapper), {
           cwd: brainPath,
           stdout: "pipe",
@@ -271,10 +274,10 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
         const command = brain.cliCommand();
         if (deps.brainCliMinimum !== undefined) {
-          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command });
+          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { exec: deps.exec, minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command });
         }
         const [cliBin, ...cliArgs] = command;
-        const sync = execConfig();
+        const sync = deps.exec;
         const proc = Bun.spawn(
           wrapCommand(
             // `--human`: stdout is a pipe, which would make it the JSON

@@ -7,8 +7,8 @@ import { useUIStore } from "../../stores/ui-store.js";
 import type { BrainSearchHit } from "../../lib/api-client.js";
 import { useBrainApi } from "../../root-context.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
-import { parseSnippet } from "../../lib/search-snippet.js";
-import { cn } from "../../lib/utils.js";
+import { SearchHitCard } from "../chat/tool-cards/search-results.js";
+import { openableSearchPath } from "../../lib/search-results.js";
 
 /** Wait this long after the last keystroke before hitting the CLI. */
 const DEBOUNCE_MS = 250;
@@ -133,7 +133,7 @@ export function SearchPanel({
   function handleOpenResult(hit: BrainSearchHit) {
     // The file panel takes the same right-hand slot, so hand the screen over
     // rather than stacking two sheets.
-    if (resultQuery !== trimmed || state !== "done") return;
+    if (resultQuery !== trimmed || state !== "done" || !openableSearchPath(hit.path)) return;
     cancelSearch();
     onClose();
     setFilePanelOpen(true);
@@ -229,15 +229,11 @@ export function SearchPanel({
           ) : state === "done" && results.length === 0 ? (
             <Placeholder>No results for “{trimmed}”.</Placeholder>
           ) : (
-            <div className="divide-y divide-border/40">
+            <div className="space-y-2 p-3">
               {currentResults.map((hit, i) => (
-                <ResultRow
-                  key={hit.path}
-                  hit={hit}
-                  active={i === selected}
-                  onMouseEnter={() => setSelected(i)}
-                  onClick={() => handleOpenResult(hit)}
-                />
+                <div key={`${i}:${hit.path}`} data-result onMouseEnter={() => setSelected(i)}>
+                  <SearchHitCard hit={hit} index={i} active={i === selected} onClick={() => handleOpenResult(hit)} />
+                </div>
               ))}
             </div>
           )}
@@ -259,58 +255,6 @@ export function SearchPanel({
         </div>
       </div>
     </SlidePanel>
-  );
-}
-
-function ResultRow({
-  hit,
-  active,
-  onClick,
-  onMouseEnter,
-}: {
-  hit: BrainSearchHit;
-  active: boolean;
-  onClick: () => void;
-  onMouseEnter: () => void;
-}) {
-  return (
-    <button
-      data-result
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      title={hit.path}
-      className={cn(
-        "flex w-full flex-col gap-1 px-5 py-3 text-left transition-colors",
-        active ? "bg-surface-raised" : "hover:bg-surface-raised/60"
-      )}
-    >
-      <div className="flex items-baseline gap-2">
-        {hit.type && (
-          <span className="shrink-0 rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-            {hit.type}
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          {hit.title || hit.path}
-        </span>
-      </div>
-      {hit.snippet && (
-        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {parseSnippet(hit.snippet).map((seg, i) =>
-            seg.hit ? (
-              <span key={i} className="text-foreground">
-                {seg.text}
-              </span>
-            ) : (
-              <span key={i}>{seg.text}</span>
-            )
-          )}
-        </p>
-      )}
-      <span className="truncate font-mono text-[10px] text-muted-foreground/60">
-        {hit.path}
-      </span>
-    </button>
   );
 }
 

@@ -23,17 +23,12 @@ function frames(body: string): Array<{ type: string; text?: string; success?: bo
 
 describe("SSE brain jobs end on a done frame when the spawn throws", () => {
   let root: string;
-  let savedWrapper: string | undefined;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "brain-sse-"));
-    savedWrapper = process.env.BRAIN_UI_EXEC_WRAPPER;
-    process.env.BRAIN_UI_EXEC_WRAPPER = MISSING_WRAPPER;
   });
 
   afterEach(() => {
-    if (savedWrapper === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
-    else process.env.BRAIN_UI_EXEC_WRAPPER = savedWrapper;
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -42,6 +37,7 @@ describe("SSE brain jobs end on a done frame when the spawn throws", () => {
       brainPath: root,
       brain: { cliCommand: () => [process.execPath, "brain"] } as unknown as BrainClient,
       keyterms: { brainPath: root } as KeytermSettings,
+      exec: { wrapper: MISSING_WRAPPER },
     });
 
   for (const [route, setup] of [

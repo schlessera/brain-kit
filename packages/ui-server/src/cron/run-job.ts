@@ -10,7 +10,7 @@ import { createActivityStore } from "../activity/store.js";
 import { createUiDb } from "../db/client.js";
 import { startCronSpan } from "./activity.js";
 import { recordCronRun } from "./scheduler.js";
-import { execConfig } from "../config/env.js";
+import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import { execWrapperSpawnOptions, wrapCommand } from "@schlessera/brain-ui-sdk/internal";
@@ -51,6 +51,8 @@ export interface RunJobOptions {
   command: string[];
   dbPath: string;
   childEnv: Record<string, string | undefined>;
+  /** The exec wrapper, resolved once at the cron bin's edge (`CronConfig.exec`). */
+  exec: ExecWrapperConfig;
   stdout?: TextSink;
   stderr?: TextSink;
 }
@@ -258,7 +260,7 @@ export async function runJob(
     // cannot produce one: `emitCrontab` refuses a module job whose name is
     // in TRUSTED_JOB_NAMES (#81), and module jobs are namespaced
     // `<module>-<entry>` on top of that.
-    const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : execConfig();
+    const cronExec = TRUSTED_JOB_NAMES.has(options.jobName) ? {} : options.exec;
     const proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
       stdin: "inherit",
       stdout: "pipe",

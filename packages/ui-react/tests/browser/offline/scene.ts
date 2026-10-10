@@ -27,8 +27,9 @@ export interface SceneHandle {
   /** Run one of the scene's actions and return its (awaited) result. */
   call<T = unknown>(action: string, ...args: unknown[]): Promise<T>;
   /** Another tab sharing this scene's origin and browser storage. */
-  sibling(): Promise<SceneHandle>;
+  sibling(copySession?: boolean): Promise<SceneHandle>;
   /** A user's reload. Resolves once the reloaded scene has registered again. */
+  viewport(width: number, height: number): Promise<void>;
   reload(): Promise<void>;
   /** Kill the renderer with no unload handler running, then launch the scene again. */
   terminate(): Promise<void>;
@@ -42,10 +43,11 @@ export async function openScene(module: URL): Promise<SceneHandle> {
 
 function sceneHandle(id: string): SceneHandle {
   return {
-    async sibling() { return sceneHandle(await commands.offlineScene({ op: "sibling", id }) as string); },
+    async sibling(copySession) { return sceneHandle(await commands.offlineScene({ op: "sibling", id, copySession }) as string); },
     async call<T>(action: string, ...args: unknown[]) {
       return (await commands.offlineScene({ op: "call", id, action, args })) as T;
     },
+    async viewport(width, height) { await commands.offlineScene({ op: "viewport", id, width, height }); },
     async reload() {
       await commands.offlineScene({ op: "reload", id });
     },

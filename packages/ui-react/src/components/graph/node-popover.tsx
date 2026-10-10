@@ -1,5 +1,5 @@
 import type { GraphNodePayload } from "@schlessera/brain-ui-sdk/protocol";
-import { communityColor } from "./lib/graph-helpers.js";
+import { communityColor } from "../../lib/graph-helpers.js";
 import { NodeCard } from "./node-card.js";
 import { useGraphTheme } from "./use-graph-theme.js";
 import { useNodeActions } from "./use-node-actions.js";

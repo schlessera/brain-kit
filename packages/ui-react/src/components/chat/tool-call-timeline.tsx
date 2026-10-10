@@ -1,29 +1,27 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useState, useEffect, useRef, type KeyboardEvent } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Check,
   X,
   Layers,
   ChevronDown,
   ChevronRight,
-  AlertTriangle,
   FileText,
 } from "lucide-react";
-import { type ToolSemantics } from "@schlessera/brain-ui-sdk/client";
-import { awaitsDecision, offersAlwaysAllow, useChatStore, type ToolCall } from "../../stores/chat-store.js";
+import { awaitsDecision, useChatStore, type ToolCall } from "../../stores/chat-store.js";
 import { restoredApprovalWord } from "../../lib/restored-approvals.js";
 import { cn } from "../../lib/utils.js";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { effectOf, getToolLabel, getTouchedFile, formatDuration, formatTokenCount } from "./tool-views.js";
+import { getToolLabel, getTouchedFile, formatTokenCount } from "./tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { registerBuiltinRenderers, GENERIC_RENDERER } from "./renderers/index.js";
-import { riskHints } from "./risk-hints.js";
+import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { useShallow } from "zustand/react/shallow";
-import { focusAfterDecision, singleKey } from "../../lib/single-key.js";
-import { KeyCap } from "../layout/key-cap.js";
+import { ToolPermissionCard } from "./tool-permission-card.js";
+import { ToolRendererBoundary } from "./tool-renderer-boundary.js";
 import { useActivityStore, spanForTool, childSpans } from "../../stores/activity-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useNow } from "../../hooks/use-now.js";
-import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { SpanStatusDot } from "../activity/span-bits.js";
 import { CopyButton, EnclosingCopyControl } from "./copy-button.js";
 
@@ -158,8 +156,15 @@ function TimelineSummaryRow({
   const files = new Set(
     toolCalls
       .map(
-        (t) =>
-          root.renderers.resolve(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t)
+        (t) => {
+          // Outside any row boundary: a throwing renderer must not take the
+          // summary row down with it.
+          try {
+            return root.renderers.resolve(t, backendId)?.touchedFile?.(t) ?? getTouchedFile(t);
+          } catch {
+            return getTouchedFile(t);
+          }
+        }
       )
       .filter(Boolean)
   ).size;
@@ -193,76 +198,20 @@ function TimelineSummaryRow({
   );
 }
 
-function ToolCallEntry({
-  toolCall,
-  backendId,
-  onApproval,
-}: {
+type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
   onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
-}) {
-  const root = useBrainUiRoot();
+};
+
+function ToolCallEntry(props: EntryProps) {
+  const { toolCall } = props;
+  // Above the boundary: a caught throw remounts the row, and the row a user
+  // just opened should stay open in its generic view.
   const [expanded, setExpanded] = useState(
     toolCall.status === "pending_approval"
   );
   const prevStatus = useRef(toolCall.status);
-  // One clock for live and reloaded views: when the activity stream carries
-  // this call's span, its server-stamped timing wins over the client stamps
-  // (which don't exist at all for history-loaded messages). Selecting the
-  // span itself (a stable reference) rather than a derived timing object
-  // keeps every other entry from re-rendering on every activity delta.
-  const span = useActivityStore((s) => spanForTool(s, toolCall.id));
-  const timed: ToolCall = span
-    ? {
-        ...toolCall,
-        startedAt: span.waitUntil ?? span.startedAt,
-        ...(span.endedAt !== undefined ? { endedAt: span.endedAt } : {}),
-      }
-    : toolCall;
-  // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
-  // shape-sniffing predicate). Falls back to the generic renderer.
-  const renderer = root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
-  const Icon = renderer.icon ?? FileText;
-  const label =
-    typeof renderer.label === "function"
-      ? renderer.label(toolCall)
-      : renderer.label ?? getToolLabel(toolCall.name);
-  const isPending = awaitsDecision(toolCall);
-  const reducedMotion = useReducedMotion();
-  // A visible permission control must stay put during a native touch (#1217).
-  // Height animation moves its target even when React keeps the same node.
-  const animateDetails = !isPending && !reducedMotion;
-  // A restored card the host no longer lists as pending (#1072, D52 §4 R3):
-  // read-only, with the host fact that closed it. Nothing on it can reply.
-  const closed = toolCall.restored ? toolCall.readOnly : undefined;
-  const closedWord = restoredApprovalWord(closed);
-  const keys = useUIStore((s) => s.singleKeyShortcuts);
-  // The caps are printed only while a fine pointer is present (#86); the letters
-  // themselves follow the Settings switch alone, so a paired keyboard works
-  // even if the pointer query stays coarse.
-  const finePointer = useFinePointer();
-  const printKeys = keys && finePointer;
-  /**
-   * A decision hands focus on before the card goes (D36): the next pending
-   * approval in the transcript, else the composer — the thing the reader
-   * continues with, since a chat has no empty-state heading to land on.
-   */
-  function decide(card: HTMLElement | null, approved: boolean, always?: boolean) {
-    if (card) focusAfterDecision(card, "[data-approval-card]", "textarea[data-composer]");
-    onApproval(toolCall.id, approved, always);
-  }
-  function onCardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!keys) return;
-    const key = singleKey(event);
-    if (key !== "a" && key !== "d") return;
-    event.preventDefault();
-    decide(event.currentTarget, key === "a");
-  }
-  const summary = renderer.summary?.(timed) ?? null;
-  const meta = renderer.meta?.(timed) ?? null;
-  const Input = renderer.Input;
-  const Output = renderer.Output;
 
   useEffect(() => {
     if (
@@ -278,6 +227,61 @@ function ToolCallEntry({
     }
     prevStatus.current = toolCall.status;
   }, [toolCall.status]);
+
+  return (
+    <ToolRendererBoundary toolCall={toolCall}>
+      {(failed) => (
+        <ToolCallEntryView {...props} fallback={failed} expanded={expanded} setExpanded={setExpanded} />
+      )}
+    </ToolRendererBoundary>
+  );
+}
+
+function ToolCallEntryView({
+  toolCall,
+  backendId,
+  onApproval,
+  fallback,
+  expanded,
+  setExpanded,
+}: EntryProps & { fallback: boolean; expanded: boolean; setExpanded: (expanded: boolean) => void }) {
+  const root = useBrainUiRoot();
+  // One clock for live and reloaded views: when the activity stream carries
+  // this call's span, its server-stamped timing wins over the client stamps
+  // (which don't exist at all for history-loaded messages). Selecting the
+  // span itself (a stable reference) rather than a derived timing object
+  // keeps every other entry from re-rendering on every activity delta.
+  const span = useActivityStore((s) => spanForTool(s, toolCall.id));
+  const timed: ToolCall = span
+    ? {
+        ...toolCall,
+        startedAt: span.waitUntil ?? span.startedAt,
+        ...(span.endedAt !== undefined ? { endedAt: span.endedAt } : {}),
+      }
+    : toolCall;
+  // Resolve the renderer for this tool (backend-scoped exact -> global exact ->
+  // shape-sniffing predicate). Falls back to the generic renderer.
+  const renderer: ToolRenderer = fallback
+    ? GENERIC_RENDERER
+    : root.renderers.resolve(toolCall, backendId) ?? GENERIC_RENDERER;
+  const Icon = renderer.icon ?? FileText;
+  const label =
+    typeof renderer.label === "function"
+      ? renderer.label(toolCall)
+      : renderer.label ?? getToolLabel(toolCall.name);
+  const isPending = awaitsDecision(toolCall);
+  const reducedMotion = useReducedMotion();
+  // A visible permission control must stay put during a native touch (#1217).
+  // Height animation moves its target even when React keeps the same node.
+  const animateDetails = !isPending && !reducedMotion;
+  // A restored card the host no longer lists as pending (#1072, D52 §4 R3):
+  // read-only, with the host fact that closed it. Nothing on it can reply.
+  const closed = toolCall.restored ? toolCall.readOnly : undefined;
+  const closedWord = restoredApprovalWord(closed);
+  const summary = renderer.summary?.(timed) ?? null;
+  const meta = renderer.meta?.(timed) ?? null;
+  const Input = renderer.Input;
+  const Output = renderer.Output;
 
   return (
     <div className="relative">
@@ -375,69 +379,14 @@ function ToolCallEntry({
           >
             <div
               className={cn(
-                "mt-1 rounded-lg p-3 space-y-2",
-                isPending
-                  ? "border-2 border-primary/40 bg-primary-fill/5"
-                  : "border border-border-subtle bg-surface"
+                "mt-1 space-y-2",
+                !isPending && "rounded-lg p-3 border border-border-subtle bg-surface"
               )}
             >
               {/* Tool input */}
-              {Input && <Input tool={toolCall} />}
+              {!isPending && Input && <Input tool={toolCall} />}
 
-              {/* What a confirmed command will do, in words (#112) */}
-              {isPending && effectOf(toolCall) && (
-                <p className="text-[11px] text-muted-foreground">{effectOf(toolCall)}</p>
-              )}
-
-              {/* Risk hints — advisory only, never blocks approval */}
-              {isPending && (
-                <RiskHints toolCall={toolCall} semantics={renderer.semantics} />
-              )}
-
-              {/* Approval buttons. "Always allow" only for grantable tool
-                  requests — a destructive-command confirmation (kind
-                  "command") stays per-use, and a grant the host said it
-                  will not keep (#147) is not offered. */}
-              {isPending && (
-                // The card is the focus scope for `a` / `d` (D36): the keys
-                // act only while it, or a button inside it, holds focus, and
-                // they are printed on the buttons they belong to.
-                <div
-                  data-approval-card=""
-                  role="group"
-                  aria-label={`Approval: ${label}`}
-                  tabIndex={0}
-                  onKeyDown={onCardKeyDown}
-                  className="flex flex-wrap gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                >
-                  <button
-                    onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true)}
-                    className="flex items-center gap-1.5 rounded-lg bg-primary-fill px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110"
-                  >
-                    <Check className="h-3 w-3" />
-                    Allow
-                    {printKeys && <KeyCap>a</KeyCap>}
-                  </button>
-                  {offersAlwaysAllow(toolCall) && (
-                    <button
-                      onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), true, true)}
-                      title={`Allow ${toolCall.name} without asking from now on (revocable in Settings → Models)`}
-                      className="flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-fill/10"
-                    >
-                      <Check className="h-3 w-3" />
-                      Always allow
-                    </button>
-                  )}
-                  <button
-                    onClick={(e) => decide(e.currentTarget.closest("[data-approval-card]"), false)}
-                    className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive-fill/10"
-                  >
-                    <X className="h-3 w-3" />
-                    Deny
-                    {printKeys && <KeyCap>d</KeyCap>}
-                  </button>
-                </div>
-              )}
+              {isPending && <ToolPermissionCard toolCall={toolCall} backendId={backendId} onApproval={onApproval} renderer={fallback ? GENERIC_RENDERER : undefined} />}
 
               {/* Tool output */}
               {toolCall.output && Output && (
@@ -494,27 +443,6 @@ function SubagentEntryRows({ agentToolUseId }: { agentToolUseId: string }) {
       </span>
       <ChevronRight className="h-3 w-3 shrink-0" />
     </button>
-  );
-}
-
-function RiskHints({
-  toolCall,
-  semantics,
-}: {
-  toolCall: ToolCall;
-  semantics?: ToolSemantics;
-}) {
-  const hints = riskHints(toolCall, semantics);
-  if (hints.length === 0) return null;
-  return (
-    <div className="space-y-0.5 text-[11px] text-primary">
-      {hints.map((hint) => (
-        <div key={hint} className="flex items-center gap-1.5">
-          <AlertTriangle className="h-3 w-3 shrink-0" />
-          <span>{hint}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 

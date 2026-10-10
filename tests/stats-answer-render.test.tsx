@@ -20,7 +20,7 @@ import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TOKENS } from "@schlessera/brain-ui-kit/internal";
 
-import { composeStatsAnswer, type StatsInput } from "../packages/ui-react/src/components/chat/stats/compose-stats.ts";
+import { composeStatsAnswer, type StatsInput } from "../packages/ui-react/src/lib/stats/compose-stats.ts";
 import { StatsAnswer } from "../packages/ui-react/src/components/chat/stats/stats-answer.tsx";
 import { actionableTrends, corpusStats, runtimeStats } from "../packages/ui-react/tests/stats-fixtures.ts";
 

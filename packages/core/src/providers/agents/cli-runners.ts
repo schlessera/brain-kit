@@ -37,6 +37,8 @@ const SETTINGS_REQUEST_ID = "brain-settings";
 /** Everything after the command, which `claudeCommand()` decides per run. */
 const CLAUDE_BASE_ARGS = [
   "--print",
+  "--permission-mode",
+  "default",
   "--allowed-tools",
   "Bash,Edit,Write,Read,Glob,Grep",
 ];

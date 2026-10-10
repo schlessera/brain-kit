@@ -164,6 +164,7 @@ type Fixture = {
   reviewText(): string;
   review(text: string): void;
   resume(sessionId: string): void;
+  restoring(): Promise<void>;
   snapshotNow(): Promise<Outcome>;
   editAndSnapshot(text: string): Promise<Outcome>;
   read(accountKey: string, key: string): Promise<Outcome>;
@@ -205,6 +206,8 @@ async function ready(page: Page) {
 
 /** Everything changed so far has been written, and committed. */
 async function committed(page: Page) {
+  // An idle write queue can precede the initial asynchronous account binding (#1324).
+  await fixture(page, f => f.restoring());
   await until(page, "f.status() && !f.status().pending");
   const result = await fixture(page, (f) => f.snapshotNow());
   expect(result).toEqual({ ok: true, value: undefined });
@@ -222,41 +225,31 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
   async function armHold(page: Page, outcome: "release" | "abort") {
     await page.evaluate((outcome) => {
       const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void } };
-      const transaction = IDBDatabase.prototype.transaction;
       const put = IDBObjectStore.prototype.put;
       const held: IDBTransaction[] = [];
       let done = false;
       w.__hold = { held: 0, puts: 0, finish: () => {} };
-      IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
-        const tx = transaction.apply(this, args);
-        const names = ([] as string[]).concat(args[0] as string | string[]);
-        if (done || args[1] !== "readwrite" || !names.includes("records")) return tx;
-        const store = tx.objectStore("records");
-        // Keep the transaction alive through the native writer-fence read,
-        // whose success callback now queues the actual snapshot writes.
-        // Once those writes appear, hold them until the test releases them.
-        let initialReads = 2;
-        const spin = () => {
-          if (!done && (initialReads-- > 0 || held.includes(tx))) {
-            store.get(["held", "held"]).onsuccess = spin;
-          }
-        };
-        spin();
-        return tx;
-      };
       IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...a: Parameters<IDBObjectStore["put"]>) {
-        const key = a[1];
-        if (Array.isArray(key) && String(key[1]).startsWith("root:")) {
-          if (!held.includes(this.transaction)) held.push(this.transaction);
-          w.__hold.held = held.length;
-        }
         const req = put.apply(this, a);
-        if (held.includes(this.transaction)) req.addEventListener("success", () => { w.__hold.puts++; });
+        const key = a[1];
+        if (this.name === "records" && Array.isArray(key) && String(key[1]).startsWith("root:")) {
+          if (!held.includes(this.transaction)) {
+            held.push(this.transaction);
+            w.__hold.held = held.length;
+            // Start at the actual write's success, regardless of how many
+            // native fence/planner reads preceded it. Each next read keeps
+            // this transaction alive until explicit release or abort.
+            req.addEventListener("success", () => {
+              const spin = () => { if (!done) this.get(key).onsuccess = spin; };
+              spin();
+            });
+          }
+          req.addEventListener("success", () => { w.__hold.puts++; });
+        }
         return req;
       };
       w.__hold.finish = () => {
         done = true;
-        IDBDatabase.prototype.transaction = transaction;
         IDBObjectStore.prototype.put = put;
         if (outcome === "abort") for (const tx of held) tx.abort();
       };
@@ -515,4 +508,69 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    expect(await page.getByText("ithaca.gpx",{exact:true}).count(),"restored track chip visible").toBe(1);
   } finally {await context.close();}
  },120_000);
+});
+
+
+describe.skipIf(!executablePath)("auth-expiry snapshot startup (#1324)", () => {
+  test("commit measurement waits for native account restoration", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    let completion: Promise<void> | undefined;
+    let result: "ok" | "error" | undefined;
+    try {
+      await stopHost(host); host = await startHost("ithaca-restoration-measurement.db");
+      await signIn(page);
+      await page.addInitScript(() => {
+        const original = IDBObjectStore.prototype.getAll;
+        const held = { started: false, reserved: false, restoreEntered: 0, snapshotCalls: 0, release: () => {} };
+        Object.assign(window, { __accountRestoreHold: held });
+        IDBObjectStore.prototype.getAll = function (...args: Parameters<typeof original>) {
+          const request = Reflect.apply(original, this, args) as IDBRequest;
+          const query = args[0];
+          const lower = query instanceof IDBKeyRange ? query.lower : query;
+          if (!held.reserved && this.name === "records" && Array.isArray(lower) &&
+              String(lower[0]).startsWith("account:") && String(lower[1]).includes("odysseus-auth-expiry")) {
+            held.reserved = true;
+            request.addEventListener("success", event => {
+              event.stopImmediatePropagation();
+              held.started = true;
+              let released = false;
+              held.release = () => {
+                IDBObjectStore.prototype.getAll = original;
+                if (!released) { released = true; request.onsuccess?.call(request, event); }
+              };
+            }, { once: true });
+          }
+          return request;
+        };
+      });
+      await page.goto(origin);
+      await until(page, "f.connected() && f.accountKey() !== null");
+      await page.waitForFunction(() => (window as unknown as { __accountRestoreHold: { started: boolean } }).__accountRestoreHold.started);
+      await page.evaluate(() => {
+        const hold = (window as unknown as { __accountRestoreHold: { restoreEntered: number; snapshotCalls: number } }).__accountRestoreHold;
+        const f = (window as unknown as { __local: Fixture }).__local;
+        const restoring = f.restoring; const snapshot = f.snapshotNow;
+        f.restoring = () => { hold.restoreEntered++; return restoring(); };
+        f.snapshotNow = () => { hold.snapshotCalls++; return snapshot(); };
+      });
+      expect(await fixture(page, f => f.snapshotNow()), "the real snapshot still refuses before the account is bound")
+        .toEqual({ ok: false, error: "PartitionRefusedError" });
+      completion = committed(page).then(() => { result = "ok"; }, () => { result = "error"; });
+      await page.waitForFunction(() => {
+        const h = (window as unknown as { __accountRestoreHold: { restoreEntered: number; snapshotCalls: number } }).__accountRestoreHold;
+        return h.restoreEntered > 0 || h.snapshotCalls > 1;
+      });
+      const calls = await page.evaluate(() => (window as unknown as { __accountRestoreHold: { snapshotCalls: number } }).__accountRestoreHold.snapshotCalls);
+      expect(calls, "commit measurement must not dispatch a snapshot before native account restoration").toBe(1);
+      expect(result, "measurement remains pending while the actual restoration read is held").toBeUndefined();
+      await page.evaluate(() => (window as unknown as { __accountRestoreHold: { release(): void } }).__accountRestoreHold.release());
+      await completion;
+      expect(result, "restoration release permits the original committed snapshot").toBe("ok");
+    } finally {
+      await page.evaluate(() => (window as unknown as { __accountRestoreHold?: { release(): void } }).__accountRestoreHold?.release()).catch(() => {});
+      await completion;
+      await context.close();
+    }
+  }, 30_000);
 });

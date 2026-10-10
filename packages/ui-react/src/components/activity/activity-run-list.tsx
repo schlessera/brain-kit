@@ -4,7 +4,8 @@ import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/pr
 import type { ActivityRunSummary } from "../../lib/api-client.js";
 import { useNow } from "../../hooks/use-now.js";
 import { useActivityStore } from "../../stores/activity-store.js";
-import { formatDuration, formatRelativeTime } from "../chat/tool-views.js";
+import { formatRelativeTime } from "../chat/tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { HistoryRow, LiveRunCard, toolState } from "./activity-views.js";
 import { runCostText, spanToolLabel } from "./span-bits.js";
 import { ReportButton, reportButtonName } from "./activity-report.js";

@@ -81,7 +81,7 @@
  * That pair of numbers is what the keep-or-retire decision rests on.
  */
 
-import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -143,7 +143,10 @@ const MODEL = "claude-sonnet-5-5";
  * reader's deployment does.
  */
 function stageBrain(): string {
-  const dir = join(mkdtempSync(join(tmpdir(), "show-block-brain-")), "brain");
+  const scratch = mkdtempSync(join(tmpdir(), "show-block-brain-"));
+  const dir = join(scratch, "brain");
+  // This cached module shares its cwd across turns and test files (#1330).
+  process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
   cpSync(
     new URL("../packages/core/fixtures/corpus/", import.meta.url).pathname,
     dir,

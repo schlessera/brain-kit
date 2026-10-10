@@ -5,6 +5,7 @@
 
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { BrainUiRoot } from "../root.js";
+import type { DictationFailure } from "./dictation-failure.js";
 import type { VoiceState } from "./voice-state.js";
 
 type VoiceStore = BrainUiRoot["stores"]["voice"];
@@ -13,7 +14,7 @@ type VoiceStore = BrainUiRoot["stores"]["voice"];
  * One dictation a `useDictation` hook started, on the root it started it
  * on, with the client capturing it once one exists.
  */
-export type Capture = { root: object; client: AsrClient | null };
+export type Capture = { root: object; client: AsrClient | null; failure?: DictationFailure };
 
 /**
  * The dictation each root's voice store is showing, by the capture that
@@ -50,7 +51,7 @@ export function live(capture: Capture): boolean {
 export function endDictation(
   voice: VoiceStore,
   commitToReview: boolean,
-  also: Partial<Pick<VoiceState, "draining">> = {},
+  also: Partial<Pick<VoiceState, "draining" | "dictationNotice">> = {},
 ): boolean {
   const { finalText, partial, reviewText, draining } = voice.getState();
   if (draining && also.draining !== false) {
@@ -80,5 +81,8 @@ export function providerEnded(stores: BrainUiRoot["stores"], client: AsrClient):
   const capture = owners.get(stores);
   if (!capture || capture.client !== client || stopping.has(capture)) return;
   release(capture);
-  endDictation(stores.voice, true);
+  const { finalText, partial } = stores.voice.getState();
+  endDictation(stores.voice, true, capture.failure ? {
+    dictationNotice: { reason: capture.failure, phase: "ended", retained: Boolean([finalText, partial].join(" ").trim()) },
+  } : {});
 }

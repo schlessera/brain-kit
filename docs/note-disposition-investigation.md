@@ -208,6 +208,12 @@ page on 2026-10-07: JEV costs $0.042 per million input tokens; Sonnet 5.5 costs
 $2 input/$10 output per million tokens, with $0.20 cache reads and $2.50/$4
 five-minute/one-hour cache writes. Recorded charges are derived from actual
 provider-reported usage at these published prices; no invoice is observed.
+Correction, 2026-10-10: Anthropic's pricing pages now agree that Sonnet 5.5
+cache reads cost $0.10 per million (0.05x input). On 2026-10-07 the model table
+showed $0.20 while the caching section said $0.10 (#1239). The stored amounts
+here used $0.20, overstating the cache-read component by half its value; they
+are kept unchanged as historical diagnostics. The live helpers now read the
+shared, dated rates (`SONNET55_USD_PER_MTOK`, `scripts/measure-sonnet55-cost.ts:14`).
 Missing usage stays unknown. The instrument sets no cache-control hints and
 retains every reported cache counter; repeated requests do not imply a warm
 cache. Revalidate availability and prices when resuming the comparison.

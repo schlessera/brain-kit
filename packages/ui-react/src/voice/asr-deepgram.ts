@@ -5,6 +5,7 @@
 // this client just opens the socket and emits partial + final transcript
 // events. Implements the @schlessera/brain-ui-sdk AsrClient surface.
 
+import { speechError } from "./dictation-failure.js";
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { AsrEvent } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -90,7 +91,7 @@ export class DeepgramClient implements AsrClient {
     };
 
     this.ws.onerror = () => {
-      this.opts.onError?.(new Error("Deepgram socket error"));
+      this.opts.onError?.(speechError("Deepgram socket error", "network"));
     };
 
     this.ws.onclose = () => {

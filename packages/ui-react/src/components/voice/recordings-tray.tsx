@@ -1,3 +1,4 @@
+import { followDraftTarget } from "../../lib/draft-target.js";
 import { AssociateRecordings } from "./associate-recordings.js";
 import type { BrainUiRoot } from "../../root.js";
 import { Fragment, useEffect, useId, useRef, useState, useCallback, type RefObject } from "react";
@@ -184,6 +185,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
     const sessionId = chat.activeSessionId;
     const version = editVersion.current;
     const authEpoch = root.authLock.epoch();
+    const target = followDraftTarget(root.stores.drafts, draftId, sessionId);
     void run(async () => {
       try {
         if (authEpoch !== root.authLock.epoch() || root.authLock.state.getState().phase !== "active") throw new Error(ACCEPT_FAILED);
@@ -197,11 +199,12 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
           if (editVersion.current === version) { dirty.current = false; if (mounted.current) setSaveError(""); }
           if (mounted.current) setSavedVersion(version);
         }
-        await recordings.accept(row.partition, row.id, draftId, sessionId, text);
+        const owner = target.current();
+        await recordings.accept(row.partition, row.id, owner.draftId, owner.sessionId, text);
       }
       catch (error) { throw new Error(error instanceof Error && (error.message === TRANSCRIPT_CHANGED || error.message === RECORDING_UNAVAILABLE) ? error.message : ACCEPT_FAILED); }
       onAccepted();
-    });
+    }).finally(target.dispose);
   };
   const retry = row.transcription?.status === "failed" && row.transcription.failure?.retryable && row.transcription.retryCount < 3 ? row.transcription.attemptId : undefined;
   const terminal = !!row.transcription && (row.transcription.status === "outcome_unknown" || row.transcription.status === "consumed" || row.transcription.status === "failed" && !retry);

@@ -1,20 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "../src/stores/chat-store";
-import {
-  getToolSummary,
-  getOutputMeta,
-  getTouchedFile,
-  toRepoRelative,
-  fenceFor,
-  countLines,
-  formatDuration,
-  safeSearchRegex,
-  splitMatches,
-  splitGrepRow,
-  parseWebSearchResults,
-  computeDiffRows,
-  diffText,
-} from "../src/components/chat/tool-views";
+import { getToolSummary, getOutputMeta, getTouchedFile, toRepoRelative, fenceFor, countLines, safeSearchRegex, splitMatches, splitGrepRow, parseWebSearchResults, computeDiffRows, diffText } from "../src/components/chat/tool-views";
+import { formatDuration } from "../src/lib/duration.js";
 
 // Minimal ToolCall factory — only the fields the pure helpers read.
 function tc(partial: Partial<ToolCall> & { name: string }): ToolCall {
