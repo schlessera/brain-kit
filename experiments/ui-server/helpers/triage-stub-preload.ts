@@ -4,7 +4,7 @@
  * loop, scorer, persistence, exit code — with no provider behind it. Every
  * other import resolves normally.
  *
- *   bun --preload tests/helpers/triage-stub-preload.ts evals/triage/run.ts
+ *   bun --preload experiments/ui-server/helpers/triage-stub-preload.ts packages/ui-server/evals/triage/run.ts
  */
 import { plugin } from "bun";
 

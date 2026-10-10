@@ -121,8 +121,9 @@ From the repository root:
 
 ```sh
 bun scripts/evals/job-fit/run.ts
-bun run test tests/job-fit-eval.test.ts tests/job-fit-semantic.test.ts \
-  tests/job-fit-accounting.test.ts tests/job-fit-review.test.ts
+bun run test experiments/job-fit-eval.test.ts experiments/job-fit-semantic.test.ts \
+  experiments/job-fit-accounting.test.ts experiments/job-fit-review.test.ts \
+  tests/job-ingest-scoring.test.ts
 ```
 
 The draft set contains 18 fictional Odysseus-world postings: three tuning cases

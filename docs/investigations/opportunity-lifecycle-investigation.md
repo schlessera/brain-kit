@@ -109,7 +109,7 @@ The tests establish the stated fixture controls, not unattended production safet
 With Bun 1.3.14 and a frozen dependency install:
 
 ```sh
-bun run test tests/opportunity-lifecycle-eval.test.ts
+bun run test experiments/opportunity-lifecycle-eval.test.ts
 bun scripts/evals/opportunity-lifecycle/run.ts --repeat 5
 ```
 

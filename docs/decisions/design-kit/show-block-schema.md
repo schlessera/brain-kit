@@ -33,6 +33,11 @@ array or a `properties` map never does), and **irreducible** shape, which is
 what the other two leave. `tests/attribute-show-block-schema.test.ts` pins the
 counting rules against columns worked out by hand.
 
+> **2026-10-10 — Implementation context (the attribution test above).**
+> `tests/attribute-show-block-schema.test.ts` moved to
+> `experiments/attribute-show-block-schema.test.ts`, the experiment tier run before
+> each release ([#1386](https://github.com/schlessera/brain-kit/issues/1386)). It pins the same counting rules.
+
 **How the token figures are estimated, and how far to trust them.** They are
 characters times a rate, given as a range. The rate comes from D44's five
 counted rows, each set against the characters that tool carried at D44's

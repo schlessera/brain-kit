@@ -95,7 +95,7 @@ cross-file transaction and cannot guarantee against a subsequent concurrent edit
 ## Keyless controls and limitations
 
 ```sh
-bun run test tests/canonical-conflict-eval.test.ts
+bun run test experiments/canonical-conflict-eval.test.ts tests/hygiene-failed-check-retention.test.ts
 bun scripts/evals/canonical-conflicts/run.ts
 ```
 

@@ -215,6 +215,15 @@ the reason it stays.
 | `scripts/evals/candidate-extraction/README.md` | eval documentation | listed by `prepare.ts`; describes the eval in place | retain |
 | `packages/ui-server/evals/triage/experiment/results/2026-10-09-answers.json` | executable input | `packages/ui-server/evals/triage/experiment/calibrate.ts` recomputes the calibration from it offline | retain |
 
+> **2026-10-10 — Implementation context (the consumers named above).** The
+> harness tests this table names as consumers moved from `tests/` to
+> `experiments/`, the experiment tier run before each release ([#1386](https://github.com/schlessera/brain-kit/issues/1386)):
+> `experiments/turn-surface-fixture-live.test.ts`, `experiments/turn-surface-routing.test.ts`,
+> `experiments/pi-schema-measurement.test.ts` and `experiments/opportunity-lifecycle-eval.test.ts`.
+> `tests/audit-fix.test.ts` stays in product proof. Every retained file keeps
+> its path, and the tests reference it from the new root; the eval source in
+> the next table is likewise imported mostly from `experiments/*.test.ts` now.
+
 Executable eval source is not measurement output. These 226 files are imported
 by `tests/*.test.ts` or run as eval entry points, and all of them stay:
 

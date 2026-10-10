@@ -62,6 +62,7 @@ const SCANNED = [
   "packages/*/scripts/**/*.{ts,tsx,js,mjs,cjs}",
   "scripts/**/*.{ts,tsx,js,mjs,cjs}",
   "tests/**/*.{ts,tsx,js,mjs,cjs}",
+  "experiments/**/*.{ts,tsx,js,mjs,cjs}",
 ];
 
 export interface Finding {

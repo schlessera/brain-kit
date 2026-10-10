@@ -80,7 +80,7 @@ from an assertion that a particular audit finding will disappear.
 Run with a frozen dependency install and Bun 1.3.14:
 
 ```sh
-bun run test tests/audit-capability-eval.test.ts
+bun run test experiments/audit-capability-eval.test.ts tests/audit-shipped-capabilities.test.ts
 bun scripts/evals/audit-capabilities/run.ts
 ```
 

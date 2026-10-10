@@ -32,3 +32,7 @@ Committed evidence manifests and review packets retain their original source
 paths and hashes. Resolve those historical identities at their recorded commit;
 the current reports live here. Active evaluation tooling uses the new paths, so
 a new source freeze reflects the relocation rather than rewriting old receipts.
+The harness tests these reports run moved from `tests/` to the experiment tier
+under `experiments/` in [#1386](https://github.com/schlessera/brain-kit/issues/1386);
+the reproduction commands name their current paths, plus the product test that
+now holds any shipped-behaviour assertion split out of a harness file.

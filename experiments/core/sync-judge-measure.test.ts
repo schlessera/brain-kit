@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { loadFileSet, loadPairSet, main, type FileCase, type PairCase } from "../../../scripts/measure-sync-judge";
-import type { JevAnswers, JevChoiceQuestion, JevRequest } from "../src/lib/jev";
-import type { JevLike } from "../src/lib/sync/judge";
-import type { FileDecision, PairDecision } from "../src/lib/sync/types";
+import { loadFileSet, loadPairSet, main, type FileCase, type PairCase } from "../../scripts/measure-sync-judge";
+import type { JevAnswers, JevChoiceQuestion, JevRequest } from "../../packages/core/src/lib/jev";
+import type { JevLike } from "../../packages/core/src/lib/sync/judge";
+import type { FileDecision, PairDecision } from "../../packages/core/src/lib/sync/types";
 
 // `scripts/measure-sync-judge.ts` needs a key to measure anything real; these
 // drive it with fake clients whose answers are known, so the numbers it

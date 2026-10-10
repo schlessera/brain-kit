@@ -8,9 +8,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { ITEMS } from "../evals/triage/dataset.ts";
+import { ITEMS } from "../../packages/ui-server/evals/triage/dataset.ts";
 
-const RUN = resolve(import.meta.dir, "../evals/triage/run.ts");
+const RUN = resolve(import.meta.dir, "../../packages/ui-server/evals/triage/run.ts");
 const PRELOAD = resolve(import.meta.dir, "./helpers/triage-stub-preload.ts");
 
 let directory: string;
@@ -299,7 +299,7 @@ describe("eval:triage exit code is documented where the script is", () => {
 
   test("the package.json script entry says what each code means", () => {
     const manifest = JSON.parse(
-      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")
+      readFileSync(resolve(import.meta.dir, "../../packages/ui-server/package.json"), "utf8")
     ) as { scripts: Record<string, string> };
     const note = manifest.scripts["// eval:triage"];
     expect(note).toBeString();
@@ -307,7 +307,7 @@ describe("eval:triage exit code is documented where the script is", () => {
   });
 
   test("the harness README has an exit-code section covering every code", () => {
-    const readme = readFileSync(resolve(import.meta.dir, "../evals/triage/README.md"), "utf8");
+    const readme = readFileSync(resolve(import.meta.dir, "../../packages/ui-server/evals/triage/README.md"), "utf8");
     const section = readme.split("## Exit code")[1];
     expect(section).toBeString();
     for (const code of codes) expect(section!.split("## ")[0]).toContain(`| ${code} |`);

@@ -121,7 +121,7 @@ timeout and candidate misses retain raw evidence for agent fallback/clarificatio
 
 ```sh
 bun scripts/evals/candidate-extraction/run.ts
-bun run test tests/candidate-extraction-eval.test.ts packages/module-jobs/tests/jobs-salary.test.ts packages/core/tests/jev-client.test.ts
+bun run test experiments/candidate-extraction-eval.test.ts tests/jev-research-outcomes.test.ts packages/module-jobs/tests/jobs-salary.test.ts packages/core/tests/jev-client.test.ts
 ```
 
 The committed `scripts/evals/candidate-extraction/keyless-report.json` captures

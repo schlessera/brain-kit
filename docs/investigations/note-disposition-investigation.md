@@ -48,7 +48,7 @@ this experiment; ingestion/archive/search tests protect their own boundaries.
 Run from a frozen dependency install with Bun 1.3.14:
 
 ```sh
-bun run test tests/note-disposition-eval.test.ts
+bun run test experiments/note-disposition-eval.test.ts tests/process-command-proposals.test.ts
 bun scripts/evals/note-disposition/run.ts
 ```
 
@@ -233,7 +233,7 @@ as well as exact golden agreement before any adoption conclusion.
 Keyless controls run with:
 
 ```sh
-bun run test tests/note-disposition-live.test.ts tests/note-disposition-eval.test.ts
+bun run test experiments/note-disposition-live.test.ts experiments/note-disposition-eval.test.ts tests/process-command-proposals.test.ts
 ```
 
 The live entry point is deliberately excluded from ordinary tests:
