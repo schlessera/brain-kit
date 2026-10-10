@@ -132,7 +132,10 @@ isolated workspace. The local preview still builds the workspace UI for
 development. They confirm the six consumed
 packages are published on npm at the tag's exact version. The runtime uses that
 tag's source, including its production renderer; it never falls back to newer
-main UI code. Both website and product commits, tag/version, npm integrity
+main UI code. The one exception is data: the fictional fixture library
+(`packages/ui-kit/fixtures/library/`) travels with the website sources, so the
+demo can show it before a release. A release older than the native
+supporting-files block shows a scene's files as a wiki-link list instead. Both website and product commits, tag/version, npm integrity
 receipts, recipe fingerprints and asset hashes are recorded in the public
 build manifest and export provenance. This is a tagged-source rebuild, not a
 measurement of installed npm tarballs.

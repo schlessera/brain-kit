@@ -11,12 +11,14 @@ import { goal, projects } from '../../../packages/ui-kit/fixtures/projects.ts';
 import { sceneIndex, type SceneId } from './scene-index.ts';
 import { BLOCK_SCHEMA, type Block } from '../../../packages/ui-sdk/src/tool-contracts/blocks.ts';
 
-export interface SceneContent { text: string; blocks: Block[] }
+// Typed here, not from `Block`: an older release's block union has no `files`.
+type FilesBlock = { kind: 'files'; items: { path: string; reason?: string }[] };
+export interface SceneContent { text: string; blocks: (Block | FilesBlock)[] }
 
 const byPath = new Map(library.map(record => [record.path, record]));
 const link = (path: string) => `[[${path.replace(/\.md$/, '')}]]`;
 const day = (record: LibraryDocument) => Number(record.fields?.day ?? record.path.match(/day-(\d+)/)?.[1]);
-const files = (records: LibraryDocument[]): Block => ({ kind: 'files', items: records.slice(0, 8).map(record => ({ path: record.path, reason: record.summary.slice(0, 240) })) });
+const files = (records: LibraryDocument[]): FilesBlock => ({ kind: 'files', items: records.slice(0, 8).map(record => ({ path: record.path, reason: record.summary.slice(0, 240) })) });
 function need(path: string) {
   const record = byPath.get(path);
   if (!record) throw Error(`Scene names a record the library does not hold: ${path}`);
@@ -97,5 +99,12 @@ export const scenes: Record<SceneId, SceneContent> = {
 // answer link cannot reach the build.
 const known = new Set([...library, ...notes, ...people, ...projects, goal].map(record => record.path));
 for (const scene of Object.values(scenes)) for (const [, slug] of scene.text.matchAll(/\[\[([^\]]+)\]\]/g)) if (!known.has(`${slug}.md`)) throw Error(`Scene links a missing record: ${slug}`);
+// A release older than the native supporting-files block publishes the same
+// files as the Markdown wiki-link list it renders, as `corpusBlocks` does.
+for (const scene of Object.values(scenes)) {
+  const unsupported = scene.blocks.filter(value => value.kind === 'files' && !BLOCK_SCHEMA.safeParse(value).success) as FilesBlock[];
+  scene.blocks = scene.blocks.filter(value => !unsupported.includes(value as never));
+  for (const value of unsupported) scene.text += `\n\n${value.items.map(item => `- [[${item.path.replace(/\.md$/, '')}]]${item.reason ? ` — ${item.reason}` : ''}`).join('\n')}`;
+}
 for (const [id, scene] of Object.entries(scenes)) for (const value of scene.blocks) if (!BLOCK_SCHEMA.safeParse(value).success) throw Error(`Scene ${id} shows a block the product would refuse: ${value.kind}`);
 for (const id of Object.keys(sceneIndex)) if (!(id in scenes)) throw Error(`Scene ${id} has no prepared answer`);
