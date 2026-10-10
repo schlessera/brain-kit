@@ -649,24 +649,6 @@ a.bk-plink:focus-visible {
   }
 }
 
-/* Native modal owns the keyboard trap; the kit draws the review sheet. */
-.turn-diagnostic-dialog {
-  box-sizing: border-box;
-  width: min(520px, 100vw);
-  max-width: 100vw;
-  max-height: 90dvh;
-  padding: 0;
-  border: 0;
-  border-radius: 26px;
-  background: var(--bk-color-surface);
-  color: var(--bk-color-ink);
-  overflow-y: auto;
-}
-.turn-diagnostic-dialog::backdrop { background: color-mix(in srgb, var(--bk-color-canvas) 80%, transparent); }
-@media (max-width: 479px) {
-  .turn-diagnostic-dialog { margin: auto 0 0; border-radius: 26px 26px 0 0; }
-}
-
 /* D52 N3: the headings a press of the current destination may focus. They
  * are script-only stops (`tabIndex=-1`), so they draw the kit's 2px ink ring
  * only when the browser judges focus visible, inset like a full-width row,
@@ -701,24 +683,7 @@ a.bk-plink:focus-visible {
 [data-chat-code] pre .hljs-quote { color: var(--bk-color-ink-mute); font-style: italic; }
 [data-chat-code] pre .hljs-deletion { color: var(--bk-red-ink); }
 
-/* One decision surface: bottom sheet on phones, centered dialog on desktop. */
-.local-work-dialog {
-  border: 0;
-  padding: 0;
-  color: var(--bk-color-ink);
-  background: transparent;
-  max-width: min(560px, 100vw);
-  width: 100%;
-  max-height: 85dvh;
-  overflow-y: auto;
-  margin: auto;
-}
-.local-work-dialog::backdrop { background: color-mix(in srgb, var(--bk-color-canvas) 80%, transparent); }
-@media (width < 900px) {
-  .local-work-dialog { margin: auto 0 0; max-width: 100vw; }
-}
-
-.local-work-dialog [role="checkbox"] { min-height: 44px; min-width: 44px; }
+[data-local-work-dialog] [role="checkbox"] { min-height: 44px; min-width: 44px; }
 
 /* App panels assemble full-height content; their children own content gutters.
  * The palette's kit box likewise owns its padding (D54 preserves its pixels). */

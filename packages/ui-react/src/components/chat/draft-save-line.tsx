@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BottomSheet, Button, TextButton } from "@schlessera/brain-ui-kit";
+import { Overlay, Button, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
@@ -96,7 +96,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
       ) : (
         <span className={tone}>{view.copy}</span>
       )}
-      {comparing && draft?.conflict ? <CompareDrafts draftId={draftId} onClose={() => { setComparing(false); compareRef.current?.focus(); }} /> : null}
+      {comparing && draft?.conflict ? <CompareDrafts draftId={draftId} onClose={() => setComparing(false)} returnFocus={() => compareRef.current} /> : null}
     </div>
   );
 }
@@ -120,18 +120,10 @@ function clock(ms: number): string {
  * each with its edit time. Keep both turns the other version into an
  * unbound Draft entry. There is no automatic or model merge.
  */
-export function CompareDrafts({ draftId, onClose }: { draftId: string; onClose: () => void }) {
+export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: string; onClose: () => void; returnFocus?: () => HTMLElement | null }) {
   const root = useBrainUiRoot();
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
-  const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    const node = dialog.current!;
-    if (typeof node.showModal === "function") node.showModal();
-    else node.setAttribute("open", "");
-    heading.current?.focus();
-    return () => { node.close?.(); };
-  }, []);
   if (!draft?.conflict) return null;
   const other = draft.conflict.other;
   const choose = (choice: DraftConflictChoice) => {
@@ -140,28 +132,25 @@ export function CompareDrafts({ draftId, onClose }: { draftId: string; onClose: 
   };
   const images = (n: number) => (n > 0 ? ` · ${n} image${n === 1 ? "" : "s"}` : "");
   return createPortal(
-    <dialog ref={dialog} aria-label="Compare drafts" className="turn-diagnostic-dialog" data-compare-drafts=""
-      onCancel={(e) => { e.preventDefault(); onClose(); }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <Overlay open variant="dialog" size="lg" title="Compare drafts" data-compare-drafts=""
+      initialFocus={heading} onClose={onClose} returnFocus={returnFocus}>
       <h2 ref={heading} tabIndex={-1} className="bk-sr-only">Compare drafts</h2>
-      <BottomSheet title="Compare drafts" icon="scope">
-        <section className="mb-3" data-compare-side="this">
-          <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clock(draft.editedAt)}{images(draft.attachments.length)}</div>
-          <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{draft.text || "(images only)"}</p>
-          <Thumbs urls={draft.attachments.map((a) => a.previewUrl)} names={draft.attachments.map((a) => a.name)} />
-        </section>
-        <section className="mb-4" data-compare-side="other">
-          <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clock(other.updatedAt)}{images(other.attachments.length)}</div>
-          <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{other.text || "(images only)"}</p>
-          <Thumbs urls={other.attachments.map((a) => `data:${a.mime};base64,${a.bytes}`)} names={other.attachments.map((a) => a.name ?? "image")} />
-        </section>
-        <div className="flex flex-wrap gap-2 pb-2">
-          <Button label="Keep this device's" tone="primary" size="md" block={false} onClick={() => choose("mine")} />
-          <Button label="Keep other's" tone="ghost" size="md" block={false} onClick={() => choose("other")} />
-          <Button label="Keep both" tone="ghost" size="md" block={false} onClick={() => choose("both")} />
-        </div>
-      </BottomSheet>
-    </dialog>,
+      <section className="mb-3" data-compare-side="this">
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">This device · edited {clock(draft.editedAt)}{images(draft.attachments.length)}</div>
+        <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{draft.text || "(images only)"}</p>
+        <Thumbs urls={draft.attachments.map((a) => a.previewUrl)} names={draft.attachments.map((a) => a.name)} />
+      </section>
+      <section className="mb-4" data-compare-side="other">
+        <div className="font-mono text-[10.5px] uppercase tracking-wide text-muted-foreground">Other device · edited {clock(other.updatedAt)}{images(other.attachments.length)}</div>
+        <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm text-foreground">{other.text || "(images only)"}</p>
+        <Thumbs urls={other.attachments.map((a) => `data:${a.mime};base64,${a.bytes}`)} names={other.attachments.map((a) => a.name ?? "image")} />
+      </section>
+      <div className="flex flex-wrap gap-2 pb-2">
+        <Button label="Keep this device's" tone="primary" size="md" block={false} onClick={() => choose("mine")} />
+        <Button label="Keep other's" tone="ghost" size="md" block={false} onClick={() => choose("other")} />
+        <Button label="Keep both" tone="ghost" size="md" block={false} onClick={() => choose("both")} />
+      </div>
+    </Overlay>,
     document.body,
   );
 }
