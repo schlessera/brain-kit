@@ -1,4 +1,9 @@
-# brain-kit
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="packages/ui-kit/assets/brand/lockup-on-dark.svg">
+    <img src="packages/ui-kit/assets/brand/lockup-on-paper.svg" alt="brain-kit" height="64">
+  </picture>
+</h1>
 
 > This is an early work-in-progress and not officially launched yet. Expect an announcement soon.
 
