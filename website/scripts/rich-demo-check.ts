@@ -109,7 +109,8 @@ export async function verifyRichDemo(page: Page, origin: string, base: string, c
   assert(new TextDecoder().decode(await download('Share', 'Share as .md file', '.md')).includes('title: "The suitors, by island"'));
   await demo.getByRole('button', { name: 'Share', exact: true }).last().click();
   await demo.getByRole('menuitem', { name: /^Share as image/ }).click();
-  await demo.waitForFunction(() => [...document.querySelectorAll('button[title]')].some(button => (button as HTMLButtonElement).title.includes('Share this one as Markdown or text')));
+  // The error is the share control's title: on its button in older releases, on its wrapper since the kit-button move.
+  await demo.waitForFunction(() => [...document.querySelectorAll('[title]')].some(element => (element as HTMLElement).title.includes('Share this one as Markdown or text')));
 
   await openFile('voyage/ogygia/departure-plan.png');
   const image = demo.locator('img[alt="voyage/ogygia/departure-plan.png"]');
