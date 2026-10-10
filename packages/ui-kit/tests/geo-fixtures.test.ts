@@ -361,11 +361,13 @@ describe("the licence obligations are met", () => {
 
   test("the fixtures are not published, so the npm package stays pure MIT", () => {
     // The whole licence position rests on this: a Derivative Database carries
-    // share-alike, and `packages/ui-kit` ships `src`, `dist` and the README.
-    // Asserted rather than trusted, because `files` is one line in a manifest
-    // and adding `fixtures` to it would relicense the tarball silently.
+    // share-alike, and `packages/ui-kit` ships `src`, `dist`, the logo files in
+    // `assets` (#1424, held to the accepted masters by brand-assets.test.ts)
+    // and the README. Asserted rather than trusted, because `files` is one line
+    // in a manifest and adding `fixtures` to it would relicense the tarball
+    // silently.
     const manifest = JSON.parse(readFileSync(join(KIT, "package.json"), "utf8")) as { files: string[] };
-    expect(manifest.files).toEqual(["src", "dist", "README.md"]);
+    expect(manifest.files).toEqual(["src", "dist", "assets", "README.md"]);
     expect(manifest.files).not.toContain("fixtures");
   });
 

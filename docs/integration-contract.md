@@ -336,6 +336,31 @@ two apps in one process keep separate wrappers. A configuration without
 Neither ever spawns unwrapped because the field is absent. A relative wrapper
 path now refuses at `resolveServerConfig()` instead of failing each spawn.
 
+## Logo assets (additive, #1424, #1425)
+
+`@schlessera/brain-ui-kit` exports `BrandMark` (`variant?: "mark" | "lockup"`,
+`size?: number`, `label?: string`), which renders the accepted logo (#1423)
+inline with the theme's ink and amber tokens. Below 24px the mark uses the
+small-size master; without a `label` it is `aria-hidden`, with one it is
+`role="img"` with that name. No prop changes the artwork.
+
+The new React-free `@schlessera/brain-ui-kit/brand` entry exports
+`BRAND_MASTERS`, the file names of the fourteen master SVGs, and
+`BRAND_ASSET_SPECIFIER`. Each listed file resolves as
+`@schlessera/brain-ui-kit/brand/<file>` through the `./brand/*` export, which
+maps to the published `assets/brand/` directory. A listed file's name and
+presence are the promise; its bytes change only with a newly accepted design.
+
+The entry also exports `BRAND_RASTERS`, the files rendered from those masters:
+`favicon.ico` (16, 32 and 48px PNG images), `apple-touch-icon.png` (180px,
+opaque), `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (512px, the
+mark inside the central 80% circle) and `social-card.png` (1200x630).
+`WEB_APP_MANIFEST_ICONS` is a web app manifest's `icons` array over them
+(`src`, `sizes`, `type: "image/png"`, `purpose: "any" | "maskable"`),
+`WEB_APP_COLORS` its `theme_color` and `background_color` (`#0c1417`), and
+`HTML_ICON_LINKS` the head `<link>`s (`rel`, `href`, optional `type` and
+`sizes`). Every `src` and `href` is a bare brand file name.
+
 ## Consumers
 
 | Consumer | Surfaces used |

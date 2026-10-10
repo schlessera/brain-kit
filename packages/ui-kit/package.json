@@ -32,6 +32,12 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./brand": {
+      "bun": "./src/brand.ts",
+      "types": "./dist/brand.d.ts",
+      "default": "./dist/brand.js"
+    },
+    "./brand/*": "./assets/brand/*",
     "./links": {
       "bun": "./src/links.ts",
       "types": "./dist/links.d.ts",
@@ -57,6 +63,7 @@
   "files": [
     "src",
     "dist",
+    "assets",
     "README.md"
   ],
   "scripts": {
@@ -65,7 +72,8 @@
     "build-storybook": "storybook build",
     "test-storybook": "vitest --project=storybook",
     "test-storybook:ci": "vitest run --project=storybook",
-    "prepublishOnly": "bun ../../scripts/check-dist.ts"
+    "prepublishOnly": "bun ../../scripts/check-dist.ts",
+    "brand:generate": "bun tools/brand/generate.ts"
   },
   "dependencies": {
     "lucide-react": "^0.460",
@@ -76,6 +84,7 @@
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@schlessera/brain-ui-sdk": "workspace:*",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/addon-docs": "10.6.0",

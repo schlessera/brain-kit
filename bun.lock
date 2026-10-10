@@ -282,6 +282,7 @@
         "lucide-react": "^0.460",
       },
       "devDependencies": {
+        "@resvg/resvg-js": "2.6.2",
         "@schlessera/brain-ui-sdk": "workspace:*",
         "@storybook/addon-a11y": "10.6.0",
         "@storybook/addon-docs": "10.6.0",
