@@ -20,8 +20,11 @@ export async function* protectedReviewPrompt(handle:Promise<any>,payload:string,
  if(!subscriptionVerdict(init.account).ok || settingsRefusal(settings)){receipt.failure="Protected preprompt account/settings refusal";save();controller.abort();throw Error(receipt.failure);}
  beforeRelease?.();receipt.promptReleased=true;save();yield {type:"user" as const,parent_tool_use_id:null,message:{role:"user" as const,content:payload},session_id:""};
 }
-/** Same guard executes at entry, prompt release and the actual relay's before-forward boundary. */
-export function createReviewAdmission(input:{frozen:ReturnType<typeof runtimeFreeze>;payload:string;proofSha:string;detectedSha:string;policy:RootPaidPolicy;onClaim?:(claim:{bytes:string;sha:string})=>void},budget=paidReservation(input.policy)) {
+/** Same guard executes at entry, prompt release and the actual relay's before-forward boundary.
+ * `detectionDay` defaults to the frozen live DETECTION_DAY; only the offline collector binds its own collection day.
+ * `now` is a local clock for this guard only; the native child and the runtime keep the real clock. */
+export function createReviewAdmission(input:{frozen:ReturnType<typeof runtimeFreeze>;payload:string;proofSha:string;detectedSha:string;policy:RootPaidPolicy;onClaim?:(claim:{bytes:string;sha:string})=>void;detectionDay?:string;now?:()=>Date},budget=paidReservation(input.policy)) {
+ const detectionDay=input.detectionDay??DETECTION_DAY,now=input.now??(()=>new Date());
  const f=input.frozen,runtime={sdk:f.binaries.claude.sdkVersion,nativeSha:f.binaries.claude.sha256,nativeMode:f.binaries.claude.mode,bunSha:f.binaries.bun.sha256,bunVersion:f.binaries.bun.version,bunMode:f.binaries.bun.mode};
  let claim:ReturnType<typeof claimPaidGrant>|undefined;
  function consume(){assertBindings();if(!claim){claim=claimPaidGrant(input.policy);input.onClaim?.(claim);}return claim;}
@@ -32,12 +35,14 @@ export function createReviewAdmission(input:{frozen:ReturnType<typeof runtimeFre
  return {assertBindings,consume,beforeForward(request:Record<string,any>,bytes:number){assertBindings();
  const texts=(request.messages??[]).filter((m:any)=>m.role==="user").flatMap((m:any)=>typeof m.content==="string"?[m.content]:Array.isArray(m.content)?m.content.filter((b:any)=>b.type==="text").map((b:any)=>b.text):[]);
  if(request.messages?.filter((m:any)=>m.role==="user").length!==1 || texts.length!==1 || !texts.every((s:any)=>typeof s==="string"&&sha(s)===input.policy.promptSha) || request.messages.some((m:any)=>m.role==="user"&&Array.isArray(m.content)&&m.content.some((b:any)=>b.type!=="text")) || (request.tools!==undefined && (!Array.isArray(request.tools)||request.tools.length!==0)) || request.output_config?.effort!=="low")throw Error("Actual physical prompt/tools/effort differs from approved review");
- if(new Date().toISOString().slice(0,10)!==DETECTION_DAY)throw Error("Actual detection day changed");consume();budget.beforeForward(request,bytes);
+ const actualDay=now().toISOString().slice(0,10);if(actualDay!==detectionDay)throw Error(`Actual detection day ${actualDay} differs from bound ${detectionDay}`);consume();budget.beforeForward(request,bytes);
  },snapshot:budget.snapshot,afterPhysical:budget.afterPhysical};
 }
 export async function collectReviewArtifacts(options: {directory:string;payload:string;frozen:ReturnType<typeof runtimeFreeze>;
  token:string;proofSha?:string;detectedSha?:string;proofRaw?:string;detectedRaw?:string;packetKey?:string;kind:"offline-native-scripted"|"subscription-native-direct";fetch:typeof fetch;paidPolicy?:RootPaidPolicy;deadlineMs?:number;offlineInvalidArgument?:boolean}) {
  const {directory,payload,frozen}=options;
+ // Live review stays bound to the frozen DETECTION_DAY; the synthetic offline control has no frozen proof, so it binds the day it was collected.
+ const detectionDay=options.kind==="offline-native-scripted"?new Date().toISOString().slice(0,10):DETECTION_DAY;
  const actualSdk=frozen.binaries.claude.sdkVersion,actualCli=frozen.binaries.claude.cliVersion;
  const pair=(actualSdk==="0.3.283"&&actualCli==="2.1.283")||(options.kind==="offline-native-scripted"&&actualSdk==="0.3.293"&&actualCli==="2.1.293");
  if(Bun.version!=="1.4.2" || !pair)throw Error("Require explicit native283 live or283/293 offline pair and Bun142");
@@ -64,7 +69,7 @@ export async function collectReviewArtifacts(options: {directory:string;payload:
    const rebuilt=buildReviewPacket(frozen,options.detectedRaw,options.proofRaw,options.packetKey);
    if(rebuilt.payload!==payload)throw Error("Collector prompt is not freshly rebuilt exact packet");
   }
-  admission=createReviewAdmission({frozen,payload,proofSha,detectedSha,policy:options.paidPolicy,onClaim:claim=>{writeFileSync(join(directory,"grant.json"),claim.bytes,{mode:0o600});grantSha=claim.sha;}},budget);admission.assertBindings();
+  admission=createReviewAdmission({frozen,payload,proofSha,detectedSha,policy:options.paidPolicy,detectionDay,onClaim:claim=>{writeFileSync(join(directory,"grant.json"),claim.bytes,{mode:0o600});grantSha=claim.sha;}},budget);admission.assertBindings();
  }
 
  const relay=startRelay({oauthToken:options.token,fetch:options.fetch,save:c=>{writeFileSync(join(directory,"physical.json"),JSON.stringify(c,null,2),{mode:0o600});const last=c.at(-1);if(last?.finished && last.forwarded)budget.afterPhysical(last);if(last?.finished && !["completed","local-connectivity-control"].includes(last.outcome))controller.abort();},
