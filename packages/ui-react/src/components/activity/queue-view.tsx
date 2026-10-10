@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { InboxActionItem, InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
-import { QueueItemRow, Receipt } from "@schlessera/brain-ui-kit";
+import { IconButton, QueueItemRow, Receipt } from "@schlessera/brain-ui-kit";
 
 import { useInboxStore } from "../../stores/inbox-store.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
@@ -84,9 +84,7 @@ export function QueueView({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-queue-view="">
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md px-1.5 text-muted-foreground hover:text-foreground" aria-label="Back to Actions">
-          ‹
-        </button>
+        <IconButton size="md" name="Back to Actions" icon="back" onClick={onBack} />
         <h1 className="text-sm font-medium outline-none" tabIndex={-1} data-queue-heading="" data-destination-heading="">Queue</h1>
         <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">{total} items</span>
       </div>
@@ -128,9 +126,9 @@ export function QueueItemReceipt({ item, onBack }: { item: InboxQueueItem; onBac
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-queue-receipt="">
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md px-1.5 text-muted-foreground hover:text-foreground laptop:hidden" aria-label="Back to Queue">
-          ‹
-        </button>
+        <span className="laptop:hidden">
+          <IconButton size="md" name="Back to Queue" icon="back" onClick={onBack} />
+        </span>
         <h1 className="min-w-0 flex-1 break-words text-sm font-medium" tabIndex={-1} data-destination-heading="">{queueSubject(item)}</h1>
       </div>
       <div className="p-4">
