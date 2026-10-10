@@ -23,10 +23,10 @@
  *
  * ## Why `.mjs` when every other script in this repo is TypeScript run by bun
  *
- * The Playwright image has node and no bun, and putting bun into it on every
- * run would make the image's own pin a lie about what produced the pixels. This
- * file is the one place in the repo that has to run under both, so it is plain
- * node ESM that bun also runs unchanged.
+ * The pinned Playwright image supplies Node and Chromium. Local proof mounts
+ * the installed Bun for native server fixtures; CI installs its declared Bun
+ * version. This orchestration runs under Node in both environments, so it is
+ * plain node ESM that Bun also runs unchanged.
  *
  * Usage:
  *   node scripts/visual.mjs                    # all ten kit projects, in the container

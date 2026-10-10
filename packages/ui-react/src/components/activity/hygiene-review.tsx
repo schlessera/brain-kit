@@ -206,11 +206,26 @@ export function HygieneReviewStrip({
   const dismissedErrors = Object.values(items).filter(
     (i) => i.queue === "actions" && i.status === "dismissed" && i.hygiene?.finding.severity === "error"
   ).length;
+  const snoozeReceipt = Object.entries(outcomes)
+    .filter(
+      ([id, outcome]) =>
+        (items[id] as InboxActionItem | undefined)?.hygiene &&
+        outcome.kind === "receipt" &&
+        outcome.status === "snoozed"
+    )
+    .at(-1);
+  const snoozeTime = snoozeReceipt ? (items[snoozeReceipt[0]] as InboxActionItem | undefined)?.waitUntil : undefined;
   const blocker = r.blocker;
   return (
     <div data-hygiene-review="" className="flex flex-col gap-3">
       {showStart && (r.status === "idle" || r.status === "complete") ? (
         <TextButton label="Start hygiene review" disabled={c.loading} onClick={() => void c.command("start")} />
+      ) : null}
+      {snoozeTime !== undefined ? (
+        <div data-hygiene-snooze-receipt="">
+          <Callout tone="neutral" text={`Snoozed · back ${formatWhen(snoozeTime)}`} />
+          <TextButton label={`Later · ${snoozed.length}`} onClick={() => setLaterOpen(true)} />
+        </div>
       ) : null}
       {foreign ? <Callout tone="neutral" text="Resolved on another device" /> : null}
       {c.error ? (

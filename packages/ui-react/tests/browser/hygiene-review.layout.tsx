@@ -172,7 +172,9 @@ for (const theme of ["dark", "light"])
         }>;
       };
       const node = ax.nodes.find((n) => n.role?.value === "textbox" && n.name?.value === "created (YYYY-MM-DD)")!;
-      expect(node.description?.value, "field error is in Chromium accessibility tree").toBe("Use YYYY-MM-DD, for example 2026-07-12.");
+      expect(node.description?.value, "field error is in Chromium accessibility tree").toBe(
+        "Use YYYY-MM-DD, for example 2026-07-12."
+      );
       const error = current().querySelector("input")!.getAttribute("aria-describedby");
       expect(document.getElementById(error!)?.textContent).toBe("Use YYYY-MM-DD, for example 2026-07-12.");
       const disabledApply = ax.nodes.find((n) => n.role?.value === "button" && n.name?.value === "Apply fix")!;
@@ -329,9 +331,10 @@ test("the palette Run group starts or resumes the same hygiene review", async ()
   ui!.stores.connection.setState({ wsStatus: "connected" } as never);
   ui!.stores.ui.getState().setPaletteOpen(true);
   await page.getByRole("combobox", { name: "Search places, questions and commands" }).fill("Start hygiene review");
+  expect(ui!.stores.inbox.getState().online, "review palette uses the connected durable inbox").toBe(true);
   await page
     .getByRole("group", { name: "Run", exact: true })
-    .getByRole("option", { name: "Start hygiene review", exact: true })
+    .getByRole("option", { name: /^Start hygiene review/ })
     .click();
   await expect.poll(() => host!.querySelector("[data-hygiene-strip]")?.textContent).toContain("1 of 2 open");
   expect(current().dataset.hygieneId).toBe(id);
@@ -345,4 +348,22 @@ test("a multiline change must be fully revealed before Apply can submit", async 
   expect(frames.filter((f) => f.type === "inbox_resolve")).toHaveLength(0);
   await page.getByRole("button", { name: /^Show all 21 lines/ }).click();
   expect(applyButton.element().getAttribute("aria-disabled")).not.toBe("true");
+});
+
+test("Later confirms the stored hygiene option and prints the server's waitUntil receipt", async () => {
+  await scene();
+  const id = current().dataset.hygieneId!;
+  await page.getByRole("button", { name: "Later ▾", exact: true }).click();
+  expect(frames.filter((f) => f.type === "inbox_resolve")).toHaveLength(0);
+  await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
+  await expect
+    .poll(() => host!.querySelector("[data-hygiene-snooze-receipt]")?.textContent)
+    .toContain("Snoozed · back");
+  const item = ui!.stores.inbox.getState().items[id];
+  expect(item?.status).toBe("snoozed");
+  expect(item?.waitUntil).toBeGreaterThan(Date.UTC(2026, 6, 12, 9));
+  expect(frames.filter((f) => f.type === "inbox_resolve")).toMatchObject([
+    { type: "inbox_resolve", itemId: id, optionId: "later" },
+  ]);
+  expect(host!.querySelector("[data-hygiene-snooze-receipt]")?.textContent).toContain("Jul");
 });
