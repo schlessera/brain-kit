@@ -656,7 +656,9 @@ and return an MCP error in Claude.
 
 Every executor rechecks the durable principal and current turn. Interactive
 reads use the authenticated UI's scope; autonomous reads are restricted to the
-server-selected origin thread and cannot widen it with a tool argument.
+server-selected origin thread from the admitted budget item and cannot widen
+it with a tool argument. An activity-linked item sharing a run ID cannot
+select the origin or grant read scope.
 `inbox_add` reuses compensated CLI intake for authenticated interactive
 origins, and refuses an untrusted origin thread. Its key is scoped to principal
 and turn: retries with identical text return the same item; different text

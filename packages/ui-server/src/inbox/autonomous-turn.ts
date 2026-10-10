@@ -101,6 +101,13 @@ async function executeAutonomousTurn(
   lifetime: ReturnType<typeof acquireInboxRunLifetime>,
 ): Promise<AutonomousTurnResult> {
   const principalId = input.principalId;
+  // Activity-linked items may share a run id. Only the admitted budget item
+  // selects the origin; a model-authored record is never a scope grant.
+  const origin = deps.db.query(`SELECT i.thread_id FROM inbox_budget_reservations r
+    JOIN inbox_items i ON i.id = r.item_id WHERE r.run_id = ? AND r.principal_id = ?
+    AND r.status = 'active' AND r.runtime_acquired_at IS NOT NULL AND i.deleted_at IS NULL`)
+    .get(input.turnId, principalId) as { thread_id: string } | null;
+  if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   const recorder = createTurnRecorder(deps, { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
@@ -183,8 +190,6 @@ async function executeAutonomousTurn(
       controller.abort();
     }
   };
-  const origin = deps.db.query("SELECT thread_id FROM inbox_items WHERE run_id = ? AND deleted_at IS NULL").get(input.turnId) as { thread_id: string } | null;
-  if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   const intake = createInboxIntake(deps.db, deps.brainPath ?? process.cwd());
   const inbox = createInboxBridgeTools(deps.db, intake, createInboxResolver(deps.db, { allowedOperations: () => [] })).forTurn({
     principalId, turnId: input.turnId, origin: { threadId: origin.thread_id }, membership: "restricted",
