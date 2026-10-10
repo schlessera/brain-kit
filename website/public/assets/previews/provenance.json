@@ -1,38 +1,38 @@
 {
-  "sourceSha": "7e398dc207f2c4725f6c364331c3cd5d3112954d",
+  "sourceSha": "6a9a70bb131aa234f0eedb7613cead735283ccd0",
   "brainKit": {
     "mode": "workspace",
     "version": "0.40.0",
-    "sourceSha": "7e398dc207f2c4725f6c364331c3cd5d3112954d",
+    "sourceSha": "6a9a70bb131aa234f0eedb7613cead735283ccd0",
     "tag": null,
     "registry": {}
   },
-  "recipeHash": "2e58a093ca2409d64e74e39857e54971ab08505fae26566c399b589df4671c98",
+  "recipeHash": "961b7b8e63b4d092a435e137cf0dbcdc4d42964f115addc48801565e889fae31",
   "browser": "140.0.7339.127",
   "assets": {
     "hero-decision-paper.png": {
       "scene": "rank",
       "width": 390,
       "height": 844,
-      "sha256": "78d34558ea6a5386b7bd5e365b519c381fd45005e1cca515133ecb14a25d0523"
+      "sha256": "b10662e08913140fb3a2e04392e2c7eac21508e547b34a874c852e62761da060"
     },
     "hero-plan-dark.png": {
       "scene": "rich",
       "width": 390,
       "height": 844,
-      "sha256": "7eb311ecc021d3998c9ff40ade61c4530c98003850b2dab3ea2ba8af84624bf7"
+      "sha256": "92670960da399546e264fa6feedcc3b2ad41d79c705b5e4300997beac9279a5e"
     },
     "demo-work-desktop-paper.png": {
       "scene": "work",
       "width": 1100,
       "height": 760,
-      "sha256": "0255007dfd7582eeadc133733eeef2cf68778fff458ea1137362a1a13e63f115"
+      "sha256": "0ae9b3e6b6d4c6a0402aed329f2427da5e4a1e492fe88667aade93957f220de2"
     },
     "actual-voice-light-390.png": {
       "scene": "voice",
       "width": 390,
       "height": 660,
-      "sha256": "2cf629c65424fd8bd299aebabd0094dcd4b37d7530bf0633b7fd75cceeec6104"
+      "sha256": "57a47110d42cf99c8e69a08bdcf4f55c4e410a53fb36ed9032cfdeb12d7e7ad9"
     }
   }
 }

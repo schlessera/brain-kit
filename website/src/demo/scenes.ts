@@ -18,7 +18,7 @@ export interface SceneContent { text: string; blocks: (Block | FilesBlock)[] }
 const byPath = new Map(library.map(record => [record.path, record]));
 const link = (path: string) => `[[${path.replace(/\.md$/, '')}]]`;
 const day = (record: LibraryDocument) => Number(record.fields?.day ?? record.path.match(/day-(\d+)/)?.[1]);
-const files = (records: LibraryDocument[]): FilesBlock => ({ kind: 'files', items: records.slice(0, 8).map(record => ({ path: record.path, reason: record.summary.slice(0, 240) })) });
+const files = (records: LibraryDocument[]): FilesBlock => ({ kind: 'files', items: records.slice(0, 8).map(record => ({ path: record.path, reason: (record.summary ?? record.title).slice(0, 240) })) });
 function need(path: string) {
   const record = byPath.get(path);
   if (!record) throw Error(`Scene names a record the library does not hold: ${path}`);
@@ -56,7 +56,7 @@ export const scenes: Record<SceneId, SceneContent> = {
   },
   voyage: {
     text: `${legs.length} legs from Troy to Ogygia, dated by days since Troy fell. The planned crossing to Scheria is not on this list because it has not happened. Start at ${link(legs[0].path)}.`,
-    blocks: [{ kind: 'timeline', items: legs.map(record => ({ time: `Day ${day(record)}`, title: record.title, detail: record.summary })) }],
+    blocks: [{ kind: 'timeline', items: legs.map(record => ({ time: `Day ${day(record)}`, title: record.title, detail: record.summary ?? '' })) }],
   },
   losses: {
     text: 'Six hundred embarked and six hundred were lost, at six places. Odysseus is the sole survivor. The loss records give each count with its cause.',
@@ -91,7 +91,7 @@ export const scenes: Record<SceneId, SceneContent> = {
   week: {
     text: `${week.length} journal entries since day 3645: the hawk, Hermes and the oath, the four days of the build, and the eagle. Read them in order from ${link(week[0].path)}.`,
     // A journal title is its day number, which the time column already shows.
-    blocks: [{ kind: 'timeline', items: week.map(record => ({ time: `Day ${day(record)}`, title: record.summary })) }],
+    blocks: [{ kind: 'timeline', items: week.map(record => ({ time: `Day ${day(record)}`, title: record.summary ?? record.title })) }],
   },
 };
 
