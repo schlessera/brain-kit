@@ -16,7 +16,7 @@ nothing else does: no HTTP framework, no UI, no model vendor.
 @schlessera/brain-ui-sdk/sw-policy   → default service-worker route/cache policy
 ```
 
-Import the submodules explicitly — the root export carries the protocol only,
+Import the submodules explicitly — the root carries the protocol and `ENV_VARS` descriptors,
 so server bundles never touch client code (and the `react` peer dependency is
 only exercised by `./client`).
 
@@ -320,7 +320,7 @@ there is no operator switch that disables worker admission.
 
 | Variable | What it controls | Unset |
 | --- | --- | --- |
-| `BRAIN_WORKER_LAUNCH` | Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override. | **required** |
+| `BRAIN_WORKER_LAUNCH` | Internal server-to-bootstrap launch payload. The launcher supplies it in a cleared environment; it is not operator configuration or a gate override. | **required** — trusted worker bootstrap only |
 
 Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->

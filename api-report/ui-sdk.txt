@@ -123,6 +123,7 @@ export "." (./src/index.ts)
   type DraftSaveRequest
   type DraftSaveResponse
   type DraftSummary
+  ENV_VARS
   FILE_SIZE_CAP_BYTES
   FOLLOW_UP_QUEUE_CAPABILITY
   type FileContentKind
@@ -4894,10 +4895,19 @@ signatures (every public export and the types it is made of)
         preview: string;
         attachmentCount: number;
     }
+  ENV_VARS (packages/ui-sdk/src/config/env.ts)
+    const ENV_VARS: readonly EnvVarSpec[];
   EditedApprovalCheckInput (packages/ui-sdk/src/server/permission-gate.ts)
     export interface EditedApprovalCheckInput extends Omit<ToolPermissionDecisionInput, "input" | "allowedTools"> {
         originalInput: unknown;
         editedInput: unknown;
+    }
+  EnvVarSpec (packages/ui-sdk/src/config/env-core.ts)
+    export interface EnvVarSpec {
+        name: string;
+        description: string;
+        default?: string | null;
+        required: boolean | string;
     }
   ExecWrapperConfig (packages/ui-sdk/src/server/exec-wrapper.ts)
     export interface ExecWrapperConfig {
