@@ -1,5 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
-import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@schlessera/brain-ui-kit";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Share2, Loader2, Check, AlertCircle } from "lucide-react";
 import { cn } from "../../lib/utils.js";
 
@@ -114,19 +115,11 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
     );
 
   return (
-    <div ref={wrapperRef} className={cn("relative inline-flex", className)}>
+    <div ref={wrapperRef} className={cn("relative inline-flex", className)} title={error ?? undefined}>
       {renderTrigger ? (
         renderTrigger({ onClick: handleTrigger, busy: status === "busy", status, icon })
       ) : (
-        <button
-          onClick={handleTrigger}
-          disabled={status === "busy"}
-          title={error ?? title}
-          aria-label={title}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground disabled:opacity-50"
-        >
-          {icon}
-        </button>
+        <IconButton size="sm" name={title} glyph={icon} haspopup="menu" expanded={open} disabled={status === "busy"} onClick={handleTrigger} />
       )}
       {open && !single && (
         <div
@@ -135,10 +128,12 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
         >
           {options.map((opt) => (
             <button
+              // raw-button: row — two-line menu item with label and optional hint
               key={opt.id}
               role="menuitem"
               onClick={() => void runOption(opt)}
-              className="block w-full px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-raised"
+              style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties}
+              className="bk-row block w-full px-3 py-2 text-left text-xs text-foreground transition-colors"
             >
               <div className="font-medium">{opt.label}</div>
               {opt.hint && <div className="text-[10px] text-muted-foreground">{opt.hint}</div>}

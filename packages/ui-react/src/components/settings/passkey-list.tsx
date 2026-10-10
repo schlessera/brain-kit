@@ -1,5 +1,5 @@
-import { Button, Chip, Placeholder } from "@schlessera/brain-ui-kit";
-import { Check, Fingerprint, Pencil, Trash2, X } from "lucide-react";
+import { Button, Chip, IconButton, Placeholder } from "@schlessera/brain-ui-kit";
+import { Fingerprint, Pencil, Trash2, X } from "lucide-react";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import { useState } from "react";
 
@@ -15,8 +15,8 @@ import { useState } from "react";
  * possible here — server mode AND a browser that can do WebAuthn.
  *
  * The Add and Sign-out buttons are the kit's. The per-row rename and remove
- * controls stay native icon buttons: the kit has no icon-only button and a
- * `ListRow`'s trailing action is decorative. Rename state (which row is being
+ * controls use kit IconButton because ListRow's trailing action is
+ * decorative. Rename state (which row is being
  * edited, the draft) is the row's own and never leaves the view.
  */
 export type PasskeyStatus = "loading" | "ready" | "unavailable";
@@ -149,37 +149,16 @@ function PasskeyRow({
               }}
               className="w-full rounded border border-border-subtle bg-background px-2 py-0.5 text-sm text-foreground outline-none focus:border-primary"
             />
-            <button type="button" onClick={commit} title="Save" className="p-1 text-muted-foreground hover:text-foreground">
-              <Check className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={() => setEditing(false)} title="Cancel" className="p-1 text-muted-foreground hover:text-foreground">
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <IconButton size="sm" name="Save name" icon="confirm" onClick={commit} />
+            <IconButton size="sm" name="Cancel rename" glyph={<X />} onClick={() => setEditing(false)} />
           </span>
         ) : (
           <span className="flex-1 truncate text-sm text-foreground">{displayName}</span>
         )}
         {!editing && (
           <>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(credential.label);
-                setEditing(true);
-              }}
-              title="Rename"
-              className="p-1 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              title="Remove"
-              className="p-1 text-muted-foreground transition-colors hover:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <IconButton size="sm" name={`Rename ${displayName}`} glyph={<Pencil />} onClick={() => { setDraft(credential.label); setEditing(true); }} />
+            <IconButton size="sm" tone="danger" name={`Remove ${displayName}`} glyph={<Trash2 />} onClick={onDelete} />
           </>
         )}
       </div>

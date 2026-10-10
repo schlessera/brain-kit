@@ -1,5 +1,4 @@
 import { Button, Callout, Chip, Placeholder, Surface } from "@schlessera/brain-ui-kit";
-import { Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
 
 /**
@@ -11,8 +10,8 @@ import type { FormEvent } from "react";
  * A principal is a kit `Surface` — `strong` for this device, hairline for
  * the others — with its kind as a chip, its three timestamps as a
  * definition list (the tests read each value from its own term, so the
- * structure is the contract) and a native revoke button, titled and named
- * with the label because the kit has no icon-only button. The form's fields
+ * structure is the contract) and a kit danger Button named with the
+ * principal label. The form's fields
  * stay native; its submit is the kit `Button`, and ⏎ in a field submits the
  * form the same way.
  */
@@ -155,16 +154,7 @@ function PrincipalCard({ principal, onRevoke }: { principal: PrincipalRowData; o
               <dd>{principal.expires}</dd>
             </dl>
           </div>
-          <button
-            type="button"
-            onClick={onRevoke}
-            aria-label={`Revoke ${principal.label}`}
-            title="Revoke"
-            className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Revoke
-          </button>
+          <Button label="Revoke" ariaLabel={`Revoke ${principal.label}`} tone="danger" size="sm" block={false} style={{ minHeight: 44 }} onClick={onRevoke} />
         </div>
       </Surface>
     </li>
