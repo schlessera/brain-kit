@@ -292,7 +292,7 @@ describe("the CLI", () => {
     );
     await runCli(root, ["index", "--force", "--json"]);
     expect(JSON.parse((await runCli(root, ["stats", "--json"])).stdout).documents).toBe(docs);
-    for (const command of [["validate", "--json"], ["audit", "--json"], ["list", "--json", "--limit", "1000"]]) {
+    for (const command of [["validate", "--json"], ["audit", "--json"], ["list", "--json", "--limit", "100"]]) {
       const { stdout } = await runCli(root, command);
       expect(stdout.length, command.join(" ")).toBeGreaterThan(0);
       expect(stdout, command.join(" ")).not.toContain("stats-history");

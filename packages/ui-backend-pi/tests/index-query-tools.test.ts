@@ -142,7 +142,9 @@ describe("registered pi query tools match real core MCP on a populated CLI index
     const filters = [{}, { type: "project" }, { tag: "Ithaca" }, { status: "draft" }, { status: "archived" }, { relevance: "secondary" }, { type: "note", tag: "Ithaca", status: "active", relevance: "primary" }, { limit: 0 }, { limit: 1000 }];
     for (const args of filters) {
       const actual = await list(call, args);
-      const mcp = await client.callTool({ name: "brain_list", arguments: args });
+      // pi clamps its limit into 1..100; core MCP rejects one outside it (#1351).
+      const mcpArgs = args.limit === undefined ? args : { ...args, limit: Math.min(100, Math.max(1, args.limit)) };
+      const mcp = await client.callTool({ name: "brain_list", arguments: mcpArgs });
       expect(mcp.isError).toBeFalsy();
       expect(actual.length).toBeGreaterThan(0);
       expect(actual).toEqual((mcp.structuredContent as { documents: ListedDocument[] }).documents);
