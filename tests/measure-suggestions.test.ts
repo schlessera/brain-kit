@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHOW_BLOCK_DESCRIPTION } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import { keptSuggestions, endsWithQuestion } from "../packages/ui-react/src/lib/answer-suggestions.ts";
@@ -6,6 +8,8 @@ import type { ChatMessage } from "../packages/ui-react/src/stores/chat-state.ts"
 import { SUGGESTION_PROMPTS, observeSuggestions, suggestionDescription, suggestionReport, suggestionSummary, suggestionSchemaCost, answerEndsInQuestion, type SuggestionTurn } from "../scripts/measure-suggestions.ts";
 import type { JsonObject } from "../scripts/attribute-show-block-schema.ts";
 import { listedShowBlock } from "../scripts/show-block-schema-forms.ts";
+const temporaryBrains: string[] = [];
+afterEach(async () => { for (const brain of temporaryBrains.splice(0)) await rm(brain, { recursive: true, force: true }); });
 
 const input = (...labels: string[]) => ({ block: { kind: "suggestions", items: labels.map((label) => ({ label })) } });
 
@@ -174,12 +178,14 @@ test("the server instrument counts parsed top-level calls over a real socket", a
     }
     emit({ type: "result", sessionId, outcome: sessionId === "failed" ? "error" : "success", isError: sessionId === "failed", durationMs: 1, numTurns: 1 });
   } });
-  const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: "/tmp/fictional-brain", BRAIN_UI_COASTLINE: "0", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" });
+  const brain = await mkdtemp(join(tmpdir(), "odysseus-suggestions-"));
+  temporaryBrains.push(brain);
+  const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: brain, BRAIN_UI_COASTLINE: "0", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" });
   const app = await createApp({ config, dbPath: ":memory:", registry: createStaticBackendRegistry([backend], "fake"), observability: createRecordingObservability() });
   const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch, websocket: app.websocket });
   try {
     const url = `ws://127.0.0.1:${server.port}/ws`;
-    const complete = await runOnce(url, "fake", "/tmp/fictional-brain", "show_block", 0, 0, "Plan the shelf", "rule");
+    const complete = await runOnce(url, "fake", brain, "show_block", 0, 0, "Plan the shelf", "rule");
     expect(complete.completed).toBe(true);
     const versions = observedRuntimeVersions(app.db, complete.result?.sessionId);
     expect(versions).toEqual({ "fixture-runtime": "1.2.3", "fixture-sdk": "4.5.6" });
@@ -189,7 +195,7 @@ test("the server instrument counts parsed top-level calls over a real socket", a
     expect(observed.block.items).toHaveLength(2);
     expect(observed.dropped.map(({ reason }) => reason)).toEqual(["user-prompt", "filler"]);
     expect(complete.suggestionTurn?.answerParts).toEqual(["Measure the wall first."]);
-    const failed = await runOnce(url, "fake", "/tmp/fictional-brain", "show_block", 0, 1, "fail this turn", "rule");
+    const failed = await runOnce(url, "fake", brain, "show_block", 0, 1, "fail this turn", "rule");
     expect(failed.completed).toBe(false);
     expect(failed.suggestionTurn?.suggestions).toHaveLength(1);
     const [summary] = suggestionSummary([complete.suggestionTurn!, failed.suggestionTurn!]);

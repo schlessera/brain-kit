@@ -37,6 +37,7 @@ import type { WSContext } from "./clients.js";
 import type { ConnectionState } from "./dispatch.js";
 import type { WsHost } from "./host.js";
 import { handleChatMessage, resolveRunBilling } from "./run-session.js";
+import { requireWorkerHost } from "@schlessera/brain-ui-sdk/internal";
 
 /** The Activity name of the summary run on the source session. */
 export const HANDOFF_PREPARATION_RUN_NAME = "handoff preparation";
@@ -295,6 +296,7 @@ export async function prepareHandoff(
     if (backend.capabilities.autonomous !== true) {
       return answer({ state: "failed", message: `${backend.id} can't draft a summary on this server.` });
     }
+    requireWorkerHost(host.brainPath ?? process.cwd());
     let history: SessionHistoryMessage[];
     try {
       history = host.prepareHistory(msg.sourceSessionId, await backend.getHistory(msg.sourceSessionId));

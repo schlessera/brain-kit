@@ -9,6 +9,7 @@ import type {
   LocationFix,
 } from "@schlessera/brain-ui-sdk/server";
 import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
@@ -422,7 +423,9 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
   } else if (err instanceof BackendRequestError) {
     host.reportTurnFailed("BACKEND_REQUEST_ERROR", turn, err.message);
     host.sendToClients(
-      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message, ...correlation }, turn)
+      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message,
+        ...(err instanceof WorkerHostError ? { failure: { errorClass: err.errorClass, message: err.message } } : {}),
+        ...correlation }, turn)
     );
   } else {
     const message = err instanceof Error ? err.message : String(err);

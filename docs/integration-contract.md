@@ -2614,7 +2614,11 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
 - **`errorClass`** uses the Claude Agent SDK's class names
   (`authentication_failed`, `rate_limit`, `overloaded`, `invalid_request`,
   `model_not_found`, `server_error`, …), plus `subscription_required` for a
-  turn the backend refused before sending it. It is free-form, so a new value
+  turn the backend refused before sending it. `worker_host_unsupported` means
+  the host refused before runtime initialization because its required worker
+  boundary probe failed; the message names the requirement and the verified
+  Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
   unknown, not "no status". **`message`** is the runtime's own text.

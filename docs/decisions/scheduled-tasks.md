@@ -27,7 +27,7 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   A scripted nonempty ready-item test still reports no claim, attempt or
   Activity root. That proves disabled wiring, not safe execution of a schedule.
 - Headless plumbing checks backend support, a usable principal, lifetime and
-  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:54-75`).
+  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:57-87`).
   Capability flags and these checks do not prove credential/configuration,
   filesystem or egress containment at the actual backend boundary.
 - The generic core runner has a different interface
