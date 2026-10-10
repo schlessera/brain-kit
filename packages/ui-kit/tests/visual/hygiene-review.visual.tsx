@@ -1,6 +1,6 @@
 /// <reference types="@vitest/browser/matchers" />
 import { expect, test } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import * as cards from "../../stories/decisions/HygieneCard.stories.js";
 import * as ends from "../../stories/decisions/HygieneEnd.stories.js";
 import * as blockers from "../../stories/decisions/HygieneBlocker.stories.js";
@@ -38,6 +38,9 @@ for (const theme of ["dark", "light"])
         if (content.getAttribute("role") !== "status" && content.hasAttribute("data-hygiene-card"))
           expect(card.textContent).toContain(name === "compact" ? "Open finding" : "why this one");
         expect(card.scrollWidth <= card.clientWidth + 1, "card content fits the approved widths").toBe(true);
+        // A preceding file can leave the pointer over the wide card's header.
+        // These references capture the resting state, never inherited hover.
+        await userEvent.unhover(card);
         await expect(card).toMatchScreenshot(`hygiene-${name}-${theme}-${width}`);
       });
     }

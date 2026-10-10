@@ -39,9 +39,9 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -111,8 +111,13 @@ const fontCache = resolve(tmpdir(), "brain-kit-feature-capture-fonts", fontHash)
 
 // C5 layout proof drives the real Bun server inside the offline container.
 // Mount the already installed executable; the pinned Chromium image stays unchanged.
-const bunExecutable = spawnSync("which", ["bun"], { encoding: "utf8" });
-if (bunExecutable.status !== 0) throw new Error("Bun is required for offline server fixtures");
+const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resolve(dir, "bun")).find(path => {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch { return false; }
+});
+if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
 const status = run("docker", [
   "run",
@@ -127,7 +132,7 @@ const status = run("docker", [
   "-v",
   `${fontCache}:/tmp/brain-kit-feature-capture-fonts/${fontHash}:ro`,
   "-v",
-  `${bunExecutable.stdout.trim()}:/usr/local/bin/bun:ro`,
+  `${realpathSync(bunExecutable)}:/usr/local/bin/bun:ro`,
   "-v",
   `${scratch}:${scratch}`,
   "-e",

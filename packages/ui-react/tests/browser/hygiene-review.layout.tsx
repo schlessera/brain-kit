@@ -114,6 +114,14 @@ for (const theme of ["dark", "light"])
   for (const width of [320, 1280]) {
     test(`${theme} ${width}: failed outcomes retain the same finding and focus; never show the next card`, async () => {
       await scene({}, width, theme);
+      const ax = (await commands.hygieneServer({ op: "ax", selector: '[role="radiogroup"]' })) as {
+        nodes: Array<{ role?: { value: string }; name?: { value: string } }>;
+      };
+      const group = ax.nodes.find((node) => node.role?.value === "radiogroup");
+      expect(group?.name?.value, "radio group is named in Chromium accessibility tree").toBe("Fix: broken link");
+      expect(ax.nodes.filter((node) => node.role?.value === "radio").map((node) => node.name?.value)).toEqual(
+        expect.arrayContaining(["Link to another note…", "Keep the text, remove the link"])
+      );
       await chooseText();
       const id = current().dataset.hygieneId;
       for (const mode of ["stale", "refused", "check_failed"]) {
