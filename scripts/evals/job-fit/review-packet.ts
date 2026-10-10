@@ -10,7 +10,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   if (proof.freezeSha !== frozen.freezeSha || proof.testsExitCode !== 0 || proof.typecheckExitCode !== 0 || proof.lintExitCode !== 0 ||
     ["read", "assessment", "write-denial", "review"].some(mode => proof.nativeExitCodes[mode] !== 0)) throw Error("Exact current keyless preparation proof absent");
   const root = new URL("../../../", import.meta.url).pathname;
-  const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/jobs-board-defaults.md", "docs/job-fit-investigation.md",
+  const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/jobs-board-defaults.md", "docs/investigations/job-fit-investigation.md",
     "packages/module-jobs/skills/research-opportunity/SKILL.md", "packages/module-jobs/skills/jobs-review/SKILL.md", "packages/module-jobs/skills/interview-scheduled/SKILL.md",
     "packages/module-jobs/src/score.ts", "packages/module-jobs/src/settings.ts", "packages/module-jobs/src/module.ts", "packages/module-jobs/src/cli.ts",
     "packages/core/src/lib/context.ts", "packages/core/src/lib/module-loader.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/safe-path.ts",

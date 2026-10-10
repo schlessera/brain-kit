@@ -15,7 +15,7 @@ owns the product change to `audit --fix`.
 
 Measured on 2026-10-10, the UTC detection day, on main
 `7e398dc207f2c4725f6c364331c3cd5d3112954d` plus this branch's `measure.ts` and
-its pointer edit to `docs/audit-capability-investigation.md`.
+its pointer edit to `docs/investigations/audit-capability-investigation.md`.
 The freeze is `a19c26bd155c89d73a973af17c1e1d3f013535f89c33332905f2c0e5145c6661`
 and is recorded in `results/2026-10-10/freeze.json`.
 

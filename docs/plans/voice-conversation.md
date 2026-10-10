@@ -12,7 +12,7 @@ selection. The approved permission rules come from
 [voice-permission.md](../decisions/voice-permission.md). Architecture, providers
 and the future common conversation interface were selected by the maintainer's
 October 3 ruling, recorded in [live-conversation.md](../decisions/live-conversation.md).
-The [two-engine qualification](../live-conversation-investigation.md) specifies
+The [two-engine qualification](../investigations/live-conversation-investigation.md) specifies
 capabilities and evidence limits. Implementation issues consume the reviewed
 interaction design and that architecture record separately; the ruling does
 not approve the proposed timings or controls below.
@@ -465,7 +465,7 @@ neither column was selected. The maintainer's October 3 ruling subsequently
 selected the integrated direction with both engines behind one interface;
 see [the architecture record](../decisions/live-conversation.md). The table
 remains requirements input, with actual capability limits recorded in the
-[qualification](../live-conversation-investigation.md).
+[qualification](../investigations/live-conversation-investigation.md).
 An integrated session must explain how its speech/model execution maps to the
 existing backend turn and permission authority. A cascade must explain how
 its stages preserve the same identity and cancellation. Neither can introduce

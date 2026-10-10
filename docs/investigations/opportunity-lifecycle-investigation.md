@@ -42,7 +42,7 @@ alone does not remove a leftover deadline from this query.
 ## Event and ownership proposal
 
 The executable private schema is
-[`eventSchema`](../scripts/evals/opportunity-lifecycle/prototype.ts).
+[`eventSchema`](../../scripts/evals/opportunity-lifecycle/prototype.ts).
 Every event supplies a unique `id`, exact existing opportunity slug and real
 calendar `on` date. It accepts the following bounded events:
 
@@ -113,7 +113,7 @@ bun run test tests/opportunity-lifecycle-eval.test.ts
 bun scripts/evals/opportunity-lifecycle/run.ts --repeat 5
 ```
 
-The committed [report](../scripts/evals/opportunity-lifecycle/keyless-report.json)
+The committed [report](../../scripts/evals/opportunity-lifecycle/keyless-report.json)
 records fixture, schema, prototype and proposed-golden SHA-256 values, runtime,
 repetitions, local p50/p95/min/max and throughput. Timings include planning,
 source writes, pipeline generation, full keyless index rebuild and briefing;
@@ -137,7 +137,7 @@ renaming preserves the four technical layouts and does not establish an
 independent template holdout or comparative model quality.
 
 Every checkpoint compares **all Markdown bytes and file membership** against
-the committed [proposed expected files](../scripts/evals/opportunity-lifecycle/expected.json).
+the committed [proposed expected files](../../scripts/evals/opportunity-lifecycle/expected.json).
 Separate assertions query real deadline rows and the briefing section, verify
 generated pipeline rows, contact deduplication, history retention and unrelated
 files. The controls report zero checkpoint file mismatches, deadline/briefing

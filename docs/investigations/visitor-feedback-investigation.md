@@ -1,6 +1,6 @@
 # Visitor paths for public launch
 
-The [durable visitor-path decision](decisions/public-visitor-paths.md) records
+The [durable visitor-path decision](../decisions/public-visitor-paths.md) records
 the selected policy and alternatives. This report preserves the dated research
 and its distinction between documented capabilities and exercised behavior.
 
@@ -27,17 +27,17 @@ use GitHub, following the selected consent, lifecycle and sending brief.
 The maintainer did not select a private contact form. No visitor analytics or
 tracking integration is approved by the release-signup choice.
 
-The existing [README](../README.md#start-here) already gives CLI/agent,
-backup/self-hosting and developer paths. [Quickstart](quickstart.md) provides
-first capture/search; [the docs index](README.md) supplies the reading order.
+The existing [README](../../README.md#start-here) already gives CLI/agent,
+backup/self-hosting and developer paths. [Quickstart](../quickstart.md) provides
+first capture/search; [the docs index](../README.md) supplies the reading order.
 Preserve the early/experimental notice, unpublished hosting-template notice,
 and the separate onboarding verification tracked by #26. Product visitors
 should reach those facts before deciding to try the tool.
 
 The issue chooser already routes
-[questions and ideas to Discussions](../.github/ISSUE_TEMPLATE/config.yml),
-[bugs to the reproducible report template](../.github/ISSUE_TEMPLATE/bug.yml),
-and vulnerabilities to the [security policy](../SECURITY.md#reporting-a-vulnerability).
+[questions and ideas to Discussions](../../.github/ISSUE_TEMPLATE/config.yml),
+[bugs to the reproducible report template](../../.github/ISSUE_TEMPLATE/bug.yml),
+and vulnerabilities to the [security policy](../../SECURITY.md#reporting-a-vulnerability).
 Keep those existing destinations rather than add another inbox. Website
 routes/layout remain #611/#612's decisions; this comparison does not choose
 another site architecture.
@@ -162,7 +162,7 @@ soft-deletion cleanup retaining suppression records and curated manual sending
 are selected. A private contact form and visitor
 analytics were not selected.
 
-The [durable record](decisions/public-visitor-paths.md) captures why those
+The [durable record](../decisions/public-visitor-paths.md) captures why those
 alternatives lost. #612 owns the homepage and outbound paths; #615 owns final
 integration, anonymous access and launch review. The [signup child #899](https://github.com/schlessera/brain-kit/issues/899)
 under #608 owns the form, provider destination, selected lifecycle, accessible
@@ -339,7 +339,7 @@ ranking.
 All maintainer policy choices are recorded above, including provider, signup
 presentation, operating ownership, fields, consent/confirmation, tracking,
 cleanup and sending. Actual account/browser/launch verification follows the
-selected brief. The [durable record](decisions/public-visitor-paths.md) carries
+selected brief. The [durable record](../decisions/public-visitor-paths.md) carries
 those actual rulings. The native signup child #899 under #608 and #612/#615
 own implementation and launch verification; the comparison does not supply
 that evidence by implication.

@@ -7,7 +7,7 @@ Source discovery used main `44be3840f9fb74ea3ce62ebd6f65696aee745863` on
 audit command, skill, severity or JSON contract.
 
 **Measured result (2026-10-10):** see
-[`docs/decisions/audit-repair-suggestions.md`](decisions/audit-repair-suggestions.md).
+[`docs/decisions/audit-repair-suggestions.md`](../decisions/audit-repair-suggestions.md).
 #1408 then made `brain audit --fix` deterministic. The "current boundary" below
 describes the command as it was measured, before that change.
 
@@ -145,7 +145,7 @@ partial repair or a failed check never becomes success.
 
 Reuse `candidateFromAudit` (`packages/core/src/lib/hygiene.ts:332-376`) and
 `hygieneId` (`packages/core/src/lib/hygiene.ts:172-175`) without inventing another
-identity or disposition store. The [hygiene-review policy](decisions/hygiene-review.md)
+identity or disposition store. The [hygiene-review policy](../decisions/hygiene-review.md)
 binds #597's canonical equivalence, severity/known-urgency ordering and relevant
 evidence invalidation. This investigation chooses no mappings, review controls
 or dismissal semantics for that epic. #396's Markdown reconciliation remains
@@ -168,7 +168,7 @@ The measured go/no-go should specify the smallest accepted deterministic CLI
 scope and any explanation experiment. File accepted handler/suggestion work under
 #838 and keep review UI/dispositions in #597; semantic tag aliases remain #844,
 and broader mechanical hygiene discovery remains #842. Assess public CLI/JSON,
-MCP and frontmatter impact under the [integration contract](integration-contract.md)
+MCP and frontmatter impact under the [integration contract](../integration-contract.md)
 before implementation, with the required contract ruling, documentation and
 changeset. Add no generic repair seam and transfer no D42/sync thresholds here.
 

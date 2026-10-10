@@ -43,10 +43,10 @@ parsing and in-memory ingest with explicit rates before scoring.
 
 The binding boundary is unchanged: cheap deterministic scoring remains useful;
 semantic augmentation must be opt-in, code owns mechanical decisions, and
-probabilistic output grants no permission. See [the roadmap's binding decisions](../ROADMAP.md#what-binds-future-work),
-[deterministic sync](decisions/deterministic-sync.md),
-[D42's progressive enhancement](decisions/design-kit.md), and
-[the not-pluggable list](extending/README.md).
+probabilistic output grants no permission. See [the roadmap's binding decisions](../../ROADMAP.md#what-binds-future-work),
+[deterministic sync](../decisions/deterministic-sync.md),
+[D42's progressive enhancement](../decisions/design-kit.md), and
+[the not-pluggable list](../extending/README.md).
 
 ## Private comparison controls
 

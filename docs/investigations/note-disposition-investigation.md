@@ -168,7 +168,7 @@ were checked on 2026-10-01. They document typed judgments without prose
 generation, confidence derived from the option distribution, and weaknesses
 with adversarial/irrelevant state and structural identities. These support the
 bounded experiment's design, not a performance prediction. D42's progressive
-enhancement and [deterministic sync](decisions/deterministic-sync.md)'s
+enhancement and [deterministic sync](../decisions/deterministic-sync.md)'s
 keep-both fallback remain binding; their measured thresholds and historical
 prices are not transferred here.
 
@@ -285,13 +285,13 @@ The [approval receipt](https://github.com/schlessera/brain-kit/issues/840#issuec
 preceded all comparison calls. The six tuning classifications selected 0.7
 before querying held-out cases; no input, prompt or threshold changed afterward.
 All 156 observations completed: 26 fixtures, two repetitions, three arms.
-The [frozen protocol and runtime](../scripts/evals/note-disposition/results/2026-10-07/protocol.json),
-[tuning receipt](../scripts/evals/note-disposition/results/2026-10-07/calibration.json),
-[complete projections and proposals](../scripts/evals/note-disposition/results/2026-10-07/observations.json),
-[every physical call](../scripts/evals/note-disposition/results/2026-10-07/physical-calls.json),
-[scorer output](../scripts/evals/note-disposition/results/2026-10-07/summary.json),
-[independent assessment and sensitivity](../scripts/evals/note-disposition/results/2026-10-07/audit.json)
-and [all four sanitized review receipts](../scripts/evals/note-disposition/results/2026-10-07/reviews.json)
+The [frozen protocol and runtime](../../scripts/evals/note-disposition/results/2026-10-07/protocol.json),
+[tuning receipt](../../scripts/evals/note-disposition/results/2026-10-07/calibration.json),
+[complete projections and proposals](../../scripts/evals/note-disposition/results/2026-10-07/observations.json),
+[every physical call](../../scripts/evals/note-disposition/results/2026-10-07/physical-calls.json),
+[scorer output](../../scripts/evals/note-disposition/results/2026-10-07/summary.json),
+[independent assessment and sensitivity](../../scripts/evals/note-disposition/results/2026-10-07/audit.json)
+and [all four sanitized review receipts](../../scripts/evals/note-disposition/results/2026-10-07/reviews.json)
 are retained. The audit includes SHA-256 identities of the original five run
 artifacts. Physical-call receipt multisets reconcile with all observations;
 tuning calls occur exactly once. All 137 physical responses were HTTP 200 with
