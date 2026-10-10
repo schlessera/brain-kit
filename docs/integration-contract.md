@@ -407,16 +407,20 @@ small-size master; without a `label` it is `aria-hidden`, with one it is
 `role="img"` with that name. No prop changes the artwork.
 
 The new React-free `@schlessera/brain-ui-kit/brand` entry exports
-`BRAND_MASTERS`, the file names of the fourteen master SVGs, and
+`BRAND_MASTERS`, the file names of the thirteen master SVGs, and
 `BRAND_ASSET_SPECIFIER`. Each listed file resolves as
 `@schlessera/brain-ui-kit/brand/<file>` through the `./brand/*` export, which
 maps to the published `assets/brand/` directory. A listed file's name and
 presence are the promise; its bytes change only with a newly accepted design.
 
-The entry also exports `BRAND_RASTERS`, the files rendered from those masters:
-`favicon.ico` (16, 32 and 48px PNG images), `apple-touch-icon.png` (180px,
-opaque), `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (512px, the
-mark inside the central 80% circle) and `social-card.png` (1200x630).
+The entry also exports `BRAND_RASTERS`, the raster files: `favicon.ico` (16,
+32 and 48px PNG images), `apple-touch-icon.png` (180px, opaque),
+`icon-192.png`, `icon-512.png` and `icon-maskable-512.png` (512px, the mark
+inside the central 80% circle), rendered from those masters, and
+`social-card.png` (1200x630) and `social-card@2x.png` (2400x1260), reviewed
+raster masters (#1428). The social
+card was first rendered from a `social-card.svg` master; that file is removed
+before any release shipped it.
 `WEB_APP_MANIFEST_ICONS` is a web app manifest's `icons` array over them
 (`src`, `sizes`, `type: "image/png"`, `purpose: "any" | "maskable"`),
 `WEB_APP_COLORS` its `theme_color` and `background_color` (`#0c1417`), and

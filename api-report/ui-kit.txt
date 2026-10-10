@@ -612,9 +612,9 @@ signatures (every public export and the types it is made of)
   BRAND_ASSET_SPECIFIER (packages/ui-kit/src/brand.ts)
     const BRAND_ASSET_SPECIFIER: "@schlessera/brain-ui-kit/brand/";
   BRAND_MASTERS (packages/ui-kit/src/brand.ts)
-    const BRAND_MASTERS: readonly ["mark-on-dark.svg", "mark-on-paper.svg", "mark-small-on-dark.svg", "mark-small-on-paper.svg", "mark-mono-dark.svg", "mark-mono-paper.svg", "mark-reversed.svg", "lockup-on-dark.svg", "lockup-on-paper.svg", "favicon.svg", "icon-512.svg", "apple-touch-icon.svg", "maskable-512.svg", "social-card.svg"];
+    const BRAND_MASTERS: readonly ["mark-on-dark.svg", "mark-on-paper.svg", "mark-small-on-dark.svg", "mark-small-on-paper.svg", "mark-mono-dark.svg", "mark-mono-paper.svg", "mark-reversed.svg", "lockup-on-dark.svg", "lockup-on-paper.svg", "favicon.svg", "icon-512.svg", "apple-touch-icon.svg", "maskable-512.svg"];
   BRAND_RASTERS (packages/ui-kit/src/brand.ts)
-    const BRAND_RASTERS: readonly ["favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "social-card.png"];
+    const BRAND_RASTERS: readonly ["favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "social-card.png", "social-card@2x.png"];
   BarList (packages/ui-kit/src/evidence/BarList.tsx)
     export function BarList(p: BarListProps): import("react").JSX.Element;
   BarListProps (packages/ui-kit/src/evidence/BarList.tsx)

@@ -8,7 +8,7 @@ import {
   WEB_APP_COLORS,
   WEB_APP_MANIFEST_ICONS,
 } from "../src/brand.js";
-import { BRAND_DIR, renderBrandRasters } from "../tools/brand/generate.js";
+import { BRAND_DIR, renderBrandRasters, type GeneratedRaster } from "../tools/brand/generate.js";
 import { decodePng, type Rgba } from "./_png.js";
 
 const PACKAGE = join(import.meta.dir, "..");
@@ -42,6 +42,7 @@ describe("brand rasters", () => {
       "icon-512.png": [512, 512],
       "icon-maskable-512.png": [512, 512],
       "social-card.png": [1200, 630],
+      "social-card@2x.png": [2400, 1260],
     };
     expect(Object.keys(want).sort()).toEqual(BRAND_RASTERS.filter((f) => f.endsWith(".png")).sort());
     for (const [file, [w, h]] of Object.entries(want)) {
@@ -94,9 +95,13 @@ describe("brand rasters", () => {
   });
 
   test("re-running the generator reproduces the committed files byte for byte", () => {
+    // The social cards are reviewed raster masters (#1428), pinned by hash in
+    // brand-assets.test.ts; the generator renders every other raster.
+    const generated = BRAND_RASTERS.filter((f): f is GeneratedRaster => !f.startsWith("social-card"));
     const rendered = renderBrandRasters();
-    expect(Object.keys(rendered).sort()).toEqual([...BRAND_RASTERS].sort());
-    for (const file of BRAND_RASTERS) {
+    expect(generated.length).toBe(BRAND_RASTERS.length - 2);
+    expect(Object.keys(rendered).sort()).toEqual([...generated].sort());
+    for (const file of generated) {
       expect(rendered[file].length, file).toBeGreaterThan(0);
       expect(rendered[file].equals(read(file)), file).toBe(true);
     }
