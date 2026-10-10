@@ -35,7 +35,7 @@ The host recomputes visibility and validates answers. An unanswered optional
 node stays in `visibleNodes` and is absent from `answers`; a hidden node is
 absent from both. Draft answers are local to the card and are not saved.
 Input plus submitted result rebuilds its answered summary after reload.
-See the [machine contract](integration-contract.md#ask_user_form-additive-in-0400)
+See the [machine contract](integration-contract/mcp.md#ask_user_form-additive-in-0400)
 for every field, limit and frame.
 
 ## Choosing limits

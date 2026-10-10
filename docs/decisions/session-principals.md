@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:2312-2326`;
-  `Activity stream`, `:2560-2574`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract/wire.md:8-22`;
+  `Activity stream`, `:264-278`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -329,7 +329,7 @@ this table; the scope function covers every principal kind
 This does not add roles or a multi-user authorization model. Host-owned
 sessions/drafts keep the single-owner model; partitioning device-local work is
 not a redesign of host authorization. The field's contract is in
-[the account-partition contract](../integration-contract.md#account-partition-key-additive-1014).
+[the account-partition contract](../integration-contract/http.md#account-partition-key-additive-1014).
 
 **R1 is decided:** account-partitioned IndexedDB is gated by authenticated
 account context in the client. It is **not protection against someone with

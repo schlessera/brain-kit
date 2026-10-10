@@ -48,7 +48,7 @@ function graph(): GraphQueries {
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURE_CORPUS = join(ROOT, "packages/core/fixtures/corpus");
 const BRAIN_BIN = join(ROOT, "packages/core/src/cli/brain.ts");
-const CONTRACT_DOC = join(ROOT, "docs/integration-contract.md");
+const CONTRACT_DOC = join(ROOT, "docs/integration-contract/frontmatter.md");
 
 /**
  * Columns ui-server's SQL selects, plus the ones the contract doc promises.

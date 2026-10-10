@@ -133,7 +133,7 @@ function taggedSeams(): Set<string> {
 }
 
 const extending = seamTable("docs/extending/README.md", "The seams");
-const contract = seamTable("docs/integration-contract.md", "Extension interfaces");
+const contract = seamTable("docs/integration-contract/package-api.md", "Extension interfaces");
 
 describe("the extension seam list", () => {
   test("both documents list seams", () => {

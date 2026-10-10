@@ -221,7 +221,7 @@ when the service cannot transcribe saved audio. Its input is the unmodified
 abort signal; return `{ text }` with nonempty text. Use only the server-held
 credential and the provider's server-side endpoint. Never retry automatically.
 Throw `SpeechTranscriptionError` with a definitive reason/status, or let an
-ambiguous error become terminal unknown. [The contract](../integration-contract.md#saved-audio-transcription-additive-1021)
+ambiguous error become terminal unknown. [The contract](../integration-contract/package-api.md#saved-audio-transcription-additive-1021)
 defines classification, retry limits and the durable receipt boundary.
 The public conformance probe's optional `recording()` observes actual forwarded
 bytes, content type, keyterms and returned text; it is required when this method

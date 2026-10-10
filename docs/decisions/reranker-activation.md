@@ -96,5 +96,5 @@ from freshly loaded config. TypeScript imports are process-cached, so edits
 to a TypeScript config require a process restart. No live reload is promised.
 
 See [configuration](../configuration.md#reranker) for examples and
-[integration-contract.md](../integration-contract.md#model-reranker-activation)
+[integration-contract.md](../integration-contract/package-api.md#model-reranker-activation)
 for the compatibility behavior.

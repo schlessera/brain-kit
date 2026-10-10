@@ -64,7 +64,7 @@ and describe its denominator as eligible chunks; they cannot reconstruct it
 from the total inventory counts. Opting out can improve coverage without
 creating a vector. Historical stats snapshots preserve their recorded values;
 they are not recomputed under later configuration. The migration note lives
-in the [integration contract](../integration-contract.md#embedding-eligibility-and-coverage-semantics).
+in the [integration contract](../integration-contract/cli.md#embedding-eligibility-and-coverage-semantics).
 
 ## Alternatives rejected
 

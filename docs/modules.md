@@ -178,7 +178,7 @@ parser equivalence, and moves known scoring keys into JSON in one commit.
 Unrelated frontmatter, unknown scoring keys and prose stay in the criteria
 file. No migration happens merely by opening Settings. The source format and
 transaction envelopes are specified in the
-[integration contract](integration-contract.md#module-settings-additive-528).
+[integration contract](integration-contract/package-api.md#module-settings-additive-528).
 
 ## Authoring MCP tools
 

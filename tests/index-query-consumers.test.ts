@@ -12,7 +12,7 @@
  *
  * What this file proves is the SUPPORTED behaviour: core's query results and
  * the consumers' mappings of them. It reads no column and asserts no table.
- * The direct-SQL promise (`docs/integration-contract.md#braindb-direct-sql-reads`)
+ * The direct-SQL promise (`docs/integration-contract/frontmatter.md#braindb-direct-sql-reads`)
  * still binds until #701, and its internal schema checks stay where they are,
  * labelled as such, in `tests/brain-db-contract.test.ts`. Here SQL appears
  * only to stage an index state on a disposable copy of the CLI's output.

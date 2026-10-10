@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { changedFiles, CONTRACT_DOC, judge, parseLabels } from "../scripts/check-contract-pr.ts";
@@ -20,6 +20,26 @@ const docAndCode = [CONTRACT_DOC, "packages/core/src/cli/stats.ts"];
 const codeOnly = ["packages/core/src/cli/stats.ts"];
 
 describe("contract gate", () => {
+  for (const component of ["cli", "mcp", "http", "wire", "frontmatter", "package-api"]) {
+    const path = `docs/integration-contract/${component}.md`;
+    test(`${component}-only contract edits require title and label`, () => {
+      expect(judge(plainTitle, [], [path]).touchesDoc).toBe(true);
+      expect(judge(plainTitle, [], [path]).ok).toBe(false);
+      expect(judge(plainTitle, ["contract"], [path]).ok).toBe(false);
+      expect(judge(title, [], [path]).ok).toBe(false);
+    });
+    test(`${component}-only contract edits pass without an index edit`, () => {
+      expect(judge(title, ["contract"], [path]).ok).toBe(true);
+    });
+  }
+
+  test("similarly named paths outside the authoritative directory do not count", () => {
+    for (const path of ["docs/integration-contract-extra/cli.md", "docs/archive/integration-contract/cli.md", "docs/integration-contract/cli.txt"]) {
+      expect(judge(plainTitle, [], [path]).touchesDoc).toBe(false);
+      expect(judge(title, ["contract"], [path]).ok).toBe(false);
+    }
+  });
+
   test("a doc change with the title and the label passes", () => {
     const verdict = judge(title, ["contract", "enhancement"], docAndCode);
     expect(verdict.problems).toEqual([]);
@@ -49,7 +69,7 @@ describe("contract gate", () => {
   test("a CONTRACT: title without a doc change fails", () => {
     const verdict = judge(title, [], codeOnly);
     expect(verdict.problems).toEqual([
-      `The title starts with \`CONTRACT:\`, but ${CONTRACT_DOC} did not change.`,
+      `The title starts with \`CONTRACT:\`, but ${CONTRACT_DOC} and its authoritative components did not change.`,
     ]);
     expect(verdict.ok).toBe(false);
   });
@@ -57,7 +77,7 @@ describe("contract gate", () => {
   test("a contract label without a doc change fails", () => {
     const verdict = judge(plainTitle, ["contract"], codeOnly);
     expect(verdict.problems).toEqual([
-      `The PR carries the \`contract\` label, but ${CONTRACT_DOC} did not change.`,
+      `The PR carries the \`contract\` label, but ${CONTRACT_DOC} and its authoritative components did not change.`,
     ]);
     expect(verdict.ok).toBe(false);
   });
@@ -83,6 +103,37 @@ describe("contract gate", () => {
 });
 
 describe("contract gate diff", () => {
+  test("the command enforces a component-only git diff in both directions", () => {
+    const repo = mkdtempSync(join(tmpdir(), "contract-component-"));
+    try {
+      mkdirSync(join(repo, "scripts"));
+      mkdirSync(join(repo, "docs/integration-contract"), { recursive: true });
+      writeFileSync(join(repo, "scripts/check-contract-pr.ts"), readFileSync(join(import.meta.dir, "../scripts/check-contract-pr.ts")));
+      writeFileSync(join(repo, CONTRACT_DOC), "Canonical index\n");
+      const component = "docs/integration-contract/wire.md";
+      writeFileSync(join(repo, component), "Original wire contract\n");
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "config", "user.email", "odysseus@example.com");
+      git(repo, "config", "user.name", "Odysseus");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-qm", "base");
+      const base = git(repo, "rev-parse", "HEAD");
+      writeFileSync(join(repo, component), "Updated wire contract\n");
+      git(repo, "commit", "-qam", "component only");
+      expect(changedFiles(repo, base, "HEAD")).toEqual([component]);
+      for (const [prTitle, labels, exit] of [[plainTitle, [], 1], [title, [], 1], [plainTitle, ["contract"], 1], [title, ["contract"], 0]] as const) {
+        const result = Bun.spawnSync(["bun", join(repo, "scripts/check-contract-pr.ts"), base, "HEAD"], {
+          cwd: repo, env: { ...process.env, PR_TITLE: prTitle, PR_LABELS: JSON.stringify(labels) },
+        });
+        expect({ title: prTitle, labels, exit: result.exitCode }).toEqual({ title: prTitle, labels, exit });
+        if (exit === 0) expect(result.stdout.toString()).toContain("Contract change");
+        else expect(result.stderr.toString()).toContain("changed, but");
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   function git(cwd: string, ...args: string[]): string {
     const result = Bun.spawnSync([
       "git", "-c", "commit.gpgsign=false", ...args,

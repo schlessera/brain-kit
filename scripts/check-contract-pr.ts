@@ -7,10 +7,11 @@
  * nothing broke — but an audit that trusted the prefix undercounted, and after
  * 1.0 the same omission on a breaking change ships a break in a minor.
  *
- * The contract doc is the one place a contract change must touch, so the gate
- * keys on it. A pull request that changes the doc must be titled `CONTRACT:`
- * and carry the `contract` label; a pull request titled `CONTRACT:` or
- * labelled `contract` must change the doc. PRs are squash-merged, which makes
+ * The canonical index and every Markdown component directly under
+ * docs/integration-contract/ are authoritative parts; the gate keys on all of
+ * them. A pull request that changes any part must be titled `CONTRACT:` and
+ * carry the `contract` label; a pull request titled `CONTRACT:` or labelled
+ * `contract` must change one of those parts. PRs are squash-merged, which makes
  * the title the commit subject, so the title is what gets checked.
  *
  * The diff is the PR's own: from where its branch left the base to its head
@@ -39,22 +40,24 @@ export interface ContractVerdict {
 }
 
 export function judge(title: string, labels: string[], changed: string[]): ContractVerdict {
-  const touchesDoc = changed.includes(CONTRACT_DOC);
+  const changedContract = changed.find((file) => file === CONTRACT_DOC
+    || /^docs\/integration-contract\/[^/]+\.md$/.test(file));
+  const touchesDoc = changedContract !== undefined;
   const titled = title.trimStart().startsWith(CONTRACT_PREFIX);
   const labelled = labels.includes(CONTRACT_LABEL);
 
   const problems: string[] = [];
   if (touchesDoc && !titled) {
-    problems.push(`${CONTRACT_DOC} changed, but the title does not start with \`${CONTRACT_PREFIX}\`.`);
+    problems.push(`${changedContract} changed, but the title does not start with \`${CONTRACT_PREFIX}\`.`);
   }
   if (touchesDoc && !labelled) {
-    problems.push(`${CONTRACT_DOC} changed, but the PR does not carry the \`${CONTRACT_LABEL}\` label.`);
+    problems.push(`${changedContract} changed, but the PR does not carry the \`${CONTRACT_LABEL}\` label.`);
   }
   if (!touchesDoc && titled) {
-    problems.push(`The title starts with \`${CONTRACT_PREFIX}\`, but ${CONTRACT_DOC} did not change.`);
+    problems.push(`The title starts with \`${CONTRACT_PREFIX}\`, but ${CONTRACT_DOC} and its authoritative components did not change.`);
   }
   if (!touchesDoc && labelled) {
-    problems.push(`The PR carries the \`${CONTRACT_LABEL}\` label, but ${CONTRACT_DOC} did not change.`);
+    problems.push(`The PR carries the \`${CONTRACT_LABEL}\` label, but ${CONTRACT_DOC} and its authoritative components did not change.`);
   }
   return { touchesDoc, titled, labelled, problems, ok: problems.length === 0 };
 }
@@ -104,14 +107,14 @@ if (import.meta.main) {
     console.log(
       verdict.touchesDoc
         ? `Contract change, titled \`${CONTRACT_PREFIX}\` and labelled \`${CONTRACT_LABEL}\`.`
-        : `${CONTRACT_DOC} unchanged; not a contract change.`
+        : `${CONTRACT_DOC} and its authoritative components unchanged; not a contract change.`
     );
     process.exit(0);
   }
 
   for (const problem of verdict.problems) console.error(problem);
   console.error(
-    `\nA change to the integration contract updates ${CONTRACT_DOC}, is titled` +
+    `\nA change to the integration contract updates ${CONTRACT_DOC} or an authoritative component, is titled` +
       `\n\`${CONTRACT_PREFIX} <type>(<scope>): …\` and carries the \`${CONTRACT_LABEL}\` label.` +
       `\nA change that is not one does none of the three. See CONTRIBUTING.md.`
   );

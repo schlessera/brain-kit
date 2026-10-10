@@ -5,7 +5,7 @@ Notices only tell a person that decisions are waiting: a counted web push for
 higher-priority work and the Actions/FYI contribution to the in-app digest for
 the rest. Neither grants authority or resolves anything. The policy and its
 binding examples are the [Action notification decision](decisions/action-notifications.md);
-the wire additions are in the [integration contract](integration-contract.md#action-notices-additive-683).
+the wire additions are in the [integration contract](integration-contract/wire.md#action-notices-additive-683).
 
 Migration `031_inbox_notifications.sql` holds every record below in the UI
 operational database. They survive restart and the

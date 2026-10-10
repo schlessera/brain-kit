@@ -45,7 +45,7 @@ cancellation, revocation or effect happened. Restore also ends every
 unfinished attempt as `unknown` and drops the Queue work of those occurrences,
 so none of it is claimed again. The tasks stay paused and visible until the
 operator investigates and runs `brain schedule reconcile <id>` (see the
-[schedule contract](integration-contract.md#scheduled-tasks-additive-914)).
+[schedule contract](integration-contract/package-api.md#scheduled-tasks-additive-914)).
 The first reconciliation after a restore into a different brain directory
 binds the schedule ledger to the directory that restore named.
 
@@ -116,7 +116,7 @@ uncertain later effects before enabling execution.
 
 Format `brain-ui-operational-backup`, version `1`, supports the exact shipped
 SQLite schema/migration set. Restore with compatible package contents; schema
-conversion and merge restore are unsupported. The [integration contract](integration-contract.md#operational-recovery-command-additive-686)
+conversion and merge restore are unsupported. The [integration contract](integration-contract/cli.md#operational-recovery-command-additive-686)
 defines command JSON, checksums and failure codes. Internal `exportState()`
 is an audit read of inbox rows; it omits staging, principal state and Activity
 receipts and does not replace this recovery artifact. Production autonomous

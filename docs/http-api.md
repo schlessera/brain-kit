@@ -140,7 +140,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/voice/overrides` | S | Read pronunciation replacements | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/session` | S | Mint active-provider dictation session | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
 | POST | `/api/voice/token` | S | Mint deprecated Deepgram token response | Independent speech clients; preserve SDK VoiceSessionResponse, deprecated token transition and keyterm shapes. |
-| GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract.md#account-partition-key-additive-1014)). |
+| GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
@@ -306,7 +306,7 @@ Operational reads can fail with the common 500.
 
 `runtime` reports observed chat runtime and optional sync state, using the
 [runtime identity declarations](../packages/ui-server/src/activity/runtime-status.ts)
-and the [sync reporting contract](integration-contract.md#activity-stream-rev-3-additive).
+and the [sync reporting contract](integration-contract/wire.md#activity-stream-rev-3-additive).
 `subscription` contains `tokenSet`, nullable ISO `mintedAt`, `expiresAt`,
 `lastProvenAt`, `provenBy: "turn" | "model_discovery" | null` and nullable
 `lastAuthFailure` (`errorClass`, ISO `at`, `action`, `source`, optional
@@ -400,14 +400,14 @@ The route does not create a second independent taxonomy or ranking policy.
 | GET `/api/brain/briefing` | No inputs | `{ content: string }` | CLI briefing stdout, including its formatting; failed command is 500 `{ error }`. Keyless: `brain briefing` gathers facts without a model. The React Daily briefing panel reads this route; no route runs a repo-local briefing script. |
 | GET `/api/brain/list` | Optional type, tag, status, relevance and Number-converted limit; limit 20 when omitted; archived excluded unless status=archived | `{ results: SearchResult[] }`, the full CLI list result | CLI/subprocess failures are 500 `{ error }`; filter strings are not HTTP enum-validated. Rows include path, title, type, status, relevance, nullable summary, updated, nullable deadline/generatedFrom, comma-separated tags (null when none), score=0 and empty snippet. No created field or tags-array conversion is added by HTTP. |
 | GET `/api/brain/stats` | No inputs | Full `brain stats --json` object | No HTTP wrapping, filtering or formatting; CLI failure 500 `{ error }`. The integration contract owns the complete corpus shape, including unknown values. |
-| GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |
+| GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract/http.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |
 | POST `/api/brain/add` | JSON `{ content: string, type?: string, title?: string, tags?: string[] }`; nonempty string content and declared optional field types are checked before CLI dispatch; CLI supplies default type/title/taxonomy rules | `{ success: true, action: "created" \| "appended", path, title, type, indexed: boolean, indexError?: string }` | 400 missing/empty content; common body limit/media type; CLI/save/outcome parsing failures 500 `{ error }`. Malformed/non-object JSON or invalid field types return JSON 400 before CLI dispatch or content writes. Capture may succeed with indexed:false: retry index, never resubmit content automatically. |
 | POST `/api/brain/index` | JSON media type required; body ignored | `{ success: true }` | Concurrent retries coalesce per route instance. Failed index is 500 `{ error }`; no captured content is written again. |
 
 The approved nullable declaration correction (#702) preserves these HTTP
 values. TypeScript clients must handle `SearchResult.tags: string | null`;
 `result.tags ?? ""` is a local display fallback. The server list mirror now
-matches the CLI fields above. See [the declaration migration](integration-contract.md#stable---json-shapes)
+matches the CLI fields above. See [the declaration migration](integration-contract/cli.md#stable---json-shapes)
 and [reranker/provider migration](extending/rerankers.md#nullable-tags-migration).
 
 Search/list payloads are the actual CLI JSON results, not the server's narrower
@@ -456,10 +456,10 @@ id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.
 A cross-backend handoff destination (additive, #61) also carries
 `handoffFrom: { sessionId, title, backendId?, afterTurns? }`, as the
-[integration contract](integration-contract.md#cross-backend-handoff-additive-61)
+[integration contract](integration-contract/wire.md#cross-backend-handoff-additive-61)
 describes. A session the host has labelled (additive, #1004) carries
 `label`, a few words about its latest request, as the
-[integration contract](integration-contract.md#pill-labels-additive-1004)
+[integration contract](integration-contract/wire.md#pill-labels-additive-1004)
 describes.
 Each backend list has a three-second wait; unfinished work is reused by retries
 and is not canceled. One unavailable backend is omitted and identified in the
@@ -477,7 +477,7 @@ missing sessions into a universal 404 or provide a separate history deadline.
 | GET `/api/activity/runs` | Optional origin/job/session/status strings; limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
 | GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
 | GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
-| GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
+| GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract/http.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
 
 For fractional/negative finite values these rules produce whole-day windows;
 query conversion does not produce a validation 400. Aggregate arrays and
@@ -636,7 +636,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 | --- | --- | --- | --- |
 | POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
-| GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
+| GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract/package-api.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
 
 ## Map geometry
@@ -661,7 +661,7 @@ does not override the SDK's network-only `/api` service-worker rule.
 ## WebSocket admission
 
 **GET /ws** supports an actual WebSocket upgrade, followed by the
-[wire protocol contract](integration-contract.md#revision-negotiation).
+[wire protocol contract](integration-contract/wire.md#revision-negotiation).
 It is outside `/api`; origin checking runs first, then the same auth-mode
 credential/IP policy, then connection capacity, then upgrade. Rejected origin:
 403 `{ error:"Cross-origin WebSocket rejected" }`; failed auth: 401
@@ -738,7 +738,7 @@ bodies must be `application/json`, at most 64 KiB of valid UTF-8, with no NUL
 and no duplicate object keys. Unknown fields or query parameters are
 `invalid_request`. Every response is `Cache-Control: no-store`. Errors are
 `{ ok: false, error: { code, message } }` with the closed codes and statuses of
-the [schedule contract](integration-contract.md#scheduled-tasks-additive-914):
+the [schedule contract](integration-contract/package-api.md#scheduled-tasks-additive-914):
 400 `invalid_request`/`invalid_cursor`, 401/403 `unauthorized`, 404
 `not_found`, 409 `key_conflict`/`approval_required`/`approval_expired`/
 `definition_conflict`, 503 `server_unavailable`/`unsupported_capability`.
@@ -769,12 +769,12 @@ host-signed, bound to the caller, filters and evaluation time, and expire after
 ## Session drafts (additive, #979)
 
 Six protected routes keep each session's unsent composer draft on the host,
-as [D52](decisions/design-kit.md#5-per-session-drafts-stored-on-the-host-storage-c)
+as [D52](decisions/design-kit/sessions-and-drafts.md#5-per-session-drafts-stored-on-the-host-storage-c)
 designed. They are advertised by `server_hello.capabilities.sessionDrafts:
 true`, with `server_hello.sessionDraftLimits` carrying the bounds; a client
 must not claim host saving without that flag. Shapes are the SDK's `Draft*`
 types in `@schlessera/brain-ui-sdk/protocol`, and the
-[integration contract](integration-contract.md#session-drafts-additive-979)
+[integration contract](integration-contract/wire.md#session-drafts-additive-979)
 holds the semantics. None of them sends, starts, answers or grants anything.
 Every response is `Cache-Control: no-store`. The common authentication guard
 answers first; each handler then re-resolves its principal inside its write
@@ -823,7 +823,7 @@ only by a host that records accepted work; a client must not read it
 without the flag, and reads a missing route as a host too old to answer.
 It answers 200 with the SDK's `SessionRecovery` for a session the catalog,
 the live coordinator or any backend knows; the
-[integration contract](integration-contract.md#session-recovery-additive-964)
+[integration contract](integration-contract/wire.md#session-recovery-additive-964)
 holds the field semantics. Every response is `Cache-Control: no-store`. The
 common authentication guard answers first; the handler re-checks the
 principal after its one asynchronous step (looking the session up in the
@@ -841,7 +841,7 @@ The paired UI uses authenticated `POST /api/track-upload` multipart intake and
 `GET /api/tracks?path=<staged reference>` to validate originals and resolve track
 blocks. These are internal HTTP transports under the selection policy; published
 SDK file-reference frames, `show_block` and kit props retain their ordinary
-contracts. The [imported-track behavior](integration-contract.md#imported-track-files-in-chat-additive)
+contracts. The [imported-track behavior](integration-contract/package-api.md#imported-track-files-in-chat-additive)
 describes validation, limits, outcomes and static export. They do not file
 knowledge-base content or narrow existing generic `/api/share` intake.
 
@@ -911,7 +911,7 @@ Chromium 153/Firefox 155, pinned Playwright 1.63.0, 2026-10-08). Firefox's
 highest run had 52,783 bytes over 3,154 decoded milliseconds. Other browser
 boundaries remain unmeasured; this receipt is not physical-device coverage.
 
-The [saved-audio integration contract](integration-contract.md#saved-audio-transcription-additive-1021)
+The [saved-audio integration contract](integration-contract/package-api.md#saved-audio-transcription-additive-1021)
 specifies the receipt fields, errors, retry decision and permanent retention.
 `PUT` responds 200 with the stored receipt, including provider failures; a
 failed plain replay gives 409. `?retry=<failed attemptId>` is the only retry
@@ -931,11 +931,11 @@ on the terminal old card. Position/counters and Markdown remain unchanged; old
 preview/confirmation requests refuse. Missing/changed findings remain pending
 with stale evidence, and unavailable checks remain refused. An unchanged fingerprint
 returns the same card. Refresh preserves Pause and cannot re-admit a cap-retired card;
-use Resume. Full [refresh semantics](integration-contract.md#human-started-hygiene-review-additive-1027)
+use Resume. Full [refresh semantics](integration-contract/package-api.md#human-started-hygiene-review-additive-1027)
 bind independent clients.
 
 `POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
 `expectedVersion` and bounded handler `input`. Owner/ambient operation authority
 is rechecked against the durable principal. These routes run only deterministic
 CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
-See [the wire shapes and error codes](integration-contract.md#human-started-hygiene-review-additive-1027).
+See [the wire shapes and error codes](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).

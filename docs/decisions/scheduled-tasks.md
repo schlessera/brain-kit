@@ -3,7 +3,7 @@
 The maintainer selected six policies on [#913](https://github.com/schlessera/brain-kit/issues/913),
 within [#912](https://github.com/schlessera/brain-kit/issues/912). This record binds
 the implementation; it introduces no scheduler, grant, executable endpoint or
-production dispatch. The [prepared consumer contracts](../integration-contract.md#scheduled-task-contract-preparation-913)
+production dispatch. The [prepared consumer contracts](../integration-contract/package-api.md#scheduled-task-contract-preparation-913)
 name future interfaces, not capabilities of the installed packages.
 
 | Choice | Ruling | Rejected alternative |
