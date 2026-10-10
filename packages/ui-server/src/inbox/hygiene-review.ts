@@ -226,6 +226,13 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     db.transaction(() => {
       if (!db.query("SELECT 1 FROM hygiene_effect_attempts WHERE id = ? AND status = 'started'").get(attempt.id)) return;
       const item = action(attempt.item_id);
+      if (item.status === "dropped") {
+        // Cap retirement does not revoke an already confirmed CLI operation.
+        // Retain its actual receipt without resurrecting the terminal card,
+        // adding a review disposition or admitting another finding.
+        db.query("UPDATE hygiene_effect_attempts SET status = 'finished', result_json = ? WHERE id = ?").run(JSON.stringify(result), attempt.id);
+        return;
+      }
       update(item, outcome(result), options);
       const current = action(item.id);
       const confirmed = (e.operation === "resolve" && result.status === "fixed") || (e.operation === "check" && result.status === "not_detected") || (e.operation === "dismiss" && result.status === "dismissed") || (e.operation === "snooze" && result.status === "snoozed");

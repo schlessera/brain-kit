@@ -5803,6 +5803,12 @@ Changed or no-longer-open evidence follows the ordinary fresh selection instead.
 CLI failure preserves the paused reason for a later explicit attempt; a CLI
 blocker can coexist with it. Operational backups validate the referenced dropped
 hygiene Action and matching FYI receipt as well as pending/snoozed pointers.
+If a confirmed CLI operation is already in flight at retirement, its journal
+remains backed up with the dropped card and matching retirement receipt. Its
+actual result settles that journal without changing the terminal card or review
+disposition counters. Recovery checks an uncertain operation through the existing
+read/check path; it never repeats the write or re-admits the card. Retirement
+itself does not revoke principal authority or cancel an already confirmed write.
 Position counts presentations in this durable review, including a due snooze's
 return. The three counters count confirmed review dispositions; C2 counts retain
 their distinct backlog meaning. A reload or another device reads the same state.

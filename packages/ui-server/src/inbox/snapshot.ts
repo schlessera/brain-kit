@@ -109,9 +109,11 @@ function validateDatabase(db: Database): void {
     const request = clientInboxResolveSchema.parse(JSON.parse(row.request_json as string));
     const effect = hygieneEffectSchema.parse(JSON.parse(row.effect_json as string));
     const action = items.get(row.item_id);
+    const receipt = action?.status === "dropped" ? items.get(inboxIdentity("retired", action.id)) : null;
+    const retiredDuringDispatch = action?.queue === "actions" && action.hygiene && receipt?.queue === "actions" && receipt.type === "fyi" && receipt.threadId === action.threadId;
     if (!action || action.queue !== "actions" || !action.hygiene || request.itemId !== action.id ||
         effect.findingId !== action.hygiene.findingId || effect.fingerprint !== action.hygiene.fingerprint ||
-        (row.status === "started" && action.status !== "pending") ||
+        (row.status === "started" && action.status !== "pending" && !retiredDuringDispatch) ||
         (effect.operation === "snooze" && !Number.isSafeInteger(row.wait_until)))
       throw new Error("inbox_snapshot_hygiene_relations");
   }

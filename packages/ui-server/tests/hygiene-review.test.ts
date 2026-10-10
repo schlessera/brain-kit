@@ -192,6 +192,46 @@ test("Pause during retired-card Resume cancels its pending admission", async () 
   expect(review.read()).toEqual(retired);
 });
 
+test("cap retirement during confirmed CLI dispatch retains a valid backup and settles the receipt without resurrecting the card", async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  let release!: () => void, reached!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), entered = new Promise<void>(r => { reached = r; });
+  const review = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args[0] === "resolve" && !args.includes("--dry-run")) { reached(); await gate; }
+    return f.brain.hygiene!(args);
+  } } });
+  const dispatched = review.resolver.resolveAsync(f.principal.id, request(item));
+  await entered;
+  try {
+    const before = logBytes(f.root);
+    fillActions(f, Date.now() + 1000);
+    expect(logBytes(f.root)).toEqual(before);
+    expect(review.read().review.pendingActionId).toBeUndefined();
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    const exporting = exportInboxSnapshot(f.db, f.root);
+    await expect(exporting).resolves.toMatchObject({ format: "brain-ui-operational-backup" });
+    const backup = await exporting;
+    const path = join(f.root, "dispatch-restored.sqlite");
+    await restoreInboxSnapshot(backup, path, f.root);
+    const db = createUiDb(path); clean.push(() => db.close());
+    expect(createHygieneReview(db, { brain: f.brain }).read()).toEqual(review.read());
+    release();
+    await expect(dispatched).resolves.toMatchObject({ replay: false });
+    expect(f.db.query("SELECT status, result_json FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id))
+      .toMatchObject({ status: "finished", result_json: expect.stringContaining('"status":"fixed"') });
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    expect(review.read().review).toMatchObject({ status: "paused", fixed: 0, dismissed: 0, snoozed: 0 });
+    expect(pending(f)).toHaveLength(0); expect(f.applies()).toHaveLength(1);
+    // Recovery of the pre-completion backup checks the authorized effect;
+    // it never dispatches the write again or re-admits its retired card.
+    await createHygieneReview(db, { brain: f.brain }).recover();
+    expect(f.applies()).toHaveLength(1);
+    expect(db.query("SELECT status FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id)).toEqual({ status: "finished" });
+    expect(createHygieneReview(db, { brain: f.brain }).read().review.status).toBe("paused");
+    await exportInboxSnapshot(db, f.root);
+  } finally { release(); await dispatched.catch(() => {}); }
+});
+
 test("repeated concurrent start and resume preserve exactly one pending Action; pause writes no disposition", async () => {
   const f = setup();
   const [first, repeated] = await Promise.all([f.review.command(f.principal.id, "start"), f.review.command(f.principal.id, "start")]);
