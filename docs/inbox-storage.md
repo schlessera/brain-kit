@@ -57,7 +57,7 @@ Whole records survive replication; an oversized individual record fails
 explicitly. Delivery rechecks the server-owned principal, including revocation
 or expiry written through another connection. Socket/app close, revocation and
 unsubscribe release listeners; an idle stream keeps no poller alive. The
-[wire contract](integration-contract.md#durable-queue-and-actions-additive)
+[wire contract](integration-contract/wire.md#durable-queue-and-actions-additive)
 defines view filtering, continuation merging, errors and limits.
 
 The stream reads operational state only. It does not apply a selected effect,
@@ -140,4 +140,4 @@ or Markdown disposition is added. The current pointer and both replicated cards
 commit together; review position and counters are preserved. Operational backup
 validates that each superseded receipt names its actual same-finding, changed-
 fingerprint replacement; missing, self or foreign references refuse. See the
-[human-review contract](integration-contract.md#human-started-hygiene-review-additive-1027).
+[human-review contract](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).

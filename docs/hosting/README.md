@@ -235,7 +235,7 @@ recording index and its chunks disappear, with no other
 surviving evidence, there is nothing the UI can show or report.** Retention
 policy does not protect against loss of the browser's underlying storage.
 
-The [dated V1 browser matrix](../decisions/design-kit.md#desktop-browser-measurements-and-their-limits)
+The [dated V1 browser matrix](../decisions/design-kit/offline-continuity.md#desktop-browser-measurements-and-their-limits)
 gives exact versions, conditions and loss distributions: Playwright 1.63.0,
 Chromium 153.0.8010.12 and Firefox 155.0, requested 1000 ms timeslices, seven
 runs per measured interruption cell plus five confirmation runs for the named
@@ -253,7 +253,7 @@ and a hidden Chromium tab from real OS interruptions.
 | Safari macOS | **NOT MEASURED**: no available Apple device; [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236) and [ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836). |
 | Safari iOS tab / installed PWA | Both **NOT MEASURED**: no available Apple device; [#1236 scope exclusion](https://github.com/schlessera/brain-kit/issues/1236) and [ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6045077836). |
 | Real OS mic interruption, screen lock / background freeze, all browsers | **NOT MEASURED**: V1 could simulate track end, not an OS call or locked screen; the CDP freeze request did not freeze capture. Attainable emulator cells moved to [#1236](https://github.com/schlessera/brain-kit/issues/1236). |
-| Eviction, private-mode lifetime, user-cleared site data and an origin quota lower than free disk, per browser | **NOT MEASURED**: V1 did not provoke these storage-lifecycle events or impose a lower engine quota. [Full reasons and #1236 handoff](../decisions/design-kit.md#unmeasured-cells-and-detectable-storage-loss). |
+| Eviction, private-mode lifetime, user-cleared site data and an origin quota lower than free disk, per browser | **NOT MEASURED**: V1 did not provoke these storage-lifecycle events or impose a lower engine quota. [Full reasons and #1236 handoff](../decisions/design-kit/offline-continuity.md#unmeasured-cells-and-detectable-storage-loss). |
 
 The [desktop-suffices ruling](https://github.com/schlessera/brain-kit/issues/1010#issuecomment-6040793673)
 accepts these desktop findings for package work. It does not certify any

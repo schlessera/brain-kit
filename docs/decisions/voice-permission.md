@@ -36,7 +36,7 @@ looking at a card: the transcript copy in
 Actions copy in `packages/ui-react/src/components/activity/approval-card.tsx`,
 both with the focus-scoped `a` / `d` keys D36 settled
 (`D36: single-key shortcuts are focus-scoped`,
-`docs/decisions/design-kit.md:1859`). A spoken conversation has no card, so
+`docs/decisions/design-kit/components-and-interactions.md:723`). A spoken conversation has no card, so
 either the model speaks the request and waits, or voice runs under a posture
 that needs no interactive approval, or voice is read-only.
 

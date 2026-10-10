@@ -127,14 +127,14 @@ function anchorsOf(path: string): Set<string> {
 
 describe("documentation paths", () => {
   test("D44 is a parsed heading in the design record", () => {
-    const body = readFileSync(join(ROOT, "docs/decisions/design-kit.md"), "utf8");
+    const body = readFileSync(join(ROOT, "docs/decisions/design-kit/tool-loading.md"), "utf8");
     expect(markdownAnchors(body).has(
       "2026-09-22--d44-the-bridge-tools-are-always-loaded-not-deferred-behind-tool-search",
     )).toBe(true);
   });
 
   test("D43's reproduction command ends before its explanatory prose", () => {
-    const body = readFileSync(join(ROOT, "docs/decisions/design-kit.md"), "utf8");
+    const body = readFileSync(join(ROOT, "docs/decisions/design-kit/show-block-brief.md"), "utf8");
     const { children } = unified().use(remarkParse).parse(body);
     const index = children.findIndex((node) => node.type === "code"
       && node.value.startsWith("bun scripts/measure-show-block.ts --always-load"));

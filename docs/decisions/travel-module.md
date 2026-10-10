@@ -62,7 +62,7 @@ migration planner. Existing settings require the [reviewed manual upgrade](../..
 preserving complete party values and unrelated source/settings. Normal commands
 continue using validated context configuration.
 The approved pre-1.0 ownership break and upgrade instructions are recorded in
-the [integration contract](../integration-contract.md#travel-ownership-and-canonical-content).
+the [integration contract](../integration-contract/frontmatter.md#travel-ownership-and-canonical-content).
 
 ## Alternatives and evidence
 

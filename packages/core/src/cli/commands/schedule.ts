@@ -4,7 +4,7 @@
  * Every subcommand talks to one UI host over HTTP. There is no local store,
  * database, runner or offline fallback: definitions and their approvals are
  * host-owned, and creating a schedule never executes it. `due` is read-only.
- * Contract: docs/integration-contract.md#scheduled-tasks-additive-914.
+ * Contract: docs/integration-contract/package-api.md#scheduled-tasks-additive-914.
  */
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";

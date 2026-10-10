@@ -100,7 +100,7 @@ failing closed, a retry still finds the destination.
   [`handoff-links.tsx`](../../packages/ui-react/src/components/chat/handoff-links.tsx),
   and the snapshot and fallback rules in
   [`lib/handoff.ts`](../../packages/ui-react/src/lib/handoff.ts).
-- Wire: [integration contract, cross-backend handoff](../integration-contract.md#cross-backend-handoff-additive-61).
+- Wire: [integration contract, cross-backend handoff](../integration-contract/wire.md#cross-backend-handoff-additive-61).
 
 ## Profiles that cannot run
 

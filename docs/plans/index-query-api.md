@@ -7,7 +7,7 @@ The standalone [query API specification](../content-index-queries.md) describes
 shipped operations; the server peer and bound module context below describe
 approved migrations, not shipped implementations. GitHub holds open work;
 this document carries no work status. The current
-[SQL guarantees](../integration-contract.md#braindb-direct-sql-reads) still bind.
+[SQL guarantees](../integration-contract/frontmatter.md#braindb-direct-sql-reads) still bind.
 
 ## Public-reader inventory — source audit 2026-09-30
 
@@ -124,7 +124,7 @@ additional absence/skew, declaration and migration obligations above.
 > readers now use the supported results through the optional peer; see the
 > [decision record's implementation note](../decisions/index-query-api.md#package-access--lazy-optional-core-peer-2026-10-03)
 > for the concrete range and the
-> [integration contract](../integration-contract.md#ui-server-optional-core-peer-breaking-host-migration-697)
+> [integration contract](../integration-contract/package-api.md#ui-server-optional-core-peer-breaking-host-migration-697)
 > for the resulting behavior. The UI-server inventory and baseline citations
 > in this document link the pre-migration commit.
 

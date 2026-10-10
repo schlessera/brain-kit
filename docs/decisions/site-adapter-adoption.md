@@ -94,7 +94,7 @@ uses generic `AdapterResult<RawJob>`. Consumers replace `bind(ctx).scrape(opts)`
 with `scrape(ctx, options)`, `lastCursor` with `cursor`, and result `jobs` with
 `items`; source identity comes from the adapter or runner outcome. The
 [package migration guide](../../packages/scrape/README.md#pre-10-migration) and
-[integration contract](../integration-contract.md#siteadapter-conformance-and-migration)
+[integration contract](../integration-contract/package-api.md#siteadapter-conformance-and-migration)
 carry these changes. CLI `{ report }`, source diagnostics and cursor persistence
 rules are preserved. #534 consumes this implemented boundary when curating
 final exports; this decision does not freeze other ordinary exports.

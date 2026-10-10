@@ -76,7 +76,7 @@ version bump from 1.0). See [integration-contract.md](../integration-contract.md
 Implement a seam against the packages' ordinary entry points only. What they
 export, and every type their signatures reach, is the supported surface; an
 `/internal` entry point is first-party sharing with no compatibility promise
-([package entry points](../integration-contract.md#package-entry-points)).
+([package entry points](../integration-contract/package-api.md#package-entry-points)).
 
 The client/server wire protocol is a machine compatibility contract now,
 separate from those experimental seams. Implementing `AgentBackend` means
@@ -96,7 +96,7 @@ Gemini Live and OpenAI GPT-Live as two intended implementations of one
 conversation interface, `LiveConversationProvider`. Its
 [specification](../investigations/live-conversation-investigation.md) keeps host-owned tools,
 permissions, correlation and playback authority, and the
-[contract](../integration-contract.md#live-conversation-additive-957) documents
+[contract](../integration-contract/wire.md#live-conversation-additive-957) documents
 its SDK, configuration and wire surface. It does not replace dictation's
 `SpeechProvider` / `AsrClient` or introduce a standalone TTS provider; no
 adapter ships yet.
@@ -162,7 +162,7 @@ The runner supplies one shared HTTP client, and browser context only to boards
 that declare `needsBrowser`. `cursor`, `queries`, `proxy` and per-site `fetch`
 options reach the same call. The seam remains experimental until 1.0; the
 [package guide](../../packages/scrape/README.md#adapters),
-[contract](../integration-contract.md#siteadapter-conformance-and-migration) and
+[contract](../integration-contract/package-api.md#siteadapter-conformance-and-migration) and
 [decision](../decisions/site-adapter-adoption.md) cover conformance and the
 approved pre-1.0 migration.
 
@@ -230,7 +230,7 @@ maintainer is one person. A promoted provider becomes:
   changed or not.
 - **A config-visible name.** Once a string resolves, taking it away breaks
   every config that names it. Until 1.0 that is a minor-version event announced
-  in the CHANGELOG ([integration-contract.md](../integration-contract.md#extension-interfaces));
+  in the CHANGELOG ([integration-contract.md](../integration-contract/package-api.md#extension-interfaces));
   after 1.0 it is a major.
 - **Documented surface.** A row in the seam's "Built-ins" table in this
   directory, an entry under the config key in

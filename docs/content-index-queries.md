@@ -5,7 +5,7 @@ existing disposable `brain.db`. Bun resolves TypeScript source; ordinary `types`
 and `default` conditions resolve the same build's declarations and JavaScript.
 The entry does not initialize config, modules, providers, vectors, agents or the
 CLI. It is a concrete core implementation, with no SQL/handle/provider escape.
-See the [integration contract](integration-contract.md#content-index-query-api)
+See the [integration contract](integration-contract/package-api.md#content-index-query-api)
 and [boundary decision](decisions/index-query-api.md).
 
 ```ts

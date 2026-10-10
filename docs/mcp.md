@@ -102,7 +102,7 @@ revoke a running process's tools. A stale name that was not registered returns
 permissions; a module tool needs the same explicit name-based permission as
 other tools.
 
-See [Module tools in the integration contract](integration-contract.md#module-tools)
+See [Module tools in the integration contract](integration-contract/mcp.md#module-tools)
 and the [module-tool decision](decisions/module-mcp-tools.md).
 
 See also: [cli.md](cli.md) · [integration-contract.md](integration-contract.md)
