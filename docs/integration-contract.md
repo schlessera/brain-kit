@@ -336,6 +336,21 @@ two apps in one process keep separate wrappers. A configuration without
 Neither ever spawns unwrapped because the field is absent. A relative wrapper
 path now refuses at `resolveServerConfig()` instead of failing each spawn.
 
+## Logo assets (additive, #1424)
+
+`@schlessera/brain-ui-kit` exports `BrandMark` (`variant?: "mark" | "lockup"`,
+`size?: number`, `label?: string`), which renders the accepted logo (#1423)
+inline with the theme's ink and amber tokens. Below 24px the mark uses the
+small-size master; without a `label` it is `aria-hidden`, with one it is
+`role="img"` with that name. No prop changes the artwork.
+
+The new React-free `@schlessera/brain-ui-kit/brand` entry exports
+`BRAND_MASTERS`, the file names of the fourteen master SVGs, and
+`BRAND_ASSET_SPECIFIER`. Each listed file resolves as
+`@schlessera/brain-ui-kit/brand/<file>` through the `./brand/*` export, which
+maps to the published `assets/brand/` directory. A listed file's name and
+presence are the promise; its bytes change only with a newly accepted design.
+
 ## Consumers
 
 | Consumer | Surfaces used |

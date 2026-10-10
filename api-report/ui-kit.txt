@@ -43,6 +43,8 @@ export "." (./src/index.ts)
   type BarListRow
   BottomSheet
   type BottomSheetProps
+  BrandMark
+  type BrandMarkProps
   Button
   type ButtonProps
   type ButtonTone
@@ -273,6 +275,13 @@ export "." (./src/index.ts)
   effectLineCount
   followUpLabel
   font
+
+export "./brand" (./src/brand.ts)
+  BRAND_ASSET_SPECIFIER
+  BRAND_MASTERS
+  type BrandMaster
+
+export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
   LIGHT_TOKENS
@@ -583,6 +592,10 @@ signatures (every public export and the types it is made of)
     }
   AttachmentTone (packages/ui-kit/src/types.ts)
     export type AttachmentTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  BRAND_ASSET_SPECIFIER (packages/ui-kit/src/brand.ts)
+    const BRAND_ASSET_SPECIFIER: "@schlessera/brain-ui-kit/brand/";
+  BRAND_MASTERS (packages/ui-kit/src/brand.ts)
+    const BRAND_MASTERS: readonly ["mark-on-dark.svg", "mark-on-paper.svg", "mark-small-on-dark.svg", "mark-small-on-paper.svg", "mark-mono-dark.svg", "mark-mono-paper.svg", "mark-reversed.svg", "lockup-on-dark.svg", "lockup-on-paper.svg", "favicon.svg", "icon-512.svg", "apple-touch-icon.svg", "maskable-512.svg", "social-card.svg"];
   BarList (packages/ui-kit/src/evidence/BarList.tsx)
     export function BarList(p: BarListProps): import("react").JSX.Element;
   BarListProps (packages/ui-kit/src/evidence/BarList.tsx)
@@ -610,6 +623,16 @@ signatures (every public export and the types it is made of)
         titleSize?: number;
         children?: ReactNode;
     }
+  BrandMark (packages/ui-kit/src/primitives/BrandMark.tsx)
+    export function BrandMark(p: BrandMarkProps): import("react").JSX.Element;
+  BrandMarkProps (packages/ui-kit/src/primitives/BrandMark.tsx)
+    export interface BrandMarkProps {
+        variant?: "mark" | "lockup";
+        size?: number;
+        label?: string;
+    }
+  BrandMaster (packages/ui-kit/src/brand.ts)
+    export type BrandMaster = (typeof BRAND_MASTERS)[number];
   Button (packages/ui-kit/src/primitives/Button.tsx)
     export function Button(p: ButtonProps): import("react").JSX.Element;
   ButtonProps (packages/ui-kit/src/primitives/Button.tsx)

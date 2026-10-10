@@ -360,6 +360,20 @@ jobs:
             throw new Error(`Packed Node static map failed: ${map.reason}`);
           }
 
+          // The logo ships as files (#1424): every file the kit lists resolves
+          // through its `./brand/*` export to non-empty bytes in the install.
+          const brand = await import("@schlessera/brain-ui-kit/brand");
+          const { readFileSync } = await import("node:fs");
+          const { fileURLToPath } = await import("node:url");
+          const brandFiles = [...brand.BRAND_MASTERS];
+          if (brandFiles.length === 0) throw new Error("Packed ui-kit lists no brand files");
+          for (const file of brandFiles) {
+            const path = fileURLToPath(import.meta.resolve(`${brand.BRAND_ASSET_SPECIFIER}${file}`));
+            if (!path.includes("/node_modules/@schlessera/brain-ui-kit/assets/brand/") || readFileSync(path).length === 0) {
+              throw new Error(`Packed ui-kit does not ship ${file} at its export: ${path}`);
+            }
+          }
+
           const bunApiPackages = [
             "@schlessera/brain",
             "@schlessera/brain-module-finance",

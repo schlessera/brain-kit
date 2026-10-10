@@ -67,6 +67,7 @@ export type {
 } from "./types.js";
 
 /* Primitives. */
+export { BrandMark, type BrandMarkProps } from "./primitives/BrandMark.js";
 export { Button, type ButtonProps } from "./primitives/Button.js";
 export { Callout, type CalloutProps } from "./primitives/Callout.js";
 export { Chip, type ChipProps } from "./primitives/Chip.js";

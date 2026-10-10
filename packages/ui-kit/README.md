@@ -137,6 +137,29 @@ link with it. `LinkPreviewCard` calls it on its own `url` prop, so the host a
 card shows and the address it opens always come from the same parse. The
 reasoning is D48 in `docs/decisions/design-kit.md`.
 
+## Logo
+
+The brain-kit logo ships here once, and everything that shows it takes it from
+this package rather than drawing its own (the accepted design is #1423).
+
+`BrandMark` renders it inline: `variant="mark"` (the default) or `"lockup"`
+with the outlined `brain-kit` wordmark, at `size` px tall. Both halves paint
+with the theme's tokens, so light and dark need no prop, and below 24px the
+mark switches to the small-size master. It is decorative unless given a
+`label`, which makes it an image with that name. Nothing about the artwork is
+configurable.
+
+The master SVGs ship as files, for anything that cannot render React (a
+favicon link, a README, a static site):
+
+```ts
+import { BRAND_ASSET_SPECIFIER, BRAND_MASTERS } from "@schlessera/brain-ui-kit/brand";
+// "@schlessera/brain-ui-kit/brand/lockup-on-paper.svg", resolvable by a bundler
+const lockup = `${BRAND_ASSET_SPECIFIER}lockup-on-paper.svg`;
+```
+
+`-on-dark` and `-on-paper` name the flat ground each file's colours are for.
+
 ## Styles
 
 Two forms, both generated from `src/styles.css`:
