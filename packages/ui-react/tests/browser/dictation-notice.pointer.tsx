@@ -199,7 +199,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     expect(getComputedStyle(notice(s)!).transitionDuration).toBe("0s");
     const focusable = [...s.host.querySelectorAll<HTMLElement>('button, [role="button"], textarea')].filter(el => el.tabIndex >= 0);
     if (retained) {
-      const discard = s.host.querySelector<HTMLElement>('[title="Discard"]')!;
+      const discard = page.elementLocator(s.host).getByRole("button", { name: "Discard", exact: true }).query() as HTMLElement;
       expect(discard, "review action is nonempty").toBeTruthy();
       expect(focusable.indexOf(discard)).toBeGreaterThanOrEqual(0);
       expect(focusable.indexOf(discard)).toBeLessThan(focusable.indexOf(dismiss(s)));

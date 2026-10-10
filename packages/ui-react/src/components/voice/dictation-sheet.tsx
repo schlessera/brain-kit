@@ -1,4 +1,4 @@
-import { Overlay } from "@schlessera/brain-ui-kit";
+import { IconButton, Overlay } from "@schlessera/brain-ui-kit";
 import { useEffect, useRef, type RefObject } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
@@ -92,16 +92,7 @@ export function DictationSheet({
             </span>
           </div>
           {desktop && <div className="ml-auto flex items-center"><Waveform level={audioLevel} compact /></div>}
-          <button
-            type="button"
-            aria-label="Cancel dictation"
-            onClick={onCancel}
-            disabled={draining}
-            title="Cancel"
-            className={cn("rounded-lg p-2 text-muted-foreground hover:bg-surface-raised hover:text-foreground disabled:opacity-30", desktop && "flex h-11 w-11 shrink-0 items-center justify-center")}
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {desktop ? <IconButton size="md" name="Cancel dictation" glyph={<X className="h-4 w-4" />} onClick={onCancel} disabled={draining} /> : <span aria-hidden="true" style={{ width: 44, height: 44 }} />}
         </div>
 
         {/* Active-provider note — subtle for Deepgram, amber for the browser
@@ -149,7 +140,7 @@ export function DictationSheet({
 
         {/* Big stop button — thumb-friendly */}
         <div className={desktop ? "shrink-0 border-t border-border/50 px-4 py-3" : "border-t border-border/50 p-4"}>
-          <button
+          <button /* raw-button: api — Opening focus needs a ref that kit Button does not accept. */
             type="button"
             ref={doneRef}
             onClick={onStop}
@@ -178,7 +169,7 @@ export function DictationSheet({
     </div>
   ) : null;
   return (
-    <Overlay open={open} variant="sheet" label="Dictation" data-dictation="" closedBy={draining ? "none" : "any"}
+    <Overlay open={open} variant="sheet" label="Dictation" data-dictation="" closeLabel="Cancel dictation" initialFocus={doneRef} closedBy={draining ? "none" : "any"}
       onClose={reason => reason === "scrim" ? onStop() : onCancel()}
       // A breakpoint move unmounts the modal after the desktop has focused
       // its replacement Done. Preserve that focus; a real close returns to mic.

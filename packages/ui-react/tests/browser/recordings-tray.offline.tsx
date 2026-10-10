@@ -990,3 +990,29 @@ for (const phase of ["transcript input", "recording read"])
       "pending Add leaves the committed original's text intact").toMatchObject({ text: "Penelope keeps the loom order." });
     expect(await a.partitions.open(row.partition).get(`root:ithaca/draft/${branch}`)).toMatchObject({ text: `Telemachus checks the route.\n${added}` });
   });
+
+
+for (const theme of ["dark", "light"]) test(`batch5 recordings disclosure target and focus ${theme}`, async ctx => {
+  const viewport = { width: innerWidth, height: innerHeight };
+  const previousTheme = document.documentElement.dataset.theme;
+  const outer = await commands.formViewport(320, 800);
+  await page.viewport(320, 800); document.documentElement.dataset.theme = theme;
+  ctx.onTestFinished(async () => {
+    if (previousTheme === undefined) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = previousTheme;
+    await page.viewport(viewport.width, viewport.height);
+    await commands.formViewport(outer.width - 100, outer.height - 120);
+  });
+  const c = fixture(ctx); await c.ready(); await c.seed("interrupted");
+  c.renderTray(); await expand(c);
+  const named = page.elementLocator(c.host).getByRole("button", { name: /^On this device · 1 ·/ });
+  const header = named.element() as HTMLElement;
+  header.focus(); await userEvent.keyboard("{ArrowRight}");
+  const css = getComputedStyle(header); const rect = header.getBoundingClientRect();
+  expect([header.getAttribute("aria-expanded") === "true", rect.height >= 44,
+    header.contains(document.elementFromPoint(rect.left + 2, rect.top + rect.height / 2)),
+    css.outlineStyle === "solid", css.outlineWidth === "2px"],
+  "recordings disclosure has a name, 44px reach and visible row focus").toEqual([true, true, true, true, true]);
+  await userEvent.keyboard(" ");
+  expect(header.getAttribute("aria-expanded"), "recordings disclosure Space collapses the tray").toBe("false");
+});

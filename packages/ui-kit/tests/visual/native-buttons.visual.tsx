@@ -8,6 +8,7 @@ import { IconButton } from "../../src/primitives/IconButton.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
 import { CONTROL_RING, ring } from "../../stories/_stage.js";
 import "../../src/styles.css";
+import { remainingButtonCases } from "../../../ui-react/tests/browser/remaining-buttons.cases.js";
 import { settingsButtonCases } from "../../../ui-react/tests/browser/settings-buttons.cases.js";
 
 let root: Root | undefined;
@@ -33,6 +34,7 @@ function premise() {
 
 // Exercise the actual Settings and Share consumers under each native pointer.
 settingsButtonCases(premise);
+remainingButtonCases(premise);
 
 async function mount(kind: "icon" | "text", theme: "dark" | "light", props: Record<string, unknown> = {}) {
   premise();

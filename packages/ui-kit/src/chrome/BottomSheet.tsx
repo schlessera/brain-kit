@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
-import { DiscButton } from "./DiscButton.js";
+import { IconButton } from "../primitives/IconButton.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
 import { color, font, accent } from "../tokens.js";
 
@@ -60,7 +60,7 @@ export function BottomSheet(p: BottomSheetProps) {
           <span id={p.titleId} style={{ font: `400 ${Number(p.titleSize) || 18}px/1.2 ${font.display}`, flex: 1, minWidth: 0 }}>
             {p.title}
           </span>
-          {p.onDismiss ? <DiscButton icon="dismiss" name={p.closeLabel ?? (p.title ? `Close ${p.title}` : "Close")} onClick={p.onDismiss} /> : null}
+          {p.onDismiss ? <IconButton size="md" tone="mute" style={{ position: "relative" }} glyph={<><Icon icon="dismiss" size={16} /><span style={{ position: "absolute", inset: 0 }} /></>} name={p.closeLabel ?? (p.title ? `Close ${p.title}` : "Close")} onClick={p.onDismiss} /> : null}
           {p.meta ? (
             <span style={{ flex: "none", font: `400 10px/1 ${font.mono}`, color: color.inkMute }}>{p.meta}</span>
           ) : null}

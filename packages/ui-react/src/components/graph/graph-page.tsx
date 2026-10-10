@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useEffect } from "react";
 import { TriangleAlert } from "lucide-react";
 import { EmptyState, ScreenHeader } from "@schlessera/brain-ui-kit";
@@ -81,15 +82,15 @@ export function GraphPage() {
             className="flex flex-1 justify-center gap-1 md:justify-start md:pl-4"
           >
             {MODES.map((m) => (
-              <button
+              <button style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties} /* raw-button: select — Segmented navigation preserves aria-current. */
                 key={m.value}
                 onClick={() => setMode(m.value)}
                 aria-current={mode === m.value ? "page" : undefined}
                 className={cn(
-                  "min-h-9 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bk-row min-h-9 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                   mode === m.value
                     ? "bg-surface-raised text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground"
                 )}
               >
                 {m.label}
