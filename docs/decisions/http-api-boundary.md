@@ -46,11 +46,11 @@ explicit supported rows, not silently excluded by this distinction.
 
 The source audit on 2026-09-30 used
 `e0875269b21b707482545be9e94901acb897893b`. The public health mount precedes auth
-(`createHealthRoutes`, `packages/ui-server/src/app.ts:527`), the API guard follows
-public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:547`), and the
-WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:654`).
+(`createHealthRoutes`, `packages/ui-server/src/app.ts:531`), the API guard follows
+public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:551`), and the
+WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:658`).
 Static serving is conditional (`if (options.staticRoot)`,
-`packages/ui-server/src/app.ts:674-700`). That order establishes access;
+`packages/ui-server/src/app.ts:678-704`). That order establishes access;
 it does not select compatibility status.
 
 A hermetic real-app launch, with temporary brain root, in-memory database,

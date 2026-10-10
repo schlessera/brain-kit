@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:104-127`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:106-129`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -551,7 +551,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "clients.add without an identity; it now carries the principal",
   "docs/decisions/session-principals.md|ws/connection.ts:173":
     "onMessage dispatching without a re-check; it now re-checks authorization",
-  "docs/decisions/session-principals.md|ws/run-session.ts:133-141":
+  "docs/decisions/session-principals.md|ws/run-session.ts:134-142":
     "the recorder built without an actor; it now receives the principal",
   "docs/decisions/session-principals.md|ws/turns.ts:55-77":
     "RunningTurn without an actor; it now carries principalId",

@@ -14,7 +14,7 @@ production command, changes no skill, and selects no adoption policy.
 | Stable finding IDs | `hygieneId`, `packages/core/src/lib/hygiene.ts:172-175` | Keep category/path/evidence identity; add no parallel log. |
 | Open/snoozed/resolved reconciliation and failed-check protection | `reconcile`, `packages/core/src/lib/hygiene.ts:1166-1470` | Reuse the existing reconciler after repair and retain its manual-state tests. |
 | Generated registry planning and application | `applyRegistry`, `packages/core/src/lib/index-registry.ts:288-317` | Leave owned tables to `brain registry`; this evaluation never regenerates them. |
-| Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:71-99` | Still agent file edits. These are the two prototype operations. |
+| Date and eligible Status table edits | `## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:94-121` | Still agent file edits. These are the two prototype operations. |
 | Completion-based audit suggestions | `suggestFixes`, `packages/core/src/cli/commands/audit.ts:26-67` | Suggestions only; this is not a mechanical repair handler. |
 
 Neither current hygiene detection nor validation detects the `updated < created`

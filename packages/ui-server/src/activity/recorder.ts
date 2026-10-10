@@ -59,6 +59,8 @@ export interface TurnRecorder {
   recordCancellation(principalId: string, kind?: "turn" | "ask_user"): void;
   /** Record who answered an ask-user interaction. */
   recordAskUserResponse(principalId: string): void;
+  /** Server-authored effect/refusal receipt; worker claims never supply this event. */
+  recordApplication?(result: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult): void;
   /**
    * The user's approval decision arrived for a gated tool call. `channel` is
    * how it arrived, when the client said; absent is stored as absent.
@@ -390,6 +392,20 @@ export function createTurnRecorder(
         if (finished) return;
         ensureRoot();
         store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
+        onWrite?.();
+      });
+    },
+
+    recordApplication(result) {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        const applicationId = crypto.randomUUID();
+        // Each exact effect stays below the store's per-event cap, even for a
+        // 32-file application with maximum-length targets.
+        for (const change of result.changes) store.appendEvent(rootSpanId, "brain_application_change", { applicationId, ...change });
+        store.appendEvent(rootSpanId, "brain_application", { applicationId, ok: result.ok, code: result.code,
+          message: result.message, indexed: result.indexed, changeCount: result.changes.length });
         onWrite?.();
       });
     },

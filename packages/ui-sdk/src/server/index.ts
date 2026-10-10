@@ -153,3 +153,7 @@ export * from "../protocol.js";
 
 export { assertVersionRequirements, validateVersionMinimum } from "./version-requirements.js";
 export type { BackendVersionRequirements, VersionRequirement, VersionRequirementCheck } from "./version-requirements.js";
+
+export { brainApplicationInput, BRAIN_APPLICATION_MAX_BYTES } from "./brain-application.js";
+export type { BrainApplicationInput, BrainApplicationOperation, BrainApplicationResult, BrainApplicationPolicy } from "./brain-application.js";
+export { BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS } from "./brain-application.js";

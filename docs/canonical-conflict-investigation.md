@@ -12,12 +12,12 @@ The skill's unkeyed pass reads configured canonical anchors, skips sources with
 a `facts:` map, extracts short structured facts and searches eligible secondary
 documents. It requires the same subject, a contradiction and a canonical update
 at least seven days newer (`## Phase 2`,
-`packages/core/skills/content-hygiene/SKILL.md:37-69`). These are agent instructions,
+`packages/core/skills/content-hygiene/SKILL.md:60-91`). These are agent instructions,
 not an implemented unkeyed conflict detector or CLI repair handler.
 
 Its separate replacement instruction requires a gap greater than thirty days,
 a fragment of at most two lines and obvious contextual substitutability
-(`## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:71-99`). Neither
+(`## Phase 3`, `packages/core/skills/content-hygiene/SKILL.md:94-121`). Neither
 high model confidence nor an old secondary timestamp establishes substitutability
 or grants permission. This investigation proposes no unattended replacement.
 

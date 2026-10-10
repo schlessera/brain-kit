@@ -81,7 +81,17 @@ export function createClaudeSdkTurn(options: {
   const askUserRank = req.noGrantSurface === true ? undefined : req.bridge.askUserRank;
   const askUserForm = req.noGrantSurface === true ? undefined : req.bridge.askUserForm;
   const queryActivity = req.bridge.queryActivity;
-  const allowed = [...options.allowedTools];
+  const hosted = Boolean(req.bridge.applyBrain);
+  const migrations: Record<string, string> = {
+    mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
+    mcp__brain__brain_archive: "mcp__brain-ui__brain_archive", Write: "mcp__brain-ui__write_file", Edit: "mcp__brain-ui__edit_file",
+  };
+  const allowed = [...new Set(options.allowedTools.map(name => hosted ? (migrations[name] ?? name) : name))];
+  if (req.bridge.readBrainBase) allowed.push("mcp__brain-ui__brain_read_base");
+  // Application permission lives in the server. These are callable tools,
+  // never authority: every executor goes through the server-owned route.
+  if (req.bridge.applyBrain && !req.noGrantSurface) allowed.push(
+    "mcp__brain-ui__brain_archive", "mcp__brain-ui__apply_staged_changes");
   // An autonomous roster is exact server authority, including bridge tools.
   if (!req.autonomous) {
     // Auto-allow the in-process MCP tools so they never trip a permission
@@ -148,7 +158,9 @@ export function createClaudeSdkTurn(options: {
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion"],
+    disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
+      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
+    ] : []), ...(hosted ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
       req,
       allowedTools: allowed,
@@ -194,6 +206,7 @@ export function createClaudeSdkTurn(options: {
   // handler, so the server itself is always present.
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      application: req.bridge,
       askUser,
       askUserList,
       askUserRank,

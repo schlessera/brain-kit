@@ -31,7 +31,7 @@ places.
 
 1. **In a voice turn, by design.** The voice posture removes `Bash` and
    `Skill` (`export const VOICE_ALLOWED_TOOLS`,
-   `packages/ui-backend-claude/src/tool-policy.ts:115-151`), for the reasons
+   `packages/ui-backend-claude/src/tool-policy.ts:119-155`), for the reasons
    in [voice-permission.md](voice-permission.md#the-voice-posture): 192 of
    192 measured approvals came from `Bash`, and a skill without `Bash` fails
    partway. What the posture keeps (`brain_*`, `Read`, `Glob`, `Grep`)
@@ -250,13 +250,13 @@ catch them.
 - **A mutating module tool must be serialized before any backend allows it.**
   The Claude backend's awaited hook covers every `mcp__brain__` name
   (`export const MUTATING_TOOL_MATCHER`,
-  `packages/ui-backend-claude/src/tool-policy.ts:177`).
+  `packages/ui-backend-claude/src/tool-policy.ts:184`).
   Only the five core reads and `jobs_review` are exempt
   (`const BRAIN_READ_TOOLS`,
-  `packages/ui-backend-claude/src/tool-policy.ts:181-188`).
+  `packages/ui-backend-claude/src/tool-policy.ts:188-195`).
   Every other brain tool takes the core document writers' brain lock
   (`export function lockKeyForTool`,
-  `packages/ui-backend-claude/src/tool-policy.ts:235-256`).
+  `packages/ui-backend-claude/src/tool-policy.ts:242-264`).
   An approved call reacquires that same key after its approval wait. This
   serialization policy does not admit a tool or trust its own annotation.
 - A tool is not an escape from containment. It resolves paths with
@@ -413,7 +413,7 @@ failed.
 
 - **The pi backend.** It does not use `brain mcp`. It builds its brain tools
   in-process with its own names (`export const TOOL_RISK`,
-  `packages/ui-backend-pi/src/tools.ts:210`), and it keeps `bash`, so
+  `packages/ui-backend-pi/src/tools.ts:214`), and it keeps `bash`, so
   `brain jobs review` is reachable there already. Serving module tools on pi
   would need collision rules against pi's flat namespace (`read_file`,
   `ask_user` and `web_search` all parse as `<module>_<local>`). It needs its

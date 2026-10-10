@@ -772,6 +772,7 @@ signatures (every public export and the types it is made of)
         turnTimeoutMs: number;
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
+        readonly isPrincipalAuthorized: (principalId: string) => boolean;
         constructor(options: WsHostOptions);
         close(): void;
     }
@@ -792,6 +793,7 @@ signatures (every public export and the types it is made of)
         };
         wsMaxConnections?: number;
         isPrincipalValid?: (principal: Principal) => boolean;
+        isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
     }
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)

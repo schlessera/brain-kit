@@ -102,6 +102,7 @@ export "./internal" (./src/internal.ts)
   isWriteRefusal
   loadVecSupport
   openDatabase
+  prepareIngest
   pruneScratch
   readDocumentPart
   relevanceOnArchive

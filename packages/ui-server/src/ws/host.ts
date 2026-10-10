@@ -131,6 +131,7 @@ export interface WsHostOptions {
    * already-resolved principal.
    */
   isPrincipalValid?: (principal: Principal) => boolean;
+  isPrincipalAuthorized?: (principalId: string) => boolean;
   /**
    * Activity recording (span store + live stream). Optional: a host without
    * one records nothing and never sends activity frames — which is also what
@@ -225,6 +226,7 @@ export class WsHost {
   readonly wsRate: { ratePerSecond: number; burst: number } | null;
   /** @internal Host wiring (#1053). */
   readonly isPrincipalValid: (principal: Principal) => boolean;
+  readonly isPrincipalAuthorized: (principalId: string) => boolean;
   /** @internal Host wiring (#1053). */
   readonly activity: ActivityRuntime | null;
   /** @internal Host wiring (#1053). */
@@ -288,6 +290,7 @@ export class WsHost {
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
+    this.isPrincipalAuthorized = options.isPrincipalAuthorized ?? (() => false);
     this.activity = options.activity ?? null;
     this.inbox = options.inbox ?? null;
     this.drafts = options.drafts ?? null;
