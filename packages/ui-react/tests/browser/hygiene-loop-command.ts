@@ -71,7 +71,10 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     const item = await poll(active, Boolean, "server selects pending Action");
     await poll(() => page.locator(`[data-hygiene-id="${item.id}"]`).count(), n => n > 0, "browser receives selected Action");
     const open = page.getByRole("button", { name: /^Open finding:/ });
-    if (width >= 900 && await open.count()) {
+    if (width >= 900) {
+      // Entry follows the visible replicated-Action control, including the
+      // legitimate waiting state introduced by #1547.
+      await open.last().waitFor({ state: "visible" });
       await open.last().click();
       // REST can publish the compact card before the reconnect snapshot reaches
       // the inbox store used by the detail pane. Observe the same Action there
@@ -92,7 +95,10 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     return await poll(active, a => a?.hygiene?.outcome?.status === status, `outcome ${status}`);
   }
   async function advance(id: string) {
-    await poll(state, s => s.read.review.pendingActionId !== id, "confirmed disposition advances once");
+    // A cleared pointer precedes the server's asynchronous next selection.
+    // Observe its settled next Action or completion before editing the fixture
+    // and running another real CLI reconciliation.
+    await poll(state, s => s.read.review.pendingActionId !== id && (Boolean(s.read.action) || s.read.review.status === "complete"), "confirmed disposition advances once");
   }
   async function dismiss(page: Page) {
     const item = await show(page);
