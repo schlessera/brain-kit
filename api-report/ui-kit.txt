@@ -43,6 +43,8 @@ export "." (./src/index.ts)
   type BarListRow
   BottomSheet
   type BottomSheetProps
+  BrandMark
+  type BrandMarkProps
   Button
   type ButtonProps
   type ButtonTone
@@ -273,6 +275,20 @@ export "." (./src/index.ts)
   effectLineCount
   followUpLabel
   font
+
+export "./brand" (./src/brand.ts)
+  BRAND_ASSET_SPECIFIER
+  BRAND_MASTERS
+  BRAND_RASTERS
+  type BrandMaster
+  type BrandRaster
+  HTML_ICON_LINKS
+  type HtmlIconLink
+  WEB_APP_COLORS
+  WEB_APP_MANIFEST_ICONS
+  type WebAppManifestIcon
+
+export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
   LIGHT_TOKENS
@@ -583,6 +599,12 @@ signatures (every public export and the types it is made of)
     }
   AttachmentTone (packages/ui-kit/src/types.ts)
     export type AttachmentTone = "teal" | "amber" | "purple" | "blue" | "neutral";
+  BRAND_ASSET_SPECIFIER (packages/ui-kit/src/brand.ts)
+    const BRAND_ASSET_SPECIFIER: "@schlessera/brain-ui-kit/brand/";
+  BRAND_MASTERS (packages/ui-kit/src/brand.ts)
+    const BRAND_MASTERS: readonly ["mark-on-dark.svg", "mark-on-paper.svg", "mark-small-on-dark.svg", "mark-small-on-paper.svg", "mark-mono-dark.svg", "mark-mono-paper.svg", "mark-reversed.svg", "lockup-on-dark.svg", "lockup-on-paper.svg", "favicon.svg", "icon-512.svg", "apple-touch-icon.svg", "maskable-512.svg", "social-card.svg"];
+  BRAND_RASTERS (packages/ui-kit/src/brand.ts)
+    const BRAND_RASTERS: readonly ["favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "social-card.png"];
   BarList (packages/ui-kit/src/evidence/BarList.tsx)
     export function BarList(p: BarListProps): import("react").JSX.Element;
   BarListProps (packages/ui-kit/src/evidence/BarList.tsx)
@@ -610,6 +632,18 @@ signatures (every public export and the types it is made of)
         titleSize?: number;
         children?: ReactNode;
     }
+  BrandMark (packages/ui-kit/src/primitives/BrandMark.tsx)
+    export function BrandMark(p: BrandMarkProps): import("react").JSX.Element;
+  BrandMarkProps (packages/ui-kit/src/primitives/BrandMark.tsx)
+    export interface BrandMarkProps {
+        variant?: "mark" | "lockup";
+        size?: number;
+        label?: string;
+    }
+  BrandMaster (packages/ui-kit/src/brand.ts)
+    export type BrandMaster = (typeof BRAND_MASTERS)[number];
+  BrandRaster (packages/ui-kit/src/brand.ts)
+    export type BrandRaster = (typeof BRAND_RASTERS)[number];
   Button (packages/ui-kit/src/primitives/Button.tsx)
     export function Button(p: ButtonProps): import("react").JSX.Element;
   ButtonProps (packages/ui-kit/src/primitives/Button.tsx)
@@ -1111,6 +1145,15 @@ signatures (every public export and the types it is made of)
     }
   HATCH_GLYPH (packages/ui-kit/src/agents/LaneChart.tsx)
     const HATCH_GLYPH: "▨";
+  HTML_ICON_LINKS (packages/ui-kit/src/brand.ts)
+    const HTML_ICON_LINKS: readonly HtmlIconLink[];
+  HtmlIconLink (packages/ui-kit/src/brand.ts)
+    export interface HtmlIconLink {
+        rel: "icon" | "apple-touch-icon";
+        href: BrandMaster | BrandRaster;
+        type?: string;
+        sizes?: string;
+    }
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -2081,8 +2124,22 @@ signatures (every public export and the types it is made of)
     export type ValueTone = Tone | InkTone;
   ViewState (packages/ui-kit/src/types.ts)
     export type ViewState = "ready" | "loading" | "empty" | "error";
+  WEB_APP_COLORS (packages/ui-kit/src/brand.ts)
+    const WEB_APP_COLORS: {
+        readonly background_color: "#0c1417";
+        readonly theme_color: "#0c1417";
+    };
+  WEB_APP_MANIFEST_ICONS (packages/ui-kit/src/brand.ts)
+    const WEB_APP_MANIFEST_ICONS: readonly WebAppManifestIcon[];
   WORKING_STATES (packages/ui-kit/src/chrome/SessionStrip.tsx)
     const WORKING_STATES: readonly ["needs-you", "failed", "unconfirmed", "running", "queued", "unknown", "cant-check", "done", "cancelled"];
+  WebAppManifestIcon (packages/ui-kit/src/brand.ts)
+    export interface WebAppManifestIcon {
+        src: BrandRaster;
+        sizes: string;
+        type: "image/png";
+        purpose: "any" | "maskable";
+    }
   WorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export interface WorkingSession {
         id: string;
