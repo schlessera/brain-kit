@@ -26,9 +26,15 @@ export function preparePaidReview(destination:string,proofPath:string){
   const flush=()=>{if(!current.length)return;const id=`lifecycle-${String(packets.length+1).padStart(3,"0")}`,payload=JSON.stringify({issue:845,freezeSha:frozen.freezeSha,proofSha:digest(proofRaw),semanticApproval:false,parts:current});
     if(Buffer.byteLength(payload)>400000)throw Error("Lossless packet bound exceeded");writeFileSync(join(output,`${id}.json`),payload,{mode:0o600});packets.push({id,sha:digest(payload),bytes:Buffer.byteLength(payload)});current=[];};
   for(const {path,raw} of documents){
-    entries.push({path,sha:digest(raw),bytes:raw.length,parts:Math.max(1,Math.ceil(raw.length/220000))});
-    for(let offset=0;offset<raw.length||offset===0;offset+=220000){const part={path,offset,fullBytes:raw.length,fullSha:digest(raw),bytesBase64:raw.subarray(offset,offset+220000).toString("base64")};
-      if(Buffer.byteLength(JSON.stringify(current))+Buffer.byteLength(JSON.stringify(part))>370000)flush();current.push(part);}
+    const entry={path,sha:digest(raw),bytes:raw.length,parts:0};entries.push(entry);
+    // Retain literal bytes and readable complete source, ending only at UTF8 boundaries.
+    for(let offset=0;offset<raw.length||offset===0;){
+      let end=Math.min(raw.length,offset+110000);while(end<raw.length&&(raw[end]!&0xc0)===0x80)end--;
+      const bytes=raw.subarray(offset,end),text=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+      const part={path,offset,fullBytes:raw.length,fullSha:digest(raw),bytesBase64:bytes.toString("base64"),text};
+      if(Buffer.byteLength(JSON.stringify(current))+Buffer.byteLength(JSON.stringify(part))>370000)flush();current.push(part);entry.parts++;
+      if(end===raw.length)break;offset=end;
+    }
   }
   flush();if(lifecyclePaidFreeze().freezeSha!==frozen.freezeSha)throw Error("Whole lifecycle source/runtime changed during packet preparation");
   const manifest={issue:845,freezeSha:frozen.freezeSha,inputSha:frozen.inputSha,protocolSha:frozen.protocolSha,proofSha:digest(proofRaw),prepared,
