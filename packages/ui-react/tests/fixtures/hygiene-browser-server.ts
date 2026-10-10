@@ -170,7 +170,13 @@ const brain = {
             diff: { ...diff, changes: diff.changes.map((c) => ({ ...c, before: c.after, after: c.before })) },
           }
         : { id, status: "undone" };
-    if (op === "check") return { id, status: "still_detected" };
+    if (op === "check") {
+      if (mode === "check_clear") {
+        remaining--;
+        return { id, status: "not_detected" };
+      }
+      return { id, status: "still_detected" };
+    }
     if (op === "resolve") {
       if (mode === "hold")
         await new Promise<void>((resolve) => {

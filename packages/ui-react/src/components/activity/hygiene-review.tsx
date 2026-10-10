@@ -73,7 +73,7 @@ export function useHygieneReview() {
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
   const commandRequest = useRef(0);
-  const awaited = useRef<string | null>(null);
+  const awaited = useRef<{ id: string; version: number } | null>(null);
   const [focus, setFocus] = useState(0);
   const refresh = useCallback(async () => {
     const token = ++request.current;
@@ -125,10 +125,13 @@ export function useHygieneReview() {
     void command("start");
   }, [startRequested, root, command]);
   useEffect(() => {
-    const id = awaited.current;
-    if (!id) return;
+    const sent = awaited.current;
+    if (!sent) return;
+    const { id } = sent;
     const old = items[id];
-    if (!old || old.queue !== "actions") return;
+    // A REST read may beat the socket command and carry the previous failure.
+    // Only a newer Action version can settle this attempt's focus handoff.
+    if (!old || old.queue !== "actions" || old.version <= sent.version) return;
     const status = old.hygiene?.outcome?.status;
     const confirmed =
       (old.status === "resolved" && (status === "fixed" || status === "not_detected")) ||
@@ -155,7 +158,7 @@ export function useHygieneReview() {
     refresh,
     focus,
     onSent: (id: string) => {
-      awaited.current = id;
+      awaited.current = { id, version: root.stores.inbox.getState().items[id]?.version ?? 0 };
     },
   };
 }

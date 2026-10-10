@@ -368,3 +368,34 @@ test("Later confirms the stored hygiene option and prints the server's waitUntil
   ]);
   expect(host!.querySelector("[data-hygiene-snooze-receipt]")?.textContent).toContain("Jul");
 });
+
+
+test("a REST read of the previous failure cannot erase the focus handoff for a confirmed recovery", async () => {
+  await scene();
+  await chooseText();
+  await set({ mode: "unknown" });
+  await apply();
+  await expect.poll(() => current().textContent).toContain("Didn't hear back.");
+  const before = current().dataset.hygieneId;
+  await set({ mode: "check_clear" });
+  const send = ui!.connection.send;
+  let delayed: ClientMessage | undefined;
+  // REST and the socket are separate transports. Deliver the read first,
+  // holding only the lowest shared send method; the real server still checks.
+  ui!.connection.send = (message) => {
+    if (message.type === "inbox_resolve" && message.optionId === "check") {
+      delayed = message;
+      return true;
+    }
+    return send(message);
+  };
+  await page.getByRole("button", { name: "Check again", exact: true }).click();
+  await settle();
+  expect(current().dataset.hygieneId).toBe(before);
+  expect(delayed).toBeDefined();
+  ui!.connection.send = send;
+  send(delayed!);
+  await expect.poll(() => current()?.dataset.hygieneId).not.toBe(before);
+  await expect.poll(() => document.activeElement, { message: "confirmed recovery focuses the next title" }).toBe(title());
+  expect(appliedCalls(await set({}))).toHaveLength(1);
+});
