@@ -65,7 +65,12 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
   // it, so the handler and the card that draws the link can never disagree
   // (maintainer ruling on schlessera/brain-kit#43, D48). The edge reaches only
   // `@schlessera/brain-ui-kit/links`, which is pure and imports no React.
-  "@schlessera/brain-ui-sdk": { dependencies: ["@schlessera/brain-ui-kit", "@schlessera/brain-geo"], optionalPeers: [] },
+  // #1396: the worker-bootstrap env chokepoint reads through brain-common's
+  // shared env core; only `./internal/env`, which loads no parser.
+  "@schlessera/brain-ui-sdk": {
+    dependencies: ["@schlessera/brain-common", "@schlessera/brain-ui-kit", "@schlessera/brain-geo"],
+    optionalPeers: [],
+  },
   // The scraping base is infrastructure, not a content domain: it knows
   // nothing about documents, taxonomy or the index, so it must NEVER depend on
   // core. An edge here would mean scraping logic had started reasoning about

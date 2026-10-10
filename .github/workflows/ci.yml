@@ -489,6 +489,7 @@ jobs:
               private: true,
               type: "module",
               overrides: {
+                "@schlessera/brain-common": `file:${tarballs}/common.tgz`,
                 "@schlessera/brain-geo": `file:${tarballs}/geo.tgz`,
                 "@schlessera/brain-render-template": `file:${tarballs}/render-template.tgz`,
                 "@schlessera/brain-ui-sdk": `file:${tarballs}/ui-sdk.tgz`,
@@ -498,6 +499,7 @@ jobs:
             }, null, 2) + "\n");
           '
           bun add \
+            "$TARBALL_DIR/common.tgz" \
             "$TARBALL_DIR/geo.tgz" \
             "$TARBALL_DIR/render-template.tgz" \
             "$TARBALL_DIR/ui-sdk.tgz" \
@@ -525,6 +527,7 @@ jobs:
               }
             }
             for (const [name, tarball] of [
+              ["@schlessera/brain-common", "common"],
               ["@schlessera/brain-geo", "geo"],
               ["@schlessera/brain-render-template", "render-template"],
               ["@schlessera/brain-ui-sdk", "ui-sdk"],

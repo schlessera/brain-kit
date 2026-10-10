@@ -4,7 +4,7 @@
  * Internal to brain-kit: reached through `@schlessera/brain-common/internal/env`,
  * with no compatibility promise (docs/decisions/public-export-boundary.md).
  * Each package with an env chokepoint (`src/config/env.ts`) imports it from
- * there; it replaced eight byte-identical copies held together by a sync test
+ * there; it replaced the byte-identical per-package copies a sync test held
  * (#1396). `scripts/env-docs.ts` imports this file directly.
  *
  * What belongs here: the descriptor contract the env-docs generator and the
