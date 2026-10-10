@@ -33,17 +33,20 @@ export const BRAND_MASTERS = [
   "icon-512.svg",
   "apple-touch-icon.svg",
   "maskable-512.svg",
-  "social-card.svg",
 ] as const;
 
 export type BrandMaster = (typeof BRAND_MASTERS)[number];
 
 /**
- * Files rendered from the masters by `tools/brand/generate.ts`
- * (`bun run brand:generate`), for clients that need a raster: a 16/32/48px
- * `favicon.ico`, an opaque 180px `apple-touch-icon.png`, the web app manifest
- * icons, and the 1200x630 `social-card.png` for Open Graph and repository
- * previews.
+ * The raster brand files, for clients that need one: a 16/32/48px
+ * `favicon.ico`, an opaque 180px `apple-touch-icon.png` and the web app
+ * manifest icons, rendered from the masters by `tools/brand/generate.ts`
+ * (`bun run brand:generate`), and the 1200x630 `social-card.png` for Open
+ * Graph and repository previews, with `social-card@2x.png` (2400x1260) where
+ * a high-DPI image suits. Both social cards are reviewed raster masters of
+ * their own (#1428), not rendered from an SVG: they hold a product
+ * screenshot, so they have no fill-only vector form. A GitHub social preview
+ * takes the 1x file; the 2x one is over its 1 MB limit.
  */
 export const BRAND_RASTERS = [
   "favicon.ico",
@@ -52,6 +55,7 @@ export const BRAND_RASTERS = [
   "icon-512.png",
   "icon-maskable-512.png",
   "social-card.png",
+  "social-card@2x.png",
 ] as const;
 
 export type BrandRaster = (typeof BRAND_RASTERS)[number];

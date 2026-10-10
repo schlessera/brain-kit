@@ -26,16 +26,34 @@ const ACCEPTED: Record<string, string> = {
   "mark-small-on-dark.svg": "bfc51b9789678e48d7b81d9709168b7a7a5b9c6229d2775e5919f96f6bd4697b",
   "mark-small-on-paper.svg": "7ec24b58a7e88eaa68585e0e1fd18658ac5f3afaf6abc25ffe162d745cf9bb5d",
   "maskable-512.svg": "5267331063562851ed14f8eab9e9242e58149b8b0db775c62dad9b610e7c1c54",
-  "social-card.svg": "fde7f4b6faef0ca4e1e5628218a601563dd640ca2c0cbf79ffb5ac858b2f0f74",
+};
+
+/**
+ * SHA-256 of the social cards the maintainer accepted on #1428, which replaced
+ * the #1423 card: the 1x file and its 2x render from the same source. They are
+ * reviewed raster masters rather than renders of one, so they are pinned here
+ * instead of being reproduced by the generator.
+ */
+const ACCEPTED_SOCIAL_CARDS: Record<string, string> = {
+  "social-card.png": "01c36f6af3a73dc5ed5f122adf5f0714a1ac6bdb3f9e95a218018d2e88f400e3",
+  "social-card@2x.png": "db722b199ffdbbd31cc92fa385cede9c8599f07b4446361ab312e73ec7fa2597",
 };
 
 const SHIPPED: readonly string[] = [...BRAND_MASTERS, ...BRAND_RASTERS];
 
 describe("brand masters", () => {
   test("the committed masters are exactly the accepted files", () => {
-    expect(Object.keys(ACCEPTED).length).toBe(14);
+    expect(Object.keys(ACCEPTED).length).toBe(13);
     expect([...BRAND_MASTERS].sort() as string[]).toEqual(Object.keys(ACCEPTED).sort());
     for (const [file, sha] of Object.entries(ACCEPTED)) {
+      const got = createHash("sha256").update(readFileSync(join(ASSETS, file))).digest("hex");
+      expect(got, file).toBe(sha);
+    }
+  });
+
+  test("the social cards are exactly the accepted raster masters", () => {
+    expect(Object.keys(ACCEPTED_SOCIAL_CARDS).length).toBe(2);
+    for (const [file, sha] of Object.entries(ACCEPTED_SOCIAL_CARDS)) {
       const got = createHash("sha256").update(readFileSync(join(ASSETS, file))).digest("hex");
       expect(got, file).toBe(sha);
     }

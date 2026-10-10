@@ -172,11 +172,13 @@ const lockup = `${BRAND_ASSET_SPECIFIER}lockup-on-paper.svg`;
 
 `-on-dark` and `-on-paper` name the flat ground each file's colours are for.
 
-`BRAND_RASTERS` are rendered from those masters by `bun run brand:generate`
-(`tools/brand/generate.ts`): `favicon.ico` (16, 32 and 48px),
-`apple-touch-icon.png` (180px, opaque), `icon-192.png`, `icon-512.png`,
-`icon-maskable-512.png` (mark inside the central 80% circle) and the 1200x630
-`social-card.png`. A host copies the brand files it serves and declares them
+`BRAND_RASTERS` are the raster files. `bun run brand:generate`
+(`tools/brand/generate.ts`) renders `favicon.ico` (16, 32 and 48px),
+`apple-touch-icon.png` (180px, opaque), `icon-192.png`, `icon-512.png` and
+`icon-maskable-512.png` (mark inside the central 80% circle) from those
+masters. The 1200x630 `social-card.png` and its 2400x1260 `social-card@2x.png`
+are reviewed raster masters of their own (#1428), which the generator never
+touches; a GitHub social preview takes the 1x file. A host copies the brand files it serves and declares them
 from the same entry, rather than typing the values:
 
 ```ts

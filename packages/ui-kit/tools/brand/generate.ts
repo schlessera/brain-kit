@@ -2,9 +2,11 @@
  * Renders the logo's raster files from its master SVGs (#1425).
  *
  * Browsers, home screens and link previews need PNG and ICO files; the logo is
- * specified as SVG (#1423). Every raster under `assets/brand/` is therefore
- * generated here from a committed master, never edited or exported by hand, so
- * the artwork has one source. resvg is pinned, renders without system fonts
+ * specified as SVG (#1423). Every raster under `assets/brand/` but one is
+ * therefore generated here from a committed master, never edited or exported
+ * by hand, so the artwork has one source. The exceptions are the social
+ * cards, `social-card.png` and `social-card@2x.png`, reviewed raster masters
+ * in their own right (#1428): nothing here renders or overwrites them. resvg is pinned, renders without system fonts
  * (the masters contain no text, only outlined paths) and writes no timestamps,
  * so a run on a clean tree reproduces the committed bytes exactly;
  * `tests/brand-rasters.test.ts` holds it to that.
@@ -22,8 +24,11 @@ import type { BrandRaster } from "../../src/brand.js";
 
 export const BRAND_DIR = resolve(import.meta.dir, "..", "..", "assets", "brand");
 
-/** Each raster, the master it comes from, and the pixel widths it holds. */
-export const RASTER_SOURCES: Record<BrandRaster, { master: string; widths: readonly number[] }> = {
+/** The rasters this script renders: all of them except the social card masters. */
+export type GeneratedRaster = Exclude<BrandRaster, "social-card.png" | "social-card@2x.png">;
+
+/** Each generated raster, the master it comes from, and the pixel widths it holds. */
+export const RASTER_SOURCES: Record<GeneratedRaster, { master: string; widths: readonly number[] }> = {
   // The favicon master carries the small-size mark on its dark tile; the ICO
   // is the fallback for clients that do not take an SVG favicon.
   "favicon.ico": { master: "favicon.svg", widths: [16, 32, 48] },
@@ -31,7 +36,6 @@ export const RASTER_SOURCES: Record<BrandRaster, { master: string; widths: reado
   "icon-192.png": { master: "icon-512.svg", widths: [192] },
   "icon-512.png": { master: "icon-512.svg", widths: [512] },
   "icon-maskable-512.png": { master: "maskable-512.svg", widths: [512] },
-  "social-card.png": { master: "social-card.svg", widths: [1200] },
 };
 
 function render(svg: string, width: number): Buffer {
@@ -70,10 +74,10 @@ export function encodeIco(images: readonly { size: number; png: Buffer }[]): Buf
   return Buffer.concat([header, ...entries, ...images.map((i) => i.png)]);
 }
 
-/** Every raster, rendered from the masters in `BRAND_DIR`, by file name. */
-export function renderBrandRasters(): Record<BrandRaster, Buffer> {
-  const out = {} as Record<BrandRaster, Buffer>;
-  for (const [file, { master, widths }] of Object.entries(RASTER_SOURCES) as [BrandRaster, (typeof RASTER_SOURCES)[BrandRaster]][]) {
+/** Every generated raster, rendered from the masters in `BRAND_DIR`, by file name. */
+export function renderBrandRasters(): Record<GeneratedRaster, Buffer> {
+  const out = {} as Record<GeneratedRaster, Buffer>;
+  for (const [file, { master, widths }] of Object.entries(RASTER_SOURCES) as [GeneratedRaster, (typeof RASTER_SOURCES)[GeneratedRaster]][]) {
     const svg = readFileSync(join(BRAND_DIR, master), "utf8");
     out[file] = file.endsWith(".ico")
       ? encodeIco(widths.map((size) => ({ size, png: render(svg, size) })))
