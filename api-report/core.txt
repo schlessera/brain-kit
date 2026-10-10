@@ -119,6 +119,12 @@ export "./internal" (./src/internal.ts)
   writeFileSafely
   writeScratchFile
 
+export "./internal/graph" (./src/internal-graph.ts)
+  type TermIndex
+  communityTopTerms
+  computeClusterLayout
+  computeMetrics
+
 export "./module" (./src/module.ts)
   GEMINI_FLASH_MODEL
   type GeminiCompletionConfig
