@@ -45,27 +45,30 @@ The caller owns the returned stdin/stdout/stderr streams and closes or destroys
 them when cancelling a worker.
 
 The privileged server, its validated application route and code loaded before
-the bootstrap are outside this boundary. Moving Claude and pi SDK/extension
-initialization into these workers belongs to #1037/#1038, with integrated
-adapter/application proof in #1039. A passing host probe does not establish
-that those integrations have shipped. #676 separately owns credentials,
+the bootstrap are outside this boundary. #1037 and #1038 moved Claude and pi
+SDK/extension initialization into these workers. The integrated
+adapter/application proof is `tests/policy-write-boundary.test.ts` (#1039);
+the [decision record](../decisions/policy-write-boundary.md#the-integrated-proof--1039)
+lists its cases. A passing host probe alone still does not establish that proof.
+#676 separately owns credentials,
 ambient configuration, network/Unix-socket egress and full autonomous containment.
 This launcher shares the host network namespace and exposes a read-only host
 root; it is not that complete containment profile.
 
 ## Measured host-component matrix
 
-These rows qualify the launcher/probe component, not completed adapter
-containment. Adapter versions identify the installed context; the launcher
-fixtures use filesystem writers without model calls or SDK initialization.
-Each automatic proof retains its exact tuple in `tmp/worker-host-probe.json`
-and the unit-job logs/artifacts. Changing a tuple still requires the actual
+These rows qualify the launcher/probe component. Where a row says so, the
+integrated two-adapter proof (#1039) has also passed on that tuple; it drives
+the installed adapters with loopback fixture inference. Neither is complete
+containment (#676). Each automatic proof retains its exact tuple in
+`tmp/worker-host-probe.json` or `tmp/policy-boundary-probe.json` and the
+unit-job logs/artifacts. Changing a tuple still requires the actual
 per-turn capability check; an OS name alone never admits a turn.
 
 | Host / architecture | Kernel / Bun / bubblewrap | Installed adapters and runtimes | Brain / scratch backing filesystems | Required capabilities and proof |
 | --- | --- | --- | --- | --- |
-| Linux x86_64, measured 2026-10-10 | `7.2.5-3-omarchy` / `1.4.2` / `0.12.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain Btrfs (`0x9123683e`); isolated scratch tmpfs (`0x01021994`) | Runnable bubblewrap; permitted unprivileged user/mount/PID/IPC/UTS namespaces; fresh proc/dev; `mkfifo`; Linux proc descriptor metadata and Bun execve. Actual probe, hardlink/scratch-alias bytes and membership checks, scratch readback, stdio/descriptor refusals, and active-gate turn regressions passed. |
-| Ubuntu 24.04 CI x86_64, measured 2026-10-10 | `6.17.0-1022-azure` / `1.4.2` / `0.9.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain ext4 (`0xef53`, confirmed with findmnt); isolated scratch tmpfs (`0x01021994`) | Same capabilities as the Linux row above. All seven real launcher/probe tests and all six refusal/authority gate tests passed in [the automatic unit job](https://github.com/schlessera/brain-kit/actions/runs/38014138934/job/114100926349). The exact tuple is retained in its logs/artifact; this component receipt is distinct from the full PR verdict. |
+| Linux x86_64, measured 2026-10-10 | `7.2.5-3-omarchy` / `1.4.2` / `0.12.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain Btrfs (`0x9123683e`); isolated scratch tmpfs (`0x01021994`) | Runnable bubblewrap; permitted unprivileged user/mount/PID/IPC/UTS namespaces; fresh proc/dev; `mkfifo`; Linux proc descriptor metadata and Bun execve. Actual probe, hardlink/scratch-alias bytes and membership checks, scratch readback, stdio/descriptor refusals, and active-gate turn regressions passed. The integrated proof `tests/policy-write-boundary.test.ts` (all 14 tests, both adapters) passed on this tuple on 2026-10-10. |
+| Ubuntu 24.04 CI x86_64, measured 2026-10-10 | `6.17.0-1022-azure` / `1.4.2` / `0.9.0` | Claude adapter `0.40.0`, Agent SDK `0.3.293`, native Claude Code `2.1.293`; pi adapter `0.40.0`, coding-agent `0.99.2` | Brain ext4 (`0xef53`, confirmed with findmnt); isolated scratch tmpfs (`0x01021994`) | Same capabilities as the Linux row above. All seven real launcher/probe tests and all six refusal/authority gate tests passed in [the automatic unit job](https://github.com/schlessera/brain-kit/actions/runs/38014138934/job/114100926349). The exact tuple is retained in its logs/artifact; this component receipt is distinct from the full PR verdict. The integrated proof `tests/policy-write-boundary.test.ts` (all 14 tests, both adapters) passed on this tuple in [its automatic unit job](https://github.com/schlessera/brain-kit/actions/runs/38053535597/job/114217419653) on 2026-10-10; `tmp/policy-boundary-probe.json` in that job's artifact records the tuple. |
 | Native macOS / Windows | No qualified tuple | No qualified runtime pair | No qualified backing filesystems | Refused before writer initialization: required Linux namespaces unavailable. |
 
 No new WSL2 tuple has passed this implementation's checks. WSL2 may qualify
@@ -86,7 +89,11 @@ bun run test packages/ui-sdk/tests/worker-launcher.test.ts \
   packages/ui-server/tests/ws-handoff.test.ts
 ```
 
-These fixture programs perform only filesystem/stdio operations and make no
+For the integrated two-adapter proof, run `bun run test tests/policy-write-boundary.test.ts`.
+It needs bubblewrap, unprivileged namespaces and `python3`, and makes no request
+beyond the loopback fixture inside its own network namespace.
+
+The component fixture programs perform only filesystem/stdio operations and make no
 network or provider requests. The probe's clear environment and exec boundary
 do not propagate a JavaScript test preload into arbitrary future worker code;
 the tests prove the named component operations, not runtime or egress containment.
