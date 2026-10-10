@@ -44,3 +44,13 @@ test("review financial admission rejects malformed tools before reserving or for
     expect(b.entries).toHaveLength(0);
   }
 });
+
+test("job-fit workflow retains its original64-request bound while every review stays24",()=>{
+  const p={...policy(),issue:847 as const,purpose:"workflow" as const,maxPhysicalRequests:64 as const};
+  const b=new NativeBudget(847,"offline",p,binding,()=>{});
+  for(let index=0;index<64;index++){const id=b.reserve(wire);expect(id).toBe(index);b.settle(id,usage);}
+  expect(b.entries).toHaveLength(64);expect(()=>b.reserve(wire)).toThrow("physical bound");
+  for(const change of [{purpose:"review"},{issue:846},{maxPhysicalRequests:24},{maxPhysicalRequests:65}])
+    expect(()=>new NativeBudget((change.issue??847) as any,"offline",{...p,...change} as NativePaidPolicy,binding,()=>{})).toThrow("mismatched");
+  expect(()=>new NativeBudget(847,"offline",{...p,purpose:"review",maxPhysicalRequests:24},binding,()=>{})).not.toThrow();
+});
