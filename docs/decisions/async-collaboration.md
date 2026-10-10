@@ -166,6 +166,31 @@ settle the two questions the proof left open:
 
 Enabling autonomous dispatch still requires the full-system proof of #689.
 
+## Production dispatcher and follow-up scope — 2026-10-10
+
+The [maintainer's 2026-10-10 ruling on #689](https://github.com/schlessera/brain-kit/issues/689)
+lets the package-side proof proceed before the generated host exists. The
+production dispatcher is wired and proven in brain-kit, while enablement stays
+gated on the hosting template's glue and the reserved human/model verification.
+The choices that bind later work:
+
+- **No flag or default enables it.** `createApp` constructs a dispatcher only
+  for the repository's fixture host, through a symbol that no package entry
+  point exports. A fixture cron poke and a fixture restart drive the supported
+  token-file poke and process lifecycle, standing in for the generated host.
+- **Approval names one exact operation, checked by server code three times.**
+  The envelope is a server predicate: one non-destructive single-file
+  application on a `.md` target that the input names, outside policies and dot
+  directories. It is evaluated when the decision is created, at resolution and
+  before the follow-up runs. Stored options and checkpoint facts name candidates;
+  they never admit them.
+- **A follow-up widens only what was approved.** Its roster adds only the
+  approved tool, the server's application route auto-allows nothing, and the
+  exact tool and input apply once. Any other proposal escalates as a new
+  decision. `tests/autonomous-dispatch.test.ts` proves this for both installed
+  runtimes inside the restricted envelope (ruling 2A above), with a different
+  input, path or tool each escalating and writing nothing.
+
 ## Escalation and deterministic resolution
 
 Escalation checkpoints before the permission boundary parks the run. Server
