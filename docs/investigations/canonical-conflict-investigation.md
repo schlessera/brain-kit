@@ -153,7 +153,7 @@ authorization and recovery evidence.
 
 The candidate uses `category: conflict`, the secondary path and the canonical
 fact text as stable evidence, matching the existing skill. Its ID comes from
-`hygieneId` (`packages/core/src/lib/hygiene.ts:172-175`); no competing lifecycle
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`); no competing lifecycle
 or disposition store is created. Full-file hashes expire an in-flight snapshot,
 while an unrelated heading edit preserves freshly computed finding identity.
 A changed secondary span retains that identity but changes a separate inspection

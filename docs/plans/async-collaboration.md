@@ -1014,7 +1014,7 @@ records the selected policy, alternatives and complete verification examples.
 - 0/20/50-second same/cross-thread arrivals count three at 60 seconds; post-dispatch
   arrivals start a new window; no principal/class mixing. Exercise actual score 11/12
   and the selected 8/10/12 examples; FYIs never enter the waiting count
-- 22:00/08:00 boundaries, overnight deadline without exception, window crossing 22:00,
+- 22:00 and 08:00 boundaries, overnight deadline without exception, window crossing 22:00,
   and due-only 08:00 consolidation after one decision resolves. A 07:59:45 arrival
   waits until 08:00:45
 - Two client zones, offset/day changes, missing/invalid/refreshed zones, client clock

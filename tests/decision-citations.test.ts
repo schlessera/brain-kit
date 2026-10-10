@@ -1,4 +1,4 @@
-// The decision records' `file:line` citations still point at their anchors.
+// Every document under docs/ has `file:line` citations that hold or are explained.
 //
 // A line number does not fail loudly when code moves under it — it comes to
 // name the neighbouring code. `voice-permission.md` was written with 36 exact
@@ -41,7 +41,7 @@ function check(record: string, files: Record<string, string> = { "src/hooks.ts":
   return checkRecords([{ doc: "docs/decisions/x.md", body: record }], tree(files), {});
 }
 
-describe("the decision records", () => {
+describe("all documentation", () => {
   const reports = checkRecords();
 
   test("every citation names its anchor, or is a listed exception", () => {

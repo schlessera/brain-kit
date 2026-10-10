@@ -118,7 +118,7 @@ on, links to or describes them.
   starting on the anchor's line. **A PR that moves lines under a citation owns
   that citation**, wherever it is recorded; find them with
   `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
-  enforces this for `docs/decisions/`; the rules are in
+  enforces this throughout `docs/`; the rules are in
   [docs/decisions/README.md](docs/decisions/README.md#citing-code).
 
 ## Testing expectations

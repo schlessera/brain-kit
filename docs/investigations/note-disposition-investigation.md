@@ -12,16 +12,16 @@ quality benchmark, production write mechanism or adoption decision was measured.
 `brain process` reads the complete source note through containment, retrieves
 up to five related search results, then makes one completion request for both
 disposition and operations (`processNote`,
-`packages/core/src/cli/commands/process.ts:79-135`). Related documents are
+`packages/core/src/cli/commands/process.ts:79-133`). Related documents are
 represented by snippets or summaries, not complete target reads
-(`searchRelated`, `packages/core/src/cli/commands/process.ts:67-77`).
+(`searchRelated`, `packages/core/src/cli/commands/process.ts:68-77`).
 The prompt asks for combined replacement content despite that incomplete input.
 
 The completion parser extracts JSON and normalizes missing action/reasoning
 and a non-array operations field. It does not validate the action enum,
 operation fields, output paths, selected target, taxonomy or content retention.
 The command emits proposals and closes its database; it has no apply step
-(`processCommand`, `packages/core/src/cli/commands/process.ts:138-210`).
+(`processCommand`, `packages/core/src/cli/commands/process.ts:135-213`).
 `--keep-note` changes the prompt's archive instruction. It does not retain or
 delete a file through a different executor.
 
@@ -33,7 +33,7 @@ proposals, show review requirements and delegate deterministic mutation to CLI
 code rather than describing a proposal as a completed move.
 
 `brain add` performs ingestion, with the smart branch handing off to an agent
-(`addCommand`, `packages/core/src/cli/commands/add.ts:23-84`).
+(`addCommand`, `packages/core/src/cli/commands/add.ts:15-65`).
 `brain archive` is a separate operation: it sets archived status, demotes
 primary/unset relevance, preserves other bytes, and moves only active projects
 to the archive directory (`archiveDocument`,
