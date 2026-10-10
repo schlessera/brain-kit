@@ -13,7 +13,7 @@ import {factorBrains,factorNative} from "./packet";
 const sha=(v:string|Buffer)=>createHash("sha256").update(v).digest("hex");
 export function semanticPaths(){return [
  ...readdirSync(import.meta.dir).filter(p=>/\.(ts|py)$/.test(p)).map(p=>`scripts/evals/candidate-extraction/${p}`),
- ...readdirSync(join(ROOT, "experiments")).filter(p=>/^candidate-extraction-.*\.test\.ts$/.test(p)).map(p=>`experiments/${p}`),
+ "tests/jev-research-outcomes.test.ts","tests/configured-module-paths-cli.test.ts",...readdirSync(join(ROOT, "experiments")).filter(p=>/^candidate-extraction-.*\.test\.ts$/.test(p)).map(p=>`experiments/${p}`),
  "scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","experiments/native-grant.test.ts","experiments/native-paid-policy.test.ts",
  "docs/investigations/candidate-extraction-investigation.md","scripts/evals/candidate-extraction/README.md","scripts/evals/candidate-extraction/keyless-report.json","AGENTS.md","ROADMAP.md","CONTRIBUTING.md","docs/process/github.md","docs/integration-contract.md","docs/extending/README.md",
  "docs/decisions/example-corpus.md","docs/decisions/deterministic-sync.md","packages/core/fixtures/README.md","packages/ui-kit/fixtures/README.md",

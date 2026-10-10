@@ -18,7 +18,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",
     "packages/core/src/providers/agents/claude-binary.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
     ...readdirSync(join(root, "scripts/evals/tag-aliases")).sort().map(name => `scripts/evals/tag-aliases/${name}`),
-    ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).sort().map(n => `experiments/${n}`)];
+    "tests/tag-alias-writer.test.ts", ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).sort().map(n => `experiments/${n}`)];
   const direct:string[]=[],coreSources:string[]=[...sourceOnly];let sharedBytes=0;
   for(const path of allDirect){const size=Buffer.byteLength(readFileSync(join(root,path),"utf8"));
     if(!path.startsWith("packages/core/src/")&&sharedBytes+size<=240_000){direct.push(path);sharedBytes+=size;}else coreSources.push(path);

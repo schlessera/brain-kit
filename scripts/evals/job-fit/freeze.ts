@@ -56,7 +56,7 @@ export function freeze() {
   for (const path of ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/investigations/job-fit-investigation.md", "package.json", "bun.lock", "packages/core/package.json", "packages/module-jobs/skills/research-opportunity/SKILL.md", "packages/module-jobs/skills/jobs-review/SKILL.md", "packages/module-jobs/skills/interview-scheduled/SKILL.md", "packages/module-jobs/package.json", "docs/decisions/jobs-board-defaults.md", "scripts/measure-sonnet55-cost.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts",
     "scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","experiments/native-grant.test.ts","experiments/native-paid-policy.test.ts",
     "bunfig.toml", "scripts/test.ts", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts",
-    ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("job-fit") && n.endsWith(".test.ts")).map(n => `experiments/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
+    "tests/job-ingest-scoring.test.ts", ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("job-fit") && n.endsWith(".test.ts")).map(n => `experiments/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
   const dependencyTree = observeTree(join(root, "node_modules"), true), dependencies = dependencyTree.hashes;
   const dependencyLinks = links(join(root, "node_modules"));
   const workspaceTrees = Object.fromEntries(readdirSync(join(root, "packages")).sort().map(name => {

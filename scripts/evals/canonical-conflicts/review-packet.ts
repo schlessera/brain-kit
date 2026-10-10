@@ -17,7 +17,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",
     "packages/core/src/providers/agents/claude-binary.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
     ...readdirSync(join(root, "scripts/evals/canonical-conflicts")).sort().map(name => `scripts/evals/canonical-conflicts/${name}`),
-    ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("canonical-conflict") && n.endsWith(".test.ts")).sort().map(n => `experiments/${n}`)];
+    "tests/hygiene-failed-check-retention.test.ts", ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("canonical-conflict") && n.endsWith(".test.ts")).sort().map(n => `experiments/${n}`)];
   // Preserve every complete file while leaving room for a complete behavior
   // source or eight full cases beside the identical shared binding/protocol.
   const direct:string[]=[],coreSources:string[]=[];let sharedBytes=0;

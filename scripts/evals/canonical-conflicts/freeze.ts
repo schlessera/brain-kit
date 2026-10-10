@@ -52,7 +52,7 @@ export function freeze() {
   }
   for (const path of ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/investigations/canonical-conflict-investigation.md", "package.json", "bun.lock", "packages/core/package.json", "packages/core/skills/content-hygiene/SKILL.md", "scripts/measure-sonnet55-cost.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts",
     "experiments/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","experiments/native-grant.test.ts","bunfig.toml", "scripts/test.ts", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts",
-    ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("canonical-conflict") && n.endsWith(".test.ts")).map(n => `experiments/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
+    "tests/hygiene-failed-check-retention.test.ts", ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("canonical-conflict") && n.endsWith(".test.ts")).map(n => `experiments/${n}`)]) { sourceHashes[path] = sha(readFileSync(join(root, path))); sourceModes[path] = lstatSync(join(root, path)).mode & 0o7777; }
   const dependencyTree = observeTree(join(root, "node_modules"), true), dependencies = dependencyTree.hashes;
   const dependencyLinks = links(join(root, "node_modules"));
   const workspaceTrees = Object.fromEntries(readdirSync(join(root, "packages")).sort().map(name => {
