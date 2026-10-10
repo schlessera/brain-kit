@@ -23,25 +23,25 @@ and attribute to "the maintainer".
 
 ## Subjects
 
-- [foundations](design-kit/foundations.md).
-- [storybook accessibility](design-kit/storybook-accessibility.md).
-- [state architecture](design-kit/state-architecture.md).
-- [fixtures](design-kit/fixtures.md).
-- [components and interactions](design-kit/components-and-interactions.md).
-- [tokens and styles](design-kit/tokens-and-styles.md).
-- [maps](design-kit/maps.md).
-- [navigation](design-kit/navigation.md).
-- [answer blocks](design-kit/answer-blocks.md).
-- [show block brief](design-kit/show-block-brief.md).
-- [tool loading](design-kit/tool-loading.md).
-- [show block schema](design-kit/show-block-schema.md).
-- [backend measurements](design-kit/backend-measurements.md).
-- [links](design-kit/links.md).
-- [follow ups](design-kit/follow-ups.md).
-- [sessions and drafts](design-kit/sessions-and-drafts.md).
-- [loading](design-kit/loading.md).
-- [offline continuity](design-kit/offline-continuity.md).
-- [overlays](design-kit/overlays.md).
+- [Foundations](design-kit/foundations.md).
+- [Storybook and accessibility](design-kit/storybook-accessibility.md).
+- [State architecture](design-kit/state-architecture.md).
+- [Example fixtures](design-kit/fixtures.md).
+- [Components and interactions](design-kit/components-and-interactions.md).
+- [Tokens and styles](design-kit/tokens-and-styles.md).
+- [Maps](design-kit/maps.md).
+- [Navigation](design-kit/navigation.md).
+- [Answer blocks](design-kit/answer-blocks.md).
+- [show_block brief](design-kit/show-block-brief.md).
+- [Tool loading](design-kit/tool-loading.md).
+- [show_block schema](design-kit/show-block-schema.md).
+- [Backend measurements](design-kit/backend-measurements.md).
+- [Links](design-kit/links.md).
+- [Follow-ups](design-kit/follow-ups.md).
+- [Sessions and drafts](design-kit/sessions-and-drafts.md).
+- [Loading](design-kit/loading.md).
+- [Offline continuity](design-kit/offline-continuity.md).
+- [Overlays](design-kit/overlays.md).
 
 ## Cross-subject relationships
 

@@ -1,4 +1,4 @@
-# Integration contract — mcp
+# Integration contract — MCP tools
 
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.

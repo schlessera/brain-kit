@@ -1,4 +1,4 @@
-# Design kit — navigation
+# Design kit — Navigation
 
 Part of the [design-kit decision record](../design-kit.md). Entries retain their
 original dates and order within this subject; the index maps the complete chronology
