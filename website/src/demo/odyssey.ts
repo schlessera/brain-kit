@@ -66,3 +66,7 @@ export const corpusBlocks = {
   steps: { kind: 'steps', variant: 'checklist', steps: launchChecklist },
 } satisfies Record<string, Block>;
 export const supportingFilesBlock = parsedFiles.success ? parsedFiles.data : null;
+// The staged set as this module leaves it: `corpus.ts` later adds the goal and
+// the library to the same map, so a reader that needs only the staged records
+// (the service worker's embedded copy) takes this snapshot, not the live map.
+export const stagedPaths: ReadonlySet<string> = new Set(documents.keys());
