@@ -419,7 +419,10 @@ the server's `refresh` operation; Undo requires a separately confirmed inverse
 preview. Later and Dismiss confirm durable dispositions without claiming a
 repair. Confirmed dispositions hand focus to the next title or Review complete;
 typing and failed outcomes leave focus where it is. The existing inbox mirror
-and stream own badges, receipts and decisions in flight.
+and stream own badges, receipts and decisions in flight. Successful intermediate
+hygiene updates keep the local decision in flight until its confirmed lifecycle
+transition, preserving receipt attribution. A failed check unlocks controls
+without a success receipt; an ambiguous winning option remains unattributed.
 
 ## Store hooks
 

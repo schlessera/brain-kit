@@ -125,7 +125,7 @@ test("after a review, a status-only update does not resurrect the reviewed chang
   expect(s.getState().changes.a).toMatchObject({ reviewed: true, fields: ["title"] });
 });
 
-for (const status of ["stale", "refused", "check_failed", "still_detected", "undone"] as const) {
+for (const status of ["stale", "refused", "check_failed", "still_detected", "undone", "superseded"] as const) {
   test(`hygiene ${status} settles the flight without advancing or creating a success receipt`, () => {
     const item = action("h", "t", { hygiene: { findingId: "finding", fingerprint: "b3241252fd85", finding: { title: "Return to Ithaca" } } });
     const s = seeded([item]);
@@ -137,3 +137,50 @@ for (const status of ["stale", "refused", "check_failed", "still_detected", "und
     expect(pendingDecisionCount(s.getState())).toBe(1);
   });
 }
+
+// The coordinator publishes applying, then a successful pending outcome, then
+// its lifecycle transition. Exercise those separate stream deliveries.
+for (const [status, kind, terminal] of [
+  ["fixed", "commit", "resolved"],
+  ["not_detected", "commit", "resolved"],
+  ["dismissed", "dismiss", "dismissed"],
+  ["snoozed", "later", "snoozed"],
+] as const) {
+  for (const attribution of ["local", "elsewhere", "ambiguous"] as const) {
+    test(`hygiene ${status} preserves ${attribution} attribution across successful pending and terminal deltas`, () => {
+      const item = action("h", "t", { hygiene: { findingId: "finding", fingerprint: "b3241252fd85", finding: { title: "Return to Ithaca" } } });
+      const s = seeded([item]);
+      if (attribution !== "elsewhere") {
+        expect(s.getState().beginDecision("h", { kind, label: "Disposition", receipt: "Confirmed disposition", ambiguous: attribution === "ambiguous" })).toBe(true);
+      }
+      const delta = (version: number, outcomeStatus: NonNullable<NonNullable<InboxActionItem["hygiene"]>["outcome"]>["status"], actionStatus: InboxActionItem["status"] = "pending") => {
+        s.getState().applyDelta({ type: "inbox_delta", view: "actions", change: { changeId: version + 4, threadId: "t", seq: version + 4, kind: "upsert_item", itemId: "h", item: {
+          ...item, version, status: actionStatus,
+          ...(actionStatus === "snoozed" ? { waitUntil: T + 3_600_000 } : {}),
+          hygiene: { ...item.hygiene!, outcome: { version: 1, status: outcomeStatus } },
+        } } });
+      };
+      delta(2, "applying");
+      delta(3, status);
+      const intermediateFlight = s.getState().inFlight.h;
+      const intermediateOutcome = s.getState().outcomes.h;
+      delta(4, status, terminal);
+      expect(s.getState().outcomes.h, "terminal receipt retains attribution").toMatchObject({ kind: "receipt", status: terminal, by: attribution === "local" ? "you" : attribution === "ambiguous" ? "unknown" : "elsewhere" });
+      expect(intermediateOutcome, "successful pending update cannot report not applied").toBeUndefined();
+      expect(!!intermediateFlight, "local decision waits for terminal confirmation").toBe(attribution !== "elsewhere");
+      expect(s.getState().inFlight.h).toBeUndefined();
+      const receipt = s.getState().outcomes.h;
+      expect(receipt && "text" in receipt ? receipt.text : undefined).toBe(attribution === "local" ? "Confirmed disposition" : undefined);
+      if (terminal === "snoozed") expect(receipt).toMatchObject({ waitUntil: T + 3_600_000 });
+    });
+  }
+}
+
+test("an unknown hygiene dispatch receipt still unlocks with an honest delivery outcome", () => {
+  const item = action("h", "t", { hygiene: { findingId: "finding", fingerprint: "b3241252fd85", finding: { title: "Return to Ithaca" } } });
+  const s = seeded([item]);
+  s.getState().beginDecision("h", { kind: "commit", label: "Apply fix", receipt: "Fixed" });
+  s.getState().applyDelta({ type: "inbox_delta", view: "actions", change: { changeId: 6, threadId: "t", seq: 6, kind: "upsert_item", itemId: "h", item: { ...item, version: 2, hygiene: { ...item.hygiene!, outcome: { version: 1, status: "check_failed", code: "receipt-unknown" } } } } });
+  expect(s.getState().inFlight.h).toBeUndefined();
+  expect(s.getState().outcomes.h).toEqual({ kind: "not-received", label: "Apply fix" });
+});

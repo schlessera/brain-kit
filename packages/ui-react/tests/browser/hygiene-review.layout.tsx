@@ -317,7 +317,7 @@ for (const theme of ["dark", "light"])
 
 for (const theme of ["dark", "light"])
   for (const width of [320, 1280]) {
-    test(`${theme} ${width}: actual page reload, reconnect and two devices restore one server Action`, async () => {
+    test(`${theme} ${width}: actual page reload, reconnect and two devices retain local and foreign receipts`, async () => {
       await scene();
       const result = await commands.hygieneServer({ op: "native", id: fixture!.id, width, theme });
       expect(result).toMatchObject({
@@ -325,6 +325,7 @@ for (const theme of ["dark", "light"])
         reload: true,
         reconnect: true,
         foreignReceipt: true,
+        localReceipt: true,
         touch: width === 320,
       });
       expect(appliedCalls(await set({}))).toHaveLength(1);

@@ -236,10 +236,11 @@ export function createInboxStore() {
         return;
       }
       if (!OPEN.includes(next.status)) return;
-      // Hygiene failures are confirmed outcomes on a still-pending Action.
-      // They unlock its controls without turning a failed check into a receipt.
+      // Successful hygiene outcomes precede the lifecycle transition in the
+      // stream. Keep the local answer until that transition confirms it.
+      // Failures unlock controls without turning a failed check into a receipt.
       const hygieneOutcome = next.hygiene?.outcome;
-      if (flight && next.version > flight.sentVersion && hygieneOutcome && hygieneOutcome.status !== "applying") {
+      if (flight && next.version > flight.sentVersion && hygieneOutcome && !["applying", "fixed", "not_detected", "dismissed", "snoozed"].includes(hygieneOutcome.status)) {
         draft.outcomes[itemId] = hygieneOutcome.code === "receipt-unknown"
           ? { kind: "not-received", label: flight.label }
           : { kind: "not-applied" };
