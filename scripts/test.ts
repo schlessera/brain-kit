@@ -8,7 +8,7 @@
  * of their own, and passes Bun's flags through untouched. CI's
  * `--balanced-shard=N/3` selects files by measured costs before that run.
  *
- *   bun run test                       # packages + tests
+ *   bun run test                       # ./packages + ./tests (never experiments/)
  *   bun run test packages/scrape       # just that package
  *   bun run test --shard=1/3           # the whole suite, one shard
  *
@@ -22,6 +22,17 @@ import { ensureWorkspaceLease, inheritWorkspaceLease, workspaceTestAccess } from
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
+
+/**
+ * The default roots as `bun test` receives them. A bare positional is a path
+ * SUBSTRING filter to Bun 1.4.2, so `bun test packages tests` also runs any
+ * file whose path merely contains "tests" (`experiment-tests/a.test.ts`); a
+ * `./` prefix makes each one a directory root. The experiment tier
+ * (`experiments/`, scripts/test-experiments.ts, #1386) therefore stays out of
+ * default discovery by construction, whatever its files are named, and this
+ * matches `discoverTests(cwd, DEFAULT_ROOTS)`'s directory walk.
+ */
+export const DEFAULT_PATH_ARGS: readonly string[] = DEFAULT_ROOTS.map((root) => `./${root}`);
 
 /**
  * Long flags whose value may follow as the NEXT argument (`--timeout 30000`),
@@ -103,7 +114,7 @@ export function testArgv(args: readonly string[]): string[] {
     }
     hasPath = true;
   }
-  return hasPath ? [...args] : [...DEFAULT_ROOTS, ...args];
+  return hasPath ? [...args] : [...DEFAULT_PATH_ARGS, ...args];
 }
 
 if (import.meta.main) {

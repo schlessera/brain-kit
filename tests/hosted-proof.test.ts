@@ -54,7 +54,7 @@ test("affected complete discovery admits new files and reverse dependencies with
     { dir: "ui-server", name: "@fixture/ui-server", dependencies: ["@fixture/core"], files: ["src"] },
     { dir: "module-video", name: "@fixture/video", dependencies: [], files: ["src"] },
   ];
-  for (const file of ["tests/gate.test.ts", "packages/core/tests/new.test.ts", "packages/core/tests/old.test.ts", "packages/ui-server/tests/runtime.test.ts", "packages/module-video/tests/unrelated.test.ts"]) {
+  for (const file of ["tests/gate.test.ts", "packages/core/tests/new.test.ts", "packages/core/tests/old.test.ts", "packages/ui-server/tests/runtime.test.ts", "packages/module-video/tests/unrelated.test.ts", "experiments/harness.test.ts"]) {
     mkdirSync(join(dir, file, ".."), { recursive: true }); writeFileSync(join(dir, file), "export {};\n");
   }
   const plan = planChecks(["packages/core/src/index.ts"], packages);
@@ -65,6 +65,8 @@ test("affected complete discovery admits new files and reverse dependencies with
   const global = planChecks(["scripts/unknown.ts"], packages);
   expect(unitFiles(global, dir)).toEqual(discoverTests(dir, ["packages", "tests"]));
   expect(unitFiles(global, dir)).toContain("packages/module-video/tests/unrelated.test.ts");
+  // The experiment tier runs before a release, not in hosted unit proof (#1386).
+  expect(unitFiles(global, dir)).not.toContain("experiments/harness.test.ts");
   expect(() => unitFiles(plan, dir, "3/2")).toThrow("Invalid proof shard");
 });
 
