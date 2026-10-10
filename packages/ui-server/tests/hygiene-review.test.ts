@@ -423,3 +423,19 @@ test("refresh refuses a failed input-free preview even when the final fingerprin
   expect(result.action?.id).toBe(old.id); expect(result.action?.hygiene?.outcome?.status).toBe("stale");
   expect(f.applies()).toHaveLength(0); expect(pending(f)).toHaveLength(1);
 });
+
+test("superseded replacement receipts survive backup and refuse missing or self references", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
+  await f.review.command(f.principal.id, "refresh");
+  const { exportInboxSnapshot } = await import("../src/inbox/snapshot.js");
+  await expect(exportInboxSnapshot(f.db, f.root)).resolves.toBeDefined();
+  const stored = f.store.getItem(old.id) as InboxActionItem;
+  for (const supersededBy of ["missing-card", old.id]) {
+    try {
+      f.db.query("UPDATE inbox_items SET data_json = ? WHERE id = ?").run(JSON.stringify({ ...stored, hygiene: { ...stored.hygiene!, outcome: { ...stored.hygiene!.outcome!, supersededBy } } }), old.id);
+      await expect(exportInboxSnapshot(f.db, f.root)).rejects.toThrow("inbox_snapshot_hygiene_relations");
+    } finally { f.db.query("UPDATE inbox_items SET data_json = ? WHERE id = ?").run(JSON.stringify(stored), old.id); }
+  }
+});
