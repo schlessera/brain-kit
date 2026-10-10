@@ -182,3 +182,5 @@ export type { BackendVersionRequirements, VersionRequirement, VersionRequirement
 export { brainApplicationInput, BRAIN_APPLICATION_MAX_BYTES } from "./brain-application.js";
 export type { BrainApplicationInput, BrainApplicationOperation, BrainApplicationResult, BrainApplicationPolicy } from "./brain-application.js";
 export { BRAIN_APPLICATION_TOOLS, BRAIN_APPLICATION_DESCRIPTIONS } from "./brain-application.js";
+
+export { BRAIN_MASK_MAX_BYTES, type BrainMaskInput } from "./brain-mask.js";

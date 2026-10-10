@@ -20,7 +20,7 @@ export type MaskHandler = (
   instruction?: string
 ) => Promise<Uint8Array>;
 
-export function createMaskTool(handler: MaskHandler, brainPath: string) {
+export function createMaskTool(handler: MaskHandler, brainPath: string, application?: Pick<BackendBridge, "applyImageMask">) {
   return tool(
     SHARED_TOOL_NAME,
     REQUEST_IMAGE_MASK_DESCRIPTION,
@@ -28,9 +28,10 @@ export function createMaskTool(handler: MaskHandler, brainPath: string) {
     async (input) => {
       try {
         const parsed = REQUEST_IMAGE_MASK_INPUT_SCHEMA.parse(input);
+        if (!application?.applyImageMask) throw new Error("Hosted masks require the server-owned PNG application route.");
         const payload = await handleRequestImageMask(
           parsed,
-          { requestMask: handler } as BackendBridge,
+          { requestMask: handler, applyImageMask: application.applyImageMask } as BackendBridge,
           {
             brainPath,
             maskFilename: claudeMaskFilename,

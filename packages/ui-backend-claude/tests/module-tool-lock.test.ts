@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -241,3 +242,5 @@ describe("module-tool execution through registered hooks", () => {
     }
   });
 });
+
+mockWorkerHostForSdkStream();

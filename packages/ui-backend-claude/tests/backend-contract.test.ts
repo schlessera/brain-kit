@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -241,3 +242,5 @@ for (const scenario of ["mutation", "shortcut", "command"] as const) {
     expect(cards).toBe(0);
   });
 }
+
+mockWorkerHostForSdkStream();

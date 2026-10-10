@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,3 +88,5 @@ for (const toolName of ["Write", "Agent"] as const) test(`Claude refuses a compl
     expect(executions).toBe(1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+mockWorkerHostForSdkStream();

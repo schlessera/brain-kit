@@ -1,3 +1,5 @@
+import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
+mockWorkerHostForSdkStream();
 /**
  * Cross-backend handoff (#61), through the real socket path and both real
  * backend adapters with keyless scripted runtimes: Claude's SDK `query` is a
@@ -197,6 +199,7 @@ function rig(options: RigOptions = {}): Rig {
   if (options.recordHandoff) catalog.recordHandoff = options.recordHandoff(catalog.recordHandoff!.bind(catalog));
   const host = new WsHost({
     brainPath: brain,
+    isPrincipalAuthorized: id => id === testPrincipal().id,
     registry: options.rosterHold
       ? { ...registry, listAllProviders: async (o) => { await options.rosterHold!(); return registry.listAllProviders(o); } }
       : registry,

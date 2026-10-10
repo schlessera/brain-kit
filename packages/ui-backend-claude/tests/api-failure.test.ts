@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 // A turn whose model call failed ends on a terminal frame that says so, with
 // the failure's class, its status where the runtime stated one, and its text
 // (#575). Every case runs the real turn runner and stream adapter against a
@@ -299,3 +300,5 @@ describe("StreamAdapter failure detection", () => {
     ]);
   });
 });
+
+mockWorkerHostForSdkStream();

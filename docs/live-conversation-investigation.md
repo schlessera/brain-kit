@@ -230,7 +230,7 @@ requestId)`; actual tool requests additionally use their existing `toolUseId`.
 Only committed original input supplies `StartTurnRequest.prompt`. The host
 selects the pinned existing backend/profile, cancellation signal and
 `BackendBridge`, and enforces the voice posture on new voice turns
-(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:316-411`).
+(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:318-413`).
 Do not feed approximate fragments or native task descriptions directly into
 execution. Keep raw outputs/private memory in the host and return only reviewed
 bounded facts needed by the voice service.
@@ -239,7 +239,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:455-483`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:457-485`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 

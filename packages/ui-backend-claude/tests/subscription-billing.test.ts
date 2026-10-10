@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A Claude turn on a profile with no credential of its own runs on the
  * subscription or not at all (#253, docs/decisions/claude-code-runtime.md).
@@ -358,3 +359,5 @@ describe("a profile that declares its own credential is billed as declared", () 
     }
   }, LIVE);
 });
+
+mockWorkerHostForSdkStream();

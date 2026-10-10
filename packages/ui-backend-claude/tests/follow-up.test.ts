@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * The runner's side of mid-turn follow-ups (#1003), against a double of the
  * SDK query: what is written into the running turn's input, when the turn
@@ -309,3 +310,5 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
     expect(h.frames.at(-1)).toBe(results[0]!);
   });
 });
+
+mockWorkerHostForSdkStream();

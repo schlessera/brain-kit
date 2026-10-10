@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * The voice posture as a named allowlist (#111).
  *
@@ -400,3 +401,5 @@ test("jobs_review takes no mutation lock", () => {
   expect(policy.lockKeyForTool("mcp__brain__jobs_review", { min_score: 70 }, "/brain")).toBeNull();
   expect(policy.MUTATING_TOOLS.has("mcp__brain__jobs_review")).toBe(false);
 });
+
+mockWorkerHostForSdkStream();

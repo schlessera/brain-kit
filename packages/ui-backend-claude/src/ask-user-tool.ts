@@ -90,7 +90,7 @@ export { ASK_USER_DESCRIPTION, ASK_USER_INPUT_SCHEMA };
  * `show_block` needs none, so it is always registered.
  */
 export function createBrainUiMcpServer(handlers: {
-  application?: Pick<BackendBridge, "applyBrain" | "readBrainBase">;
+  application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
   askUserRank?: AskUserRankHandler;
@@ -109,7 +109,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.askUserRank) tools.push(createAskUserRankTool(handlers.askUserRank));
   if (handlers.askUserForm) tools.push(createAskUserFormTool(handlers.askUserForm, handlers.askUserFormLimits));
   if (handlers.requestMask && handlers.brainPath) {
-    tools.push(createMaskTool(handlers.requestMask, handlers.brainPath));
+    tools.push(createMaskTool(handlers.requestMask, handlers.brainPath, handlers.application));
   }
   if (handlers.queryActivity) {
     tools.push(createActivityQueryTool(handlers.queryActivity));

@@ -1,3 +1,5 @@
+import { mockWorkerHostForSdkStream } from "../packages/ui-backend-claude/tests/helpers/worker-host";
+mockWorkerHostForSdkStream();
 /**
  * `brain`'s Anthropic completions keep working from inside a chat turn once
  * the turn's API key is cleared (#253).

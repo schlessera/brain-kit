@@ -27,7 +27,7 @@ export interface BrainApplicationResult {
   ok: boolean;
   code?: string;
   message: string;
-  /** Only effects actually committed to authoritative Markdown. */
+  /** Only effects actually committed to authoritative Markdown or PNG masks. */
   changes: { path: string; contentHash: string | null }[];
   outcome?: Record<string, unknown>;
   indexed?: boolean;

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, statfsSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerPipes } from "./worker-pipes.js";
@@ -11,6 +11,8 @@ export interface WorkerLaunch {
   brainPath: string;
   /** Mount location only; always a fresh tmpfs, never host-backed writable storage. */
   scratchPath?: string;
+  /** Fresh runtime state on a separate tmpfs device; never a brain inode alias. */
+  statePath?: string;
   /** Absolute executable and literal arguments. No shell is inserted. */
   command: readonly string[];
   /** The complete worker environment; nothing is inherited by default. */
@@ -39,11 +41,22 @@ export function workerCommand(input: WorkerLaunch): string[] {
     || brain.startsWith(`${scratch}/`) || scratch === "/" || brain === "/" || brain === "/tmp") {
     throw new WorkerHostError("scratch must be a separate location outside the authoritative brain and its ancestors");
   }
+  let state: string | undefined;
+  if (input.statePath) {
+    state = realpathSync(input.statePath);
+    if (state !== input.statePath || lstatSync(state).isSymbolicLink() || !lstatSync(state).isDirectory()
+      || state === brain || state.startsWith(`${brain}/`) || brain.startsWith(`${state}/`)
+      || state === scratch || state.startsWith(`${scratch}/`) || scratch.startsWith(`${state}/`)
+      || statSync(state).dev === statSync(brain).dev || statfsSync(state).type !== 0x01021994) {
+      throw new WorkerHostError("runtime state must be a separate, non-aliasing tmpfs directory outside the brain and scratch");
+    }
+  }
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
     "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--ro-bind", "/", "/",
     "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
     "--ro-bind", brain, brain,
     "--tmpfs", scratch, "--clearenv"];
+  if (state) argv.push("--bind", state, state);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push("--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", brain, "--", ...input.command);

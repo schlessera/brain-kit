@@ -12,3 +12,5 @@ export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
 export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, hasWebSearchCredential, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
 export { canonicalModelId } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions } from "./server/exec-wrapper.js";
+
+export { assertScratchMask } from "./server/bridge-tools/mask.js";

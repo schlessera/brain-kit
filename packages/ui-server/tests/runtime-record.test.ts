@@ -1,3 +1,5 @@
+import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
+mockWorkerHostForSdkStream();
 /**
  * The runtime a Claude turn ran on reaches the run record (#211): the real
  * Claude backend (on a scripted SDK stream) feeds the production recorder,
