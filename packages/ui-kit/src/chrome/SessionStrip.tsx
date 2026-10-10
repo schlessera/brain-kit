@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactElement } from "react";
 
 import { SheetDialog } from "../internal/sheet-dialog.js";
@@ -215,8 +214,6 @@ interface OpenSheet {
   returnTo: HTMLElement | null;
   /** The composer's caret, when the keyboard-open summary opened the sheet. */
   selection: [number, number] | null;
-  /** The nearest `data-theme` around the strip, for a subtree-themed embed. */
-  theme?: string;
 }
 
 /**
@@ -249,8 +246,8 @@ interface OpenSheet {
  * blurs the composer so the soft keyboard drops. If the focused row's session
  * leaves while the sheet is open, focus moves to a remaining row. Opening a
  * session from the sheet closes it and leaves focus to the caller, whose
- * focus rule for an opened session (D52 §4) applies. The sheet is portalled
- * to `<body>` and carries the strip's nearest `data-theme` with it.
+ * focus rule for an opened session (D52 §4) applies. Overlay keeps the sheet
+ * in its themed subtree while the native top layer escapes containment.
  *
  * Nothing animates: there is no progress bar, no breathing and no transition,
  * because D22's one ambient animation is the filament.
@@ -260,6 +257,15 @@ export function SessionStrip(p: SessionStripProps) {
   const clock = p.formatClock ?? defaultWorkingClock;
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const group = useRef<HTMLDivElement>(null);
+  const openingSession = useRef<WorkingSession | null>(null);
+  useEffect(() => {
+    if (sheet || !openingSession.current) return;
+    const session = openingSession.current;
+    openingSession.current = null;
+    // Native modality must be released before the caller moves focus into
+    // the opened session. A dismissal still uses the summary/caret policy.
+    session.onOpen();
+  }, [sheet]);
   // Set by a dismissal, consumed once the sheet has unmounted, so the trap
   // cannot take focus back and the target is the element that is now drawn.
   const restore = useRef<OpenSheet | null>(null);
@@ -351,10 +357,8 @@ export function SessionStrip(p: SessionStripProps) {
     else focusSibling(from, delta, ITEM, "[data-session-strip]");
   }
 
-  const themeOf = (el: HTMLElement) => el.closest<HTMLElement>("[data-theme]")?.dataset.theme;
-
   function openFromSummary(el: HTMLElement) {
-    setSheet({ returnTo: el, selection: null, theme: themeOf(el) });
+    setSheet({ returnTo: el, selection: null });
   }
 
   // The press must not move focus. A caller that derives `keyboardOpen` from
@@ -377,7 +381,7 @@ export function SessionStrip(p: SessionStripProps) {
       }
       active.blur();
     }
-    setSheet({ returnTo, selection, theme: themeOf(el) });
+    setSheet({ returnTo, selection });
   }
 
   function dismiss() {
@@ -494,21 +498,17 @@ export function SessionStrip(p: SessionStripProps) {
       >
         {items}
       </div>
-      {/* Portalled: each half is a size container, and its layout containment
-          would otherwise make it the fixed-position sheet's containing block. */}
-      {sheet ? createPortal(
+      {sheet ? (
         <WorkingSheet
           sessions={sorted}
           now={p.now}
           clock={clock}
-          theme={sheet.theme}
           onDismiss={dismiss}
           onOpen={(s) => {
+            openingSession.current = s;
             setSheet(null);
-            s.onOpen();
           }}
-        />,
-        document.body,
+        />
       ) : null}
     </>
   );
@@ -520,8 +520,6 @@ interface WorkingSheetProps {
   clock: (ms: number) => string;
   onDismiss: () => void;
   onOpen: (s: WorkingSession) => void;
-  /** The `data-theme` of the subtree the strip sits in, carried past the portal. */
-  theme?: string;
 }
 
 /**
@@ -537,7 +535,6 @@ function WorkingSheet(p: WorkingSheetProps) {
       subtitle="Sessions you left while they were busy."
       stops='[role="button"]'
       itemsKey={p.sessions.map((s) => s.id).join("\n")}
-      theme={p.theme}
       onDismiss={p.onDismiss}
       scrimAttr="data-working-scrim"
       sheetAttr="data-working-sheet"

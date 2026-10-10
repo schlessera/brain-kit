@@ -116,10 +116,10 @@ test("ui-react CSS fixed layers use named tokens and cannot cover the viewport",
   expect(violations, "no CSS viewport overlays or unrecorded fixed layers").toEqual([]);
 });
 
-// #1418 removes both temporary kit adapter exceptions. ui-react has none.
+// Every kit modal is coordinated by Overlay. ui-react has no exceptions.
 const kitRoot = resolve(import.meta.dir, "../../ui-kit/src");
-const kitFixedOwners = ["chrome/ModelPicker.tsx", "chrome/Overlay.tsx", "internal/sheet-dialog.tsx"];
-test("kit fixed positioning stays in Overlay and the two recorded sheet adapters", () => {
+const kitFixedOwners = ["chrome/Overlay.tsx"];
+test("kit fixed positioning stays in Overlay", () => {
   // Mutation: add inline position: "fixed" to chrome/BottomSheet.tsx.
   const owners = sources(kitRoot).filter(file => !file.endsWith(".css")).filter(file => {
     const ast = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
@@ -132,7 +132,7 @@ test("kit fixed positioning stays in Overlay and the two recorded sheet adapters
     visit(ast);
     return fixed;
   }).map(file => relative(kitRoot, file)).sort();
-  // Overlay uses CSS for its fixed geometry; only the legacy inline owners remain.
+  // Overlay uses CSS for its fixed geometry; no inline owners remain.
   expect(owners.filter(file => !kitFixedOwners.includes(file)), "no unrecorded kit fixed positioning").toEqual([]);
-  expect(owners.filter(file => file !== "chrome/Overlay.tsx"), "both temporary owners are still scanned").toEqual(["chrome/ModelPicker.tsx", "internal/sheet-dialog.tsx"]);
+  expect(owners.filter(file => file !== "chrome/Overlay.tsx"), "no temporary kit fixed owners").toEqual([]);
 });
