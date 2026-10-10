@@ -715,6 +715,29 @@ describe("writing the log, round 2", () => {
     replaceIfUnchanged(path, "new\n", "old\nA person's note.\n");
     expect(readFileSync(path, "utf-8")).toBe("new\n");
   });
+
+  test("a symlink or directory at the log path is refused, and neither it nor its target changes", () => {
+    const dir = tempRoot();
+    const target = join(dir, "ithaca.md");
+    writeFileSync(target, "old\n");
+    const link = join(dir, "open.md");
+    fs.symlinkSync(target, link);
+    let refusal: unknown;
+    try { replaceIfUnchanged(link, "new\n", "old\n"); } catch (error) { refusal = error; }
+    expect(refusal).toBeInstanceOf(HygieneLogError);
+    expect((refusal as Error).message).toBe(`${link} is not a regular file; brain hygiene will not replace it`);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(link)).toBe(target);
+    expect(readFileSync(target, "utf-8")).toBe("old\n");
+
+    const folder = join(dir, "closed.md");
+    mkdirSync(folder);
+    writeFileSync(join(folder, "kept.md"), "Penelope's loom.\n");
+    expect(() => replaceIfUnchanged(folder, "new\n", null)).toThrow(`${folder} is not a regular file; brain hygiene will not replace it`);
+    expect(statSync(folder).isDirectory()).toBe(true);
+    expect(readdirSync(folder)).toEqual(["kept.md"]);
+    expect(readdirSync(dir).sort()).toEqual(["closed.md", "ithaca.md", "open.md"]);
+  });
 });
 
 describe("detection", () => {
