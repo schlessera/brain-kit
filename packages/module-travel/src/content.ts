@@ -3,9 +3,9 @@ import yaml from "js-yaml";
 import { readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { repoRelativePathSchema } from "@schlessera/brain";
-import { buildTaxonomy, getMarkdownFiles, safeResolve } from "@schlessera/brain/internal";
+import { buildTaxonomy, getMarkdownFiles, safeResolve } from "@schlessera/brain/module";
 import type { Taxonomy } from "@schlessera/brain";
-import type { ValidationIssue } from "@schlessera/brain/internal";
+import type { ValidationIssue } from "@schlessera/brain/module";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 function parseYaml(text: string): object {

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import type { ScoreBreakdown } from "./types.js";
-import { safeResolve } from "@schlessera/brain/internal";
+import { safeResolve } from "@schlessera/brain/module";
 
 // ---------------------------------------------------------------------------
 // Criteria model

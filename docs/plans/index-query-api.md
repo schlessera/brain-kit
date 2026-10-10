@@ -64,7 +64,7 @@ The maintainer selected **A, a lazy optional core peer**, on 2026-10-03 in
 [#696's package ruling](https://github.com/schlessera/brain-kit/issues/696#issuecomment-5967816497).
 UI-server consumes the concrete `@schlessera/brain/queries` subpath of package
 `@schlessera/brain`. Core supplies normal source, default JavaScript and type
-exports (`"./queries"`, `packages/core/package.json:45-49`), with no forced
+exports (`"./queries"`, `packages/core/package.json:50-54`), with no forced
 condition, new package or dependency on the UI protocol. Importing the entry
 initializes neither config/modules nor providers, vectors, agents or the CLI.
 

@@ -2,7 +2,7 @@ import { readFileSync, lstatSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import { safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/brain/internal";
+import { safeResolve, writeFileSafely, WriteRefusedError } from "@schlessera/brain/module";
 import { parseHtml, RobotsCache, ScrapeClient } from "@schlessera/brain-scrape";
 import { DEFAULT_USER_AGENT } from "@schlessera/brain-scrape/internal";
 import { MAX_ROUTE_BYTES, parseGpx, quantizeRoute, routeMetrics, routePoint, trimRoute, writeGpx } from "./route-gpx.js";

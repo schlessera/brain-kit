@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildTaxonomy } from "@schlessera/brain/internal";
+import { buildTaxonomy } from "@schlessera/brain/module";
 import { loadModules } from "../../core/src/lib/module-loader.js";
 import { mkdtempSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
