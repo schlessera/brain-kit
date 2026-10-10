@@ -151,9 +151,52 @@ extension startup before tool events and privileged bridge effects. Mutate the
 integrated enforcement, observe the intended write-safety assertion fail, then
 restore it. Prove unsupported-profile refusal occurs before initialization.
 
+### The integrated proof — #1039
+
+`tests/policy-write-boundary.test.ts` is that proof. Its probe
+(`tests/fixtures/policy-boundary-probe.ts`) runs each adapter through
+`runSession`, a voice `HostWork` or `runAutonomousTurn` with loopback fixture
+inference, inside a network namespace. An outer stage that is neither the server
+nor the worker records the policy bytes, the policy directory membership and a
+manifest of the whole brain tree before and after the turn. It also sets up the
+attack surfaces: policy-backed server stdout, an inherited writable descriptor,
+a writable descriptor and shared mapping opened before confinement, a donor
+process that holds both, and hardlink, symlink, directory-symlink and outside-brain
+aliases.
+
+For both adapters the suite covers:
+
+- **Interactive turns.** The six measured escapes, socket and `/proc`
+  descriptor transfer, mappings, `/proc` access to the server and donor, case and
+  NFKC aliases, every routed operation and the mask and ask-user bridge effects.
+  The writers are Bash, indirect and nested scripts, a Claude subagent, the pi
+  extension tool and the brain CLI. Each runs beside a permitted `edit_file`
+  that reaches Markdown in the same turn.
+- **Route races.** Directory, hardlink, symlink and policy-ancestor swaps between
+  the route's validation and commit, made through its deterministic
+  `beforeCommit` seam.
+- **Voice.** Claude's narrower membership cannot grant, raw writes are outside
+  it, and a capture still lands. pi refuses voice turns before any worker starts.
+- **Autonomous turns.** Bash and the raw write tool are explicitly allowed, but
+  their writes stay in scratch. The autonomous bridge has no application route,
+  so R31 is held by the absence of any authoritative change, not by a paired
+  edit.
+- **Refusal.** With a failing host probe, interactive, voice and autonomous turns
+  are refused before any inference request, process spawn or pre-tool executor.
+
+Its recorded mutations are a writable brain bind with a blind probe, which fails
+the policy-bytes assertion for both adapters; a removed route topology recheck,
+which fails the race case; and a skipped host gate, which fails the refusal cases.
+It runs in the CI unit job and has passed on both rows of the
+[measured matrix](../hosting/agent-workers.md#measured-host-component-matrix).
+It proves the filesystem boundary only.
+
 #676 separately owns complete R28/R29/R31 credentials, ambient-configuration and
-egress containment for both runtimes. The filesystem experiment, these rulings
-and a green tool-membership test do not discharge that obligation. Autonomous
+egress containment for both runtimes. The filesystem experiment, these rulings,
+the integrated proof and a green tool-membership test do not discharge that
+obligation. The worker still shares the host network namespace, so a host
+process that hands out descriptors over a reachable Unix socket is egress under
+#676, not a case this suite closes. Autonomous
 enablement still requires the complete containment and system proofs. #674 must
 assess its implementation's machine-contract and version impact separately;
 this decision changes documentation only.
