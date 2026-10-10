@@ -4,37 +4,77 @@
 // brain does: a renamed record strands every link to it, a journal entry
 // drifts off its day, and a crew roster stops summing to the ledger it sits
 // beside. Each test below names one of those failures.
+//
+// Some of that decay is wanted. The inbox, the archive and the loose notes
+// carry the mess a real brain has: links to notes never written, captures
+// nobody linked, records that link nowhere, links written by file name. That
+// mess is declared in `knownIssues`, and the test holds it to exactly what is
+// declared, so it can neither spread into the curated domains nor quietly
+// disappear.
 
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "path";
 
-import { library, libraryDomains, shipRecords } from "../fixtures/library/index.js";
+import { knownIssues, library, libraryDomains, messDomains, shipRecords } from "../fixtures/library/index.js";
 import { crewEmbarked, crewLosses, shipsEmbarked } from "../fixtures/money.js";
 import { notes } from "../fixtures/notes.js";
 import { people } from "../fixtures/people.js";
 import { places } from "../fixtures/places.js";
 import { goal, projects } from "../fixtures/projects.js";
 import { DAYS_SINCE_TROY, REFERENCE_DATE, TROY_FELL, daysSince } from "../fixtures/time.js";
+import type { LibraryDocument } from "../fixtures/library/index.js";
 
 const LIBRARY_DIR = resolve(import.meta.dir, "..", "fixtures", "library");
-const fixturePaths = new Set([...notes.map((n) => n.path), ...people.map((p) => p.path), ...projects.map((p) => p.path), goal.path]);
+const fixtureTitles = new Map<string, string>([
+  ...notes.map((n) => [n.path, n.title] as [string, string]),
+  ...people.map((p) => [p.path, p.name] as [string, string]),
+  ...projects.map((p) => [p.path, p.title] as [string, string]),
+  [goal.path, goal.title],
+]);
+const fixturePaths = new Set(fixtureTitles.keys());
 const libraryPaths = new Set(library.map((d) => d.path));
 const allPaths = new Set([...fixturePaths, ...libraryPaths]);
 const personIds = new Set(people.map((p) => p.id));
 const placeIds = new Set(places.map((p) => p.id));
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const WIKILINK = /\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g;
+const WIKILINK = /\[\[([^[\]\n]+?)\]\]/g;
 
-function wikilinks(body: string): string[] {
-  return [...body.matchAll(WIKILINK)].map((m) => `${m[1].trim()}.md`);
+// Bare names resolve as the product's slug map does: title slug, then file
+// name, then full path, later passes winning (website/src/demo/corpus.ts).
+const titled = [...[...fixtureTitles].map(([path, title]) => ({ path, title })), ...library.map((d) => ({ path: d.path, title: d.title }))];
+const slugs = new Map<string, string>();
+const ambiguous = new Set<string>();
+for (const slugOf of [(r: { title: string }) => r.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), (r: { path: string }) => r.path.split("/").at(-1)!.replace(/\.md$/, "")]) {
+  const seen = new Map<string, string>();
+  for (const r of titled) {
+    const slug = slugOf(r as never).toLowerCase();
+    if (seen.has(slug) && seen.get(slug) !== r.path) ambiguous.add(slug);
+    seen.set(slug, r.path);
+    slugs.set(slug, r.path);
+  }
 }
+for (const r of titled) slugs.set(r.path.replace(/\.md$/, "").toLowerCase(), r.path);
+
+/** What a wiki-link points at, as the product resolves it: a path as written, or a bare name by slug. */
+function target(raw: string): string {
+  const text = raw.split("|")[0].split("#")[0].trim();
+  if (text.includes("/")) return /\.[a-z0-9]{1,8}$/i.test(text) ? text : `${text}.md`;
+  return slugs.get(text.toLowerCase()) ?? text;
+}
+const wikilinks = (body: string) => [...body.matchAll(WIKILINK)].map((m) => m[1]);
 
 /** Day N is TROY_FELL plus N days; returns null for paths with no day. */
 function dayOf(path: string): number | null {
   const m = path.match(/(?:^|\/)day-(\d+)(?:-|\.md$)/);
   return m ? Number(m[1]) : null;
 }
+
+/** Every link a record makes, as [from, to] — `links` entries and resolved wiki-links. */
+function edgesOf(d: LibraryDocument): [string, string][] {
+  return [...new Set([...d.links, ...wikilinks(d.body).map(target)])].map((to) => [d.path, to]);
+}
+const key = ([from, to]: [string, string]) => `${from} -> ${to}`;
 
 test("the library is the size the demo promises", () => {
   expect(library.length).toBeGreaterThanOrEqual(400);
@@ -59,7 +99,28 @@ test("every library module is deterministic", async () => {
   }
 });
 
+test("the declared broken links are exactly the links that resolve to nothing", () => {
+  const actual = library.flatMap(edgesOf).filter(([, to]) => !allPaths.has(to)).map(key).sort();
+  expect(knownIssues.unresolved.length, "the mess declares broken links").toBeGreaterThan(0);
+  expect(actual).toEqual(knownIssues.unresolved.map(key).sort());
+});
+
+// Degree zero over links that resolve, as the graph's maintenance view counts
+// orphans: a record whose only link is broken has no edge, so it is one.
+test("the declared orphans are exactly the records with no resolved link in or out", () => {
+  const touched = new Set(library.flatMap((d) => edgesOf(d).flatMap(([from, to]) => (from === to || !allPaths.has(to) ? [] : [from, to]))));
+  const actual = library.filter((d) => !touched.has(d.path)).map((d) => d.path).sort();
+  expect(knownIssues.orphans.length, "the mess declares orphans").toBeGreaterThan(0);
+  expect(actual).toEqual([...knownIssues.orphans].sort());
+});
+
+test("a bare-name wiki-link never names two records", () => {
+  const wrong = library.flatMap((d) => wikilinks(d.body).map((raw) => raw.split("|")[0].split("#")[0].trim()).filter((text) => !text.includes("/") && ambiguous.has(text.toLowerCase())).map((text) => `${d.path}: [[${text}]]`));
+  expect(wrong).toEqual([]);
+});
+
 for (const [name, domain] of Object.entries(libraryDomains)) {
+  const mess = messDomains.includes(name);
   describe(`library: ${name}`, () => {
     const docs = domain.documents;
 
@@ -82,20 +143,26 @@ for (const [name, domain] of Object.entries(libraryDomains)) {
       expect(wrong).toEqual([]);
     });
 
-    test("every record has a title, a summary, tags and a real body", () => {
-      const wrong = docs.filter((d) => !d.title.trim() || !d.summary.trim() || !d.type.trim() || !d.status.trim() || !d.tags.length || d.tags.some((t) => !KEBAB.test(t)) || d.body.trim().length < 200 || /^#\s/.test(d.body.trim()));
-      expect(wrong.map((d) => d.path)).toEqual([]);
-    });
+    if (mess) {
+      test("a capture has a title and something written, and no heading for a title", () => {
+        const wrong = docs.filter((d) => !d.title.trim() || d.body.trim().length < 40 || /^#\s/.test(d.body.trim()));
+        expect(wrong.map((d) => d.path)).toEqual([]);
+      });
+    } else {
+      test("every record has a title, a summary, a status, tags and a real body", () => {
+        const wrong = docs.filter((d) => !d.title.trim() || !d.summary?.trim() || !d.type.trim() || !d.status?.trim() || !d.tags.length || d.tags.some((t) => !KEBAB.test(t)) || d.body.trim().length < 200 || /^#\s/.test(d.body.trim()));
+        expect(wrong.map((d) => d.path)).toEqual([]);
+      });
 
-    test("every outbound link resolves, and there is at least one", () => {
-      const wrong = docs.flatMap((d) => (d.links.length ? d.links.filter((l) => !allPaths.has(l)).map((l) => `${d.path} -> ${l}`) : [`${d.path} has no links`]));
-      expect(wrong).toEqual([]);
-    });
-
-    test("every body wiki-link is a full path that resolves and is listed in links", () => {
-      const wrong = docs.flatMap((d) => wikilinks(d.body).filter((l) => !allPaths.has(l) || !d.links.includes(l)).map((l) => `${d.path} -> [[${l}]]`));
-      expect(wrong).toEqual([]);
-    });
+      test("every link and wiki-link resolves, every wiki-link is a full path listed in links, and there is at least one", () => {
+        const wrong = docs.flatMap((d) => [
+          ...(d.links.length ? [] : [`${d.path} has no links`]),
+          ...d.links.filter((l) => !allPaths.has(l)).map((l) => `${d.path} -> ${l}`),
+          ...wikilinks(d.body).filter((raw) => !raw.includes("/") || !allPaths.has(target(raw)) || !d.links.includes(target(raw))).map((raw) => `${d.path} -> [[${raw}]]`),
+        ]);
+        expect(wrong).toEqual([]);
+      });
+    }
 
     test("every person and place a record names exists", () => {
       const wrong = docs.flatMap((d) => [...(d.people ?? []).filter((id) => !personIds.has(id)), ...(d.places ?? []).filter((id) => !placeIds.has(id))].map((id) => `${d.path} ${id}`));
@@ -114,11 +181,6 @@ for (const [name, domain] of Object.entries(libraryDomains)) {
     });
   });
 }
-
-test("no record is an orphan: every one is linked from another library record", () => {
-  const linked = new Set(library.flatMap((d) => d.links.filter((l) => l !== d.path)));
-  expect(library.filter((d) => !linked.has(d.path)).map((d) => d.path)).toEqual([]);
-});
 
 describe("library: the crew ledger closes", () => {
   test("twelve ships, numbered once each, each with a record", () => {

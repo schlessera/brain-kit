@@ -18,15 +18,16 @@ export interface LibraryDocument {
   /** ISO dates, never after REFERENCE_DATE. `created` is not after `updated`. */
   created: string;
   updated: string;
-  status: string;
-  /** Lowercase kebab-case words. */
+  /** Absent on an unprocessed capture; every curated domain carries one. */
+  status?: string;
+  /** Lowercase kebab-case words in curated domains; captures may be empty or inconsistent. */
   tags: string[];
   aliases?: string[];
   /** Entities the record is about. Each id exists in `people` / `places`. */
   people?: PersonId[];
   places?: PlaceId[];
-  /** One sentence; what a search result shows. */
-  summary: string;
+  /** One sentence; what a search result shows. Absent on an unprocessed capture. */
+  summary?: string;
   /**
    * Markdown body, without the H1 (the demo writes the title). A wiki-link is
    * written by full path without the extension -- `[[people/penelope]]` --
@@ -48,3 +49,16 @@ export interface ShipRecord {
   /** Losses by `crewLosses[].place`. Sums across ships equal the ledger. */
   lost: Record<string, number>;
 }
+
+/**
+ * The library's deliberate defects, declared so they stay engineered: a real
+ * brain has links to notes never written, captures nobody linked and notes
+ * that link nowhere. The test asserts these occur exactly as declared.
+ */
+export interface KnownIssues {
+  /** `[from, to]`: a link or wiki-link whose target was never written. */
+  unresolved: [string, string][];
+  /** Records with no link in or out. */
+  orphans: string[];
+}
+
