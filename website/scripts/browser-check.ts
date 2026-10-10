@@ -101,6 +101,16 @@ try {
         if (await page.evaluate(() => document.documentElement.dataset.theme) !== theme) await page.locator('.theme-toggle').click();
         await settled();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Page overflow at ${width}/${theme}`);
+        // The packaged lockup for this theme is the one painted, at full size, with
+        // the theme toggle and every visible navigation link still on screen (#1427).
+        assert(await page.evaluate(theme => {
+          const shown = [...document.querySelectorAll<HTMLImageElement>('.site-header .brand-lockup')].filter(img => getComputedStyle(img).display !== 'none');
+          const fits = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.right <= innerWidth; };
+          const nav = [...document.querySelectorAll('.site-header nav a')].filter(a => getComputedStyle(a).display !== 'none');
+          return shown.length === 1 && shown[0].complete && shown[0].naturalWidth > 0 && shown[0].getBoundingClientRect().height === 32
+            && shown[0].classList.contains(theme === 'dark' ? 'on-dark' : 'on-paper')
+            && fits(shown[0]) && fits(document.querySelector('.theme-toggle')!) && nav.length > 0 && nav.every(fits);
+        }, theme), `Header lockup, navigation or theme toggle does not fit at ${width}/${theme}`);
         await verifyDeviceGeometry(page);
         for (const frame of page.frames().slice(1)) assert(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `App iframe overflow at ${width}/${theme}`);
         if (width === 320) {

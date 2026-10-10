@@ -2,21 +2,28 @@
 import Header from '../components/Header.astro';
 import ExternalLink from '../components/ExternalLink.astro';
 import { href, site } from '../../model.mjs';
+import { brandFile, iconLinks } from '../lib/brand.ts';
 import '../styles/site.css';
 const { title = 'brain-kit — A second brain that goes with you.', description = 'A file-first second brain you can operate with an agent. Explore structured decisions, rich answers, inspectable work and capture on the go.', noIndex = false } = Astro.props;
+const canonical = `${site}${Astro.url.pathname}`;
+const socialCard = `${site}${brandFile('social-card.png')}`;
 ---
 <!doctype html>
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content={description}/>
     {noIndex && <meta name="robots" content="noindex, follow"/>}
-    <title>{title}</title><link rel="canonical" href={`${site}${Astro.url.pathname}`}/><link rel="icon" type="image/svg+xml" href={href('favicon.svg')}/>
+    <title>{title}</title><link rel="canonical" href={canonical}/>
+    {iconLinks.map((link) => <link rel={link.rel} href={link.href} type={link.type} sizes={link.sizes}/>)}
+    <meta property="og:type" content="website"/><meta property="og:url" content={canonical}/><meta property="og:title" content={title}/><meta property="og:description" content={description}/>
+    <meta property="og:image" content={socialCard}/><meta property="og:image:width" content="1200"/><meta property="og:image:height" content="630"/><meta property="og:image:alt" content="brain-kit: Your files. Your tools. Your second brain."/>
+    <meta name="twitter:card" content="summary_large_image"/>
     <link rel="stylesheet" href={href('assets/fonts.css')}/><meta name="color-scheme" content="dark light"/>
     <script is:inline>try{document.documentElement.dataset.theme=localStorage.getItem('brain-kit-site-theme')==='light'?'light':'dark'}catch{}</script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a><Header/><slot/>
-    <footer class="site-footer"><a class="brand" href={href()}>brain-kit</a><p>Your files. Your tools. Your second brain.</p><nav aria-label="Community"><ExternalLink href="https://github.com/schlessera/brain-kit/discussions">Questions</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/issues/new/choose">Report a bug</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/releases">Releases</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/security/policy">Security</ExternalLink></nav></footer>
+    <footer class="site-footer"><a class="brand" href={href()}><img class="brand-lockup on-dark" src={brandFile('lockup-on-dark.svg')} width="118" height="28" alt="brain-kit"/><img class="brand-lockup on-paper" src={brandFile('lockup-on-paper.svg')} width="118" height="28" alt="brain-kit"/></a><p>Your files. Your tools. Your second brain.</p><nav aria-label="Community"><ExternalLink href="https://github.com/schlessera/brain-kit/discussions">Questions</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/issues/new/choose">Report a bug</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/releases">Releases</ExternalLink><ExternalLink href="https://github.com/schlessera/brain-kit/security/policy">Security</ExternalLink></nav></footer>
     <script>
       const toggle = document.querySelector<HTMLButtonElement>('.theme-toggle');
       function labelTheme() { toggle?.setAttribute('aria-label', `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'paper' : 'dark'} theme`); }

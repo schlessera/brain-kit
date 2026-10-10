@@ -37,11 +37,6 @@ typography:
     fontWeight: 400
     lineHeight: 1.02
     letterSpacing: "-0.03em"
-  brand:
-    fontFamily: "'DM Serif Text', Georgia, serif"
-    fontSize: "29px"
-    fontWeight: 400
-    lineHeight: 1
   lead:
     fontFamily: "'Plus Jakarta Sans', sans-serif"
     fontSize: "27px"
@@ -339,7 +334,13 @@ smooth scrolling under that preference. Content remains usable without motion.
 
 ### Navigation and theme control
 
-The brand uses the display face beside the amber brain mark. Desktop
+The brand is the brain-kit logo lockup (#1423): the two-hemisphere mark,
+ink and amber with the amber half's speech tail, beside the `brain-kit`
+wordmark outlined from DM Serif Text. The header shows it at (32px) tall and
+the footer at (28px), with the `-on-dark` file on the dark theme and the
+`-on-paper` file on paper. Both lockups, the favicon set and the 1200x630
+social card come from the files `@schlessera/brain-ui-kit` ships; the site
+never redraws the mark or re-sets the wordmark. Desktop
 navigation is simple text with (36px) gaps and (44px) link targets. The theme
 control is a borderless square with a drawn sun and a translucent ink hover
 surface. Its accessible name states the next theme; the selected website
@@ -419,4 +420,5 @@ and paragraphs wrap within the reading column.
 - **Don't** present fictional responses or preview captures as evidence of live agent execution.
 - **Don't** crop dictation actions or shrink native phone controls to preserve desktop composition.
 - **Don't** use Unicode directional glyphs in place of the shared SVG controls.
+- **Don't** draw, recolour or re-typeset the logo; use the packaged lockup and icon files.
 - **Don't** force every editorial section into a shadowed card or a uniform spacing scale.

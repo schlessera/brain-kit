@@ -60,6 +60,29 @@ for (const [path, tree] of documents) {
     }
   });
 }
+// Every page shares the packaged 1200x630 social card (#1427): an absolute
+// og:image whose bytes are in this build, and the brand files in the head and
+// header come from @schlessera/brain-ui-kit rather than a site-drawn copy.
+// `demo/` holds the embedded apps' iframe documents, which no link shares.
+for (const [path, tree] of documents) {
+  if (path.startsWith('demo/')) continue;
+  const metas: Record<string, string> = {};
+  const icons: string[] = [];
+  walk(tree, node => {
+    const attr = (name: string) => node.attrs?.find((a: any) => a.name === name)?.value;
+    if (node.nodeName === 'meta' && (attr('property') || attr('name'))) metas[attr('property') || attr('name')] = attr('content');
+    if (node.nodeName === 'link' && ['icon', 'apple-touch-icon'].includes(attr('rel'))) icons.push(attr('href'));
+  });
+  const image = metas['og:image'];
+  if (!image || !image.startsWith(`https://schlessera.github.io${manifest.base}`)) { errors.push(`Missing absolute og:image: ${path}`); continue; }
+  const imageFile = decodeURIComponent(new URL(image).pathname.slice(manifest.base.length));
+  if (!(imageFile in manifest.files)) { errors.push(`og:image is not in the build: ${path} -> ${image}`); continue; }
+  const png = Buffer.from(await Bun.file(resolve(directory, imageFile)).arrayBuffer());
+  if (png.readUInt32BE(0) !== 0x89504e47 || png.readUInt32BE(16) !== 1200 || png.readUInt32BE(20) !== 630) errors.push(`og:image is not a 1200x630 PNG: ${path} -> ${image}`);
+  for (const key of ['og:title', 'og:description', 'twitter:card']) if (!metas[key]) errors.push(`Missing ${key}: ${path}`);
+  if (icons.length !== 3 || icons.some(icon => !/\/(?:favicon|apple-touch-icon)\.[\w-]+\.(?:ico|svg|png)$/.test(icon))) errors.push(`Head icons are not the packaged favicon set: ${path} -> ${icons.join(', ')}`);
+}
+if ('favicon.svg' in manifest.files) errors.push('The site still ships its own favicon.svg drawing');
 if (errors.length) throw new Error(errors.join('\n'));
 console.log(`Verified ${documents.size} HTML pages, every local URL/fragment and ${Object.keys(manifest.files).length} artifact digests at ${manifest.base}.`);
 const shares = Bun.spawn(['bun', resolve(import.meta.dir, 'check-share-proof.ts')], { stdout: 'inherit', stderr: 'inherit' });
