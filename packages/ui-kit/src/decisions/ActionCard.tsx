@@ -69,6 +69,10 @@ export interface ActionCardProps {
   icon?: IconName;
   /** Overrides the kind's uppercase label. */
   kindLabel?: string;
+  /** Finding severity may differ from the decision kind. */
+  kindLabelTone?: Tone;
+  /** An inline disclosure or control beside the kind label. */
+  headAction?: ReactNode;
   /** Overrides the kind's border weight. */
   emphasis?: ActionEmphasis;
   /** Provenance, as an outline chip. */
@@ -239,7 +243,7 @@ export function ActionCard(p: ActionCardProps) {
     font: `600 10px/1 ${font.mono}`,
     letterSpacing: ".06em",
     textTransform: "uppercase",
-    color: kindColor,
+    color: p.kindLabelTone ? accent[p.kindLabelTone].ink : kindColor,
   };
   const rightWrap: CSSProperties = { marginLeft: "auto", display: "flex" };
   const rightMetaStyle: CSSProperties = {
@@ -328,6 +332,7 @@ export function ActionCard(p: ActionCardProps) {
             {kindLabel}
           </Ghosted>
         </span>
+        {p.headAction ? <span style={{ marginLeft: "auto", flex: "none" }}>{p.headAction}</span> : null}
         {p.rightChip ? (
           <span style={{ ...rightWrap, ...reserved }} inert={loading || undefined}>
             <Chip label={p.rightChip} tone={p.rightChipTone || "purple"} variant="outline" />

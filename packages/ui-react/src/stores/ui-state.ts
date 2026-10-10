@@ -99,6 +99,10 @@ export interface UIState {
    * floats over whatever is open and leaves it be.
    */
   paletteOpen: boolean;
+  /** @internal One-shot palette request, consumed by the Actions page. */
+  hygieneReviewRequested: boolean;
+  requestHygieneReview: () => void;
+  consumeHygieneReviewRequest: () => void;
   /** @internal Opens or closes this root's command palette. */
   setPaletteOpen: (open: boolean) => void;
   settingsNavigationProtected: boolean;
@@ -212,6 +216,9 @@ export function createUIStore(env?: Pick<StoreEnvironment, "storage" | "storageK
     ...CLOSED,
     activeView: "chat",
     settingsTab: "models",
+    hygieneReviewRequested: false,
+    requestHygieneReview: () => set({ hygieneReviewRequested: true }),
+    consumeHygieneReviewRequest: () => set({ hygieneReviewRequested: false }),
     paletteOpen: false,
     setPaletteOpen: (open) => set({ paletteOpen: open }),
     settingsNavigationProtected: false,

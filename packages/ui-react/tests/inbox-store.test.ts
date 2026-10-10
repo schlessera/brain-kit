@@ -124,3 +124,16 @@ test("after a review, a status-only update does not resurrect the reviewed chang
   delta(7, { version: 3, updatedAt: T + 5, ...revised });
   expect(s.getState().changes.a).toMatchObject({ reviewed: true, fields: ["title"] });
 });
+
+for (const status of ["stale", "refused", "check_failed", "still_detected", "undone"] as const) {
+  test(`hygiene ${status} settles the flight without advancing or creating a success receipt`, () => {
+    const item = action("h", "t", { hygiene: { findingId: "finding", fingerprint: "b3241252fd85", finding: { title: "Return to Ithaca" } } });
+    const s = seeded([item]);
+    expect(s.getState().beginDecision("h", { kind: "commit", optionId: "repair", label: "Apply fix", receipt: "Fixed" })).toBe(true);
+    s.getState().applyDelta({ type: "inbox_delta", view: "actions", change: { changeId: 6, threadId: "t", seq: 6, kind: "upsert_item", itemId: "h", item: { ...item, version: 2, hygiene: { ...item.hygiene!, outcome: { version: 1, status } } } } });
+    expect(s.getState().inFlight.h, "failed outcome unlocks the Action").toBeUndefined();
+    expect(s.getState().items.h!.status).toBe("pending");
+    expect(s.getState().outcomes.h).toEqual({ kind: "not-applied" });
+    expect(pendingDecisionCount(s.getState())).toBe(1);
+  });
+}

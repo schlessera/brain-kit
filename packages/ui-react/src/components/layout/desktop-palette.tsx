@@ -1,5 +1,6 @@
 import { CommandPalette, Overlay, type PaletteGroup, type PaletteItem } from "@schlessera/brain-ui-kit";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useInboxStore } from "../../stores/inbox-store.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useChatStore, activeChat } from "../../stores/chat-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
@@ -55,6 +56,7 @@ export function DesktopPalette() {
   const handoff = useHandoffEntry(activeSessionId, hasSettledTurn);
   const finePointer = useFinePointer();
   const routes = useDesktopRoutes();
+  const inboxOnline = useInboxStore((s) => s.online);
 
   // ⌘K opens it, and closes it as a dismissal does. Read at the keypress,
   // so the listener is registered once.
@@ -117,6 +119,7 @@ export function DesktopPalette() {
   const runGroup: PaletteItem[] = [
     { icon: "repeat", label: "Sync the brain", tone: "amber", effect: "sync", why: routes.why, onClick: run(routes.sync) },
     { icon: "sunrise", label: "Daily briefing", tone: "gold", why: routes.why, onClick: run(routes.briefing) },
+    { icon: "confirm", label: "Start hygiene review", tone: "teal", why: inboxOnline ? undefined : "needs the host", onClick: run(() => { root.stores.ui.getState().setActiveView("activity"); root.stores.ui.getState().requestHygieneReview(); }) },
     { icon: "add", label: "Add a note", tone: "teal", onClick: run(routes.add) },
     // A chat with a selected session can continue on another backend (#61).
     // Opening its review drafts a summary with a model, so it spends.

@@ -236,6 +236,15 @@ export function createInboxStore() {
         return;
       }
       if (!OPEN.includes(next.status)) return;
+      // Hygiene failures are confirmed outcomes on a still-pending Action.
+      // They unlock its controls without turning a failed check into a receipt.
+      const hygieneOutcome = next.hygiene?.outcome;
+      if (flight && next.version > flight.sentVersion && hygieneOutcome && hygieneOutcome.status !== "applying") {
+        draft.outcomes[itemId] = hygieneOutcome.code === "receipt-unknown"
+          ? { kind: "not-received", label: flight.label }
+          : { kind: "not-applied" };
+        delete draft.inFlight[itemId];
+      }
       // Still open. A changed decision must be reviewed before any answer.
       if (prior && OPEN.includes(prior.status) && next.version > prior.version) {
         // Unreviewed changes accumulate against the version the reader last

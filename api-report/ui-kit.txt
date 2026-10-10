@@ -128,6 +128,10 @@ export "." (./src/index.ts)
   GraphView
   type GraphViewProps
   HATCH_GLYPH
+  HygieneBlocker
+  HygieneCard
+  type HygieneCardProps
+  HygieneEnd
   ICONS
   Icon
   IconButton
@@ -340,6 +344,8 @@ signatures (every public export and the types it is made of)
         body?: string;
         icon?: IconName;
         kindLabel?: string;
+        kindLabelTone?: Tone;
+        headAction?: ReactNode;
         emphasis?: ActionEmphasis;
         rightChip?: string;
         rightChipTone?: Tone;
@@ -1172,6 +1178,64 @@ signatures (every public export and the types it is made of)
         type?: string;
         sizes?: string;
     }
+  HygieneBlocker (packages/ui-kit/src/decisions/HygieneCard.tsx)
+    export function HygieneBlocker({ reason, onOpen, onRetry, busy = false, }: {
+        reason: string;
+        onOpen: () => void;
+        onRetry: () => void;
+        busy?: boolean;
+    }): import("react").JSX.Element;
+  HygieneCard (packages/ui-kit/src/decisions/HygieneCard.tsx)
+    export function HygieneCard(p: HygieneCardProps): import("react").JSX.Element;
+  HygieneCardProps (packages/ui-kit/src/decisions/HygieneCard.tsx)
+    export interface HygieneCardProps {
+        title: string;
+        severity: string;
+        category: string;
+        path: string;
+        location?: string;
+        excerpt?: string;
+        provenance: string;
+        priority: string;
+        whyOpen?: boolean;
+        onWhy?: () => void;
+        compact?: boolean;
+        onOpen?: () => void;
+        invalidation?: string;
+        controls?: ReactNode;
+        preview?: {
+            path: string;
+            changes: Array<{
+                before: string;
+                after: string;
+                line: number;
+            }>;
+        };
+        previewRevealed?: boolean;
+        onReveal?: () => void;
+        postCheck?: string;
+        state?: "applying" | "stale" | "refused" | "check_failed" | "still_detected" | "unknown" | "fixed" | "undone";
+        reason?: string;
+        code?: string;
+        recovery?: ReactNode;
+        commit?: DispositionControl;
+        later?: DispositionControl;
+        dismiss?: DispositionControl;
+        disabledReason?: string;
+        confirmation?: ReactNode;
+        keys?: boolean;
+    }
+  HygieneEnd (packages/ui-kit/src/decisions/HygieneCard.tsx)
+    export function HygieneEnd({ empty, fixed, dismissed, snoozed, due, informational, dismissedErrors = 0, onShowSnoozed, }: {
+        empty: boolean;
+        fixed: number;
+        dismissed: number;
+        snoozed: number;
+        due?: string;
+        informational: number;
+        dismissedErrors?: number;
+        onShowSnoozed: () => void;
+    }): import("react").JSX.Element;
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;

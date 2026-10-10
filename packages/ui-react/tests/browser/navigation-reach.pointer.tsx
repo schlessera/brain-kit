@@ -400,7 +400,9 @@ function paletteRows(s: Scene): string[] {
   return [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')]
     .map((o) => (o.textContent ?? "").replace(/⏎/g, "").replace(/⌘\d$/, "").replace(/(spends|sync|a turn is running|needs the host)+$/g, "").trim());
 }
-const PALETTE_ROWS = Object.values(targets).flatMap((t) => (t.palette ? [t.palette] : []));
+// Hygiene's authenticated review effect is proved against a real server in
+// hygiene-review.layout.tsx; this shell fixture still inventories its row.
+const PALETTE_ROWS = [...Object.values(targets).flatMap((t) => (t.palette ? [t.palette] : [])), "Start hygiene review"];
 
 const DESKTOP = [480, 900, 1279, 1280, 1440] as const;
 /** The cells' themes alternate by start, so each width is drawn in both. */
@@ -676,7 +678,8 @@ for (const width of DESKTOP) for (const [name, target] of Object.entries(targets
     expect(document.activeElement, "Esc returns focus to All commands").toBe(all);
     await userEvent.keyboard("{Enter}");
     await settle(s);
-    const index = paletteRows(s).indexOf(target.palette!);
+    const enabled = [...dialog()!.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])')];
+    const index = enabled.findIndex(row => (row.textContent ?? "").startsWith(target.palette!));
     expect(index, `${target.palette} is listed`).toBeGreaterThanOrEqual(0);
     await userEvent.keyboard("{ArrowDown}");
     for (let i = 0; i < index; i++) await userEvent.keyboard("{ArrowDown}");
