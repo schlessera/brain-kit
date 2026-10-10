@@ -1391,7 +1391,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
+(`serverInstructions`, `packages/core/src/mcp-server.ts:75-87`). Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
 caps: `brain_search` `limit` at 50, `brain_list` `limit` at 100, and
 `brain_graph` `depth` at 5.

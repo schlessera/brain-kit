@@ -496,7 +496,7 @@ all, and nothing warns: `accountInfo()` still reports the OAuth token as the
 token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
 reaches the CLI for any reason moves every default-profile chat turn to API
 billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
-completion provider reads it (`"anthropic-haiku": "ANTHROPIC_API_KEY"`, `packages/core/src/cli/brain.ts:98`), and so does
+completion provider reads it (`"anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV`, `packages/core/src/lib/registry.ts:54`), and so does
 model discovery. The cost record then says `api`, which is accurate
 bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
@@ -621,7 +621,7 @@ subscription authenticates.
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
    completions, have to keep working under a separately named key. The
    provider can already read one
-   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:61`),
+   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:64`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
    (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry

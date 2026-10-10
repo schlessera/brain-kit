@@ -18,7 +18,7 @@ import { DEFAULT_INSTRUCTIONS_MAX_TOKENS } from "../../lib/config.js";
 import { measureInstructions } from "../../lib/instructions-weight.js";
 import { discoverSkills, syncSkills, installBinLinks } from "../../lib/skills/index.js";
 import { packageVersion } from "../../package-version.js";
-import { rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
+import { missingEmbeddingKey, rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
@@ -386,8 +386,8 @@ function checkReranker(cli: CliContext): Check {
 }
 
 async function checkEmbeddings(cli: CliContext): Promise<Check> {
-  const keyEnv = (typeof cli.brain.config?.embeddings?.provider === "string" && cli.brain.config.embeddings?.apiKeyEnv) || "GEMINI_API_KEY";
-  if (!readEnvVar(keyEnv)) {
+  const keyEnv = missingEmbeddingKey(cli.brain.config?.embeddings);
+  if (keyEnv) {
     return { id: "embeddings", status: "warn", detail: `${keyEnv} not set — vector search disabled (FTS still works)`, fix: `set ${keyEnv} to enable semantic search` };
   }
   if (!existsSync(cli.brain.dbPath)) return { id: "embeddings", status: "warn", detail: "no index yet", fix: "run `brain index --embeddings`" };

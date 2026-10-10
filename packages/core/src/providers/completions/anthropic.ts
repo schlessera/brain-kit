@@ -52,13 +52,16 @@ function toAnthropicBlock(part: ContentPart): Record<string, unknown> {
   }
 }
 
+/** Env var the Anthropic completion provider reads its key from by default. */
+export const ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY";
+
 /**
  * Create an Anthropic-backed CompletionProvider. Constructing it makes no
  * network call; the key is read on first complete().
  */
 export function anthropicCompletions(config: AnthropicCompletionConfig = {}): CompletionProvider {
   const model = config.model ?? CLAUDE_FAST_MODEL;
-  const apiKeyEnv = config.apiKeyEnv ?? "ANTHROPIC_API_KEY";
+  const apiKeyEnv = config.apiKeyEnv ?? ANTHROPIC_KEY_ENV;
   const defaultMaxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   async function complete(req: {

@@ -181,8 +181,8 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:97-99`). |
-| `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`const toolWarnings`, `packages/core/src/mcp-server.ts:185-189`). A module never contributes half its tools. |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:25-81`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:95-97`). |
+| `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`const toolWarnings`, `packages/core/src/mcp-server.ts:175-179`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
 One module's bug does not take `brain_search` away from a voice client. That
@@ -222,7 +222,7 @@ catch them.
   error and never a malformed success.
 - A thrown error becomes `{ isError: true, content: [{ type: "text", text:
   "Error: <message>" }] }`, the shape core's `errorResult` returns
-  (`const errorResult`, `packages/core/src/mcp-server.ts:181-184`).
+  (`const errorResult`, `packages/core/src/mcp-server.ts:171-174`).
 - A tool caps its own result size and states the cap in its description, as
   `brain_search` does with `limit`. Core adds no generic cap. The right
   bound depends on the operation, and a silent truncation would be worse
