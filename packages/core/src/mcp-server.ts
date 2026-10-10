@@ -29,12 +29,21 @@ import { SEARCH_SORTS } from "./lib/types.js";
 import { packageVersion } from "./package-version.js";
 import { registerModuleTools } from "./lib/module-mcp-tools.js";
 import { indexStaleness } from "./lib/ops/staleness.js";
-import { contextBriefing, listDocuments, readDocument, searchDocuments } from "./lib/ops/read.js";
+import {
+  contextBriefing,
+  DEFAULT_LIST_LIMIT,
+  listDocuments,
+  listLimitSchema,
+  MAX_LIST_LIMIT,
+  readDocument,
+  searchDocuments,
+} from "./lib/ops/read.js";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "./lib/ops/write.js";
 
-// Server-side result caps — agents can ask for less, never more.
+// Server-side result caps — agents can ask for less, never more. Search and
+// graph clamp a larger value; `brain_list` rejects one (`listLimitSchema`).
 export const MAX_SEARCH_LIMIT = 50;
-export const MAX_LIST_LIMIT = 100;
+export { MAX_LIST_LIMIT };
 export const MAX_GRAPH_DEPTH = 5;
 
 /** A date input: a real calendar date written `YYYY-MM-DD`. */
@@ -320,13 +329,13 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
     "brain_list",
     {
       description:
-        `List documents in the brain knowledge base with optional filters for type, tag, status, and relevance. Returns metadata (path, title, type, relevance, status, tags) for matching documents, newest first. \`limit\` defaults to 20 and returns at most ${MAX_LIST_LIMIT} documents; a larger value is capped.`,
+        `List documents in the brain knowledge base with optional filters for type, tag, status, and relevance. Returns metadata (path, title, type, relevance, status, tags) for matching documents, newest first. \`limit\` is a whole number from 1 to ${MAX_LIST_LIMIT} and defaults to ${DEFAULT_LIST_LIMIT}; any other value is rejected, not capped.`,
       inputSchema: {
         type: z.string().optional().describe("Filter by document type"),
         tag: z.string().optional().describe("Filter by tag"),
         status: z.string().optional().describe("Filter by status (active, archived, draft)"),
         relevance: z.string().optional().describe("Filter by relevance (primary, secondary, historical)"),
-        limit: z.number().default(20).describe("Max results to return"),
+        limit: listLimitSchema.default(DEFAULT_LIST_LIMIT).describe("Max results to return"),
       },
       outputSchema: {
         documents: z.array(listedDocumentSchema),
@@ -341,7 +350,7 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
           tag: params.tag,
           status: params.status,
           relevance: params.relevance,
-          limit: Math.min(Math.max(1, params.limit), MAX_LIST_LIMIT),
+          limit: params.limit,
         });
         return structuredResult({ documents, warnings: t.toolWarnings(t.stale()) });
       } catch (e) {

@@ -295,6 +295,64 @@ describe("list", () => {
   });
 });
 
+// #1351: --limit is a whole number from 1 to 100, default 20. Anything else is
+// a usage error that runs no query, in both output modes.
+describe("list --limit", () => {
+  const listed = async (args: string[]) => {
+    const { stdout, stderr, code } = await runCli(root, ["list", ...args, "--json"]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return JSON.parse(stdout) as unknown[];
+  };
+
+  test("omitted, it lists 20; 1 and 100 are accepted", async () => {
+    const all = await listed(["--limit", "100"]);
+    // The corpus holds more than the default, so 20 is the limit, not the corpus.
+    expect(all.length).toBeGreaterThan(20);
+    expect(all.length).toBeLessThanOrEqual(100);
+    expect(await listed([])).toHaveLength(20);
+    expect(await listed(["--limit", "1"])).toHaveLength(1);
+  });
+
+  const MESSAGE = "--limit must be a whole number from 1 to 100";
+  const invalid: Array<[string, string[]]> = [
+    ["a non-number", ["--limit", "abc"]],
+    ["a number with trailing text", ["--limit", "10abc"]],
+    ["a fraction", ["--limit", "1.5"]],
+    ["zero", ["--limit", "0"]],
+    ["a negative", ["--limit", "-1"]],
+    ["101", ["--limit", "101"]],
+    ["a missing value", ["--limit"]],
+    ["a value-less flag before another flag", ["--limit", "--type", "health"]],
+  ];
+  for (const mode of ["--json", "--human"]) {
+    for (const [what, args] of invalid) {
+      test(`${what} is a usage error in ${mode} mode, with no output`, async () => {
+        const { stdout, stderr, code } = await runCli(root, ["list", ...args, mode]);
+        expect({ code, stdout, stderr: stderr.trim() }).toEqual({ code: 1, stdout: "", stderr: MESSAGE });
+      });
+    }
+  }
+
+  // Without an index, a query fails with "Database not found". An invalid
+  // limit reports itself instead, so it is refused before any query is tried.
+  test("an invalid limit is refused before the database is opened", async () => {
+    const unindexed = makeTempBrain();
+    try {
+      const valid = await runCli(unindexed, ["list", "--limit", "5", "--json"]);
+      expect({ code: valid.code, stderr: valid.stderr.trim() }).toEqual({
+        code: 1,
+        stderr: "Database not found. Run `brain index` first.",
+      });
+      for (const value of ["10abc", "101"]) {
+        const bad = await runCli(unindexed, ["list", "--limit", value, "--json"]);
+        expect({ code: bad.code, stdout: bad.stdout, stderr: bad.stderr.trim() }).toEqual({ code: 1, stdout: "", stderr: MESSAGE });
+      }
+    } finally {
+      cleanup(unindexed);
+    }
+  });
+});
+
 describe("add", () => {
   test("reports the capture it wrote", async () => {
     const brain = makeTempBrain();

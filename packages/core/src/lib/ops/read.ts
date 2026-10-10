@@ -7,6 +7,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
+import { z } from "zod";
 
 import type { BrainContext } from "../context.js";
 import { assembleContext } from "../context-assembler.js";
@@ -142,12 +143,25 @@ export function readDocument(root: string, input: ReadInput): string {
   });
 }
 
+/** `brain list` and `brain_list` return this many documents when no limit is given. */
+export const DEFAULT_LIST_LIMIT = 20;
+/** The largest `limit` `brain list` and `brain_list` accept. */
+export const MAX_LIST_LIMIT = 100;
+
+/**
+ * The one list-limit rule both surfaces apply (#1351): a whole number from 1
+ * to {@link MAX_LIST_LIMIT}. Anything else is rejected, never clamped.
+ * `brain_list` uses it as its input schema; `brain list` runs its parsed
+ * `--limit` through it.
+ */
+export const listLimitSchema = z.number().int().min(1).max(MAX_LIST_LIMIT);
+
 export interface ListInput {
   type?: string;
   tag?: string;
   status?: string;
   relevance?: string;
-  /** Already validated by the caller; this operation applies it as given. */
+  /** Already validated against {@link listLimitSchema} by the caller; applied as given. */
   limit: number;
 }
 
