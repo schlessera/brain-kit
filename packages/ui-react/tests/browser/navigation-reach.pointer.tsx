@@ -453,10 +453,10 @@ for (const width of DESKTOP) for (const start of startsAt(width)) for (const [na
     await expect.poll(() => target.reached(s), { message: `${name} from ${start} at ${width} (${mode}) after ${steps.length}` }).toBe(true);
     await expect.poll(() => SURFACE[name]!(s), { message: `${name} is drawn, not only flagged, from ${start} at ${width}` }).toBe(true);
     expect(steps.length, `activations to ${name} from ${start} at ${width} (D52 §2)`).toBe(allowed(name, start, width));
-    // Opening Search, Add or a panel writes nothing; Sync and the briefing
-    // start their own job and nothing else.
+    // Opening Search, Add, the briefing or a panel writes nothing; Sync
+    // starts its own job and nothing else. The briefing only reads (#1391).
     await settle(s);
-    const job = name === "Sync" ? ["POST /api/brain/sync"] : name === "Daily briefing" ? ["POST /api/brain/whatsup"] : [];
+    const job = name === "Sync" ? ["POST /api/brain/sync"] : [];
     await expect.poll(() => s.writes, { message: `${name} from ${start}: requests that write` }).toEqual(job);
     expect(document.documentElement.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(width);
   });

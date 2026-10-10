@@ -168,10 +168,9 @@ describe("StreamingPanel dismissal", () => {
   });
 });
 
-// What dismisses the briefing drawer (#105). `WhatsupPanel` has `StreamingPanel`'s
-// shape: closing it unmounts the panel, and the unmount aborts the briefing
-// request, so a stray backdrop click cancels a model call mid-flight or throws
-// away the briefing it paid for.
+// What dismisses the briefing drawer (#105). Closing `WhatsupPanel` unmounts
+// it, and the unmount aborts the briefing request, so a stray backdrop click
+// would cancel the read mid-flight or throw away the briefing it fetched.
 describe("WhatsupPanel dismissal", () => {
   const briefing = "Three things need you today.";
 
@@ -187,8 +186,8 @@ describe("WhatsupPanel dismissal", () => {
     const onClose = mock(() => {});
     const view = mount(onClose, root);
     try {
-      expect(requests[0]!.url).toBe("https://sync.example/api/brain/whatsup");
-      expect(view.getByText("Generating briefing...")).toBeTruthy();
+      expect(requests[0]!.url).toBe("https://sync.example/api/brain/briefing");
+      expect(view.getByText("Reading the briefing...")).toBeTruthy();
       const signal = requests[0]!.init?.signal;
       expect(signal?.aborted).toBe(false);
 
@@ -200,7 +199,7 @@ describe("WhatsupPanel dismissal", () => {
       // Closing unmounts the panel and the unmount aborts the briefing, so the
       // proof is the request, not just the callback.
       expect(signal?.aborted).toBe(false);
-      expect(view.getByText("Generating briefing...")).toBeTruthy();
+      expect(view.getByText("Reading the briefing...")).toBeTruthy();
     } finally { view.unmount(); root.dispose(); }
   });
 
@@ -209,12 +208,12 @@ describe("WhatsupPanel dismissal", () => {
     const onClose = mock(() => {});
     const view = mount(onClose, root);
     try {
-      await act(async () => { requests[0]!.response.resolve(stream(briefing)); await flushPromises(); });
-      expect(view.queryByText("Generating briefing...")).toBeNull();
+      await act(async () => { requests[0]!.response.resolve(Response.json({ content: briefing })); await flushPromises(); });
+      expect(view.queryByText("Reading the briefing...")).toBeNull();
       expect(view.getByText(briefing)).toBeTruthy();
 
-      // A briefing costs a model call, so it goes only when it is dismissed
-      // deliberately — Escape is deliberate, a click beside the drawer is not.
+      // The briefing goes only when it is dismissed deliberately — Escape is
+      // deliberate, a click beside the drawer is not.
       fireEvent.pointerDown(backdropOf(view));
       expect(onClose).toHaveBeenCalledTimes(0);
       expect(view.getByText(briefing)).toBeTruthy();
@@ -228,8 +227,8 @@ describe("WhatsupPanel dismissal", () => {
   // header's control stays the way out of every state the briefing reaches.
   const arrivals = {
     loading: null,
-    done: () => stream(briefing),
-    error: () => new Response("", { status: 500, statusText: "Server Error" }),
+    done: () => Response.json({ content: briefing }),
+    error: () => Response.json({ error: "brain briefing failed" }, { status: 500 }),
   } as const;
 
   for (const state of ["loading", "done", "error"] as const) {
@@ -240,7 +239,7 @@ describe("WhatsupPanel dismissal", () => {
       try {
         const arrive = arrivals[state];
         if (arrive) await act(async () => { requests[0]!.response.resolve(arrive()); await flushPromises(); });
-        expect(view.queryByText("Generating briefing...") !== null).toBe(state === "loading");
+        expect(view.queryByText("Reading the briefing...") !== null).toBe(state === "loading");
 
         fireEvent.click(view.getByRole("button", { name: "Close Whatsup" }));
         expect(onClose).toHaveBeenCalledTimes(1);
@@ -255,7 +254,7 @@ describe("WhatsupPanel dismissal", () => {
     const onClose = mock(() => {});
     const view = mount(onClose, root);
     try {
-      expect(view.getByText("Generating briefing...")).toBeTruthy();
+      expect(view.getByText("Reading the briefing...")).toBeTruthy();
       fireEvent.click(view.getByRole("button", { name: "Cancel" }));
       expect(requests[0]!.init?.signal?.aborted).toBe(true);
       expect(view.getAllByText("Cancelled.").length).toBe(1);
@@ -301,38 +300,6 @@ describe("Settings drawer while a credential is protected", () => {
 describe("a stream that ends without a done frame", () => {
   const cut = (text: string) => new Response(`data: ${JSON.stringify({ type: "progress", text })}\n\n`);
 
-  test("WhatsupPanel renders what arrived and offers Close", async () => {
-    const { root, requests } = transport();
-    const view = render(
-      <BrainUiProvider root={root}>
-        <WhatsupPanel open onClose={() => {}} />
-      </BrainUiProvider>
-    );
-    try {
-      await act(async () => { requests[0]!.response.resolve(cut("Half a briefing.")); await flushPromises(); });
-      expect(view.queryByText("Generating briefing...")).toBeNull();
-      expect(view.getByText(/Half a briefing\./)).toBeTruthy();
-      expect(view.getByText("Failed")).toBeTruthy();
-      expect(view.queryByRole("button", { name: "Cancel" })).toBeNull();
-      expect(view.getByRole("button", { name: "Close" })).toBeTruthy();
-    } finally { view.unmount(); root.dispose(); }
-  });
-
-  test("WhatsupPanel is not failed by an EOF that follows a successful done", async () => {
-    const { root, requests } = transport();
-    const view = render(
-      <BrainUiProvider root={root}>
-        <WhatsupPanel open onClose={() => {}} />
-      </BrainUiProvider>
-    );
-    try {
-      await act(async () => { requests[0]!.response.resolve(stream("All clear.")); await flushPromises(); });
-      expect(view.getByText("All clear.")).toBeTruthy();
-      expect(view.queryByText("Failed")).toBeNull();
-      expect(view.queryByText(/connection closed/)).toBeNull();
-    } finally { view.unmount(); root.dispose(); }
-  });
-
   test("StreamingPanel renders what arrived and offers Close", async () => {
     const { root, requests } = transport();
     const view = render(
@@ -347,6 +314,83 @@ describe("a stream that ends without a done frame", () => {
       expect(view.getByText("Failed")).toBeTruthy();
       expect(view.queryByRole("button", { name: "Cancel" })).toBeNull();
       expect(view.getByRole("button", { name: "Close" })).toBeTruthy();
+    } finally { view.unmount(); root.dispose(); }
+  });
+});
+
+// The daily briefing reads the selected root's `GET /api/brain/briefing`, the
+// keyless `brain briefing` output (#1391). Each state is driven through the
+// panel's own request, not through the view's props.
+describe("WhatsupPanel reads the briefing endpoint", () => {
+  const mount = (root: ReturnType<typeof transport>["root"]) =>
+    render(
+      <BrainUiProvider root={root}>
+        <WhatsupPanel open onClose={() => {}} />
+      </BrainUiProvider>
+    );
+
+  test("a GET to the briefing route, rendered as markdown once it arrives", async () => {
+    const { root, requests } = transport();
+    const view = mount(root);
+    try {
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.url).toBe("https://sync.example/api/brain/briefing");
+      expect(requests[0]!.init?.method ?? "GET").toBe("GET");
+      expect(view.getByText("Reading the briefing...")).toBeTruthy();
+      await act(async () => {
+        requests[0]!.response.resolve(Response.json({ content: "## Deadlines\n\nIthaca by Thursday." }));
+        await flushPromises();
+      });
+      expect(view.queryByText("Reading the briefing...")).toBeNull();
+      expect(view.getByRole("heading", { name: "Deadlines" })).toBeTruthy();
+      expect(view.getByText("Ithaca by Thursday.")).toBeTruthy();
+      expect(view.queryByRole("button", { name: "Retry" })).toBeNull();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  test("an empty briefing says so instead of drawing a blank", async () => {
+    const { root, requests } = transport();
+    const view = mount(root);
+    try {
+      await act(async () => { requests[0]!.response.resolve(Response.json({ content: "  \n" })); await flushPromises(); });
+      expect(view.getByText("Nothing in today's briefing.")).toBeTruthy();
+      expect(view.getByRole("button", { name: "Close" })).toBeTruthy();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  test("a failed read names the server's reason, and Retry reads the briefing again", async () => {
+    const { root, requests } = transport();
+    const view = mount(root);
+    try {
+      await act(async () => {
+        requests[0]!.response.resolve(Response.json({ error: "brain briefing failed: index missing" }, { status: 500 }));
+        await flushPromises();
+      });
+      expect(view.getByText("Briefing unavailable")).toBeTruthy();
+      expect(view.getByText("brain briefing failed: index missing")).toBeTruthy();
+
+      fireEvent.click(view.getByRole("button", { name: "Retry" }));
+      expect(requests).toHaveLength(2);
+      expect(requests[1]!.url).toBe("https://sync.example/api/brain/briefing");
+      expect(view.getByText("Reading the briefing...")).toBeTruthy();
+      await act(async () => { requests[1]!.response.resolve(Response.json({ content: "All clear." })); await flushPromises(); });
+      expect(view.getByText("All clear.")).toBeTruthy();
+      expect(view.queryByText("Briefing unavailable")).toBeNull();
+    } finally { view.unmount(); root.dispose(); }
+  });
+
+  test("a transport failure is an error with Retry, and Cancel offers Retry too", async () => {
+    const { root, requests } = transport();
+    const view = mount(root);
+    try {
+      await act(async () => { requests[0]!.response.resolve(Promise.reject(new TypeError("Failed to fetch")) as never); await flushPromises(); });
+      expect(view.getByText("Failed to fetch")).toBeTruthy();
+      fireEvent.click(view.getByRole("button", { name: "Retry" }));
+      fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+      expect(requests[1]!.init?.signal?.aborted).toBe(true);
+      expect(view.getByText("Cancelled.")).toBeTruthy();
+      fireEvent.click(view.getByRole("button", { name: "Retry" }));
+      expect(requests).toHaveLength(3);
     } finally { view.unmount(); root.dispose(); }
   });
 });

@@ -6,8 +6,8 @@ import type { Tone } from "@schlessera/brain-ui-kit";
  * What a streamed backend job looks like while it runs and once it has
  * finished — rendered from props (S6). `StreamingPanel` and `WhatsupPanel`
  * are the containers: they own the request, the reader loop, the abort
- * controller and the "is this still my stream" checks; the two views here
- * own the status row, the output area and the one button in the footer.
+ * controller and the "is this still my request" checks; the two views here
+ * own the status, the output area and the one button in the footer.
  *
  * `state` is the job's, in the container's vocabulary: `running` is the only
  * state with a Cancel; every other state offers Close. The status dot is the
@@ -61,13 +61,18 @@ export function StreamingOutput(p: StreamingOutputProps) {
 }
 
 /**
- * The briefing: one document rather than a log, so it loads behind a skeleton
- * and renders as prose once it has all arrived. `content` is the container's
- * rendered markdown node; the view does not know what it is made of.
+ * The briefing: the keyless `brain briefing` text as one document rather than
+ * a log, so it loads behind a skeleton and renders as prose once it has
+ * arrived. `content` is the container's rendered markdown node; the view does
+ * not know what it is made of. A failed or cancelled read says why and offers
+ * Retry; a briefing with nothing in it says so instead of drawing a blank.
  */
 export interface BriefingOutputProps {
-  state: "loading" | "done" | "error" | "cancelled";
+  state: "loading" | "done" | "empty" | "error" | "cancelled";
   content: ReactNode;
+  /** Why the read failed; shown under the error. */
+  error?: string;
+  onRetry: () => void;
   onCancel: () => void;
   onClose: () => void;
 }
@@ -76,19 +81,18 @@ export function BriefingOutput(p: BriefingOutputProps) {
   const loading = p.state === "loading";
   return (
     <div className="flex h-full flex-col">
-      {(p.state === "error" || p.state === "cancelled") && (
-        <div className="flex items-center gap-2 border-b border-border px-5 py-2" aria-live="polite">
-          <StatusDot tone="red" pulse={false} size={7} />
-          <span className="text-xs text-muted-foreground">Failed</span>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-5" aria-live="polite">
         {loading ? (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3" aria-busy="true">
             <Placeholder variant="loading" lines={4} bordered={false} pad={0} />
-            <p className="text-sm text-muted-foreground">Generating briefing...</p>
+            <p className="text-sm text-muted-foreground">Reading the briefing...</p>
           </div>
+        ) : p.state === "error" ? (
+          <Placeholder variant="error" message="Briefing unavailable" detail={p.error} actionLabel="Retry" onAction={p.onRetry} />
+        ) : p.state === "cancelled" ? (
+          <Placeholder variant="error" tone="neutral" icon="cancel" message="Cancelled." actionLabel="Retry" onAction={p.onRetry} />
+        ) : p.state === "empty" ? (
+          <Placeholder variant="empty" message="Nothing in today's briefing." icon="sunrise" />
         ) : (
           p.content
         )}

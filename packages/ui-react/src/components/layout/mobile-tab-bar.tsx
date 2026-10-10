@@ -24,9 +24,10 @@ import { useChatCommands } from "../chat/use-chat-commands.js";
  *
  * More is the kit `BottomSheet`, docked over a scrim, holding Settings and
  * Graph, then the acts that have no control of their own at this width: Add
- * a note, the Daily briefing, Sync and Brain statistics. Each row prints its
- * effect at rest (`spends` on the briefing, `sync` on Sync) and keeps it when
- * the row cannot run, with the actual reason as its subtitle (D52 §2). The
+ * a note, the Daily briefing, Sync and Brain statistics. A row with an
+ * effect prints it at rest (`sync` on Sync) and keeps it when the row cannot
+ * run, with the actual reason as its subtitle (D52 §2). The briefing is
+ * keyless and prints no cost (#1391). The
  * sheet is a sibling of the bar rather than a child of the More slot,
  * because a kit tab is a leaf and cannot host it.
  */
@@ -139,7 +140,7 @@ export function MobileTabBar() {
                 <ListRow variant="group" icon="settings" iconTone="neutral" title="Settings" chevron onClick={go(() => press("settings"))} />
                 <ListRow variant="group" icon="graph" iconTone="purple" title="Graph" chevron onClick={go(() => setActiveView("graph"))} />
                 <ListRow variant="group" icon="add" iconTone="teal" title="Add a note" subtitle="Write it down in the brain" onClick={act(() => runCommand("add"))} />
-                <ListRow variant="group" icon="sunrise" iconTone="gold" title="Daily briefing" subtitle={hostWhy ?? "What happened since you looked"} value="spends" valueTone="gold" onClick={hostWhy ? undefined : act(() => runCommand("whatsup"))} />
+                <ListRow variant="group" icon="sunrise" iconTone="gold" title="Daily briefing" subtitle={hostWhy ?? "What happened since you looked"} onClick={hostWhy ? undefined : act(() => runCommand("whatsup"))} />
                 <ListRow variant="group" icon="repeat" iconTone="amber" title="Sync the brain" subtitle={hostWhy ?? "Pull and push the repository"} value="sync" valueTone="amber" onClick={hostWhy ? undefined : act(() => runCommand("sync"))} />
                 <ListRow variant="group" icon="ledger" iconTone="neutral" title="Brain statistics" subtitle={statsWhy ?? "Documents and software versions"} last onClick={statsWhy ? undefined : act(() => runCommand("stats"))} />
               </div>

@@ -314,11 +314,12 @@ for (const width of [320, 390]) for (const start of STARTS) for (const [name, ta
     }
     await expect.poll(() => target.reached(s), { message: `${name} from ${start} at ${width} (${mode}) after ${steps.length}` }).toBe(true);
     expect(steps.length, `activations to ${name} from ${start} (D52 §2)`).toBe(ALLOWED[name]![start]);
-    // Opening Add, Search or a panel writes nothing. Sync and the briefing
-    // start their own job and nothing else (D52 §2). The frames let a write
+    // Opening Add, Search, the briefing or a panel writes nothing. Sync
+    // starts its own job and nothing else (D52 §2); the briefing only reads
+    // (#1391). The frames let a write
     // the press queued reach the fixture before it is read.
     await settle(s);
-    const job = name === "Sync" ? ["POST /api/brain/sync"] : name === "Daily briefing" ? ["POST /api/brain/whatsup"] : [];
+    const job = name === "Sync" ? ["POST /api/brain/sync"] : [];
     await expect.poll(() => s.writes, { message: `${name} from ${start}: requests that write` }).toEqual(job);
   });
 }
@@ -377,7 +378,7 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     expect(find(s, "Search the brain"), "no Search disc on the empty chat").toBeNull();
     expect(find(s, "New chat"), "no New chat disc on the empty chat").toBeNull();
     const chips = [must(s, /^What's new\?/, "button"), must(s, /^Search…/, "button"), must(s, /^Add a note…/, "button")];
-    expect(chips[0]!.textContent).toContain("spends");
+    expect(chips[0]!.textContent, "keyless: no cost printed (#1391)").not.toContain("spends");
     expect(chips[0]!.textContent, "offline reason printed at rest").toContain("needs the host");
     expect(chips[0]!.getAttribute("aria-disabled")).toBe("true");
     expect(s.host.textContent).not.toContain("Brain stats");
@@ -403,10 +404,10 @@ for (const theme of ["dark", "light"]) for (const [width, height] of [[320, 640]
     const first = sheet.querySelector<HTMLElement>('[role="button"]')!;
     expect(document.activeElement, "More focuses its first row").toBe(first);
     const text = sheet.textContent!;
-    for (const [title, reason, effect] of [
-      ["Daily briefing", "needs the host", "spends"],
-      ["Sync the brain", "needs the host", "sync"],
-    ]) expect(text, `${title} prints ${reason} and keeps ${effect}`).toContain(`${title}${reason}${effect}`);
+    expect(text, "Sync the brain prints needs the host and keeps sync").toContain("Sync the brainneeds the hostsync");
+    // The briefing is keyless (#1391): its reason, and no cost after it.
+    expect(text).toContain("Daily briefingneeds the host");
+    expect(text).not.toContain("spends");
     expect(text).not.toContain("Sessions");
     const rows = [...sheet.querySelectorAll<HTMLElement>('[role="button"]')];
     expect(rows.map((r) => r.textContent)).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain", "Brain statisticsDocuments and software versions"]);

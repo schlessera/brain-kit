@@ -40,7 +40,7 @@ export interface DesktopDestination {
  * The acts land in Chat first, as the palette always has, and keep their
  * dispatch in `useChatCommands`. Search and Add talk to the CLI over REST, so
  * they have no reason to be unavailable; the briefing needs a live socket and
- * a quiet turn, and spends.
+ * a quiet turn.
  */
 export function useDesktopRoutes() {
   const setActiveView = useUIStore((s) => s.setActiveView);
