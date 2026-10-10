@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BottomSheet, Button } from "@schlessera/brain-ui-kit";
+import { BottomSheet, Button, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
@@ -40,7 +40,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
       <span role="status">Another tab changed this draft · Both versions kept</span>
-      <button type="button" className="min-h-11 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => {
+      <TextButton tone="inherit" label="Open other version" onClick={() => {
         const otherId = draft.deviceConflict!.otherId;
         const controller = new AbortController();
         // This action may wait for native storage. A later navigation owns
@@ -71,7 +71,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
           root.stores.ui.getState().setActiveView("chat");
         };
         void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ }).finally(() => { unwatch.forEach(stop => stop()); });
-      }}>Open other version</button>
+      }} />
     </div>
   );
   if (view.state === "none") {
@@ -88,17 +88,10 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
         <>
           <span className={tone}>{view.copy}</span>
           <span aria-hidden="true" className="text-muted-foreground">·</span>
-          <button
-            ref={compareRef}
-            type="button"
-            aria-haspopup="dialog"
-            aria-label="Compare drafts"
-            onClick={() => setComparing(true)}
-            className="relative font-mono text-[10.5px] text-foreground underline underline-offset-2 before:absolute before:-inset-x-2 before:-inset-y-[14px] before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-            data-draft-compare=""
-          >
-            Compare
-          </button>
+          <span className="text-foreground">
+            <TextButton ref={compareRef} tone="inherit" inline label="Compare" haspopup="dialog"
+              ariaLabel="Compare drafts" onClick={() => setComparing(true)} data-draft-compare="" />
+          </span>
         </>
       ) : (
         <span className={tone}>{view.copy}</span>

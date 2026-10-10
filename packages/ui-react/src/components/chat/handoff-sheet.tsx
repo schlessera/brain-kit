@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Overlay, Label } from "@schlessera/brain-ui-kit";
+import { Overlay, Label, Button, IconButton, TextButton } from "@schlessera/brain-ui-kit";
 import {
   composeHandoffText,
   HANDOFF_DRAFT_MESSAGES,
@@ -33,11 +33,6 @@ interface Reference {
   state: ReferenceState;
 }
 type Origin = "deterministic" | "model" | "user" | "none";
-
-const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-lg border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50";
-const PRIMARY = `${BUTTON} border-transparent bg-primary-fill text-primary-foreground hover:brightness-110`;
-const GHOST = `${BUTTON} border-border bg-transparent text-foreground hover:bg-surface-raised`;
-const LINKISH = "inline-flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
 
 /**
  * The client's copy for a closed unavailability reason (#1044). The host
@@ -336,6 +331,12 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
           : `drafted from the last ${HANDOFF_DRAFT_MESSAGES} messages · no model`;
   const draftNote = draft.state === "failed" && draft.message && origin !== "model" ? `No summary: ${draft.message}` : null;
 
+  function submitReference() {
+    if (adding === null) return;
+    checkReference(adding);
+    setAdding(null);
+  }
+
   const body = (
     <div className="flex flex-col" style={{ maxHeight: pointer ? "min(86vh, 760px)" : "calc(92dvh - 132px)" }}>
       {/* Everything that can grow scrolls; the outcome and the actions stay in view. */}
@@ -389,15 +390,15 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
         <div id={`${titleId}-source`} className="flex flex-wrap items-center justify-between gap-x-3 text-[11px] text-muted-foreground" aria-live="polite">
           <span className={cn("font-mono", draft.state === "running" && "animate-pulse")}>{draftLabel}</span>
           {draft.state === "running" ? (
-            <button type="button" className={LINKISH} onClick={stopSummary}>Stop</button>
+            <TextButton tone="link" label="Stop" style={{ minWidth: 44 }} onClick={stopSummary} />
           ) : null}
         </div>
         {draftNote ? <p className="text-[11px] text-muted-foreground">{draftNote}</p> : null}
         {confirmReplace ? (
           <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 text-sm">
             <span className="flex-1">Replace your edits?</span>
-            <button type="button" className={GHOST} onClick={() => setConfirmReplace(null)}>Keep mine</button>
-            <button type="button" className={PRIMARY} onClick={() => { setText(confirmReplace.text); setOrigin(confirmReplace.origin); setConfirmReplace(null); }}>Replace</button>
+            <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Keep mine" onClick={() => setConfirmReplace(null)} />
+            <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Replace" onClick={() => { setText(confirmReplace.text); setOrigin(confirmReplace.origin); setConfirmReplace(null); }} />
           </div>
         ) : null}
         {snapshot?.running ? (
@@ -406,7 +407,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
         {newSince > 0 ? (
           <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <span>{newSince === 1 ? "1 new message" : `${newSince} new messages`} since you opened this ·</span>
-            <button type="button" className={LINKISH} onClick={refreshDraft} disabled={busy}>Refresh draft</button>
+            <TextButton tone="link" label="Refresh draft" onClick={refreshDraft} disabled={busy} />
           </div>
         ) : null}
       </div>
@@ -422,21 +423,16 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
               <li key={r.path} className={cn("inline-flex min-h-11 items-center gap-1 rounded-md border border-border pl-2 font-mono text-[11px]", off ? "text-muted-foreground" : "text-foreground")}>
                 <span className={off ? "line-through" : undefined}>{r.path}</span>
                 {reason ? <span className="font-sans text-[10px] text-muted-foreground">{reason}</span> : null}
-                <button
-                  type="button"
-                  className="inline-flex h-11 w-9 items-center justify-center text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove reference ${r.path}`}
-                  disabled={busy}
-                  onClick={() => setReferences((current) => current.filter((x) => x.path !== r.path))}
-                >×</button>
+                <IconButton size="sm" name={`Remove reference ${r.path}`} icon="dismiss"
+                  disabled={busy} onClick={() => setReferences((current) => current.filter((x) => x.path !== r.path))} />
               </li>
             );
           })}
           <li>
             {adding === null ? (
-              <button type="button" className={LINKISH} disabled={busy || references.length >= HANDOFF_MAX_REFERENCES} onClick={() => setAdding("")}>+ add a file</button>
+              <TextButton tone="link" label="+ add a file" onClick={() => setAdding("")} disabled={busy || references.length >= HANDOFF_MAX_REFERENCES} />
             ) : (
-              <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); checkReference(adding); setAdding(null); }}>
+              <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); submitReference(); }}>
                 <input
                   autoFocus
                   value={adding}
@@ -446,7 +442,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
                   aria-label="Brain file path"
                   className="min-h-11 w-44 rounded-md border border-border bg-background px-2 font-mono text-xs"
                 />
-                <button type="submit" className={GHOST}>Add</button>
+                <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Add" onClick={submitReference} />
               </form>
             )}
           </li>
@@ -480,8 +476,8 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
           <div role="alert" className="flex flex-col gap-2 rounded-lg border border-destructive/50 p-3 text-sm">
             <p>Couldn't start the new chat: {phase.message} Your handoff is kept.</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={PRIMARY} onClick={start} disabled={Boolean(why)}>Try again</button>
-              <button type="button" className={GHOST} onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })}>Back to edit</button>
+              <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Try again" onClick={start} disabled={Boolean(why)} />
+              <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
             </div>
           </div>
         ) : phase.kind === "uncertain" ? (
@@ -489,8 +485,8 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
             <p>Didn't hear back. The new chat may or may not exist. Checking again won't create a second one.</p>
             <p className="font-mono text-[11px] text-muted-foreground">handoff {handoffId.slice(0, 12)}…</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={PRIMARY} onClick={checkAgain} disabled={!connected}>Check again</button>
-              <button type="button" className={GHOST} onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })}>Back to edit</button>
+              <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Check again" onClick={checkAgain} disabled={!connected} />
+              <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
             </div>
           </div>
         ) : null}
@@ -499,17 +495,12 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, send }: {
       {/* Actions */}
       <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
         <p className="text-xs text-muted-foreground">Nothing is sent until you start it.{why && phase.kind === "review" ? ` · ${why}` : ""}</p>
-        <div className="grid grid-cols-2 gap-2 tablet:flex tablet:justify-end">
-          <button type="button" className={GHOST} onClick={cancel} disabled={busy}>Cancel</button>
-          <button
-            type="button"
-            className={PRIMARY}
-            onClick={start}
-            disabled={Boolean(why) || busy || phase.kind !== "review"}
-            aria-label={`Start new chat on ${destination?.label ?? "another backend"}`}
-          >
-            Start new chat
-          </button>
+        <div className="flex gap-2 tablet:justify-end">
+          <Button tone="ghost" size="md" block={false} style={{ minHeight: 44, flex: "1 1 0", width: "auto" }} label="Cancel" onClick={cancel} disabled={busy} />
+          <Button tone="primary" size="md" block={false}
+            style={{ minHeight: 44, flex: "1 1 0", width: "auto" }} label="Start new chat"
+            onClick={start} disabled={Boolean(why) || busy || phase.kind !== "review"}
+            ariaLabel={`Start new chat on ${destination?.label ?? "another backend"}`} />
         </div>
       </div>
     </div>

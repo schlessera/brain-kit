@@ -24,6 +24,9 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
+import { ShareIntake } from "../../src/components/chat/share-card.js";
+import { ShareBlock } from "../../src/components/chat/share-block.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
 import { trackerViews } from "../../src/stores/tracker-state.js";
@@ -179,7 +182,7 @@ function pointer(): "fine" | "coarse" | "mixed" {
   return mode;
 }
 
-const settle = async (s: Scene, n = 3) => {
+const settle = async (s: Pick<Scene, "signal">, n = 3) => {
   for (let i = 0; i < n; i++) {
     s.signal.throwIfAborted();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -274,7 +277,7 @@ async function must(s: Scene, name: string | RegExp, role?: string): Promise<HTM
 }
 
 /** A native press: the mouse under a fine pointer, a touch tap otherwise. */
-async function press(s: Scene, el: HTMLElement, mode: string) {
+async function press(s: Pick<Scene, "signal">, el: HTMLElement, mode: string) {
   await expect.poll(() => !moving(), { interval: 16, message: "entrances have settled" }).toBe(true);
   el.scrollIntoView({ block: "nearest" });
   await settle(s, 1);
@@ -300,6 +303,7 @@ async function pngFile(name: string, color: string): Promise<File> {
 
 /** The paperclip's library input, given a picked file as the system picker would. */
 async function attach(s: Scene, file: File) {
+  const expectedImages = chips(s).length + 1;
   const input = s.host.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]:not([capture])')!;
   const transfer = new DataTransfer();
   transfer.items.add(file);
@@ -307,6 +311,8 @@ async function attach(s: Scene, file: File) {
   expect(input.files[0]!.size, "the picked native track is nonempty").toBeGreaterThan(0);
   s.picked.push({ name: input.files[0]!.name, bytes: input.files[0]!.size });
   input.dispatchEvent(new Event("change", { bubbles: true }));
+  // The file-change callback reads bytes asynchronously; dispatch alone does not await rendering.
+  await expect.poll(() => chips(s).length, { message: "attachment file-change has rendered its image", timeout: 5_000 }).toBe(expectedImages);
 }
 
 async function type(s: Scene, text: string) {
@@ -527,6 +533,9 @@ for (const width of [390, 1440] as const) for (const theme of THEMES) {
       const reach = document.elementFromPoint(r.left + r.width / 2, r.top - 12);
       expect(compare.contains(reach), "the reach above the word is the button's").toBe(true);
     }
+    await userEvent.keyboard("{Tab}"); compare.focus();
+    const compareRing = getComputedStyle(compare);
+    expect([compareRing.outlineWidth, compareRing.outlineStyle, compareRing.outlineOffset], "draft comparison focus ring").toEqual(["2px", "solid", "2px"]);
     await press(s, compare, mode);
     const sheet = await expect.poll(() => document.querySelector<HTMLElement>("[data-compare-drafts]")).not.toBeNull().then(() => document.querySelector<HTMLElement>("[data-compare-drafts]")!);
     expect(sheet.querySelector('[data-compare-side="this"] p')!.textContent).toBe("Ask Eumaeus about the dog");
@@ -711,3 +720,120 @@ for (const width of [390, 1280] as const) for (const theme of THEMES) for (const
     expect(reloads, "never a second").toBe(1);
   });
 }
+
+for (const theme of THEMES) test(`${theme}: attachment removal has a named pointer target and focus ring`, async (ctx) => {
+  const mode = pointer();
+  const s = await mount(ctx, 320, 800, theme);
+  await attach(s, await pngFile("ithaca-port.png", "#5bb5a2"));
+  await expect.poll(() => chips(s).length, { message: "attachment fixture is present" }).toBe(1);
+  expect(page.getByRole("button", { name: "Remove ithaca-port.png", exact: true }).elements().length, "attachment removal accessible name").toBe(1);
+  const remove = page.getByRole("button", { name: "Remove ithaca-port.png", exact: true }).element() as HTMLElement;
+  const box = rect(remove);
+  expect(box.width, "attachment remove target width").toBe(mode === "fine" ? 28 : 44);
+  expect(box.height, "attachment remove target height").toBe(mode === "fine" ? 28 : 44);
+  await userEvent.keyboard("{Tab}");
+  remove.focus();
+  const ring = getComputedStyle(remove);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "attachment remove focus ring").toEqual(["2px", "solid", "2px"]);
+  await press(s, remove, mode);
+  await expect.poll(() => chips(s).length, { message: "named removal acts on the image" }).toBe(0);
+});
+
+for (const theme of THEMES) test(`${theme}: share actions have names, pointer targets, focus rings and busy state`, async (ctx) => {
+  const mode = pointer();
+  await resize(320, 800);
+  document.documentElement.dataset.theme = theme;
+  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers: [], backends: {} }) });
+  const host = document.createElement("div");
+  host.style.cssText = "padding:16px;background:var(--bk-color-canvas)";
+  document.body.append(host);
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); ui.dispose(); host.remove(); });
+  ui.stores.share.getState().enqueue({ id: "ithaca-share", receivedAt: Date.UTC(2026, 6, 12), text: "Inspect the raft lashings.", files: [] });
+  flushSync(() => renderer.render(<BrainUiProvider root={ui}><ShareIntake /><ShareBlock body="The raft lashings." format="text" /></BrainUiProvider>));
+  await expect.poll(() => page.getByRole("button", { name: "Add to brain", exact: true }).elements().length, { message: "Add to brain accessible name" }).toBe(1);
+  for (const name of ["Add to brain", "Dismiss", "Share as plain text"]) {
+    expect(page.getByRole("button", { name, exact: true }).elements().length, `${name} accessible name`).toBe(1);
+    const action = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
+    expect(rect(action).height, `${name} target height`).toBeGreaterThanOrEqual(44);
+    await userEvent.keyboard("{Tab}"); action.focus();
+    const ring = getComputedStyle(action);
+    expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], `${name} focus ring`).toEqual(["2px", "solid", "2px"]);
+  }
+  flushSync(() => ui.stores.share.setState({ busy: true, phase: "uploading" }));
+  const adding = page.getByRole("button", { name: "Adding…", exact: true }).element();
+  expect(adding.getAttribute("aria-disabled"), "adding cannot be submitted twice").toBe("true");
+  flushSync(() => ui.stores.share.setState({ busy: false, phase: "review", error: "The Ithaca file could not be read." }));
+  const dismissError = page.getByRole("button", { name: "Dismiss error", exact: true }).element() as HTMLElement;
+  expect([rect(dismissError).width, rect(dismissError).height], "error dismissal pointer target").toEqual(mode === "fine" ? [28, 28] : [44, 44]);
+  await userEvent.keyboard("{Tab}"); dismissError.focus();
+  const ring = getComputedStyle(dismissError);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "error dismissal focus ring").toEqual(["2px", "solid", "2px"]);
+  await press({ signal: ctx.signal }, dismissError, mode);
+  await expect.poll(() => ui.stores.share.getState().error, { message: "error dismissal clears the error" }).toBeNull();
+  const dismiss = page.getByRole("button", { name: "Dismiss", exact: true }).element() as HTMLElement;
+  await press({ signal: ctx.signal }, dismiss, mode);
+  await expect.poll(() => ui.stores.share.getState().queue.length, { message: "dismiss removes the reviewed share" }).toBe(0);
+});
+
+for (const theme of THEMES) test(`${theme}: earlier messages have a named target, focus ring and keyboard action`, async (ctx) => {
+  const s = await mount(ctx, 320, 800, theme);
+  s.socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: Array.from({ length: 45 }, (_, i) => ({ role: "user", content: `Ithaca voyage note ${i + 1}.`, toolCalls: [] })) });
+  await settle(s);
+  const name = "Show 5 earlier messages · 5 hidden";
+  expect(page.getByRole("button", { name, exact: true }).elements().length, "earlier messages accessible name").toBe(1);
+  const earlier = page.getByRole("button", { name, exact: true }).element() as HTMLElement;
+  expect(rect(earlier).height, "earlier messages target height").toBeGreaterThanOrEqual(44);
+  await userEvent.keyboard("{Tab}"); earlier.focus();
+  const ring = getComputedStyle(earlier);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "earlier messages focus ring").toEqual(["2px", "solid", "2px"]);
+  await userEvent.keyboard("{Enter}");
+  await settle(s);
+  expect(page.getByRole("button", { name, exact: true }).elements().length, "earlier messages keyboard activation expands the window").toBe(0);
+});
+
+for (const theme of THEMES) test(`${theme}: session overflow retains its named target, menu state and row focus ring`, async (ctx) => {
+  const mode = pointer();
+  const s = await mount(ctx, 320, 800, theme);
+  await openSessions(s, mode);
+  const more = page.getByRole("button", { name: `More for ${ITHACA.title}`, exact: true }).element() as HTMLElement;
+  expect([rect(more).width, rect(more).height], "session overflow target").toEqual([44, 44]);
+  await userEvent.keyboard("{Tab}"); more.focus();
+  let ring = getComputedStyle(more);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "session overflow focus ring").toEqual(["2px", "solid", "2px"]);
+  await userEvent.keyboard("{Enter}");
+  expect(more.getAttribute("aria-expanded"), "session overflow announces its open menu").toBe("true");
+  const item = page.getByRole("menuitem", { name: /Continue on another backend/ }).element() as HTMLElement;
+  expect(document.activeElement, "session menu takes opening focus").toBe(item);
+  ring = getComputedStyle(item);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "session menu row focus ring").toEqual(["2px", "solid", "-2px"]);
+});
+
+for (const theme of THEMES) test(`${theme}: retry inline action has a named 44px reach and focus ring`, async (ctx) => {
+  const mode = pointer();
+  await resize(320, 800);
+  document.documentElement.dataset.theme = theme;
+  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers: [], backends: {} }) });
+  const retry = vi.spyOn(ui.connection, "reconnectNow").mockImplementation(() => {});
+  ui.stores.connection.setState({ vpnStatus: "connected", handshakeFailures: 3 });
+  const host = document.createElement("div"); document.body.append(host);
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); retry.mockRestore(); ui.dispose(); host.remove(); });
+  flushSync(() => renderer.render(<BrainUiProvider root={ui}><ConnectionGate><p>The Ithaca voyage.</p></ConnectionGate></BrainUiProvider>));
+  await expect.poll(() => page.getByRole("button", { name: "Retry now", exact: true }).elements().length, { message: "retry accessible name" }).toBe(1);
+  const action = page.getByRole("button", { name: "Retry now", exact: true }).element() as HTMLElement;
+  // Framer Motion uses rAF, so document.getAnimations() does not observe this entrance.
+  await expect.poll(() => rect(action).top, { message: "retry banner reach is on screen after entry" }).toBeGreaterThanOrEqual(12);
+  const box = rect(action);
+  const reach = getComputedStyle(action, "::before");
+  expect(action.offsetHeight - parseFloat(reach.top) - parseFloat(reach.bottom), "retry inline target height").toBeGreaterThanOrEqual(44);
+  if (mode !== "fine") {
+    expect(action.contains(document.elementFromPoint(box.left + box.width / 2, box.top - 11)), "retry upper reach hit").toBe(true);
+    expect(action.contains(document.elementFromPoint(box.left + box.width / 2, box.bottom + 11)), "retry lower reach hit").toBe(true);
+  }
+  await userEvent.keyboard("{Tab}"); action.focus();
+  const ring = getComputedStyle(action);
+  expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "retry inline focus ring").toEqual(["2px", "solid", "2px"]);
+  await press({ signal: ctx.signal }, action, mode);
+  expect(retry, "retry invokes reconnection once").toHaveBeenCalledTimes(1);
+});

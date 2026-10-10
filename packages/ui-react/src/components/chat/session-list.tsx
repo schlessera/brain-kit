@@ -1,5 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Button, Callout, Icon, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { Button, IconButton, Callout, Label, ListRow, Placeholder } from "@schlessera/brain-ui-kit";
 import type { IconName, Tone } from "@schlessera/brain-ui-kit";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 
@@ -320,19 +320,9 @@ function SessionOverflow({ title, why, tabStop, onHandoff }: { title: string; wh
   }
   return (
     <span className="relative flex">
-      <button
-        ref={trigger}
-        type="button"
-        aria-label={`More for ${title}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        tabIndex={tabStop || open ? 0 : -1}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-      >
-        <Icon icon="more" size={18} />
-      </button>
+      <IconButton ref={trigger} size="md" name={`More for ${title}`} icon="more"
+        haspopup="menu" expanded={open} controls={open ? menuId : undefined}
+        tabIndex={tabStop || open ? 0 : -1} onClick={() => setOpen((v) => !v)} />
       {open ? (
         <div
           id={menuId}
@@ -343,12 +333,14 @@ function SessionOverflow({ title, why, tabStop, onHandoff }: { title: string; wh
           className="absolute right-0 top-full z-popover mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface-raised shadow-2xl"
         >
           <button
+            // raw-button: row — menu item with a reason line; ListRow cannot draw its menu role
             ref={item}
             type="button"
             role="menuitem"
             aria-disabled={why ? true : undefined}
             onClick={() => { if (why) return; setOpen(false); onHandoff(); }}
-            className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left text-sm text-foreground hover:bg-surface aria-disabled:text-muted-foreground aria-disabled:hover:bg-transparent focus-visible:outline-none focus-visible:bg-surface"
+            className="bk-row flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left text-sm text-foreground aria-disabled:text-muted-foreground"
+            style={{ "--hv-bg": why ? "transparent" : "var(--bk-hover-veil-strong)" } as CSSProperties}
           >
             <span>Continue on another backend…</span>
             {why ? <span className="font-mono text-[11px] text-muted-foreground">{why}</span> : null}
