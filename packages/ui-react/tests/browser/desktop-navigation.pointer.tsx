@@ -270,14 +270,15 @@ for (const theme of ["dark", "light"] as const) {
         if (expanded && mode !== "coarse") expect(tabs[i]!.textContent, `printed chord: ${DESTINATIONS[i]}`).toBe(`${DESTINATIONS[i]}⌘${i + 1}`);
         else expect(tabs[i]!.textContent).not.toMatch(/⌘/);
       }
-      // Disconnected: expanded, the briefing prints its cost and its reason at
-      // rest; collapsed, it is not drawn and All commands reaches it.
+      // Disconnected: expanded, the briefing prints its reason at rest and no
+      // cost, being keyless (#1391); collapsed, it is not drawn and All
+      // commands reaches it.
       expect(acts.map((a) => a.getAttribute("aria-label"))).toEqual(expanded
-        ? ["Search the brain", "Add a note", "Daily briefing, spends, unavailable: needs the host"]
+        ? ["Search the brain", "Add a note", "Daily briefing, unavailable: needs the host"]
         : ["Search the brain", "Add a note"]);
       if (expanded) {
         expect(acts[2]!.getAttribute("aria-disabled")).toBe("true");
-        expect(acts[2]!.textContent).toBe("Daily briefingspendsneeds the host");
+        expect(acts[2]!.textContent).toBe("Daily briefingneeds the host");
       }
       expect(all, "All commands").not.toBeNull();
       expect(all!.textContent, "⌘K printed on every pointer").toContain("⌘K");
@@ -454,7 +455,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect.poll(() => parts(rail).acts[0]?.getAttribute("aria-label")).toBe("Search the brain");
       const { acts } = parts(rail);
       if (expanded) {
-        expect(acts[2]!.getAttribute("aria-label")).toBe("Daily briefing, spends, unavailable: a turn is running");
+        expect(acts[2]!.getAttribute("aria-label")).toBe("Daily briefing, unavailable: a turn is running");
         await press(acts[2]!, mode);
         expect(ui.stores.ui.getState().whatsupPanelOpen, "a disabled briefing runs nothing").toBe(false);
         expect(ui.stores.ui.getState().activeView).toBe("activity");
@@ -468,7 +469,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect.poll(() => ui.stores.ui.getState().addPanelOpen, { message: "Add opens mid-turn" }).toBe(true);
       ui.stores.chat.getState().finishAssistantMessage(null);
       if (expanded) {
-        await expect.poll(() => parts(rail).acts[2]!.getAttribute("aria-label")).toBe("Daily briefing, spends");
+        await expect.poll(() => parts(rail).acts[2]!.getAttribute("aria-label")).toBe("Daily briefing");
         await press(parts(rail).acts[2]!, mode);
         await expect.poll(() => ui.stores.ui.getState().whatsupPanelOpen, { message: "a quiet host runs the briefing" }).toBe(true);
       }

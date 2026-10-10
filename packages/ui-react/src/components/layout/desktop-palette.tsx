@@ -24,9 +24,9 @@ import { useDesktopRoutes } from "./desktop-routes.js";
  * longer a destination, D52 §1) and New chat — they move you. Sessions is a
  * destination now and appears once. **Ask**: Search the brain and Brain
  * statistics — they answer something. **Run**: Sync (`effect: sync`, it
- * writes the repository), the Daily briefing (a cost chip: spending is an
- * effect even when nothing is written) and Add a note (bare — opening a form
- * is not an effect; its submit carries the write). With a chat in view,
+ * writes the repository), the Daily briefing (bare — it reads the keyless
+ * `brain briefing`, so it can neither write nor spend) and Add a note (bare —
+ * opening a form is not an effect; its submit carries the write). With a chat in view,
  * Continue on another backend (#61) joins Run with a cost chip: its review
  * drafts a summary with a model the moment it opens. A command the host
  * cannot serve right now is shown DISABLED with its reason, never omitted:
@@ -36,9 +36,6 @@ import { useDesktopRoutes } from "./desktop-routes.js";
  * The destination keys print only under a fine pointer, as on the rail
  * (D36 addendum): the palette is tappable now, and a key printed to a
  * finger is a lie. The keys stay bound either way.
- *
- * The app has no cost estimate for the briefing, so its chip says `spends`
- * rather than an invented figure — the design's `~$0.12` is an example.
  */
 export function DesktopPalette() {
   const open = useUIStore((s) => s.paletteOpen);
@@ -119,7 +116,7 @@ export function DesktopPalette() {
   ];
   const runGroup: PaletteItem[] = [
     { icon: "repeat", label: "Sync the brain", tone: "amber", effect: "sync", why: routes.why, onClick: run(routes.sync) },
-    { icon: "sunrise", label: "Daily briefing", tone: "gold", cost: "spends", why: routes.why, onClick: run(routes.briefing) },
+    { icon: "sunrise", label: "Daily briefing", tone: "gold", why: routes.why, onClick: run(routes.briefing) },
     { icon: "add", label: "Add a note", tone: "teal", onClick: run(routes.add) },
     // A chat with a selected session can continue on another backend (#61).
     // Opening its review drafts a summary with a model, so it spends.

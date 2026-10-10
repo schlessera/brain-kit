@@ -29,10 +29,10 @@ Presentation and administrative transports remain internal where an independent
 HTTP integration role has not been selected: graph view assembly, file-browser
 navigation, digest/inbox presentation, skill editing, backend OAuth/configuration,
 model preferences/pricing freshness, remembered-grant settings, the reachability
-hint and the repo-local whatsup script. An internal designation excludes the
-raw HTTP method/path/payload from independent-consumer guarantees. It does not
-remove an existing CLI/MCP/SQL, module, permission, content-format or ordinary
-public TypeScript guarantee.
+hint and, until #1391 retired it, the repo-local whatsup script. An internal
+designation excludes the raw HTTP method/path/payload from independent-consumer
+guarantees. It does not remove an existing CLI/MCP/SQL, module, permission,
+content-format or ordinary public TypeScript guarantee.
 
 The React package's published `createBrainApi` and embedding services remain
 public functions. They use some internal transports and must keep working when

@@ -8,12 +8,12 @@ import { motion } from "framer-motion";
  * user could have typed". Already props-only; the chat page routes the
  * action.
  *
- * The chips are the empty chat's acts (D52 §1): the Daily briefing, which
- * prints `spends` at rest, Search, and Add a note. Add replaced the
+ * The chips are the empty chat's acts (D52 §1): the Daily briefing (keyless,
+ * so it prints no cost, #1391), Search, and Add a note. Add replaced the
  * statistics chip; statistics is occasional and lives in More and the
  * palette. Opening Search or Add opens a form and writes nothing. When the
  * briefing cannot run, `briefingWhy` is its printed reason and the chip
- * stays, disabled, with its cost (D52 §2).
+ * stays, disabled (D52 §2).
  */
 export function WelcomeState({
   onAction,
@@ -46,7 +46,7 @@ export function WelcomeState({
             label="Start with"
             items={[
               {
-                label: "What's new?", icon: "digest", tone: "amber", cost: "spends",
+                label: "What's new?", icon: "digest", tone: "amber",
                 disabled: briefingWhy !== undefined, why: briefingWhy,
                 onClick: () => onAction("whatsup"),
               },

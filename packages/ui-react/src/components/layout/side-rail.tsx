@@ -24,9 +24,11 @@ import { useDesktopRoutes } from "./desktop-routes.js";
  * live approvals plus open durable decisions.
  *
  * Under them sit the acts (D52 §1): Search, Add a note and the Daily
- * briefing, printing `spends`. Collapsed, the kit draws only the two that
- * need no words, and the briefing is reached through All commands. The
- * footer is the `All commands` button, which opens this root's palette.
+ * briefing. The briefing is keyless, so it prints no cost (#1391).
+ * Collapsed, the kit draws only acts that need no words: the briefing joins
+ * Search and Add there while it can run, and is reached through All commands
+ * while it prints a reason. The footer is the `All commands` button, which
+ * opens this root's palette.
  *
  * Widths follow D22's ladder: the phone bar to 479px, this rail collapsed
  * to 60px from 480 (`tablet:`), expanded to 208px from 900 (`laptop:`). The
@@ -66,12 +68,12 @@ export function SideRail() {
     onClick: () => d.go(),
   }));
 
-  // The palette's own routes, so availability and cost cannot drift: Search
-  // and Add are REST and always run; the briefing spends and says why not.
+  // The palette's own routes, so availability cannot drift: Search and Add
+  // are REST and always run; the briefing says why not.
   const acts: RailAct[] = [
     { icon: "search", label: "Search", name: "Search the brain", onClick: routes.search },
     { icon: "add", label: "Add a note", onClick: routes.add },
-    { icon: "sunrise", label: "Daily briefing", cost: "spends", why: routes.why, onClick: routes.briefing },
+    { icon: "sunrise", label: "Daily briefing", why: routes.why, onClick: routes.briefing },
   ];
 
   // A panel over the view is "here" while it is open; otherwise the view is.

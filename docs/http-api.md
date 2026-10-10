@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 120 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription and human-started hygiene-review routes mounted by `createApp`: 119 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -57,7 +57,6 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats` | S | Read current corpus statistics | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
-| POST | `/api/brain/whatsup` | I | Stream an optional repo-local briefing script | React quick action; optional script outside the packaged CLI, not an independent service API. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | PUT | `/api/drafts/:draftId` | S | Create or replace a draft revision with If-Match | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -153,7 +152,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 120 declared endpoints are mounted regardless of backend, renderer or
+All 119 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -398,7 +397,7 @@ The route does not create a second independent taxonomy or ranking policy.
 | Supported operation | Inputs/defaults/validation | Success | Errors and behavior |
 | --- | --- | --- | --- |
 | GET `/api/brain/search` | Required nonempty `q`; optional `type`, `tag`, `mode`, `limit` (Number conversion). Mode is fts/vector/hybrid when valid; default mode hybrid, limit 20; archived documents excluded. | `{ results: BrainSearchResult[], warnings: string[] }` | 400 missing q; 504 search deadline (15 seconds by default); other CLI/parsing failures 500 `{ error }`. Request abort cancels the read-only child. Result fields include path, title, type, relevance, score, snippet and comma-separated tags (null when none). Old bare-array CLI responses become results with empty warnings. |
-| GET `/api/brain/briefing` | No inputs | `{ content: string }` | CLI briefing stdout, including its formatting; failed command is 500 `{ error }`. |
+| GET `/api/brain/briefing` | No inputs | `{ content: string }` | CLI briefing stdout, including its formatting; failed command is 500 `{ error }`. Keyless: `brain briefing` gathers facts without a model. The React Daily briefing panel reads this route; no route runs a repo-local briefing script. |
 | GET `/api/brain/list` | Optional type, tag, status, relevance and Number-converted limit; limit 20 when omitted; archived excluded unless status=archived | `{ results: SearchResult[] }`, the full CLI list result | CLI/subprocess failures are 500 `{ error }`; filter strings are not HTTP enum-validated. Rows include path, title, type, status, relevance, nullable summary, updated, nullable deadline/generatedFrom, comma-separated tags (null when none), score=0 and empty snippet. No created field or tags-array conversion is added by HTTP. |
 | GET `/api/brain/stats` | No inputs | Full `brain stats --json` object | No HTTP wrapping, filtering or formatting; CLI failure 500 `{ error }`. The integration contract owns the complete corpus shape, including unknown values. |
 | GET `/api/brain/stats/history` | No inputs (no HTTP since filter) | Full `brain stats --history --json` object | Preserve [stats-history behavior](integration-contract.md#corpus-stats-history-get-apibrainstatshistory-additive-in-0400), including 500 with an older CLI; older servers can lack the route. |

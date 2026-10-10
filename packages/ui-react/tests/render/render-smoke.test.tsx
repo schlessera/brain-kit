@@ -2925,12 +2925,12 @@ describe("quick-action root ownership", () => {
     } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
   });
 
-  for (const kind of ["sync", "whatsup"] as const) {
+  for (const kind of ["sync"] as const) {
     test(`${kind} cancels a superseded stream reader and renders the replacement stream`, async () => {
       const a = transport("alpha"); const b = transport("beta");
       let cancelled = false;
       const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}>
-        {kind === "sync" ? <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} /> : <WhatsupPanel open onClose={() => {}} />}
+        <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} />
       </BrainUiProvider>;
       const mounted = render(panel(a.root));
       try {
@@ -2948,14 +2948,14 @@ describe("quick-action root ownership", () => {
         });
         expect(mounted.getByText("replacement output")).toBeTruthy();
         expect(mounted.queryByText("Cancelled.")).toBeNull();
-        if (kind === "sync") expect(mounted.getByText("Complete")).toBeTruthy();
+        expect(mounted.getByText("Complete")).toBeTruthy();
       } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
     });
 
     test(`${kind} uses the root transport and an old completion cannot steal Cancel`, async () => {
       const a = transport("alpha"); const b = transport("beta");
       const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}>
-        {kind === "sync" ? <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} /> : <WhatsupPanel open onClose={() => {}} />}
+        <StreamingPanel open title="Sync" endpoint="/api/brain/sync" onClose={() => {}} />
       </BrainUiProvider>;
       const mounted = render(panel(a.root));
       try {
@@ -2973,6 +2973,27 @@ describe("quick-action root ownership", () => {
       } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
     });
   }
+
+  // The briefing reads its selected root's JSON briefing (#1391): a root
+  // replacement aborts the old read, and a late answer for the old root
+  // cannot replace the new root's briefing or steal its Cancel.
+  test("whatsup reads the selected root's briefing and an old completion cannot land", async () => {
+    const a = transport("alpha"); const b = transport("beta");
+    const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><WhatsupPanel open onClose={() => {}} /></BrainUiProvider>;
+    const mounted = render(panel(a.root));
+    try {
+      expect(a.requests[0].url).toBe("https://alpha.example/api/brain/briefing");
+      expect(a.requests[0].init?.method ?? "GET").toBe("GET");
+      mounted.rerender(panel(b.root));
+      expect(a.requests[0].init?.signal?.aborted).toBe(true);
+      expect(b.requests[0].url).toBe("https://beta.example/api/brain/briefing");
+      await act(async () => { a.requests[0].response.resolve(Response.json({ content: "stale briefing" })); await flushPromises(); });
+      expect(mounted.queryByText("stale briefing")).toBeNull();
+      await act(async () => { b.requests[0].response.resolve(Response.json({ content: "Penelope's loom is due." })); await flushPromises(); });
+      expect(mounted.getByText("Penelope's loom is due.")).toBeTruthy();
+      expect(mounted.queryByText("Cancelled.")).toBeNull();
+    } finally { mounted.unmount(); a.root.dispose(); b.root.dispose(); }
+  });
 });
 
 describe("activity and device root ownership", () => {
@@ -3926,7 +3947,9 @@ describe("MobileTabBar on the kit TabBar", () => {
     const rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent);
     expect(rows).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain", "Brain statisticsDocuments and software versions"]);
     expect(sheet.textContent).toContain("Sync the brainneeds the hostsync");
-    expect(sheet.textContent).toContain("Daily briefingneeds the hostspends");
+    expect(sheet.textContent).toContain("Daily briefingneeds the host");
+    // Keyless (#1391): the briefing prints no cost.
+    expect(sheet.textContent).not.toContain("spends");
     // While the sheet is open, More is the amber slot.
     expect(view.getByRole("tab", { name: "More" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(sheet.querySelector('[role="button"]')!);
@@ -4010,7 +4033,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     // Connected and quiet: every act runs, and the effects stay printed.
     expect(rows).toEqual([
       "Settings", "Graph", "Add a noteWrite it down in the brain",
-      "Daily briefingWhat happened since you lookedspends",
+      "Daily briefingWhat happened since you looked",
       "Sync the brainPull and push the repositorysync",
       "Brain statisticsDocuments and software versions",
     ]);
@@ -4023,7 +4046,7 @@ describe("MobileTabBar on the kit TabBar", () => {
     rows = [...sheet.querySelectorAll('[role="button"]')].map((r) => r.textContent);
     // Streaming: Add still opens (REST), the agent acts say why they cannot.
     expect(rows).toEqual(["Settings", "Graph", "Add a noteWrite it down in the brain"]);
-    expect(sheet.textContent).toContain("Daily briefinga turn is runningspends");
+    expect(sheet.textContent).toContain("Daily briefinga turn is running");
     expect(sheet.textContent).toContain("Sync the braina turn is runningsync");
     expect(sheet.textContent).toContain("Brain statisticsa turn is running");
     expect(sheet.textContent).not.toContain("needs the host");
@@ -4076,10 +4099,11 @@ describe("SideRail on the kit SideRail", () => {
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
       "Search the brain",
       "Add a note",
-      "Daily briefing, spends, unavailable: needs the host",
+      "Daily briefing, unavailable: needs the host",
     ]);
-    // The briefing prints its cost and its reason at rest, not on hover.
-    expect(buttons[2]!.textContent).toBe("Daily briefingspendsneeds the host");
+    // The briefing prints its reason at rest, not on hover, and no cost:
+    // it reads the keyless `brain briefing` (#1391).
+    expect(buttons[2]!.textContent).toBe("Daily briefingneeds the host");
     const all = view.getByRole("button", { name: "All commands" });
     expect(all.getAttribute("aria-keyshortcuts")).toBe("Meta+K");
     expect(all.textContent).toContain("⌘K");
@@ -4173,7 +4197,7 @@ describe("SideRail on the kit SideRail", () => {
       useChatStore.getState().startAssistantMessage(null);
     });
     expect(activeChat(useChatStore.getState()).isStreaming).toBe(true);
-    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, spends, unavailable: a turn is running");
+    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, unavailable: a turn is running");
     // REST, so a running turn does not stop them; each lands in Chat.
     fireEvent.click(actButton(/^Search the brain/));
     expect(useUIStore.getState().activeView).toBe("chat");
@@ -4184,7 +4208,7 @@ describe("SideRail on the kit SideRail", () => {
     expect(useUIStore.getState().addPanelOpen).toBe(true);
 
     act(() => useChatStore.getState().finishAssistantMessage(null));
-    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing, spends");
+    expect(actButton(/^Daily briefing/).getAttribute("aria-label")).toBe("Daily briefing");
     fireEvent.click(actButton(/^Daily briefing/));
     expect(useUIStore.getState().whatsupPanelOpen).toBe(true);
     view.unmount();
@@ -4316,7 +4340,7 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     const view = render(<DesktopPalette />);
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(view.getByRole("option", { name: "Sync the brain, sync" }).getAttribute("aria-disabled")).not.toBe("true");
-    expect(view.getByRole("option", { name: /Daily briefing/ }).textContent).toContain("spends");
+    expect(view.getByRole("option", { name: /Daily briefing/ }).textContent).not.toContain("spends");
     fireEvent.click(view.getByRole("option", { name: /Daily briefing/ }));
     await waitFor(() => expect(useUIStore.getState().whatsupPanelOpen).toBe(true));
     expect(view.queryByRole("dialog")).toBeNull();
@@ -5161,18 +5185,31 @@ describe("StreamingOutput and BriefingOutput", () => {
     }
   });
 
-  test("the briefing loads behind a skeleton, then shows the content the container rendered", () => {
-    const onCancel = mock(() => {}); const onClose = mock(() => {});
-    const loading = render(<BriefingOutput state="loading" content={<p>never</p>} onCancel={onCancel} onClose={onClose} />);
-    expect(loading.getByText("Generating briefing...")).toBeTruthy();
+  test("the briefing loads behind a skeleton, then shows the content, an empty briefing or a failure with Retry", () => {
+    const onCancel = mock(() => {}); const onClose = mock(() => {}); const onRetry = mock(() => {});
+    const props = { onCancel, onClose, onRetry };
+    const loading = render(<BriefingOutput state="loading" content={<p>never</p>} {...props} />);
+    expect(loading.getByText("Reading the briefing...")).toBeTruthy();
     expect(loading.queryByText("never")).toBeNull();
     fireEvent.click(loading.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     loading.unmount();
 
-    const failed = render(<BriefingOutput state="error" content={<p>HTTP 500</p>} onCancel={onCancel} onClose={onClose} />);
-    expect(failed.getByText("Failed")).toBeTruthy();
-    expect(failed.getByText("HTTP 500")).toBeTruthy();
+    const done = render(<BriefingOutput state="done" content={<p>Ithaca by Thursday</p>} {...props} />);
+    expect(done.getByText("Ithaca by Thursday")).toBeTruthy();
+    expect(done.queryByRole("button", { name: "Retry" })).toBeNull();
+    done.unmount();
+
+    const empty = render(<BriefingOutput state="empty" content={<p>never</p>} {...props} />);
+    expect(empty.getByText("Nothing in today's briefing.")).toBeTruthy();
+    expect(empty.queryByText("never")).toBeNull();
+    empty.unmount();
+
+    const failed = render(<BriefingOutput state="error" error="brain briefing failed" content={<p>never</p>} {...props} />);
+    expect(failed.getByText("Briefing unavailable")).toBeTruthy();
+    expect(failed.getByText("brain briefing failed")).toBeTruthy();
+    fireEvent.click(failed.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
     fireEvent.click(failed.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     failed.unmount();
@@ -5440,10 +5477,10 @@ describe("chat views", () => {
     const onAction = mock((_a: string) => {});
     const view = render(<WelcomeState onAction={onAction} />);
     expect(view.getByText("What do you need to know?")).toBeTruthy();
-    // D52 §1: the briefing (printing its cost), Search, and Add a note,
-    // which replaced the statistics chip.
+    // D52 §1: the briefing (keyless, so no cost, #1391), Search, and Add a
+    // note, which replaced the statistics chip.
     const chips = view.getAllByRole("button");
-    expect(chips.map((c) => c.textContent)).toEqual(["What's new?spends", "Search…", "Add a note…"]);
+    expect(chips.map((c) => c.textContent)).toEqual(["What's new?", "Search…", "Add a note…"]);
     fireEvent.click(chips[0]!);
     expect(onAction).toHaveBeenLastCalledWith("whatsup");
     fireEvent.click(chips[1]!);
@@ -5458,11 +5495,30 @@ describe("chat views", () => {
     const offline = render(<WelcomeState onAction={onAction} briefingWhy="needs the host" />);
     const briefing = offline.getAllByRole("button")[0]!;
     expect(briefing.getAttribute("aria-disabled")).toBe("true");
-    expect(briefing.textContent).toContain("spends");
+    expect(briefing.textContent).not.toContain("spends");
     expect(briefing.textContent).toContain("needs the host");
     fireEvent.click(briefing);
     expect(onAction).not.toHaveBeenCalled();
     offline.unmount();
+  });
+
+  // With no cost chip (#1391) the briefing's reason is the only thing that
+  // makes its chip wrap, so reconnecting changes its style on a rerender. The
+  // chip must not drop a rowGap beside a gap shorthand: React reports that
+  // as a console error, and the capture suite fails on browser faults.
+  test("the briefing chip reconnects without a conflicting-style error", () => {
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => { errors.push(args.map(String).join(" ")); });
+    try {
+      const view = render(<WelcomeState onAction={() => {}} briefingWhy="needs the host" />);
+      expect(view.getAllByRole("button")[0]!.textContent).toContain("needs the host");
+      view.rerender(<WelcomeState onAction={() => {}} />);
+      expect(view.getAllByRole("button")[0]!.textContent).toBe("What's new?");
+      view.rerender(<WelcomeState onAction={() => {}} briefingWhy="a turn is running" />);
+      expect(view.getAllByRole("button")[0]!.textContent).toContain("a turn is running");
+      view.unmount();
+      expect(errors.filter((e) => /style property during rerender/.test(e))).toEqual([]);
+    } finally { spy.mockRestore(); }
   });
 });
 

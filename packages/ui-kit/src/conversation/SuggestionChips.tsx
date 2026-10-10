@@ -168,7 +168,11 @@ export function SuggestionChips(p: SuggestionChipsProps) {
           const chip: CSSProperties = {
             display: "inline-flex",
             alignItems: "center",
-            gap: 6,
+            // Longhands only, with rowGap always set: a chip whose reason
+            // comes and goes on a rerender would otherwise drop a rowGap
+            // beside a `gap` shorthand, which React refuses to reconcile.
+            columnGap: 6,
+            rowGap: why || it.cost ? 3 : 6,
             flex: "none",
             maxWidth: p.wrap === false && !why && !it.cost ? undefined : "100%",
             border: `1px solid ${tone ? BORDERS[tone] || BORDERS.neutral : color.edge}`,
@@ -182,7 +186,7 @@ export function SuggestionChips(p: SuggestionChipsProps) {
             // the label's text cannot shrink, so an ellipsis would push the
             // printed word past the clipped edge first.
             ...(why || it.cost
-              ? { flexWrap: "wrap", rowGap: 3, whiteSpace: "normal", overflowWrap: "anywhere" }
+              ? { flexWrap: "wrap", whiteSpace: "normal", overflowWrap: "anywhere" }
               : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
             ...({
               "--hv-bg": tone ? HOVER_TINTS[tone] || HOVER_TINTS.neutral : token("hover-veil-strong"),

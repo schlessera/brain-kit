@@ -4,12 +4,14 @@ import { SlidePanel } from "../layout/slide-panel.js";
 import { BrainMarkdown } from "../chat/brain-markdown.js";
 import { BriefingOutput } from "./streaming-output.js";
 
-type State = "loading" | "done" | "error" | "cancelled";
+type State = "loading" | "done" | "empty" | "error" | "cancelled";
 
 /**
- * The container (S6) for the briefing: the request, the SSE reader loop, the
- * abort controller and the "still my stream" checks live here;
- * `BriefingOutput` draws from props.
+ * The container (S6) for the daily briefing. It reads the selected root's
+ * `GET /api/brain/briefing`: the keyless `brain briefing` output, gathered
+ * without a model, and runs no script and no agent turn (#1391). The request,
+ * the abort controller and the "still my request" checks live here;
+ * `BriefingOutput` draws from props. Retry reads the briefing again.
  */
 export function WhatsupPanel({
   open,
@@ -21,6 +23,8 @@ export function WhatsupPanel({
   const root = useBrainUiRoot();
   const [state, setState] = useState<State>("loading");
   const [content, setContent] = useState("");
+  const [error, setError] = useState<string | undefined>();
+  const [attempt, setAttempt] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -28,86 +32,42 @@ export function WhatsupPanel({
 
     setState("loading");
     setContent("");
+    setError(undefined);
 
     let disposed = false;
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const controller = new AbortController();
-    const cancelReader = () => { void reader?.cancel().catch(() => {}); };
-    controller.signal.addEventListener("abort", cancelReader);
     controllerRef.current = controller;
+    const stale = () => disposed || controller.signal.aborted;
 
     (async () => {
       try {
-        const res = await root.request(root.backendUrl("/api/brain/whatsup"), {
-          method: "POST",
+        const res = await root.request(root.backendUrl("/api/brain/briefing"), {
           signal: controller.signal,
         });
+        const body = (await res.json().catch(() => null)) as { content?: unknown; error?: unknown } | null;
+        if (stale()) return;
 
-        if (disposed || controller.signal.aborted) {
-          await res.body?.cancel();
+        if (!res.ok) {
+          setError(typeof body?.error === "string" && body.error ? body.error : `HTTP ${res.status}: ${res.statusText}`);
+          setState("error");
           return;
         }
-
-        if (!res.ok || !res.body) {
+        if (typeof body?.content !== "string") {
+          setError("The briefing response carried no content.");
           setState("error");
-          setContent(`HTTP ${res.status}: ${res.statusText}`);
           return;
         }
-
-        reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        const lines: string[] = [];
-        let finished = false;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (disposed || controller.signal.aborted) return;
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const events = buffer.split("\n\n");
-          buffer = events.pop() || "";
-
-          for (const event of events) {
-            const dataLine = event
-              .split("\n")
-              .find((l) => l.startsWith("data: "));
-            if (!dataLine) continue;
-
-            try {
-              const data = JSON.parse(dataLine.slice(6));
-              if (data.type === "progress" && data.text !== undefined) {
-                lines.push(data.text);
-              }
-              if (data.type === "done") {
-                finished = true;
-                setState(data.success ? "done" : "error");
-              }
-            } catch {}
-          }
-        }
-
-        // EOF without a `done` frame — a dropped connection, or a route that
-        // unwound past its last send. Loading is not terminal, so staying in
-        // it would strand the panel behind the skeleton and a Cancel.
-        if (!finished) {
-          lines.push("", "_The connection closed before the job reported a result._");
-          setState("error");
-        }
-        setContent(lines.join("\n"));
+        setContent(body.content);
+        setState(body.content.trim() ? "done" : "empty");
       } catch (err: any) {
-        if (disposed || controller.signal.aborted) return;
-        if (err.name === "AbortError") {
+        if (stale()) return;
+        if (err?.name === "AbortError") {
           setState("cancelled");
-          setContent("Cancelled.");
         } else {
+          setError(err instanceof Error ? err.message : String(err));
           setState("error");
-          setContent(`Error: ${err.message}`);
         }
       } finally {
-        controller.signal.removeEventListener("abort", cancelReader);
-        reader?.releaseLock();
         if (controllerRef.current === controller) controllerRef.current = null;
       }
     })();
@@ -117,24 +77,23 @@ export function WhatsupPanel({
       controller.abort();
       if (controllerRef.current === controller) controllerRef.current = null;
     };
-  }, [open, root]);
+  }, [open, root, attempt]);
 
-  // Closing unmounts the panel, and the unmount aborts the briefing, so a stray
-  // click on the backdrop must not close it: while it loads the click cancels a
-  // model call, and afterwards it discards a briefing that call paid for.
-  // Escape is refused only while the briefing loads; the header's X is always
-  // the way out.
+  // Closing unmounts the panel and discards the briefing, so a stray click
+  // beside the drawer must not close it. Escape is refused only while the
+  // briefing loads; the header's X is always the way out.
   const closedBy = state === "loading" ? "none" : "closerequest";
 
   return (
     <SlidePanel open={open} onClose={onClose} title="Whatsup" wide closedBy={closedBy}>
       <BriefingOutput
         state={state}
+        error={error}
         content={<BrainMarkdown content={content} className="whatsup-briefing brain-prose" entityTags fileLinks />}
+        onRetry={() => setAttempt((n) => n + 1)}
         onCancel={() => {
           controllerRef.current?.abort();
           setState("cancelled");
-          setContent("Cancelled.");
         }}
         onClose={onClose}
       />
