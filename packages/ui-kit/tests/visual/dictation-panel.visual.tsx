@@ -541,3 +541,32 @@ for (const action of ["Done", "mic", "Cancel"] as const) {
     } else { await expect.poll(() => client.stopped).toBe(1); expect(client.drained).toBe(0); }
   });
 }
+
+// #1433: native header swipes exercise the complete Stop -> drain -> review flow.
+for (const phase of ["recording", "draining", "mid-drag"] as const) {
+  test(`dictation swipe ${phase}: words stay reviewable and Cancel never runs`, async () => {
+    await commands.dictationMotion("reduce");
+    const { client, listen, mic } = await mount(320);
+    await listen("Keep the nonempty voyage transcript");
+    const sheet = panel();
+    if (phase === "draining") await userEvent.click(done());
+    const rect = sheet.getBoundingClientRect();
+    const p = { x: rect.left + 80, y: rect.top + 20 };
+    await commands.sheetInput("touch", [{ type: "down", ...p, t: 0 }, { type: "move", x: p.x, y: p.y + 100, t: 200 }]);
+    if (phase === "mid-drag") flushSync(() => ui!.stores.voice.getState().setDraining(true));
+    const dy = new DOMMatrix(getComputedStyle(sheet).transform).m42;
+    expect(dy, "dictation tracking and protected bound").toBe(phase === "recording" ? 100 : phase === "draining" ? 12 : 0);
+    await commands.sheetInput("touch", [{ type: "move", x: p.x, y: p.y + 200, t: 300 }, { type: "up", x: p.x, y: p.y + 200, t: 400 }]);
+    expect(client.stopped, "swipe never cancels capture").toBe(0);
+    expect(client.drained, "only recording swipe requests Stop").toBe(phase === "mid-drag" ? 0 : 1);
+    expect(ui!.stores.voice.getState().mode, "capture remains until drain completes").toBe("dictate");
+    if (phase === "mid-drag") {
+      expect(new DOMMatrix(getComputedStyle(sheet).transform).m42, "drain transition stays at rest").toBe(0);
+      flushSync(() => ui!.stores.voice.getState().setDraining(false));
+      await userEvent.click(done());
+    }
+    client.finish();
+    await expect.poll(() => ui!.stores.voice.getState().reviewText).toBe("Keep the nonempty voyage transcript");
+    await expect.poll(() => document.activeElement).toBe(mic());
+  });
+}

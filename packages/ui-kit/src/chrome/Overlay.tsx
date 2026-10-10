@@ -3,13 +3,14 @@ import { useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode, typ
 import { warnOnceDevelopment } from "../internal/dev.js";
 import { inertOutside, keepModalLive } from "../internal/inert-outside.js";
 import { isTopmost, registerOverlay } from "../internal/overlay-stack.js";
+import { useSheetSwipe } from "../internal/sheet-swipe.js";
 import { z } from "../tokens.js";
 import { BottomSheet } from "./BottomSheet.js";
 import { Icon } from "../primitives/Icon.js";
 import { IconButton } from "../primitives/IconButton.js";
 
 export type OverlayVariant = "sheet" | "dialog" | "fullscreen" | "panel";
-export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request";
+export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request" | "swipe";
 type OverlayName =
   | { title: string; subtitle?: string; label?: never; labelledBy?: never }
   | { label: string; title?: never; labelledBy?: never }
@@ -63,6 +64,8 @@ export function Overlay(p: OverlayProps) {
   const closedBy = p.closedBy ?? "any";
   const size = p.size ?? (p.variant === "sheet" ? "lg" : p.variant === "dialog" ? "md" : "sm");
 
+  const cancelSwipe = useSheetSwipe(p, surface, id.current);
+
   useLayoutEffect(() => {
     const here = element.current;
     if (!p.open || !here) return;
@@ -74,6 +77,7 @@ export function Overlay(p: OverlayProps) {
     const { opener } = openingFocus.current;
     let active = true;
     const request = (reason: OverlayCloseReason) => {
+      cancelSwipe();
       if (active && isTopmost(doc, id.current) && latest.current.closedBy !== "none") latest.current.onClose(reason);
     };
     const unregister = registerOverlay(doc, { id: id.current, modal, escape: () => request("escape") });
@@ -138,6 +142,7 @@ export function Overlay(p: OverlayProps) {
   function keys(event: KeyboardEvent<HTMLElement>) {
     if (!isTopmost(event.currentTarget.ownerDocument, id.current) || event.defaultPrevented) return;
     if (event.key === "Escape" && modal && !event.nativeEvent.isComposing) {
+      cancelSwipe();
       event.preventDefault();
       event.stopPropagation();
       if (closedBy !== "none") p.onClose("escape");
@@ -150,7 +155,8 @@ export function Overlay(p: OverlayProps) {
       }
     }
   }
-  const dismiss = (p.variant === "panel" || closedBy !== "none") ? () => p.onClose("close-button") : undefined;
+  const requestClose = (reason: OverlayCloseReason) => { cancelSwipe(); p.onClose(reason); };
+  const dismiss = (p.variant === "panel" || closedBy !== "none") ? () => requestClose("close-button") : undefined;
   const data = Object.fromEntries(Object.entries(p).filter(([key]) => key.startsWith("data-")));
   const shared = {
     ...data,
@@ -172,23 +178,24 @@ export function Overlay(p: OverlayProps) {
       onPointerDown={event => {
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
-        if (closedBy === "any" && isTopmost(event.currentTarget.ownerDocument, id.current)) p.onClose("scrim");
+        if (closedBy === "any" && isTopmost(event.currentTarget.ownerDocument, id.current)) requestClose("scrim");
       }} />
     <div ref={node => {
       surface.current = node;
       if (typeof p.surfaceRef === "function") p.surfaceRef(node);
       else if (p.surfaceRef) p.surfaceRef.current = node;
     }} className="bk-overlay-surface">
+      <div className="bk-overlay-swipe-zone" aria-hidden="true" />
       {p.title && p.variant !== "fullscreen" ? p.variant === "panel" ?
         <header className="bk-overlay-header"><h2 id={heading} {...(!modal ? { tabIndex: -1, "data-destination-heading": "" } : {})}>{p.title}</h2>{dismiss && <IconButton size="md" tone="mute" style={{ position: "relative" }} glyph={<><Icon icon="dismiss" size={16} /><span style={{ position: "absolute", inset: 0 }} /></>} name={p.closeLabel ?? `Close ${p.title}`} onClick={dismiss} />}</header> :
         <BottomSheet title={p.title} titleId={heading} subtitle={"subtitle" in p ? p.subtitle : undefined} onDismiss={dismiss} closeLabel={p.closeLabel} /> : null}
       {p.title && p.variant === "fullscreen" ? <h2 id={heading} className="bk-overlay-sr-title">{p.title}</h2> : null}
-      {(!p.title || p.variant === "fullscreen") && p.closeLabel ? <span style={{
-        position: "absolute", zIndex: 1,
+      {(!p.title || p.variant === "fullscreen") && p.closeLabel ? <span className="bk-overlay-close-slot" style={{
+        position: "absolute",
         top: p.variant === "fullscreen" ? "calc(8px + env(safe-area-inset-top))" : 12,
         right: p.variant === "fullscreen" ? 12 : 20,
       }}><IconButton size="md" tone="mute" style={{ position: "relative" }} glyph={<><Icon icon="dismiss" size={16} /><span style={{ position: "absolute", inset: 0 }} /></>} name={p.closeLabel}
-        disabled={closedBy === "none"} onClick={() => p.onClose("close-button")} /></span> : null}
+        disabled={closedBy === "none"} onClick={() => requestClose("close-button")} /></span> : null}
       <div className="bk-overlay-body">{p.children}</div>
     </div>
   </>;

@@ -2473,3 +2473,19 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
     grid-column: 1 / -1;
   }
 }
+
+/* A transparent header strip reserves native touch manipulation without
+ * changing paint or interfering with the scrolling body. Controls stay above it.
+ * Without a BottomSheet header or a drawn close slot, leave the top body hittable. */
+.bk-overlay-swipe-zone { display: none; position: absolute; inset: 0 0 auto; height: 56px; z-index: 1; touch-action: none; }
+.bk-overlay[data-bk-overlay="sheet"] .bk-overlay-surface:has([data-bk-bottom-sheet], > .bk-overlay-close-slot) > .bk-overlay-swipe-zone { display: block; }
+/* useSheetSwipe marks controls with the shared interactive selector. Only
+ * sheet headers and the drawn close slot participate in this stacking layer. */
+:where(.bk-overlay-close-slot) { z-index: 1; }
+:where(.bk-overlay[data-bk-overlay="sheet"] .bk-overlay-surface > [data-bk-bottom-sheet]) :where([data-bk-sheet-control]),
+:where(.bk-overlay[data-bk-overlay="sheet"] .bk-overlay-surface > .bk-overlay-close-slot) { position: relative; z-index: 2; }
+@media not all and (min-width: 900px) {
+  .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface:has([data-bk-bottom-sheet], > .bk-overlay-close-slot) > .bk-overlay-swipe-zone { display: block; }
+  :where(.bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface > [data-bk-bottom-sheet]) :where([data-bk-sheet-control]),
+  :where(.bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface > .bk-overlay-close-slot) { position: relative; z-index: 2; }
+}

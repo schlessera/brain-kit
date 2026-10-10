@@ -126,7 +126,8 @@ Mechanics:
   topmost, or a `closedBy` change away from `any`. Escape ends tracking
   first, then follows the normal close policy.
 - **Reduced motion and focus.** Direct manipulation stays under reduced
-  motion; the snap-back becomes immediate and the scrim fade is dropped. A
+  motion; the snap-back becomes immediate and the scrim fade is dropped.
+  Header pointerdown calls `preventDefault`, so even a header tap keeps focus. A
   drag never moves focus. D54's closing-render `returnFocus` and
   `onAfterClose` ordering applies unchanged.
 - **Unchanged.** The 44px controls, the keyboard and accessibility close paths,
@@ -134,8 +135,8 @@ Mechanics:
   no exit animation and no new resting visual.
 
 **Dictation.** A swipe while recording means **Stop, with the words kept for
-review**, never Cancel. The dictation sheet maps `"swipe"` the way it already
-maps `"scrim"` (`onClose={reason => reason === "scrim" ? onStop() : onCancel()}`,
+review**, never Cancel. The dictation sheet maps `"swipe"` the way it
+maps `"scrim"` (`onClose={reason => (reason === "scrim" || reason === "swipe") ? onStop() : onCancel()}`,
 `packages/ui-react/src/components/voice/dictation-sheet.tsx:173`). While
 draining, `closedBy` is `none` and rule 3 applies.
 
