@@ -17,7 +17,7 @@ export function preparePaidReview(destination:string,proofPath:string){
   const documents:Array<{path:string;raw:Buffer}>=[{path:"proof.json",raw:proofRaw},{path:"paid-freeze.json",raw:Buffer.from(JSON.stringify(frozen))}];
   for(const name of ["corpus.json","schema.json","protocol.json","manifest.json"])documents.push({path:`inputs/${name}`,raw:readFileSync(join(output,"inputs",name))});
   const files=Object.entries(frozen.closure).filter(([path,entry])=>entry.kind==="file"&&(
-    path.startsWith("packages/core/src/")||path.startsWith("packages/core/skills/")||path.startsWith("packages/module-jobs/src/")||path.startsWith("packages/module-jobs/skills/")||
+    path.startsWith("packages/core/src/")||path.startsWith("packages/common/src/")||path.startsWith("packages/core/skills/")||path.startsWith("packages/module-jobs/src/")||path.startsWith("packages/module-jobs/skills/")||
     path.startsWith("scripts/evals/opportunity-lifecycle/")||/^scripts\/evals\/native-(?:paid-entry|paid-policy|pricing|grant)\.ts$/.test(path)||
     path==="scripts/measure-sonnet55-cost.ts"||path==="packages/ui-backend-claude/src/subscription.ts"||
     /^tests\/opportunity-lifecycle.*\.test\.ts$/.test(path)||/^tests\/native-(?:paid-policy|grant)\.test\.ts$/.test(path)));

@@ -5,7 +5,7 @@ import { benchmark, definitions, prepare, execute, BENCHMARK_SHA } from "./bench
 import { observe, assertEffects, assertPreservation } from "./effects";
 import { summaryObservation } from "./rubric";
 import { score, predictionFrom, type Prediction } from "./score";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 const rows = [];
 // Raw classifier replies per arm. With the scripted provider these are the goldens by construction,
 // so the scores below are a check of the scoring path, not a measurement.

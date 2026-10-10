@@ -2,7 +2,7 @@
 import { readFileSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { readGeneratedRegion, splitFrontmatterBlock } from "../../../packages/core/src/lib/generated-regions";
 import { openDatabase } from "../../../packages/core/src/lib/db";
 import { freshCases, referenceFiles, type FreshCase, type Checkpoint } from "./fresh-corpus";

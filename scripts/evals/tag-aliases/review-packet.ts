@@ -14,7 +14,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/tag-alias-investigation.md",
     "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts",
     "packages/core/skills/audit/SKILL.md", "packages/core/src/lib/tags.ts", "packages/core/src/lib/tags-apply.ts", "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/document-parts.ts",
-    "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts",
+    "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/common/src/frontmatter-parse.ts", "packages/common/src/env-core.ts", "packages/core/src/lib/hygiene-next.ts", "packages/core/src/lib/hygiene-repair.ts",
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",
     "packages/core/src/providers/agents/claude-binary.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
     ...readdirSync(join(root, "scripts/evals/tag-aliases")).sort().map(name => `scripts/evals/tag-aliases/${name}`),

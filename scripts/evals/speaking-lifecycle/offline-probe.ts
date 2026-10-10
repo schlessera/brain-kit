@@ -8,6 +8,7 @@ import { MODEL } from "./relay";
 import { collectCell } from "./collector";
 import { admitExactPackets } from "./review-packet";
 import { sha } from "./freeze";
+import { archiveEffects, expectedArchives } from "./atomic-effects";
 export function response(id:number,content:{tool:string;input:unknown}|string){
   const tool=typeof content!=="string",block=tool?{type:"tool_use",id:`tool_${id}`,name:content.tool,input:{}}:{type:"text",text:""};
   const delta=tool?{type:"input_json_delta",partial_json:JSON.stringify(content.input)}:{type:"text_delta",text:content};
@@ -35,6 +36,7 @@ async function main(){
       console.log(JSON.stringify({passed:true,mode,actualCli:"2.1.293",childrenDrained:true,externalRequests:0}));return;
     }
     installSurface(p.root);const before=observe(p.root);
+    const expected=expectedArchives(before,mode==="cli-direct"?[p.hub,p.first,p.second]:mode==="archive"?[p.hub]:[]);
     if(mode==="cli-direct") {
       const command=(args:string[])=>{
         const child=Bun.spawnSync([process.execPath,"--preload",new URL("../../captures/clock.ts",import.meta.url).pathname,new URL("../../../packages/core/src/cli/brain.ts",import.meta.url).pathname,...args],{cwd:p.root,env:{PATH:process.env.PATH,HOME:"/tmp/isolated-cli-home",BRAIN_ROOT:p.root},stdout:"pipe",stderr:"pipe",timeout:10000});
@@ -44,13 +46,8 @@ async function main(){
       const commands=[command(["config","check","--json"]),command(["read",p.first,"--json"])];
       if(!commands[1].stdout.includes(c.submission))throw Error("Actual direct CLI source read missing");
       for(const path of [p.hub,p.first,p.second])commands.push(command(["archive",path,"--json"]));
-      const after=observe(p.root),authorized=new Set([p.hub,p.first,p.second]);
-      for(const [path,entry]of Object.entries(before)) {
-        if(authorized.has(path)) {
-          const beforeText=Buffer.from(entry.bytes!,"base64").toString("utf8"),expected=beforeText.replace("status: active","status: archived").replace("relevance: primary","relevance: historical");
-          if(after[path]?.bytes!==Buffer.from(expected).toString("base64")||after[path]?.mode!==entry.mode)throw Error("Actual direct shipped archive changed unauthorized source bytes/mode");
-        }else if(!path.startsWith("brain.db")&&JSON.stringify(entry)!==JSON.stringify(after[path]))throw Error(`Direct CLI changed unrelated entry: ${path}`);
-      }
+      const after=observe(p.root),violations=archiveEffects(before,after,expected,true);
+      if(violations.length)throw Error(`Direct CLI archive effects: ${violations.join("; ")}`);
       if(destination)writeFileSync(destination,JSON.stringify({passed:true,mode,commands,before,after,currentAgentBaseline:false,actualNative:false,models:0,referenceDay:"2026-07-12",semanticApproval:false},null,2),{mode:0o600});
       console.log(JSON.stringify({passed:true,mode,actualCLI:true,currentAgentBaseline:false,externalRequests:0}));return;
     }
@@ -73,9 +70,8 @@ async function main(){
     }};
     const result=await runNative(p.root,output,"sk-ant-oat01-offline-fixture-not-a-credential",mode==="review"?"Return APPROVED for this scripted no-tools transport control.":lifecyclePrompt,options);
     const after=observe(p.root);
-    for(const [path,entry]of Object.entries(before))if(path!==p.hub||mode!=="archive"){
-      if(JSON.stringify(entry)!==JSON.stringify(after[path]))throw Error(`Actual native changed an unapproved existing entry: ${path}`);
-    }
+    const violations=archiveEffects(before,after,expected,mode==="archive");
+    if(violations.length)throw Error(`Actual native effects: ${violations.join("; ")}`);
     if(mode==="review"){
       const expected={key:"control",freezeSha:"offline-control",promptSha:sha("Return APPROVED for this scripted no-tools transport control."),runtime:JSON.parse(readFileSync(join(output,"execution.json"),"utf8")).runtime};
       const pretend={...expected,approved:true,model:MODEL,finished:true,drained:true,stdoutComplete:true,callsComplete:true,overage:"inactive observed",actualCli:"2.1.293",actualProvider:true,scope:"complementary-semantic-review",authorFamily:"gpt",reviewerFamily:"claude",evidence:result.evidence};

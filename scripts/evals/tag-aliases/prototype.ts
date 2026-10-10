@@ -6,7 +6,7 @@ import { initContext } from "../../../packages/core/src/lib/context";
 import { brainConfigSchema } from "../../../packages/core/src/lib/config";
 import { collectTaggedDocuments, findVariantGroups } from "../../../packages/core/src/lib/tags";
 import { applyTagChanges, type TagApplyOptions } from "../../../packages/core/src/lib/tags-apply";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { replaceIfUnchanged } from "../../../packages/core/src/lib/hygiene";
 import type { JevChoiceAnswer, JevRequest } from "../../../packages/core/src/lib/jev";
 

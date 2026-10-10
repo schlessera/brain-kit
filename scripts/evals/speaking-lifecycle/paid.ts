@@ -13,7 +13,7 @@ export function openSpeakingPaid(options:{root:string;output:string;offline:bool
   if(!options.offline){
     const proof=protectedNativeJson(process.env.BRAIN_SPEAKING_PAID_PROOF).value;
     if(proof.freezeSha!==f.freezeSha||proof.testsExitCode!==0||proof.typecheckExitCode!==0||proof.lintExitCode!==0||
-      ["read","cli","write-denial","review","cli-direct","current-cell","cli-escape"].some(mode=>proof.nativeExitCodes?.[mode]!==0))throw Error("Exact current846 keyless proof required before paid dispatch");
+      ["read","cli","write-denial","review","cli-direct","archive","current-cell","cli-escape"].some(mode=>proof.nativeExitCodes?.[mode]!==0))throw Error("Exact current846 keyless proof required before paid dispatch");
     proofSha=sha(JSON.stringify(proof));if(options.proofSha!==proofSha)throw Error("Root review binding differs from actual keyless proof");
   }
   const binding:ReviewBinding={freezeSha:f.freezeSha,inputSha:f.manifest.fixtureSha,protocolSha:f.manifest.protocolSha,

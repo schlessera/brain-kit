@@ -361,3 +361,23 @@ still a generalization limit, and the original regressions are unchanged.
 The fixture CLI read policy checks contained operands and rejects root/output
 configuration overrides; an actual native denied outside-sentinel control
 proves that boundary while preserving auto policy.
+
+
+## Atomic archive directory effects
+
+The maintainer ruling on [#1450](https://github.com/schlessera/brain-kit/issues/1450)
+qualifies the private effect guard after production archive adopted atomic
+staging and replacement. Direct archive, native archive and full grading permit
+only an incidental `mtimeNs` change on the exact parent of a performed authorized
+source replacement. The replacement must match independently expected resulting
+bytes and mode. A potential target, an arbitrary changed file or alternative
+observed content cannot authorize directory metadata. Directory kind, mode and
+complete descendant membership remain invariant; unrelated timestamp changes,
+links, source loss and leftover temporary members remain violations.
+
+Complete before/after snapshots retain the raw parent timestamp change. No
+normalization or generic directory exception is used. Original independent
+semantic review, source-supported task facts, layouts, disposable-cache bounds
+and accounting criteria remain binding. The additional actual native archive
+control is required in both keyless packet preparation and paid proof admission.
+This compatibility rule supplies no inference, semantic approval or adoption.

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { corpus,materializeCase } from "../scripts/evals/speaking-lifecycle/corpus";
 import { actualSizes,prepareSizedTask,ownerSteps } from "../scripts/evals/speaking-lifecycle/task-input";
-import { parseFrontmatter } from "../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../packages/common/src/frontmatter-parse";
 import { collectCell,collectPreparation } from "../scripts/evals/speaking-lifecycle/collector";
 import { digest } from "../scripts/evals/speaking-lifecycle/source-admission";
 import { observe } from "../scripts/evals/speaking-lifecycle/full-observer";

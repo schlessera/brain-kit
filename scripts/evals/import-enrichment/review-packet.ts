@@ -12,7 +12,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   const root = new URL("../../../", import.meta.url).pathname;
   const allDirect = ["docs/decisions/example-corpus.md", "docs/import-enrichment-investigation.md", "packages/core/skills/brain-import/SKILL.md",
     "packages/core/src/cli/commands/import.ts", "packages/core/src/cli/commands/config.ts", "packages/core/src/lib/frontmatter-edit.ts", "packages/core/src/lib/hygiene.ts", "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/indexer/caches.ts",
-    "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/safe-path.ts", "packages/core/src/lib/frontmatter-parse.ts", "packages/core/src/lib/jev.ts",
+    "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/safe-path.ts", "packages/common/src/frontmatter-parse.ts", "packages/common/src/env-core.ts", "packages/core/src/lib/hygiene-next.ts", "packages/core/src/lib/hygiene-repair.ts", "packages/core/src/lib/jev.ts",
     "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts", "packages/core/src/providers/agents/claude-binary.ts",
     "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "packages/ui-kit/fixtures/README.md", "scripts/measure-sonnet55-cost.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts","tests/native-paid-policy.test.ts",
     ...readdirSync(join(root, "scripts/evals/import-enrichment")).sort().map(name => `scripts/evals/import-enrichment/${name}`),

@@ -17,7 +17,7 @@ export function preparePaidReview(destination:string,proofPath:string){
   const documents:Array<{path:string;raw:Buffer}>=[{path:"proof.json",raw:proofRaw},{path:"paid-freeze.json",raw:Buffer.from(JSON.stringify(frozen))}];
   for(const name of ["input.json","manifest.json","review-prompt.txt","packet-receipt.json"])documents.push({path:`inputs/${name}`,raw:readFileSync(join(output,"inputs",name))});
   const files=Object.entries(frozen.closure).filter(([path,entry])=>entry.kind==="file"&&(
-    path.startsWith("packages/core/src/")||path.startsWith("packages/core/skills/")||path.startsWith("packages/module-speaking/src/")||path.startsWith("packages/module-speaking/skills/")||path.startsWith("packages/module-jobs/src/")||path.startsWith("packages/module-jobs/skills/")||
+    path.startsWith("packages/core/src/")||path.startsWith("packages/common/src/")||path.startsWith("packages/core/skills/")||path.startsWith("packages/module-speaking/src/")||path.startsWith("packages/module-speaking/skills/")||path.startsWith("packages/module-jobs/src/")||path.startsWith("packages/module-jobs/skills/")||
     path.startsWith("scripts/evals/candidate-extraction/")||/^scripts\/evals\/native-(?:paid-entry|paid-policy|pricing|grant)\.ts$/.test(path)||
     path==="scripts/measure-sonnet55-cost.ts"||path==="packages/ui-backend-claude/src/subscription.ts"||
     /^tests\/candidate-extraction.*\.test\.ts$/.test(path)||/^tests\/native-(?:paid-policy|grant)\.test\.ts$/.test(path)));

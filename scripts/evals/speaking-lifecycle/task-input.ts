@@ -2,7 +2,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { materializeTaskCase, prepareTaskCase, type CorpusCase } from "./corpus";
-import { parseFrontmatter } from "../../../packages/core/src/lib/frontmatter-parse";
+import { parseFrontmatter } from "../../../packages/common/src/frontmatter-parse";
 import { digest, request, type Candidate } from "./source-admission";
 export const actualSizes=[3,32,128] as const;
 export function semanticTask(c:CorpusCase){

@@ -40,7 +40,7 @@ export function sourceFreeze() {
     const next=`${path}/${item.name}`;if(item.isSymbolicLink())throw Error(`Transitive source symlink refused: ${next}`);
     if(item.isDirectory())tree(next);else if(item.isFile()&&/\.(?:ts|json|md)$/.test(item.name))add(next);
   }}
-  tree("packages/core/src");tree("packages/core/skills/content-hygiene");tree("scripts/evals/mechanical-hygiene");
+  tree("packages/core/src");tree("packages/common/src");tree("packages/core/skills/content-hygiene");tree("scripts/evals/mechanical-hygiene");
   for(const path of ["scripts/evals/native-paid-policy.ts","tests/native-paid-policy.test.ts","tests/native-grant.test.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts"])add(path);
   for(const path of ["bun.lock","package.json","packages/core/package.json","packages/ui-backend-claude/package.json","packages/ui-backend-claude/src/subscription.ts","scripts/measure-sonnet55-cost.ts","docs/decisions/example-corpus.md","packages/ui-kit/fixtures/README.md","docs/decisions/hygiene-review.md","docs/mechanical-hygiene-investigation.md"])add(path);
   for(const path of readdirSync(join(source,"tests")).filter(p=>p.startsWith("mechanical-hygiene")&&p.endsWith(".ts")))add(`tests/${path}`);

@@ -47,7 +47,7 @@ function links(path: string, prefix = ""): Record<string, string> {
 }
 export function freeze() {
   const sourceHashes: Record<string, string> = {}, sourceModes: Record<string, number> = {};
-  for (const dir of ["packages/core/src", "scripts/evals/speaking-lifecycle", "scripts/evals/mechanical-hygiene"]) {
+  for (const dir of ["packages/core/src", "packages/common/src", "scripts/evals/speaking-lifecycle", "scripts/evals/mechanical-hygiene"]) {
     const tree = observeTree(join(root, dir));
     for (const [path, hash] of Object.entries(tree.hashes)) sourceHashes[`${dir}/${path}`] = hash;
     for (const [path, mode] of Object.entries(tree.modes)) sourceModes[`${dir}/${path}`] = mode;
