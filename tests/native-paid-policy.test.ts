@@ -36,3 +36,11 @@ test("actual reservation refuses appended unreviewed USER text before the reques
   await expect(dispatch([{role:"user",content:[{type:"text",text:"Odysseus fixture"},{type:"text",text:"Unreviewed source"}]}])).rejects.toThrow("USER");
   expect(forwarded).toBe(0);
 });
+
+test("review financial admission rejects malformed tools before reserving or forwarding",()=>{
+  for(const tools of [{name:"Write"},"Write",[{}]]){
+    const b=new NativeBudget(842,"offline",policy(),binding,()=>{});
+    expect(()=>b.reserve(Buffer.from(JSON.stringify({...JSON.parse(wire.toString()),tools})))).toThrow("Exact frozen native prompt/tool/effort boundary");
+    expect(b.entries).toHaveLength(0);
+  }
+});

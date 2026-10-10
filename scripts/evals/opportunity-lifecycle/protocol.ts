@@ -1,17 +1,17 @@
-/** Frozen prospective core comparison. No live provider launcher/admission exists in this preparation. */
+/** Frozen prospective core comparison. The scored live comparison remains unimplemented; private review admission is source-bound. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXPERIMENT_RULE, type FreshCase, type Checkpoint } from "./fresh-corpus";
 
 export const protocol = Object.freeze({
-  measured: false, dispatchAllowed: false, model: "claude-sonnet-5-5", optionalClassifier: "jev-1.13.0",
+  measured: false, dispatchAllowed: false, paidReview: "separate no-tools review transport; exact Root grant only; no scored core workflow or synthetic approval", model: "claude-sonnet-5-5", optionalClassifier: "jev-1.13.0",
   actualAdditionalCapUsd: 15, aggregateActualAdditionalCapUsd: 150,
   repetitions: 3, repeatScope: "entire independently reset trajectory per arm; all 24 checkpoints per repetition",
   order: "counterbalanced by repetition; frozen deterministic candidate/current order, no selected repeats or retries",
   corpus: "16 newly authored complete brains; 4 tuning and 12 semantic held-out, 24 checkpoints",
   fictionalScope: "counterfactual organizational plans with the established cast; no revised canonical chronology",
   baseline: "prospective actual core Claude runner with current jobs skills and exact disk module/config; no private prototype ledger or region requirement",
-  currentCoreAdmission: "UNIMPLEMENTED/BLOCKED by #1275: core omission inherits native auto; classifier auxiliaries require complete physical accounting. Explicit SDK default permission fixture control is not current-core performance and does not settle core policy.",
+  currentCoreAdmission: "Prospective comparison remains unimplemented. #1301 settles #1275: the actual core runner explicitly passes default permission with its unchanged tool allowlist/credential/settings restrictions. The original explicit-default API-key SDK fixture control is not current-core performance. Paid review transport supplies neither core comparison nor semantic approval.",
   candidate: "private explicit-input inspect/apply; preview and actual sealed-plan apply; no classifier or generated research",
   fixtureClock: "2026-07-12T12:00:00Z only in actual brain CLI child; performance timer and native SDK clock unmodified",
   observations: "all file bytes, modes, members, directories, symlink targets and nanosecond mtimes; only root brain.db/wal/shm disposable",
@@ -24,13 +24,13 @@ export const protocol = Object.freeze({
   recovery: "in-memory sealed-plan replay only; durable process-crash transaction/race control remains unimplemented and is an adoption limitation",
   accounting: "every native child/frame/raw stderr retained; final all-model named token counters, failed costs preserved; auxiliary unknown model/usage/overage/auth/closure mismatch stops dispatch",
   bounds: { nativeMaxTurnsPerCheckpoint: 16, responseSeconds: 180, processSeconds: 240, automaticRetries: 0,
-    route: "existing included Claude subscription only; root serialized; stop active overage/included-limit, no paid fallback" },
-  physicalAccounting: "native stdout alone does not prove physical HTTP count; future live admission requires actual transport-level request receipts, including retries/helpers/failed calls",
+    route: "existing Claude subscription; original API-key offline fixture remains separate. Private native review accepts active extra usage only with exact Root policy, existing serialized window and original15/150 actual-charge allocation; genuine paid rejection or unknown attempt stops" },
+  physicalAccounting: "private paid review retains literal native stdin/stdout/stderr and each actual subscription physical request/SSE/error, method/path/auth/model/quota/counters/EOF/reader/closure; reserves full supported1M context plus exact output before forwarding and reparses raw terminal counters. Missing/contradictory/partial receipts retain unresolved holds and stop. Original scored core workflow remains prospective.",
   offlineEvidence: "real SDK/native scripted tool/observer control, explicitly permissionMode default and exact fixture allowlist; no comparison with native auto, no real provider or semantic quality evidence",
-  pricing: "actual invoice is unknown absent billing proof; API equivalents diagnostic only; preserve #1239 cache-read ambiguity and null unknown prices",
+  pricing: "actual invoice is unknown absent billing proof; API equivalents diagnostic only; verified shared Sonnet5.5 pricing source (#1239); null unknown prices and original historical receipts remain distinct",
   statistics: "all per-turn outcomes/time/token/cache/pricing receipts; p50/p95, throughput, all three repetitions/spread; no savings claim before complete matched native comparison",
   optionalNL: "not authored/admitted here; only after completed core comparison and remaining actual-charge budget; cannot authorize writes",
-  inputReview: "fresh GPT-family author-provisional corpus/expectations/protocol need exact-hash complementary Claude review; current subscription hold prevents it",
+  inputReview: "fresh GPT-family author-provisional corpus/expectations/protocol need exact-hash complementary Claude review; exact-current full source/runtime/proof/prompt Root grant is required; no offline scripted control can approve it",
   adoption: "unresolved; no shipped CLI/JSON/frontmatter changes in this private preparation",
 });
 

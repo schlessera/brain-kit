@@ -106,7 +106,7 @@ export class NativeBudget {
       if(this.policy.purpose==="workflow"&&Array.isArray(content)&&content.length&&content.every((b:any)=>b?.type==="tool_result"))continue;
       throw Error("Unreviewed native USER payload before forwarding");
     }
-    if(frozen!==1||(this.policy.purpose==="review"&&(users.length!==1||request.tools?.length||request.output_config?.effort!=="low")))throw Error("Exact frozen native prompt/tool/effort boundary");
+    if(frozen!==1||(this.policy.purpose==="review"&&(users.length!==1||(request.tools!==undefined&&(!Array.isArray(request.tools)||request.tools.length!==0))||request.output_config?.effort!=="low")))throw Error("Exact frozen native prompt/tool/effort boundary");
     // Hidden framing is not bounded by wire bytes. Every physical request reserves full supported context.
     const reservedUpperUsd=(1_000_000*8+request.max_tokens*20)/1e6;
     if(!finite(reservedUpperUsd)||this.usedUpper()+reservedUpperUsd>this.policy.remainingUpperUsd)throw Error("Native reservation exceeds remaining allocation");

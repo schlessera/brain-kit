@@ -13,6 +13,9 @@ export class NativeEvidence {
   readonly parseErrors: string[] = [];
   private chunks: Buffer[] = [];
   private stderrChunks: Buffer[] = [];
+  private inputChunks: Buffer[] = [];
+  constructor(private readonly beforeUser?: () => void) {}
+  rawInput() { return Buffer.concat(this.inputChunks); }
   private pending: Array<{ stream: Transform; done: Promise<void>; kill(): void }> = [];
   rawBytes() { return Buffer.concat(this.chunks); }
   rawStderr() { return Buffer.concat(this.stderrChunks); }
@@ -55,9 +58,34 @@ export class NativeEvidence {
     });
     child.stdout.on("error", error => { receipt.error ??= String(error); tee.destroy(error); });
     child.stdout.pipe(tee);
+    const inputDecoder = new StringDecoder("utf8");
+    let inputPending = "";
+    const forward = (line: string) => {
+      if (this.beforeUser && line.trim() && JSON.parse(line).type === "user") this.beforeUser();
+      child.stdin.write(line);
+    };
+    const input = new Transform({
+      transform: (chunk, _encoding, done) => {
+        this.inputChunks.push(Buffer.from(chunk));
+        try {
+          inputPending += inputDecoder.write(chunk);
+          let at: number;
+          while ((at = inputPending.indexOf("\n")) >= 0) {
+            forward(inputPending.slice(0, at + 1)); inputPending = inputPending.slice(at + 1);
+          }
+          done();
+        } catch (error) { receipt.error = String(error); child.kill("SIGTERM"); done(error as Error); }
+      },
+      flush: done => {
+        try { inputPending += inputDecoder.end(); if (inputPending) forward(inputPending); child.stdin.end(); done(); }
+        catch (error) { receipt.error = String(error); child.kill("SIGTERM"); done(error as Error); }
+      },
+    });
+    input.on("error", error => { receipt.error ??= String(error); });
+    child.stdin.on("error", error => { receipt.error ??= String(error); });
     this.pending.push({ stream: tee, done: Promise.all([closed, finished]).then(() => {}),
       kill: () => { receipt.forcedKill = true; child.kill("SIGKILL"); } });
-    return { stdin: child.stdin, stdout: tee, get killed() { return child.killed; },
+    return { stdin: input, stdout: tee, get killed() { return child.killed; },
       get exitCode() { return child.exitCode; }, get signalCode() { return child.signalCode; },
       kill: child.kill.bind(child), on: child.on.bind(child), once: child.once.bind(child), off: child.off.bind(child) };
   };
