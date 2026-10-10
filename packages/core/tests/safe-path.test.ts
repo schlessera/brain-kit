@@ -169,7 +169,8 @@ describe("writeFileSafely", () => {
     const original = fs.writeSync;
     let partial = false;
     // The first chunk lands, then the disk fills: the way a full disk fails a write.
-    const spy = spyOn(fs, "writeSync").mockImplementation(((fd: number, buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => {
+    // writeExclusive calls the (fd, buffer, offset, length) form.
+    const spy = spyOn(fs, "writeSync").mockImplementation(((fd: number, buffer: Uint8Array, offset: number, length: number) => {
       if (partial) throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
       partial = true;
       return original(fd, buffer, offset, Math.min(length, 4));
