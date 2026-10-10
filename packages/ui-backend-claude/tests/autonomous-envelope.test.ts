@@ -46,7 +46,8 @@ describe("autonomous Claude envelope", () => {
     expect(options.tools).toBeUndefined();
     expect(options.persistSession).toBe(false);
     expect(Object.keys(options.mcpServers ?? {})).toEqual(["brain-ui"]);
-    expect(options.systemPrompt).toMatchObject({ append: "Server snapshot." });
+    expect(options.systemPrompt).toEqual([expect.stringContaining("brain-kit autonomous instructions v1"),
+      "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"]);
   });
 
   test("the worker environment holds a placeholder and the relay route, never the credential or host variables", () => {
