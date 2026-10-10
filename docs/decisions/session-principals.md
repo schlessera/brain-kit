@@ -96,9 +96,9 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:527` | mounted **before** the guard at `authGuard(authMode`, `app.ts:541`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:551` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:648-665` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:533` | mounted **before** the guard at `authGuard(authMode`, `app.ts:547`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:557` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:654-671` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:133-141` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract.md:2091-2105`;
-  `Activity stream`, `:2338-2352`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract.md:2105-2119`;
+  `Activity stream`, `:2352-2366`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions

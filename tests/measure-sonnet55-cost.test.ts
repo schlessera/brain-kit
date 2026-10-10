@@ -26,9 +26,22 @@ test("mixed TTL and cache-read prices use each independent official rate", () =>
     modelUsage: { "claude-sonnet-5-5": { inputTokens: 100, outputTokens: 200, cacheReadInputTokens: 500, cacheCreationInputTokens: 1000 } },
     usage: { cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 400 } },
   });
-  expect(price.lowerUsd).toBeCloseTo(0.0054, 12);
-  expect(price.upperUsd).toBeCloseTo(0.00585, 12);
+  // 100 input at $2/M, 200 output at $10/M, 500 reads at $0.10/M, 300 5m at $2.50/M, 400 1h at $4/M,
+  // and 300 writes of unknown TTL priced at $2.50/M (lower) or $4/M (upper).
+  expect(price.lowerUsd).toBeCloseTo(0.00535, 12);
+  expect(price.upperUsd).toBeCloseTo(0.0058, 12);
   expect(price.unknownCacheTokens).toBe(300);
+});
+
+test("cache reads price at Sonnet 5.5's $0.10/M, not the $0.20/M the 2026-10-07 table showed", () => {
+  // 100 input at $2/M, 10 output at $10/M and 100,000 cache reads at $0.10/M, with no writes.
+  // At $0.20/M the same usage would cost $0.0203 (#1239).
+  const price = priceSonnet55Usage({
+    modelUsage: { "claude-sonnet-5-5": { inputTokens: 100, outputTokens: 10, cacheReadInputTokens: 100_000, cacheCreationInputTokens: 0 } },
+  });
+  expect(price.lowerUsd).toBeCloseTo(0.0103, 12);
+  expect(price.upperUsd).toBeCloseTo(0.0103, 12);
+  expect(price.unknownCacheTokens).toBe(0);
 });
 
 test("missing, malformed and unknown auxiliary usage cannot read as zero", () => {

@@ -13,7 +13,8 @@ test("physical baseline attempt persists before HTTP, retains selectors/raw TTL 
   });
   expect(await provider.complete({ prompt: "One detected finding", maxTokens: 2000 })).toBe("[]");
   expect(body).toMatchObject({ model: MODEL, service_tier: "standard_only", inference_geo: "global", max_tokens: 2000 });
-  expect(calls[0]!.cost).toEqual({ lowerUsd: .000409, upperUsd: .000409 });
+  // 100 input at $2/M, 10 output at $10/M, 20 reads at $0.10/M, 10 5m at $2.50/M, 20 1h at $4/M.
+  expect(calls[0]!.cost).toEqual({ lowerUsd: .000407, upperUsd: .000407 });
   expect(calls[0]!.returnedTier).toBe("standard"); expect(calls[0]!.returnedGeo).toBe("global");
   expect(calls[0]!.headers["request-id"]).toBe("offline-attempt"); expect(spend.stopped).toBe(false);
 });
@@ -44,7 +45,7 @@ test("budget reservation and full runtime mismatch refuse before any physical re
 });
 
 test("missing cache TTL remains a nonzero interval rather than an invented exact bill", () => {
-  expect(priceUsage({ input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 })).toEqual({ lowerUsd: .000379, upperUsd: .000424 });
+  expect(priceUsage({ input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 })).toEqual({ lowerUsd: .000377, upperUsd: .000422 });
   expect(priceUsage({ input_tokens: 100, output_tokens: 10 })).toBeNull();
 });
 
