@@ -261,7 +261,7 @@ test("validated binary-share track extraction is bounded before reaching T1", as
 test("the pinned Jev snapshot remains an estimate with free output and unknown cache adjustments", async () => {
   const f = await fixture();
   try {
-    const pricing = createModelPricing({ brainPath: f.root, fetchImpl: async () => { throw Error("Offline fixture"); } });
+    const pricing = createModelPricing({ brainPath: f.root, fetchImpl: Object.assign(async () => { throw Error("Offline fixture"); }, { preconnect() {} }) });
     await pricing.ensureFresh();
     expect(pricing.resolve("jev-1.13.0", "direct")).toEqual({ input: 0.000000042, output: 0, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" });
   } finally { await f.close(); }
