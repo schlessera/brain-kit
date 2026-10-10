@@ -75,7 +75,7 @@ test("escaping symlinks never become available registry handlers", () => {
   } finally { p.close(); outside.close(); }
 });
 
-test("real audit --fix returns unverified provider claims without contents or writes and falls back without a provider", async () => {
+test("real audit --fix ignores unverified provider claims and preserves manual findings without writes", async () => {
   const f = fixtures.find(f => f.id === "broken-link")!; const p = prepare(f); const dbPath = join(p.root, "brain.db");
   const db = openDatabase(dbPath); await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true }); db.close();
   const output = spyOn(console, "log").mockImplementation(() => {});
@@ -92,10 +92,10 @@ test("real audit --fix returns unverified provider claims without contents or wr
     expect(manual.every((i: { canAutoFix: boolean }) => i.canAutoFix === false)).toBe(true);
     const claims = [{ path: "../outside.md", issue: "invented", suggestion: "replace all content", canAutoFix: true, fix: "invented replacement" }];
     await auditCommand.run(["--fix"], { json: true, brain, completions: { id: "scripted", capabilities: { vision: false }, async complete(input) { prompt = input.prompt; calls++; return JSON.stringify(claims); } } });
-    expect(calls).toBe(1);
-    expect(prompt).toContain("missing-harbor");
-    expect(prompt).not.toContain("Odysseus links");
-    expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toEqual(claims);
+    expect(calls).toBe(0);
+    expect(prompt).toBe("");
+    expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toEqual(manual);
+    expect(manual.every((i: object) => !Object.hasOwn(i, "fix") && !Object.hasOwn(i, "repair"))).toBe(true);
     expect(readFileSync(join(p.root, f.finding.path), "utf8")).toBe(f.files[f.finding.path]!);
     await auditCommand.run([], { json: true, brain });
     expect(JSON.parse(String(output.mock.calls.at(-1)![0]))).toEqual(plain);
