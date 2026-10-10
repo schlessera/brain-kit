@@ -33,6 +33,8 @@
  * overflows the document sideways.
  */
 /// <reference types="@vitest/browser-playwright" />
+// Activity migrations need the same real fine/coarse/mixed pointer scenes.
+import "./durable-actions.layout.js";
 import { afterAll, afterEach, beforeAll, expect, inject, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";

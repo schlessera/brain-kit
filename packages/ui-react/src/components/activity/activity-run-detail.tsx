@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
-import { StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
+import { IconButton, TextButton, StatusDot, TraceSteps, type TraceStep } from "@schlessera/brain-ui-kit";
 
 import { ApiRequestError, type ActivityRunRollup } from "../../lib/api-client.js";
 import {
@@ -164,17 +164,9 @@ export function RunDetail({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className={cn(
-            "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground",
-            embedded && "laptop:hidden"
-          )}
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
+        <span className={cn(embedded && "laptop:hidden")}>
+          <IconButton size="sm" name="Back" glyph={<ArrowLeft />} onClick={onBack} />
+        </span>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium outline-none" tabIndex={-1} data-run-detail-heading="" data-destination-heading="">{title}</h1>
           <p className="truncate font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/60">
@@ -233,16 +225,9 @@ export function RunDetail({
             is still readable here, so the view is never LESS than the trace. */}
         {streamed.length > 0 && (
           <div className="pt-3">
-            <button
-              type="button"
-              onClick={() => setRawOpen((v) => !v)}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ChevronRight
-                className={cn("h-3 w-3 transition-transform", rawOpen && "rotate-90")}
-              />
-              Raw trace
-            </button>
+            <TextButton tone="meta" label="Raw trace" expanded={rawOpen}
+              glyph={<ChevronRight className={cn("transition-transform", rawOpen && "rotate-90")} />}
+              onClick={() => setRawOpen((v) => !v)} />
             {rawOpen && (
               <div className="group/copy relative mt-1">
                 <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-surface p-2 pr-9 font-[family-name:var(--font-mono)] text-[10px] leading-relaxed text-muted-foreground">
@@ -310,7 +295,7 @@ function DetailSpanRow({ span, depth, agent, onOpen }: { span: ActivitySpan; dep
       : "…";
   return (
     <div style={{ paddingLeft: `${depth * 16}px` }}>
-      {agent && <button type="button" data-agent-list-row={agent.id}
+      {agent && <button /* raw-button: kit — composite agent row (status, meta, chevron) already uses bk-control */ type="button" data-agent-list-row={agent.id}
         aria-label={`Open ${agent.name} · ${agent.meta ?? agent.state}`}
         className="bk-control flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 text-left text-xs text-foreground"
         onClick={() => onOpen(agent.id)}>

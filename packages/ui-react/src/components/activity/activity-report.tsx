@@ -94,6 +94,7 @@ export function ReportButton({ runId, name, placement, onClick }: {
 }) {
   return (
     <button
+      // raw-button: api — responsive Report / Send bug report label cannot fit Button
       type="button"
       aria-label={name}
       data-report-run={runId}

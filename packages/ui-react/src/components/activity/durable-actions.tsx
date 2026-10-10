@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ClientMessage, InboxActionItem, InboxDismissReason, InboxQueueItem, InboxThread } from "@schlessera/brain-ui-sdk/protocol";
 import {
   ActionCard,
   Button,
+  IconButton,
+  TextButton,
   Callout,
   ChoiceOption,
   Disclosure,
@@ -103,9 +105,7 @@ export function OutcomeRow({ item, outcome, onQueue }: { item: InboxActionItem; 
     <div data-decision-receipt={item.id} tabIndex={-1} className="flex flex-wrap items-center gap-2 rounded-[12px] border border-border-subtle bg-surface px-3 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/50" role="status">
       <span className={tone === "amber" ? "text-primary" : tone === "neutral" ? "text-muted-foreground" : "text-foreground"}>{text}</span>
       {onQueue && outcome.kind === "receipt" && outcome.status === "resolved" && !outcome.lost && (
-        <button type="button" onClick={onQueue} className="ml-auto min-h-11 px-1 font-[family-name:var(--font-mono)] text-[10px] text-[color:var(--bk-teal-ink,teal)]">
-          Queue ▸
-        </button>
+        <TextButton tone="meta" label="Queue ▸" style={{ marginLeft: "auto" }} onClick={onQueue} />
       )}
     </div>
   );
@@ -350,14 +350,7 @@ export function DecisionCard({
             />
           )}
           <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onDetails}
-              className="min-h-11 px-1 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground hover:text-foreground"
-              aria-label={`Details: ${item.payload.title}`}
-            >
-              Details ▸
-            </button>
+            <TextButton tone="meta" label="Details ▸" ariaLabel={`Details: ${item.payload.title}`} onClick={onDetails} />
           </div>
         </div>
       </ActionCard>
@@ -472,15 +465,17 @@ function DismissConfirm({
       <div role="group" aria-label="Dismissal reason (optional · changes no permission)" className="flex flex-wrap gap-2">
         {DISMISS_REASONS.map((r) => (
           <button
+            // raw-button: select — pressed dismissal chips; kit Chip is non-interactive
             key={r.id}
             type="button"
+            style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
             aria-pressed={reason === r.id}
             aria-description={r.description}
             title={r.description}
             disabled={disabled}
             onClick={() => onReason(reason === r.id ? null : r.id)}
             className={
-              "min-h-11 rounded-full border px-3 text-xs transition-colors " +
+              "bk-row min-h-11 rounded-full border px-3 text-xs transition-colors " +
               (reason === r.id ? "border-primary bg-primary/10 text-foreground" : "border-border-subtle text-muted-foreground hover:text-foreground")
             }
           >
@@ -583,9 +578,9 @@ export function DecisionDetail({
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-decision-detail="">
       <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
-        <button type="button" onClick={onBack} className="min-h-11 min-w-11 rounded-md p-1.5 text-muted-foreground hover:text-foreground laptop:hidden" aria-label="Back to Actions">
-          ‹
-        </button>
+        <span className="laptop:hidden">
+          <IconButton size="md" name="Back to Actions" icon="back" onClick={onBack} />
+        </span>
         <h1 className="min-w-0 flex-1 break-words text-sm font-medium" tabIndex={-1} data-destination-heading="">{item?.payload.title ?? "Decision"}</h1>
       </div>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
