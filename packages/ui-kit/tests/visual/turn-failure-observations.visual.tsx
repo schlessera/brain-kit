@@ -65,6 +65,8 @@ function mount(width: number, theme: string, backend = "claude", now = NOW) {
   root = createBrainUiRoot({ storage: null, config: { backendUrl: "https://ithaca-harbour.example" } });
   root.connection.connect(); socket = Socket.instances.at(-1)!; socket.open();
   root.stores.chat.getState().setActiveSession(SESSION);
+  // Its history is here: nothing goes into a session still restoring (#1328).
+  root.stores.chat.getState().setMessages(SESSION, []);
   root.stores.chat.getState().setSessionBackend(SESSION, backend);
   renderer = createRoot(host);
   flushSync(() => renderer!.render(createElement(BrainUiProvider, {

@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:615`). Before this, a resume replaced
+`packages/ui-server/src/ws/dispatch.ts:622`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 

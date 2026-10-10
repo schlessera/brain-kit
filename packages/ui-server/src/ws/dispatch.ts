@@ -598,13 +598,20 @@ export async function handleClientMessage(
         backendId: catalog.getStoredBackendId(msg.sessionId) ?? undefined,
       });
 
+      // One log line per resume, whichever way it ends (#1328).
+      let resumeReported = false;
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
         await host.failureReplay.wait(msg.sessionId);
         const messages = await backend.getHistory(msg.sessionId);
         await host.failureReplay.wait(msg.sessionId);
-        if (!connection.authorization.valid) return;
+        if (!connection.authorization.valid) {
+          host.reportSessionResume(msg.sessionId, "unauthorized");
+          return;
+        }
         sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages));
+        host.reportSessionResume(msg.sessionId, "loaded", { messages: messages.length });
+        resumeReported = true;
         // The history just REPLACED this client's transcript, and with it any
         // live card for a question still waiting in this session. Hand those
         // questions over again, after the history, as a reconnect would
@@ -633,6 +640,7 @@ export async function handleClientMessage(
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load session";
+        if (!resumeReported) host.reportSessionResume(msg.sessionId, "error", { error: message });
         host.reportTurnFailed("SESSION_LOAD_ERROR", { sessionId: msg.sessionId }, message);
         host.sendMessage(ws, {
           type: "error",

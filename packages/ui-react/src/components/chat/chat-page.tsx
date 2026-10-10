@@ -3,7 +3,7 @@ import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
-import { useChatStore, activeChat } from "../../stores/chat-store.js";
+import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
 import { useActivityStore, spanForTool } from "../../stores/activity-store.js";
@@ -18,6 +18,7 @@ import { messageFingerprint } from "../../lib/local-work.js";
 /** How long a restored transcript position is held against late layout (#1014). */
 const RESTORE_HOLD_MS = 1_500;
 import { WelcomeState } from "./welcome-state.js";
+import { RestorationState } from "./restoration-state.js";
 import { SessionDrawer } from "./session-drawer.js";
 import { SubagentView } from "./subagent-view.js";
 import { DigestCard } from "../activity/digest-card.js";
@@ -256,6 +257,8 @@ export function ChatPage() {
 
   // Scroll listener: disable tailing when user scrolls up, re-enable at bottom
   const hasMessages = messages.length > 0;
+  // A selected session whose history has not arrived is not a new chat (#1328).
+  const restoring = useChatStore((s) => restorationOf(s) !== null);
   const localWork = root.localWork;
   useEffect(() => {
     const el = scrollRef.current;
@@ -652,7 +655,12 @@ export function ChatPage() {
                 <DiscButton name="New chat" icon="compose" tone="ink" label="New chat" onClick={clearMessages} />
               </DiscRow>
             )}
-            {messages.length === 0 ? (
+            {messages.length === 0 && restoring ? (
+              <div className="h-full overflow-y-auto">
+                <div className="px-4 md:px-6"><div className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <RestorationState onNewChat={clearMessages} />
+              </div>
+            ) : messages.length === 0 ? (
               <div ref={welcomeRef} className="h-full overflow-y-auto" data-welcome="">
                 <div className="px-4 pt-3 md:px-6">
                   <DigestCard />
@@ -712,6 +720,8 @@ export function ChatPage() {
                     </Fragment>
                   ))}
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
+                  {/* Live frames drawn before the history arrived (#1328). */}
+                  {restoring && <RestorationState onNewChat={clearMessages} />}
                   {/* A send the host never confirmed, held where it was sent (D52 §5). */}
                   <UnconfirmedSends />
                 </div>

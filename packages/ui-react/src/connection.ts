@@ -1,7 +1,7 @@
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
 import type { ServerMessage, ClientMessage, ServerLocationRequest, InboxView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
-import { activeChat, localExchangesForDraft, type ChatState, type ChatKey } from "./stores/chat-state.js";
+import { activeChat, localExchangesForDraft, restorationOf, type ChatState, type ChatKey } from "./stores/chat-state.js";
 import type { StartedFollowUp } from "./stores/follow-up-state.js";
 import { dispatchServerMessage } from "./hooks/websocket-handlers/index.js";
 import { runStateForFrame } from "./hooks/websocket-handlers/chat.js";
@@ -15,6 +15,13 @@ const authLifecycles = new WeakMap<object, { drop(): void; restore(): void }>();
 export function dropConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.drop(); }
 /** @internal Called after confirmed same-account work restore. */
 export function restoreConnectionContext(root: BrainUiServices): void { authLifecycles.get(root.stores)?.restore(); }
+
+/**
+ * How long a selected session may wait for its history before the view says
+ * it could not be restored (#1328). Long enough for a slow backend to read a
+ * long transcript; short enough that nobody waits on a spinner indefinitely.
+ */
+export const RESTORE_DEADLINE_MS = 20_000;
 
 /** Every callback and mutable queue belongs to the root supplied here. */
 export function createWebSocketClient(root: BrainUiServices) {
@@ -78,6 +85,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (msg.type !== "session_info") return false;
     const pending = state.pendingDraftId;
     if (msg.draftId) return msg.draftId === pending;
+    // A resumed session (a late answer to opening or restoring one, #1328)
+    // is never the conversation a draft is starting.
+    if (msg.isNew === false) return false;
     // No echo to compare against.
     return true;
   }
@@ -311,6 +321,11 @@ export function createWebSocketClient(root: BrainUiServices) {
       flushDeltas();
       root.stores.connection.getState().reportError(msg.code, msg.message);
       if (sessionId === reattachSessionId) reattachSessionId = null;
+      // The selected session stays selected, and sending into it stays
+      // blocked: the view says it could not be restored instead (#1328).
+      if (restorationOf(root.stores.chat.getState())?.sessionId === sessionId) {
+        root.stores.chat.getState().failRestore(sessionId, { reason: "error", message: msg.message });
+      }
       return;
     }
     if (msg.type === "status") {
@@ -432,7 +447,7 @@ export function createWebSocketClient(root: BrainUiServices) {
         subscribeInbox,
         requestBrowserLocation,
         resyncIfNeeded,
-        coldResumeIfNeeded,
+        restoreIfNeeded,
         markHistoryReplaced,
       });
       return;
@@ -539,7 +554,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       subscribeInbox,
       requestBrowserLocation,
       resyncIfNeeded,
-      coldResumeIfNeeded,
+      restoreIfNeeded,
       markHistoryReplaced,
     });
 
@@ -640,7 +655,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (!sessionId || (root.stores.followUp.getState().pending[sessionId]?.length ?? 0) > 0) return false;
     if (!followUpRefresh.delete(sessionId)) return false;
     if (resyncSessionId === sessionId) resyncSessionId = null;
-    wsClient?.send({ type: "session_resume", sessionId });
+    sendClientMessage({ type: "session_resume", sessionId });
     return true;
   }
 
@@ -648,17 +663,9 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (refreshFollowUpHistory(sessionId)) return;
     if (!resyncSessionId || !sessionId || sessionId !== resyncSessionId) return;
     resyncSessionId = null;
-    wsClient?.send({ type: "session_resume", sessionId });
+    sendClientMessage({ type: "session_resume", sessionId });
   }
 
-  // A cold page / PWA relaunch restores only the stored session id, not the
-  // transcript. The server pushes a snapshot on connect only while a session is
-  // actively running; when it's idle (the common "agent finished while the phone
-  // slept" case) nothing arrives, so the client must fetch the finished
-  // session's history itself. Guarded to fire at most once per session id per
-  // connection — an empty session would otherwise re-trigger on every idle
-  // status and loop.
-  let coldResumedSessionId: string | null = null;
   /** The running session in view that a reconnect reattached, until the host answers for it. */
   let reattachSessionId: string | null = null;
 
@@ -668,15 +675,109 @@ export function createWebSocketClient(root: BrainUiServices) {
     // stop before it): the turn's end replays again.
     const replayed = key === null ? undefined : root.stores.chat.getState().buffers[key];
     if (key !== null && key === resyncSessionId && !replayed?.isStreaming && !replayed?.replay?.base.isStreaming) resyncSessionId = null;
-    coldResumedSessionId = key;
   }
 
-  function coldResumeIfNeeded(sessionId: string | null, messageCount: number) {
-    if (!sessionId || messageCount > 0) return;
-    if (coldResumedSessionId === sessionId) return;
-    coldResumedSessionId = sessionId;
-    wsClient?.send({ type: "session_resume", sessionId });
+  // Restoring the selected session (#1328). A cold page / PWA relaunch keeps
+  // only the stored session id, and opening a session whose buffer is gone
+  // has no transcript either. Until the host's history for it arrives, the
+  // view says it is restoring and nothing is sent into it. The request is
+  // confirmed, not fire-and-forget: it is asked again on every new socket
+  // until history arrives, and an unanswered one fails visibly after
+  // RESTORE_DEADLINE_MS rather than waiting forever.
+  /** The session_resume this socket sent for the selected session, while unanswered. */
+  let restoreAsked: { sessionId: string; socket: number } | null = null;
+  /** Counts connections, for `restoreAsked`: one request per socket. */
+  let restoreSocket = 0;
+  /** The deadline of the selected session's current restoration attempt. */
+  let restoreAttempt: { sessionId: string; timer: ReturnType<typeof setTimeout> | null; idleRetried: boolean } | null = null;
+
+  function endRestoreAttempt(): void {
+    if (restoreAttempt?.timer) clearTimeout(restoreAttempt.timer);
+    restoreAttempt = null;
   }
+
+  function startRestoreAttempt(sessionId: string): void {
+    endRestoreAttempt();
+    restoreAttempt = { sessionId, timer: null, idleRetried: false };
+  }
+
+  /**
+   * The bound runs from a request that actually left, so a page that is
+   * offline or locked reads as that, not as a failed restoration. A dropped
+   * socket stops it; the next socket's request starts it again.
+   */
+  function armRestoreDeadline(sessionId: string): void {
+    const attempt = restoreAttempt;
+    if (attempt?.sessionId !== sessionId || attempt.timer) return;
+    attempt.timer = setTimeout(() => {
+      attempt.timer = null;
+      if (disposed || restoreAttempt !== attempt) return;
+      const restoration = restorationOf(root.stores.chat.getState());
+      if (restoration?.sessionId !== sessionId || restoration.phase !== "restoring") return;
+      root.stores.chat.getState().failRestore(sessionId, { reason: "timeout" });
+    }, RESTORE_DEADLINE_MS);
+  }
+
+  function pauseRestoreDeadline(): void {
+    if (restoreAttempt?.timer) clearTimeout(restoreAttempt.timer);
+    if (restoreAttempt) restoreAttempt.timer = null;
+  }
+
+  function askRestore(sessionId: string): boolean {
+    return sendClientMessage({ type: "session_resume", sessionId });
+  }
+
+  /** The phase the driver saw last, so Retry (failed → restoring) is told apart. */
+  let lastRestoration: { sessionId: string; phase: "restoring" | "failed" } | null = null;
+
+  /**
+   * Keep the selected session's restoration moving; runs on every store
+   * change. Retry is Chat clearing the failure (`clearRestoreFailure`): the
+   * history is asked for again, under a new deadline. It reads only.
+   */
+  function driveRestoration(): void {
+    if (disposed) return;
+    const restoration = restorationOf(root.stores.chat.getState());
+    const last = lastRestoration;
+    lastRestoration = restoration && { sessionId: restoration.sessionId, phase: restoration.phase };
+    if (!restoration) {
+      endRestoreAttempt();
+      restoreAsked = null;
+      return;
+    }
+    const { sessionId } = restoration;
+    const retried = restoration.phase === "restoring" && last?.sessionId === sessionId && last.phase === "failed";
+    if (retried) {
+      pauseRestoreDeadline();
+      restoreAsked = null;
+    }
+    if (retried || restoreAttempt?.sessionId !== sessionId) startRestoreAttempt(sessionId);
+    // Once per socket: a request a closed socket swallowed, or that never
+    // left, is asked again on the next connection, also after a failure.
+    // A failure keeps its request: only a new socket, or Retry, asks again.
+    if (restoreAsked?.sessionId === sessionId && restoreAsked.socket === restoreSocket) return;
+    askRestore(sessionId);
+  }
+
+  /**
+   * An idle status for the selected session, or the host's unscoped greeting.
+   * History for a resume arrives before its status, so a scoped idle while
+   * the session is still unconfirmed means the history never came: ask once
+   * more. The greeting only gets a request this socket has not sent yet.
+   */
+  function restoreIfNeeded(frameSessionId: string | null): void {
+    const restoration = restorationOf(root.stores.chat.getState());
+    if (!restoration || restoration.phase !== "restoring") return;
+    if (frameSessionId === restoration.sessionId && restoreAttempt?.sessionId === restoration.sessionId && !restoreAttempt.idleRetried) {
+      restoreAttempt.idleRetried = true;
+      restoreAsked = null;
+      askRestore(restoration.sessionId);
+      return;
+    }
+    if (frameSessionId === null) driveRestoration();
+  }
+
+
 
   function handleStatusChange(status: "connecting" | "connected" | "disconnected") {
     root.stores.connection.getState().setWsStatus(status);
@@ -706,8 +807,6 @@ export function createWebSocketClient(root: BrainUiServices) {
       }
       wasDisconnected = true;
       reattachSessionId = null;
-      // Allow a fresh cold-resume attempt after we reconnect.
-      coldResumedSessionId = null;
     } else if (status === "connected" && wasDisconnected) {
       wasDisconnected = false;
       const chat = root.stores.chat.getState();
@@ -724,7 +823,7 @@ export function createWebSocketClient(root: BrainUiServices) {
           // history that keeps the messages already drawn (#1013). The
           // resync flag stays: the turn's end replays the finished answer.
           reattachSessionId = chat.activeSessionId;
-          wsClient?.send({ type: "session_resume", sessionId: chat.activeSessionId });
+          sendClientMessage({ type: "session_resume", sessionId: chat.activeSessionId });
         }
       }
     }
@@ -736,6 +835,22 @@ export function createWebSocketClient(root: BrainUiServices) {
     if (root.authLock.state.getState().phase !== "active") return false;
     if (!wsClient) return false;
     if (root.stores.connection.getState().wsStatus !== "connected") return false;
+    // Nothing goes into a selected session whose history the reader has not
+    // seen (#1328), whichever surface sends it.
+    const into = msg.type === "chat_message" || msg.type === "local_exchange" || msg.type === "retry_turn" ? msg.sessionId : undefined;
+    if (into && restorationOf(root.stores.chat.getState())?.sessionId === into) return false;
+    if (msg.type === "session_resume") {
+      const restoring = restorationOf(root.stores.chat.getState())?.sessionId === msg.sessionId;
+      // Opening a session asks for it, and so does the restoration it starts:
+      // one request per socket is the answer to both.
+      if (restoring && restoreAsked?.sessionId === msg.sessionId && restoreAsked.socket === restoreSocket) return true;
+      const sent = wsClient.send(msg);
+      if (sent && restoring) {
+        restoreAsked = { sessionId: msg.sessionId, socket: restoreSocket };
+        armRestoreDeadline(msg.sessionId);
+      }
+      return sent;
+    }
     // A message that starts a conversation takes the draft's local exchanges
     // with it (#582), whichever surface sent it, so /stats run before the
     // first message becomes part of the session that message creates.
@@ -823,7 +938,7 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   function disconnect() {
-    coldResumedSessionId = null;
+    restoreAsked = null;
     generation++;
     removeListeners?.();
     removeListeners = undefined;
@@ -865,9 +980,17 @@ export function createWebSocketClient(root: BrainUiServices) {
       trackers.dispose();
       drafts.dispose();
       resyncSessionId = null;
-      coldResumedSessionId = null;
+      endRestoreAttempt();
+      unsubscribeRestoration();
     },
   };
+  const restorationStores = [root.stores.chat.subscribe(driveRestoration), root.stores.connection.subscribe((s, prev) => {
+    if (s.wsStatus === prev.wsStatus) return;
+    if (s.wsStatus === "connected") restoreSocket++;
+    else pauseRestoreDeadline();
+    driveRestoration();
+  })];
+  const unsubscribeRestoration = () => { for (const stop of restorationStores.splice(0)) stop(); };
   authLifecycles.set(root.stores, {
     drop() {
       disconnect();

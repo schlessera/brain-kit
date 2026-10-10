@@ -98,6 +98,8 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     await c.ready();
     const chat = c.root.stores.chat.getState();
     chat.setActiveSession("ithaca");
+    // Its history is here (#1328): a reconnect asks for nothing more.
+    chat.setMessages("ithaca", []);
     for (let i = 0; i < 24; i++) chat.addUserMessage("ithaca", `The fleet is crossing the harbour. Voyage note ${i}.`);
     c.mountChat(); await settled();
     const scroll = c.host.querySelector<HTMLElement>("[data-transcript-anchor]")!.parentElement!;

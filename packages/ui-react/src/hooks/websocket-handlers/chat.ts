@@ -1,6 +1,5 @@
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
-import { activeChat } from "../../stores/chat-state.js";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
 import type {
   AskUserListSpec,
@@ -445,14 +444,11 @@ export const chatFrameHandlers = {
     if (msg.status === "idle" || msg.status === "cancelled") {
       const current = context.stores.chat.getState();
       context.resyncIfNeeded(context.frameSessionId ?? current.activeSessionId);
-      // Cold load: we hold a stored session id but an empty transcript and
-      // the server is idle (so it sent no snapshot). Fetch the history.
-      // Only the active session's own (or an unscoped legacy) idle counts.
+      // The selected session's history is still unconfirmed (#1328): the
+      // host is idle, so no snapshot is coming. Only the active session's
+      // own (or an unscoped legacy) idle counts.
       if (!context.frameSessionId || context.frameSessionId === current.activeSessionId) {
-        context.coldResumeIfNeeded(
-          current.activeSessionId,
-          activeChat(current).messages.length
-        );
+        context.restoreIfNeeded(context.frameSessionId ?? null);
       }
     }
   },

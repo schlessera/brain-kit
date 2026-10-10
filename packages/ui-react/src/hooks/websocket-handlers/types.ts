@@ -21,7 +21,11 @@ export interface DispatchContext {
     msg: Extract<ServerMessage, { type: "location_request" }>
   ) => void;
   resyncIfNeeded: (sessionId: string | null) => void;
-  coldResumeIfNeeded: (sessionId: string | null, messageCount: number) => void;
+  /**
+   * An idle status for the selected session (or the host's unscoped
+   * greeting): its history, if still unconfirmed, is asked for again (#1328).
+   */
+  restoreIfNeeded: (frameSessionId: string | null) => void;
   markHistoryReplaced: (key: ChatKey) => void;
 }
 

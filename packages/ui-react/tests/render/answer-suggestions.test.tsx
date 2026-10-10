@@ -132,6 +132,8 @@ async function mount(): Promise<Page> {
   act(() => {
     socket.open();
     root.stores.chat.getState().setActiveSession(SESSION);
+    // Its history is here (#1328); the tests draw the turns they need.
+    root.stores.chat.getState().setMessages(SESSION, []);
   });
   const view = render(
     <BrainUiProvider root={root}>

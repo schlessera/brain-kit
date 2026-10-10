@@ -407,6 +407,27 @@ export class WsHost {
   }
 
   /**
+   * One line per `session_resume` (#1328), so a client that restored the
+   * wrong transcript, or none, can be traced from the host's log: which
+   * session, and whether its history was sent (`loaded`, with how many
+   * messages), failed to load (`error`), or was withheld because the
+   * connection lost its authorization while the history was read (`unauthorized`).
+   * @internal Host wiring (#1053).
+   */
+  reportSessionResume(sessionId: string, outcome: "loaded" | "error" | "unauthorized", detail?: { messages?: number; error?: string }): void {
+    this.log.emit({
+      severityText: outcome === "error" ? "WARN" : "INFO",
+      body: "session resume",
+      attributes: {
+        "session.id": sessionId,
+        outcome,
+        ...(detail?.messages !== undefined ? { "history.messages": detail.messages } : {}),
+        ...(detail?.error !== undefined ? { error: detail.error } : {}),
+      },
+    });
+  }
+
+  /**
    * Replayed history with its classified blocks joined on (D42); unchanged without a classifier.
    * @internal Host wiring (#1053).
    */
