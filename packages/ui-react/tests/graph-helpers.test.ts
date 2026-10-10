@@ -9,6 +9,8 @@ import {
   distanceColor,
   groupCommunities,
   labelSet,
+  graphLabelSize,
+  graphLabelBudget,
   matchScene,
   mergeSubgraphs,
   mixColors,
@@ -206,50 +208,76 @@ describe("groupCommunities", () => {
 });
 
 describe("labelSet", () => {
-  const nodes = Array.from({ length: 50 }, (_, i) =>
+  const display = { viewport: { width: 1000, height: 800 }, labelSize: 13 };
+  const nodes = Array.from({ length: 200 }, (_, i) =>
     node(i, { inDegree: i, outDegree: 0 })
   );
 
   test("selection, hover, matches and virtual root are always labeled", () => {
     const set = labelSet({
+      ...display,
       nodes: [...nodes, node(999, { virtual: true })],
       selectedId: 3,
       hoveredId: 4,
       matchIds: new Set([5]),
-      cameraRatio: 1,
     });
     for (const id of [3, 4, 5, 999]) expect(set.has(id)).toBe(true);
   });
 
-  test("zooming in raises the quota, never to everything", () => {
-    const out = labelSet({
-      nodes,
-      selectedId: null,
-      hoveredId: null,
-      matchIds: new Set(),
-      cameraRatio: 2,
-    });
-    const zoomed = labelSet({
-      nodes,
-      selectedId: null,
-      hoveredId: null,
-      matchIds: new Set(),
-      cameraRatio: 0.1,
-    });
-    expect(zoomed.size).toBeGreaterThan(out.size);
-    expect(zoomed.size).toBeLessThanOrEqual(60);
+  test("offers fallback candidates while keeping large scenes bounded", () => {
+    const candidates = labelSet({ ...display, nodes, selectedId: null, hoveredId: null, matchIds: new Set() });
+    expect(candidates.size).toBeGreaterThan(20);
+    expect(candidates.size).toBeLessThanOrEqual(180);
+    expect(candidates.size).toBeLessThan(nodes.length);
   });
 
   test("quota picks the highest-ranked nodes", () => {
     const set = labelSet({
+      ...display,
       nodes,
       selectedId: null,
       hoveredId: null,
       matchIds: new Set(),
-      cameraRatio: 4,
     });
-    expect(set.has(49)).toBe(true); // highest degree
+    expect(set.has(199)).toBe(true); // highest degree
     expect(set.has(0)).toBe(false); // lowest degree
+  });
+
+  test("focus labels low-ranked neighbors and excludes unrelated anchors and matches", () => {
+    const input = {
+      ...display, nodes: [...nodes, node(999, { virtual: true })],
+      selectedId: 3, hoveredId: null, matchIds: new Set([199]),
+      focusedIds: new Set([2, 3, 5]),
+    };
+    expect(labelSet(input)).toEqual(new Set([3, 2, 5]));
+    // Hover replaces a clicked focus, including its otherwise-highlighted label.
+    expect(labelSet({ ...input, selectedId: 199, hoveredId: 3 })).toEqual(new Set([3, 2, 5]));
+  });
+
+  test("focus tries every visible neighbor without the overview quota", () => {
+    const candidates = labelSet({
+      ...display, nodes, selectedId: 0, hoveredId: null, matchIds: new Set(),
+      focusedIds: new Set(Array.from({ length: 100 }, (_, i) => i)),
+    });
+    expect(candidates.size).toBe(100);
+    expect(candidates.has(99)).toBe(true);
+    expect(candidates.has(199)).toBe(false);
+  });
+
+  test("overview labels scale with available area and the actual font footprint", () => {
+    const input = { nodes, selectedId: null, hoveredId: null, matchIds: new Set<number>() };
+    const phone = labelSet({ ...input, viewport: { width: 390, height: 780 }, labelSize: graphLabelSize(390, 780) });
+    const desktop = labelSet({ ...input, viewport: { width: 1000, height: 800 }, labelSize: graphLabelSize(1000, 800) });
+    const largeType = labelSet({ ...input, viewport: { width: 1000, height: 800 }, labelSize: 22 });
+    expect(phone.size).toBeGreaterThanOrEqual(8);
+    expect(desktop.size).toBeGreaterThan(phone.size);
+    expect(largeType.size).toBeLessThan(desktop.size);
+    expect(graphLabelSize(390, 780)).toBe(11);
+    expect(graphLabelSize(1000, 800)).toBeGreaterThan(11);
+    const phoneBudget = graphLabelBudget({ width: 390, height: 780 }, 11);
+    const desktopBudget = graphLabelBudget(display.viewport, display.labelSize);
+    expect(desktopBudget).toBeGreaterThan(phoneBudget);
+    expect(graphLabelBudget(display.viewport, 22)).toBeLessThan(desktopBudget);
   });
 });
 

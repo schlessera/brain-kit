@@ -7,13 +7,16 @@
  * Loaded via React.lazy from graph-page, so sigma lands in its own chunk and
  * the main bundle stays untouched.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Graph from "graphology";
 import Sigma from "sigma";
-import type {
-  NodeHoverDrawingFunction,
-  NodeLabelDrawingFunction,
+import {
+  NodeCircleProgram,
+  type NodeHoverDrawingFunction,
+  type NodeLabelDrawingFunction,
 } from "sigma/rendering";
+import { floatColor } from "sigma/utils";
+import type { NodeDisplayData } from "sigma/types";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type {
   GraphEdgePayload,
@@ -21,13 +24,56 @@ import type {
   GraphSubgraphResponse,
 } from "@schlessera/brain-ui-sdk/protocol";
 import {
+  graphLabelSize,
+  graphLabelBudget,
   labelSet,
   mixColors,
-  nodeSize,
   radialLayout,
   type SizeBy,
 } from "../../lib/graph-helpers.js";
 import { useGraphTheme, type GraphTheme } from "./use-graph-theme.js";
+import { separateNodes } from "./lib/separate-nodes.js";
+import { graphNodeSizes } from "./lib/node-size-scale.js";
+
+/** The border is part of each WebGL disc, including the hover layer and picking. */
+function outlinedNodeProgram(background: () => string) {
+  return class OutlinedNodeProgram extends NodeCircleProgram {
+    override getDefinition(): ReturnType<NodeCircleProgram["getDefinition"]> {
+      const definition = super.getDefinition();
+      return {
+        ...definition,
+        ATTRIBUTES: [...definition.ATTRIBUTES, { name: "a_outline", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true }],
+        VERTEX_SHADER_SOURCE: definition.VERTEX_SHADER_SOURCE
+          .replace("varying vec4 v_color;", "varying vec4 v_color;\nattribute vec4 a_outline;\nvarying vec4 v_outline;")
+          .replace("v_color.a *= bias;", "v_color.a *= bias;\nv_outline = a_outline;\nv_outline.a *= bias;"),
+        FRAGMENT_SHADER_SOURCE: `
+precision highp float;
+varying vec4 v_color;
+varying vec4 v_outline;
+varying vec2 v_diffVector;
+varying float v_radius;
+uniform float u_correctionRatio;
+void main() {
+  float inset = v_radius - length(v_diffVector);
+  float aa = u_correctionRatio * 2.0;
+  #ifdef PICKING_MODE
+  gl_FragColor = inset < 0.0 ? vec4(0.0) : v_color;
+  #else
+  float border = min(aa * 1.25, v_radius * 0.24);
+  vec4 color = mix(v_outline, v_color, smoothstep(border, border + aa * 0.5, inset));
+  gl_FragColor = color * smoothstep(0.0, aa, inset);
+  #endif
+}`,
+      };
+    }
+    override processVisibleItem(nodeIndex: number, startIndex: number, data: NodeDisplayData): void {
+      super.processVisibleItem(nodeIndex, startIndex, data);
+      this.array[startIndex + 5] = floatColor(background());
+    }
+  };
+}
+
+type LabelBox = { left: number; top: number; right: number; bottom: number };
 
 export interface GraphCanvasProps {
   data: GraphSubgraphResponse;
@@ -53,6 +99,26 @@ function forceIterations(nodeCount: number): number {
   return 60;
 }
 
+function displayNodeSize(node: GraphNodePayload, sizes: ReadonlyMap<number, number>, count: number, width: number, height: number): number {
+  const scale = Math.min(1, Math.max(0.35, (Math.min(width, height) - 80) / Math.sqrt(Math.max(1, count) * 600)));
+  return (sizes.get(node.id) ?? 4) * scale;
+}
+
+function separateDisplayedNodes(renderer: Sigma, attractLinked = true): void {
+  const graph = renderer.getGraph();
+  const positioned = graph.nodes().map(id => ({
+    id, x: graph.getNodeAttribute(id, "x") as number,
+    y: graph.getNodeAttribute(id, "y") as number,
+    size: graph.getNodeAttribute(id, "size") as number,
+    community: graph.getNodeAttribute(id, "community") as number | undefined,
+  }));
+  const links = graph.edges().map(edge => ({ source: graph.source(edge), target: graph.target(edge) }));
+  const { width, height } = renderer.getDimensions();
+  for (const node of separateNodes(positioned, width, height, 0.5, links, attractLinked)) {
+    graph.mergeNodeAttributes(node.id, { x: node.x, y: node.y });
+  }
+}
+
 /**
  * Node label drawer: sigma's default fillText plus a thin round-joined
  * stroke in `outline` underneath, so labels stay legible where they cross
@@ -61,20 +127,47 @@ function forceIterations(nodeCount: number): number {
  */
 function makeDrawNodeLabel(
   theme: GraphTheme,
-  outline?: string
+  outline?: string,
+  boxes?: LabelBox[],
+  limit?: { current: number },
 ): NodeLabelDrawingFunction {
   return (context, data, settings) => {
     if (!data.label) return;
     const size = settings.labelSize;
     context.font = `${settings.labelWeight} ${size}px ${settings.labelFont}`;
-    const x = data.x + data.size + 3;
-    const y = data.y + size / 3;
+    let text = data.label;
+    if (boxes) {
+      while (text.length > 1 && context.measureText(text).width > 180) text = text.slice(0, -1);
+      if (text !== data.label) text = `${text.trimEnd()}…`;
+    }
+    let x = data.x + data.size + 3;
+    let y = data.y + size / 3;
+    if (boxes) {
+      if (boxes.length >= (limit?.current ?? Infinity)) return;
+      const width = context.measureText(text).width;
+      const viewportWidth = context.canvas.clientWidth;
+      const placements = [
+        { x, y },
+        { x: data.x - data.size - 3 - width, y },
+        { x: data.x - width / 2, y: data.y - data.size - 5 },
+        { x: data.x - width / 2, y: data.y + data.size + size + 5 },
+      ];
+      const placement = placements.find(position => {
+        const box = { left: position.x - 3, top: position.y - size - 3, right: position.x + width + 3, bottom: position.y + 4 };
+        if (box.left < 4 || box.right > viewportWidth - 4 || box.top < 4 || box.bottom > context.canvas.clientHeight - 4) return false;
+        if (boxes.some(other => box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top)) return false;
+        boxes.push(box);
+        return true;
+      });
+      if (!placement) return;
+      ({ x, y } = placement);
+    }
     context.strokeStyle = outline ?? theme.background;
     context.lineWidth = 3;
     context.lineJoin = "round";
-    context.strokeText(data.label, x, y);
+    context.strokeText(text, x, y);
     context.fillStyle = settings.labelColor.color ?? theme.label;
-    context.fillText(data.label, x, y);
+    context.fillText(text, x, y);
   };
 }
 
@@ -143,10 +236,14 @@ export default function GraphCanvas({
   const ringCanvasRef = useRef<HTMLCanvasElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const theme = useGraphTheme();
+  const sizes = useMemo(() => graphNodeSizes(data.nodes, sizeBy), [data.nodes, sizeBy]);
+  const appliedSizes = useRef(sizes);
   // The reducers are registered once at mount and read the theme through this
   // ref, so a theme switch recolours the fade and the selection without
   // re-instantiating sigma.
   const themeRef = useRef(theme);
+  const labelBoxes = useRef<LabelBox[]>([]);
+  const labelLimit = useRef(20);
   themeRef.current = theme;
   const ringCount = layout === "radial" ? rings : 0;
 
@@ -172,15 +269,18 @@ export default function GraphCanvas({
       allowInvalidContainer: true,
       renderLabels: true,
       labelFont: "Plus Jakarta Sans, system-ui, sans-serif",
-      labelSize: 11,
+      labelSize: graphLabelSize(container.clientWidth, container.clientHeight),
       labelColor: { color: theme.label },
-      labelRenderedSizeThreshold: 7,
-      defaultDrawNodeLabel: makeDrawNodeLabel(theme),
+      labelRenderedSizeThreshold: Infinity,
+      defaultDrawNodeLabel: makeDrawNodeLabel(theme, undefined, labelBoxes.current, labelLimit),
       defaultDrawNodeHover: makeDrawNodeHover(theme),
+      nodeProgramClasses: { circle: outlinedNodeProgram(() => themeRef.current.background) },
       defaultEdgeType: "arrow",
+      minEdgeThickness: 0,
       minCameraRatio: 0.05,
       maxCameraRatio: 6,
       stagePadding: 40,
+      zIndex: true,
       nodeReducer: (node, attrs) => {
         const id = Number(node);
         const s = interactionRef.current;
@@ -195,7 +295,7 @@ export default function GraphCanvas({
           out.color = theme.nodeSelected;
           out.zIndex = 2;
         }
-        if (id === s.selectedId || id === s.hoveredId) {
+        if (id === active) {
           out.color = theme.nodeSelected;
           out.highlighted = true;
           out.zIndex = 3;
@@ -224,7 +324,7 @@ export default function GraphCanvas({
               g.source(edge) === activeKey || g.target(edge) === activeKey;
             if (touchesActive) {
               out.color = theme.edgeHighlight;
-              out.size = Math.max((attrs.size as number | undefined) ?? 1, 1.5);
+              out.size = ((attrs.size as number | undefined) ?? 1) * 1.5;
             } else {
               out.hidden = true;
             }
@@ -233,6 +333,7 @@ export default function GraphCanvas({
         return out;
       },
     });
+    renderer.on("beforeRender", () => { labelBoxes.current.length = 0; });
 
     // Camera gestures (mouse-drag pan, touch pan/pinch/rotate) sweep nodes
     // under a pointer that isn't "pointing" at them, and sigma re-derives
@@ -285,7 +386,7 @@ export default function GraphCanvas({
     if (!renderer) return;
     renderer.setSettings({
       labelColor: { color: theme.label },
-      defaultDrawNodeLabel: makeDrawNodeLabel(theme),
+      defaultDrawNodeLabel: makeDrawNodeLabel(theme, undefined, labelBoxes.current, labelLimit),
       defaultDrawNodeHover: makeDrawNodeHover(theme),
     });
     renderer.refresh({ skipIndexation: true });
@@ -332,9 +433,10 @@ export default function GraphCanvas({
         y,
         // Size and color are (re)applied by the restyle effect below; seeding
         // them here just avoids a one-frame flash of defaults.
-        size: nodeSize(node, sizeBy),
+        size: displayNodeSize(node, sizes, data.nodes.length, containerRef.current!.clientWidth, containerRef.current!.clientHeight),
         color: nodeColor(node),
         label: node.title || node.path,
+        community: node.community,
       });
     });
 
@@ -344,10 +446,15 @@ export default function GraphCanvas({
       if (!graph.hasNode(source) || !graph.hasNode(target)) continue;
       if (graph.hasEdge(source, target)) continue;
       graph.addEdge(source, target, {
-        color: edgeColor?.(edge) ?? theme.edge,
+        color: edgeColor?.(edge) ?? mixColors(theme.edge, theme.background, 0.5),
         size: 1,
       });
     }
+    // Both directed records keep their arrows; reciprocal pairs share a
+    // doubled stroke width, including under the interaction reducer.
+    graph.forEachEdge((edge, _attrs, source, target) => {
+      if (source !== target && graph.hasEdge(target, source)) graph.setEdgeAttribute(edge, "size", 2);
+    });
 
     if (layout === "force" && graph.order > 2) {
       const settings = forceAtlas2.inferSettings(graph);
@@ -356,6 +463,11 @@ export default function GraphCanvas({
         settings: { ...settings, barnesHutOptimize: graph.order > 300 },
       });
     }
+
+    if (layout !== "radial") {
+      separateDisplayedNodes(renderer);
+    }
+    appliedSizes.current = sizes;
 
     renderer.getCamera().animatedReset({ duration: 250 });
     renderer.refresh();
@@ -372,20 +484,26 @@ export default function GraphCanvas({
     const renderer = sigmaRef.current;
     if (!renderer) return;
     const graph = renderer.getGraph();
+    const sizesChanged = appliedSizes.current !== sizes;
+    const { width, height } = renderer.getDimensions();
     for (const node of data.nodes) {
       const key = String(node.id);
       if (!graph.hasNode(key)) continue;
       graph.setNodeAttribute(key, "color", nodeColor(node));
-      graph.setNodeAttribute(key, "size", nodeSize(node, sizeBy));
+      graph.setNodeAttribute(key, "size", displayNodeSize(node, sizes, data.nodes.length, width, height));
     }
     for (const edge of data.edges) {
       const source = String(edge.source);
       const target = String(edge.target);
       if (!graph.hasEdge(source, target)) continue;
-      graph.setEdgeAttribute(source, target, "color", edgeColor?.(edge) ?? theme.edge);
+      graph.setEdgeAttribute(source, target, "color", edgeColor?.(edge) ?? mixColors(theme.edge, theme.background, 0.5));
     }
-    renderer.refresh({ skipIndexation: true });
-  }, [data, nodeColor, edgeColor, sizeBy, theme]);
+    // Larger marks need fresh separation and picking coordinates, but no
+    // force-layout rerun or camera reset. Color-only changes stay in place.
+    if (sizesChanged && layout !== "radial") separateDisplayedNodes(renderer, false);
+    appliedSizes.current = sizes;
+    renderer.refresh({ skipIndexation: !sizesChanged });
+  }, [data, layout, nodeColor, edgeColor, sizes, theme]);
 
   // Interaction + label policy updates (no graph rebuild).
   useEffect(() => {
@@ -407,19 +525,43 @@ export default function GraphCanvas({
       }
     }
 
-    const recomputeLabels = () => {
+    const recomputeLabels = (skipIndexation = true) => {
+      const viewport = renderer.getDimensions();
+      const labelSize = graphLabelSize(viewport.width, viewport.height);
+      if (renderer.getSetting("labelSize") !== labelSize) renderer.setSetting("labelSize", labelSize);
+      const graph = renderer.getGraph();
+      const visible = data.nodes.filter(node => {
+        const key = String(node.id);
+        if (active !== null && !state.neighborsOfActive.has(key)) return false;
+        if (!graph.hasNode(key)) return false;
+        const position = renderer.graphToViewport({
+          x: graph.getNodeAttribute(key, "x") as number,
+          y: graph.getNodeAttribute(key, "y") as number,
+        }, { viewportDimensions: viewport });
+        return position.x >= 0 && position.x <= viewport.width && position.y >= 0 && position.y <= viewport.height;
+      });
+      // Focus spends label space exclusively on its neighborhood and tries
+      // every visible neighbor; collision filtering determines what fits.
+      labelLimit.current = active === null ? graphLabelBudget(viewport, labelSize) : visible.length;
       state.forced = labelSet({
-        nodes: data.nodes,
+        nodes: visible,
         selectedId,
         hoveredId,
         matchIds,
-        cameraRatio: renderer.getCamera().ratio,
+        viewport,
+        labelSize,
+        focusedIds: active === null ? undefined : new Set([...state.neighborsOfActive].map(Number)),
       });
-      renderer.refresh({ skipIndexation: true });
+      renderer.refresh({ skipIndexation });
     };
     recomputeLabels();
+    const observer = new ResizeObserver(() => {
+      renderer.resize();
+      recomputeLabels(false);
+    });
+    observer.observe(containerRef.current!);
 
-    // More labels as the user zooms in; throttled to one recompute per frame batch.
+    // Pick fresh visible candidates as the camera moves, with steady density.
     let pending = 0;
     const onCameraUpdate = () => {
       if (pending) return;
@@ -430,6 +572,7 @@ export default function GraphCanvas({
     };
     renderer.getCamera().on("updated", onCameraUpdate);
     return () => {
+      observer.disconnect();
       renderer.getCamera().off("updated", onCameraUpdate);
       if (pending) window.clearTimeout(pending);
     };
