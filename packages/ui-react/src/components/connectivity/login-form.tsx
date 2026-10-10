@@ -1,4 +1,4 @@
-import { Button, Callout, Icon } from "@schlessera/brain-ui-kit";
+import { BrandMark, Button, Callout } from "@schlessera/brain-ui-kit";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
@@ -55,7 +55,7 @@ export function LoginForm(p: LoginFormProps) {
         className="flex w-full max-w-xs flex-col items-center gap-6 px-6 text-center"
       >
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-surface">
-          <Icon icon="brain" size={32} color="var(--bk-amber-ink)" />
+          <BrandMark size={32} />
         </div>
         <div>
           <h1 className="font-[family-name:var(--font-display)] text-2xl text-foreground">{p.title ?? p.appName}</h1>
