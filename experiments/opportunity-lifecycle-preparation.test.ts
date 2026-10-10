@@ -3,13 +3,14 @@ import { join } from "node:path";
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync, unlinkSync, lutimesSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { apply, createConfiguredLab, inspect } from "../scripts/evals/opportunity-lifecycle/prototype";
-import { openDatabase } from "../packages/core/src/lib/db";
 import { doc, schedule } from "../scripts/evals/opportunity-lifecycle/fixtures";
 import { observe, differences } from "../scripts/evals/opportunity-lifecycle/observation";
-import { cli, successful } from "../scripts/evals/opportunity-lifecycle/cli";
 import { NativeEvidence } from "../scripts/evals/opportunity-lifecycle/native-evidence";
 import { prepare } from "../scripts/evals/opportunity-lifecycle/prepare";
 import { readFileSync } from "node:fs";
+
+// The real-CLI agreement test this file used to hold lives in
+// tests/opportunity-cli-agreement.test.ts (#1386).
 
 const configuration = (enabled = true, fallback = true) => JSON.stringify({ reranker: { enabled: false },
   modules: { "@schlessera/brain-module-jobs": { enabled, criteria: "work/leads/criteria.md", opportunitiesDir: "work/leads", boards: [], queries: [] } },
@@ -41,32 +42,6 @@ test("complete observer detects same-byte touches, same-length link retargets an
     expect(changes.filter(row => row.path === "unexpected.txt")).toEqual([{ path: "unexpected.txt", fields: ["added"] }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
-
-test("fresh disk-backed module fallback agrees with actual config and pipeline CLI", async () => {
-  const input = inputs(), lab = await createConfiguredLab(input.files);
-  try {
-    expect(lab.authority!.jobsEnabled).toBe(true);
-    expect(lab.opportunitiesDir).toBe("work/leads");
-    const config = successful(await cli(lab, ["config", "check", "--json"]));
-    expect(JSON.parse(config.stdout).valid).toBe(true);
-    expect(successful(await cli(lab, ["config", "get", "modules.@schlessera/brain-module-jobs"])).stdout).toContain("work/leads");
-    const planned = inspect(lab, schedule(), input.focus);
-    if (planned.outcome !== "planned") throw new Error(planned.reason);
-    expect(apply(lab, planned.plan, true).outcome).toBe("applied");
-    const pipeline = successful(await cli(lab, ["jobs", "pipeline", "--json"]));
-    expect(JSON.parse(pipeline.stdout).index).toBe("work/leads/_index.md");
-    expect(observe(lab.root)["work/leads/_index.md"]!.bytesBase64).toBeDefined();
-    successful(await cli(lab, ["index", "--force"]));
-    const db = openDatabase(join(lab.root, "brain.db"));
-    try {
-      expect(db.query("SELECT path, deadline FROM documents WHERE deadline IS NOT NULL ORDER BY path").all()).toEqual([
-        { path: "work/leads/ithaca/interview-prep.md", deadline: "2026-07-20" },
-        { path: "work/leads/ithaca/status.md", deadline: "2026-07-20" },
-      ]);
-    } finally { db.close(); }
-    expect(successful(await cli(lab, ["briefing"])).stdout).toContain("2026-07-20 | work/leads/ithaca/interview-prep.md");
-  } finally { lab.close(); }
-}, 30000);
 
 test("disabled module and changed configuration refuse before any lifecycle source write", async () => {
   const input = inputs(false), lab = await createConfiguredLab(input.files);

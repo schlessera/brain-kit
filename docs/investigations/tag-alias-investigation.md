@@ -18,7 +18,7 @@ All three start from the same disposable keyless index. A proposal is
 report-only in every arm; `applyReviewed` writes only after an explicit review
 that binds every current usage file and the full config snapshot, then calls
 the shipped conditional writer. Chains, cycles, conflicting aliases, replay and
-concurrent edits keep the writer's existing behaviour (`tests/tag-alias-experiment.test.ts`).
+concurrent edits keep the writer's existing behaviour (`experiments/tag-alias-experiment.test.ts`).
 
 ## Corpus
 

@@ -2,9 +2,11 @@ import { expect,test } from "bun:test";
 import { readFileSync,writeFileSync,chmodSync,symlinkSync,unlinkSync,linkSync,mkdtempSync,rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { stage,materialize,observe,cli } from "../scripts/evals/candidate-extraction/disk-fixture";
+import { stage,materialize,observe } from "../scripts/evals/candidate-extraction/disk-fixture";
 import { workload } from "../scripts/evals/candidate-extraction/workload";
 import { ownedClosure,closureDigest } from "../scripts/evals/candidate-extraction/closure";
+// The real-CLI configuration test this file used to hold lives in
+// tests/configured-module-paths-cli.test.ts (#1386).
 test("all neutral full brains retain exact source/context and never selection labels",()=>{
  expect(workload).toHaveLength(24);
  for(const c of workload){const f=stage(c);try{
@@ -13,17 +15,6 @@ test("all neutral full brains retain exact source/context and never selection la
   expect(JSON.stringify(materialize(c))).not.toContain('"gold"');expect(JSON.stringify(materialize(c))).not.toContain('"split"');
   expect(Object.keys(observe(f.root)).length).toBeGreaterThan(25);
  }finally{f.close();}}
-});
-test("real config loads both modules and configured opportunity/assembly paths",async()=>{
- const f=stage(workload.find(c=>c.domain==="job")!);try{
-  const check=await cli(f.root,["config","check","--json"]);expect(check.code).toBe(0);const data=JSON.parse(check.stdout);
-  expect(data.valid).toBe(true);expect(data.taxonomy.types.opportunity.dir).toBe("harbour/opportunities");expect(data.taxonomy.types.conference.dir).toBe("assemblies");
-  const module=await cli(f.root,["config","get","modules"]);expect(module.code).toBe(0);expect(JSON.parse(module.stdout)["./modules/jobs"].criteria).toBe("context/search-criteria.md");
-  const before=observe(f.root),indexed=await cli(f.root,["index","--force","--json"]);expect(indexed.code).toBe(0);
-  const pipeline=await cli(f.root,["jobs","pipeline","--json"]);expect(pipeline.code).toBe(0);expect(pipeline.stderr).toBe("");
-  expect(readFileSync(join(f.root,"owner/letter.md"),"utf8")).toContain("Keep this owner-written paragraph unchanged.");
-  expect(observe(f.root)["owner/binary.bin"]).toEqual(before["owner/binary.bin"]);
- }finally{f.close();}
 });
 test("whole observation detects added member, binary change, chmod and symlink retarget",()=>{
  const f=stage(workload[0]!);try{const initial=observe(f.root);

@@ -35,6 +35,7 @@ const REPO_DIRS = [
   "docs",
   "scripts",
   "tests",
+  "experiments",
   ".github",
   ".agents",
   "api-report",

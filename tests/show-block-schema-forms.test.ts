@@ -30,10 +30,8 @@ import {
 import { BLOCKS, SUGGESTIONS } from "../packages/ui-react/tests/block-fixtures.ts";
 import { dereference, descriptions, type Json, type JsonObject } from "../scripts/attribute-show-block-schema.ts";
 import {
-  liveCredential,
   listedShowBlock,
   listedTool,
-  OAUTH_BETA,
   SCHEMA_ARM_NAMES,
   SCHEMA_ARMS,
 } from "../scripts/show-block-schema-forms.ts";
@@ -171,28 +169,6 @@ describe("each form says what it claims to", () => {
     expect(trimmed).toEqual(strip(flat));
   });
 });
-
-describe("the live credential", () => {
-  test("an API key wins, and goes out as x-api-key", () => {
-    const credential = liveCredential({ ANTHROPIC_API_KEY: "key", CLAUDE_CODE_OAUTH_TOKEN: "token" });
-    expect(credential?.source).toBe("ANTHROPIC_API_KEY");
-    expect(credential?.headers["x-api-key"]).toBe("key");
-    expect(credential?.headers.authorization).toBeUndefined();
-  });
-
-  test("with no key, the subscription token goes out as a bearer with the OAuth beta", () => {
-    const credential = liveCredential({ ANTHROPIC_API_KEY: " ", CLAUDE_CODE_OAUTH_TOKEN: "token" });
-    expect(credential?.source).toBe("CLAUDE_CODE_OAUTH_TOKEN");
-    expect(credential?.headers.authorization).toBe("Bearer token");
-    expect(credential?.headers["anthropic-beta"]).toBe(OAUTH_BETA);
-    expect(credential?.headers["x-api-key"]).toBeUndefined();
-  });
-
-  test("with neither, there is no live run", () => {
-    expect(liveCredential({})).toBeNull();
-  });
-});
-
 
 describe("shipped schema reference representation",()=>{
   test("actual Claude factory MCP listing defines icon, tone and valueTone once",async()=>{

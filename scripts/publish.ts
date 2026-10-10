@@ -4,6 +4,7 @@ import { assertPublishArtifacts } from "./check-dist.js";
 import { assertPublishPins } from "./check-publish-pins.js";
 import { publishTemplate } from "./publish-template.js";
 import { listPublishablePackages } from "./publishable-packages.ts";
+import { assertExperimentReceipt } from "./test-experiments.ts";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -157,6 +158,21 @@ async function main(): Promise<void> {
   }
   if (args.length > 0) {
     console.error(`Release refused: unexpected arguments ${args.join(" ")} (only --dry-run [root] is accepted).`);
+    process.exit(1);
+  }
+
+  // The release gate, ahead of the pre-flights below and of anything read
+  // from the registry: the experiment tier (#1386). Measurement-harness tests
+  // are outside product proof, so release preparation runs all of them with
+  // `bun run test:experiments`, which records a receipt only for a complete,
+  // clean run. Refuse unless that receipt names this exact candidate: the
+  // working tree, bun.lock (refreshed by `bun run version`), the experiment
+  // test inventory and the Bun version. Local and offline; --dry-run above
+  // stays a plain listing.
+  try {
+    assertExperimentReceipt(root);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 

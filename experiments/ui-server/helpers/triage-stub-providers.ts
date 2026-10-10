@@ -12,8 +12,8 @@
  *                "high" answers from gold
  *   Other scenarios vary a repetition, transport coverage or incremental writes.
  */
-import { ITEMS } from "../../evals/triage/dataset.ts";
-import type { CallResult, ModelSpec } from "../../evals/triage/providers.ts";
+import { ITEMS } from "../../../packages/ui-server/evals/triage/dataset.ts";
+import type { CallResult, ModelSpec } from "../../../packages/ui-server/evals/triage/providers.ts";
 
 export class UnsupportedEffortError extends Error {}
 

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { FIXTURE_DIR, loadFileSet, loadPairSet } from "../../../scripts/measure-sync-judge";
-import { scanTree } from "../../../scripts/check-leakage";
-import { planFileBatches, planPairBatches } from "../src/lib/sync/judge";
-import { FILE_DECISIONS, PAIR_DECISIONS } from "../src/lib/sync/types";
+import { FIXTURE_DIR, loadFileSet, loadPairSet } from "../../scripts/measure-sync-judge";
+import { scanTree } from "../../scripts/check-leakage";
+import { planFileBatches, planPairBatches } from "../../packages/core/src/lib/sync/judge";
+import { FILE_DECISIONS, PAIR_DECISIONS } from "../../packages/core/src/lib/sync/types";
 
 // The E2 sets are only worth measuring if every item is asked and each label
 // has enough rows that one answer does not move its precision by much.

@@ -16,7 +16,7 @@ independent commands reproduce its complete JSON byte-for-byte.
 ```sh
 bun install --frozen-lockfile
 bun scripts/measure-turn-surface-keyless.ts > mechanics.json
-bun run test tests/turn-surface-routing.test.ts
+bun run test experiments/turn-surface-routing.test.ts
 ```
 
 The command creates disposable fictional brains outside the checkout,

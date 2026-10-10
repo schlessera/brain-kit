@@ -12,13 +12,13 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
   const root = new URL("../../../", import.meta.url).pathname;
   const sourceOnly = ["packages/core/src/lib/auditor.ts", "packages/core/src/lib/hygiene.ts"];
   const allDirect = ["docs/decisions/example-corpus.md", "docs/decisions/hygiene-review.md", "docs/investigations/tag-alias-investigation.md",
-    "tests/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","tests/native-grant.test.ts",
+    "experiments/mechanical-hygiene-offline-source.ts","scripts/evals/native-paid-entry.ts","scripts/evals/native-paid-policy.ts","scripts/evals/native-grant.ts","scripts/evals/native-pricing.ts","experiments/native-grant.test.ts",
     "packages/core/skills/audit/SKILL.md", "packages/core/src/lib/tags.ts", "packages/core/src/lib/tags-apply.ts", "packages/core/src/lib/context.ts", "packages/core/src/lib/config.ts", "packages/core/src/lib/document-parts.ts",
     "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/common/src/frontmatter-parse.ts", "packages/common/src/env-core.ts", "packages/core/src/lib/hygiene-next.ts", "packages/core/src/lib/hygiene-repair.ts",
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",
     "packages/core/src/providers/agents/claude-binary.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
     ...readdirSync(join(root, "scripts/evals/tag-aliases")).sort().map(name => `scripts/evals/tag-aliases/${name}`),
-    ...readdirSync(join(root, "tests")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).sort().map(n => `tests/${n}`)];
+    "tests/tag-alias-writer.test.ts", ...readdirSync(join(root, "experiments")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).sort().map(n => `experiments/${n}`)];
   const direct:string[]=[],coreSources:string[]=[...sourceOnly];let sharedBytes=0;
   for(const path of allDirect){const size=Buffer.byteLength(readFileSync(join(root,path),"utf8"));
     if(!path.startsWith("packages/core/src/")&&sharedBytes+size<=240_000){direct.push(path);sharedBytes+=size;}else coreSources.push(path);

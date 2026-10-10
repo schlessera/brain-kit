@@ -125,10 +125,12 @@ exception, and it is not `NO DATA` — that label is reserved for a configuratio
 where no call succeeded, because a model that answered with garbage was judged
 and a provider that could not be reached was not.
 
-`tests/triage-eval-exit-code.test.ts` also launches the real runner with a
-keyless provider stub over all 20 real items, disposable benchmark outputs and
-network access forbidden. It covers per-repetition floors, unavailable batches,
-late unsupported efforts, hard vetoes and the selected-versus-stored distinction.
+`experiments/ui-server/triage-eval-exit-code.test.ts`, in the repository's
+experiment tier (`bun run test:experiments` from the repository root), also
+launches the real runner with a keyless provider stub over all 20 real items,
+disposable benchmark outputs and network access forbidden. It covers
+per-repetition floors, unavailable batches, late unsupported efforts, hard
+vetoes and the selected-versus-stored distinction.
 These controls are harness verification, not live model benchmarks.
 
 ## Adding items

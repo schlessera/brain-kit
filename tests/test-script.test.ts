@@ -6,14 +6,17 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_ROOTS, testArgv } from "../scripts/test";
+import { DEFAULT_PATH_ARGS, DEFAULT_ROOTS, testArgv } from "../scripts/test";
 
 const ROOT = join(import.meta.dir, "..");
 const rootScript = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
   scripts: { test: string };
 }).scripts.test;
 
-const FIXTURES = ["packages/a", "packages/b", "tests", "other"] as const;
+// `experiments` is the release-time experiment tier (#1386); `experiment-tests`
+// is a sibling whose name merely contains "tests", which Bun's bare positional
+// substring filter would select. Neither belongs to default discovery.
+const FIXTURES = ["packages/a", "packages/b", "tests", "other", "experiments", "experiment-tests"] as const;
 const DEFAULT_SET = ["packages/a", "packages/b", "tests"];
 
 /**
@@ -79,6 +82,10 @@ describe("root test script, run for real", () => {
 
   test("no arguments runs packages and tests, and nothing else", async () => {
     expect(await ran([])).toEqual(DEFAULT_SET);
+  });
+
+  test("the experiment tier runs only when it is named", async () => {
+    expect(await ran(["./experiments"])).toEqual(["experiments"]);
   });
 
   test("flags alone keep the default roots, and reach bun test", async () => {
@@ -189,7 +196,12 @@ test("a signal sent to the wrapper stops the tests it started", async () => {
 });
 
 describe("testArgv", () => {
-  const withDefaults = (args: string[]) => [...DEFAULT_ROOTS, ...args];
+  const withDefaults = (args: string[]) => [...DEFAULT_PATH_ARGS, ...args];
+
+  test("the default roots reach Bun as directory roots, not substring filters", () => {
+    expect(DEFAULT_ROOTS).toEqual(["packages", "tests"]);
+    expect(DEFAULT_PATH_ARGS).toEqual(["./packages", "./tests"]);
+  });
 
   test("adds the default roots only when no path was named", () => {
     expect(testArgv([])).toEqual(withDefaults([]));

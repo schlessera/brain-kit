@@ -77,7 +77,7 @@ Those limits prevent unattended adoption from these controls alone.
 Run without keys or network:
 
 ```sh
-bun run test tests/mechanical-hygiene-eval.test.ts packages/core/tests/hygiene.test.ts packages/core/tests/registry-regions.test.ts tests/decision-citations.test.ts
+bun run test experiments/mechanical-hygiene-eval.test.ts tests/hygiene-reconcile-shipped.test.ts packages/core/tests/hygiene.test.ts packages/core/tests/registry-regions.test.ts tests/decision-citations.test.ts
 bun scripts/evals/mechanical-hygiene/run.ts
 bun run typecheck
 bun run lint

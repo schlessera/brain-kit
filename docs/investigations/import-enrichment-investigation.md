@@ -93,7 +93,7 @@ design must address these limits before using them as unattended recovery state.
 Run without keys or network:
 
 ```sh
-bun run test tests/import-enrichment-eval.test.ts packages/core/tests/frontmatter-edit.test.ts packages/core/tests/frontmatter-parse.test.ts packages/core/tests/cache-merge.test.ts tests/decision-citations.test.ts tests/docs-paths.test.ts
+bun run test experiments/import-enrichment-eval.test.ts packages/core/tests/frontmatter-edit.test.ts packages/core/tests/frontmatter-parse.test.ts packages/core/tests/cache-merge.test.ts tests/decision-citations.test.ts tests/docs-paths.test.ts
 bun scripts/evals/import-enrichment/run.ts --out /tmp/import-enrichment-report.json
 bun run typecheck
 bun run lint
@@ -263,7 +263,7 @@ not an account of a voyage or a council vote", "this is an adopted conditional
 decision") and carry harness scaffolding ("only the empty summary is approved for
 enrichment", "the configured inbox is entry"). A held-out set written that way
 rewards phrase matching and cannot separate it from judgment, so those sentences
-were removed on 2026-10-09; `tests/import-enrichment-semantic.test.ts` refuses
+were removed on 2026-10-09; `experiments/import-enrichment-semantic.test.ts` refuses
 their return. The labels are still the author's and still unreviewed.
 
 `score.ts` turns raw classifier replies into per-split type accuracy, a type

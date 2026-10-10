@@ -929,7 +929,7 @@ async function inspectSuggestions(): Promise<void> {
   }));
 }
 
-// Guarded, so `tests/measure-show-block-gate.test.ts` can import the counting
+// Guarded, so `experiments/measure-show-block-gate.test.ts` can import the counting
 // rules without booting a server and spending money.
 if (import.meta.main) {
   const reportIndex = process.argv.indexOf("--report");

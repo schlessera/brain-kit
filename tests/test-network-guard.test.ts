@@ -4,13 +4,14 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { experimentRunArgv } from "../scripts/test-experiments";
 
 const ROOT = join(import.meta.dir, "..");
 const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
 const probe = join(import.meta.dir, "helpers/network-probe.ts");
 const shellQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 
-async function run(scenario: string, entry: "direct" | "targeted" | "full" | "package" = "direct", packageDir = ROOT) {
+async function run(scenario: string, entry: "direct" | "targeted" | "full" | "package" | "experiments" = "direct", packageDir = ROOT) {
   const dir = mkdtempSync(join(tmpdir(), "network-guard-"));
   try {
     // An explicit offline harness: this alias is intentionally outside the
@@ -34,12 +35,16 @@ async function run(scenario: string, entry: "direct" | "targeted" | "full" | "pa
     const fixtureBun = join(dir, "bun");
     writeFileSync(fixtureBun, `#!/bin/sh\ncase "$1" in\n  test|run) subcommand="$1"; shift; exec ${shellQuote(process.execPath)} "$subcommand" --preload ${shellQuote(sentinel)} "$@" ;;\n  *) exec ${shellQuote(process.execPath)} --preload ${shellQuote(sentinel)} "$@" ;;\nesac\n`);
     chmodSync(fixtureBun, 0o755);
+    // The experiment tier's own run (scripts/test-experiments.ts), minus the
+    // runtime, which is the probe alias here.
     const args = entry === "package" ? ["run", "test"] : entry === "direct" ? ["test", ...(scenario === "mock-files" ? ["./mocks.test.ts"] : []), "./probe.test.ts", "--timeout", "30000"] :
+      entry === "experiments" ? experimentRunArgv(join(dir, "junit.xml")).slice(1) :
       [join(ROOT, "scripts/test.ts"), ...(entry === "targeted" ? ["./probe.test.ts"] : []), "--timeout", "30000"];
-    if (entry === "full" || entry === "package") {
+    if (entry === "full" || entry === "package" || entry === "experiments") {
       const { mkdirSync, renameSync } = await import("node:fs");
-      mkdirSync(join(dir, "tests"));
-      renameSync(join(dir, "probe.test.ts"), join(dir, "tests/probe.test.ts"));
+      const where = entry === "experiments" ? "experiments" : "tests";
+      mkdirSync(join(dir, where));
+      renameSync(join(dir, "probe.test.ts"), join(dir, where, "probe.test.ts"));
     }
     if (entry === "package") {
       const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
@@ -130,7 +135,7 @@ describe("offline test guard", () => {
         .toEqual([[410, "fixture response"], [403, "fixture response"]]);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
-  for (const entry of ["targeted", "full"] as const) {
+  for (const entry of ["targeted", "full", "experiments"] as const) {
     test(`${entry} repository test entry point loads the guard`, async () => {
       const result = await run("partial", entry);
       expect(result.calls.length, result.output).toBeGreaterThan(0);

@@ -98,7 +98,7 @@ cross-checking and abstention.
 Run without network or keys:
 
 ```sh
-bun run test tests/speaking-lifecycle-eval.test.ts
+bun run test experiments/speaking-lifecycle-eval.test.ts
 bun scripts/evals/speaking-lifecycle/run.ts
 bun run typecheck
 bun run lint

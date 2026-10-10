@@ -25,7 +25,8 @@
     "packages/*/stories/**/*.tsx",
     "packages/*/tools/**/*.ts",
     "scripts/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "experiments/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

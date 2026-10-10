@@ -3,10 +3,11 @@ import { readFileSync, writeFileSync, symlinkSync, unlinkSync, utimesSync } from
 import { join } from "node:path";
 import { fixtures, prepare } from "../scripts/evals/tag-aliases/fixtures";
 import { candidates, proposal, question, applyReviewed, fullUsage, snapshot, type ExplicitReview } from "../scripts/evals/tag-aliases/prototype";
-import { initContext } from "../packages/core/src/lib/context";
-import { applyTagChanges } from "../packages/core/src/lib/tags-apply";
 import type { JevChoiceAnswer } from "../packages/core/src/lib/jev";
 
+// The shipped-writer assertions this file used to hold (alias chains and
+// cycles, persisted config with exclusions) live in
+// tests/tag-alias-writer.test.ts (#1386).
 const yes = (probability = .99, confidence = .99): JevChoiceAnswer => ({ type: "choice", choice: "same", probabilities: { same: probability, different: 1 - probability, uncertain: 0 }, confidence });
 async function setup() {
   const env = prepare(fixtures.find(f => f.id === "pylos-synonym")!);
@@ -101,29 +102,6 @@ test("representative samples never substitute for a review of all usage", async 
   } finally { env.close(); }
 });
 
-test("existing chains resolve and cycles retain source bytes through the shipped writer", async () => {
-  for (const cycle of [false, true]) {
-    const env = prepare(fixtures.find(f => f.id === "pylos-synonym")!);
-    try {
-      const data = { ...env.config, taxonomy: { ...env.config.taxonomy, tags: { ...env.config.taxonomy.tags,
-        aliases: cycle ? { [env.fixture.left]: "council-log", "council-log": env.fixture.left } :
-          { [env.fixture.left]: "council-log", "council-log": env.fixture.right } } } };
-      writeFileSync(join(env.root, "brain.config.json"), JSON.stringify(data));
-      const brain = await initContext({ root: env.root }), before = snapshot(env.root);
-      const result = applyTagChanges(env.root, brain.taxonomy, { only: env.fixture.left });
-      if (cycle) {
-        expect(result.report.skipped.some(s => s.reason.includes("alias cycle"))).toBe(true);
-        expect(snapshot(env.root)).toEqual(before);
-      } else {
-        expect(readFileSync(join(env.root, env.paths[0]), "utf8")).toContain(`tags: [${env.fixture.right}]`);
-        const once = snapshot(env.root);
-        expect(applyTagChanges(env.root, brain.taxonomy, { only: env.fixture.left }).report.files).toEqual([]);
-        expect(snapshot(env.root)).toEqual(once);
-      }
-    } finally { env.close(); }
-  }
-});
-
 test("a conflicting existing alias cannot be overwritten by the proposed pair", async () => {
   const env = prepare(fixtures.find(f => f.id === "pylos-synonym")!);
   try {
@@ -141,25 +119,6 @@ test("a conflicting existing alias cannot be overwritten by the proposed pair", 
   } finally { env.close(); }
 });
 
-test("actual persisted full config drives the existing writer, preserves exclusions and repeats without churn", async () => {
-  const env = await setup();
-  try {
-    const before = snapshot(env.root);
-    await applyReviewed(env.root, env.value, env.review, { dryRun: true });
-    expect(snapshot(env.root)).toEqual(before);
-    const result = await applyReviewed(env.root, env.value, env.review);
-    expect(result.report!.files.length).toBeGreaterThan(0);
-    const data = JSON.parse(readFileSync(join(env.root, "brain.config.json"), "utf8"));
-    expect(data.taxonomy.tags.aliases).toEqual({ ...env.config.taxonomy.tags.aliases, [env.value.from]: env.value.to });
-    expect(data.taxonomy.types).toEqual(env.config.taxonomy.types);
-    expect(data.exclude).toEqual(env.config.exclude);
-    expect(readFileSync(join(env.root, "excluded/kept.md"), "utf8")).toBe(env.files["excluded/kept.md"]);
-    expect(readFileSync(join(env.root, env.paths[0]), "utf8")).toBe(env.files[env.paths[0]].replace(`tags: [${env.fixture.left}]`, `tags: [${env.fixture.right}]`));
-    const once = snapshot(env.root), loaded = await initContext({ root: env.root });
-    expect(applyTagChanges(env.root, loaded.taxonomy, { only: env.value.from }).report.files).toEqual([]);
-    expect(snapshot(env.root)).toEqual(once);
-  } finally { env.close(); }
-});
 
 test("changed source or binary membership invalidates the complete reviewed snapshot", async () => {
   const env = await setup();

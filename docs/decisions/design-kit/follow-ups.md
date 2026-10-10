@@ -168,6 +168,12 @@ bun scripts/measure-show-block-server.ts --report claude.json
 bun scripts/measure-show-block-server.ts --report pi.json
 ```
 
+> **2026-10-10 — Implementation context (the keyless check above).** That test
+> moved to `experiments/measure-suggestions.test.ts`, the experiment tier run by
+> `bun run test:experiments` before each release ([#1386](https://github.com/schlessera/brain-kit/issues/1386)). Run
+> `bun run test experiments/measure-suggestions.test.ts` instead; the measurement
+> and its numbers are unchanged.
+
 Keep the reports separate by backend and model. The server report refuses to
 pool unlike backends/models or legacy block-rate records with suggestion
 records. The run files retain the answers, parsed items, drop reasons and

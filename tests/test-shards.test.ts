@@ -65,7 +65,10 @@ describe("balanced shards run the root command for real", () => {
       mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
       cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"));
       for (const file of files) addTest(dir, file);
-      for (const excluded of ["other/entry.test.ts", "packages/.hidden/entry.test.ts", "packages/a/node_modules/entry.test.ts"]) {
+      // The experiment tier (#1386) and a sibling whose name merely contains
+      // "tests" stay out of default discovery and of every balanced shard.
+      for (const excluded of ["other/entry.test.ts", "packages/.hidden/entry.test.ts", "packages/a/node_modules/entry.test.ts",
+        "experiments/entry.test.ts", "experiment-tests/entry.test.ts"]) {
         addTest(dir, excluded);
       }
       mkdirSync(join(dir, "packages/a/helpers"));
