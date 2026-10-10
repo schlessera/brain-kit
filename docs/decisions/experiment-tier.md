@@ -115,7 +115,9 @@ pre-flights and refuses the release unless source tree, lock, inventory and Bun
 version all match the checkout it is about to publish. HEAD is recorded but not
 compared, so committing the tested tree as `chore: version packages` keeps the
 evidence; editing any source, the lock or the inventory does not. There is no
-override flag. `bun run release -- --dry-run` stays an offline listing with no
+override flag. The receipt is a process gate, not a security boundary: it is
+plain JSON in an ignored `tmp/` file, and it stops an honest release from
+skipping the tier, not someone who writes the file by hand. `bun run release -- --dry-run` stays an offline listing with no
 gate, as `tests/release-manifest.test.ts` asserts. The release skill puts the
 command after `bun run version` and the post-version build, typecheck and test,
 and before the commit, push and `bun run release`.
@@ -133,7 +135,9 @@ Rejected alternatives:
 ## Inventory
 
 Classified at `c0c3bbc8`, after #1385's archival: root `tests/` held 205 test
-files, 83 product, 108 experiment and 14 mixed.
+files, 83 product, 108 experiment and 14 mixed. Review then found one
+experiment file with a product half, `turn-surface-capture`, so 15 files had
+both kinds of assertion.
 
 ### The experiment tier: 125 test files
 
@@ -180,10 +184,14 @@ These stay in product proof:
 ### Mixed files, split by assertion
 
 Each product block moved verbatim, with the helpers it needs, into a product
-file; the rest of the file moved to `experiments/`. Before the split the
-fourteen files ran 266 tests and 2,733 `expect()` calls. After it the same
-blocks run 267 tests and 2,737 calls; the extra test is the shipped-pin half of
-the research-runtime test.
+file; the rest of the file moved to `experiments/`. Thirteen of the fourteen
+classified mixed files were split; `canonical-conflict-transport` moved whole.
+Before the split the thirteen ran 267 tests and 2,747 `expect()` calls; after
+it the files they became run 268 tests and 2,751 calls, and the extra test
+(+4 calls) is the copied shipped-pin half of the research-runtime test.
+`turn-surface-capture`, split after review, ran 3 tests and 45 calls before
+and runs 4 tests and the same 45 calls across its two files: its first test
+became two, one per half, sharing the capture.
 
 | Original `tests/` file | Product assertions (test titles) | Product home |
 | --- | --- | --- |
@@ -200,8 +208,46 @@ the research-runtime test.
 | `candidate-extraction-disk` | real config loads both modules and configured opportunity/assembly paths | `tests/configured-module-paths-cli.test.ts` |
 | `mechanical-hygiene-eval` | the real reconcile CLI detects the row…; failedChecks prevents repair…; an unparseable existing log…; manual snooze survives… | `tests/hygiene-reconcile-shipped.test.ts` |
 | `canonical-conflict-eval` | abstention retains an existing conflict through the real failed-check reconciliation path | `tests/hygiene-failed-check-retention.test.ts` |
+| `turn-surface-capture` (in `experiments/`) | the installed CLI's request keeps the 8 core `mcp__brain__*` tools deferred, exactly 12 `mcp__brain-ui__*` bridge tools eager with `input_schema` and no `defer_loading` (the 4 inbox tools among them), `Skill` and `Read`, and the emitted skill listing | `tests/installed-turn-surface.test.ts`; package tests check only the MCP `_meta` stamp, this is where the CLI honours it. Token-group payloads and marginal counts stay in `experiments/` |
 | `canonical-conflict-transport` | none kept: its `no_key` check repeats `packages/core/tests/jev-client.test.ts` ("no key: disabled, answers no_key, sends nothing"), and its retry stop is the harness's `JevBook` | moved whole |
 
 The per-fixture loop left in `experiments/canonical-conflict-eval.test.ts`
 observes the real hygiene log incidentally; `packages/core/tests/hygiene.test.ts`
 covers that log's retention and repeat behaviour directly.
+
+The eval freeze and review-packet source sets still bind every test they bound
+before the split: they list the product halves in `tests/` beside the
+experiment files (`scripts/evals/audit-capabilities/freeze.ts`, the
+candidate-extraction `prepare.ts`, and the canonical-conflicts, job-fit,
+mechanical-hygiene and tag-aliases freezes and packets).
+
+### Things to know before changing either tier
+
+- **Duplicated helpers.** Splitting copied some setup into both halves: the
+  tag-alias `setup()` and `yes()`, the opportunity-lifecycle `configuration`
+  and `inputs()`, and the canonical-conflict `record()`. A change to the eval
+  fixture they drive needs both copies checked.
+- **Experiments import product test helpers.**
+  `experiments/mechanical-hygiene-eval.test.ts` imports
+  `packages/core/tests/cli-harness.ts`, and
+  `experiments/measure-suggestions.test.ts` imports
+  `packages/ui-server/tests/helpers/fake-backend.ts`. Moving or changing
+  either helper needs `bun run test:experiments`, because product CI does not
+  run those importers.
+- **A deliberate overlap.** The experiment test "actual current command never
+  admits a provider binary write across measured arms"
+  (`experiments/audit-capability-controls.test.ts`) repeats, per measured arm,
+  what the product test "actual audit invocation never calls a provider that
+  would write an unexpected binary source file"
+  (`tests/audit-fix-provider-claims.test.ts`) proves for the shipped command.
+- **Harness, not product, isolation.** In
+  `experiments/mechanical-hygiene-native.test.ts`, "actual installed native
+  denies an outside source read…" is denied by the harness's own `PreToolUse`
+  hook in `scripts/evals/mechanical-hygiene/native-driver.ts` (`toolVerdict`),
+  not by a shipped sandbox. Shipped read containment is product proof
+  elsewhere (`tests/measurement-isolation.test.ts`, the policy-write and
+  worker runtime tests).
+- **A cost pin surfaces at release.** `experiments/measure-suggestions.test.ts`
+  pins the `show_block` suggestions description cost (336 characters). A
+  shipped description change passes PR proof and fails the tier at release
+  preparation; update the pin with the measurement, not to silence it.
