@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * Archiving through the auto-allowed `brain_update`.
  *
@@ -303,3 +304,5 @@ test("a non-hosted project update still confirms archiving", async () => {
   expect(permissionCalls[0]!.kind).toBe("command");
   expect(output).toBeDefined();
 });
+
+mockWorkerHostForSdkStream();

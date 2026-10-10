@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * An approval that comes back with an edited input is re-checked before it is
  * applied (#145).
@@ -374,3 +375,5 @@ describe("the rtk rewrite does not race a confirmation", () => {
     });
   });
 });
+
+mockWorkerHostForSdkStream();

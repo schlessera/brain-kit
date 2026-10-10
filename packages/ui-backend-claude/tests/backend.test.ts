@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { expect, test, describe } from "bun:test";
 import type { query, Options } from "@anthropic-ai/claude-agent-sdk";
 import type { ProviderInfo, ServerMessage } from "@schlessera/brain-ui-sdk";
@@ -1452,3 +1453,5 @@ describe("turn budget in the system prompt", () => {
     expect(sp.append).toContain("Turn lifecycle");
   });
 });
+
+mockWorkerHostForSdkStream();

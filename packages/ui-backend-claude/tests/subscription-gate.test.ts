@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * The turn runner's subscription gate, driven by query doubles that DO pull
  * the prompt (#253). The live half — what the real CLI sends — is
@@ -177,3 +178,5 @@ describe("the subscription gate", () => {
     expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_ERROR" });
   });
 });
+
+mockWorkerHostForSdkStream();

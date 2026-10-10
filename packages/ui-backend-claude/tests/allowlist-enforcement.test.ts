@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A narrowed `allowedTools` is a boundary, not a suggestion (#124).
  *
@@ -506,3 +507,5 @@ describe("what the host is told about the turn's posture", () => {
     expect(harness.requests[0]!.outsideEnforcedAllowlist).toBeUndefined();
   });
 });
+
+mockWorkerHostForSdkStream();

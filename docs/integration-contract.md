@@ -1486,7 +1486,8 @@ are `add`, `update`, `archive`, `write`, `edit` and `staged` only. No command re
 filesystem handle, policy-derived authority or standing grant is accepted.
 
 The request and combined proposed Markdown each have a 1,048,576-byte UTF-8 bound.
-Only ordinary UTF-8 `.md` files are supported. Paths are exact root-relative names,
+The Markdown operations support only ordinary UTF-8 `.md` files. The separate
+PNG mask application below is the sole binary exception. Paths are exact root-relative names,
 up to 1,024 characters: no traversal, hidden path components, backslashes or
 control characters. Policy paths and ancestors (including case/Unicode variants),
 symlinks, multiple-link files and changed directory topology refuse. Existing
@@ -1528,6 +1529,39 @@ hosted effect, including the Claude spelling. Nothing is staged or replayed;
 read-only commands continue to work. Writable index connections retain SQLite WAL
 sidecars after clean close, so a read-only mount can read the checkpointed index
 without recreating sidecars. Human mode prints the same message to stderr.
+
+### Hosted PNG mask application (additive, #1037)
+
+Claude hosted turns run the CLI and its descendants inside the mandatory isolated
+worker, including project stdio MCP servers. A failed boundary probe refuses before
+runtime initialization. Hosted brain writes use the structured tools above instead
+of built-in Write, Edit and NotebookEdit; unsupported notebook effects refuse.
+Scratch is separately writable. Ordinary sessions persist and resume native JSONL
+transcripts outside the brain through parent-owned, alias-refusing snapshots.
+
+`BackendBridge.applyImageMask?(input: BrainMaskInput)` is the narrow binary
+application callback. `BrainMaskInput` is `{ imagePath: string, maskPath: string,
+png: Uint8Array }`; `BRAIN_MASK_MAX_BYTES` is 8,388,608. It returns the existing
+`BrainApplicationResult`. The host binds principal and turn identity and accepts
+only the exact bytes returned by that turn's browser editor. No worker-supplied
+identity, arbitrary binary kind, command or destination is accepted.
+
+Only PNG-signature bytes within the cap may replace the submitted existing image's
+Claude mask filename (`raft.png` becomes `raft-mask.png`), beside the source or
+under `.brain/scratch`. Image and previous mask hashes are captured before the
+editor opens and rechecked under the application lock and immediately before
+commit. Policy/ancestor paths, traversal, hidden metadata outside scratch,
+symlinks, multiple-link files and changed directory topology refuse. Authority,
+turn membership and cancellation are rechecked at application time; voice cannot
+request or apply masks. Scratch prerequisites are unchanged. Scratch pruning runs
+under that same authority/lock and records actual removals alongside the mask.
+
+The existing `request_image_mask` name, input and result remain unchanged. Its
+`maskPath`, `imagePath`, `bytes` and `note` still describe the saved PNG. Refusals
+change no files and appear as tool errors and recorded application results.
+Only committed effects enter `changes`, including an effect followed by a later
+I/O or prune failure. PNG effects do not enter the disposable Markdown index.
+The Markdown byte cap and supported file kinds above remain unchanged.
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 

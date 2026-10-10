@@ -729,6 +729,7 @@ export "./internal" (./src/internal.ts)
   type WorkerLaunch
   applyClassification
   archivesDocument
+  assertScratchMask
   bashCommand
   canonicalModelId
   claudeMaskFilename
@@ -1285,6 +1286,7 @@ export "./server" (./src/server/index.ts)
   BRAIN_APPLICATION_MAX_BYTES
   BRAIN_APPLICATION_TOOLS
   BRAIN_LOCK_KEY
+  BRAIN_MASK_MAX_BYTES
   BRAIN_UI_SYSTEM_PROMPT_APPEND
   BRIDGE_MCP_PREFIX
   BRIDGE_TOOL_CONTRACTS
@@ -1317,6 +1319,7 @@ export "./server" (./src/server/index.ts)
   type BrainApplicationOperation
   type BrainApplicationPolicy
   type BrainApplicationResult
+  type BrainMaskInput
   type BrainSearchResult
   type BrainStats
   type BridgeToolName
@@ -3118,6 +3121,8 @@ signatures (every public export and the types it is made of)
     }>;
   BRAIN_LOCK_KEY (packages/ui-sdk/src/server/lock-keys.ts)
     const BRAIN_LOCK_KEY: "brain-docs";
+  BRAIN_MASK_MAX_BYTES (packages/ui-sdk/src/server/brain-mask.ts)
+    const BRAIN_MASK_MAX_BYTES: number;
   BRAIN_UI_SYSTEM_PROMPT_APPEND (packages/ui-sdk/src/server/system-prompt.ts)
     const BRAIN_UI_SYSTEM_PROMPT_APPEND: "# Response surface\n\nYour replies render as GitHub-flavored markdown in a chat UI, not in a\nterminal. What that buys you:\n\n- **Diagrams.** A ```mermaid fence renders as a real diagram, themed to match\n  the app. The reader can open it full-screen to pan and zoom, and share it as\n  PNG, PDF or SVG. Reach for one when structure IS the answer — a flow, a\n  sequence, a state machine, a hierarchy, a timeline — instead of describing\n  the shape in prose. Available types include flowchart, sequence, class,\n  state, ER, journey, gantt, pie, quadrant, mindmap, timeline, gitGraph,\n  sankey, xychart, block, requirement, kanban and architecture; most answers\n  that want a picture are not flowcharts. Keep it to what fits on a phone: a\n  handful of nodes with short labels beats one exhaustive diagram. Prose,\n  lists and tables remain the default for everything non-structural.\n- **Do not put a `%%{init}%%` directive in a diagram.** The app themes every\n  diagram itself, and your own directive silently overrides that theme and\n  makes the diagram look foreign. Write plain mermaid.\n- **Diagrams stream.** A partial fence shows as source until it parses, so a\n  diagram mid-answer costs the reader nothing.\n- **Paths and wikilinks are tap targets.** A repo path written plainly\n  (`projects/active/foo.md`) becomes a link into the file viewer, and\n  `[[note]]` / `[[note|Label]]` resolves the same way. Wikilinks are also\n  what the graph view is built from, so when you WRITE a note, link it to its\n  neighbours — an unlinked note is invisible in the graph.\n- **No raw HTML.** The renderer has no HTML pass, so `<b>x</b>` reaches the\n  reader as the literal text `<b>x</b>`, tags and all. Markdown only — the\n  one exception is the share block below.\n- Tables, task lists and footnotes render; code blocks are highlighted and\n  copyable.\n\n# Shareable output\n\nWhen the user asks for something to send onward (\"summarize this for\nWhatsApp\", \"make a one-pager I can email\"), wrap the shareable part:\n\n<share format=\"image\" title=\"Weekly summary\">\nmarkdown body — rendered as a preview and used as the share payload\n</share>\n\n`format` pre-fills the primary button: image | pdf | text | markdown |\nrichtext. Use it only when sharing was actually asked for; every assistant\nmessage already carries its own share button.\n\nThe PNG/PDF renderer runs with no network and no JavaScript, so **remote\nimages do not appear** — inline anything essential as a `data:` URI. Mermaid\ndiagrams are the exception and always render.\n\nOnly files inside the brain repo can be opened, previewed or shared from the\nUI. Anything you write to /tmp or elsewhere is invisible to the reader. For\noutput that is only for now (a preview, a draft, a file to share and forget),\nuse the brain's scratch area, `.brain/scratch/` (`brain render --scratch`,\n`brain image --scratch`). Scratch is hidden from normal file-tree browsing;\ngive the reader a direct chat link to the exact repo-relative output path\nreturned by the command, including its leading dot, for preview or download.\nScratch files are never committed and are pruned after 7 days.\n\n# Working in the open\n\n- **Don't narrate tool use.** Every call is already shown with its inputs,\n  outputs and duration in a timeline the reader can expand. \"Let me read that\n  file\" is noise; the finding is the message.\n- **Approvals cost a tap**, sometimes while the reader is walking. Batch\n  related edits; don't split work into a long chain of small approvals.";
   BRIDGE_MCP_PREFIX (packages/ui-sdk/src/tool-contracts/contract.ts)
@@ -4066,6 +4071,7 @@ signatures (every public export and the types it is made of)
             expectedBaseHash: string;
         }>;
         applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
+        applyImageMask?(input: import("./brain-mask.js").BrainMaskInput): Promise<import("./brain-application.js").BrainApplicationResult>;
         emit(msg: ServerMessage): void;
         checkpointPermission?(req: PermissionRequest): void;
         requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
@@ -4277,6 +4283,12 @@ signatures (every public export and the types it is made of)
         }[];
         outcome?: Record<string, unknown>;
         indexed?: boolean;
+    }
+  BrainMaskInput (packages/ui-sdk/src/server/brain-mask.ts)
+    export interface BrainMaskInput {
+        imagePath: string;
+        maskPath: string;
+        png: Uint8Array;
     }
   BrainSearchResult (packages/ui-sdk/src/protocol.ts)
     export interface BrainSearchResult {

@@ -13,7 +13,7 @@ import {
   BackendRequestError,
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
-import { VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
+import { requireWorkerHost, VERSION_PROBE_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
@@ -91,6 +91,7 @@ export function createClaudeTurnRunner(options: {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true);
+    requireWorkerHost(options.backend.brainPath);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -203,6 +204,7 @@ export function createClaudeTurnRunner(options: {
     let ackGraceTimer: ReturnType<typeof setTimeout> | undefined;
     /** Every turn's input, autonomous or not, so cleanup always ends it. */
     let turnInput: TurnInput | undefined;
+    let finishWorker: (() => Promise<void>) | undefined;
     /**
      * Set when the subscription check refused the turn before its prompt was
      * released. It outranks the abort it causes: the turn failed, it was not
@@ -275,6 +277,7 @@ export function createClaudeTurnRunner(options: {
         turnLock,
         log: options.log,
       });
+      finishWorker = sdkTurn.finishWorker;
       // Always a stream that stays open, so follow-ups can join the turn.
       const input = (turnInput = createTurnInput(sdkTurn.prompt));
       if (!req.autonomous) turn.input = input;
@@ -539,6 +542,8 @@ export function createClaudeTurnRunner(options: {
         emitTerminal("error");
       }
     } finally {
+      try { await finishWorker?.(); }
+      finally {
       clearTimeout(ackGraceTimer);
       turnInput?.close();
       req.signal.removeEventListener("abort", onHostAbort);
@@ -546,6 +551,7 @@ export function createClaudeTurnRunner(options: {
       // result never streamed, e.g. an aborted turn) and free the busy slot.
       turnLock.close();
       activeTurns.delete(turnKey);
+      }
     }
   }
 

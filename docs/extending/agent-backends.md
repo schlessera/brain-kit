@@ -23,6 +23,17 @@ Two first-party implementations are the reference material:
   pi coding-agent SDK, with its own curated brain tool set
   (`packages/ui-backend-pi/src/tools.ts`) and risk classes.
 
+Claude requires the verified Linux/qualifying WSL2 worker boundary for every
+interactive, voice and autonomous turn. A failed per-turn probe visibly refuses
+before the CLI starts; an optional exec wrapper runs inside that boundary.
+The brain is read-only in the worker, with separate writable scratch. Hosted
+Markdown changes and PNG masks use server-owned applications with current turn
+authority. Ordinary Claude config/transcripts live outside the brain: the parent
+copies bounded, non-aliased state into a temporary tmpfs location, and persists
+only changed native project JSONL transcripts after worker teardown. Config
+paths inside the brain or its ancestors, redirected directories, linked files
+and concurrent transcript overwrites refuse. Existing sessions remain resumable.
+
 ## The two interfaces
 
 Every backend package exports one descriptor with exactly this top-level

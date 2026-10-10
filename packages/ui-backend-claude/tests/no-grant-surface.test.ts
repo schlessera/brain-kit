@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 /**
  * A turn with no grant surface denies rather than asks (#110).
  *
@@ -482,3 +483,5 @@ describe("turns that did not declare it", () => {
     expect(harness.activity).toHaveLength(0);
   });
 });
+
+mockWorkerHostForSdkStream();

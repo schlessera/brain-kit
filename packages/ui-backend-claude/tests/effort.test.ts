@@ -1,3 +1,4 @@
+import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { describe, expect, test } from "bun:test";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/server";
@@ -75,3 +76,5 @@ test("Claude module default precedence and uncached saved overrides", async () =
   saved = {};
   expect(await resolved.value.backend.listProfiles()).toMatchObject([{ thinkingLevel: "high" }]);
 });
+
+mockWorkerHostForSdkStream();
