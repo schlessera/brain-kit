@@ -85,7 +85,7 @@ function presentation(root: string, f: HygieneFinding) {
  * Only currently detected open findings are eligible. Info remains visible in
  * the log and in the end receipt, without becoming a required review item.
  */
-export function selectHygieneNext(root: string, findings: Map<string, HygieneFinding>, entries: HygieneLogEntry[], now: Date): HygieneNextResult {
+export function selectHygieneNext(root: string, findings: Map<string, HygieneFinding>, entries: HygieneLogEntry[], now: Date, findingId?: string): HygieneNextResult {
   const eligible = entries.filter((e) => e.state === "open" && findings.has(e.id) && severity(findings.get(e.id)!) !== "info");
   const rank = (e: HygieneLogEntry) => {
     const f = findings.get(e.id)!;
@@ -104,10 +104,10 @@ export function selectHygieneNext(root: string, findings: Map<string, HygieneFin
     nextSnoozeDueAt: dueTimes[0] ?? null,
     informationalNotShown: entries.filter((e) => e.state === "open" && findings.get(e.id)?.severity === "info").length,
   };
-  const entry = eligible[0];
+  const entry = findingId === undefined ? eligible[0] : eligible.find(e => e.id === findingId);
   if (!entry) return { finding: null, counts };
   const f = findings.get(entry.id)!;
-  const second = eligible[1];
+  const second = eligible.find(e => e.id !== entry.id);
   const tieBreak = !second ? "only-finding" : rank(entry)[0] !== rank(second)[0] ? "severity"
     : rank(entry)[1] !== rank(second)[1] ? "urgency" : seenAt(entry) !== seenAt(second) ? "age" : "identity";
   return {

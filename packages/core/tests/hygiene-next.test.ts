@@ -166,6 +166,28 @@ describe("hygiene next real CLI", () => {
       taxonomy: buildTaxonomy({ user: brainConfigSchema.parse(JSON.parse(readFileSync(join(r, "brain.config.json"), "utf8"))) }) };
   }
 
+  test("targeted dry-run reads fresh canonical evidence without writing any Markdown and requires dry-run", async () => {
+    const r = root();
+    write(r, "brain.config.json", "{}");
+    write(r, "journeys/return-to-ithaca.md", doc("Odysseus sees [[Eumaeus hut|the hut]]."));
+    const initial = await runCli(r, ["hygiene", "next", "--json"]);
+    expect(initial.code).toBe(0);
+    const old = JSON.parse(initial.stdout).finding;
+    write(r, "journeys/return-to-ithaca.md", doc("Odysseus sees [[Eumaeus hut|his hut]]."));
+    const before = snapshot(r);
+    const fresh = await runCli(r, ["hygiene", "next", "--finding", old.id, "--dry-run", "--json"]);
+    expect(fresh.code).toBe(0);
+    const finding = JSON.parse(fresh.stdout).finding;
+    expect(finding.id).toBe(old.id); expect(finding.fingerprint).not.toBe(old.fingerprint);
+    expect(finding.excerpt).toContain("his hut"); expect(finding.handlers.map((h: {name: string}) => h.name)).toContain("link-text");
+    const markdown = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).filter(([path]) => path.endsWith(".md")));
+    expect(markdown(snapshot(r))).toEqual(markdown(before));
+    const absent = await runCli(r, ["hygiene", "next", "--finding", "not-detected", "--dry-run", "--json"]);
+    expect(absent.code).toBe(0); expect(JSON.parse(absent.stdout).finding).toBeNull();
+    const refused = await runCli(r, ["hygiene", "next", "--finding", old.id, "--json"]);
+    expect(refused.code).toBe(1); expect(refused.stderr).toContain("--finding needs an ID and --dry-run");
+  });
+
   test("C4 can discover every available broken-link handler through hygiene next", async () => {
     const r = root();
     write(r, "brain.config.json", "{}");

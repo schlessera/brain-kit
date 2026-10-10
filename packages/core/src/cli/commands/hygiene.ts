@@ -41,7 +41,7 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       "invalidated", "invalidations", "changedFiles", "detected": [{ "id", "category", "path",
       "message", "severity", "urgency", "sources", "fingerprint" }], "autoFixed", "failedChecks" }
 
-  next [--extra <file.json>]
+  next [--extra <file.json>] [--finding <id> --dry-run]
       Reconcile and select one eligible canonical finding by severity, known
       urgency, age, then identity. Informational findings are counted but not
       shown. The finding's handlers describe every available repair or manual
@@ -49,6 +49,8 @@ const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|resolve|undo|che
       { "finding", "counts" }; invalid configuration returns
       { "blocker": { "kind": "configuration", "message", "path", "line", "column" } }
       with exit 1 before any indexing or hygiene writes.
+      --finding <id> --dry-run reads that detected open finding without
+      Markdown writes, preserving the log for counts; the index is refreshed.
 
   list [--state open|snoozed|dismissed|resolved]
       The log's entries.
@@ -185,7 +187,7 @@ export const hygieneCommand: CoreCommand = {
     const sub = pos[0];
 
     if (sub === "next") {
-      if (pos.length !== 1) throw new UsageError("Usage: brain hygiene next [--extra <file.json>]");
+      if (pos.length !== 1) throw new UsageError("Usage: brain hygiene next [--extra <file.json>] [--finding <id> --dry-run]");
       if (cli.configError) {
         const cause = cli.configCause as {
           sourceURL?: unknown; line?: unknown; column?: unknown;
@@ -208,12 +210,14 @@ export const hygieneCommand: CoreCommand = {
       if (flags.extra === true) throw new UsageError("--extra needs a file");
       const extra = typeof flags.extra === "string" ? readExtra(flags.extra) : [];
       const now = new Date();
-      const { result, findings } = await detectAndReconcile(cli, { now, extra });
+      if (flags.finding !== undefined && (typeof flags.finding !== "string" || !flags.finding || flags["dry-run"] !== true))
+        throw new UsageError("--finding needs an ID and --dry-run");
+      const { result, findings } = await detectAndReconcile(cli, { now, extra, dryRun: flags["dry-run"] === true });
       if (result.failedChecks.length > 0) {
         emit(cli.json, { blocker: { kind: "checks", failedChecks: result.failedChecks } }, () => console.error(`Review cannot start: checks failed: ${result.failedChecks.join(", ")}`));
         return 1;
       }
-      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now);
+      const selected = selectHygieneNext(cli.brain.root, findings, readHygieneLog(cli.brain.root), now, typeof flags.finding === "string" ? flags.finding : undefined);
       const payload = { ...selected, finding: selected.finding
         ? { ...selected.finding, handlers: repairHandlers(cli.brain, selected.finding) } : null };
       emit(cli.json, payload, () => {

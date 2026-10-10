@@ -7,7 +7,7 @@ import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, Hy
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneInputSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainClient } from "../brain/client.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
-import { createInboxAction, inboxIdentity } from "./actions.js";
+import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
 import { createInboxResolver, inboxSnoozeUntil } from "./resolve.js";
 import { createInboxStore } from "./store.js";
 
@@ -59,11 +59,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
-  async function select(principalId?: string) {
-    // CLI selection/reconciliation and previews are outside write transactions.
-    const next = nextSchema.parse(await cli(["next"]));
-    if (principalId) authority(principalId);
-    const finding = "finding" in next ? next.finding : null;
+  async function prepareOptions(finding: z.infer<typeof findingSchema> | null) {
     const options: InboxOption[] = [];
     if (finding) {
       for (const h of finding.handlers) {
@@ -82,6 +78,55 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         { id: "later", label: "Later", effect: effect(finding, "snooze") },
         { id: "dismiss", label: "Dismiss", effect: effect(finding, "dismiss") });
     }
+    return options;
+  }
+  async function refresh(principalId: string) {
+    const initial = read(), old = initial.action;
+    // A retired/capped review has no pending card. Only Start/Resume can admit one.
+    if (!old || old.status !== "pending") return initial;
+    if (busy(old.id)) throw new Error("Effect in progress");
+    const args = ["next", "--finding", old.hygiene!.findingId, "--dry-run"];
+    const next = nextSchema.parse(await cli(args));
+    authority(principalId);
+    const finding = "finding" in next ? next.finding : null;
+    if (finding?.fingerprint === old.hygiene!.fingerprint) return read();
+    const options = await prepareOptions(finding);
+    // Re-read after all previews: an intervening edit must not install a stale card.
+    const verified = finding ? nextSchema.parse(await cli(args)) : next;
+    authority(principalId);
+    return db.transaction(() => {
+      const review = state(), current = action(old.id);
+      if (review.pendingActionId !== old.id || current.status !== "pending" || current.version !== old.version || busy(old.id))
+        throw new Error("Inbox version conflict");
+      if ("blocker" in next || "blocker" in verified) {
+        update(current, { version: 1, status: "refused", reason: "refresh-checks-unavailable" });
+        return read();
+      }
+      const missingPreview = options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
+      if (!finding || !verified.finding || finding.id !== old.hygiene!.findingId || verified.finding.id !== finding.id || verified.finding.fingerprint !== finding.fingerprint || missingPreview) {
+        update(current, { version: 1, status: "stale", reason: finding ? "refresh-premise-changed" : "finding-not-detected" });
+        return read();
+      }
+      // Chain identity supports A -> B -> A without ever reviving a terminal card.
+      const itemId = inboxIdentity("hygiene-refresh", old.id, finding.fingerprint);
+      const threadId = inboxIdentity("hygiene-refresh-thread", itemId);
+      update(current, { version: 1, status: "superseded", supersededBy: itemId });
+      store.commit([{ kind: "transition", itemId: old.id, expectedVersion: action(old.id).version, to: "dropped" }]);
+      store.openReviewThread(threadId);
+      const item: InboxActionItem = { id: itemId, dedupKey: itemId, threadId, queue: "actions", type: "choose", status: "pending", version: 1, createdAt: now(), updatedAt: now(), expiresAt: Number.MAX_SAFE_INTEGER,
+        payload: { title: finding.title, detail: finding.path }, options, hygiene: { findingId: finding.id, fingerprint: finding.fingerprint, finding } };
+      // One pending decision replaces one: normal validation, without running cap retirement.
+      insertInboxAction(db, item, [], undefined, now(), true);
+      save({ ...review, pendingActionId: itemId, counts: next.counts });
+      return read();
+    }).immediate();
+  }
+  async function select(principalId?: string) {
+    // CLI selection/reconciliation and previews are outside write transactions.
+    const next = nextSchema.parse(await cli(["next"]));
+    if (principalId) authority(principalId);
+    const finding = "finding" in next ? next.finding : null;
+    const options = await prepareOptions(finding);
     if (principalId) authority(principalId);
     db.transaction(() => {
       const review = state();
@@ -110,8 +155,9 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (!preparing) preparing = select(principalId).finally(() => { preparing = null; });
     await preparing;
   }
-  async function command(principalId: string, operation: "start" | "pause" | "resume") {
+  async function command(principalId: string, operation: "start" | "pause" | "resume" | "refresh") {
     authority(principalId);
+    if (operation === "refresh") return refresh(principalId);
     db.transaction(() => {
       const review = state();
       if (operation === "pause") save({ ...review, status: "paused" });

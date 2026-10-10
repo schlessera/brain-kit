@@ -5768,7 +5768,7 @@ transaction or server-level replay/authorization guarantee.
 ### Human-started hygiene review (additive, #1027)
 
 The authenticated host exposes `GET /api/hygiene/review` and
-`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" }`.
+`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" | "refresh" }`.
 Both return `{ "review": HygieneReviewState, "action": InboxActionItem | null }`.
 The read is operational state; start/resume select through the supported
 `brain hygiene next --json` boundary without inference. Owner and ambient
@@ -5788,13 +5788,44 @@ Pause neither disposes the finding nor changes its pending Action. Start/resume
 returns an existing pending Action. An empty selection returns deferred counts
 without an Action; a configuration/check blocker returns the CLI blocker instead.
 
+`refresh` (#1493) explicitly re-reads the pending canonical finding through
+`brain hygiene next --finding <id> --dry-run --json`. This targeted form keeps
+the existing finding/counts envelope and returns current evidence/handlers for
+that detected open noninformational finding, even when another finding would
+win ordinary selection. An absent/ineligible finding is null. `--finding`
+requires a nonempty ID and `--dry-run`; malformed usage exits 1. Dry-run refreshes
+the disposable index but writes no Markdown, including hygiene logs. Counts
+reflect the existing durable log against current detection, without reconciling
+its dispositions. Ordinary `next` retains its selection and reconciliation.
+
+If the fingerprint changes, the server prepares current handler previews and
+rechecks the finding after preparation. In one transaction it retires the old
+Action as `dropped` with a `superseded` outcome and replacement ID, and admits
+one new pending Action. Each Action retains its immutable finding identity,
+fingerprint and stored resolution effects. A fingerprint returning to an earlier
+value creates another new Action, never revives a terminal one. Supersession
+records no resolution effect, repair, dismissal, snooze or cap suppression; it
+writes no Markdown, changes no review counters or position, and never runs cap
+retirement of other cards. Existing inbox replication publishes both cards.
+
+An unchanged fingerprint is a no-op returning the current card. A disappeared
+finding or intervening edit leaves the old card pending with `stale`; unavailable
+checks leave it pending with `refused`. An in-progress effect or concurrent Action
+revision refuses refresh (`review_failed`, 500) without replacement. Authority is
+rechecked after I/O. Every old-card preview or confirmation is refused, including
+requests from another device. A fresh card still needs a separately confirmed
+repair. Reload/restart retain the superseded receipt and new pointer. Refresh
+preserves a normal Pause; a review with no pending card (including cap retirement)
+requires explicit Start/Resume for admission, never Refresh.
+
 An Action may carry optional `hygiene`:
 `{ findingId, fingerprint, finding, outcome? }`. `finding` retains the supported
 C2/C3 projection, including the complete `handlers` descriptors, priority reason,
 provenance, presentation and invalidation receipt. `outcome` is
-`{ version: 1, status, reason?, code?, undoToken?, fieldError? }`; its statuses are
+`{ version: 1, status, reason?, code?, undoToken?, fieldError?, supersededBy? }`; its statuses are
 `applying`, `fixed`, `stale`, `refused`, `check_failed`, `still_detected`,
-`not_detected`, `undone`, `dismissed`, `snoozed`. The Action's ordinary `version`
+`not_detected`, `undone`, `dismissed`, `snoozed`, `superseded`. A superseded
+outcome also carries `supersededBy`, the replacement Action ID. The Action's ordinary `version`
 advances whenever its outcome or confirmed options change, emitting the existing
 upsert delta. Failed/uncertain outcomes survive restart and stay pending.
 

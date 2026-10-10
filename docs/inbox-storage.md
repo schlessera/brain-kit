@@ -131,3 +131,11 @@ One unfinished attempt per Action serializes asynchronous CLI dispatch across
 connections. Recovery rechecks the original finding/fingerprint without
 replaying the repair. The documented HTTP read exposes review counters across
 reloads/devices; the existing inbox stream exposes Action outcomes.
+
+
+Explicit hygiene Refresh atomically replaces a changed-fingerprint pending card.
+The old card retains its finding/effects and a `superseded` outcome naming the
+replacement, with terminal `dropped` status. No resolution row, cap suppression
+or Markdown disposition is added. The current pointer and both replicated cards
+commit together; review position and counters are preserved. See the
+[human-review contract](integration-contract.md#human-started-hygiene-review-additive-1027).

@@ -262,3 +262,164 @@ test("durable preview revisions and completed dispatch receipts cannot be rewrit
   expect(() => f.db.query("UPDATE hygiene_effect_attempts SET request_json = '{}' WHERE item_id = ?").run(item.id)).toThrow("Immutable hygiene attempt");
   expect(() => f.db.query("DELETE FROM hygiene_effect_attempts WHERE item_id = ?").run(item.id)).toThrow("Retained hygiene attempt");
 });
+
+
+test("same-identity refresh supersedes the old Action with current evidence without advancing or writing Markdown", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
+  await f.review.resolver.resolveAsync(f.principal.id, request(old));
+  expect(f.review.read().action?.hygiene?.outcome?.status).toBe("stale");
+  const fresh = await f.brain.hygiene!(["next"]) as { finding: { id: string; fingerprint: string } };
+  expect(fresh.finding.id).toBe(old.hygiene!.findingId);
+  expect(fresh.finding.fingerprint).not.toBe(old.hygiene!.fingerprint);
+  const before = readFileSync(path, "utf8"), logs = logBytes(f.root), position = f.review.read().review.position;
+  const app = new Hono<AppEnv>(); app.use("*", async (c, next) => { c.set("principal", f.principal); await next(); }); app.route("/", createHygieneReviewRoutes(f.review));
+  const response = await app.request("/hygiene/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ operation: "refresh" }) });
+  const refreshed = await response.json() as { action?: InboxActionItem };
+  // The failing-first receipt names the obsolete fingerprint, before other new wire assertions.
+  expect(refreshed.action?.hygiene?.fingerprint ?? old.hygiene!.fingerprint).toBe(fresh.finding.fingerprint);
+  expect(response.status).toBe(200);
+  const current = refreshed.action!;
+  expect(current.id).not.toBe(old.id); expect(current.hygiene!.findingId).toBe(old.hygiene!.findingId);
+  expect(current.options.find(o => o.id === "link-text")?.preview?.before).toBe(before);
+  expect((f.store.getItem(old.id) as InboxActionItem).options).toEqual(old.options);
+  expect(f.store.getItem(old.id)).toMatchObject({ status: "dropped", hygiene: { outcome: { status: "superseded", supersededBy: current.id } } });
+  expect(f.review.read().review).toMatchObject({ position, fixed: 0, dismissed: 0, snoozed: 0 });
+  expect(pending(f)).toHaveLength(1); expect(logBytes(f.root)).toEqual(logs); expect(readFileSync(path, "utf8")).toBe(before);
+  await expect(f.review.preview(f.principal.id, { itemId: old.id, optionId: "link-text", expectedVersion: old.version, input: null })).rejects.toThrow();
+  await expect(f.review.resolver.resolveAsync(f.principal.id, request(old))).rejects.toThrow("not resolvable");
+  expect(f.applies()).toHaveLength(1); // Only the original stale attempt reached apply.
+  const { exportInboxSnapshot, restoreInboxSnapshot } = await import("../src/inbox/snapshot.js");
+  const backup = await exportInboxSnapshot(f.db, f.root);
+  const restoredPath = join(f.root, "restored.sqlite");
+  await restoreInboxSnapshot(backup, restoredPath, f.root);
+  const restoredDb = createUiDb(restoredPath); clean.push(() => restoredDb.close());
+  expect(createHygieneReview(restoredDb, { brain: f.brain }).read().action?.id).toBe(current.id);
+  expect((createInboxStore(restoredDb).getItem(old.id) as InboxActionItem | null)?.hygiene?.outcome?.supersededBy).toBe(current.id);
+  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const restarted = createHygieneReview(foreign, { brain: f.brain });
+  const repeated = await Promise.all([restarted.command(f.principal.id, "refresh"), f.review.command(f.principal.id, "refresh")]);
+  expect(repeated.map(r => r.action?.id)).toEqual([current.id, current.id]);
+  await restarted.command(f.principal.id, "pause");
+  expect((await restarted.command(f.principal.id, "refresh")).review.status).toBe("paused");
+  expect((await restarted.command(f.principal.id, "resume")).action?.id).toBe(current.id);
+  const previewed = await restarted.preview(f.principal.id, { itemId: current.id, optionId: "link-text", expectedVersion: current.version, input: null });
+  await restarted.resolver.resolveAsync(f.principal.id, request(previewed));
+  expect(readFileSync(path, "utf8")).toContain("his hut"); expect(readFileSync(path, "utf8")).not.toContain("[[Eumaeus hut");
+  expect(f.store.getItem(current.id)?.status).toBe("resolved");
+});
+
+test("refresh targets the current finding even when another finding would win next, and returning evidence never revives an old Action", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string), original = readFileSync(path, "utf8");
+  writeFileSync(path, original.replace("|the hut", "|his hut").replace("title: Return to Ithaca\n", ""));
+  const next = await f.brain.hygiene!(["next"]) as { finding: { id: string } };
+  expect(next.finding.id).not.toBe(old.hygiene!.findingId);
+  const logs = logBytes(f.root);
+  const changed = (await f.review.command(f.principal.id, "refresh")).action!;
+  expect(changed.hygiene!.findingId).toBe(old.hygiene!.findingId);
+  expect(changed.hygiene!.fingerprint).not.toBe(old.hygiene!.fingerprint);
+  expect(changed.hygiene!.finding.priorityReason).toMatchObject({ severity: "warning", tieBreak: "severity" });
+  expect(logBytes(f.root)).toEqual(logs);
+  writeFileSync(path, original);
+  const returning = f.review.command(f.principal.id, "refresh");
+  await expect(returning).resolves.toMatchObject({ action: { hygiene: { fingerprint: old.hygiene!.fingerprint } } });
+  const returned = (await returning).action!;
+  expect(returned.hygiene!.fingerprint).toBe(old.hygiene!.fingerprint);
+  expect(returned.id).not.toBe(old.id); expect(returned.id).not.toBe(changed.id);
+  expect((f.store.getItem(changed.id) as InboxActionItem | null)?.hygiene?.outcome?.supersededBy).toBe(returned.id);
+  expect(pending(f)).toHaveLength(1); expect(f.review.read().review.position).toBe(1);
+});
+
+test("refresh of a gone finding or unavailable checks stays pending without claiming a disposition", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("[[Eumaeus hut|the hut]]", "the hut"));
+  const before = readFileSync(path, "utf8"), logs = logBytes(f.root);
+  const gone = await f.review.command(f.principal.id, "refresh");
+  expect(gone.action?.id).toBe(old.id); expect(gone.action?.hygiene?.outcome).toMatchObject({ status: "stale", reason: "finding-not-detected" });
+  writeFileSync(join(f.root, "brain.config.ts"), 'throw new Error("unknown schemaa");\n');
+  const blocked = await f.review.command(f.principal.id, "refresh");
+  expect(blocked.action?.id).toBe(old.id); expect(blocked.action?.hygiene?.outcome?.status).toBe("refused");
+  expect(blocked.review).toMatchObject({ position: 1, fixed: 0, dismissed: 0, snoozed: 0 });
+  expect(readFileSync(path, "utf8")).toBe(before); expect(logBytes(f.root)).toEqual(logs); expect(f.applies()).toHaveLength(0);
+});
+
+for (const during of ["edit", "revoke", "resolve", "preview"] as const) test(`refresh refuses ${during} during preparation without admitting a replacement`, async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
+  const hygiene = f.brain.hygiene!; let reads = 0;
+  const racing = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    const result = await hygiene(args);
+    if (during === "edit" && args.includes("link-text") && args.includes("--dry-run")) writeFileSync(path, readFileSync(path, "utf8").replace("|his hut", "|their hut"));
+    if (args.includes("--finding") && ++reads === 1) {
+      if (during === "revoke") revokePrincipal(f.db, f.principal.id, Date.now());
+      if (during === "resolve") await f.review.resolver.resolveAsync(f.principal.id, request(old, "dismiss"));
+      if (during === "preview") await f.review.preview(f.principal.id, { itemId: old.id, optionId: "link-text", expectedVersion: old.version, input: null });
+    }
+    return result;
+  } } });
+  if (during === "edit") {
+    const result = await racing.command(f.principal.id, "refresh");
+    expect(result.action?.id).toBe(old.id); expect(result.action?.hygiene?.outcome).toMatchObject({ status: "stale", reason: "refresh-premise-changed" });
+  } else await expect(racing.command(f.principal.id, "refresh")).rejects.toThrow(during === "revoke" ? "Human review authority" : "version conflict");
+  expect((f.store.getItem(old.id) as InboxActionItem | null)?.hygiene?.outcome?.status).not.toBe("superseded");
+  expect(f.applies()).toHaveLength(0); expect(pending(f)).toHaveLength(1);
+});
+
+test("simultaneous refreshes across connections admit one replacement and refresh never retires other capped decisions", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const { createInboxAction } = await import("../src/inbox/actions.js");
+  for (let i = 0; i < 59; i++) {
+    const threadId = `other-${i}`; f.store.openReviewThread(threadId);
+    createInboxAction(f.db, { id: threadId, dedupKey: threadId, threadId, queue: "actions", type: "choose", status: "pending", version: 1, createdAt: 1, updatedAt: 1, expiresAt: Number.MAX_SAFE_INTEGER, payload: { title: "Odysseus chooses", detail: "Odysseus reviews a choice." }, options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] }, []);
+  }
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
+  const foreign = createUiDb(join(f.root, "ui.sqlite")); clean.push(() => foreign.close());
+  const second = createHygieneReview(foreign, { brain: f.brain });
+  const results = await Promise.allSettled([f.review.command(f.principal.id, "refresh"), second.command(f.principal.id, "refresh")]);
+  expect(results.some(r => r.status === "fulfilled")).toBe(true);
+  expect(pending(f)).toHaveLength(1); expect((f.store.getItem(old.id) as InboxActionItem | null)?.hygiene?.outcome?.status).toBe("superseded");
+  expect(f.store.snapshot().items.filter(i => i.queue === "actions" && i.status === "pending")).toHaveLength(60);
+  expect(f.store.snapshot().items.filter(i => i.id.startsWith("retired-"))).toHaveLength(0);
+  expect(f.review.read().review.position).toBe(1); expect(f.applies()).toHaveLength(0);
+});
+
+test("refresh authority and an in-progress effect are rechecked, while an empty paused review requires Resume", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]].");
+  const agent = createPrincipal(f.db, { authMethod: "delegated", label: "Odysseus helper", createdBy: f.principal.id, ttlSeconds: 3600 });
+  await expect(f.review.command(agent.id, "refresh")).rejects.toThrow("Human review authority");
+  await f.review.command(f.principal.id, "pause");
+  expect((await f.review.command(f.principal.id, "refresh")).action).toBeNull();
+  expect(f.argv()).toHaveLength(0);
+  const old = (await f.review.command(f.principal.id, "resume")).action!;
+  const hygiene = f.brain.hygiene!;
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), ready = new Promise<void>(r => { entered = r; });
+  const applying = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args.includes("resolve") && !args.includes("--dry-run")) { entered(); await gate; }
+    return hygiene(args);
+  } } });
+  const apply = applying.resolver.resolveAsync(f.principal.id, request(old));
+  await ready;
+  try { await expect(f.review.command(f.principal.id, "refresh")).rejects.toThrow("Effect in progress"); }
+  finally { release(); await apply; }
+  expect(f.store.getItem(old.id)?.status).toBe("resolved");
+});
+
+test("refresh refuses a failed input-free preview even when the final fingerprint is current", async () => {
+  const f = setup("Odysseus sees [[Eumaeus hut|the hut]]."), old = (await f.review.command(f.principal.id, "start")).action!;
+  const path = join(f.root, old.hygiene!.finding.path as string);
+  writeFileSync(path, readFileSync(path, "utf8").replace("|the hut", "|his hut"));
+  const hygiene = f.brain.hygiene!;
+  const unavailable = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args.includes("link-text") && args.includes("--dry-run")) return { status: "refused", id: old.hygiene!.findingId, reason: "lock-unavailable" };
+    return hygiene(args);
+  } } });
+  const result = await unavailable.command(f.principal.id, "refresh");
+  expect(result.action?.id).toBe(old.id); expect(result.action?.hygiene?.outcome?.status).toBe("stale");
+  expect(f.applies()).toHaveLength(0); expect(pending(f)).toHaveLength(1);
+});

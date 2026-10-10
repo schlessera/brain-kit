@@ -5224,7 +5224,8 @@ signatures (every public export and the types it is made of)
         finding: Record<string, unknown>;
         outcome?: {
             version: 1;
-            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed";
+            status: "applying" | "fixed" | "stale" | "refused" | "check_failed" | "still_detected" | "not_detected" | "undone" | "dismissed" | "snoozed" | "superseded";
+            supersededBy?: string;
             reason?: string;
             code?: string;
             undoToken?: string;
@@ -5267,7 +5268,7 @@ signatures (every public export and the types it is made of)
     }
   HygieneReviewCommand (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewCommand {
-        operation: "start" | "pause" | "resume";
+        operation: "start" | "pause" | "resume" | "refresh";
     }
   HygieneReviewRead (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewRead {
@@ -9500,8 +9501,10 @@ signatures (every public export and the types it is made of)
                 snoozed: "snoozed";
                 stale: "stale";
                 still_detected: "still_detected";
+                superseded: "superseded";
                 undone: "undone";
             }>;
+            supersededBy: z.ZodOptional<z.ZodString>;
             undoToken: z.ZodOptional<z.ZodString>;
             version: z.ZodLiteral<1>;
         }, z.core.$strict>>;
@@ -9554,8 +9557,10 @@ signatures (every public export and the types it is made of)
             snoozed: "snoozed";
             stale: "stale";
             still_detected: "still_detected";
+            superseded: "superseded";
             undone: "undone";
         }>;
+        supersededBy: z.ZodOptional<z.ZodString>;
         undoToken: z.ZodOptional<z.ZodString>;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
@@ -9570,6 +9575,7 @@ signatures (every public export and the types it is made of)
     const hygieneReviewCommandSchema: z.ZodObject<{
         operation: z.ZodEnum<{
             pause: "pause";
+            refresh: "refresh";
             resume: "resume";
             start: "start";
         }>;
@@ -9601,8 +9607,10 @@ signatures (every public export and the types it is made of)
                         snoozed: "snoozed";
                         stale: "stale";
                         still_detected: "still_detected";
+                        superseded: "superseded";
                         undone: "undone";
                     }>;
+                    supersededBy: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                     version: z.ZodLiteral<1>;
                 }, z.core.$strict>>;
@@ -9783,8 +9791,10 @@ signatures (every public export and the types it is made of)
                     snoozed: "snoozed";
                     stale: "stale";
                     still_detected: "still_detected";
+                    superseded: "superseded";
                     undone: "undone";
                 }>;
+                supersededBy: z.ZodOptional<z.ZodString>;
                 undoToken: z.ZodOptional<z.ZodString>;
                 version: z.ZodLiteral<1>;
             }, z.core.$strict>>;
@@ -10049,8 +10059,10 @@ signatures (every public export and the types it is made of)
                         snoozed: "snoozed";
                         stale: "stale";
                         still_detected: "still_detected";
+                        superseded: "superseded";
                         undone: "undone";
                     }>;
+                    supersededBy: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                     version: z.ZodLiteral<1>;
                 }, z.core.$strict>>;
@@ -10323,8 +10335,10 @@ signatures (every public export and the types it is made of)
                             snoozed: "snoozed";
                             stale: "stale";
                             still_detected: "still_detected";
+                            superseded: "superseded";
                             undone: "undone";
                         }>;
+                        supersededBy: z.ZodOptional<z.ZodString>;
                         undoToken: z.ZodOptional<z.ZodString>;
                         version: z.ZodLiteral<1>;
                     }, z.core.$strict>>;
@@ -10594,8 +10608,10 @@ signatures (every public export and the types it is made of)
                     snoozed: "snoozed";
                     stale: "stale";
                     still_detected: "still_detected";
+                    superseded: "superseded";
                     undone: "undone";
                 }>;
+                supersededBy: z.ZodOptional<z.ZodString>;
                 undoToken: z.ZodOptional<z.ZodString>;
                 version: z.ZodLiteral<1>;
             }, z.core.$strict>>;
@@ -11022,8 +11038,10 @@ signatures (every public export and the types it is made of)
                         snoozed: "snoozed";
                         stale: "stale";
                         still_detected: "still_detected";
+                        superseded: "superseded";
                         undone: "undone";
                     }>;
+                    supersededBy: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                     version: z.ZodLiteral<1>;
                 }, z.core.$strict>>;
@@ -14202,8 +14220,10 @@ signatures (every public export and the types it is made of)
                         snoozed: "snoozed";
                         stale: "stale";
                         still_detected: "still_detected";
+                        superseded: "superseded";
                         undone: "undone";
                     }>;
+                    supersededBy: z.ZodOptional<z.ZodString>;
                     undoToken: z.ZodOptional<z.ZodString>;
                     version: z.ZodLiteral<1>;
                 }, z.core.$strict>>;
@@ -14485,8 +14505,10 @@ signatures (every public export and the types it is made of)
                             snoozed: "snoozed";
                             stale: "stale";
                             still_detected: "still_detected";
+                            superseded: "superseded";
                             undone: "undone";
                         }>;
+                        supersededBy: z.ZodOptional<z.ZodString>;
                         undoToken: z.ZodOptional<z.ZodString>;
                         version: z.ZodLiteral<1>;
                     }, z.core.$strict>>;
