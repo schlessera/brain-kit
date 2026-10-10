@@ -156,7 +156,7 @@ export function MaskEditor({
             {request.instruction ?? request.imagePath}
           </div>
         </div>
-        <button
+        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
           type="button"
           onClick={cancel}
           aria-label="Cancel"
@@ -226,7 +226,7 @@ export function MaskEditor({
             className="flex-1"
           />
         </label>
-        <button
+        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
           type="button"
           onClick={() => setStrokes((prev) => prev.slice(0, -1))}
           disabled={strokes.length === 0}
@@ -235,7 +235,7 @@ export function MaskEditor({
         >
           <RotateCcw className="h-5 w-5" />
         </button>
-        <button
+        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
           type="button"
           onClick={() => setStrokes([])}
           disabled={strokes.length === 0}

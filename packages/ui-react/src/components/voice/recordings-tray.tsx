@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { followDraftTarget } from "../../lib/draft-target.js";
 import { AssociateRecordings } from "./associate-recordings.js";
 import type { BrainUiRoot } from "../../root.js";
@@ -100,7 +101,7 @@ export function RecordingsTray({ composerRef, onAccepted }: {
     <div className="sr-only" aria-live="polite" data-recording-live="">{notice}</div>
     {inventory.account === account && inventory.removed.map(text => <p key={text} className="text-xs text-muted-foreground">{text}</p>)}
     {rows.length > 0 && <div ref={tray} className="mb-2 rounded-xl border border-border bg-surface" data-recordings-tray="" style={{ maxWidth: 720, marginInline: "auto", maxHeight: "40vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <button ref={header} type="button" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(v => !v)} className="flex w-full items-center justify-between gap-2 px-3 text-xs font-mono" style={{ minHeight: 44 }}>
+      <button /* raw-button: row — Composite disclosure header keeps its native ref. */ ref={header} type="button" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(v => !v)} className="bk-row flex w-full items-center justify-between gap-2 px-3 text-xs font-mono" style={{ "--hv-bg": "var(--bk-hover-veil-strong)", minHeight: 44 } as CSSProperties}>
         <span>On this device · {rows.length} · {size(rows.reduce((n, r) => n + r.bytes, 0))}</span><span aria-hidden="true">{open ? "▴" : "▾"}</span>
       </button>
       <div ref={list} id={listId} hidden={!open} className="min-h-0 space-y-2 overflow-y-auto px-2 pb-2">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Overlay } from "@schlessera/brain-ui-kit";
-import { Minus, Plus, Maximize2, X } from "lucide-react";
+import { IconButton, Overlay } from "@schlessera/brain-ui-kit";
+import { Minus, Maximize2 } from "lucide-react";
 
 /**
  * Full-screen, pan-and-zoom view of one visual thing — a diagram, an image,
@@ -282,12 +282,9 @@ export function ZoomViewer({
     else zoomAt(2, stagePoint(e));
   };
 
-  const btn =
-    "flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground";
-
   // Keep the dialog outside markdown inline content and its image selectors.
   return createPortal(
-    <Overlay open variant="fullscreen" label={label} onClose={onClose}>
+    <Overlay open variant="fullscreen" label={label} closeLabel="Close" onClose={onClose}>
       <div className="flex h-full flex-col">
       <div
         className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2"
@@ -297,19 +294,11 @@ export function ZoomViewer({
           {Math.round(scale * 100)}%
         </span>
         <div className="flex items-center gap-1 [&>div>button]:min-h-11 [&>div>button]:min-w-11">
-          <button type="button" aria-label="Zoom out" onClick={() => zoomCenter(0.8)} className={btn}>
-            <Minus className="h-4 w-4" />
-          </button>
-          <button type="button" aria-label="Zoom in" onClick={() => zoomCenter(1.25)} className={btn}>
-            <Plus className="h-4 w-4" />
-          </button>
-          <button type="button" aria-label="Fit to screen" onClick={fit} className={btn}>
-            <Maximize2 className="h-4 w-4" />
-          </button>
+          <IconButton size="md" name="Zoom out" glyph={<Minus className="h-4 w-4" />} onClick={() => zoomCenter(0.8)} />
+          <IconButton size="md" name="Zoom in" icon="add" onClick={() => zoomCenter(1.25)} />
+          <IconButton size="md" name="Fit to screen" glyph={<Maximize2 className="h-4 w-4" />} onClick={fit} />
           {actions}
-          <button type="button" aria-label="Close" onClick={onClose} className={btn}>
-            <X className="h-4 w-4" />
-          </button>
+          <span aria-hidden="true" style={{ width: 44, height: 44 }} />
         </div>
       </div>
 

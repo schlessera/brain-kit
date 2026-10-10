@@ -140,7 +140,7 @@ export function ShareHarness({
           />
         </label>
 
-        <button
+        <button /* raw-button: dev — Dev-only shared intake harness control. */
           type="button"
           onClick={() => void send()}
           className="flex items-center justify-center gap-2 rounded-lg bg-primary-fill px-4 py-2 text-sm font-medium text-primary-foreground"
@@ -160,7 +160,7 @@ export function ShareHarness({
         <div className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm">
           <span className="text-muted-foreground">Landed on</span>
           <code className="break-all">{result}</code>
-          <button
+          <button /* raw-button: dev — Dev-only shared intake harness control. */
             type="button"
             onClick={() => window.location.assign(result)}
             className="self-start rounded-md border border-border px-3 py-1 text-sm"
@@ -173,7 +173,7 @@ export function ShareHarness({
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">Stashed shares ({pending.length})</h2>
-          <button
+          <button /* raw-button: dev — Dev-only shared intake harness control. */
             type="button"
             onClick={() => void refresh()}
             className="flex items-center gap-1 text-sm text-muted-foreground"
@@ -196,7 +196,7 @@ export function ShareHarness({
               <code className="break-all text-xs text-muted-foreground">
                 {share.id}
               </code>
-              <button
+              <button /* raw-button: dev — Dev-only shared intake harness control. */
                 type="button"
                 onClick={() => void drop(share.id)}
                 aria-label="Delete stashed share"

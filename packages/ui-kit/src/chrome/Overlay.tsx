@@ -5,7 +5,8 @@ import { inertOutside, keepModalLive } from "../internal/inert-outside.js";
 import { isTopmost, registerOverlay } from "../internal/overlay-stack.js";
 import { z } from "../tokens.js";
 import { BottomSheet } from "./BottomSheet.js";
-import { DiscButton } from "./DiscButton.js";
+import { Icon } from "../primitives/Icon.js";
+import { IconButton } from "../primitives/IconButton.js";
 
 export type OverlayVariant = "sheet" | "dialog" | "fullscreen" | "panel";
 export type OverlayCloseReason = "escape" | "scrim" | "close-button" | "close-request";
@@ -36,6 +37,7 @@ export type OverlayProps = OverlayName & {
   onAfterClose?: () => void;
   theme?: string;
   keepLive?: string;
+  /** For untitled media/sheet chrome, opt into the drawn close slot. */
   closeLabel?: string;
   children: ReactNode;
 } & DataAttributes;
@@ -163,6 +165,8 @@ export function Overlay(p: OverlayProps) {
     tabIndex: -1,
     onKeyDown: keys,
   };
+  // Keep the slot's rectangular 44px hit area at the rounded IconButton corners.
+  // The transparent glyph child covers the target without changing the paint.
   const children = <>
     <div className="bk-overlay-scrim" aria-hidden="true" data-scrim={p.variant === "fullscreen" ? "opaque" : p.variant === "panel" ? "veil" : "dim"}
       onPointerDown={event => {
@@ -176,9 +180,15 @@ export function Overlay(p: OverlayProps) {
       else if (p.surfaceRef) p.surfaceRef.current = node;
     }} className="bk-overlay-surface">
       {p.title && p.variant !== "fullscreen" ? p.variant === "panel" ?
-        <header className="bk-overlay-header"><h2 id={heading} {...(!modal ? { tabIndex: -1, "data-destination-heading": "" } : {})}>{p.title}</h2>{dismiss && <DiscButton icon="dismiss" name={p.closeLabel ?? `Close ${p.title}`} onClick={dismiss} />}</header> :
+        <header className="bk-overlay-header"><h2 id={heading} {...(!modal ? { tabIndex: -1, "data-destination-heading": "" } : {})}>{p.title}</h2>{dismiss && <IconButton size="md" tone="mute" style={{ position: "relative" }} glyph={<><Icon icon="dismiss" size={16} /><span style={{ position: "absolute", inset: 0 }} /></>} name={p.closeLabel ?? `Close ${p.title}`} onClick={dismiss} />}</header> :
         <BottomSheet title={p.title} titleId={heading} subtitle={"subtitle" in p ? p.subtitle : undefined} onDismiss={dismiss} closeLabel={p.closeLabel} /> : null}
       {p.title && p.variant === "fullscreen" ? <h2 id={heading} className="bk-overlay-sr-title">{p.title}</h2> : null}
+      {(!p.title || p.variant === "fullscreen") && p.closeLabel ? <span style={{
+        position: "absolute", zIndex: 1,
+        top: p.variant === "fullscreen" ? "calc(8px + env(safe-area-inset-top))" : 12,
+        right: p.variant === "fullscreen" ? 12 : 20,
+      }}><IconButton size="md" tone="mute" style={{ position: "relative" }} glyph={<><Icon icon="dismiss" size={16} /><span style={{ position: "absolute", inset: 0 }} /></>} name={p.closeLabel}
+        disabled={closedBy === "none"} onClick={() => p.onClose("close-button")} /></span> : null}
       <div className="bk-overlay-body">{p.children}</div>
     </div>
   </>;

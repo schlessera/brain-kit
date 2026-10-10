@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useRef, type RefObject } from "react";
-import { Button, Overlay, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
+import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useFileStore } from "../../stores/file-store.js";
@@ -109,19 +109,8 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
           {/* Tree toggle strip — visible when a file is open */}
           {showContent && currentPath && (
             <div className="flex items-center gap-1 border-b border-border bg-surface-raised/40 px-3 py-1.5">
-              <button
-                onClick={() => setTreeExpanded(!treeExpanded)}
-                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-              >
-                {treeExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                {treeExpanded ? "Hide tree" : "Show tree"}
-              </button>
-              <button
-                onClick={closeFile}
-                className="ml-auto rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-raised hover:text-foreground"
-              >
-                Close file
-              </button>
+              <TextButton tone="meta" label={treeExpanded ? "Hide tree" : "Show tree"} expanded={treeExpanded} glyph={treeExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />} onClick={() => setTreeExpanded(!treeExpanded)} />
+              <TextButton tone="meta" label="Close file" onClick={closeFile} style={{ marginLeft: "auto" }} />
             </div>
           )}
 
