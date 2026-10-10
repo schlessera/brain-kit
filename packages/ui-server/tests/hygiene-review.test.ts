@@ -83,6 +83,9 @@ for (const status of ["pending", "snoozed"] as const) test(`Actions production c
   const restarted = createHygieneReview(foreign, { brain: f.brain });
   expect(restarted.read()).toEqual(retired);
   const calls = f.argv().length;
+  // Refresh supersedes a pending premise; it cannot Resume a cap-retired card.
+  expect(await restarted.command(f.principal.id, "refresh")).toEqual(retired);
+  expect(f.argv()).toHaveLength(calls);
   await restarted.recover(); sweepInboxLifecycle(f.db);
   expect(f.argv()).toHaveLength(calls); expect(pending(f)).toHaveLength(0);
   const backup = await exportInboxSnapshot(f.db, f.root);
@@ -229,6 +232,39 @@ test("cap retirement during confirmed CLI dispatch retains a valid backup and se
     expect(db.query("SELECT status FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id)).toEqual({ status: "finished" });
     expect(createHygieneReview(db, { brain: f.brain }).read().review.status).toBe("paused");
     await exportInboxSnapshot(db, f.root);
+  } finally { release(); await dispatched.catch(() => {}); }
+});
+
+test("cap retirement with a lost CLI receipt keeps the journal recoverable without repeating the write", async () => {
+  const f = setup(), item = (await f.review.command(f.principal.id, "start")).action!;
+  let release!: () => void, reached!: () => void;
+  const gate = new Promise<void>(r => { release = r; }), entered = new Promise<void>(r => { reached = r; });
+  const review = createHygieneReview(f.db, { brain: { ...f.brain, hygiene: async args => {
+    if (args[0] === "resolve" && !args.includes("--dry-run")) {
+      reached(); await gate;
+      await f.brain.hygiene!(args);
+      throw new Error("CLI receipt lost after publication");
+    }
+    return f.brain.hygiene!(args);
+  } } });
+  const dispatched = review.resolver.resolveAsync(f.principal.id, request(item));
+  await entered;
+  try {
+    fillActions(f, Date.now() + 1000);
+    const retired = review.read();
+    release();
+    await expect(dispatched).resolves.toMatchObject({ replay: false });
+    expect(f.db.query("SELECT status FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id)).toEqual({ status: "started" });
+    await expect(exportInboxSnapshot(f.db, f.root)).resolves.toMatchObject({ format: "brain-ui-operational-backup" });
+    expect(review.read()).toEqual(retired);
+    expect(f.applies()).toHaveLength(1);
+    await review.recover();
+    expect(f.db.query("SELECT status, result_json FROM hygiene_effect_attempts WHERE item_id = ?").get(item.id))
+      .toMatchObject({ status: "finished", result_json: expect.stringContaining('"status":"fixed"') });
+    expect(f.applies()).toHaveLength(1);
+    expect(f.store.getItem(item.id)?.status).toBe("dropped");
+    expect(review.read()).toEqual(retired);
+    expect(pending(f)).toHaveLength(0);
   } finally { release(); await dispatched.catch(() => {}); }
 });
 

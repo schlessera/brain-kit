@@ -284,7 +284,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until); }
     catch {
       // Unknown dispatch receipt stays journaled. Recovery checks; it never retries.
-      update(action(request.itemId), { version: 1, status: "check_failed", code: "receipt-unknown" });
+      const item = action(request.itemId);
+      if (item.status !== "dropped") update(item, { version: 1, status: "check_failed", code: "receipt-unknown" });
       inFlight.delete(request.itemId);
       return { replay: false, followUpId: undefined };
     }

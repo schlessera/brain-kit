@@ -5809,6 +5809,9 @@ actual result settles that journal without changing the terminal card or review
 disposition counters. Recovery checks an uncertain operation through the existing
 read/check path; it never repeats the write or re-admits the card. Retirement
 itself does not revoke principal authority or cancel an already confirmed write.
+A lost CLI receipt retains the started journal and releases the in-process guard,
+including when the card was dropped during dispatch. A later check-only recovery
+settles it without updating the terminal card or repeating the content write.
 Position counts presentations in this durable review, including a due snooze's
 return. The three counters count confirmed review dispositions; C2 counts retain
 their distinct backlog meaning. A reload or another device reads the same state.
