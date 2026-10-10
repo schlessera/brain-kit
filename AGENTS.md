@@ -178,8 +178,10 @@ to the guards in `tests/release-manifest.test.ts`. The invariants:
 - **Read the version changesets produced before publishing.** A minor-only
   changeset has bumped the whole fixed group to a major twice; two config
   guards, asserted by `tests/release-manifest.test.ts`, now prevent it.
-- **A new package goes into `scripts/publish.ts` and `scripts/build.ts`**,
-  whose hardcoded lists otherwise skip it silently.
+- **Build, publish, clean and the CI pack loop read the package list from
+  the manifests** (`scripts/publishable-packages.ts`, dependency-first). A new
+  package still joins the `fixed` group and the inventories
+  `tests/release-manifest.test.ts` asserts.
 - Publishing needs interactive auth: the final `bun run release` runs from a
   human's terminal.
 

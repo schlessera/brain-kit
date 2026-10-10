@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import axe from 'axe-core';
 import { verifyDeviceGeometry, verifyRichDemo } from './rich-demo-check.ts';
+import { verifyLibraryDemo } from './library-demo-check.ts';
 import { smokeEmbeddedApps } from './smoke-check.ts';
 import { verifyDocumentation } from './docs-browser-check.ts';
 
@@ -92,6 +93,7 @@ try {
     await page.getByRole('button', { name: 'Decide', exact: true }).click();
     await settled();
     await verifyRichDemo(page, origin, manifest.base, captures, !process.argv.includes('--no-capture'), errors);
+    await verifyLibraryDemo(page, origin, manifest.base, errors);
     await page.addScriptTag({ content: axe.source });
     for (const width of [1440, 1280, 900, 390, 320]) {
       for (const theme of ['dark', 'light']) {
