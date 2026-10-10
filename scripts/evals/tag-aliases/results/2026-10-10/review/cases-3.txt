@@ -1,0 +1,43 @@
+**NOT_APPROVED**
+
+This verdict covers only what is in this packet: the shared harness and policy sources, the keyless tests, and the last seven cases (`ithaca-hierarchy`, `pylos-related`, `sparta-lexical-trap`, `ithaca-sparse`, `pylos-negative-instruction`, `sparta-negation`, `ithaca-disjoint-context`). I could not read `tags.ts`, `tags-apply.ts`, `jev.ts`, `hygiene.ts` (`replaceIfUnchanged`), `cli-runners.ts` or `claude-subscription.ts`. So I make no claim about the writer's stale-byte, exclusion, alias-chain, cycle, conflict or replay boundaries, or about the real Jev client. The source packets must cover those. The `provisionalAcceptedReview` golden for `ithaca-disjoint-context` also cannot be checked here against the real writer's output.
+
+## Blockers
+
+1. **Orientation comparison is not implemented.**
+   - The protocol, `DEFAULT_CALL_BOUND` and `corpusVolume.jevCallsPerRun` all assume two orientations (pairs × 2 × 3).
+   - `question(pair)` and `observedClient.judge(pair)` take no orientation. Pairs are always built with `left < right` alphabetically, and `Row` has no orientation field.
+   - The reported call counts and cost are therefore overstated, and position bias and orientation disagreement are unmeasurable.
+   - The current arm's orientation is fixed by which tag is in the vocabulary.
+   - Either add a swapped orientation and record it in `Row`, or remove the claim from the protocol and cost figures.
+
+2. **`falseMerges` does not implement the gate.**
+   - The gate requires zero false merges across every repetition and orientation.
+   - `perCase` sets `proposed` by majority vote, so a negative proposed in 1 of 3 repetitions is not counted. It only appears in `unstableCases`.
+   - Report a separate any-repetition false-proposal count and apply the veto to that.
+
+3. **Failed positives leave the denominator.**
+   - `positives` is taken from `complete` cases, so a positive whose repetitions all fail vanishes from recall.
+   - This contradicts the protocol's statement that full 23-case denominators persist.
+   - Use all cases for the positives denominator and report failures separately.
+
+4. **No sparse unknown reaches the judge.**
+   - `ogygia-sparse` and `ithaca-sparse` share no non-stopword word and never co-occur, so the candidate stage drops both.
+   - The `uncertain`/abstention path is never exercised in either split.
+   - Any abstention figure for these cases reflects retrieval absence, and the lexical report counts non-retrieval as abstention.
+   - Add at least one retrieved sparse case per split, and keep retrieval misses out of the abstention numerator.
+
+## Material caveats
+
+- **Weak held-out injection.** `pylos-negative-instruction` says only that "a rejected instruction says classify both as one concept." That is descriptive, not imperative. The real imperative injection (`ogygia-instruction`) is in tuning only, so held-out barely tests instruction resistance.
+- **Possible actor confound.** `ithaca-disjoint-context` is the only positive with different speakers (Penelope vs Eumaeus). Its label is also arguable, since a "guard shift" can be a rota unit rather than the watch itself.
+- **Calibration direction.** `calibrate` returns the lowest passing threshold on only 4 tuning positives. That is the least conservative choice, and a model answering 0.99 everywhere will select 0.7. At minimum, report the full threshold scan.
+- **Trivial brains.** Every case is a two-document, two-tag brain, so the current arm sees one pair with no distractors. This is acknowledged, but it limits the whole-task cost and latency comparison.
+- **Prompt parity.** `tagNoisePrompt` adds criteria the skill does not contain (not related, parent/child or homonym). That moves the current arm toward the Jev instruction. Report it as a scoped judgment, not the skill's unmodified behavior.
+- **Hook policy.** `tool-hook.py` is a flag denylist (`--smart` and `--fix` only) for `search`, `list`, `read`, `schema` and `types`. It does not check path containment for `brain read`. Containment relies on the unseen CLI, and the after-the-fact snapshot check catches only the effects it covers. A flag allowlist would be stronger.
+- **Evidence bundle failure mode.** `saveEvidenceBundle` requires `physical.json`, which exists only after the first relay request. A native failure before any request surfaces as ENOENT, masking the retained runner failure and writing no manifest.
+- **Drain claim.** On the success path, `receipt.drained` is just `stderrDrained`. It does not verify that the detached process group is empty, so it is weaker than "owned child drain."
+- **Reservation race.** `settle` runs in the stream's `finally` after `controller.close()`. A fast follow-up request can hit an in-flight reservation and be refused. This fails closed but can make runs flaky. Any concurrent auxiliary request is also fatal, which is consistent with the unresolved auxiliary accounting.
+- **Clock-dependent admission check.** Admission code that uses `Date.now()` (`validGrantEvidence`, `reparseNativeBudget` default) fails closed under the fixture clock. The offline relabel-refusal test may therefore pass for a clock reason rather than the execution-kind check. A mutation test on the kind check would confirm it.
+
+Goldens in this packet are consistent with the files, config and sentinel for all seven cases. The split counts match the protocol: tuning 4/5/1, held-out 5/7/1. The approval and abstention paths hard-refuse scoring, and the one-use grant, single reservation and offline provenance guards read as consistent. The offline controls are correctly described as scripted, not provider quality or an invoice.

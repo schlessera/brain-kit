@@ -17,7 +17,7 @@ export function packets(proof: { freezeSha: string; testsExitCode: number; typec
     "packages/core/src/lib/taxonomy.ts", "packages/core/src/lib/safe-path.ts", "packages/common/src/frontmatter-parse.ts", "packages/common/src/env-core.ts", "packages/core/src/lib/hygiene-next.ts", "packages/core/src/lib/hygiene-repair.ts",
     "packages/core/src/lib/jev.ts", "packages/core/src/providers/agents/cli-runners.ts", "packages/core/src/providers/agents/claude-subscription.ts",
     "packages/core/src/providers/agents/claude-binary.ts", "scripts/captures/clock.ts", "packages/ui-kit/fixtures/time.ts", "scripts/measure-sonnet55-cost.ts",
-    ...readdirSync(join(root, "scripts/evals/tag-aliases")).sort().map(name => `scripts/evals/tag-aliases/${name}`),
+    ...readdirSync(join(root, "scripts/evals/tag-aliases"), { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name).sort().map(name => `scripts/evals/tag-aliases/${name}`),
     ...readdirSync(join(root, "tests")).filter(n => n.startsWith("tag-alias") && n.endsWith(".test.ts")).sort().map(n => `tests/${n}`)];
   const direct:string[]=[],coreSources:string[]=[...sourceOnly];let sharedBytes=0;
   for(const path of allDirect){const size=Buffer.byteLength(readFileSync(join(root,path),"utf8"));

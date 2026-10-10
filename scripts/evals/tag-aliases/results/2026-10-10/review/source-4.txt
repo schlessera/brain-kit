@@ -1,0 +1,64 @@
+**NOT_APPROVED**
+
+This is a source packet only. It does not contain `tags.ts`, `tags-apply.ts`, `jev.ts`, `context.ts`, `hygiene.ts`, `cli-runners.ts`, or the 23 cases with their goldens and expected effects. I could not review the core writer boundaries (stale-byte, exclusion, alias chain/cycle/conflict, replay), the core Jev client, or the case labels against expected effects. Those need approval in their own packets at this freeze.
+
+## Blockers
+
+1. **Orientation comparison is not implemented.** The protocol and review prompt require both orientations.
+   - `question(pair)` in `prototype.ts` builds one fixed `left, right` orientation, and `observedClient.judge` has no swap.
+   - `Row` in `metrics.ts` has no orientation field, so orientation disagreement cannot be measured.
+   - No hybrid driver exists in `scripts/evals/tag-aliases/`. Nothing produces hybrid rows across repetitions, wires per-threshold rows into `calibrate`, or applies the gates.
+   - The protocol therefore claims measurements the code cannot produce.
+
+2. **The false-merge metric under-reports against its own gate.**
+   - The go gate requires zero false merges across every repetition and orientation.
+   - `perCase` uses a majority vote, so a negative proposed in 1 of 3 repetitions has `proposed=false` and is excluded from `falseMerges` and `falseMergeIds`.
+   - That case appears only in `unstableCases`, which is not labelled as a negative merge.
+   - Add an any-repetition and any-orientation false-merge list, and gate on it.
+
+3. **The no-go and go gates are ill-posed.**
+   - The no-go condition says a call count above the corpus's document count (24) fails unless a stricter candidate rule keeps every held-out positive retrievable.
+   - The only implemented rule gives 128 pairs × 2 × 3 = 768 calls, so the no-go trigger is already met by the keyless data.
+   - No alternative rule exists in `candidates`.
+   - Co-occurrence cannot retrieve the fixture positives, because none of them co-occur.
+   - The go gate's "current arm at lower whole-task cost" cannot be evaluated while current scoring hard-refuses and the auxiliary accounting is unresolved.
+   - The gates cannot be "not moved after measuring" when keyless numbers already contradict them. Restate or ratify them before any dispatch.
+
+## Material reporting caveats
+
+- **Corpus volume figures are unbound.** The 45 tags, 959, 74 and 129 pair counts come from `packages/core/fixtures/corpus`, which the freeze manifest does not hash. `tests/tag-alias-accounting.test.ts` asserts only bounds, not these numbers.
+- **Symlink targets are not hashed in source trees.** `observeTree` records only the mode for source symlinks. `links()` covers `node_modules` only.
+- **Fixture-instruction binding depends on a random path.** `nativeFixtureInstructions` embeds `join(root,"AGENTS.md")`, and the fixture root comes from `mkdtempSync`. A root-issued `nativeUserContextSha` can match only if the fixture root is pinned in advance.
+- **Admission and the frozen clock.** `validGrantEvidence`, `reparseNativeBudget` and the `NativeBudget` default clock use `Date.now()`, which `clock.ts` freezes. Admission must run without that preload.
+- **Review admission is by first token only.** `/^APPROVED(?:\s|$)/` admits a reply that is APPROVED followed by caveats, so a human has to read the trailing text.
+- **Snapshot coverage.** It covers bytes, mode, `mtimeNs`, symlink target and directory entries. It omits uid/gid/nlink/ctime, so hardlink and ownership changes are invisible.
+- **`applyReviewed` gaps.**
+  - `dryRun` returns `report: null`, so it gives no preview.
+  - The invariant that `from` is not in the vocabulary is enforced only in `proposal()`.
+  - Config persistence precedes migration, with no rollback. This is documented.
+- **Corpus validity.**
+  - The splits share one authored grammar, and every body is a single sentence.
+  - All acronym cases state their expansions in-context.
+  - Tuning has only 4 positives, so calibration is an admission screen.
+  - A proposal on an unknown-label case counts as unsupported.
+  - Lexical "abstention" in `keyless.ts` is not uncertainty.
+- **Jev accounting is weaker than native.**
+  - There is no reservation or spend cap, only a call bound.
+  - That bound is checked before each fetch while `calls.push` happens afterward, so concurrent `judge` calls could overshoot it.
+  - The price covers input tokens only.
+- **Tool hook.**
+  - Containment of `brain read` and `brain search` arguments relies on the CLI's own path safety.
+  - The `Grep` `glob` parameter is not checked.
+  - The offline controls prove Write denial only.
+- **Offline source copy.** `offlineSource` drops dot-files, so the controls prove behavior on the copy, not the original tree.
+- **Evidence bundling.** `saveEvidenceBundle` throws if `native.json` is missing, which can mask the real run failure.
+
+## Checked and sound
+
+- A grant is single-use, and the original marker is rechecked before USER release and every forward.
+- Each physical attempt reserves the full 1M-token context plus its output maximum, and holds stay unknown on failure.
+- The relay persists literal request and response bytes before decoding. EOF, cancel, shutdown and error closures are distinct. Unsupported endpoints are recorded and stop later forwarding.
+- Packet partitioning stays under the 400,000-byte bound with complete files.
+- The documented label counts (4/5/1 tuning, 5/7/1 held-out) match `fixtures.ts`.
+
+I would approve this packet once blockers 1–3 are fixed, or once the doc and protocol drop the claims the code cannot support, and every other packet has been approved at the same freeze.

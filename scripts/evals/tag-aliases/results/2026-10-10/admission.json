@@ -1,0 +1,1220 @@
+{
+  "issue": 844,
+  "measuredAtUtc": "2026-10-10",
+  "base": "9adc62e7 (origin/main at measurement)",
+  "freeze": {
+    "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+    "fixtureSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+    "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+    "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+    "runtime": {
+      "sdk": "0.3.293",
+      "nativeSha": "8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978",
+      "nativeMode": 493,
+      "bunSha": "a83d263767d839e4d2649ca8e35d07159c7afc99afdc96d731ced29e056dda0c",
+      "bunVersion": "1.4.2",
+      "bunMode": 493
+    }
+  },
+  "keylessProof": {
+    "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+    "testsExitCode": 0,
+    "typecheckExitCode": 0,
+    "lintExitCode": 0,
+    "nativeExitCodes": {
+      "read": 0,
+      "proposal": 0,
+      "write-denial": 0,
+      "review": 0
+    },
+    "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+    "commands": {
+      "tests": "bun run test tests/tag-alias-*.test.ts tests/native-grant.test.ts (66 pass)",
+      "typecheck": "bun run typecheck",
+      "lint": "bun run lint",
+      "native": "python3 scripts/evals/tag-aliases/launch.py <mode> (read, proposal, write-denial, review; paid-extra, paid-inactive, paid-rejected, paid-partial also passed)"
+    }
+  },
+  "packets": [
+    {
+      "key": "source-1",
+      "bytes": 332955,
+      "caseIds": [],
+      "sourceFiles": [
+        "packages/core/src/lib/auditor.ts"
+      ],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "113029ae9952c25c845990ab37f5ac73483301aa8d0e8c2d891ab9e4a4ca3194"
+      }
+    },
+    {
+      "key": "source-2",
+      "bytes": 393983,
+      "caseIds": [],
+      "sourceFiles": [
+        "packages/core/src/lib/hygiene.ts",
+        "packages/core/src/lib/tags.ts",
+        "packages/core/src/lib/tags-apply.ts",
+        "packages/core/src/lib/context.ts"
+      ],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "a3df05bc7c3653063d99842d8ae922778a0a534eca070b437d78919ecc3a54e8"
+      }
+    },
+    {
+      "key": "source-3",
+      "bytes": 396415,
+      "caseIds": [],
+      "sourceFiles": [
+        "packages/core/src/lib/config.ts",
+        "packages/core/src/lib/document-parts.ts",
+        "packages/core/src/lib/taxonomy.ts",
+        "packages/core/src/lib/safe-path.ts",
+        "packages/core/src/lib/hygiene-next.ts",
+        "packages/core/src/lib/hygiene-repair.ts",
+        "packages/core/src/lib/jev.ts",
+        "packages/core/src/providers/agents/cli-runners.ts"
+      ],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "8d4e4c20a76f03c7ba5a7b01fa4b745f87e15442cb0858dd1d3a28c704bcf5de"
+      }
+    },
+    {
+      "key": "source-4",
+      "bytes": 325738,
+      "caseIds": [],
+      "sourceFiles": [
+        "packages/core/src/providers/agents/claude-subscription.ts",
+        "packages/core/src/providers/agents/claude-binary.ts",
+        "tests/tag-alias-paid-entry.test.ts",
+        "tests/tag-alias-relay.test.ts",
+        "tests/tag-alias-review.test.ts"
+      ],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "763377ddec2b989fc35083abd8df52b052f5b420f09485eac592ecbfc77145cd"
+      }
+    },
+    {
+      "key": "cases-1",
+      "bytes": 317441,
+      "caseIds": [
+        "ogygia-spelling",
+        "ogygia-harbour",
+        "ogygia-watch",
+        "ogygia-acronym",
+        "ogygia-hierarchy",
+        "ogygia-related",
+        "ogygia-homonym",
+        "ogygia-lexical-trap"
+      ],
+      "sourceFiles": [],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "753d2441d8badf8712a1c063a724163f3150b5b686cde4ce9d8b231139d4ebd5"
+      }
+    },
+    {
+      "key": "cases-2",
+      "bytes": 317928,
+      "caseIds": [
+        "ogygia-sparse",
+        "ogygia-instruction",
+        "ithaca-spelling",
+        "pylos-synonym",
+        "sparta-synonym",
+        "ithaca-acronym",
+        "pylos-ambiguous-acronym",
+        "sparta-homonym"
+      ],
+      "sourceFiles": [],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "3dcc6c70e5b939f219b9e5e7ba829cde91ab3b8ef1b3ea2a6f156b8e40ebc902"
+      }
+    },
+    {
+      "key": "cases-3",
+      "bytes": 310378,
+      "caseIds": [
+        "ithaca-hierarchy",
+        "pylos-related",
+        "sparta-lexical-trap",
+        "ithaca-sparse",
+        "pylos-negative-instruction",
+        "sparta-negation",
+        "ithaca-disjoint-context"
+      ],
+      "sourceFiles": [],
+      "binding": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "2a2070683e9386c4e114d89e0bd126d9ab601a143292a3adfb8d1216b593dd9e"
+      }
+    }
+  ],
+  "rootLedger": {
+    "capUsd": 150,
+    "perIssueCapUsd": 15,
+    "basis": "actual additional billed charges",
+    "reservations": {
+      "844": 15
+    }
+  },
+  "rootAccountingRule": "Actual additional charge debits the priced upper of every physical request observed under active overage, plus the full reservation of any unknown request. Requests settled with overage 'inactive observed' are included subscription usage and debit nothing. Each policy's remainingUpperUsd = 15 minus that running debit.",
+  "attempts": [
+    {
+      "key": "source-1",
+      "attempt": "a1",
+      "policySha": "3b72cfda779c0755ffa022868578922fe18cd4b5de871c086dee6c3378661430",
+      "grantNonce": "7722b610ce6ac6a900d2aa559faa8362c1d57d25b6868d769130737afda160b9",
+      "issuedAt": "2026-10-10T14:35:11.785Z",
+      "expiresAt": "2026-10-10T14:55:12.785Z",
+      "intentSha": "6ead83e4c120f4edd153b15eedd1d110a60134e94a04f675b2476c2e2d9df2d9",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "113029ae9952c25c845990ab37f5ac73483301aa8d0e8c2d891ab9e4a4ca3194",
+        "nativeUserContextSha": "cc0724e4254031ab0c96dfca03adca301b0d2f14bf0c835e09f56adb92be124b",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "7722b610ce6ac6a900d2aa559faa8362c1d57d25b6868d769130737afda160b9",
+        "issuedAt": "2026-10-10T14:35:11.785Z",
+        "expiresAt": "2026-10-10T14:55:12.785Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:35:13.774Z",
+      "grantSha": "2486aaa63d85f47e17cbd62c7c31a1433ef2f7a4415a2af0233b1db0b9dd5d80",
+      "physical": [
+        {
+          "outcome": "root_paid_reservation_refused",
+          "status": 403,
+          "upstreamDispatched": false,
+          "requestSha": "eb52299e3acbc021a51cd32f678fa036ac6f7107b8bef738e739b045bb73cf61",
+          "requestBytes": 349524,
+          "responseSha": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "responseBytes": 0,
+          "servedModel": null,
+          "usage": null,
+          "durationMs": 974,
+          "listPriceUsd": null
+        }
+      ],
+      "reservations": [],
+      "overage": "unknown",
+      "rateLimits": [],
+      "resultSubtype": "success",
+      "isError": true,
+      "verdict": null,
+      "failure": "Error: Stop native dispatch after retained receipts: Error: claude CLI failed (exit 1): (no output)",
+      "durationMs": 2538,
+      "listPriceUsd": null,
+      "evidenceValid": false
+    },
+    {
+      "key": "source-1",
+      "attempt": "a2",
+      "policySha": "d0a07518f0e87b798239b43591a0f7dadeb231f9b739d8782cdfd3c3a1ea246b",
+      "grantNonce": "e867d26a67bd61360d851f6ef635b8a6c5cf71f18ee21d1570a70e121b30bcd2",
+      "issuedAt": "2026-10-10T14:36:14.570Z",
+      "expiresAt": "2026-10-10T14:56:15.570Z",
+      "intentSha": "e2b4a2cc3d22076c474b30d218b4e09fe1205e4c3194034698fa309d973cdb4d",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "113029ae9952c25c845990ab37f5ac73483301aa8d0e8c2d891ab9e4a4ca3194",
+        "nativeUserContextSha": "e477db89df6fbc65baafee1e6ed9210b5a5b1e871d913e6af7035c27c753ff48",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "e867d26a67bd61360d851f6ef635b8a6c5cf71f18ee21d1570a70e121b30bcd2",
+        "issuedAt": "2026-10-10T14:36:14.570Z",
+        "expiresAt": "2026-10-10T14:56:15.570Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:36:17.117Z",
+      "grantSha": "d074605c3711a137cfd5d3fdad97a308a4aeedfb64308cd584ba062354e4264e",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "eb3809b0eb2e8d0c0a4e4a76782c1c60139d4956e72d2e139293c5b19f358ddc",
+          "requestBytes": 348930,
+          "responseSha": "e417026e91131aab10f0087518662140d262e6f16d7090a4fc5ac324c9d86172",
+          "responseBytes": 50899,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 144787,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 144787
+            },
+            "output_tokens": 1583,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            }
+          },
+          "durationMs": 17404,
+          "listPriceUsd": {
+            "lowerUsd": 0.594982,
+            "upperUsd": 0.594982,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791642978982,
+          "requestSha": "eb3809b0eb2e8d0c0a4e4a76782c1c60139d4956e72d2e139293c5b19f358ddc",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.189972,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 144787,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 144787
+            },
+            "output_tokens": 1583,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.37,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 19821,
+      "listPriceUsd": {
+        "lowerUsd": 0.594982,
+        "upperUsd": 0.594982,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "source-2",
+      "attempt": "a2",
+      "policySha": "ba6e70e9b75d2140c2428eddf4954509bf28546cf2696e73736a8c35f8e03a6c",
+      "grantNonce": "cca342eff964204d75236618d5380033528dc1fe15583187e1cb2306d4833242",
+      "issuedAt": "2026-10-10T14:36:53.921Z",
+      "expiresAt": "2026-10-10T14:56:54.921Z",
+      "intentSha": "3c3afe03a079f44a4ee3eb72d8bba6a7925c31fbf837194c740ee68662c24899",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "a3df05bc7c3653063d99842d8ae922778a0a534eca070b437d78919ecc3a54e8",
+        "nativeUserContextSha": "d214d156c70a94459b99ef539a320b1a356e00bfa10a122f4ca9c5502bf8bc87",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "cca342eff964204d75236618d5380033528dc1fe15583187e1cb2306d4833242",
+        "issuedAt": "2026-10-10T14:36:53.921Z",
+        "expiresAt": "2026-10-10T14:56:54.921Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:36:56.125Z",
+      "grantSha": "115b0e05b84066e6cb9e43a8fd319ed9ffbd525ac0ac746c50d9e85f63c115b0",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "2a0e0ec2372360a128d26c8bdde2338bbce818c0fa96faf1279dee0a8cbbd4f8",
+          "requestBytes": 412259,
+          "responseSha": "5b77d300564e53173a1ce6dfcdc2ff491fac4795dc045f38d24a7612ec603523",
+          "responseBytes": 149199,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 169484,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 169484
+            },
+            "output_tokens": 22139,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 20121
+            }
+          },
+          "durationMs": 177668,
+          "listPriceUsd": {
+            "lowerUsd": 0.8994458000000001,
+            "upperUsd": 0.8994458000000001,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643017941,
+          "requestSha": "2a0e0ec2372360a128d26c8bdde2338bbce818c0fa96faf1279dee0a8cbbd4f8",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.807932,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 169484,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 169484
+            },
+            "output_tokens": 22139,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 20121
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.38,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 179590,
+      "listPriceUsd": {
+        "lowerUsd": 0.8994458000000001,
+        "upperUsd": 0.8994458000000001,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "source-3",
+      "attempt": "a2",
+      "policySha": "7fab3799feaebe72d1321bbf5ba688dcc2f7e7bc843d5a6b32bb113f9d4ea825",
+      "grantNonce": "a4ee4baa993f391b4ff200eeb52fa67847b32ffe2a31e1f395e6e5dd971b699d",
+      "issuedAt": "2026-10-10T14:39:59.968Z",
+      "expiresAt": "2026-10-10T15:00:00.968Z",
+      "intentSha": "b69235a423de535a9be4d997f05cad8a6270cec043b43dd5c4bdb028710b0222",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "8d4e4c20a76f03c7ba5a7b01fa4b745f87e15442cb0858dd1d3a28c704bcf5de",
+        "nativeUserContextSha": "7d2e2665ff26705eaf4dd5613ccbdce3899fce6be7382ba4b2570dc03d8f1677",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "a4ee4baa993f391b4ff200eeb52fa67847b32ffe2a31e1f395e6e5dd971b699d",
+        "issuedAt": "2026-10-10T14:39:59.968Z",
+        "expiresAt": "2026-10-10T15:00:00.968Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:40:02.146Z",
+      "grantSha": "06e5f3794387bee2a2a5b33ffcb67764f38e77c2a81d4d2063f26b1cbf3f332e",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "1574d903b09b6a387885b71018b7802f34eb621d0185ecc4128f38cfd446dc26",
+          "requestBytes": 414810,
+          "responseSha": "0009d103baca08814cc588567ef9cd54408fbe8cb4045ea2264b5dbc9c35df2a",
+          "responseBytes": 153510,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 169891,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 169891
+            },
+            "output_tokens": 21499,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 19236
+            }
+          },
+          "durationMs": 174084,
+          "listPriceUsd": {
+            "lowerUsd": 0.8946738000000001,
+            "upperUsd": 0.8946738000000001,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643204568,
+          "requestSha": "1574d903b09b6a387885b71018b7802f34eb621d0185ecc4128f38cfd446dc26",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.798388,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 169891,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 169891
+            },
+            "output_tokens": 21499,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 19236
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.39,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 176041,
+      "listPriceUsd": {
+        "lowerUsd": 0.8946738000000001,
+        "upperUsd": 0.8946738000000001,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "source-4",
+      "attempt": "a2",
+      "policySha": "e7b7a591376c11261152c5b02004f6606d0ffa6f335ac2a287b27ef953b04df5",
+      "grantNonce": "16afa3a0069b8404bb58994dcf426b66c1eeb1247f05cc85bd6bdbfc5984143f",
+      "issuedAt": "2026-10-10T14:43:02.846Z",
+      "expiresAt": "2026-10-10T15:03:03.846Z",
+      "intentSha": "c4c465a189c739145f0bb28888566ece19f3c92f404409961d4b35344da77e68",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "763377ddec2b989fc35083abd8df52b052f5b420f09485eac592ecbfc77145cd",
+        "nativeUserContextSha": "ae9ac32b37d51376a373d893269c0b003083d5ac8d97388898ac2094a16458bc",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "16afa3a0069b8404bb58994dcf426b66c1eeb1247f05cc85bd6bdbfc5984143f",
+        "issuedAt": "2026-10-10T14:43:02.846Z",
+        "expiresAt": "2026-10-10T15:03:03.846Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:43:05.330Z",
+      "grantSha": "4b9e22a37f735c62645dacea3e4094a74a4893fb04be4da89d31945d67947400",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "a701ff9248cc37cd93bce3b706560a2a7f82c45c6c8049da97556e4ffd9efac4",
+          "requestBytes": 341480,
+          "responseSha": "0b95b9cfdbbf659df6f61d5953cb324233ed92f7c0ccf21ebf7b71d454881174",
+          "responseBytes": 135009,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 142293,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 142293
+            },
+            "output_tokens": 19481,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 17384
+            }
+          },
+          "durationMs": 154411,
+          "listPriceUsd": {
+            "lowerUsd": 0.7641018,
+            "upperUsd": 0.7641018,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643387956,
+          "requestSha": "a701ff9248cc37cd93bce3b706560a2a7f82c45c6c8049da97556e4ffd9efac4",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.537244,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 142293,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 142293
+            },
+            "output_tokens": 19481,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 17384
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.4,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 156821,
+      "listPriceUsd": {
+        "lowerUsd": 0.7641018,
+        "upperUsd": 0.7641018,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "cases-1",
+      "attempt": "a2",
+      "policySha": "dcb96c8dec0f8195c2f2788517504f94ee9dd10f5133f34874579dbc578e3499",
+      "grantNonce": "389242a2b743610160bcd2e3b21802d932c40a25006fc70a831760ab1bd1f6d8",
+      "issuedAt": "2026-10-10T14:45:45.248Z",
+      "expiresAt": "2026-10-10T15:05:46.248Z",
+      "intentSha": "9caf4e90d50b1a7fb2e55f92e11df465bdef3e59498c8c08e5c2c57c9fa4caf8",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "753d2441d8badf8712a1c063a724163f3150b5b686cde4ce9d8b231139d4ebd5",
+        "nativeUserContextSha": "1d40d7d6b1a59f1581653ea9aa5bf0e63a7101dc3d1305200bd29430c7911ab6",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "389242a2b743610160bcd2e3b21802d932c40a25006fc70a831760ab1bd1f6d8",
+        "issuedAt": "2026-10-10T14:45:45.248Z",
+        "expiresAt": "2026-10-10T15:05:46.248Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:45:47.087Z",
+      "grantSha": "28fedc970ad21a4efb25ae1e6887f1ed5d4d9ac097aa7941358c38b36cf55e67",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "88110188755ef58003fa07672e089e1493832fe72ac3566329f60d2676804593",
+          "requestBytes": 334777,
+          "responseSha": "07da56ce729a4703f435d6019f9eaa28fa9394ee683d8879c307590fb40b5cec",
+          "responseBytes": 73846,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 138218,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 138218
+            },
+            "output_tokens": 7617,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 6207
+            }
+          },
+          "durationMs": 64772,
+          "listPriceUsd": {
+            "lowerUsd": 0.6291618,
+            "upperUsd": 0.6291618,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643548134,
+          "requestSha": "88110188755ef58003fa07672e089e1493832fe72ac3566329f60d2676804593",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.267364,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 138218,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 138218
+            },
+            "output_tokens": 7617,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 6207
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.41,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 66010,
+      "listPriceUsd": {
+        "lowerUsd": 0.6291618,
+        "upperUsd": 0.6291618,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "cases-2",
+      "attempt": "a2",
+      "policySha": "0df6895fe9c3fa7bab6d30cb69fbc19557c5378bf9a683f2a05bd1d4393c5788",
+      "grantNonce": "a7875b69a7bb338ca7027c2aaaaa2ccd0c0422f76f99e4573be4a5c6b45f32ca",
+      "issuedAt": "2026-10-10T14:46:55.273Z",
+      "expiresAt": "2026-10-10T15:06:56.273Z",
+      "intentSha": "143dfa66115a3962b8b4e3a065f1acfd1b5f6903e64e1bc4d2dfe24aec8ae6ce",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "3dcc6c70e5b939f219b9e5e7ba829cde91ab3b8ef1b3ea2a6f156b8e40ebc902",
+        "nativeUserContextSha": "0d0259a10b3d6f4772e26b0bfb8082b9fe516a1cfaea824b4e591a14ee91b368",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "a7875b69a7bb338ca7027c2aaaaa2ccd0c0422f76f99e4573be4a5c6b45f32ca",
+        "issuedAt": "2026-10-10T14:46:55.273Z",
+        "expiresAt": "2026-10-10T15:06:56.273Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:46:57.157Z",
+      "grantSha": "513ebb6af5713513cb94b6eb37a0ea9821a91ad7f6a12f5207780d79f075ef6d",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "327a6f77b7bd64773fc9c42dc2218e200baf1436107eec61e5d5c8d9e1eb608e",
+          "requestBytes": 335264,
+          "responseSha": "d96a324ff9c44eec794729fa4e11a47c42ae57aa8bc405ad04db18ac6e0fa3fd",
+          "responseBytes": 124304,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 138276,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 138276
+            },
+            "output_tokens": 18398,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 16629
+            }
+          },
+          "durationMs": 145824,
+          "listPriceUsd": {
+            "lowerUsd": 0.7372038000000001,
+            "upperUsd": 0.7372038000000001,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643618502,
+          "requestSha": "327a6f77b7bd64773fc9c42dc2218e200baf1436107eec61e5d5c8d9e1eb608e",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.483448,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 138276,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 138276
+            },
+            "output_tokens": 18398,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 16629
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.41,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.37,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 147180,
+      "listPriceUsd": {
+        "lowerUsd": 0.7372038000000001,
+        "upperUsd": 0.7372038000000001,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    },
+    {
+      "key": "cases-3",
+      "attempt": "a2",
+      "policySha": "ed93840a9234933273eb16a526beb82efa366940e4c1dfbee9d17232c01f1eeb",
+      "grantNonce": "395f2a863490d4061d2ca4caeb2b980c356ed14bd9fe0d1c5aa758c979a6696a",
+      "issuedAt": "2026-10-10T14:49:26.533Z",
+      "expiresAt": "2026-10-10T15:09:27.533Z",
+      "intentSha": "23877217c2cf90dc5d5829a6d65e7df2f9efbe95fff494603bd874939d2a3d89",
+      "ledgerSha": "210edde9053a2fe9824385d5d19c6540f4927eea74b2919800e945af200becf5",
+      "policy": {
+        "freezeSha": "d5e1cd558203899686a381d1ecbea39f23e030a981e57374498f18bb6f331e37",
+        "inputSha": "59fc2f138a5fd785b21e6b5892f95e6123c39a08483a3348a0f555d51a8d49ea",
+        "protocolSha": "e5a20feeef0c5f65f1f211074ec280ea0eb3d99ab83362bebdf4e934bb8bac84",
+        "runtimeSha": "a86baa125e680849c979f5da7b3c62b886cd7caff85c3619971e9c643f669e29",
+        "proofSha": "bb471580a81d9adf98adcfd7de5d3415a7dcaa5d8cae952a02c66996dc096d9e",
+        "promptSha": "2a2070683e9386c4e114d89e0bd126d9ab601a143292a3adfb8d1216b593dd9e",
+        "nativeUserContextSha": "880171143af8390411c568d2bc77742ca5702b7e86fa9f91818644c16388bc12",
+        "version": 1,
+        "issue": 844,
+        "control": "live",
+        "purpose": "review",
+        "authorizationUrl": "https://github.com/schlessera/brain-kit/issues/838#issuecomment-6065882737",
+        "allowOverage": true,
+        "basis": "actual additional billed charges",
+        "perIssueCapUsd": 15,
+        "aggregateCapUsd": 150,
+        "remainingUpperUsd": 15,
+        "canonicalModel": "claude-sonnet-5-5",
+        "maxPhysicalRequests": 24,
+        "maxInputBytes": 5000000,
+        "contextWindowTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputUsdPerMillionUpper": 8,
+        "outputUsdPerMillionUpper": 20,
+        "invoiceUsd": null,
+        "grantNonce": "395f2a863490d4061d2ca4caeb2b980c356ed14bd9fe0d1c5aa758c979a6696a",
+        "issuedAt": "2026-10-10T14:49:26.533Z",
+        "expiresAt": "2026-10-10T15:09:27.533Z"
+      },
+      "grantClaimedAtUtc": "2026-10-10T14:49:28.356Z",
+      "grantSha": "131a2006cdfb4d532fc97bd016556f299694d44159b0826550a4b5101796903b",
+      "physical": [
+        {
+          "outcome": "completed",
+          "status": 200,
+          "upstreamDispatched": true,
+          "requestSha": "7aaf0f0c6fe29b06971e1163754f05d39aa2724c008d66cbb0f912c17f4b826f",
+          "requestBytes": 327047,
+          "responseSha": "79f83070dbc4915c359f672fc2ba8452bac223baf3ce440e9dbe66ff580b8a0a",
+          "responseBytes": 121012,
+          "servedModel": "claude-sonnet-5-5",
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 135189,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 135189
+            },
+            "output_tokens": 16065,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 14025
+            }
+          },
+          "durationMs": 130616,
+          "listPriceUsd": {
+            "lowerUsd": 0.7015258000000001,
+            "upperUsd": 0.7015258000000001,
+            "unknownCacheTokens": 0
+          }
+        }
+      ],
+      "reservations": [
+        {
+          "index": 0,
+          "at": 1791643769609,
+          "requestSha": "7aaf0f0c6fe29b06971e1163754f05d39aa2724c008d66cbb0f912c17f4b826f",
+          "inputBound": 1000000,
+          "outputBound": 128000,
+          "reservedUpperUsd": 10.56,
+          "status": "complete",
+          "pricedUpperUsd": 1.412092,
+          "rawUsage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 135189,
+            "cache_read_input_tokens": 1158,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 135189
+            },
+            "output_tokens": 16065,
+            "service_tier": "standard",
+            "inference_geo": "global",
+            "output_tokens_details": {
+              "thinking_tokens": 14025
+            }
+          },
+          "invoiceUsd": null
+        }
+      ],
+      "overage": "inactive observed",
+      "rateLimits": [
+        {
+          "status": "allowed",
+          "resetsAt": 1791648000,
+          "rateLimitType": "five_hour",
+          "overageStatus": "allowed",
+          "overageResetsAt": 1793491200,
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.43,
+              "resetsAt": 1791648000
+            },
+            "seven_day": {
+              "utilization": 0.38,
+              "resetsAt": 1792134000
+            }
+          }
+        }
+      ],
+      "resultSubtype": "success",
+      "isError": false,
+      "verdict": "NOT_APPROVED",
+      "failure": null,
+      "durationMs": 131993,
+      "listPriceUsd": {
+        "lowerUsd": 0.7015258000000001,
+        "upperUsd": 0.7015258000000001,
+        "unknownCacheTokens": 0
+      },
+      "evidenceValid": false
+    }
+  ],
+  "totals": {
+    "physicalRequests": 7,
+    "chargedUpperUsd": 0,
+    "includedReservationUpperUsd": 10.49644,
+    "listPriceUsd": 5.2210948,
+    "actualAdditionalBilledUsd": 0,
+    "invoiceUsd": null,
+    "approvedPackets": 0,
+    "admitted": false
+  },
+  "evidenceProbe": "Diagnostic only (drivers outside the tree): with the leading-APPROVED test forced true, validateReviewEvidence accepts all seven a2 bundles, so the admission chain itself validates and the refusal is the verdict alone."
+}

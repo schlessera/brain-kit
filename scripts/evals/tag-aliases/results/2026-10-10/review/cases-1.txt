@@ -1,0 +1,38 @@
+**NOT_APPROVED**
+
+This verdict covers only this packet: the shared sources, the audit skill, `fixtures.ts`, and cases 1-8 with their goldens. I have not read the core behaviour sources (`tags.ts`, `tags-apply.ts`, `jev.ts`, `hygiene.ts`, the runners), the `paid-entry`, `relay` and `review` tests, or cases 9-23's expanded goldens. Those belong to the other packets. I could not check the writer's stale-byte, alias-chain, cycle and conflict boundaries, nor Jev's literal-capture boundary, from what is here. I can still read all 23 case definitions in `fixtures.ts`.
+
+## Blockers
+
+1. **Several negative and unknown cases appear never to reach the judge.**
+   - By my reading of the `words()`/`candidates()` rule, these cases have no shared non-stopword, no co-occurrence and no lexical variant:
+     - `ogygia-sparse` (`q7`/`journey`)
+     - `ithaca-sparse` (`z9`/`thread`)
+     - `pylos-ambiguous-acronym` (`cr`/`council-record`)
+     - `sparta-homonym` (`seal`/`seal-mark`)
+   - Only `findVariantGroups`, which isn't in this packet, could rescue them, and it is unlikely to.
+   - If I'm right, the hybrid arm never judges the acronym collision, the held-out homonym or either sparse case. "Zero held-out false merges" and "abstention" would then be vacuous for exactly the categories the protocol claims to cover.
+   - Retrieval is only reported for positives. Either report negative and unknown retrieval and add shared-word contexts, or state plainly that these categories are exercised only by the current arm.
+
+2. **Metrics disagree with the stated gates.**
+   - The go gate says zero false merges "across every repetition and orientation". `perCase` uses majority vote, so a false proposal in 1 of 3 repetitions is listed only under `unstableCases`, not under `falseMerges`.
+   - `Row` has no orientation field, so the required orientation comparison cannot be computed from this schema.
+
+3. **Failed cases drop out of the recall denominator.**
+   - `metrics` computes `positives` from `complete` cases only, so operational failures raise recall and candidate recall.
+   - The protocol promises full 23-case denominators. The same applies to the failure-versus-miss distinction you claim.
+
+## Material caveats
+
+- **Reachability of candidate misses is unreported.** Besides `ithaca-disjoint-context`, the sparse and negative misses in blocker 1 are not flagged as candidate-stage gaps.
+- **The goldens omit mtime and mode.** They give expected files, config and sentinel bytes. They do not state the expected mtimeNs or mode after an accepted review, which the writer will change. They do not cover the replay or concurrent-edit effects either, and only the experiment test checks those.
+- **Positive contexts are easy.**
+  - The acronym positives state the expansion in the left body.
+  - The right-hand tag is always the configured vocabulary member in every case, so orientation bias cannot show up.
+  - Every body is one sentence, and the entity/location splits share one authored grammar. This limits generalisation, as you already disclose.
+- **The `majority` rule on 3 correlated repetitions** is not a population estimate. The caveat string in `metrics` covers this, but the report should repeat it.
+- **Fixture type setup:** documents use `type: context` while the config declares only a `tablet` type. Confirm that the audit and validation outputs fed to the current arm are not polluted by type or dir findings.
+- **Calibration:** `calibrate` returns the lowest passing threshold on four tuning positives. Treat it as an admission screen only, as the protocol already says.
+- **Offline controls:** they use real tool transport with scripted semantics and costs. The offline scripted APPROVED text correctly cannot acquire semantic admission, and invoices stay unknown rather than zero. I saw nothing in the paid-policy, grant or observer code that contradicts that.
+
+This review grants no scoring authority, and the live current-arm refusal should remain.

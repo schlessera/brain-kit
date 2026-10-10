@@ -78,6 +78,10 @@ maintainer sets. The gates are not moved after measuring.
 
 ## Live run (not yet performed)
 
+The 2026-10-10 cross-family review and its outcome are recorded in
+[the decision record](decisions/tag-alias-discovery.md); the model arms
+were not run.
+
 `native.ts` and `jev.ts` retain literal request and response bytes, usage,
 model identity, EOF and child closure for every physical call; `relay.ts` is
 the loopback tee for the native arm; `freeze.ts` binds source, runtime and

@@ -1,0 +1,38 @@
+NOT_APPROVED
+
+This packet is a source packet that carries only one of the core behavior files (`auditor.ts`), so I cannot approve the full freeze from it. The case packets and the remaining source packets also have to approve at this freeze. Within what I can see, I found no semantic blocker in the auditor, but there are several blockers elsewhere.
+
+**Blockers**
+
+1. **Unread core sources.** The packet requires that the actual core writer (`tags-apply.ts`, `tags.ts`) be inspected for stale-byte, exclusion, alias-chain, cycle, conflict and replay boundaries. It lists those files in the manifest but does not include their bytes here. `hygiene.ts` (`replaceIfUnchanged`) and `jev.ts` are likewise absent. I cannot verify those boundaries from hashes, so I do not approve them.
+
+2. **The current-arm admission check is fragile (`current.ts`).**
+   - Admission requires `vocabulary.includes(row.to)` and `!vocabulary.includes(row.from)`. A proposal where both tags are vocabulary entries is therefore silently an `invalid` row.
+   - That is not recorded as a distinct class, so these rows read as model errors in the metrics.
+   - The reason string is a single catch-all for at least six different failure causes. The report cannot separate misses from hallucinated evidence from alias conflicts. That undermines the "false merges/abstention/misses" accounting the protocol promises.
+
+3. **Fixture/grammar limitation weakens the gate.**
+   - The protocol says "zero held-out false merges" is the go gate, but there are only 7 held-out negatives, and only 5 positives.
+   - With 3 repetitions that are correlated, zero false merges is weak evidence. The `limitation` string in `metrics` acknowledges this, but the gate text in `protocol.ts` does not.
+   - The shared authored grammar also means an entity or location split is not an independent split.
+
+4. **Fixture label questions to settle before approval.**
+   - `ogygia-acronym` (`rr` vs `raft-repair`) is labeled `same`. The `rr` context defines RR as raft repair, but `pylos-ambiguous-acronym` (`cr` vs `council-record`) is `different`. Both are legitimate. However, the `cr` case's right-hand context never mentions `cr`, so the pair is separable only through the left context. That is fine as a design, but it should be stated.
+   - `sparta-negation` and `ithaca-hierarchy` read correctly.
+   - `ithaca-disjoint-context` is `same` on a premise (sentry's vigil vs protection duty after dark) that no judge could verify from usage. Expect this case to measure abstention, not synonymy.
+
+**Material reporting caveats**
+
+- **Live scoring and accounting.** The current-arm live scoring hard-refuses until the auxiliary transport/accounting from issue 1275 is resolved. No current-arm cost or quality number is reportable, and offline native controls prove transport only.
+- **Pricing.** The Jev price (`$0.042/M` input) is price-derived and diagnostic, and output is treated as free. `priceDerivedUsd` must not be summed with Sonnet list-price estimates as one "whole cost" without labeling the basis. Invoices are `null`, which is unknown, not zero.
+- **Approval state.** The packet's gates are explicitly proposed and not maintainer-ratified. `semanticApproval` is false in every offline control.
+- **Candidate stage.** On the example corpus the any-shared-word rule admits 959 of 990 pairs, so the 128 cap bounds the work, not the rule. Candidate recall on fixtures does not predict recall on real documents.
+- **Calibration.** The tuning set of 10 cases (4 positives) is an admission screen, not calibration. The `.9` threshold in the keyless controls is synthetic.
+- **Orientation.** `question()` sends `left`/`right` in sorted order. Both orientations need an explicit swap in the live loop. I saw no code in this packet that performs it.
+
+**What I checked in `auditor.ts`**
+- The `tag-noise` category emits only one aggregate singleton finding with path `(corpus)`. It carries no semantic pair labels, matching the packet's claim. The check tolerates a missing tag table through `onCheckFailed`.
+- The audit skill's "normalize obvious duplicates" disposition is distinct from what the report-only prompt does, as the packet states.
+- Nothing in the auditor lets document text act as an instruction.
+
+I would approve this source packet once the other packets are reviewed and the issues above are addressed. The overall freeze should stay NOT_APPROVED until the writer and Jev sources are read.

@@ -1,0 +1,46 @@
+**NOT_APPROVED**
+
+This is case packet `cases-2`, which covers fixtures 9–16 of 23. The shared sources are included, but the core behaviour files (`tags.ts`, `tags-apply.ts`, `jev.ts`, `cli-runners.ts` and others) are not in this packet. I could not inspect the core writer's stale-byte, exclusion, alias-chain, cycle, conflict and replay boundaries, or the Jev client, so those must be approved from the source packets.
+
+## Blockers
+
+1. **The hybrid orientation arm is not implemented.**
+   - `question(pair)` builds a single question from the alphabetically ordered `left`/`right`.
+   - Nothing builds the swapped orientation, and `Row` has no orientation field.
+   - No code produces hybrid or current-arm `Row`s, runs the repetition loop, or calls `calibrate`.
+   - `jevCallsPerRun` assumes two orientations, but the protocol's "compare both orientations" cannot be measured with this code.
+
+2. **The gate text and the metrics disagree.**
+   - The protocol says "zero false merges across every repetition and orientation".
+   - `perCase` uses a majority vote, so a negative proposed in 1 of 3 repetitions is not counted as a false merge. It only shows up as unstable, and the gate wording does not clearly veto that.
+   - Failed repetitions are dropped from the vote. One completed repetition that proposes counts as proposed and not unstable, which hides instability.
+   - Count per-observation false proposals in the gate, or reword the gate.
+
+3. **The fixture-instruction hash binds a random path.**
+   - `nativeFixtureInstructions(root)` embeds `join(root, "AGENTS.md")`, and `prepare()` uses `mkdtemp`.
+   - A pre-issued live grant carrying `nativeUserContextSha` therefore cannot match unless the root path is fixed.
+   - The offline control derives its own policy, which hides this problem.
+   - Either fix the root path or document that grants can only be issued after the fixture exists.
+
+4. **Three of the eight cases in this packet never reach the judge.**
+   - The cases are `ogygia-sparse`, `pylos-ambiguous-acronym` and `sparta-homonym`.
+   - Their two bodies share no non-stopword word of 3 or more letters, and none of them co-occurs.
+   - The keyless test shows the only held-out lexical false merge is `sparta-lexical-trap`, so none of them is a lexical variant.
+   - As a result, the acronym-collision veto, the homonym veto and the sparse-abstention behaviour are not exercised for the hybrid arm.
+   - Give these cases a candidate path, or state that they are candidate-stage-only negatives and drop them from the veto claims.
+
+## Material reporting caveats
+
+- **Held-out leakage into candidate design.** The candidate stoplist contains held-out-only names and verbs (`nestor`, `menelaus`, `telemachus`, `eumaeus`, `uses`, `discusses`). The 4/5 held-out candidate recall is therefore not a clean held-out figure.
+- **No expected judge outcome for unknowns.** The `same: null` cases carry no expected answer. Any proposal on them is scored as a false merge, and that should be stated in the report.
+- **Acronym cases are self-labelling.** The in-text definitions ("LR, her shorthand for loom repair" versus "CR for cart repair") make both the positive and the negative easy. Real acronym collisions rarely define themselves.
+- **Label risk.** `guest-care` / `hospitality` is arguably a hierarchy relation, since hospitality is broader. The `seal-mark` tag name disambiguates the homonym on its own.
+- **Goldens are not full byte-level effects.**
+  - Config is a parsed object, and `prepare()` and `installSurface` differ on the trailing newline.
+  - `installSurface` also adds `AGENTS.md`, `.claude/`, `bin/`, the index and `audit-report.json`.
+  - The goldens do not list these. Only the runtime before/after snapshot covers them.
+- **Latency contamination.** The relay's `verifyPaid` calls `verifySource`, which runs a full synchronous `freeze()` (about 59k dependency files plus 23 `prepare()` calls) before every physical request. This inflates and blocks timing, so latency figures need that disclosed.
+- **Writer module coverage.** The packet builder's source list omits `frontmatter-edit.ts` and `ops/write.ts`. Confirm that whichever module rewrites the tags while keeping `# retain this comment` is in a source packet, because the goldens depend on it.
+- **Known limitations still apply.** The splits share one authored grammar and every body is a single sentence. Auxiliary accounting remains unresolved and live scoring still hard-refuses. The offline controls are scripted, not provider quality or an invoice. Semantic approval of the inputs alone authorizes nothing.
+
+On the cases themselves, the gold labels and the positive-case golden effects (alias added, source tag rewritten, excluded file untouched, sentinel `AP8H`) are internally consistent. The blockers above concern the protocol and its reporting, not the labels.

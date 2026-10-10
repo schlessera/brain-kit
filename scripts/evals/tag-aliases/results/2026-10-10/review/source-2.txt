@@ -1,0 +1,52 @@
+**NOT_APPROVED**
+
+This review covers only what this packet contains. I read `hygiene.ts`, `tags.ts`, `tags-apply.ts` and `context.ts` in full, along with the shared scripts, tests, fixtures and protocol. `jev.ts`, `auditor.ts`, `config.ts`, `safe-path.ts`, `cli-runners.ts` and the other core files are not here, and neither are the case packets with the expanded goldens. I could not verify those boundaries, and this verdict does not stand in for the other packets. I derived the expected files from `fixtures.ts` and `prepare()`.
+
+## Blockers
+
+1. **Orientation comparison is not implemented.**
+   - `question(pair)` takes no orientation argument, and `Candidate.left` and `right` are always alphabetical.
+   - `observedClient.judge` makes one call per pair, so nothing builds a swapped-orientation request.
+   - `Row` has `repetition` but no `orientation` field.
+   - `jevCallsPerRun` and the protocol both assume 2 orientations, and the gate "zero false merges across every orientation" cannot be computed or reported separately.
+   - Orientation is also confounded with alphabetical order and with the file names `left.md` and `right.md`.
+
+2. **Several hard negatives never reach the judge.** By the `words()` and stoplist rules, these pairs share no content word, are not lexical variants and do not co-occur:
+   - `pylos-ambiguous-acronym` (`cr` / `council-record`)
+   - `sparta-homonym` (`seal` / `seal-mark`)
+   - both sparse unknowns (`q7`, `z9`)
+
+   The acronym collision and the homonym are the cases the held-out false-merge gate is meant to test, yet the hybrid arm never sees them. The current arm reads the whole brain, so the two arms are compared on different negative sets. "Zero held-out false merges" is therefore close to vacuous for those categories. The report must give a retrieved-negative denominator, and the corpus needs hard negatives that a code-owned candidate stage actually retrieves.
+
+3. **`metrics()` does not match the protocol.**
+   - **Failed cases:** the protocol says full 23-case denominators persist, but `positives`, `recall` and `precision` are computed over `complete` cases only, so operationally failed positives drop out of recall.
+   - **False merges:** `falseMerges` is a majority vote (`proposals*2 > complete.length`). With 6 observations per case, a 3/6 proposal is neither a false merge nor counted, only listed as unstable. The gate says every repetition and orientation, so any-observation false proposals need their own metric.
+
+4. **Jev has no write-ahead of the request.** In `observedClient`, a call is saved only after the first response chunk or in `finally`. A process death after dispatch but before any bytes leaves no record of the charged request. The relay, by contrast, persists the call before forwarding. For Jev the request bytes need to be persisted before dispatch, with an in-flight or unknown hold.
+
+## Material reporting caveats
+
+- **Capture level:** the Jev capture is the fetch-decoded body, not wire bytes (no `accept-encoding` control). `String(init.body)` also assumes a string body.
+- **Overlap versus context mismatch:** candidate overlap is computed over all usage bodies, but the judge sees only the first 3 contexts. A pair can be admitted on a word the judge never sees.
+- **Golden effects not executed:** the expected `provisionalAcceptedReview` files and config are generated for all 9 positives, but the writer is run on only `pylos-synonym`. Nothing proves the other 8 goldens equal real writer output.
+- **Writer cases untested:** no test covers:
+  - co-occurring `from` and `to` in one document (the duplicate-merge path), even though co-occurrence is a candidate rule
+  - block-style tags
+  - `applyReviewed` replay (the stale snapshot hash refuses it, but this is untested)
+- **Excluded usage:** `excluded/kept.md` carries the `from` tag but is outside review and the writer. The alias becomes global config, so it would apply there once un-excluded.
+- **`applyReviewed` checks:**
+  - It does not check that `from` is not in the vocabulary. `proposal()` guards this only for proposals built through it.
+  - `dryRun` returns `report: null` and previews no files.
+  - Config and document writes are non-atomic, which is acknowledged.
+  - The config write re-serialises the whole JSON file.
+- **Current-arm validation:** `collectCurrent` collapses every rejection into one catch-all reason. Output wrapped in code fences throws as an operational failure rather than counting as abstention.
+- **Scale test:** the 32/128/256-tag test puts all tags in one document and records no CPU time, despite the protocol claim. The candidate loop is O(T²·D) and recomputes word sets per pair.
+- **Admission is weak on caveats:** admission checks only the leading token `APPROVED`, so an APPROVED reply that lists blockers is admitted. Author and reviewer family are caller-supplied strings, not derived from evidence. These are acceptable only if stated.
+- **`hygiene.ts`:** I found nothing blocking for #844. A snooze that is still in force and whose finding vanished stays in `snoozed.md` after its renamed successor opens. This is outside this issue.
+- **Known limits, unchanged:**
+  - The splits share one authored grammar of single-sentence bodies and two-document brains.
+  - Goldens are author-provisional, and a few are arguable (`guest-care` / `hospitality`, `council-record` / `council-minutes`).
+  - Concurrent auxiliary requests will be refused by the single-reservation budget until the #1275 accounting is resolved.
+  - Offline controls prove transport, not quality.
+
+Resolving blockers 1 to 4 and re-freezing should make this packet approvable. Scoring remains unauthorized by this review either way.

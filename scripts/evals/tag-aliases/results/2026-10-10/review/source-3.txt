@@ -1,0 +1,62 @@
+**NOT_APPROVED**
+
+Scope: this packet holds the shared sources and a subset of the core sources. It contains no "COMPLETE CASES AND AUTHOR-PROVISIONAL GOLDENS" section. I reviewed the case generation through `fixtures.ts` and `freeze.ts`, not the serialized expected-effect JSON. I could not read `tags.ts`, `tags-apply.ts`, `hygiene.ts` (`replaceIfUnchanged`), `auditor.ts`, `frontmatter-edit.ts`, `relay.test.ts`, `review.test.ts` or `paid-entry.test.ts` here. This verdict covers only what I could read. The writer stale-byte, exclusion, alias-chain-cycle, conflict and replay boundaries are unverified in this packet.
+
+## Blockers
+
+1. **"Both orientations" is not implemented anywhere.**
+   - `question()` in `prototype.ts` builds one request with a fixed `left`/`right`, and `Row` has no orientation field.
+   - Orientation is implicitly alphabetical in `candidates()`, and `proposal()` takes direction from vocabulary. The fixture always puts only `right` in vocabulary, so the current arm cannot be orientation-swapped without a different fixture.
+   - Yet `jevCallsPerRun`, `DEFAULT_CALL_BOUND`, the protocol text and the unstable-case gate all assume two orientations.
+   - Either add a swapped-question path with an orientation-tagged row, or remove the claim, the ×2 in the call counts and the gate wording.
+
+2. **The go gate does not match the metric.**
+   - The gate demands zero false merges across every repetition and orientation.
+   - `perCase` uses a majority vote (`proposals*2 > complete.length`), so a negative proposed in 1 of 6 observations is not in `falseMergeIds`. It appears only in `unstableCases`.
+   - Failed repetitions are dropped from the denominator (`complete`). A case with one surviving proposing observation out of six becomes `proposed`.
+   - Add an any-observation false-merge count, a per-orientation breakdown and a failed-observation count to the report.
+
+3. **Jev has no in-flight or timeout hold.**
+   - `NativeBudget` refuses concurrent and unknown requests. `observedClient` pushes the call and sets `stopped` only in `finally`.
+   - If the core client times out and abandons an attempt, `judge()` can return or throw before that `finally` runs. A later request can then dispatch while the earlier one is outstanding and possibly billed.
+   - Add an in-flight counter checked before dispatch.
+
+4. **Reporting promises code does not deliver.**
+   - The protocol cost gate says the report supplies Jev calls, tokens and price-derived USD for 32/128/256 tags, plus candidate CPU time. `keyless.ts` reports `corpusVolume` for the 45-tag corpus only.
+   - The 32/128/256 test checks only the pair cap and omissions.
+   - `packages/core/fixtures/corpus`, the source of the 959/990 volume figure, is not in the freeze. `workspaceTrees` hashes `src` only.
+   - `example-corpus.md` says 25 documents and the investigation doc says 24, with no reconciliation.
+
+## Material caveats
+
+- **Label validity.**
+  - `night-watch`/`guard-shift` (`same: true`) is arguably hierarchical, since a shift is a unit of duty and a watch is one kind, so it needs independent review.
+  - `guest-care`/`hospitality` is borderline related versus synonym.
+  - The `rr` and `lr` acronyms are defined inside the context, so they test reading rather than acronym inference. Real tags rarely carry their own definitions.
+- **Statistical power.**
+  - Held-out has 5 positives and 8 non-positives.
+  - Zero false merges on 8 negatives gives roughly a 31% upper bound at 95% confidence.
+  - The tuning calibration (4 positives, 5 negatives) cannot establish safety. The protocol already says so, and the report must repeat it.
+- **Abstention.** The lexical arm sets `abstained = !proposed`. That is non-proposal, not the explicit "uncertain" a model arm gives, so the two abstention figures are not comparable.
+- **Authored grammar.**
+  - The entity and location splits share the "X records/notes…" single-sentence template and the same stopword list.
+  - Candidate retrieval depends on shared content words, so the 4/5 recall says little about real documents.
+- **"Literal" Jev bytes.** In the Jev tee, `fetch` decodes transfer encoding. The retained bytes are decoded, not wire bytes. The relay does delete `accept-encoding`.
+- **Relay settlement race (fails closed).** The relay settles a reservation in `closed()` after `controller.close()` and `await reader.closed`. The next request can arrive first and be refused as in-flight. This is safe but could stop multi-turn workflow runs spuriously.
+- **Error masking.** `saveEvidenceBundle` throws `ENOENT` if `physical.json` is absent, which hides the real refusal reason on pre-request failures.
+- **Tool hook.** It allows `brain search|schema|types|list|read` and blocks only `--smart` and `--fix`. Other flags are not audited in this packet. `brain search` against `brain.db` can touch `-shm`/`-wal` bytes, which the snapshot compares. The `cli` mode is absent from the keyless proof's `nativeExitCodes`.
+- **Cost comparison.**
+  - Jev's price-derived input-only figure and the Sonnet list-price equivalent are not comparable to each other or to an invoice.
+  - Both stay `actualBilledUsd/invoice: null`. Auxiliary accounting under #1275 is still unresolved.
+  - Live current-arm scoring refuses by design.
+- **Config persistence.** `applyReviewed` rewrites JSON-fixture config and is not atomic. A failure after the alias write leaves the alias persisted.
+
+## What checked out
+
+- Fixture counts match the docs: 10 tuning (4/5/1) and 13 held-out (5/7/1).
+- No positive pair has identical contexts.
+- The grant, paid-policy and reservation logic fails closed. Its checks include a full-context reservation, rejected pricing modifiers and a reparsed ledger.
+- Evidence admission refuses offline-scripted provenance.
+- Live current-arm scoring and hybrid dispatch both refuse.
+
+Re-submit after fixing items 1–4, with the case packet and the missing source packets reviewed at the same freeze.
