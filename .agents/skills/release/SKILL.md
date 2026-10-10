@@ -126,6 +126,14 @@ finding to fix or file, never a reason to skip the tier: there is no override.
 Debug one file with `bun run test experiments/<file>`; that records nothing.
 `bun run release -- --dry-run` stays a plain listing and is not gated.
 
+**About 34 native/paid-harness tests fail with "Installed dependency inode has
+external hardlinks" or "regular file shares inode outside owned tree"?** Bun's
+default install hard-links `node_modules` to its global cache, and the offline
+harnesses refuse runtime bytes they do not own. Reinstall the same lock as
+copies and rerun: `rm -rf node_modules && bun install --frozen-lockfile
+--backend=copyfile`. The lock is unchanged, so this does not invalidate
+anything; do not skip or edit the tests.
+
 ## A cold build tries to download an installed CLI
 
 `bunx @tailwindcss/cli` may search for a binary named `cli`, even though the
