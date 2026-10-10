@@ -170,6 +170,14 @@ principal from an httpOnly cookie, and it needs nothing more than "same or
 different". A different key on reconnect signs every held answer out,
 unsent. So does logging out, or revoking this device's own principal.
 
+A host hello can arrive while startup is still reading the previously stored
+principal. The completed storage read is only a fallback: it cannot replace
+the newer host identity, even with an empty first-visit value. A read begun
+before logout or disposal cannot restore admission authority (`async function
+restore`, `packages/ui-react/src/lib/answer-delivery/manager.ts:702-722`). Without
+the check after the await, a real offline Submit could incorrectly say Not
+saved, or queue its answer under an older principal.
+
 **Tabs.** Both tabs read the same records, so both would replay them. Each
 submission has one owner, the tab holding its Web Lock. The others wait for
 that lock and show the owner's broadcast state, read-only

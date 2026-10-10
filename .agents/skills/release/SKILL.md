@@ -15,6 +15,12 @@ that hits something new is not finished until that lands here or in a test — s
 All seventeen packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
+The full sequence: changeset → `bun run version` → **read the version it
+produced** → `bun run build && bun run typecheck && bun run test` → commit
+`chore: version packages to X.Y.Z` → push → `bun run release`. The sections
+below are each step's checks; [Before you version](#before-you-version) adds
+the complete `check:pr --all` proof before the release PR.
+
 ## Before you version
 
 1. **Changesets exist for everything user-visible.** `.changeset/*.md`, one per
@@ -28,9 +34,13 @@ mistake therefore lands on the whole group at once.
    inspect this contribution, but does not replace full pending-set validation.
    An unknown name prevents plan assembly even when the contribution gate passes;
    correct the reference while preserving its intended bump and release prose.
-2. **`bun run test` and `bunx tsc --noEmit` are green.** The `tests/`
-   directory holds the release guards — a failure there is about the release
-   itself, not the code.
+2. **`bun run check:pr --all` is green before creating the release PR.**
+   This includes complete tests, strict types, real runtime/Chrome enforcement,
+   every pinned browser/layout/endurance project, editorial reproducibility and
+   all packed consumer checks. Record head/base, commands and results; fast
+   automatic CI does not establish release proof. Missing tools or skipped
+   runtime checks leave verification unfinished. The `tests/` directory retains
+   the release guards; none are removed to save CI minutes.
 3. **New package added this cycle?** It must appear in `scripts/publish.ts`,
    `scripts/build.ts`, the `fixed` group in `.changeset/config.json`, and the
    package map in `README.md`. `tests/release-manifest.test.ts` enforces the
@@ -38,8 +48,7 @@ mistake therefore lands on the whole group at once.
    Record the issue-approved internal dependencies in
    `tests/allowed-edges.ts`, with their rationale; `tests/dependency-edges.test.ts`
    rejects a package without an edge policy. Add the package to every pack/import
-   inventory in `.depot/workflows/ci.yml`, then regenerate the fork adapters with
-   `bun scripts/fork-ci-adapters.ts --write`. In `publish.ts` and `build.ts`, order matters: a package must
+   inventory in the authoritative `.github/workflows/ci.yml`. In `publish.ts` and `build.ts`, order matters: a package must
    be listed **before** anything that depends on it.
 
 ## Versioning
@@ -78,7 +87,7 @@ permission-precedence cases during 0.40.0 preparation, so that release retained
 the validated SDK 0.3.283 / CLI 2.1.283 pair.
 
 ```sh
-bunx tsc --noEmit && bun run test && bun run build
+bun run check:pr --all
 ```
 
 ## A cold build tries to download an installed CLI
@@ -87,18 +96,23 @@ bunx tsc --noEmit && bun run test && bun run build
 installed package exports `tailwindcss`, then attempt a registry download.
 Name both explicitly: `bunx -p @tailwindcss/cli tailwindcss`. Diagnose against
 the frozen install with `bunx --no-install -p @tailwindcss/cli tailwindcss --help`;
-it must work without a warm Bun cache or network. The editorial capture CI
-build exercises the actual build script with networking disabled.
+it must work without a warm Bun cache or network. The required local editorial capture
+verification exercises the actual build script with networking disabled.
 
 ## `bun run build` exits 133 with a V8 stack trace
 
 A build that dies with `error: script "build" exited with code 133` and a
-`V8_Fatal` / `ReduceStringAt` / `TurboshaftAssemblerOpInterface` stack is node's
-JIT crashing, not this repo. It is not deterministic: **re-run the build**. Seen
-once on node v22.18.0 while preparing 0.35.0, passing on the immediate retry
-with `check-dist-types` clean afterwards. If it repeats on the same package
-twice in a row, that is a different problem — bisect the package rather than
-retrying a third time.
+`V8_Fatal` / `ReduceStringAt` / `TurboshaftAssemblerOpInterface` stack has
+failed compilation. The stack alone does not establish the crashing child,
+an upstream defect or the input/resource trigger. Preserve complete stderr,
+source/configuration/compiler identity, the actual child executable and
+exit/signal, and resource conditions before making a controlled comparison.
+Keep strict compilation and the offline guards enabled. A passing unchanged
+comparison is recovery evidence; it does not erase the failed proof or prove
+a correction. Diagnose repeated native termination instead of retrying until
+green. The earlier Node v22.18.0 occurrence during 0.35.0 passed once on
+retry, with `check-dist-types` clean afterwards; its cause was not established.
+See #756 for the distinct retained native failures and matched-source controls.
 
 ## The version is wrong — usually a surprise major
 
@@ -151,6 +165,12 @@ git push origin main --follow-tags
 - **`403 ... cannot publish over the previously published versions`** says that
   version is already out. Re-run: the plan skips it rather than retrying it.
 - Tags are pushed by hand — `bun run release` creates them, it does not push.
+  GitHub omits tag-push events when more than three tags are pushed together
+  ([event limit](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)).
+  The public website's Actions workflow also reconciles the latest canonical
+  release every 15 minutes; its direct trigger alone cannot observe a bulk
+  `--follow-tags` push. Check the website run/provenance after a release, or
+  manually dispatch the same workflow to rebuild immediately.
 - **The template repository goes out as the last step of `bun run release`**,
   after the registry has confirmed every package. It has to be last: a clone of
   `schlessera/brain-template` runs `bun install` against the pin in

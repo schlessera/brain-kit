@@ -686,6 +686,15 @@ export interface ServerConfig {
   pricing: { enabled: boolean; ttlMs: number };
   /** The Claude subscription token, as far as the server needs to know it (#254). */
   subscription: SubscriptionConfig;
+  /**
+   * The exec wrapper and its cancellation helper (BRAIN_UI_EXEC_WRAPPER,
+   * BRAIN_UI_EXEC_KILLER) that every brain CLI and repository-script spawn
+   * goes through. `resolveServerConfig()` always sets it. Optional only so
+   * that configurations built before it existed keep their wrapper: when it is
+   * absent, `createApp()` resolves it from the process environment at the
+   * edge rather than spawning unwrapped.
+   */
+  exec?: ExecWrapperConfig;
 }
 
 export interface SubscriptionConfig {
@@ -721,6 +730,8 @@ export interface CronConfig {
    * Emitting them is what stops the privilege boundary at the crontab.
    */
   controlEnv: EnvRecord;
+  /** The exec wrapper resolved from `controlEnv`'s source, once, at the bin's edge. */
+  exec: ExecWrapperConfig;
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -965,6 +976,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       tokenSet: Boolean(env.CLAUDE_CODE_OAUTH_TOKEN?.trim()),
       mintedAt: env.BRAIN_UI_CLAUDE_TOKEN_MINTED_AT?.trim() || null,
     },
+    exec: execConfig(env),
   };
 }
 
@@ -998,6 +1010,7 @@ export function resolveCronConfig(
     controlEnv: Object.fromEntries(
       CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
     ),
+    exec: execConfig(env),
   };
 }
 
@@ -1028,15 +1041,26 @@ function filterPackageSubprocessEnv(
  * The exec wrapper and its cancellation helper, or empty when the host
  * configured neither.
  *
- * Read per spawn rather than resolved once into {@link ServerConfig}: this is
- * a privilege boundary, and the rest of the package's config is resolved at
- * `createApp()` while these spawns happen for the life of the process.
+ * Resolved once at an edge into {@link ServerConfig.exec} or
+ * {@link CronConfig.exec} and threaded to every spawn (#1363). There is no
+ * `process.env` default: a spawn site that resolved the wrapper from the
+ * ambient environment would ignore the wrapper an app was configured with.
  */
-export function execConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+export function execConfig(env: EnvRecord): ExecWrapperConfig {
   return {
     wrapper: validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER),
     killer: validateExecWrapper(env.BRAIN_UI_EXEC_KILLER),
   };
+}
+
+/**
+ * {@link execConfig} of the process environment, for the two edges that must
+ * still read it: `createApp()` given a configuration without `exec`, and a
+ * `createBrainClient()` an embedder builds without one. Each resolves it once.
+ * An absent field must keep the ambient wrapper, never mean "unwrapped".
+ */
+export function ambientExecConfig(): ExecWrapperConfig {
+  return execConfig(process.env);
 }
 
 export function subprocessEnv(

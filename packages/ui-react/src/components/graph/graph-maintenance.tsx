@@ -12,7 +12,7 @@ import { NodePopover } from "./node-popover.js";
 import { GraphEmptyState } from "./graph-empty-state.js";
 import { GraphCanvas } from "./graph-canvas-lazy.js";
 import { CenteredSpinner } from "./graph-spinner.js";
-import { matchScene } from "./lib/graph-helpers.js";
+import { matchScene } from "../../lib/graph-helpers.js";
 import { useGraphTheme } from "./use-graph-theme.js";
 import { cn } from "../../lib/utils.js";
 

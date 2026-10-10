@@ -15,7 +15,7 @@ import { FilePanel } from "../../src/components/files/file-panel.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge, isStale } from "../../src/components/files/staleness.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
-import { entityKind, entityLegend } from "../../src/components/graph/lib/graph-helpers.js";
+import { entityKind, entityLegend } from "../../src/lib/graph-helpers.js";
 import { useFileStore } from "../../src/stores/file-store.js";
 import { useActivityStore } from "../../src/stores/activity-store.js";
 import { useGraphStore } from "../../src/stores/graph-store.js";

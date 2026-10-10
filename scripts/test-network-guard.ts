@@ -1,5 +1,6 @@
 /** Test-only transport safeguard; never imported by a published package. */
 import { basename, join } from "node:path";
+import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
@@ -75,6 +76,11 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         const guarded = [...cmd.slice(0, index), "--preload", childPreload, ...cmd.slice(index)];
         args[0] = Array.isArray(first) ? guarded : { ...first, cmd: guarded };
       }
+      // Resource ownership follows children even when a test replaces env or
+      // cwd. Existing extra stdio channels keep their original descriptor ids.
+      const defaultStderr = key === "spawnSync" ? "pipe" : "inherit";
+      if (Array.isArray(first)) args[1] = inheritWorkspaceLease(args[1] ?? {}, defaultStderr);
+      else args[0] = inheritWorkspaceLease(args[0], defaultStderr);
       const result = Reflect.apply(native, Bun, args);
       return result;
     }) as typeof Bun.spawn & typeof Bun.spawnSync;

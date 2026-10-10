@@ -1,5 +1,5 @@
 // Private #845 experiment. No CLI registration, package export or caller-given root.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { editFrontmatter, type FrontmatterValue } from "../../../packages/core/s
 import { inertGeneratedText, readGeneratedRegion, rewriteGeneratedRegion, splitFrontmatterBlock } from "../../../packages/core/src/lib/generated-regions";
 import { planRegistry, applyRegistry } from "../../../packages/core/src/lib/index-registry";
 import { ensurePipelineIndex, STAGES } from "../../../packages/module-jobs/src/pipeline";
+import { loadModules } from "../../../packages/core/src/lib/module-loader";
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const line = z.string().trim().min(1).max(300).refine(v => !/[\r\n<>|`]/.test(v), "one inert line required");
@@ -42,6 +43,8 @@ export interface Lab {
   config: BrainConfig;
   taxonomy: Taxonomy;
   opportunitiesDir: string;
+  /** Fresh comparison fixtures resolve the actual disk config and enabled module. */
+  authority?: { configText: string; jobsEnabled: boolean };
   close(): void;
 }
 function pathOf(lab: Lab, relative: string): string {
@@ -74,6 +77,27 @@ export function createLab(files: Record<string, string>, custom = false, moduleF
     }
   } catch (error) { lab.close(); throw error; }
   return lab;
+}
+
+/** Separate fresh factory; the historical seeded controls keep their original construction. */
+export async function createConfiguredLab(files: Record<string, string>): Promise<Lab> {
+  const configText = files["brain.config.json"];
+  if (typeof configText !== "string") throw new Error("a complete disk configuration is required");
+  const config = brainConfigSchema.parse(JSON.parse(configText));
+  const original = createLab(files);
+  try {
+    // This issue owns its installed dependencies. Runtime isolation binds them read-only.
+    symlinkSync(join(import.meta.dir, "../../../node_modules"), join(original.root, "node_modules"));
+    const modules = await loadModules(config, original.root);
+    const jobs = modules.find(mod => mod.manifest.name === "jobs" && mod.state === "active");
+    const moduleDir = (jobs?.config as { opportunitiesDir?: unknown } | undefined)?.opportunitiesDir;
+    const lab: Lab = Object.freeze({ ...original, config, taxonomy: buildTaxonomy({ user: config, modules }),
+      opportunitiesDir: typeof moduleDir === "string" ? moduleDir : "career/opportunities",
+      authority: Object.freeze({ configText, jobsEnabled: jobs !== undefined }),
+    });
+    labs.delete(original); labs.add(lab);
+    return lab;
+  } catch (error) { original.close(); throw error; }
 }
 function read(lab: Lab, path: string): string | null {
   const full = pathOf(lab, path);
@@ -151,6 +175,10 @@ export function inspect(lab: Lab, input: unknown, focusBefore: string): Inspecti
       if (!reads.has(path)) reads.set(path, read(lab, path));
       return reads.get(path)!;
     };
+    if (lab.authority) {
+      if (capture("brain.config.json") !== lab.authority.configText) throw new Error("configuration changed; reload before planning");
+      if (!lab.authority.jobsEnabled) throw new Error("jobs module is unavailable");
+    }
     const status = capture(statusPath);
     if (status === null) throw new Error("unknown opportunity");
     const data = parseFrontmatter(status).data;
@@ -190,9 +218,11 @@ export function inspect(lab: Lab, input: unknown, focusBefore: string): Inspecti
     if (event.kind === "offer" && event.deadline !== null && event.nextStep === null) throw new Error("deadline requires an explicit next step");
     if (event.kind === "offer" && event.deadline !== null && event.deadline < event.on) throw new Error("offer deadline is before event date");
     const focus = capture(focusPath);
-    if (focus === null || !focusBefore || focusBefore.includes("\n") || focusBefore.includes("\r")) throw new Error("exact current-focus line required");
+    if (focus === null || focusBefore.includes("\n") || focusBefore.includes("\r")) throw new Error("exact current-focus line required");
     const focusLines = focus.split("\n");
-    if (focusLines.filter(l => l === focusBefore).length !== 1 || !focusBefore.includes(`[[${dir}/status]]`)) throw new Error("current-focus target is absent or ambiguous");
+    const previouslyRetiredFocus = !focusBefore && event.kind === "closed" && events.length > 0 &&
+      !focusLines.some(line => line.includes(`[[${dir}/status]]`));
+    if (!previouslyRetiredFocus && (focusLines.filter(l => l === focusBefore).length !== 1 || !focusBefore.includes(`[[${dir}/status]]`))) throw new Error("current-focus target is absent or ambiguous");
     const prep = capture(prepPath);
     if (prep !== null && parseFrontmatter(prep).data.type !== "opportunity") throw new Error("unsupported prep type");
     // Legacy contact rows and call details need an explicit ownership migration, not string guessing.
@@ -224,7 +254,7 @@ export function inspect(lab: Lab, input: unknown, focusBefore: string): Inspecti
     if (contacts.size) statusNext = region(statusNext, "lifecycle-contacts", `## Recorded contacts\n\n| Name | Role | Relationship | Notes |\n| --- | --- | --- | --- |\n${[...contacts.values()].map(c => `| ${c.name} | ${c.role} | Interview | ${c.details ?? "unknown; ask before outreach"} |`).join("\n")}`, event.on);
     // Status is last: the complete event receipt follows the other source writes.
     const focusAfter = event.kind === "closed" || (!next && event.kind === "cancelled") ? "" : `- [[${dir}/status]] — ${event.kind === "offer" ? event.nextStep ?? "Offer received; next step unknown" : callText(next!)}`;
-    changes.set(focusPath, edit(focusLines.map(l => l === focusBefore ? focusAfter : l).filter((l, i) => l !== "" || focusLines[i] !== focusBefore).join("\n"), { updated: event.on }));
+    if (!previouslyRetiredFocus) changes.set(focusPath, edit(focusLines.map(l => l === focusBefore ? focusAfter : l).filter((l, i) => l !== "" || focusLines[i] !== focusBefore).join("\n"), { updated: event.on }));
     if (next) {
       const raw = prep ?? `---\ntype: opportunity\ntitle: Interview preparation\ncreated: ${event.on}\nupdated: ${event.on}\nstatus: active\nrelevance: primary\ntags: [job-search, interview-prep]\n---\n\n## Related\n\n[[${dir}/status]]\n[[${dir}/research]]\n`;
       changes.set(prepPath, region(edit(raw, { deadline: next.startsAt.slice(0, 10), updated: event.on }), "lifecycle-calls", `## Upcoming calls\n\n${nextRounds.map(e => `- [${e.roundId}] ${callText(e)}`).join("\n")}`, event.on));

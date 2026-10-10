@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { HATCH_GLYPH, LaneChart, type Lane, type LaneLegendItem } from "@schlessera/brain-ui-kit";
 import { isFailureOutcome, type ActivitySpan } from "@schlessera/brain-ui-sdk/protocol";
-import { formatDuration } from "../chat/tool-views.js";
+import { formatDuration } from "../../lib/duration.js";
 import { spanToolLabel } from "./span-bits.js";
 
 interface Interval {

@@ -1,4 +1,5 @@
 import type { RecordingTranscription } from "@schlessera/brain-ui-sdk/protocol";
+import { followDraftTarget } from "./draft-target.js";
 import type { BrainUiServices } from "../root.js";
 import { startLocalCapture, type LocalCapture, type LocalCaptureChunk, type LocalCaptureSink, type LocalCaptureStopReason, type StartLocalCaptureOptions } from "../voice/local-capture.js";
 import { accountPartition, PartitionRefusedError, type LocalPartitions, type PartitionId, type PartitionWrite, type WriterFence } from "./local-partitions.js";
@@ -651,15 +652,18 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       // The global recording lock serializes accept, edit, discard and other
       // tabs. A receipt committed with the draft closes the crash window
       // between that commit and accepted metadata / deletion.
-      const release = await acquire();
+      const target = followDraftTarget(options.root.stores.drafts, draftId, sessionId);
+      let release = async () => {};
       try {
+        release = await acquire();
         checkReadable(partition);
         if (partition === "unassigned" || !options.root.localWork) throw new Error("Link this recording to an account before adding it to a draft");
         const row = await get(partition, id);
         if (!row) throw new Error(RECORDING_UNAVAILABLE);
         if (expectedTranscript !== undefined && expectedTranscript !== row.transcript) throw new Error(TRANSCRIPT_CHANGED);
         if (row.state !== "accepted" && (row.state !== "transcript-ready" || !row.transcript?.trim())) throw new Error("The recording has no transcript to add");
-        const revision = await options.root.localWork.addTranscript(id, row.transcript!, draftId, sessionId);
+        const owner = target.current();
+        const revision = await options.root.localWork.addTranscript(id, row.transcript!, owner.draftId, owner.sessionId);
         // Authority may have gone during the draft commit. The audio stays
         // locked until the same account returns; it is never deleted early.
         checkReadable(partition);
@@ -671,6 +675,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
       } finally {
         // The draft's durable receipt can change reviewability even when
         // accepted metadata or cleanup fails. Refresh every mounted tab.
+        target.dispose();
         changed(id);
         await release();
       }

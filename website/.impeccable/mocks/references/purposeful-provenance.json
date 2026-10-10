@@ -1,0 +1,43 @@
+{
+  "referenceDate": "2026-07-12",
+  "capture": "Native Chromium screenshots of actual public AppShell, ChatPage and ActivityPage with scripted local request data",
+  "limits": "Fictional protocol/store data; no model, microphone, upload, notification or real agent execution; run timings and map association are staged",
+  "application": "source-app-reference.txt",
+  "generator": "source-capture.txt",
+  "entries": [
+    {
+      "source": "actual-rank-light-390.png",
+      "file": "hero-decision-paper.png",
+      "scene": "Inline ranked decision",
+      "viewport": "390x844",
+      "sha256": "e4991675eb514306bc98dbee20cb4574fd36d6b7bd7ddf50adc9b8ba16a69d46",
+      "raw_sha256": "e2d49b3fb464f589fd2b1721aebf1191dcaa228a499b4f651eb1543d8d5e5da4"
+    },
+    {
+      "source": "actual-rich-dark-390.png",
+      "file": "hero-plan-dark.png",
+      "scene": "Departure plan with stats and map",
+      "viewport": "390x844",
+      "sha256": "d93cf71bac6a45721b807e3bf8cf6852f564e60a0998ec48b7e16de5d2bee8ec",
+      "raw_sha256": "b0077b332599fc5005b51ba09495b52d015ed39d660e7600e0343da115f1f782"
+    },
+    {
+      "source": "actual-work-dark-390.png",
+      "file": "demo-work-phone-dark.png",
+      "scene": "Actual Actions run detail",
+      "viewport": "390x844",
+      "sha256": "5d4228f4226caea92a670e4cd9930364ab1b3a1346a4ba9c3eb2c41fab6d4c22",
+      "raw_sha256": "a93cb74d5b6d08ec6dee8a092d23df2fae7c7b2dfd880ce1157a855ec688e6bf"
+    },
+    {
+      "source": "actual-work-light-1100.png",
+      "file": "demo-work-desktop-paper.png",
+      "scene": "Actual desktop Actions composition",
+      "viewport": "1100x760",
+      "sha256": "f344108c43c5cb5e6a96b9f3188b77788c69b9a58b9a31cba0d5d5f0af9250f5",
+      "raw_sha256": "eb178ee4e42a065050b1abd687eb5defe4304f592f2252fdbdd1687bfd8e2bc6"
+    }
+  ],
+  "generatorHash": "af746cca6c51cb9bfd3de3cb8b9a46f048285518a33c79bef6c2328b1b5406f8",
+  "applicationHash": "cb316bec37eb7e8974bbd33f3e6a801dbcd7ec13eb426ce867567dbad5c23da7"
+}

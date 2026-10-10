@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
@@ -107,8 +107,8 @@ test("installed CLI denies an outside Read under bypassPermissions and reads the
     expect(audit.some((entry) => entry.tool === "Read" && !entry.allowed)).toBe(true);
     expect(audit.some((entry) => entry.tool === "Read" && entry.allowed && entry.target === "probe.md")).toBe(true);
     rmSync(fixturePath);
-    // optionsFor staged a throwaway brain outside this checkout.
-    rmSync(join(brain, ".."), { recursive: true, force: true });
+    // The staging module owns this shared cwd until process exit (#1330).
+    expect(existsSync(brain), "the shared measurement cwd must outlive this test's probe").toBe(true);
   } finally { model.stop(); }
 }, 60_000);
 

@@ -10,7 +10,7 @@ when its PR is merged and reconciled, or its blocker is documented and its
 claim released. Do not take the next issue after that handoff.
 
 Requires this checkout, authenticated `gh` with issue/PR write access, git,
-Bun and `jq`; also `depot` when Depot CI is enabled. GitHub Project access
+Bun and `jq`. GitHub Actions is the CI provider. GitHub Project access
 is optional.
 
 An end-to-end request authorizes assignment, tracker updates, scoped
@@ -182,6 +182,27 @@ never identifies a private-instance follow-up; sanitize the public handoff.
 
 ## PR, CI and merge
 
+Before creating a PR or marking a draft ready, run `bun run check:pr --base
+origin/main` in the issue checkout. This supplies focused local preflight;
+`--plan` is inspection only. Record behavioral failing-first/restored mutation
+receipts and visual review where relevant. Complete repeatable proof runs in
+hosted CI on ready PRs under #1326: types, packaging, full affected discovery,
+pinned browser/layout/offline/endurance/editorial and native runtime categories.
+`check:pr --full` and `--all` retain opt-in full local/release execution.
+
+Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
+leave selected hosted proof incomplete. Never delete tests, weaken offline
+harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
+pushes. After cheap gates independent categories run concurrently; per-PR
+cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
+cancellations before adding shards. Follow docs/decisions/ci-utility.md.
+
+Assess missing main commits before refreshing. Revalidate affected proof after
+code, dependency, harness or relevant base changes. Unrelated advancement alone
+does not require a rebase or repeat long suites; retain actual tested head/base
+and the relevance assessment, satisfying existing branch rules. Never relabel
+older green evidence as a new combined-tree receipt.
+
 Before every push, confirm the branch's PR is not already merged/closed.
 Open one PR against `main` using the repository template and appropriate
 type/area/`contract` labels; do not copy readiness labels onto the PR.
@@ -200,6 +221,10 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   handoff. Diagnose repeated failures; do not rerun indefinitely, weaken a
   gate, dismiss a review or bypass protection to obtain green.
 - Once current-head checks pass and actual merge requirements are met,
+  assign and read back the PR and completed/advanced issues' release milestones
+  under the GitHub skill. This applies to every merge, including docs/test/CI
+  work and `Refs` slices; choose the confirmed upcoming release for unreleased
+  work and preserve the initial release of unchanged shipped behavior. Then
   merge using `--match-head-commit` and squash. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
@@ -207,7 +232,8 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
 ## Finish or hand off
 
 Reconcile fresh GitHub state. After merge, fetch main and prove the reported
-merge commit is an ancestor of `origin/main`. Check actual issue closure;
+merge commit is an ancestor of `origin/main`. Check actual issue closure and
+verify the PR and delivered issues retain the intended release milestones;
 never push another fix to a merged branch. Post-merge fixes need a new branch
 and issue where appropriate.
 

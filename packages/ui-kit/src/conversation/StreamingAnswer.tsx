@@ -11,8 +11,8 @@ import type { StreamPhase } from "../types.js";
  *
  * Two things are non-negotiable and both are in the design's own list: the
  * phase line names what is happening RIGHT NOW in the agent's own vocabulary
- * (`brain_search`, `WebFetch`, `drafting answer`), and the cost keeps counting
- * — a run that is spending money says so while it spends it.
+ * (`brain_search`, `WebFetch`, `drafting answer`). Identity, elapsed and cost
+ * come from the caller; absent facts never inherit prototype examples.
  *
  * Before the first token the answer is ghost text (#1116): `lines` blurred
  * prose lines at the answer's own size, the spectrum sweeping through them.
@@ -22,7 +22,7 @@ import type { StreamPhase } from "../types.js";
  * ~9 characters settle from 0.2 to full opacity, and keep settling after the
  * last token, so a word arriving reads as arriving rather than as a jump.
  *
- * **`aria-live="polite"` on the phase line** is one of the design's five
+ * **`aria-live="polite"` on the phase word** is one of the design's five
  * non-negotiable rules, not a nicety: the phase is the only thing on screen
  * that changes without the user doing anything, so a screen-reader user who
  * cannot see it has no signal that anything is happening. `polite`, not
@@ -41,6 +41,8 @@ export interface StreamingAnswerProps {
   /** What the phase is acting on, and how far through the tools it is. */
   target?: string;
   elapsed?: string;
+  /** Pulse while working; false when waiting for a user decision. */
+  pulse?: boolean;
   /** The answer so far. The caret sits at its end. */
   text?: string;
   cost?: string;
@@ -70,9 +72,9 @@ const WIDTHS = ["92%", "74%", "58%", "84%"];
 const TAIL = 9;
 
 export function StreamingAnswer(p: StreamingAnswerProps) {
-  const phase = p.phase || "searching";
+  const phase = p.phase;
   const lines = Math.max(1, Number(p.lines) || 3);
-  const text = p.text ?? "Three venues are in the corpus. Two have notes from last year";
+  const text = p.text ?? "";
   const canStop = p.stoppable !== false;
   const act = Boolean(p.onStop);
   const waiting = p.bars !== false && !text;
@@ -98,6 +100,7 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
 
   return (
     <div
+      data-kit-streaming-answer=""
       style={{
         display: "flex",
         flexDirection: "column",
@@ -106,28 +109,17 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
         width: "100%",
       }}
     >
-      {/* The one live region in the kit. See the note at the top. */}
-      <div style={statusRow} aria-live="polite">
-        <StatusDot tone="amber" pulse size={6} />
-        <span style={{ flex: "none", color: accent.amber.ink, fontWeight: 600 }}>
-          {p.phaseLabel || PHASES[phase] || phase}
+      {/* Only phase changes are announced; elapsed ticks and targets are not. */}
+      <div style={statusRow}>
+        <StatusDot tone="amber" pulse={p.pulse !== false} size={6} />
+        <span aria-live="polite" aria-atomic="true" style={{ flex: 1, minWidth: 0, color: accent.amber.ink, fontWeight: 600, overflowWrap: "anywhere" }}>
+          {p.phaseLabel || (phase ? PHASES[phase] || phase : "")}
         </span>
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            color: accent.neutral.ink,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {p.target ?? "venues lisbon · 3 of 4 tools done"}
-        </span>
-        {(p.elapsed ?? "1.4s") ? (
-          <span style={{ flex: "none", color: accent.neutral.ink }}>{p.elapsed ?? "1.4s"}</span>
+        {p.elapsed ? (
+          <span data-stream-elapsed="" style={{ flex: "none", color: accent.neutral.ink }}>{p.elapsed}</span>
         ) : null}
       </div>
+      {p.target ? <div style={{ ...statusRow, color: accent.neutral.ink, overflowWrap: "anywhere" }}>{p.target}</div> : null}
       {p.bars !== false || text ? (
         <div
           style={{
@@ -218,7 +210,7 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
               color: accent.neutral.ink,
             }}
           >
-            {p.cost ?? "~$0.03 so far"}
+            {p.cost}
           </span>
         </div>
       ) : null}

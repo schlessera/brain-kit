@@ -67,8 +67,9 @@ test("physical usage/cache accounting uses response tokens and stops after an un
     expect(await provider.complete({ prompt: "nonempty input" })).toBe("Actual response");
     expect(spend.calls[0]!.completionText).toBe("Actual response");
     expect(spend.calls[0]!.stopReason).toBe("end_turn");
-    expect(spend.calls[0]!.priceDerivedCostUsd).toBeCloseTo(0.000506, 8);
-    expect(spend.used).toBeCloseTo(0.000506, 8);
+    // 100 input at $2/M, 20 output at $10/M, 30 reads at $0.10/M, 40 5m writes at $2.50/M.
+    expect(spend.calls[0]!.priceDerivedCostUsd).toBeCloseTo(0.000503, 8);
+    expect(spend.used).toBeCloseTo(0.000503, 8);
     const unknown = instrumentedCompletion(spend, "fallback", async () => Response.json({ model: MODELS.current, stop_reason: "end_turn", content: [{ type: "text", text: "unknown usage" }] }), "fictional-key");
     await unknown.complete({ prompt: "one unknown" });
     expect(spend.uncertain).toBe(true);

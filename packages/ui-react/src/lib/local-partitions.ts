@@ -35,6 +35,8 @@ export interface PartitionHandle {
   put(key: string, value: unknown): Promise<void>;
   /** Several changes in one transaction; resolves once it has committed. */
   write(changes: readonly PartitionWrite[], signal?: AbortSignal): Promise<void>;
+  /** @internal Read and plan writes synchronously inside one native transaction. */
+  mutate<T>(prefix: string, update: (rows: Array<{ key: string; value: unknown }>) => { changes: readonly PartitionWrite[]; result: T }, signal?: AbortSignal): Promise<T>;
   get(key: string): Promise<unknown>;
   /** Every record whose key starts with `prefix`. */
   list(prefix: string): Promise<Array<{ key: string; value: unknown }>>;
@@ -200,7 +202,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
   /** Records are keyed `[partition, key]`, so a partition is one key range. */
   const range = (id: PartitionId, prefix = "") => IDBKeyRange.bound([id, prefix], [id, `${prefix}￿`]);
 
-  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction, stored?: WriterFence) => void, signal?: AbortSignal, authority?: FenceAuthority): Promise<void> {
+  async function transact(id: PartitionId, stores: string[], mode: IDBTransactionMode, op: (tx: IDBTransaction, stored?: WriterFence, fail?: (error: unknown) => void) => void, signal?: AbortSignal, authority?: FenceAuthority): Promise<void> {
     if (authority) authority.check(); else check(id);
     const writerToken = adopted.get(id);
     const d = await db();
@@ -235,7 +237,7 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
                 check(id);
                 if (stored?.closed || (stored?.token ?? "initial") !== writerToken || fence(id).token !== writerToken) throw new PartitionRefusedError(id);
               }
-              op(tx, stored);
+              op(tx, stored, error => { operationError = error; abort(); });
             } catch (error) { operationError = error; abort(); }
           };
         }
@@ -270,6 +272,36 @@ export function createLocalPartitions(options: LocalPartitionOptions): LocalPart
       id,
       put: (key, value) => write([{ put: key, value }]),
       write,
+      async mutate<T>(prefix: string, update: (rows: Array<{ key: string; value: unknown }>) => { changes: readonly PartitionWrite[]; result: T }, signal?: AbortSignal): Promise<T> {
+        check(id);
+        if (fence(id).token !== generation) throw new PartitionRefusedError(id);
+        if (!persistAsked) { persistAsked = true; options.persist?.(); }
+        let result!: T;
+        await transact(id, [RECORDS, SIZES], "readwrite", (tx, _stored, fail) => {
+          const records = tx.objectStore(RECORDS);
+          const sizes = tx.objectStore(SIZES);
+          const keys = records.getAllKeys(range(id, prefix));
+          const values = records.getAll(range(id, prefix));
+          // Both reads and every planned change belong to this same native
+          // transaction. No awaited application work can expire its lifetime.
+          values.onsuccess = () => {
+            try {
+              check(id);
+              const planned = update(keys.result.map((key, i) => ({ key: (key as [string, string])[1], value: values.result[i] })));
+              for (const change of planned.changes) {
+                if ("put" in change) {
+                  records.put(change.value, [id, change.put]);
+                  sizes.put(measure(change.value), [id, change.put]);
+                } else {
+                  records.delete([id, change.delete]); sizes.delete([id, change.delete]);
+                }
+              }
+              result = planned.result;
+            } catch (error) { fail!(error); }
+          };
+        }, signal);
+        return result;
+      },
       async get(key) {
         check(id, true);
         const d = await db();

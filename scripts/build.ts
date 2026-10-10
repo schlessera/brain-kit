@@ -1,5 +1,6 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
+import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 // Build order is not load-bearing: each package's tsconfig.build.json extends
 // the root tsconfig, whose customConditions ["bun"] resolve cross-package
@@ -30,6 +31,8 @@ const packages = [
 ];
 
 const root = resolve(import.meta.dir, "..");
+const coordinated = await ensureWorkspaceLease(root, "write");
+if (coordinated !== undefined) process.exit(coordinated);
 const bunx = Bun.which("bunx");
 if (!bunx) {
   console.error(

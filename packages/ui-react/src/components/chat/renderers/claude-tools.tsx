@@ -9,6 +9,7 @@ import type {
   ToolCallView,
   ToolSemantics,
 } from "@schlessera/brain-ui-sdk/client";
+import { SearchResultsOutput } from "../tool-cards/search-results.js";
 import type { ToolCall } from "../../../stores/chat-store.js";
 import {
   getToolIcon,
@@ -81,5 +82,11 @@ function claudeRenderer(name: string): ToolRenderer {
 
 export const claudeToolPack: RendererPack = {
   backend: "claude",
-  renderers: CLAUDE_TOOL_NAMES.map(claudeRenderer),
+  renderers: [
+    ...CLAUDE_TOOL_NAMES.map(claudeRenderer),
+    { match: "mcp__brain__brain_search", icon: getToolIcon("Grep"),
+      summary: tool => str(tool.input?.query) || null,
+      Input: ({ tool }) => <ToolInputView tool={asToolCall(tool)} />,
+      Output: SearchResultsOutput },
+  ],
 };
