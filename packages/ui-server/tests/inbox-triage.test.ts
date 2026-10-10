@@ -59,6 +59,11 @@ test("eight arrivals missing two answers retry exactly those IDs alone and persi
     const results = await f.triage.run(ids);
     expect(f.requests.map(r => Object.keys(r.questions))).toEqual([ids.map(id => `${id}.route`), [`${ids[6]}.route`], [`${ids[7]}.route`]]);
     expect(results).toHaveLength(8);
+    expect(results.every(result => result.runIds.every(runId => {
+      const row = f.db.query("SELECT attrs FROM activity_spans WHERE span_id = ?").get(runId) as { attrs: string };
+      return JSON.parse(row.attrs)["triage.items"].includes(result.itemId);
+    }))).toBe(true);
+    expect(results.map(result => result.runIds.length)).toEqual([1, 1, 1, 1, 1, 1, 2, 2]);
     expect(results.every(result => result.reason === "accepted")).toBe(true);
     expect(ids.map(id => f.triage.read(id)?.route)).toEqual(Array(8).fill("rule"));
     expect(f.reservations()).toHaveLength(3);

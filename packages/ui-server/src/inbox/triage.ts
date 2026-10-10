@@ -268,7 +268,11 @@ export function createInboxTriage(db: Database, deps: {
         else if (answer.model !== TRIAGE_MODEL || !answer.usage) route = { route: "needs_user", reason: "accounting", proposedRoute: null };
         if (row.evidence.incomplete) route = { ...route, route: "needs_user", reason: "incomplete" };
         else if (row.evidence.binary && ["drop", "rule"].includes(route.route)) route = { ...route, route: "needs_agent", reason: "binary" };
-        const result: TriageDecision = { itemId: item.id, tier: "T1", ...route, runIds: [...runIds] };
+        const itemRuns = runIds.filter(id => {
+          const span = db.query("SELECT attrs FROM activity_spans WHERE span_id = ?").get(id) as { attrs: string };
+          return (JSON.parse(span.attrs)["triage.items"] as string[]).includes(item.id);
+        });
+        const result: TriageDecision = { itemId: item.id, tier: "T1", ...route, runIds: itemRuns };
         save(item, result); results.push(result);
       }
     }
